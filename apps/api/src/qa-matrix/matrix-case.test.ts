@@ -1,5 +1,6 @@
 import {
   QA_MATRIX_EXPECTED_COMBINATIONS,
+  qaMatrixAuditStrategies,
   qaMatrixFixtures,
 } from "@intrinsic/testing";
 import { describe, expect, it } from "vitest";
@@ -209,5 +210,72 @@ describe("the warm-up set", () => {
     expect(
       [...warmup].sort((a, b) => a.index - b.index).map((e) => e.caseId),
     ).toEqual(warmup.map((e) => e.caseId));
+  });
+});
+
+describe("the audit strategy dimension", () => {
+  // The two dimensions share the Lists and the configurations, so the strategy letter is the only
+  // thing distinguishing `A02-L09-C06` from `S02-L09-C06`. Everything keyed by a case identity —
+  // `--case`, the report, the resume point, the golden set — has to carry it.
+  const AUDIT = qaMatrixFixtures(
+    "2026-09-09",
+    undefined,
+    qaMatrixAuditStrategies({ actorId: "actor-1", groupId: "group-1" }),
+  );
+  const auditCases = qaMatrixCases(AUDIT);
+
+  it("enumerates its own thousand, disjoint from the core dimension's", () => {
+    expect(auditCases).toHaveLength(QA_MATRIX_EXPECTED_COMBINATIONS);
+    const core = new Set(
+      qaMatrixCases(FIXTURES).map((entry) => entry.caseId),
+    );
+    for (const entry of auditCases) {
+      expect(core.has(entry.caseId)).toBe(false);
+      expect(entry.caseId.startsWith("A")).toBe(true);
+    }
+  });
+
+  it("parses an audit case identity without normalizing its letter away", () => {
+    // The defect this pins: the pattern captured the digits and rebuilt the id as `S${digits}`, so
+    // `--case A02-L09-C06` reproduced `S02-L09-C06` — a different strategy, silently.
+    expect(parseQaMatrixCaseId("A02-L09-C06")).toEqual({
+      strategyId: "A02",
+      listId: "L09",
+      configId: "C06",
+    });
+    expect(parseQaMatrixCaseId("QA-MATRIX-A10-L01-C04")).toEqual({
+      strategyId: "A10",
+      listId: "L01",
+      configId: "C04",
+    });
+    expect(parseQaMatrixCaseId("S02-L09-C06")?.strategyId).toBe("S02");
+    // Any other letter is still not a case identity.
+    expect(parseQaMatrixCaseId("B02-L09-C06")).toBeNull();
+  });
+
+  it("refuses a core case identity against the audit dimension, and the reverse", () => {
+    expect(() => selectQaMatrixCases(auditCases, ["S02-L09-C06"])).toThrow(
+      QaMatrixCaseSelectionError,
+    );
+    expect(() =>
+      selectQaMatrixCases(qaMatrixCases(FIXTURES), ["A02-L09-C06"]),
+    ).toThrow(QaMatrixCaseSelectionError);
+  });
+
+  it("re-letters the golden set onto its own strategies", () => {
+    // The same List and configuration pairs, which are the ones chosen for what they exercise, with
+    // this dimension's strategies. A golden set that stayed on `S…` would select nothing here and
+    // the determinism check would quietly have no cases to compare.
+    const golden = qaMatrixGoldenCases(auditCases);
+    expect(golden).toHaveLength(QA_MATRIX_GOLDEN_CASES.length);
+    expect(golden.map((entry) => entry.caseId)).toEqual(
+      QA_MATRIX_GOLDEN_CASES.map((entry) => `A${entry.caseId.slice(1)}`),
+    );
+  });
+
+  it("builds the run label from the same one formatter", () => {
+    const first = auditCases[0]!;
+    expect(first.label).toBe(`QA-MATRIX-${first.caseId}`);
+    expect(qaMatrixCaseId("A01", "L01", "C01")).toBe("A01-L01-C01");
   });
 });

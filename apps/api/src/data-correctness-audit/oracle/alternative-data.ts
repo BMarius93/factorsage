@@ -101,16 +101,51 @@ export function oracleAlternativeDataColumn(input: {
   // Each disclosure is placed on the session a reader could first have acted on it. One that became
   // observable after the axis ends has no session here; one that became observable before the axis
   // begins belongs to a session the axis does not hold.
+  //
+  // Resolved by merging two ascending sequences — the axis and the disclosures sorted by availability
+  // — in one pass, rather than by binary-searching the axis once per disclosure, which is what the
+  // engine does. {@link oracleObservableSession} is the readable definition of the same answer and
+  // `oracle.test.ts` holds the two against each other; this is the form that survives 8,500 sessions
+  // and several thousand disclosures per security without taking minutes.
+  const sorted = [...observations].sort((left, right) =>
+    left.availableFrom < right.availableFrom
+      ? -1
+      : left.availableFrom > right.availableFrom
+        ? 1
+        : 0,
+  );
   const placed: { index: number; observation: OracleObservation }[] = [];
-  for (const observation of observations) {
-    const index = oracleObservableSession(dates, observation.availableFrom);
-    if (index === -1) {
-      continue;
-    }
+  let session = 0;
+  for (const observation of sorted) {
     if (observation.availableFrom < (dates[0] as string)) {
       continue;
     }
-    placed.push({ index, observation });
+    while (
+      session < dates.length &&
+      (dates[session] as string) < observation.availableFrom
+    ) {
+      session += 1;
+    }
+    if (session >= dates.length) {
+      break;
+    }
+    placed.push({ index: session, observation });
+  }
+
+  // Bucketed by the session each disclosure was placed on, so a window is read by walking its own
+  // session indices. Still a per-session re-derivation from scratch — the engine keeps two monotone
+  // pointers and an incrementally maintained per-actor multiset across one traversal, and an oracle
+  // that slid the same way would agree with an off-by-one in it. Bucketing only removes a scan of
+  // every observation at every session, which at 8,500 sessions and 5,000 disclosures is the
+  // difference between minutes and milliseconds; it does not make the two algorithms the same.
+  const byIndex = new Map<number, OracleObservation[]>();
+  for (const entry of placed) {
+    const bucket = byIndex.get(entry.index);
+    if (bucket) {
+      bucket.push(entry.observation);
+    } else {
+      byIndex.set(entry.index, [entry.observation]);
+    }
   }
 
   for (let index = 0; index < dates.length; index += 1) {
@@ -123,28 +158,36 @@ export function oracleAlternativeDataColumn(input: {
     if (date > coverage.to || windowStartDate < coverage.from) {
       continue;
     }
-    // The explicit window, re-derived at every index from the whole placement list.
-    const inWindow = placed
-      .filter((entry) => entry.index >= windowStart && entry.index <= index)
-      .map((entry) => entry.observation);
+
+    const actors = new Set<string>();
+    let events = 0;
+    let amount = new Decimal(0);
+    for (let session = windowStart; session <= index; session += 1) {
+      const bucket = byIndex.get(session);
+      if (!bucket) {
+        continue;
+      }
+      for (const observation of bucket) {
+        actors.add(observation.actorKey);
+        events += 1;
+        if (
+          observation.amount !== null &&
+          Number.isFinite(observation.amount)
+        ) {
+          amount = amount.plus(new Decimal(observation.amount));
+        }
+      }
+    }
 
     switch (aggregation) {
       case "DISTINCT_ACTORS":
-        column[index] = new Decimal(
-          new Set(inWindow.map((entry) => entry.actorKey)).size,
-        );
+        column[index] = new Decimal(actors.size);
         break;
       case "EVENT_COUNT":
-        column[index] = new Decimal(inWindow.length);
+        column[index] = new Decimal(events);
         break;
       case "SUM_AMOUNT":
-        column[index] = inWindow.reduce(
-          (sum, entry) =>
-            entry.amount === null || !Number.isFinite(entry.amount)
-              ? sum
-              : sum.plus(new Decimal(entry.amount)),
-          new Decimal(0),
-        );
+        column[index] = amount;
         break;
     }
   }

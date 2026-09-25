@@ -592,6 +592,45 @@ describe("reference alternative-data column", () => {
     expect(column[2]!.toString()).toBe("15001");
   });
 
+  it("places every disclosure where the readable definition says it belongs", () => {
+    // The column resolves placements by merging two ascending sequences in one pass; this holds that
+    // against `oracleObservableSession`, the readable one-at-a-time definition, so the fast form
+    // cannot drift from the rule it implements.
+    const axis = [
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-09",
+    ];
+    const availabilities = [
+      "2026-03-01",
+      "2026-03-03",
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+    ];
+    for (const availableFrom of availabilities) {
+      const expected = oracleObservableSession(axis, availableFrom);
+      const column = oracleAlternativeDataColumn({
+        dates: axis,
+        lookback: 1,
+        aggregation: "EVENT_COUNT",
+        coverage: { from: "2026-01-01", to: "2026-12-31" },
+        observations: [{ availableFrom, actorKey: "A", amount: null }],
+      });
+      const counted = column.findIndex(
+        (value) => value !== null && value.equals(1),
+      );
+      // Before the axis, or past its end, the disclosure belongs to no session here.
+      const placed =
+        expected === -1 || availableFrom < (axis[0] as string) ? -1 : expected;
+      expect(counted, availableFrom).toBe(placed);
+    }
+  });
+
   it("drops a disclosure that became observable before the frame begins", () => {
     // Its observable session is not in this frame, so counting it at index 0 would place it inside
     // windows it was never in.
