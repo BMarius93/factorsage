@@ -191,3 +191,30 @@ Across all 179,782 insider and 9,187 congressional rows:
 The insider classification is doing real work: of 179,782 rows only **1,431 are open-market
 purchases**. 45,962 awards and 44,336 option exercises would have been counted as purchases by an
 implementation that read "acquisition" as "buy".
+
+## O-03 — A Monitor cannot evaluate an alternative-data metric on a session newer than the last ingest
+
+**Observation. Correct by the stated rule, but its interaction with the freshness window is worth
+knowing. Not changed in this branch.**
+
+`coverage.to` is `syncedThroughDate`, the **calendar date of the last successful ingest**, and
+`buildAlternativeDataColumn` reports NOT_EVALUABLE for any session after it. That is the documented
+rule and it is the honest one: past the last ingest the product has not looked, and a count of zero
+would be a claim it cannot make.
+
+The freshness window is twelve hours (`ALT_DATA_FRESHNESS_MS`). So a Monitor cycle that runs before
+the window has elapsed skips the ingest, `syncedThroughDate` is still yesterday, and every
+alternative-data metric on **today's provisional session** is NOT_EVALUABLE — the levels that name
+one simply do not become ACTIVE. With a 22:00 ingest and a 12-hour window that is roughly the first
+half hour of the following session.
+
+Nothing is wrong: no signal fires on data the product does not have, which is the whole point. But
+"my insider rule went quiet this morning" has a cause that is not visible from the Signal, and the
+two settings — the freshness window and the coverage ceiling — are coupled in a way neither
+documents. A shorter window for the two disclosure domains, or a ceiling expressed as the last
+*session* rather than the last ingest date, would both close it; both are product decisions rather
+than audit findings, so this branch only records the coupling.
+
+The same interaction cannot affect a matrix sweep: `ALT_DATA_FRESHNESS_MS` is pinned to ten years
+there (F-03), so `syncedThroughDate` is fixed at the provisioning ingest and every simulated session
+is inside it.
