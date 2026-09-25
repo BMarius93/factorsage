@@ -1,3 +1,34 @@
+import {
+  ALTERNATIVE_DATA_COUNT_MAX,
+  ALTERNATIVE_DATA_LOOKBACKS,
+  alternativeDataLookbackLabel,
+  alternativeDataMeasureDefinition,
+  alternativeDataMeasures,
+  alternativeDataMetricSignature,
+  alternativeDataSupportsScope,
+  buildAlternativeDataMetric,
+  CONGRESS_CHAMBER_FILTERS,
+  CONGRESS_OWNERS,
+  defaultAlternativeDataMetric,
+  describeAlternativeDataConfiguration,
+  findAlternativeDataMeasure,
+  INSIDER_ROLES,
+  isAlternativeDataMetricKind,
+  type ActorScope,
+  type ActorScopeNames,
+  type AlternativeDataLookback,
+  type AlternativeDataMetric,
+  type AlternativeDataMetricKind,
+  type CongressActivityMetric,
+  type CongressChamberFilter,
+  type CongressMeasure,
+  type CongressOwner,
+  type InsiderActivityMetric,
+  type InsiderMeasure,
+  type InsiderRole,
+  type InstitutionalActivityMetric,
+  type InstitutionalMeasure,
+} from "./alternative-data.js";
 import type { ContentOwnershipResponse } from "./builtins.js";
 import {
   comparableMovingAverages,
@@ -107,7 +138,16 @@ export type StrategyMetric =
   | { kind: "RELATIVE_VOLUME"; period: RelativeVolumePeriod }
   | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }
   | { kind: "GAIN" }
-  | { kind: "LOSS" };
+  | { kind: "LOSS" }
+  /**
+   * The alternative-data metrics, parameterized by a **measure plus configuration** rather than by
+   * a catalog id or a single period: a lookback, and where the domain has actors, an actor scope
+   * and its filters. `alternative-data.ts` owns those shapes; this union carries them so one
+   * Condition row can hold any of them without a fourth control.
+   */
+  | InsiderActivityMetric
+  | CongressActivityMetric
+  | InstitutionalActivityMetric;
 
 export type StrategyMetricKind = StrategyMetric["kind"];
 
@@ -120,6 +160,9 @@ export const STRATEGY_METRIC_KINDS = [
   "MARGIN_OF_SAFETY",
   "GAIN",
   "LOSS",
+  "INSIDER_ACTIVITY",
+  "CONGRESS_ACTIVITY",
+  "INSTITUTIONAL_ACTIVITY",
 ] as const satisfies readonly StrategyMetricKind[];
 
 /**
@@ -135,14 +178,37 @@ export type StrategyValue =
   | { kind: "SERIES"; seriesId: SelectableSeriesId }
   | { kind: "NUMBER"; value: number }
   | { kind: "PERCENT"; value: number }
-  | { kind: "MULTIPLE"; value: number };
+  | { kind: "MULTIPLE"; value: number }
+  /**
+   * A currency amount, entered in the product's reporting currency.
+   *
+   * Its own kind rather than a `NUMBER` with a wide range, for the same reason `MULTIPLE` is: the
+   * unit is what lets one renderer print `$1,000,000` where another prints `30` and `2x`, with no
+   * per-metric formatting rule in feature code. It exists because the alternative-data value
+   * measures are amounts of money — an insider's purchase value, a disclosed amount band's floor —
+   * and reading one as a bare number would lose what it is.
+   */
+  | { kind: "MONEY"; value: number };
 
 export type StrategyValueKind = StrategyValue["kind"];
 
+/**
+ * The Condition operators.
+ *
+ * `IS_AT_LEAST` and `IS_AT_MOST` are the inclusive pair, and they exist for the
+ * **alternative-data count and amount metrics only** — the registry gives them to no other metric,
+ * and `validatePredicate` rejects a document that names one elsewhere. The reason is that those
+ * metrics are counts of discrete events: `docs/alternative-data-signals.md` writes the product's own
+ * examples as `Insider buyers 20D is at least 2`, and expressing that as `is above 1` would make a
+ * user reason about the gap between integers to say something simple. Nothing else in the catalog
+ * gains an inclusive form, so no existing rule changes meaning.
+ */
 export const CONDITION_OPERATORS = [
   "IS_ABOVE",
   "IS_BELOW",
   "IS_CLOSE_TO",
+  "IS_AT_LEAST",
+  "IS_AT_MOST",
 ] as const;
 
 export const TRIGGER_OPERATORS = ["CROSSES_ABOVE", "CROSSES_BELOW"] as const;
@@ -297,6 +363,9 @@ export const STRATEGY_METRIC_GROUPS = [
   "VOLUME",
   "VALUATION",
   "POSITION",
+  "INSIDER_ACTIVITY",
+  "CONGRESSIONAL_TRADING",
+  "INSTITUTIONAL_ACTIVITY",
 ] as const;
 
 export type StrategyMetricGroupId = (typeof STRATEGY_METRIC_GROUPS)[number];
@@ -314,6 +383,9 @@ export const STRATEGY_METRIC_GROUP_LABELS = {
   VOLUME: "Volume",
   VALUATION: "Valuation",
   POSITION: "Position",
+  INSIDER_ACTIVITY: "Insider activity",
+  CONGRESSIONAL_TRADING: "Congressional trading",
+  INSTITUTIONAL_ACTIVITY: "Institutional activity",
 } as const satisfies Record<StrategyMetricGroupId, string>;
 
 /**
@@ -324,9 +396,25 @@ export const STRATEGY_METRIC_GROUP_LABELS = {
  */
 export type StrategyValueSpec =
   | { kind: "SERIES"; seriesIds: readonly SelectableSeriesId[] }
-  | { kind: "NUMBER"; min: number; max: number; step: number }
+  | {
+      kind: "NUMBER";
+      min: number;
+      max: number;
+      step: number;
+      /**
+       * The value must be a whole number.
+       *
+       * Set only where the metric counts discrete things: `Insider buyers 20D is at least 2.5` is
+       * not a rule anybody means, while `RSI 14D is below 30.5` is perfectly ordinary. It is a
+       * property of what the metric measures, so it is declared here and enforced by the one
+       * validator rather than by an input's `step`.
+       */
+      integer?: true;
+    }
   | { kind: "PERCENT"; min?: number; max?: number }
-  | { kind: "MULTIPLE"; min: number; max?: number; step: number };
+  | { kind: "MULTIPLE"; min: number; max?: number; step: number }
+  /** A currency amount. Non-negative, unbounded above: there is no largest real purchase. */
+  | { kind: "MONEY"; min: number; max?: number; step: number };
 
 type StrategyMetricDefinitionBase = {
   kind: StrategyMetricKind;
@@ -374,6 +462,15 @@ export type StrategyMetricDefinition = StrategyMetricDefinitionBase &
         valueSource: "COMPARABLE_MOVING_AVERAGES";
         value?: never;
       }
+    | {
+        /**
+         * Values resolve from the selected **measure's own unit** — a count, an amount of money or a
+         * percentage. The unit is a property of the measure, not of the metric kind, so
+         * `Insider buyers` and `Insider purchase value` share a kind and take different Values.
+         */
+        valueSource: "ALTERNATIVE_DATA_MEASURE";
+        value?: never;
+      }
     | { valueSource?: undefined; value: StrategyValueSpec }
   );
 
@@ -384,6 +481,21 @@ const POSITION_LEVEL_KINDS: readonly StrategyLevelKind[] = [
 ];
 
 const COMPARISON_OPERATORS: readonly ConditionOperator[] = [
+  "IS_ABOVE",
+  "IS_BELOW",
+];
+/**
+ * The operators an alternative-data metric offers: the inclusive pair first, then the strict one.
+ *
+ * Inclusive first because it is what the product's own examples are written with — `is at least 2` —
+ * and because the first entry is what a freshly added row starts from.
+ *
+ * `is close to` is deliberately absent. It is a ±2% tolerance, which is meaningless on a count of
+ * two insiders and arbitrary on an amount of money.
+ */
+const ALTERNATIVE_DATA_CONDITION_OPERATORS: readonly ConditionOperator[] = [
+  "IS_AT_LEAST",
+  "IS_AT_MOST",
   "IS_ABOVE",
   "IS_BELOW",
 ];
@@ -492,7 +604,81 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
     value: { kind: "PERCENT", min: 0, max: 100 },
     allowedIn: POSITION_LEVEL_KINDS,
   },
+  /**
+   * The three alternative-data kinds.
+   *
+   * They declare no `parameterSeriesIds` — none of them is a catalog series — and each is
+   * instantiated once per **measure** by `instancesOf`, so the selector offers `Insider buyers`,
+   * `Insider sellers`, `Insider purchase value` and `Insider sale value` as four ordinary options
+   * inside one group. Their configuration is edited after selection and never becomes a column.
+   *
+   * `triggerOperators` is empty for all three, exactly as it is for Relative Volume and for the
+   * same reason: a disclosure count is a state, and a Monitor's own not-matched -> matched
+   * transition already raises a Signal on the session `Insider buyers 20D is at least 2` first
+   * holds. A `crosses above` form would be a second, differently latched way to say that.
+   */
+  INSIDER_ACTIVITY: {
+    kind: "INSIDER_ACTIVITY",
+    label: "Insider activity",
+    group: "INSIDER_ACTIVITY",
+    conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
+    triggerOperators: [],
+    valueSource: "ALTERNATIVE_DATA_MEASURE",
+    allowedIn: ALL_LEVEL_KINDS,
+  },
+  CONGRESS_ACTIVITY: {
+    kind: "CONGRESS_ACTIVITY",
+    label: "Congressional trading",
+    group: "CONGRESSIONAL_TRADING",
+    conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
+    triggerOperators: [],
+    valueSource: "ALTERNATIVE_DATA_MEASURE",
+    allowedIn: ALL_LEVEL_KINDS,
+  },
+  INSTITUTIONAL_ACTIVITY: {
+    kind: "INSTITUTIONAL_ACTIVITY",
+    label: "Institutional activity",
+    group: "INSTITUTIONAL_ACTIVITY",
+    conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
+    triggerOperators: [],
+    valueSource: "ALTERNATIVE_DATA_MEASURE",
+    allowedIn: ALL_LEVEL_KINDS,
+  },
 };
+
+/**
+ * The alternative-data metric behind one Strategy Metric, or `undefined` for every other kind.
+ *
+ * The one narrowing accessor, so no caller reads `.measure` off a metric that has none.
+ */
+export function asAlternativeDataMetric(
+  metric: StrategyMetric,
+): AlternativeDataMetric | undefined {
+  return isAlternativeDataMetricKind(metric.kind)
+    ? (metric as AlternativeDataMetric)
+    : undefined;
+}
+
+/** The permitted Values for one alternative-data measure's unit. */
+function alternativeDataValueSpec(
+  metric: AlternativeDataMetric,
+): StrategyValueSpec {
+  switch (alternativeDataMeasureDefinition(metric).unit) {
+    case "COUNT":
+      return {
+        kind: "NUMBER",
+        min: 0,
+        max: ALTERNATIVE_DATA_COUNT_MAX,
+        step: 1,
+        integer: true,
+      };
+    case "MONEY":
+      return { kind: "MONEY", min: 0, step: 1_000 };
+    case "PERCENT":
+      // A holding cannot fall by more than all of it, and there is no ceiling on adding to one.
+      return { kind: "PERCENT", min: -100 };
+  }
+}
 
 /**
  * The catalog id a Metric is parameterized with, or `undefined` for the metrics that take none.
@@ -522,6 +708,14 @@ export function strategyMetricSeriesId(
  * assume every parameter was a catalog id.
  */
 export function strategyMetricKey(metric: StrategyMetric): string {
+  const alternative = asAlternativeDataMetric(metric);
+  if (alternative) {
+    // Deliberately the measure only, **not** the configuration. The select's value must survive a
+    // change of lookback, scope or filter: keying on the whole configuration would leave the control
+    // holding a value that matches no option the moment a user edited the popover, which `Select`
+    // renders as "Unavailable metric".
+    return `${alternative.kind}:${alternative.measure}`;
+  }
   return metric.kind === "RELATIVE_VOLUME"
     ? `${metric.kind}:${metric.period}`
     : `${metric.kind}:${strategyMetricSeriesId(metric) ?? ""}`;
@@ -565,6 +759,13 @@ export function triggerOperatorsFor(
  */
 export function valueSpecFor(metric: StrategyMetric): StrategyValueSpec {
   const definition = strategyMetricDefinition(metric);
+  if (definition.valueSource === "ALTERNATIVE_DATA_MEASURE") {
+    const alternative = asAlternativeDataMetric(metric);
+    return alternative
+      ? alternativeDataValueSpec(alternative)
+      : // Unreachable: the registry entry and the metric kind come from the same union.
+        { kind: "NUMBER", min: 0, max: ALTERNATIVE_DATA_COUNT_MAX, step: 1 };
+  }
   if (definition.valueSource === "COMPARABLE_MOVING_AVERAGES") {
     const seriesId = strategyMetricSeriesId(metric);
     return {
@@ -611,6 +812,15 @@ export function defaultValueFor(
   metric: StrategyMetric,
 ): StrategyValue | undefined {
   const spec = valueSpecFor(metric);
+  // A count of disclosures has no midpoint to take — its range is deliberately unbounded above —
+  // and its neutral point is not zero either: `is at least 0` is true on every session. One is the
+  // smallest threshold that says anything, which is "there was any such activity at all".
+  if (
+    spec.kind === "NUMBER" &&
+    asAlternativeDataMetric(metric) !== undefined
+  ) {
+    return { kind: "NUMBER", value: 1 };
+  }
   switch (spec.kind) {
     case "SERIES": {
       const [first] = spec.seriesIds;
@@ -633,6 +843,11 @@ export function defaultValueFor(
       // The neutral point of the unit itself: `1x` is a session trading exactly its own baseline.
       // Derived from what the value means, not a product-mandated preset threshold.
       return { kind: "MULTIPLE", value: clampToSpec(1, spec.min, spec.max) };
+    case "MONEY":
+      // The floor of the unit's own domain. A money threshold has no neutral point to derive — any
+      // non-zero default would be a product-mandated preset nobody decided — so a fresh row starts
+      // at zero and the user types the amount they mean.
+      return { kind: "MONEY", value: clampToSpec(0, spec.min, spec.max) };
   }
 }
 
@@ -671,8 +886,20 @@ function instantiateMetric(
       // Parameterized by period, not by a catalog id. `instancesOf` is what builds its instances;
       // reaching here would mean a caller passed a series id to a metric that takes none.
       throw new Error("Relative Volume is not parameterized by a series id");
-    default:
-      return { kind };
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+    case "INSTITUTIONAL_ACTIVITY":
+      // Parameterized by a measure plus configuration, never by a catalog id — the same situation
+      // Relative Volume is in, and refused here for the same reason.
+      throw new Error(
+        `${kind} is not parameterized by a series id`,
+      );
+    case "PRICE":
+      return { kind: "PRICE" };
+    case "GAIN":
+      return { kind: "GAIN" };
+    case "LOSS":
+      return { kind: "LOSS" };
   }
 }
 
@@ -683,6 +910,15 @@ function instantiateMetric(
  * is what keeps `buildMetricOptions` from switching on the kind itself.
  */
 function instancesOf(kind: StrategyMetricKind): readonly StrategyMetric[] {
+  if (isAlternativeDataMetricKind(kind)) {
+    // One option per measure, each at its own default configuration. The lookback, scope and filters
+    // are edited after selection, so the list stays as short as the number of things the domain
+    // actually measures.
+    return alternativeDataMeasures(kind).flatMap((measure) => {
+      const metric = defaultAlternativeDataMetric(kind, measure);
+      return metric ? [metric] : [];
+    });
+  }
   if (kind === "RELATIVE_VOLUME") {
     return RELATIVE_VOLUME_PERIODS.map((period) => ({ kind, period }));
   }
@@ -766,6 +1002,8 @@ export const CONDITION_OPERATOR_LABELS = {
   IS_ABOVE: "is above",
   IS_BELOW: "is below",
   IS_CLOSE_TO: "is close to",
+  IS_AT_LEAST: "is at least",
+  IS_AT_MOST: "is at most",
 } as const satisfies Record<ConditionOperator, string>;
 
 export const TRIGGER_OPERATOR_LABELS = {
@@ -801,6 +1039,16 @@ function seriesLabel(id: SelectableSeriesId): string {
  * label map.
  */
 export function strategyMetricLabel(metric: StrategyMetric): string {
+  const alternative = asAlternativeDataMetric(metric);
+  if (alternative) {
+    // The measure's label plus its lookback, so the row reads `Insider buyers 20D` — one label for
+    // the selector, the condition row, the Strategy Logic sidebar and a completed backtest alike.
+    // The lookback belongs in the label because it changes what the number means; the scope and the
+    // filters do not, and appear in the row's secondary line instead.
+    return `${alternativeDataMeasureDefinition(alternative).label} ${alternativeDataLookbackLabel(
+      alternative.lookback,
+    )}`;
+  }
   switch (metric.kind) {
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
@@ -830,6 +1078,12 @@ export function strategyValueLabel(value: StrategyValue): string {
       // A multiple always reads with its unit, and always with one decimal, so `2` and `2.0`
       // cannot appear as two different-looking thresholds: `2x`, `1.5x`, `0.5x`.
       return `${Number.isFinite(value.value) ? value.value.toFixed(1) : String(value.value)}x`;
+    case "MONEY":
+      // Grouped, with no decimals: these are disclosure-scale amounts where a cent is noise, and a
+      // reader comparing `$1,000,000` with `$250,000` needs the separators far more than the change.
+      return Number.isFinite(value.value)
+        ? `$${Math.round(value.value).toLocaleString("en-US")}`
+        : `$${String(value.value)}`;
   }
 }
 
@@ -865,10 +1119,113 @@ export type StrategyPreviewLine =
    * legible rather than a run of separate FINAL EXIT actions.
    */
   | { kind: "EXIT_RULE"; index: number; connector?: "OR" }
-  | { kind: "CONDITION"; text: string; connector?: "AND" }
+  /**
+   * `scope` is the configured first operand's secondary summary — `Superinvestors`,
+   * `Congress Watchlist · Senate` — and is present only on a row that has one. The sidebar reads it
+   * as `… — Superinvestors`; a row with nothing narrowed carries none, which is what keeps the
+   * sidebar from turning into a wall of qualifiers.
+   */
+  | { kind: "CONDITION"; text: string; connector?: "AND"; scope?: string }
   /** `connector` is present exactly when Conditions precede the Trigger it is ANDed with. */
-  | { kind: "TRIGGER"; text: string; connector?: "AND" }
+  | { kind: "TRIGGER"; text: string; connector?: "AND"; scope?: string }
   | { kind: "EMPTY"; levelKind: StrategyLevelKind };
+
+/**
+ * Every alternative-data metric one definition names, in document order.
+ *
+ * The one walk that answers "which actors and groups does this strategy reference?", and it is shared
+ * by three callers that must never disagree: strategy validation resolving the references, a backtest
+ * submission freezing the groups it names, and any surface resolving display names. Duplicates are
+ * kept — the same configured metric may appear in several levels — and `collectActorGroupIds` is what
+ * deduplicates.
+ */
+export function collectAlternativeDataMetrics(
+  definition: StrategyDefinition,
+): AlternativeDataMetric[] {
+  const metrics: AlternativeDataMetric[] = [];
+  const addSignal = (signal: StrategySignal): void => {
+    const predicates: (StrategyCondition | StrategyTrigger)[] = [
+      ...signal.conditions,
+    ];
+    if (signal.trigger) {
+      predicates.push(signal.trigger);
+    }
+    for (const predicate of predicates) {
+      const metric = asAlternativeDataMetric(predicate.metric);
+      if (metric) {
+        metrics.push(metric);
+      }
+    }
+  };
+  for (const level of definition.buyLevels) {
+    addSignal(level.signal);
+  }
+  for (const level of definition.sellLevels) {
+    addSignal(level.signal);
+  }
+  for (const rule of definition.finalExit?.rules ?? []) {
+    addSignal(rule.signal);
+  }
+  return metrics;
+}
+
+/**
+ * Display names for the actors and groups a definition references, keyed by identifier.
+ *
+ * A surface that has resolved them passes them in; one that has not renders the neutral fallback
+ * (`Selected group`). Nothing here looks a name up, because the identifier is the identity and the
+ * name is presentation — which is exactly what lets a completed backtest render the *snapshotted*
+ * name from the same functions the Builder uses.
+ */
+export type StrategyScopeNames = {
+  actors?: Readonly<Record<string, string>>;
+  groups?: Readonly<Record<string, string>>;
+};
+
+function scopeNamesFor(
+  scope: ActorScope | undefined,
+  names: StrategyScopeNames | undefined,
+): ActorScopeNames {
+  if (!scope) {
+    return {};
+  }
+  if (scope.kind === "ACTOR") {
+    const actorName = names?.actors?.[scope.actorId];
+    return actorName === undefined ? {} : { actorName };
+  }
+  if (scope.kind === "GROUP") {
+    const groupName = names?.groups?.[scope.groupId];
+    return groupName === undefined ? {} : { groupName };
+  }
+  return {};
+}
+
+/**
+ * The subtle secondary line a configured first operand carries, or `null` when it has none.
+ *
+ * Separate from {@link describeCondition} on purpose: the condition row renders it under the metric
+ * control, while the Strategy Logic sidebar appends it to the sentence with an em dash. One function
+ * produces the text; each surface decides where to put it.
+ */
+export function describePredicateScope(
+  predicate: StrategyCondition | StrategyTrigger,
+  names?: StrategyScopeNames,
+): string | null {
+  const alternative = asAlternativeDataMetric(predicate.metric);
+  if (!alternative) {
+    return null;
+  }
+  return describeAlternativeDataConfiguration(
+    alternative,
+    scopeNamesFor(
+      alternativeDataSupportsScope(alternative.kind)
+        ? (alternative as CongressActivityMetric | InstitutionalActivityMetric)
+            .scope
+        : undefined,
+      names,
+    ),
+  );
+}
 
 export function describeCondition(condition: StrategyCondition): string {
   return `${strategyMetricLabel(condition.metric)} ${conditionOperatorLabel(
@@ -882,15 +1239,29 @@ export function describeTrigger(trigger: StrategyTrigger): string {
   )} ${strategyValueLabel(trigger.value)}`;
 }
 
-function describeSignal(signal: StrategySignal): StrategyPreviewLine[] {
+function describeSignal(
+  signal: StrategySignal,
+  names?: StrategyScopeNames,
+): StrategyPreviewLine[] {
+  const scopeOf = (
+    predicate: StrategyCondition | StrategyTrigger,
+  ): { scope: string } | Record<string, never> => {
+    const scope = describePredicateScope(predicate, names);
+    return scope === null ? {} : { scope };
+  };
   const lines: StrategyPreviewLine[] = signal.conditions.map(
     (condition, index) =>
       index === 0
-        ? { kind: "CONDITION", text: describeCondition(condition) }
+        ? {
+            kind: "CONDITION",
+            text: describeCondition(condition),
+            ...scopeOf(condition),
+          }
         : {
             kind: "CONDITION",
             text: describeCondition(condition),
             connector: "AND",
+            ...scopeOf(condition),
           },
   );
   if (signal.trigger) {
@@ -899,8 +1270,13 @@ function describeSignal(signal: StrategySignal): StrategyPreviewLine[] {
     // connector a reader would expect. A trigger-only Signal has nothing to join and carries none.
     lines.push(
       lines.length === 0
-        ? { kind: "TRIGGER", text }
-        : { kind: "TRIGGER", text, connector: "AND" },
+        ? { kind: "TRIGGER", text, ...scopeOf(signal.trigger) }
+        : {
+            kind: "TRIGGER",
+            text,
+            connector: "AND",
+            ...scopeOf(signal.trigger),
+          },
     );
   }
   return lines;
@@ -919,6 +1295,7 @@ function describeSignal(signal: StrategySignal): StrategyPreviewLine[] {
  */
 export function describeStrategy(
   definition: StrategyDefinition,
+  names?: StrategyScopeNames,
 ): readonly StrategyPreviewLine[] {
   const lines: StrategyPreviewLine[] = [];
 
@@ -936,7 +1313,7 @@ export function describeStrategy(
       header.percentage = percentage;
     }
     lines.push(header);
-    const body = describeSignal(signal);
+    const body = describeSignal(signal, names);
     if (body.length === 0) {
       lines.push({ kind: "EMPTY", levelKind });
       return;
@@ -963,7 +1340,7 @@ export function describeStrategy(
             : { kind: "EXIT_RULE", index: index + 1, connector: "OR" },
         );
       }
-      const body = describeSignal(rule.signal);
+      const body = describeSignal(rule.signal, names);
       if (body.length === 0) {
         lines.push({ kind: "EMPTY", levelKind: "FINAL_EXIT" });
         return;
@@ -1152,6 +1529,49 @@ export const STRATEGY_METRIC_HELP: Record<
     ],
     notEvaluableWhen: "There is no open position, so there is no average cost.",
   },
+  /**
+   * One help entry serves all four insider measures, so nothing here names a particular one; the
+   * row itself already says whether it is counting buyers or summing purchase value.
+   */
+  INSIDER_ACTIVITY: {
+    summary:
+      "What company insiders disclosed on Form 4 over the selected number of trading sessions.",
+    detail:
+      "Only actual open-market purchases and sales are counted. Awards, gifts, option exercises, conversions and shares withheld for tax are on the same form and are deliberately excluded: none of them is a decision to buy or sell at the market price. The window is measured on the session the filing became readable, not on the day of the trade — a backtest may only ever see what was already public — and a Form 4 is due within two business days, so in practice the two are days apart.",
+    notes: [
+      "Buyer and seller counts are distinct **people**: one insider filing three purchases counts once.",
+      "Purchase and sale value sum share count times price, and a line the form prices at zero contributes nothing rather than zero dollars.",
+      "A role filter is optional. Left alone, every insider counts.",
+    ],
+    notEvaluableWhen:
+      "The full lookback window is not inside the disclosure history this product holds for the stock — before the earliest filing it has, or beyond the last time the data was refreshed.",
+  },
+  CONGRESS_ACTIVITY: {
+    summary:
+      "What members of Congress disclosed trading in this stock over the selected number of trading sessions.",
+    detail:
+      "House and Senate are one domain and both are included unless a chamber is selected. The window is measured on the session the disclosure became readable rather than on the transaction date, and for this domain the difference is large: a member has up to forty-five days to report a trade, so a window on the transaction date would find almost nothing while still looking correct. Both dates are preserved on every disclosure.",
+    notes: [
+      "Only common stock is counted. Bonds, options, funds and crypto are disclosed on the same filings, are kept, and are never counted as a share purchase.",
+      "Disclosed amounts are **bands**, such as $15,001 - $50,000. A value measure sums the band's lower bound and is named for that; no midpoint is ever invented.",
+      "Owner and chamber filters are optional. A filing that names no owner is counted by an unfiltered metric and never selected by an owner filter, because it has made no statement to filter on.",
+    ],
+    notEvaluableWhen:
+      "The full lookback window is not inside the disclosure history this product holds for the stock.",
+  },
+  INSTITUTIONAL_ACTIVITY: {
+    summary:
+      "What institutional managers reported holding in this stock on their Form 13F filings, over the selected number of trading sessions.",
+    detail:
+      "A 13F reports a holding as of a quarter end, and managers file up to forty-five days after it. Every reading here is derived by comparing a manager's **consecutive filings as they became public**, which is the only comparison a reader at the time could have made. Nothing infers when inside the quarter a manager traded: a quarter-end holding is a position, not a transaction.",
+    notes: [
+      "Counts are distinct managers: new, increased, reduced and exited are states of one manager's position between two filings.",
+      "Position change is the change in shares held across the managers in scope — the total added or removed over the total previously held — so one manager adding ten shares cannot outweigh another halving a large position.",
+      "A specific institution or an institution group narrows every measure. A backtest freezes a group's membership, so editing the group later never changes a run that already exists.",
+    ],
+    notEvaluableWhen:
+      "The full lookback window is not inside the filing history this product holds for the stock, or the provider subscription does not cover Form 13F data.",
+  },
 };
 
 export const STRATEGY_OPERATOR_HELP: Record<
@@ -1174,6 +1594,16 @@ export const STRATEGY_OPERATOR_HELP: Record<
     formula: `abs(metric - value) / abs(value) <= ${IS_CLOSE_TO_TOLERANCE}`,
     notEvaluableWhen:
       "The comparison value is unavailable or cannot be used safely for the calculation.",
+  },
+  IS_AT_LEAST: {
+    summary: "A state: the metric is greater than or equal to the value.",
+    detail:
+      "The inclusive form, offered only by the alternative-data metrics, because those count discrete things: `Insider buyers 20D is at least 2` is what a reader means, where `is above 1` says the same thing by making them reason about the gap between whole numbers. Like every Condition it is a state and may stay true for several sessions.",
+  },
+  IS_AT_MOST: {
+    summary: "A state: the metric is less than or equal to the value.",
+    detail:
+      "The mirror of `is at least`, and available on the same metrics. `Insider sellers 20D is at most 0` is how a rule says no insider sold in the window — which `is below 1` would also say, less plainly.",
   },
   CROSSES_ABOVE: {
     summary:
@@ -1319,6 +1749,14 @@ export const STRATEGY_VALIDATION_CODES = [
   "SERIES_NOT_COMPARABLE",
   "DUPLICATE_CONDITION",
   "DUPLICATE_ID",
+  /** An alternative-data metric named a measure its domain does not define. */
+  "MEASURE_UNSUPPORTED",
+  /** A lookback outside the closed preset list. */
+  "LOOKBACK_UNSUPPORTED",
+  /** An actor scope was malformed, or named on a metric kind that has no scope. */
+  "SCOPE_INVALID",
+  /** A chamber, owner or role filter named a value the product does not define. */
+  "FILTER_INVALID",
 ] as const;
 
 export type StrategyValidationCode = (typeof STRATEGY_VALIDATION_CODES)[number];
@@ -1396,6 +1834,16 @@ const METRIC_KEYS: Record<StrategyMetricKind, readonly string[]> = {
   MARGIN_OF_SAFETY: ["kind", "sourceId"],
   GAIN: ["kind"],
   LOSS: ["kind"],
+  INSIDER_ACTIVITY: ["kind", "measure", "lookback", "roles"],
+  CONGRESS_ACTIVITY: [
+    "kind",
+    "measure",
+    "lookback",
+    "scope",
+    "chamber",
+    "owners",
+  ],
+  INSTITUTIONAL_ACTIVITY: ["kind", "measure", "lookback", "scope"],
 };
 
 const VALUE_KEYS: Record<StrategyValueKind, readonly string[]> = {
@@ -1403,6 +1851,13 @@ const VALUE_KEYS: Record<StrategyValueKind, readonly string[]> = {
   NUMBER: ["kind", "value"],
   PERCENT: ["kind", "value"],
   MULTIPLE: ["kind", "value"],
+  MONEY: ["kind", "value"],
+};
+
+const ACTOR_SCOPE_KEYS: Record<ActorScope["kind"], readonly string[]> = {
+  ANY: ["kind"],
+  ACTOR: ["kind", "actorId"],
+  GROUP: ["kind", "groupId"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1530,6 +1985,200 @@ class ValidationContext {
   }
 }
 
+/**
+ * Validates one alternative-data metric's measure and configuration.
+ *
+ * Every parameter set is **closed**: the measure must be one its domain defines, the lookback must
+ * be a preset, a scope must be one of the three shapes, and every filter value must be a known enum
+ * member. An unrecognized value is refused rather than dropped, because silently discarding a filter
+ * widens a rule the user deliberately narrowed — a strategy that was "Senate only" would quietly
+ * start counting the House.
+ *
+ * A scope on a kind that has none is refused for the same reason: `UNKNOWN_FIELD` would be reported
+ * by the key check, but a metric carrying a scope the evaluator ignores is a rule that does not mean
+ * what it says.
+ */
+function parseAlternativeDataMetric(
+  kind: AlternativeDataMetricKind,
+  raw: Record<string, unknown>,
+  path: StrategyIssuePath,
+  issues: ValidationContext,
+): AlternativeDataMetric | undefined {
+  const rawMeasure = raw.measure;
+  if (
+    typeof rawMeasure !== "string" ||
+    !findAlternativeDataMeasure(kind, rawMeasure)
+  ) {
+    issues.add(
+      "MEASURE_UNSUPPORTED",
+      path,
+      `\`${String(rawMeasure)}\` is not a ${STRATEGY_METRIC_GROUP_LABELS[
+        STRATEGY_METRIC_DEFINITIONS[kind].group
+      ].toLowerCase()} measure.`,
+    );
+    return undefined;
+  }
+
+  const rawLookback = raw.lookback;
+  if (
+    typeof rawLookback !== "number" ||
+    !(ALTERNATIVE_DATA_LOOKBACKS as readonly number[]).includes(rawLookback)
+  ) {
+    issues.add(
+      "LOOKBACK_UNSUPPORTED",
+      path,
+      `A lookback must be one of the ${ALTERNATIVE_DATA_LOOKBACKS.join(", ")} session windows.`,
+    );
+    return undefined;
+  }
+  const lookback = rawLookback as AlternativeDataLookback;
+
+  if (kind === "INSIDER_ACTIVITY") {
+    const roles = parseEnumFilter(
+      raw.roles,
+      INSIDER_ROLES,
+      "insider role",
+      path,
+      issues,
+    );
+    if (roles === "INVALID") {
+      return undefined;
+    }
+    return {
+      kind,
+      measure: rawMeasure as InsiderMeasure,
+      lookback,
+      ...(roles === undefined ? {} : { roles: roles as InsiderRole[] }),
+    };
+  }
+
+  const scope = parseActorScope(raw.scope, path, issues);
+  if (!scope) {
+    return undefined;
+  }
+
+  if (kind === "INSTITUTIONAL_ACTIVITY") {
+    return {
+      kind,
+      measure: rawMeasure as InstitutionalMeasure,
+      lookback,
+      scope,
+    };
+  }
+
+  const rawChamber = raw.chamber;
+  if (
+    typeof rawChamber !== "string" ||
+    !(CONGRESS_CHAMBER_FILTERS as readonly string[]).includes(rawChamber)
+  ) {
+    issues.add(
+      "FILTER_INVALID",
+      path,
+      `A chamber must be one of ${CONGRESS_CHAMBER_FILTERS.join(", ")}.`,
+    );
+    return undefined;
+  }
+  const owners = parseEnumFilter(
+    raw.owners,
+    CONGRESS_OWNERS,
+    "disclosed owner",
+    path,
+    issues,
+  );
+  if (owners === "INVALID") {
+    return undefined;
+  }
+  return {
+    kind,
+    measure: rawMeasure as CongressMeasure,
+    lookback,
+    scope,
+    chamber: rawChamber as CongressChamberFilter,
+    ...(owners === undefined ? {} : { owners: owners as CongressOwner[] }),
+  };
+}
+
+/**
+ * Reads an optional enum filter list.
+ *
+ * `undefined` means "no filter", which is different from an empty list: an empty list is a filter
+ * that admits nothing, and a metric that can never match is always a mistake rather than something
+ * to normalize away.
+ */
+function parseEnumFilter(
+  raw: unknown,
+  allowed: readonly string[],
+  noun: string,
+  path: StrategyIssuePath,
+  issues: ValidationContext,
+): readonly string[] | undefined | "INVALID" {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    issues.add(
+      "FILTER_INVALID",
+      path,
+      `A ${noun} filter must list at least one value; leave it out to include every ${noun}.`,
+    );
+    return "INVALID";
+  }
+  const values: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || !allowed.includes(entry)) {
+      issues.add(
+        "FILTER_INVALID",
+        path,
+        `\`${String(entry)}\` is not a ${noun} this product recognizes.`,
+      );
+      return "INVALID";
+    }
+    if (!values.includes(entry)) {
+      values.push(entry);
+    }
+  }
+  return values;
+}
+
+function parseActorScope(
+  raw: unknown,
+  path: StrategyIssuePath,
+  issues: ValidationContext,
+): ActorScope | undefined {
+  if (!isRecord(raw)) {
+    issues.add("SCOPE_INVALID", path, "Choose whose activity this rule counts.");
+    return undefined;
+  }
+  const kind = raw.kind;
+  if (kind !== "ANY" && kind !== "ACTOR" && kind !== "GROUP") {
+    issues.add(
+      "SCOPE_INVALID",
+      path,
+      `\`${String(kind)}\` is not a kind of scope.`,
+    );
+    return undefined;
+  }
+  issues.rejectUnknownKeys(raw, ACTOR_SCOPE_KEYS[kind], path);
+  if (kind === "ANY") {
+    return { kind: "ANY" };
+  }
+  const idField = kind === "ACTOR" ? "actorId" : "groupId";
+  const id = raw[idField];
+  if (typeof id !== "string" || id.trim().length === 0) {
+    issues.add(
+      "SCOPE_INVALID",
+      path,
+      kind === "ACTOR"
+        ? "Choose the actor this rule counts."
+        : "Choose the group this rule counts.",
+    );
+    return undefined;
+  }
+  return kind === "ACTOR"
+    ? { kind: "ACTOR", actorId: id }
+    : { kind: "GROUP", groupId: id };
+}
+
 function parseMetric(
   raw: unknown,
   location: PredicateLocation,
@@ -1594,6 +2243,10 @@ function parseMetric(
       }
       return { kind: "RELATIVE_VOLUME", period: period as RelativeVolumePeriod };
     }
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+    case "INSTITUTIONAL_ACTIVITY":
+      return parseAlternativeDataMetric(kind, raw, path, issues);
     default:
       break;
   }
@@ -1639,7 +2292,8 @@ function parseValue(
     kind !== "SERIES" &&
     kind !== "NUMBER" &&
     kind !== "PERCENT" &&
-    kind !== "MULTIPLE"
+    kind !== "MULTIPLE" &&
+    kind !== "MONEY"
   ) {
     issues.add(
       "SHAPE_INVALID",
@@ -1727,6 +2381,13 @@ export function checkStrategyValue(
         message: `${metricLabel} is compared with a number you type.`,
       };
     }
+    if (spec.integer && !Number.isInteger(value.value)) {
+      return {
+        compatible: false,
+        code: "VALUE_OUT_OF_DOMAIN",
+        message: `${metricLabel} counts whole disclosures, so its threshold must be a whole number.`,
+      };
+    }
     return Number.isFinite(value.value) &&
       value.value >= spec.min &&
       value.value <= spec.max
@@ -1735,6 +2396,25 @@ export function checkStrategyValue(
           compatible: false,
           code: "VALUE_OUT_OF_DOMAIN",
           message: `${metricLabel} needs a threshold ${boundsText(spec.min, spec.max)}.`,
+        };
+  }
+
+  if (spec.kind === "MONEY") {
+    if (value.kind !== "MONEY") {
+      return {
+        compatible: false,
+        code: "VALUE_KIND_MISMATCH",
+        message: `${metricLabel} is compared with an amount of money.`,
+      };
+    }
+    return Number.isFinite(value.value) &&
+      value.value >= spec.min &&
+      (spec.max === undefined || value.value <= spec.max)
+      ? { compatible: true }
+      : {
+          compatible: false,
+          code: "VALUE_OUT_OF_DOMAIN",
+          message: `${metricLabel} needs an amount ${boundsText(spec.min, spec.max)}.`,
         };
   }
 
@@ -1793,10 +2473,17 @@ function predicateIdentity(
   operator: string,
   value: StrategyValue,
 ): string {
-  const seriesId = strategyMetricSeriesId(metric) ?? "";
+  const alternative = asAlternativeDataMetric(metric);
+  // The whole configured metric, because two alternative-data rows differing only in measure, scope
+  // or lookback are different conditions. Keying them by kind alone would make
+  // `Insider buyers 20D is at least 2` and `Insider sellers 20D is at least 2` look like one rule
+  // written twice, and the second would be rejected as a duplicate.
+  const metricKey = alternative
+    ? alternativeDataMetricSignature(alternative)
+    : (strategyMetricSeriesId(metric) ?? "");
   const valueKey =
     value.kind === "SERIES" ? value.seriesId : String(value.value);
-  return `${metric.kind}:${seriesId}|${operator}|${value.kind}:${valueKey}`;
+  return `${metric.kind}:${metricKey}|${operator}|${value.kind}:${valueKey}`;
 }
 
 /**
@@ -2362,6 +3049,10 @@ export function validateStrategy(
 // ---------------------------------------------------------------------------
 
 function buildMetric(metric: StrategyMetric): StrategyMetric {
+  const alternative = asAlternativeDataMetric(metric);
+  if (alternative) {
+    return buildAlternativeDataMetric(alternative);
+  }
   switch (metric.kind) {
     case "MOVING_AVERAGE":
       return { kind: "MOVING_AVERAGE", seriesId: metric.seriesId };
@@ -2377,6 +3068,10 @@ function buildMetric(metric: StrategyMetric): StrategyMetric {
       return { kind: "GAIN" };
     case "LOSS":
       return { kind: "LOSS" };
+    default:
+      // Unreachable: every alternative-data kind is canonicalized above, by the module that owns
+      // its shape. Kept so adding a metric kind is a type error here rather than a silent fallthrough.
+      return metric;
   }
 }
 
@@ -2390,6 +3085,8 @@ function buildValue(value: StrategyValue): StrategyValue {
       return { kind: "PERCENT", value: value.value };
     case "MULTIPLE":
       return { kind: "MULTIPLE", value: value.value };
+    case "MONEY":
+      return { kind: "MONEY", value: value.value };
   }
 }
 
@@ -2593,10 +3290,22 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
     input.kind === "SERIES"
       ? [input.kind, input.seriesId]
       : [input.kind, input.value];
-  const metric = (input: StrategyMetric): unknown => [
-    input.kind,
-    strategyMetricSeriesId(input) ?? null,
-  ];
+  const metric = (input: StrategyMetric): unknown => {
+    const alternative = asAlternativeDataMetric(input);
+    // A third element is **appended only for the alternative-data kinds**, so every metric shape
+    // that already existed serializes to exactly the two elements it always did. That is what keeps
+    // every persisted `StrategyVersion.definitionHash` valid and every Monitor latch in place
+    // through this change. `alternativeDataMetricSignature` covers measure, lookback, scope and
+    // filters, so editing a lookback or a scope correctly appends a version and resets that level.
+    //
+    // Relative Volume's period is deliberately *not* carried here. Adding it would move the stored
+    // hash of every existing RVOL strategy and reset its Monitor state, which is a change nobody
+    // asked for as part of this feature; that two RVOL periods currently fingerprint identically is
+    // a defect reported separately rather than fixed inside this change.
+    return alternative
+      ? [input.kind, null, alternativeDataMetricSignature(alternative)]
+      : [input.kind, strategyMetricSeriesId(input) ?? null];
+  };
   const predicate = (input: StrategyCondition | StrategyTrigger): unknown => [
     metric(input.metric),
     input.operator,

@@ -11,6 +11,7 @@ import {
   type StrategyTrigger,
   type StrategyValue,
 } from "@intrinsic/contracts";
+import { alternativeDataMetricOperand } from "./alternative-data.js";
 
 /**
  * Identity of one value column an evaluation frame carries.
@@ -96,6 +97,12 @@ export function isPositionDependentMetric(metric: StrategyMetric): boolean {
 
 /** The frame column a Metric reads, or null when the metric is position-dependent. */
 export function metricOperand(metric: StrategyMetric): OperandKey | null {
+  // The alternative-data kinds are addressed by their whole configuration, which `alternative-data.ts`
+  // owns; asking it first keeps that encoding in one module instead of repeating the signature here.
+  const alternative = alternativeDataMetricOperand(metric);
+  if (alternative) {
+    return alternative;
+  }
   switch (metric.kind) {
     case "PRICE":
       return PRICE_OPERAND;
@@ -108,6 +115,9 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
       return marginOfSafetyOperand(metric.sourceId);
     case "GAIN":
     case "LOSS":
+      return null;
+    default:
+      // Unreachable: every remaining kind is an alternative-data one, answered above.
       return null;
   }
 }

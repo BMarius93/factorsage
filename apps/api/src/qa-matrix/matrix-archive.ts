@@ -95,6 +95,13 @@ function metricSeries(
     case "LOSS":
       // Position-dependent: not decidable from a frame, and forbidden in a BUY Signal anyway.
       return null;
+    default:
+      // The alternative-data metrics. The QA matrix's independent verifier deliberately does not
+      // reimplement their window, scope and coverage semantics: doing so would be a second
+      // implementation of the very thing it exists to check independently, and the matrix fixtures
+      // name none of them. A strategy that did would be reported as unverifiable here rather than
+      // verified against a column this function invented.
+      return null;
   }
 }
 
@@ -127,6 +134,10 @@ function conditionHolds(
         value !== 0 &&
         Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE
       );
+    case "IS_AT_LEAST":
+      return metric >= value;
+    case "IS_AT_MOST":
+      return metric <= value;
   }
 }
 

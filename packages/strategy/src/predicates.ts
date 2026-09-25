@@ -43,6 +43,14 @@ export function evaluateConditionValues(
       return fromBoolean(
         Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE,
       );
+    // The inclusive pair, offered only by the alternative-data metrics. They are ordinary
+    // comparisons — no tolerance, no special absence handling — because the metrics that use them
+    // count discrete things and a strict comparison would make a user reason about the gap between
+    // whole numbers to say `at least two insiders bought`.
+    case "IS_AT_LEAST":
+      return fromBoolean(metric >= value);
+    case "IS_AT_MOST":
+      return fromBoolean(metric <= value);
   }
 }
 

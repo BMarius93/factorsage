@@ -989,6 +989,40 @@ export function getStockDataConfig(env: Environment = process.env) {
   } as const;
 }
 
+/**
+ * Alternative-data ingestion (insider activity, congressional trading, institutional 13F).
+ *
+ * Its own configuration rather than more fields on `getStockDataConfig`, because the cadences are
+ * genuinely different: a Form 4 is public within two business days, a congressional disclosure within
+ * forty-five days, and a 13F filing once a quarter. Refreshing all three as often as a price tail
+ * would spend the shared provider budget on datasets that cannot have changed.
+ *
+ * `ALT_DATA_MAX_PAGES_PER_INGEST` is a loop bound, not a limit on history: at the providers' page caps
+ * (1000 insider rows, 250 congressional rows) twelve pages reach twelve thousand Form 4 filings and
+ * every congressional disclosure any symbol has. It exists so one mis-paginating endpoint cannot spend
+ * the whole allowance.
+ */
+export function getAlternativeDataConfig(env: Environment = process.env) {
+  return {
+    freshnessMs: integer(
+      env,
+      ["ALT_DATA_FRESHNESS_MS"],
+      // Twelve hours. A disclosure that lands during the session is visible on the next cycle, and the
+      // availability rule already makes it unreadable until the following session anyway.
+      12 * 60 * 60 * 1000,
+    ),
+    maxPagesPerIngest: integer(env, ["ALT_DATA_MAX_PAGES_PER_INGEST"], 12),
+    /**
+     * Report quarters of 13F history one ingest reads.
+     *
+     * Twenty is five years, which is enough for the longest supported lookback to sit inside coverage
+     * for any period a user is likely to backtest. It costs one request per quarter per symbol and only
+     * on a cold ingest.
+     */
+    institutionalQuarters: integer(env, ["ALT_DATA_13F_QUARTERS"], 20),
+  } as const;
+}
+
 /** Server-only Stripe configuration. Never expose this object to browser code. */
 export function getStripeConfig(env: Environment = process.env) {
   return {

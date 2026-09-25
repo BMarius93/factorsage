@@ -10,6 +10,7 @@ import { DatabaseModule } from "./database/database.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
 import { HealthController } from "./health.controller";
 import { LegalModule } from "./legal/legal.module";
+import { AlternativeDataModule } from "./alternative-data/alternative-data.module";
 import { ListsModule } from "./lists/lists.module";
 import { MarketModule } from "./market/market.module";
 import { RateLimitModule } from "./rate-limit/rate-limit.module";
@@ -36,6 +37,7 @@ import { StrategiesModule } from "./strategies/strategies.module";
     BillingModule,
     BacktestsModule,
     ListsModule,
+    AlternativeDataModule,
     MarketModule,
     RecentSearchesModule,
     StocksModule,

@@ -1,5 +1,6 @@
 import { STOCK_DETAILS_MAX_HISTORY_YEARS } from "@intrinsic/contracts";
 import {
+  getAlternativeDataConfig,
   getApiConfig,
   getFmpConfig,
   getFmpTrafficConfig,
@@ -10,14 +11,17 @@ import type { StockDataService } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import {
+  CanonicalAlternativeDataService,
   CanonicalSecurityCatalogService,
   CanonicalStockDataService,
+  PrismaAlternativeDataStore,
   createStockDataRedisClient,
   IoredisCacheClient,
   PrismaStockDataStore,
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
+  type AlternativeDataStore,
   type LoadCoordinator,
   type SecurityCatalogService,
   type StockDataCache,
@@ -33,6 +37,8 @@ import { PrismaService } from "../database/prisma.service";
 import { LoggedSecurityCatalogService } from "./logged-security-catalog.service";
 import { LoggedStockDataService } from "./logged-stock-data.service";
 import {
+  ALTERNATIVE_DATA_SERVICE,
+  ALTERNATIVE_DATA_STORE,
   SECURITY_CATALOG_SERVICE,
   STOCK_DATA_CACHE,
   STOCK_DATA_COORDINATOR,
@@ -128,6 +134,44 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
       },
     },
     {
+      provide: ALTERNATIVE_DATA_STORE,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): AlternativeDataStore =>
+        new PrismaAlternativeDataStore(prisma),
+    },
+    {
+      provide: ALTERNATIVE_DATA_SERVICE,
+      inject: [ALTERNATIVE_DATA_STORE, STOCK_DATA_PROVIDER, STOCK_DATA_LOGGER],
+      // Built from the same gated `FmpClient` as every other read, so an insider or congressional
+      // ingest spends the shared provider allowance rather than opening a private lane beside it.
+      useFactory: (
+        store: AlternativeDataStore,
+        provider: FmpClient,
+        logger: StructuredLogger,
+      ): CanonicalAlternativeDataService => {
+        const config = getAlternativeDataConfig();
+        return new CanonicalAlternativeDataService(store, provider, {
+          freshnessMs: config.freshnessMs,
+          maxPagesPerIngest: config.maxPagesPerIngest,
+          institutionalQuarters: config.institutionalQuarters,
+          onProviderRequest: (request) => {
+            logger.debug({
+              event: "alternative-data.provider.request",
+              ...request,
+            });
+          },
+          // A dataset this subscription cannot read is a limitation to surface, not a failure to
+          // absorb silently: its metrics stay NOT_EVALUABLE and this is what says so.
+          onDatasetUnavailable: (event) => {
+            logger.warn({
+              event: "alternative-data.dataset.unavailable",
+              ...event,
+            });
+          },
+        });
+      },
+    },
+    {
       provide: STOCK_DATA_SERVICE,
       inject: [
         STOCK_DATA_STORE,
@@ -135,6 +179,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         STOCK_DATA_CACHE,
         STOCK_DATA_COORDINATOR,
         STOCK_DATA_LOGGER,
+        ALTERNATIVE_DATA_SERVICE,
       ],
       useFactory: (
         store: StockDataStore,
@@ -142,6 +187,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         cache: StockDataCache,
         coordinator: LoadCoordinator,
         logger: StructuredLogger,
+        alternativeData: CanonicalAlternativeDataService,
       ): StockDataService => {
         const service = new CanonicalStockDataService(
           store,
@@ -169,6 +215,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
                 ...request,
               });
             },
+            alternativeData,
           },
         );
         return new LoggedStockDataService(service, logger);
@@ -220,6 +267,8 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     STOCK_DATA_REDIS,
     STOCK_DATA_PROVIDER,
     STOCK_DATA_COORDINATOR,
+    ALTERNATIVE_DATA_STORE,
+    ALTERNATIVE_DATA_SERVICE,
   ],
 })
 export class StocksModule {}

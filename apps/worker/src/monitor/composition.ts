@@ -1,4 +1,5 @@
 import {
+  getAlternativeDataConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
@@ -10,7 +11,9 @@ import { FmpClient } from "@intrinsic/fmp";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
+  CanonicalAlternativeDataService,
   CanonicalStockDataService,
+  PrismaAlternativeDataStore,
   IoredisCacheClient,
   PrismaStockDataStore,
   RedisFmpRequestGate,
@@ -22,7 +25,7 @@ import {
   type ProviderRequestEvent,
   type TradingCalendar,
 } from "@intrinsic/stock-data";
-import type { OperandKey } from "@intrinsic/strategy";
+import { requiredAlternativeDataLeadingSessions, type OperandKey } from "@intrinsic/strategy";
 import type { MonitorDataLoader } from "./monitor-cycle.js";
 import {
   PrismaMonitorRepository,
@@ -55,6 +58,7 @@ export type MonitorRuntime = {
 export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
   const stockDataConfig = getStockDataConfig();
   const fmpTraffic = getFmpTrafficConfig();
+  const alternativeDataConfig = getAlternativeDataConfig();
 
   const onProviderRequest = (request: ProviderRequestEvent): void => {
     logger.debug({ event: "stock-data.provider.request", ...request });
@@ -76,6 +80,27 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     }),
   });
 
+
+  // The alternative-data loader, built from the **same gated provider**: an insider or congressional
+  // ingest spends the same Redis-coordinated allowance as a price read, so it can never starve one.
+  const alternativeData = new CanonicalAlternativeDataService(
+    new PrismaAlternativeDataStore(prisma),
+    provider,
+    {
+      freshnessMs: alternativeDataConfig.freshnessMs,
+      maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
+      institutionalQuarters: alternativeDataConfig.institutionalQuarters,
+      onProviderRequest: (request) => {
+        logger.debug({ event: "alternative-data.provider.request", ...request });
+      },
+      // A dataset this subscription cannot read is a limitation to surface, not a failure to absorb
+      // silently: the metrics that read it stay NOT_EVALUABLE, and this is the only place that says so.
+      onDatasetUnavailable: (event) => {
+        logger.warn({ event: "alternative-data.dataset.unavailable", ...event });
+      },
+    },
+  );
+
   const stockData = new CanonicalStockDataService(
     new PrismaStockDataStore(prisma),
     provider,
@@ -94,6 +119,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
+      alternativeData,
     },
   );
 
@@ -134,11 +160,13 @@ class PrismaMonitorDataLoader implements MonitorDataLoader {
     security: Security,
     observations: number,
     asOf: string,
+    operands: readonly OperandKey[] = [],
   ): Promise<void> {
     await this.stockData.prepareMonitorEvaluationData(
       security,
       observations,
       asOf,
+      operands,
     );
   }
 
@@ -149,14 +177,20 @@ class PrismaMonitorDataLoader implements MonitorDataLoader {
   }
 
   monitorWindowObservations(operands: readonly OperandKey[]): number {
-    return monitorWindowObservations(requiredDailySeries(operands));
+    return monitorWindowObservations(
+      requiredDailySeries(operands),
+      // The longest alternative-data lookback must fit inside the loaded window, or the one session a
+      // Monitor evaluates would report NOT_EVALUABLE for a metric whose data is fully present.
+      requiredAlternativeDataLeadingSessions(operands),
+    );
   }
 
   async prepareReconstructionData(
     security: Security,
     range: { from: string; to: string },
+    operands: readonly OperandKey[] = [],
   ): Promise<void> {
-    await this.stockData.prepareDailyEvaluationData(security, range);
+    await this.stockData.prepareDailyEvaluationData(security, range, operands);
   }
 
   async readReconstructionFrame(

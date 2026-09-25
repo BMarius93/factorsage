@@ -5,3 +5,4 @@ export * from "./financial-statements.js";
 export * from "./security-universe.js";
 export * from "./stock-lists.js";
 export * from "./benchmarks.js";
+export * from "./alternative-data.js";

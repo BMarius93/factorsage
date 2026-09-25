@@ -168,6 +168,7 @@ export type ReadinessResponse = {
 export * from "./billing.js";
 export * from "./entitlements.js";
 export * from "./selectable-series.js";
+export * from "./alternative-data.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";
 export * from "./strategies.js";

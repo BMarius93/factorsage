@@ -1,12 +1,20 @@
 import { randomUUID } from "node:crypto";
 import {
+  alternativeDataActorType,
+  alternativeDataScope,
+  collectActorGroupIds,
+  collectActorIds,
+  collectAlternativeDataMetrics,
   emptyStrategyDefinition,
   normalizeStrategyDefinition,
   rekeyStrategyDefinition,
+  strategyMetricLabel,
+  StrategyValidationError,
   type StrategyDefinition,
   type AuthUser,
   type StrategyDetailResponse,
   type StrategySummaryResponse,
+  type StrategyValidationIssue,
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -155,6 +163,88 @@ export class StrategiesService {
   }
 
   /** The Strategy a viewer asked to change: 404 when unreadable, 403 when a read-only built-in. */
+  /**
+   * Every actor and actor group an alternative-data rule references must exist and be the right kind.
+   *
+   * The canonical validator in `@intrinsic/contracts` is pure, so it can check that a scope is
+   * *well-formed* but never that the thing it names is real — exactly as it can check a `Value` but not
+   * whether a `Security` exists. This is that second half, and it lives at the write boundary for the
+   * same reason `assertSecuritiesSupported` does.
+   *
+   * Reported as an invalid strategy with the canonical `SCOPE_INVALID` code and a path, so the Builder
+   * renders it inline against the row that carries it rather than as a banner.
+   */
+  private async assertScopeReferencesResolvable(
+    user: AuthUser,
+    definition: StrategyDefinition,
+  ): Promise<void> {
+    const metrics = collectAlternativeDataMetrics(definition);
+    const groupIds = collectActorGroupIds(metrics);
+    const actorIds = collectActorIds(metrics);
+    if (groupIds.length === 0 && actorIds.length === 0) {
+      return;
+    }
+    const [groups, actors] = await Promise.all([
+      groupIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.actorGroup.findMany({
+            where: { id: { in: groupIds }, ...readableWhere(user) },
+            select: { id: true, actorType: true, name: true },
+          }),
+      actorIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.alternativeDataActor.findMany({
+            where: { id: { in: actorIds } },
+            select: { id: true, type: true },
+          }),
+    ]);
+    const groupById = new Map(groups.map((group) => [group.id, group]));
+    const actorById = new Map(actors.map((actor) => [actor.id, actor]));
+
+    const issues: StrategyValidationIssue[] = [];
+    for (const metric of metrics) {
+      const scope = alternativeDataScope(metric);
+      if (!scope || scope.kind === "ANY") {
+        continue;
+      }
+      const expected = alternativeDataActorType(metric.kind);
+      if (scope.kind === "GROUP") {
+        const group = groupById.get(scope.groupId);
+        if (!group) {
+          issues.push({
+            code: "SCOPE_INVALID",
+            path: { part: "STRATEGY" },
+            message: `${strategyMetricLabel(metric)} references a group that is not available.`,
+          });
+        } else if (expected && group.actorType !== expected) {
+          issues.push({
+            code: "SCOPE_INVALID",
+            path: { part: "STRATEGY" },
+            message: `The group \`${group.name}\` does not hold the kind of actor ${strategyMetricLabel(metric)} counts.`,
+          });
+        }
+        continue;
+      }
+      const actor = actorById.get(scope.actorId);
+      if (!actor) {
+        issues.push({
+          code: "SCOPE_INVALID",
+          path: { part: "STRATEGY" },
+          message: `${strategyMetricLabel(metric)} references an actor that is not available.`,
+        });
+      } else if (expected && actor.type !== expected) {
+        issues.push({
+          code: "SCOPE_INVALID",
+          path: { part: "STRATEGY" },
+          message: `The selected actor is not the kind ${strategyMetricLabel(metric)} counts.`,
+        });
+      }
+    }
+    if (issues.length > 0) {
+      throw new StrategyValidationError(issues);
+    }
+  }
+
   private async findMutable(
     db: Pick<PrismaService, "strategy">,
     viewer: AuthUser,
@@ -193,6 +283,7 @@ export class StrategiesService {
     const definition = normalizeStrategyDefinition(
       input.definition ?? emptyStrategyDefinition(),
     );
+    await this.assertScopeReferencesResolvable(user, definition);
 
     const row = await this.prisma.strategy.create({
       data: {
@@ -348,6 +439,7 @@ export class StrategiesService {
   ): Promise<StrategyDetailResponse> {
     const userId = user.id;
     const definition = normalizeStrategyDefinition(submitted);
+    await this.assertScopeReferencesResolvable(user, definition);
 
     const { row, appended } = await this.prisma.$transaction(async (tx) => {
       const target = await this.findMutable(tx, user, strategyId);

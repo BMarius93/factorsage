@@ -13,6 +13,7 @@ export const STRATEGY_PACKAGE_NAME = "@intrinsic/strategy" as const;
 
 export * from "./evaluability.js";
 export * from "./operands.js";
+export * from "./alternative-data.js";
 export * from "./frame.js";
 export * from "./predicates.js";
 export * from "./gates.js";

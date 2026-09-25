@@ -210,6 +210,12 @@
   font-size: 11px;
 }
 
+/* What a configured first operand was narrowed to. The same muted register the basis and the
+   trigger tag use, so a qualified line reads as one sentence rather than as two. */
+.previewScope {
+  color: var(--color-text-muted);
+}
+
 .previewEmpty {
   padding-left: 14px;
   color: var(--color-text-muted);

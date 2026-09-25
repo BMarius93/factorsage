@@ -1,18 +1,33 @@
 import type {
   BenchmarkDailyPrice,
+  CongressAssetClass,
+  CongressChamber,
+  CongressOwner,
+  CongressTransactionKind,
   DailyPrice,
   DateRange,
   SecurityListingCandidate,
   FinancialStatementCadence,
   FinancialStatementDraft,
   FinancialStatementType,
+  InsiderRole,
+  InsiderTransactionCategory,
   Security,
   SecurityProfile,
 } from "@intrinsic/domain";
 import {
+  alternativeDataAvailabilityDate,
   BALANCE_SHEET_FIELDS,
   CASH_FLOW_FIELDS,
+  classifyCongressAssetClass,
+  classifyCongressOwner,
+  classifyCongressTransaction,
+  classifyInsiderTransaction,
   INCOME_STATEMENT_FIELDS,
+  insiderRolesOf,
+  insiderTransactionCode,
+  insiderTransactionValue,
+  parseDisclosedAmountRange,
 } from "@intrinsic/domain";
 
 export type FmpProfileDto = {
@@ -653,4 +668,484 @@ export type FmpStockProviderPort = {
     cadence: FinancialStatementCadence,
     limit: number,
   ): Promise<FinancialStatementDraft[]>;
+};
+
+// ---------------------------------------------------------------------------
+// Alternative data: insider activity, congressional trading, institutional 13F
+//
+// Provider facts verified live against `https://financialmodelingprep.com/stable/` on 2026-09-25.
+// They are recorded here because they are provider knowledge and nothing above this layer may
+// depend on them:
+//
+// - `insider-trading/search` takes `symbol`, `page` and `limit`. `limit` is capped at **1000** (a
+//   request for 2000 returns 1000) and `page` is a page index, so page `n` returns rows
+//   `n * limit …`. Rows come newest-first by `filingDate`. **`from` and `to` are ignored** — asking
+//   for 2024-01-01 → 2024-03-01 returned the same newest rows as no range at all — so a bounded
+//   historical read is impossible and ingestion pages backwards until it passes the date it needs.
+// - `senate-trades` and `house-trades` take the same three parameters; `limit` is capped at **250**.
+//   Rows come newest-first by `disclosureDate`, and **ordering within one disclosure date is not
+//   stable between calls**, which is why ingestion is keyed by content digest rather than by
+//   position. Both chambers return the member's bioguide id in a field named `senateID`.
+// - Every `institutional-ownership/*` endpoint answered **HTTP 402 "Restricted Endpoint"** on this
+//   account: `extract`, `extract-analytics/holder`, `symbol-positions-summary`, `latest` and
+//   `holder-performance-summary`. The legacy `api/v4/institutional-ownership/portfolio-holdings`
+//   answered 403 "Legacy Endpoint". The 13F response shape below is therefore **not verified against
+//   a live response**, and its mapper refuses a payload that does not carry the fields it needs
+//   rather than defaulting them — see {@link mapFmpInstitutionalHoldings}.
+// ---------------------------------------------------------------------------
+
+/** Symbols per insider-trading page. Verified cap: a larger `limit` still returns 1000 rows. */
+export const FMP_INSIDER_TRADING_MAX_PAGE_SIZE = 1000;
+
+/** Rows per congressional-trading page. Verified cap: a larger `limit` still returns 250 rows. */
+export const FMP_CONGRESS_TRADING_MAX_PAGE_SIZE = 250;
+
+/** Rows per 13F page. Unverified: the endpoint is not available on this subscription. */
+export const FMP_INSTITUTIONAL_MAX_PAGE_SIZE = 1000;
+
+/** One row of `insider-trading/search`. */
+export type FmpInsiderTradeDto = {
+  symbol?: unknown;
+  filingDate?: unknown;
+  transactionDate?: unknown;
+  reportingCik?: unknown;
+  companyCik?: unknown;
+  transactionType?: unknown;
+  securitiesOwned?: unknown;
+  reportingName?: unknown;
+  typeOfOwner?: unknown;
+  acquisitionOrDisposition?: unknown;
+  directOrIndirect?: unknown;
+  formType?: unknown;
+  securitiesTransacted?: unknown;
+  price?: unknown;
+  securityName?: unknown;
+  url?: unknown;
+};
+
+/**
+ * One row of `senate-trades` or `house-trades`.
+ *
+ * `senateID` carries the member's bioguide id on **both** endpoints; the name is the provider's, not
+ * a statement about the chamber. `district` is a state code on Senate rows (`AL`) and a
+ * state-plus-district string on House rows (`TX17`), and is occasionally empty.
+ */
+export type FmpCongressTradeDto = {
+  symbol?: unknown;
+  senateID?: unknown;
+  disclosureDate?: unknown;
+  transactionDate?: unknown;
+  firstName?: unknown;
+  lastName?: unknown;
+  office?: unknown;
+  district?: unknown;
+  owner?: unknown;
+  assetDescription?: unknown;
+  assetType?: unknown;
+  type?: unknown;
+  amount?: unknown;
+  capitalGainsOver200USD?: unknown;
+  comment?: unknown;
+  link?: unknown;
+};
+
+/**
+ * One row of a 13F holdings extract.
+ *
+ * **Unverified shape.** Every institutional-ownership endpoint is restricted on this subscription, so
+ * these field names come from the provider's published documentation and have never been seen in a
+ * response here. The mapper below requires the fields it maps and refuses the payload otherwise, so a
+ * shape that differs fails loudly with the field it could not read instead of silently producing
+ * zeroed holdings.
+ */
+export type FmpInstitutionalHoldingDto = {
+  symbol?: unknown;
+  cik?: unknown;
+  investorName?: unknown;
+  /** The report period the holding is as of: a quarter end. */
+  date?: unknown;
+  filingDate?: unknown;
+  /** The filed form type, e.g. `13F-HR` or `13F-HR/A`. */
+  formType?: unknown;
+  sharesNumber?: unknown;
+  marketValue?: unknown;
+  /** Share of the manager's reported portfolio, as a percentage. */
+  weight?: unknown;
+  acceptedDate?: unknown;
+  link?: unknown;
+};
+
+/**
+ * One normalized insider transaction, still carrying the provider's raw row.
+ *
+ * A mapped row is deliberately **not** a `Security`-keyed domain fact yet: the provider answers by
+ * symbol and knows nothing of this product's catalog ids, so binding the row to a `securityId` is the
+ * caller's job. Everything else — the Form 4 classification, the roles, the availability date and the
+ * transacted value — is domain normalization and is applied here through `@intrinsic/domain`.
+ */
+export type MappedFmpInsiderTrade = {
+  providerSymbol: string;
+  transactionDate: string;
+  filingDate: string;
+  availableFromDate: string;
+  reportingCik: string;
+  reportingName: string;
+  companyCik?: string;
+  typeOfOwner?: string;
+  roles: readonly InsiderRole[];
+  transactionCode?: string;
+  transactionTypeRaw: string;
+  category: InsiderTransactionCategory;
+  acquisitionOrDisposition?: string;
+  directOrIndirect?: string;
+  formType?: string;
+  securityName?: string;
+  securitiesTransacted?: number;
+  securitiesOwned?: number;
+  price?: number;
+  transactionValue?: number;
+  sourceUrl?: string;
+  raw: Record<string, unknown>;
+};
+
+export type MappedFmpCongressTrade = {
+  providerSymbol: string;
+  chamber: CongressChamber;
+  actorExternalId: string;
+  actorDisplayName: string;
+  actorState?: string;
+  actorDistrict?: string;
+  transactionDate: string;
+  disclosureDate: string;
+  availableFromDate: string;
+  kind: CongressTransactionKind;
+  transactionTypeRaw: string;
+  owner: CongressOwner;
+  ownerRaw?: string;
+  assetClass: CongressAssetClass;
+  assetTypeRaw?: string;
+  assetDescription?: string;
+  amountRangeRaw?: string;
+  amountLowerBound?: number;
+  amountUpperBound?: number;
+  capitalGainsOver200Usd?: boolean;
+  comment?: string;
+  sourceUrl?: string;
+  raw: Record<string, unknown>;
+};
+
+export type MappedFmpInstitutionalHolding = {
+  providerSymbol: string;
+  actorExternalId: string;
+  actorDisplayName: string;
+  reportPeriod: string;
+  filingDate: string;
+  availableFromDate: string;
+  amendmentType?: string;
+  providerFilingId?: string;
+  shares: number;
+  marketValue?: number;
+  portfolioWeightPercent?: number;
+  raw: Record<string, unknown>;
+};
+
+/**
+ * A provider date that may arrive as `YYYY-MM-DD` or as a timestamp; only the calendar day is kept.
+ *
+ * Distinct from `localDate` above, which is required-or-throw: an alternative-data row with an
+ * unreadable date is skipped by its mapper rather than failing a whole page, because one malformed
+ * disclosure must not cost a symbol its entire ingest.
+ */
+function optionalLocalDate(value: unknown): string | undefined {
+  const text = optionalString(value);
+  if (!text) {
+    return undefined;
+  }
+  const day = text.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : undefined;
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Normalizes one page of insider transactions, dropping rows the product cannot place in time.
+ *
+ * A row is dropped only when it has no transaction date, no filing date or no reporting CIK: without
+ * the filing date there is no availability date and the row could not be evaluated point-in-time at
+ * all, and without the CIK a distinct-buyer count would have no identity to count. Everything else is
+ * kept, including transaction types this product classifies as `OTHER`, because the raw row is the
+ * audit trail behind a historical signal.
+ */
+export function mapFmpInsiderTrades(
+  rows: readonly FmpInsiderTradeDto[],
+): MappedFmpInsiderTrade[] {
+  const mapped: MappedFmpInsiderTrade[] = [];
+  for (const row of rows) {
+    const providerSymbol = optionalString(row.symbol)?.toUpperCase();
+    const transactionDate = optionalLocalDate(row.transactionDate);
+    const filingDate = optionalLocalDate(row.filingDate);
+    const reportingCik = optionalString(row.reportingCik);
+    const transactionTypeRaw = optionalString(row.transactionType);
+    if (
+      !providerSymbol ||
+      !transactionDate ||
+      !filingDate ||
+      !reportingCik ||
+      !transactionTypeRaw
+    ) {
+      continue;
+    }
+    const securitiesTransacted = optionalFiniteNumber(row.securitiesTransacted);
+    const price = optionalFiniteNumber(row.price);
+    const transactionCode = insiderTransactionCode(transactionTypeRaw);
+    const transactionValue = insiderTransactionValue({
+      ...(securitiesTransacted === undefined ? {} : { securitiesTransacted }),
+      ...(price === undefined ? {} : { price }),
+    });
+    const typeOfOwner = optionalString(row.typeOfOwner);
+    const companyCik = optionalString(row.companyCik);
+    const acquisitionOrDisposition = optionalString(row.acquisitionOrDisposition);
+    const directOrIndirect = optionalString(row.directOrIndirect);
+    const formType = optionalString(row.formType);
+    const securityName = optionalString(row.securityName);
+    const securitiesOwned = optionalFiniteNumber(row.securitiesOwned);
+    const sourceUrl = optionalString(row.url);
+    mapped.push({
+      providerSymbol,
+      transactionDate,
+      filingDate,
+      availableFromDate: alternativeDataAvailabilityDate(filingDate),
+      reportingCik,
+      reportingName: optionalString(row.reportingName) ?? reportingCik,
+      ...(companyCik ? { companyCik } : {}),
+      ...(typeOfOwner ? { typeOfOwner } : {}),
+      roles: insiderRolesOf(typeOfOwner),
+      ...(transactionCode ? { transactionCode } : {}),
+      transactionTypeRaw,
+      category: classifyInsiderTransaction(transactionTypeRaw),
+      ...(acquisitionOrDisposition ? { acquisitionOrDisposition } : {}),
+      ...(directOrIndirect ? { directOrIndirect } : {}),
+      ...(formType ? { formType } : {}),
+      ...(securityName ? { securityName } : {}),
+      ...(securitiesTransacted === undefined ? {} : { securitiesTransacted }),
+      ...(securitiesOwned === undefined ? {} : { securitiesOwned }),
+      ...(price === undefined ? {} : { price }),
+      ...(transactionValue === undefined ? {} : { transactionValue }),
+      ...(sourceUrl ? { sourceUrl } : {}),
+      raw: { ...(row as Record<string, unknown>) },
+    });
+  }
+  return mapped;
+}
+
+/**
+ * Normalizes one page of congressional disclosures for one chamber.
+ *
+ * The chamber is a parameter rather than something read from the payload, because the payload does
+ * not state it: both endpoints return a field called `senateID` and neither says which chamber the
+ * row came from. The endpoint that was asked is the only evidence, so the caller supplies it.
+ *
+ * A row is dropped only when it has no symbol, no transaction date, no disclosure date or no member
+ * identifier. Non-stock assets are **kept** and classified; it is the strategy metrics, not
+ * ingestion, that count only common stock.
+ */
+export function mapFmpCongressTrades(
+  chamber: CongressChamber,
+  rows: readonly FmpCongressTradeDto[],
+): MappedFmpCongressTrade[] {
+  const mapped: MappedFmpCongressTrade[] = [];
+  for (const row of rows) {
+    const providerSymbol = optionalString(row.symbol)?.toUpperCase();
+    const transactionDate = optionalLocalDate(row.transactionDate);
+    const disclosureDate = optionalLocalDate(row.disclosureDate);
+    const actorExternalId = optionalString(row.senateID);
+    const transactionTypeRaw = optionalString(row.type);
+    if (
+      !providerSymbol ||
+      !transactionDate ||
+      !disclosureDate ||
+      !actorExternalId ||
+      !transactionTypeRaw
+    ) {
+      continue;
+    }
+    const firstName = optionalString(row.firstName);
+    const lastName = optionalString(row.lastName);
+    const office = optionalString(row.office);
+    // The display name is a label, so a readable one is preferred and the identifier remains the
+    // identity. `office` is the provider's own presentational name ("Tommy Tuberville") and is the
+    // most readable; the legal names are the fallback.
+    const actorDisplayName =
+      office ??
+      [firstName, lastName].filter((part) => part).join(" ") ??
+      actorExternalId;
+    const district = optionalString(row.district);
+    const ownerRaw = optionalString(row.owner);
+    const assetTypeRaw = optionalString(row.assetType);
+    const assetDescription = optionalString(row.assetDescription);
+    const amountRangeRaw = optionalString(row.amount);
+    const amount = parseDisclosedAmountRange(amountRangeRaw);
+    const comment = optionalString(row.comment);
+    const sourceUrl = optionalString(row.link);
+    const capitalGains = optionalString(row.capitalGainsOver200USD);
+    mapped.push({
+      providerSymbol,
+      chamber,
+      actorExternalId,
+      actorDisplayName:
+        actorDisplayName.trim().length > 0 ? actorDisplayName : actorExternalId,
+      // Senate rows carry a bare state code; House rows carry state plus district number.
+      ...(district
+        ? chamber === "SENATE"
+          ? { actorState: district }
+          : { actorState: district.slice(0, 2), actorDistrict: district }
+        : {}),
+      transactionDate,
+      disclosureDate,
+      availableFromDate: alternativeDataAvailabilityDate(disclosureDate),
+      kind: classifyCongressTransaction(transactionTypeRaw),
+      transactionTypeRaw,
+      owner: classifyCongressOwner(ownerRaw),
+      ...(ownerRaw ? { ownerRaw } : {}),
+      assetClass: classifyCongressAssetClass(assetTypeRaw),
+      ...(assetTypeRaw ? { assetTypeRaw } : {}),
+      ...(assetDescription ? { assetDescription } : {}),
+      ...(amountRangeRaw ? { amountRangeRaw } : {}),
+      ...(amount.lowerBound === undefined
+        ? {}
+        : { amountLowerBound: amount.lowerBound }),
+      ...(amount.upperBound === undefined
+        ? {}
+        : { amountUpperBound: amount.upperBound }),
+      ...(capitalGains === undefined
+        ? {}
+        : {
+            capitalGainsOver200Usd:
+              capitalGains.toLowerCase() === "true" ||
+              (typeof row.capitalGainsOver200USD === "boolean" &&
+                row.capitalGainsOver200USD),
+          }),
+      ...(comment ? { comment } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
+      raw: { ...(row as Record<string, unknown>) },
+    });
+  }
+  return mapped;
+}
+
+/**
+ * Raised when a 13F payload does not carry a field the domain needs.
+ *
+ * It exists because this mapping is **unverified**: the endpoint is restricted on this subscription,
+ * so the first real response this code ever sees will be in production. Defaulting a missing
+ * `sharesNumber` to zero would silently manufacture an `EXITED` position for every manager; refusing
+ * the payload and naming the field is the only honest behaviour.
+ */
+export class FmpInstitutionalPayloadError extends Error {
+  constructor(readonly field: string) {
+    super(
+      `Form 13F payload is missing the \`${field}\` field this product requires. ` +
+        "The institutional-ownership response shape has not been verified against a live response " +
+        "because the endpoint is restricted on this subscription.",
+    );
+    this.name = "FmpInstitutionalPayloadError";
+  }
+}
+
+/**
+ * Normalizes one page of 13F holdings.
+ *
+ * `date` is the **report period** — the quarter end the holding is as of — and `filingDate` is when
+ * the form reached the SEC. Both are required, and neither is derived from the other: the gap between
+ * them is what makes this domain a point-in-time problem, and inferring one would erase it.
+ *
+ * A row with no share count, no report period, no filing date or no manager CIK throws rather than
+ * being dropped, for the reason {@link FmpInstitutionalPayloadError} explains.
+ */
+export function mapFmpInstitutionalHoldings(
+  rows: readonly FmpInstitutionalHoldingDto[],
+): MappedFmpInstitutionalHolding[] {
+  return rows.map((row) => {
+    const providerSymbol = optionalString(row.symbol)?.toUpperCase();
+    if (!providerSymbol) {
+      throw new FmpInstitutionalPayloadError("symbol");
+    }
+    const actorExternalId = optionalString(row.cik);
+    if (!actorExternalId) {
+      throw new FmpInstitutionalPayloadError("cik");
+    }
+    const reportPeriod = optionalLocalDate(row.date);
+    if (!reportPeriod) {
+      throw new FmpInstitutionalPayloadError("date");
+    }
+    const filingDate = optionalLocalDate(row.filingDate);
+    if (!filingDate) {
+      throw new FmpInstitutionalPayloadError("filingDate");
+    }
+    const shares = optionalFiniteNumber(row.sharesNumber);
+    if (shares === undefined) {
+      throw new FmpInstitutionalPayloadError("sharesNumber");
+    }
+    const marketValue = optionalFiniteNumber(row.marketValue);
+    const weight = optionalFiniteNumber(row.weight);
+    const formType = optionalString(row.formType);
+    const providerFilingId = optionalString(row.link);
+    return {
+      providerSymbol,
+      actorExternalId,
+      actorDisplayName: optionalString(row.investorName) ?? actorExternalId,
+      reportPeriod,
+      filingDate,
+      availableFromDate: alternativeDataAvailabilityDate(filingDate),
+      // An amendment marker is preserved exactly as filed; the derivation uses it only to break a tie
+      // between two filings that became available on the same date.
+      ...(formType && formType.includes("/A") ? { amendmentType: formType } : {}),
+      ...(providerFilingId ? { providerFilingId } : {}),
+      shares,
+      ...(marketValue === undefined ? {} : { marketValue }),
+      ...(weight === undefined ? {} : { portfolioWeightPercent: weight }),
+      raw: { ...(row as Record<string, unknown>) },
+    };
+  });
+}
+
+/**
+ * Insider Form 4 activity, kept as its own port.
+ *
+ * One request per symbol and page. The caller decides how far back to page, because only it knows
+ * what history the product needs — the endpoint accepts no date range.
+ */
+export type FmpInsiderTradingPort = {
+  getInsiderTrades(input: {
+    symbol: string;
+    page: number;
+    limit: number;
+  }): Promise<MappedFmpInsiderTrade[]>;
+};
+
+/** Congressional disclosures for one chamber, kept as its own port. */
+export type FmpCongressTradingPort = {
+  getCongressTrades(input: {
+    chamber: CongressChamber;
+    symbol: string;
+    page: number;
+    limit: number;
+  }): Promise<MappedFmpCongressTrade[]>;
+};
+
+/** Form 13F institutional holdings, kept as its own port. */
+export type FmpInstitutionalOwnershipPort = {
+  getInstitutionalHoldings(input: {
+    symbol: string;
+    year: number;
+    quarter: 1 | 2 | 3 | 4;
+    page: number;
+    limit: number;
+  }): Promise<MappedFmpInstitutionalHolding[]>;
 };

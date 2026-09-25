@@ -16,6 +16,7 @@ import {
 import {
   operandRelativeVolumePeriod,
   operandSeriesId,
+  type AlternativeDataFacts,
   type EvaluationFrame,
   type OperandKey,
 } from "@intrinsic/strategy";
@@ -182,8 +183,21 @@ export function requiredDailySeries(
  */
 export function monitorWindowObservations(
   required: RequiredDailySeries,
+  /**
+   * Sessions the longest alternative-data lookback needs, from
+   * `requiredAlternativeDataLeadingSessions`.
+   *
+   * It is added to the window for the same reason a recursive series' warm-up is: the lookback is
+   * counted on the frame's own session axis, so a window that does not physically contain it would
+   * report NOT_EVALUABLE on the one observation a Monitor evaluates. The `+ 1` is the provisional
+   * session itself, exactly as for every other family here.
+   */
+  alternativeDataSessions = 0,
 ): number {
   let observations = 2;
+  if (alternativeDataSessions > 0) {
+    observations = Math.max(observations, alternativeDataSessions + 1);
+  }
   for (const average of required.movingAverages) {
     observations = Math.max(
       observations,
@@ -321,6 +335,14 @@ export function projectMonitorEvaluationFrame(input: {
   observation: CurrentObservation | null;
   /** The trading date the observation belongs to. Must not precede the newest closed date. */
   observationDate: LocalDate;
+  /**
+   * The normalized disclosures behind every alternative-data operand, keyed by operand.
+   *
+   * Carried straight through to `projectEvaluationFrame`: a Monitor and a backtest read one
+   * implementation of what an alternative-data metric means, and the provisional session gets its
+   * reading from the same window rule as every closed one.
+   */
+  alternativeData?: ReadonlyMap<OperandKey, AlternativeDataFacts>;
 }): MonitorEvaluationFrame | null {
   const { security, operands, observation, observationDate } = input;
 
@@ -423,6 +445,9 @@ export function projectMonitorEvaluationFrame(input: {
     derived,
     operands,
     periodStart: observationRow.date,
+    ...(input.alternativeData
+      ? { alternativeData: input.alternativeData }
+      : {}),
   });
 
   return {

@@ -1,4 +1,5 @@
 import {
+  getAlternativeDataConfig,
   getBacktestDebugArchiveConfig,
   getFmpConfig,
   getFmpTrafficConfig,
@@ -9,8 +10,10 @@ import { PrismaClient } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { FmpClient } from "@intrinsic/fmp";
 import {
+  CanonicalAlternativeDataService,
   CanonicalBenchmarkDataService,
   CanonicalStockDataService,
+  PrismaAlternativeDataStore,
   IoredisCacheClient,
   PrismaBenchmarkDataStore,
   PrismaStockDataStore,
@@ -75,6 +78,7 @@ export function createBacktestRuntime(
   const stockDataConfig = getStockDataConfig();
   const fmpTraffic = getFmpTrafficConfig();
   const debugArchiveConfig = getBacktestDebugArchiveConfig();
+  const alternativeDataConfig = getAlternativeDataConfig();
 
   // Counting provider requests is only meaningful while something reads the count, and a worker
   // child executes at most one backtest at a time — which is what makes a phase's delta that run's
@@ -107,6 +111,27 @@ export function createBacktestRuntime(
     }),
   });
 
+
+  // The alternative-data loader, built from the **same gated provider**: an insider or congressional
+  // ingest spends the same Redis-coordinated allowance as a price read, so it can never starve one.
+  const alternativeData = new CanonicalAlternativeDataService(
+    new PrismaAlternativeDataStore(prisma),
+    provider,
+    {
+      freshnessMs: alternativeDataConfig.freshnessMs,
+      maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
+      institutionalQuarters: alternativeDataConfig.institutionalQuarters,
+      onProviderRequest: (request) => {
+        logger.debug({ event: "alternative-data.provider.request", ...request });
+      },
+      // A dataset this subscription cannot read is a limitation to surface, not a failure to absorb
+      // silently: the metrics that read it stay NOT_EVALUABLE, and this is the only place that says so.
+      onDatasetUnavailable: (event) => {
+        logger.warn({ event: "alternative-data.dataset.unavailable", ...event });
+      },
+    },
+  );
+
   const coordinator = new RedlockLoadCoordinator(redis, {
     lockDurationMs: stockDataConfig.loadLockDurationMs,
     lockWaitMs: stockDataConfig.loadLockWaitMs,
@@ -129,6 +154,7 @@ export function createBacktestRuntime(
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
+      alternativeData,
     },
   );
 

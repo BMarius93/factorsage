@@ -10,9 +10,13 @@ import {
   type Security,
 } from "@intrinsic/domain";
 import {
+  alternativeDataColumnRequest,
+  buildAlternativeDataColumn,
   createEvaluationFrame,
+  operandAlternativeDataMetric,
   operandRelativeVolumePeriod,
   PRICE_OPERAND,
+  type AlternativeDataFacts,
   type EvaluationFrame,
   type OperandKey,
 } from "@intrinsic/strategy";
@@ -74,6 +78,15 @@ export function projectEvaluationFrame(input: {
   derived: readonly DailyDerivedState[];
   operands: readonly OperandKey[];
   periodStart: LocalDate;
+  /**
+   * The normalized disclosures and coverage behind every alternative-data operand, keyed by operand.
+   *
+   * Absent for a frame that names none. An alternative-data operand with no entry here is a
+   * composition mistake rather than an empty dataset — the loader was not wired in — so it is refused
+   * rather than projected as absent: silently NOT_EVALUABLE columns would make a strategy that
+   * references insider activity simply never fire, with nothing to see.
+   */
+  alternativeData?: ReadonlyMap<OperandKey, AlternativeDataFacts>;
 }): ProjectedEvaluationFrame {
   const { prices, derived, operands, periodStart, security } = input;
 
@@ -92,8 +105,15 @@ export function projectEvaluationFrame(input: {
   const closes = new Float64Array(rows.length);
   const readers = new Map<OperandKey, ColumnReader>();
   const columns = new Map<OperandKey, Float64Array>();
+  // An alternative-data column is built from a whole date axis and a window rather than row by row, so
+  // it is resolved after the axis exists and never gets a `ColumnReader`.
+  const alternativeOperands: OperandKey[] = [];
   for (const key of operands) {
     if (key === PRICE_OPERAND) {
+      continue;
+    }
+    if (operandAlternativeDataMetric(key)) {
+      alternativeOperands.push(key);
       continue;
     }
     readers.set(key, columnReaderFor(key));
@@ -112,6 +132,27 @@ export function projectEvaluationFrame(input: {
     for (const [key, read] of readers) {
       (columns.get(key) as Float64Array)[index] = read(price, derivedRow);
     }
+  }
+
+  for (const key of alternativeOperands) {
+    const metric = operandAlternativeDataMetric(key);
+    if (!metric) {
+      continue;
+    }
+    const facts = input.alternativeData?.get(key);
+    if (!facts) {
+      throw new Error(
+        `Evaluation frame for ${security.symbol} requested alternative-data operand '${key}' without loaded facts`,
+      );
+    }
+    columns.set(
+      key,
+      buildAlternativeDataColumn({
+        dates,
+        request: alternativeDataColumnRequest(metric),
+        facts,
+      }),
+    );
   }
 
   let periodStartIndex = dates.length;

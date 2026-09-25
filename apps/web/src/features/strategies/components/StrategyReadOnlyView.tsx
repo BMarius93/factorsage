@@ -7,6 +7,7 @@ import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { useDocumentTitle } from "../../../lib/use-document-title";
 import page from "../../../components/ui/page.module.css";
+import { useStrategyScopeNames } from "../../alternative-data/hooks/use-scope-names";
 import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import { LogicPreview } from "./LogicPreview";
 
@@ -23,6 +24,8 @@ export function StrategyReadOnlyView({
   readonly strategy: StrategyDetailResponse;
 }) {
   useDocumentTitle(strategy.name);
+  // So a rule scoped to a group reads by name here too, exactly as it does in the Builder.
+  const scopeNames = useStrategyScopeNames(strategy.definition);
   return (
     <PageContainer>
       <div className={page.stack} data-testid="strategy-read-only">
@@ -56,7 +59,11 @@ export function StrategyReadOnlyView({
         >
           {/* Unframed: the section is already the surface, and a card titled "Strategy logic"
               inside one titled "Logic" was a card-in-card with a second heading (UI-016). */}
-          <LogicPreview definition={strategy.definition} framed={false} />
+          <LogicPreview
+            definition={strategy.definition}
+            framed={false}
+            scopeNames={scopeNames}
+          />
         </SectionCard>
       </div>
     </PageContainer>

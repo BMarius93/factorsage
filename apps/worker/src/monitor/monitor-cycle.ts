@@ -64,6 +64,14 @@ export interface MonitorDataLoader {
     security: Security,
     observations: number,
     asOf: LocalDate,
+    /**
+     * The operands this symbol's Monitors reference.
+     *
+     * Passed to preparation because the alternative-data domains are ingested in this phase, once per
+     * symbol per cycle — so several Monitors sharing a symbol share one ingest, exactly as they share
+     * one hydration and one quote.
+     */
+    operands?: readonly OperandKey[],
   ): Promise<void>;
   readMonitorEvaluationFrame(input: {
     security: Security;
@@ -82,6 +90,15 @@ export interface MonitorDataLoader {
   prepareReconstructionData(
     security: Security,
     range: { from: LocalDate; to: LocalDate },
+    /**
+     * The operands the replay will read.
+     *
+     * Required for the same reason the live cycle's preparation takes them: the alternative-data
+     * domains are ingested in the preparation phase, and a reconstruction that skipped it would read
+     * NOT_EVALUABLE for a metric the live cycle reads a real value for — the replay would then
+     * disagree with the cycle it is supposed to be a canonical replay of.
+     */
+    operands?: readonly OperandKey[],
   ): Promise<void>;
   readReconstructionFrame(
     security: Security,
@@ -473,6 +490,7 @@ export class MonitorCycle {
         security,
         windowObservations,
         asOf,
+        operands,
       );
       const frame = await this.data.readMonitorEvaluationFrame({
         security,
@@ -536,7 +554,7 @@ export class MonitorCycle {
         // Never before the first session. A security whose history starts after `to` keeps the
         // unclamped range, which is still a valid one and simply holds nothing.
         const range = { from: complete && start <= to ? start : earliest, to };
-        await this.data.prepareReconstructionData(security, range);
+        await this.data.prepareReconstructionData(security, range, input.operands);
         const history: ReconstructionHistory = {
           frame: await this.data.readReconstructionFrame(security, range, input.operands),
           complete,

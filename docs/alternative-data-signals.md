@@ -385,3 +385,109 @@ Run focused suites throughout implementation and the full repository gate before
 9. Complete test coverage and full gate.
 
 Avoid unrelated refactors and cosmetic redesigns.
+
+---
+
+## Implementation clarifications (added during implementation)
+
+The product decisions above are unchanged. What follows are semantics the implementation had to fix
+precisely, and provider facts verified live on 2026-09-25, recorded here so no surface has to
+rediscover them. Nothing in this section relaxes the point-in-time rule.
+
+### The lookback window is measured on the observable session
+
+A disclosure has two dates and a backtest may only ever see the second. `Congress purchases 30D`
+therefore counts the purchases **disclosed** in the last thirty sessions, not the purchases *made* in
+them.
+
+This is a clarification rather than a change, and it is load-bearing: a congressional disclosure
+routinely lags its transaction by up to forty-five days, so windowing on the transaction date would
+produce a metric that is almost always zero while still looking correct. The transaction date is
+preserved on every row, is what the product reports, and is simply not what the window is measured
+on. The same rule gives one definition for a historical backtest and a live Monitor, which is what
+the Monitor-compatibility requirement asks for.
+
+The **observable session** is the first trading session on or after `publication date + 1 day`. The
+`+ 1 day` is the convention `statementPublicAvailabilityDate` already applies to a financial
+statement with a real filing date, and for the same reason: the provider supplies a date and no
+time, so nothing proves the document was public before that session's close. "First trading session
+on or after" is implemented by the evaluation frame's own date axis, which holds exactly the sessions
+the security traded — so weekends and exchange holidays are handled by the axis rather than by a
+second calendar.
+
+### Coverage has a floor, and outside it a metric is NOT_EVALUABLE
+
+None of the three provider endpoints accepts a date range, so a bounded historical read is
+impossible and there is no coverage statement to read. The earliest availability date actually
+ingested is therefore the earliest date a metric may report for, and before it the column is
+NOT_EVALUABLE — never zero. "The provider had no filing" and "the dataset does not reach that far"
+are indistinguishable from the payload, and reporting the second as the first would make
+`Insider sellers 20D is at most 0` true across every year the data does not reach. A session is
+evaluable only when its **whole** lookback window lies inside coverage, for the same reason a
+partially warmed-up moving average is unavailable rather than short.
+
+The upper bound is the date of the last successful ingest. Past it the product knows nothing.
+
+### Operators and units the catalog gained
+
+- **`is at least` / `is at most`** were added to the Condition vocabulary and are offered by the
+  alternative-data metrics **only**. The specification writes its own examples as
+  `Insider buyers 20D is at least 2`; expressing that as `is above 1` would make a reader reason
+  about the gap between whole numbers. No other metric gained an inclusive form, so no existing rule
+  changed meaning.
+- **A `MONEY` Value kind** was added for the amount measures (`$1,000,000`), for the same reason
+  `MULTIPLE` exists: the unit is what lets one renderer print `30`, `2x` and `$1,000,000` without a
+  per-metric formatting rule.
+- **Count thresholds are whole numbers.** `Insider buyers 20D is at least 2.5` is refused, and the
+  bound is `0..1000` — a product bound no real disclosure count reaches, which keeps the validator's
+  message readable and the control's range finite.
+- **The lookback is a closed preset list** — 5, 10, 20, 30, 60, 90, 120, 180 and 250 trading sessions,
+  defaulting to 20 for insiders, 30 for Congress and 60 for institutions. Presets rather than a
+  user-entered window, exactly as `RELATIVE_VOLUME_PERIODS` is: an arbitrary window would be a
+  parameter nothing validates and a label nothing can render consistently. A value outside the list is
+  refused rather than rounded to a supported one.
+
+### The alternative-data metrics are Condition-only
+
+None of the three offers a Trigger, exactly as Relative Volume does not and for the same stated
+reason: a disclosure count is a state, and a Monitor's own not-matched -> matched transition already
+raises a Signal on the session a Condition first holds. A `crosses above` form would be a second,
+differently latched way to say the same thing.
+
+### Provider facts (verified live, 2026-09-25)
+
+- `insider-trading/search` takes `symbol`, `page` and `limit`. `limit` caps at **1000**; `page` is a
+  page index. Rows come newest-first by `filingDate`. **`from` and `to` are ignored** — the same
+  newest rows come back whatever range is asked for — so history is reached by paging.
+- `senate-trades` and `house-trades` take the same three parameters; `limit` caps at **250**. Rows
+  come newest-first by `disclosureDate`, and **ordering within one disclosure date is not stable
+  between calls**. Both endpoints return the member's bioguide id in a field named `senateID`, and
+  neither states the chamber — the endpoint asked is the only evidence.
+- Because the payloads carry no per-line identity, two genuinely separate same-day trades by one
+  actor with identical size, price and amount band **collapse into one row**. Collapsing is the
+  deterministic choice; the alternative is a row count that grows on every reingest.
+
+### Provider limitation: Form 13F is not available on the current subscription
+
+Every `institutional-ownership/*` endpoint answers **HTTP 402 "Restricted Endpoint: This endpoint is
+not available under your current subscription"**: `extract`, `extract-analytics/holder`,
+`symbol-positions-summary`, `latest` and `holder-performance-summary`. The legacy
+`api/v4/institutional-ownership/portfolio-holdings` answers 403 "Legacy Endpoint".
+
+The consequences are deliberate and contained:
+
+- The Institutional Activity domain is implemented end to end — schema, availability semantics,
+  amendment handling, the new/increased/reduced/exited derivation from consecutive available
+  filings, the signals, the scope, the group snapshot and the UI — and is exercised by tests against
+  fixtures.
+- Ingestion surfaces the refusal as a non-retryable provider-entitlement error, logs
+  `alternative-data.dataset.unavailable`, and **records no coverage**. Every institutional metric is
+  therefore NOT_EVALUABLE rather than zero, so no strategy can act on absent data and no backtest
+  fails because of it.
+- The 13F response **field names are unverified**: they come from the provider's published
+  documentation and have never been seen in a response here. The mapper requires each field it maps
+  and refuses a payload that does not carry one, naming the field, rather than defaulting it —
+  defaulting a missing share count to zero would manufacture an `EXITED` position for every manager.
+
+Raising the subscription is the only change needed; nothing above the provider adapter is waiting on
+product decisions.

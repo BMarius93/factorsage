@@ -200,6 +200,11 @@ tags:
       Universes of catalog securities, each with its buy-eligibility windows: the caller's own, and
       the platform's built-in (`SYSTEM`) lists, which everyone may read and only administrators may
       change.
+  - name: Alternative data
+    description: |
+      Insider activity, congressional trading and institutional 13F activity: the canonical actor
+      catalog these domains identify, and the reusable groups a strategy scopes a rule to. The product
+      presents the groups inside the Lists area rather than as a new top-level section.
   - name: Strategies
     description: |
       Strategy definitions — ordered BUY/SELL levels and an optional final exit: the caller's own,
@@ -2319,6 +2324,256 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BillingError" }
 
+  # -----------------------------------------------------------------------------------------------
+  # Alternative data: the canonical actor catalog and the groups over it
+  # -----------------------------------------------------------------------------------------------
+  /alternative-data/actors:
+    get:
+      tags: [Alternative data]
+      operationId: searchAlternativeDataActors
+      summary: Search the canonical actor catalog.
+      description: |
+        Institutional 13F filers and members of Congress, matched on display name or on the external
+        identifier they are identified by (a CIK, a bioguide id). Readable without a session: the
+        catalog is platform reference data grown by ingestion, not anybody's content, and the Strategy
+        Builder needs it to label a saved rule's scope.
+
+        A term shorter than two characters is treated as no term rather than as an error, and returns
+        the first page in name order so the picker opens on something.
+      x-rate-limit: { policy: stock-search }
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/AlternativeActorType" }
+        - name: q
+          in: query
+          description: Search term. Matched against the display name and the external identifier.
+          schema: { type: string, maxLength: 200 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: Matching actors, in name order.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlternativeDataActor" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /alternative-data/actors/resolve:
+    get:
+      tags: [Alternative data]
+      operationId: resolveAlternativeDataActors
+      summary: Actors by id.
+      description: |
+        Labels the actors a saved strategy references without searching for them. Ids are opaque, so an
+        unknown id is simply absent from the result rather than an error.
+      x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: ids
+          in: query
+          description: Comma-separated actor ids.
+          schema: { type: string, maxLength: 4096 }
+      responses:
+        "200":
+          description: The actors that exist, in name order.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlternativeDataActor" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /actor-groups:
+    get:
+      tags: [Alternative data]
+      operationId: listActorGroups
+      summary: The built-in actor groups, then the caller's own.
+      description: |
+        Readable without a session: a Guest receives the built-in (`SYSTEM`) groups only. Optionally
+        narrowed to one actor kind, because the product presents Institution groups and Congress groups
+        as two collections inside the Lists area.
+      x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: actorType
+          in: query
+          schema: { $ref: "#/components/schemas/AlternativeActorType" }
+      responses:
+        "200":
+          description: The groups the caller can use.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ActorGroupSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Alternative data]
+      operationId: createActorGroup
+      summary: Create an actor group.
+      description: |
+        A group holds one kind of actor and never mixes them: `actorType` is fixed at creation, because
+        a strategy scope may only reference a group of the kind its metric selects from.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateActorGroupRequest" }
+            examples:
+              superinvestors:
+                value:
+                  actorType: INSTITUTION
+                  name: "Superinvestors"
+                  description: "Managers whose 13F changes are worth watching"
+                  actorIds: ["6f1b0a1e-8a6c-4c1a-9f0e-2b6c4d8e1a33"]
+      responses:
+        "201":
+          description: The created group, with its members.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActorGroupDetail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /actor-groups/{groupId}:
+    parameters:
+      - { $ref: "#/components/parameters/GroupId" }
+    get:
+      tags: [Alternative data]
+      operationId: getActorGroup
+      summary: One actor group with its members.
+      description: Readable without a session for a built-in group; a customer group needs its owner.
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The group.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActorGroupDetail" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    patch:
+      tags: [Alternative data]
+      operationId: updateActorGroup
+      summary: Rename a group or change its description.
+      description: |
+        At least one of `name` or `description` must be present. `description: null` clears it. The
+        actor kind is never changed: a group that held the wrong kind would silently make every rule
+        scoped to it count nothing.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateActorGroupRequest" }
+      responses:
+        "200":
+          description: The updated summary.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActorGroupSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    delete:
+      tags: [Alternative data]
+      operationId: deleteActorGroup
+      summary: Delete an actor group.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: Deleted.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "409":
+          description: |
+            A strategy still references this group, or the group is built-in content, which is never
+            deleted (`SYSTEM_CONTENT_PROTECTED`). A referencing strategy would silently start counting
+            every actor instead of the curated set, so the strategy is changed first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /actor-groups/{groupId}/members:
+    parameters:
+      - { $ref: "#/components/parameters/GroupId" }
+    post:
+      tags: [Alternative data]
+      operationId: addActorGroupMembers
+      summary: Add actors to a group.
+      description: |
+        Idempotent — actors already in the group are skipped — so the handler reconciles state rather
+        than creating a resource, and answers `200` with the updated group. Every actor must exist and
+        be of the group's own kind.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddActorGroupMembersRequest" }
+      responses:
+        "200":
+          description: The group, with its members.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActorGroupDetail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /actor-groups/{groupId}/members/{actorId}:
+    parameters:
+      - { $ref: "#/components/parameters/GroupId" }
+      - { $ref: "#/components/parameters/ActorId" }
+    delete:
+      tags: [Alternative data]
+      operationId: removeActorGroupMember
+      summary: Remove one actor from a group.
+      description: Removing an actor that is not a member is a no-op, so a retry is harmless.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: Removed.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
 # =================================================================================================
 # Components
 # =================================================================================================
@@ -2420,6 +2675,17 @@ components:
       in: path
       required: true
       description: A stock-list membership id — not a security id.
+      schema: { type: string, format: uuid }
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ActorId:
+      name: actorId
+      in: path
+      required: true
+      description: A canonical actor id — not an external identifier such as a CIK.
       schema: { type: string, format: uuid }
     StrategyId:
       name: strategyId
@@ -3395,6 +3661,103 @@ components:
             code:
               type: string
               enum: [SYSTEM_CONTENT_READ_ONLY, SYSTEM_CONTENT_PROTECTED]
+
+    AlternativeActorType:
+      type: string
+      enum: [INSTITUTION, CONGRESS_PERSON]
+      description: |
+        The actor kinds the product gives a canonical identity to. Insider persons are deliberately
+        absent: V1 has no insider person groups, and insider metrics count distinct reporting CIKs
+        straight off the disclosures.
+
+    CongressChamber:
+      type: string
+      enum: [HOUSE, SENATE]
+
+    AlternativeDataActor:
+      type: object
+      required: [id, type, externalId, displayName]
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: "#/components/schemas/AlternativeActorType" }
+        externalId:
+          type: string
+          description: |
+            The regulator or provider identifier this actor **is**: a filer's CIK, a member's bioguide
+            id. Identity, not a label — two members may share a display name and a filer may be
+            renamed, and neither moves a group's membership.
+        displayName: { type: string }
+        chamber: { $ref: "#/components/schemas/CongressChamber" }
+        state: { type: string, maxLength: 8, description: Congress only. }
+        district:
+          type: string
+          maxLength: 16
+          description: Congress only. `TX17` for a House member; Senate rows carry none.
+        cik: { type: string, description: Institution only. }
+
+    ActorGroupSummary:
+      type: object
+      required:
+        [id, actorType, name, memberCount, createdAt, updatedAt, ownership, canEdit]
+      properties:
+        ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        systemKey: { type: string, description: The immutable identity of a built-in. }
+        canEdit:
+          type: boolean
+          description: Whether the caller may change it. Presentation only; the API authorizes every change.
+        id: { type: string, format: uuid }
+        actorType: { $ref: "#/components/schemas/AlternativeActorType" }
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        memberCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ActorGroupDetail:
+      allOf:
+        - $ref: "#/components/schemas/ActorGroupSummary"
+        - type: object
+          required: [members]
+          properties:
+            members:
+              type: array
+              description: Members in the order they were added.
+              items: { $ref: "#/components/schemas/AlternativeDataActor" }
+
+    CreateActorGroupRequest:
+      type: object
+      required: [actorType, name]
+      additionalProperties: false
+      properties:
+        actorType: { $ref: "#/components/schemas/AlternativeActorType" }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        actorIds:
+          type: array
+          maxItems: 100
+          items: { type: string, format: uuid }
+
+    UpdateActorGroupRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description:
+          type: [string, "null"]
+          maxLength: 500
+          description: "`null` clears the description."
+
+    AddActorGroupMembersRequest:
+      type: object
+      required: [actorIds]
+      additionalProperties: false
+      properties:
+        actorIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { type: string, format: uuid }
 
     StockListSummary:
       type: object

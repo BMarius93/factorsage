@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import {
+  alternativeDataActorType,
+  alternativeDataScope,
+  collectActorGroupIds,
+  collectAlternativeDataMetrics,
+  type BacktestSnapshotActorGroup,
+  type StrategyDefinition,
   backtestAnnualReturns,
   backtestPeriodYears,
   backtestTradeReason,
@@ -847,6 +853,12 @@ export class BacktestsService {
           left.securityId.localeCompare(right.securityId),
       );
 
+    // Actor groups are mutable configuration, exactly like the stock list above, so the run freezes
+    // their membership here. Execution resolves a `GROUP` scope through this frozen list and never
+    // through the database, which is what makes "editing a group never changes an existing run" a
+    // property of the data rather than a promise.
+    const actorGroups = await this.freezeActorGroups(user, definition);
+
     const snapshot: BacktestRunSnapshot = {
       snapshotVersion: BACKTEST_SNAPSHOT_VERSION,
       submittedAt: new Date().toISOString(),
@@ -860,6 +872,9 @@ export class BacktestsService {
       },
       stockList: { stockListId: stockList.id, name: stockList.name },
       securities,
+      // Omitted rather than written empty when the strategy references no group, so a snapshot only
+      // carries the field when it means something.
+      ...(actorGroups.length > 0 ? { actorGroups } : {}),
       period: { startDate: input.startDate, endDate: input.endDate },
       capital: {
         initialCapital: input.initialCapital,
@@ -1097,6 +1112,83 @@ export class BacktestsService {
       totalCount,
       pageCount,
     };
+  }
+
+  /**
+   * Freezes the membership of every actor group the strategy references.
+   *
+   * Three rules, and each is a refusal rather than a degradation:
+   *
+   * 1. **A group that no longer exists, or belongs to someone else, refuses the submission.** A run
+   *    that silently treated it as empty would execute a strategy that reads "any institution" while
+   *    its author wrote "Superinvestors", and would report a result nobody could explain.
+   * 2. **A group of the wrong actor type refuses it too.** A congressional metric scoped to an
+   *    institution group is meaningless, and it can only arise from a stale client or a hand-edited
+   *    document.
+   * 3. **An empty group is accepted.** It is a legitimate state — a group being built — and it counts
+   *    nothing, which is honest and what the evaluator already does.
+   *
+   * Members are frozen in the group's own order, and each carries its identity and its label so a
+   * completed run can still name the actors it counted after a rename or a deletion.
+   */
+  private async freezeActorGroups(
+    user: AuthUser,
+    definition: StrategyDefinition,
+  ): Promise<BacktestSnapshotActorGroup[]> {
+    const metrics = collectAlternativeDataMetrics(definition);
+    const groupIds = collectActorGroupIds(metrics);
+    if (groupIds.length === 0) {
+      return [];
+    }
+    const groups = await this.prisma.actorGroup.findMany({
+      where: { id: { in: groupIds }, ...readableWhere(user) },
+      include: {
+        members: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            actor: {
+              select: { id: true, externalId: true, displayName: true },
+            },
+          },
+        },
+      },
+    });
+    const byId = new Map(groups.map((group) => [group.id, group]));
+    const frozen: BacktestSnapshotActorGroup[] = [];
+    for (const metric of metrics) {
+      const scope = alternativeDataScope(metric);
+      if (scope?.kind !== "GROUP") {
+        continue;
+      }
+      const group = byId.get(scope.groupId);
+      if (!group) {
+        throw new BacktestConfigurationError(
+          "This strategy references an actor group that no longer exists; edit the strategy before running it",
+        );
+      }
+      const expected = alternativeDataActorType(metric.kind);
+      if (expected && group.actorType !== expected) {
+        throw new BacktestConfigurationError(
+          `The group \`${group.name}\` does not hold the kind of actor this strategy's rule counts`,
+        );
+      }
+      if (frozen.some((entry) => entry.groupId === group.id)) {
+        continue;
+      }
+      frozen.push({
+        groupId: group.id,
+        name: group.name,
+        actorType: group.actorType,
+        members: group.members.map((member) => ({
+          actorId: member.actor.id,
+          externalId: member.actor.externalId,
+          displayName: member.actor.displayName,
+        })),
+      });
+    }
+    // Sorted so two submissions of one configuration produce byte-identical documents, exactly as the
+    // securities list is sorted — which is what keeps `snapshotHash` an identity of inputs.
+    return frozen.sort((left, right) => left.groupId.localeCompare(right.groupId));
   }
 
   /**
