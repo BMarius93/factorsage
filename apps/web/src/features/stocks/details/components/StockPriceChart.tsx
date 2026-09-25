@@ -3,6 +3,7 @@
 import {
   AreaSeries,
   createChart,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   type IChartApi,
@@ -14,13 +15,19 @@ import {
 import { useEffect, useMemo, useRef } from "react";
 import type { LogicalRange, TimeDomain } from "../../../../components/charts/time-domain";
 import { useBoundedTimeScale } from "../../../../components/charts/use-bounded-time-scale";
+import { RELATIVE_VOLUME_PERIODS, relativeVolumeLabel } from "@intrinsic/contracts";
+import type { RelativeVolumeValuesResponse } from "@intrinsic/contracts";
 import type {
   ChartLinePoint,
   ChartOverlaySeries,
   ChartPoint,
 } from "../utils/chart-series";
 import { CHART_COLORS } from "../utils/chart-theme";
-import { formatLocalDate, formatMoney } from "../utils/format";
+import {
+  formatCompactNumber,
+  formatLocalDate,
+  formatMoney,
+} from "../utils/format";
 import { HISTORY_EDGE_TRIGGER_BARS } from "../utils/history-window";
 import styles from "./StockPriceChart.module.css";
 
@@ -30,10 +37,34 @@ import styles from "./StockPriceChart.module.css";
  * reference lines, and the price chart's time scale and crosshair by construction. The library
  * creates the pane with the first series placed into it and removes it again with the last one.
  */
-const OSCILLATOR_PANE_INDEX = 1;
+const OSCILLATOR_PANE_INDEX = 2;
+
+/**
+ * The volume pane, directly below the price pane and **always present**.
+ *
+ * Volume rides on every price bar, so unlike the oscillator pane this one is not created and
+ * destroyed by a selection: it exists for as long as the chart does, which is what makes the
+ * oscillator pane's index a constant rather than something to compute. Volume is a share count and
+ * the price is money, so the two can never share an axis — a pane rather than an overlay is the
+ * same decision the oscillators already made, for the same reason.
+ */
+const VOLUME_PANE_INDEX = 1;
 
 /** Relative height of the oscillator pane; the price pane keeps its default factor of 1. */
 const OSCILLATOR_PANE_STRETCH = 0.35;
+
+/**
+ * Relative height of the volume pane.
+ *
+ * **Stretch factors are relative, and the price pane's own is 2, not 1** — Lightweight Charts
+ * creates its default pane at `DEFAULT_STRETCH_FACTOR * 2` while every added pane starts at 1. A
+ * factor chosen as though the price pane were 1 collapses the pane it names to a sliver, which is
+ * exactly what `0.2` did here. Against 2 this yields a little under a fifth of the chart, and the
+ * wrapper grows by the same amount, so the price pane keeps the height it always had: the price
+ * chart stays the primary chart, and volume is read as shape and relative height rather than off
+ * an axis.
+ */
+const VOLUME_PANE_STRETCH = 0.45;
 
 /**
  * The 30/50/70 orientation levels, rendered once per pane on the canonically first oscillator
@@ -85,9 +116,32 @@ function formatOscillatorValue(value: number): string {
   return value.toFixed(1);
 }
 
+/** Volume is a share count, never money: `8_420_000` reads as `8.4M`. */
+function formatVolumeValue(value: number): string {
+  return formatCompactNumber(value);
+}
+
+/** Relative Volume is a multiple of its own baseline: `2.31` reads as `2.31x`. */
+function formatRelativeVolumeValue(value: number): string {
+  return `${value.toFixed(2)}x`;
+}
+
 export type StockPriceChartProps = {
   /** Ascending daily closing prices for the selected range. */
   readonly points: readonly ChartPoint[];
+  /**
+   * Ascending daily traded volume for the same sessions, drawn as the histogram below the price.
+   * It shares the price series' time scale by construction: both come from the same canonical bars.
+   */
+  readonly volume: readonly ChartPoint[];
+  /**
+   * The precomputed Relative Volume readings per session, keyed by date.
+   *
+   * Reported in the hover legend rather than drawn: three permanent lines would compete with the
+   * price for attention while saying something the volume bars already show the shape of. Nothing
+   * is calculated here — these are the values the backend materialized.
+   */
+  readonly relativeVolume: ReadonlyMap<string, RelativeVolumeValuesResponse>;
   /** Overlay lines currently enabled; order controls legend order. */
   readonly overlays: readonly ChartOverlaySeries[];
   readonly currency: string;
@@ -127,6 +181,7 @@ export type StockPriceChartProps = {
 type CrosshairContext = {
   overlays: readonly ChartOverlaySeries[];
   currency: string;
+  relativeVolume: ReadonlyMap<string, RelativeVolumeValuesResponse>;
 };
 
 function legendRow(label: string, value: string, color?: string): HTMLElement {
@@ -165,6 +220,8 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
  */
 export function StockPriceChart({
   points,
+  volume,
+  relativeVolume,
   overlays,
   currency,
   loading = false,
@@ -181,6 +238,7 @@ export function StockPriceChart({
   const legendRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const priceSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const overlaySeriesRef = useRef(new Map<string, ISeriesApi<"Line">>());
   /** Overlay ids drawn on the price scale, so a currency change re-formats exactly those. */
   const priceScaledOverlaysRef = useRef(new Set<string>());
@@ -196,8 +254,12 @@ export function StockPriceChart({
     lines: IPriceLine[];
   } | null>(null);
   // The crosshair handler is subscribed once; refs keep it reading current props.
-  const crosshairContextRef = useRef<CrosshairContext>({ overlays, currency });
-  crosshairContextRef.current = { overlays, currency };
+  const crosshairContextRef = useRef<CrosshairContext>({
+    overlays,
+    currency,
+    relativeVolume,
+  });
+  crosshairContextRef.current = { overlays, currency, relativeVolume };
   // The time-scale subscription is registered once too, and reaching the history edge is reported
   // through a ref for the same reason: it must keep calling the current handler without
   // resubscribing, and without a viewport change ever costing a render.
@@ -318,6 +380,27 @@ export function StockPriceChart({
       priceFormat: { type: "custom", formatter: moneyFormatterRef.current },
     });
 
+    // Volume goes into its own always-present pane: a share count has no business on the price
+    // scale, and the histogram's own `priceFormat` keeps its axis reading as a count rather than
+    // as money. Its scale margins leave the bars sitting on the pane's floor.
+    const volumeSeries = chart.addSeries(
+      HistogramSeries,
+      {
+        color: CHART_COLORS.volume,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat: {
+          type: "custom",
+          formatter: formatVolumeValue,
+          minMove: 1,
+        },
+      },
+      VOLUME_PANE_INDEX,
+    );
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.1, bottom: 0 },
+    });
+
     const onCrosshairMove = (param: MouseEventParams<Time>) => {
       const legend = legendRef.current;
       if (!legend) {
@@ -330,8 +413,11 @@ export function StockPriceChart({
         legend.hidden = true;
         return;
       }
-      const { overlays: currentOverlays, currency: currentCurrency } =
-        crosshairContextRef.current;
+      const {
+        overlays: currentOverlays,
+        currency: currentCurrency,
+        relativeVolume: currentRelativeVolume,
+      } = crosshairContextRef.current;
       legend.replaceChildren(legendRow(formatLocalDate(String(param.time)), ""));
       legend.append(
         legendRow(
@@ -340,6 +426,35 @@ export function StockPriceChart({
           CHART_COLORS.price,
         ),
       );
+      const volumeData = param.seriesData.get(volumeSeries) as
+        | { value?: number }
+        | undefined;
+      if (volumeData?.value !== undefined) {
+        legend.append(
+          legendRow(
+            "Volume",
+            formatVolumeValue(volumeData.value),
+            CHART_COLORS.volume,
+          ),
+        );
+      }
+      // The three precomputed readings for the hovered session, in canonical period order. A
+      // period still inside its warm-up has no entry and is simply not listed — the legend never
+      // prints a multiple the backend did not materialize.
+      const readings = currentRelativeVolume.get(String(param.time));
+      if (readings) {
+        for (const period of RELATIVE_VOLUME_PERIODS) {
+          const value = readings[`rvol${period}` as keyof typeof readings];
+          if (value !== undefined) {
+            legend.append(
+              legendRow(
+                relativeVolumeLabel(period),
+                formatRelativeVolumeValue(value),
+              ),
+            );
+          }
+        }
+      }
       for (const overlay of currentOverlays) {
         const series = overlaySeriesRef.current.get(overlay.id);
         const data = series
@@ -364,6 +479,7 @@ export function StockPriceChart({
 
     chartRef.current = chart;
     priceSeriesRef.current = priceSeries;
+    volumeSeriesRef.current = volumeSeries;
     const overlaySeries = overlaySeriesRef.current;
     const priceScaledOverlays = priceScaledOverlaysRef.current;
     // Binds the domain: the edge pins, the gesture options, and the one subscription that reports
@@ -379,6 +495,7 @@ export function StockPriceChart({
       chart.remove();
       chartRef.current = null;
       priceSeriesRef.current = null;
+      volumeSeriesRef.current = null;
       overlaySeries.clear();
       priceScaledOverlays.clear();
       oscillatorReferenceRef.current = null;
@@ -421,6 +538,15 @@ export function StockPriceChart({
     priceSeries.setData(
       points.map((point) => ({ time: point.date as Time, value: point.value })),
     );
+    // Written in the same effect as the price series so both panes always describe one window: a
+    // separate effect could leave the volume pane a render behind during a history prepend, and
+    // the logical-range shift below would then be applied against two different bar counts.
+    volumeSeriesRef.current?.setData(
+      volume.map((point) => ({ time: point.date as Time, value: point.value })),
+    );
+    // Keep the price pane dominant. Applied here rather than once at creation because the library
+    // resets pane stretch factors when a pane is added or removed beneath this one.
+    chart.panes()[VOLUME_PANE_INDEX]?.setStretchFactor(VOLUME_PANE_STRETCH);
     drawnOldestRef.current = points[0]?.date;
 
     // Older history arrived. Shifting the logical range by exactly the number of bars that
@@ -448,7 +574,7 @@ export function StockPriceChart({
     // Through the bounded scale rather than the time scale directly, so framing is the same
     // bounded code path as a reset and cannot put the viewport somewhere a gesture could not.
     applyFrame(frameFrom, frameTo);
-  }, [points, fitKey, frameFrom, frameTo, applyFrame]);
+  }, [points, volume, fitKey, frameFrom, frameTo, applyFrame]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -556,6 +682,9 @@ export function StockPriceChart({
       const oscillatorPane = chart.panes()[OSCILLATOR_PANE_INDEX];
       oscillatorPane?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
     }
+    // Adding or removing the oscillator pane resets the stretch factors, so the volume pane is
+    // restated here too rather than being left at the library's default once an RSI is toggled.
+    chart.panes()[VOLUME_PANE_INDEX]?.setStretchFactor(VOLUME_PANE_STRETCH);
     // Deliberately no fitContent here: enabling or disabling an overlay is not a request to
     // reframe the history the user has scrolled to.
   }, [overlays]);
@@ -591,6 +720,9 @@ export function StockPriceChart({
       // Bars on the scale, so a browser test can say "the viewport never ran past the newest bar"
       // in the logical terms the right-hand bound is expressed in.
       data-bar-count={points.length}
+      // Volume lives on the canvas like the price does, so the count of drawn bars is published
+      // the same way: this is how a browser test asserts the histogram was actually given data.
+      data-volume-bars={volume.length}
       data-oscillator-pane={hasOscillatorPane ? "true" : undefined}
       // The reference levels are drawn on canvas, so this is the DOM-visible contract the
       // browser tests assert them through.

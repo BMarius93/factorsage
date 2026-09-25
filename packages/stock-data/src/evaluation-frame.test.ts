@@ -4,11 +4,14 @@ import type {
   Security,
 } from "@intrinsic/domain";
 import {
+  collectOperands,
   marginOfSafetyOperand,
   PRICE_OPERAND,
   readOperand,
+  relativeVolumeOperand,
   seriesOperand,
 } from "@intrinsic/strategy";
+import { STRATEGY_SCHEMA_VERSION } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 
@@ -186,5 +189,97 @@ describe("evaluation frame projection", () => {
     expect(readOperand(frame, seriesOperand("SMA_20D"), 0)).toBe(9);
     expect(readOperand(frame, seriesOperand("SMA_20D"), 1)).toBeNaN();
     expect(frame.dates).toHaveLength(2);
+  });
+});
+
+describe("relative volume is read, never recalculated", () => {
+  it("reads the materialized value for the period the metric names", () => {
+    // The three periods live on one row, and each operand must read its own column: a projector
+    // that fell back to a single "relative volume" field would answer 2.5 for all three.
+    const { frame } = projectEvaluationFrame({
+      security,
+      prices: [price("2020-01-02", 10), price("2020-01-03", 11)],
+      derived: [
+        derived("2020-01-02", { rvol10: 1.1, rvol20: 1.2, rvol50: 1.3 }),
+        derived("2020-01-03", { rvol10: 2.5, rvol20: 1.9, rvol50: 1.6 }),
+      ],
+      operands: [
+        relativeVolumeOperand(10),
+        relativeVolumeOperand(20),
+        relativeVolumeOperand(50),
+      ],
+      periodStart: "2020-01-01",
+    });
+
+    expect(readOperand(frame, relativeVolumeOperand(10), 1)).toBe(2.5);
+    expect(readOperand(frame, relativeVolumeOperand(20), 1)).toBe(1.9);
+    expect(readOperand(frame, relativeVolumeOperand(50), 1)).toBe(1.6);
+  });
+
+  it("does not derive a value from the bar's own volume", () => {
+    // The price rows carry a volume; the derived row carries no `rvol20`. The column must be
+    // absent rather than recomputed here — evaluation reads what ingestion materialized, and a
+    // projector that quietly divided volumes would be a second RVOL implementation.
+    const { frame } = projectEvaluationFrame({
+      security,
+      prices: [price("2020-01-02", 10), price("2020-01-03", 11)],
+      derived: [derived("2020-01-02"), derived("2020-01-03")],
+      operands: [relativeVolumeOperand(20)],
+      periodStart: "2020-01-01",
+    });
+
+    expect(readOperand(frame, relativeVolumeOperand(20), 1)).toBeNaN();
+  });
+
+  it("is NOT_EVALUABLE during warm-up rather than defaulting to a neutral 1x", () => {
+    const { frame } = projectEvaluationFrame({
+      security,
+      prices: [price("2020-01-02", 10), price("2020-01-03", 11)],
+      derived: [derived("2020-01-02"), derived("2020-01-03", { rvol20: 2.2 })],
+      operands: [relativeVolumeOperand(20)],
+      periodStart: "2020-01-01",
+    });
+
+    expect(readOperand(frame, relativeVolumeOperand(20), 0)).toBeNaN();
+    expect(readOperand(frame, relativeVolumeOperand(20), 1)).toBe(2.2);
+  });
+
+  it("keeps a real zero reading distinct from absence", () => {
+    const { frame } = projectEvaluationFrame({
+      security,
+      prices: [price("2020-01-02", 10)],
+      derived: [derived("2020-01-02", { rvol20: 0 })],
+      operands: [relativeVolumeOperand(20)],
+      periodStart: "2020-01-01",
+    });
+
+    expect(readOperand(frame, relativeVolumeOperand(20), 0)).toBe(0);
+  });
+
+  it("projects exactly the periods a strategy names, and no others", () => {
+    // Only the referenced column is materialized, which is what keeps a long multi-security run
+    // in tens of megabytes; a strategy naming RVOL 20 must not pull RVOL 10 and RVOL 50 with it.
+    const operands = collectOperands({
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "buy-1",
+          percentage: 25,
+          signal: {
+            conditions: [
+              {
+                id: "condition-1",
+                metric: { kind: "RELATIVE_VOLUME", period: 20 },
+                operator: "IS_ABOVE",
+                value: { kind: "MULTIPLE", value: 2 },
+              },
+            ],
+          },
+        },
+      ],
+      sellLevels: [],
+    });
+
+    expect(operands).toEqual([PRICE_OPERAND, relativeVolumeOperand(20)].sort());
   });
 });

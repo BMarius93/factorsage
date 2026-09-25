@@ -6,17 +6,27 @@ import {
 import {
   DAILY_MOVING_AVERAGES,
   DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
   type DailyDerivedState,
   type DailyPrice,
   type Instant,
   type LocalDate,
   type Security,
 } from "@intrinsic/domain";
-import { operandSeriesId, type EvaluationFrame, type OperandKey } from "@intrinsic/strategy";
+import {
+  operandRelativeVolumePeriod,
+  operandSeriesId,
+  type EvaluationFrame,
+  type OperandKey,
+} from "@intrinsic/strategy";
 import {
   calculateDailyOscillators,
   type DailyOscillatorSubset,
 } from "./oscillators.js";
+import {
+  calculateDailyRelativeVolumes,
+  type DailyRelativeVolumeSubset,
+} from "./relative-volume.js";
 import { calculateDailyTechnicals, type DailyMovingAverageSubset } from "./technicals.js";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 import { isWeekend } from "./trading-calendar.js";
@@ -74,6 +84,8 @@ function convergenceObservations(alpha: number): number {
  * - `EMA(p)` seeds from the first complete-window SMA, then smooths with `alpha = 2 / (p + 1)`.
  * - Wilder `RSI(p)` seeds from the mean of the first `p` changes, then smooths with `alpha = 1 / p`.
  *   Its first value needs `p + 1` closes, because `p` changes need `p + 1` observations.
+ * - `RVOL(p)` is a plain window over the `p` sessions *before* the one being measured, so it needs
+ *   `p + 1` observations and is exact — it carries no seed and therefore no convergence term.
  *
  * Derived from the canonical registry entry rather than from a table of periods, so registering a
  * longer series widens the window automatically — the same rule `DERIVED_SERIES_WARMUP_DAYS`
@@ -83,8 +95,12 @@ function convergenceObservations(alpha: number): number {
 export function dailySeriesWarmupObservations(
   series:
     | { kind: "MOVING_AVERAGE"; type: "SMA" | "EMA"; period: number }
-    | { kind: "OSCILLATOR"; period: number },
+    | { kind: "OSCILLATOR"; period: number }
+    | { kind: "RELATIVE_VOLUME"; period: number },
 ): number {
+  if (series.kind === "RELATIVE_VOLUME") {
+    return series.period + 1;
+  }
   if (series.kind === "OSCILLATOR") {
     return series.period + 1 + convergenceObservations(1 / series.period);
   }
@@ -98,19 +114,22 @@ export function dailySeriesWarmupObservations(
 export type RequiredDailySeries = {
   movingAverages: DailyMovingAverageSubset;
   oscillators: DailyOscillatorSubset;
+  relativeVolumes: DailyRelativeVolumeSubset;
 };
 
 /**
  * Resolves which **daily** catalog series the requested operands reference.
  *
- * Only daily moving averages and daily oscillators are returned, because only those can be
- * recalculated against a provisional current observation from a bounded daily window. Weekly
- * moving averages and intrinsic values are not: a weekly series counts completed weeks, and an
- * intrinsic value is a point-in-time valuation of fundamentals. Both are read from the persisted
- * canonical state and carried forward instead — see {@link projectMonitorEvaluationFrame}.
+ * Only the **daily** families are returned — moving averages, oscillators and Relative Volume —
+ * because only those can be recalculated against a provisional current observation from a bounded
+ * daily window. Weekly moving averages and intrinsic values are not: a weekly series counts
+ * completed weeks, and an intrinsic value is a point-in-time valuation of fundamentals. Both are
+ * read from the persisted canonical state and carried forward instead — see
+ * {@link projectMonitorEvaluationFrame}.
  *
- * Identity comes from the canonical catalog, never from parsing an operand key apart beyond its
- * one documented prefix, and never from re-deriving a field name from an id.
+ * Identity comes from the canonical catalog for catalog-backed series, and from the operand
+ * module's own decoder for Relative Volume, which has no catalog id. Nothing here parses a key
+ * apart itself or re-derives a field name from an id.
  */
 export function requiredDailySeries(
   operands: readonly OperandKey[],
@@ -133,12 +152,21 @@ export function requiredDailySeries(
       .map((source) => (source as { field: string }).field),
   );
 
+  const relativeVolumePeriods = new Set(
+    operands
+      .map(operandRelativeVolumePeriod)
+      .filter((period) => period !== null),
+  );
+
   return {
     movingAverages: DAILY_MOVING_AVERAGES.filter((average) =>
       fields.has(average.field),
     ),
     oscillators: DAILY_OSCILLATORS.filter((oscillator) =>
       fields.has(oscillator.field),
+    ),
+    relativeVolumes: DAILY_RELATIVE_VOLUMES.filter((entry) =>
+      relativeVolumePeriods.has(entry.period),
     ),
   };
 }
@@ -172,6 +200,15 @@ export function monitorWindowObservations(
       dailySeriesWarmupObservations({
         kind: "OSCILLATOR",
         period: oscillator.period,
+      }) + 1,
+    );
+  }
+  for (const relativeVolume of required.relativeVolumes) {
+    observations = Math.max(
+      observations,
+      dailySeriesWarmupObservations({
+        kind: "RELATIVE_VOLUME",
+        period: relativeVolume.period,
       }) + 1,
     );
   }
@@ -338,6 +375,20 @@ export function projectMonitorEvaluationFrame(input: {
       dailyByDate.set(row.date, existing ? { ...existing, ...row } : row);
     }
   }
+  if (required.relativeVolumes.length > 0) {
+    // Recomputed over the same one price array as the other daily families, for the same reason:
+    // the provisional session has no persisted RVOL, and computing only that row while reading
+    // persisted values for its neighbours would mix two windows across the pair a Trigger
+    // compares. RVOL is exact over `period + 1` observations, so the bounded window reproduces the
+    // canonical materialized values for every closed row it covers.
+    for (const row of calculateDailyRelativeVolumes(
+      rows,
+      required.relativeVolumes,
+    )) {
+      const existing = dailyByDate.get(row.date);
+      dailyByDate.set(row.date, existing ? { ...existing, ...row } : row);
+    }
+  }
 
   const persistedByDate = new Map<LocalDate, DailyDerivedState>();
   for (const row of input.derived) {
@@ -387,10 +438,18 @@ export function projectMonitorEvaluationFrame(input: {
 /**
  * The provisional bar for the current trading day.
  *
- * `close` is the current traded price — that is the whole point of a provisional observation, and
- * it is the only field any Strategy predicate reads. The OHLC fields are filled from the quote
- * where the provider supplied them and fall back to the current price rather than to the previous
- * close, so the bar is internally consistent; `vwap` is deliberately never invented.
+ * `close` is the current traded price — that is the whole point of a provisional observation. The
+ * OHLC fields are filled from the quote where the provider supplied them and fall back to the
+ * current price rather than to the previous close, so the bar is internally consistent; `vwap` is
+ * deliberately never invented.
+ *
+ * **Volume is not invented either.** A quote the provider reported without a volume carries `NaN`
+ * rather than `0`, because those are different statements: zero would say the session has traded
+ * nothing, which reads as a genuine `RVOL 20 = 0` — below every threshold a Strategy could name,
+ * and therefore a match for `RVOL 20 is below 0.5x` manufactured out of a missing field. `NaN` is
+ * the frame's one representation of absence and makes every volume-derived value NOT_EVALUABLE
+ * for the session instead, which is the honest outcome. Nothing persists a provisional bar, so no
+ * `NaN` can reach a stored row.
  */
 function provisionalBar(
   securityId: string,
@@ -406,7 +465,7 @@ function provisionalBar(
     high: finiteOr(observation.dayHigh, Math.max(open, price)),
     low: finiteOr(observation.dayLow, Math.min(open, price)),
     close: price,
-    volume: finiteOr(observation.volume, 0),
+    volume: finiteOr(observation.volume, Number.NaN),
   };
 }
 
@@ -424,6 +483,9 @@ function blankDailyFields(
   }
   for (const oscillator of required.oscillators) {
     blank[oscillator.field] = undefined;
+  }
+  for (const relativeVolume of required.relativeVolumes) {
+    blank[relativeVolume.field] = undefined;
   }
   return blank;
 }
@@ -444,6 +506,12 @@ function dailyFieldsOf(
     const value = row[oscillator.field];
     if (value !== undefined) {
       fields[oscillator.field] = value;
+    }
+  }
+  for (const relativeVolume of required.relativeVolumes) {
+    const value = row[relativeVolume.field];
+    if (value !== undefined) {
+      fields[relativeVolume.field] = value;
     }
   }
   return fields;

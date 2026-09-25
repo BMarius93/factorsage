@@ -542,9 +542,21 @@ above is what the metric means and does not depend on that answer.
 | Price                                           | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series                                                | BUY, SELL, FINAL EXIT |
 | Moving average (any of the 14 canonical series) | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | the canonical compatible moving averages for that series — same timeframe, never itself | BUY, SELL, FINAL EXIT |
 | RSI 7D / 14D / 21D                              | `is above`, `is below`                | `crosses above`, `crosses below` | user-entered numeric threshold `1..100`                                                 | BUY, SELL, FINAL EXIT |
+| RVOL 10 / 20 / 50                               | `is above`, `is below`                | **none — condition only**        | user-entered multiple `>= 0`, rendered `2.0x`                                           | BUY, SELL, FINAL EXIT |
 | Margin of Safety · selected IV source           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
 | Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
 | Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
+
+**Relative Volume is the one Condition-only metric**, and the empty Trigger column is a product
+decision rather than an omission. A Trigger is a crossing event; the Monitor's existing
+not-matched -> matched transition already emits a Signal on the session `RVOL 20 is above 2.0x`
+first holds, so a `crosses above` form would be a second, differently latched way to say the same
+thing. The registry expresses this as an empty `triggerOperators` list, which is what removes the
+metric from the Builder's Trigger row and what validation rejects a stored document by. The three
+periods are fixed presets — 10, 20 and 50 **trading sessions**, default 20 — and a custom window is
+deliberately not offered: each period is a persisted column, not a parameter evaluated on demand.
+Scope is Volume and these three periods; no average volume, dollar volume, volume change, OBV or
+volume oscillator is part of it.
 
 This is the current baseline, not a declaration that these are the only eventual metrics.
 Additional technical metrics, fundamentals and other derived metrics must be added deliberately with

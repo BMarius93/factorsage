@@ -101,6 +101,7 @@ export function PredicateRow({
       <div className={styles.predicateFields}>
         <MetricSelect
           levelKind={levelKind}
+          part={ref_.part}
           metric={row.metric}
           unset={unset}
           label="Metric"

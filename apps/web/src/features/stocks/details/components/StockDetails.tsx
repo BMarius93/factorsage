@@ -17,7 +17,11 @@ import type { StockHistoryWindow } from "../api/stock-details-api";
 import { useIndicatorSelection } from "../hooks/use-indicator-selection";
 import { useStockDetails } from "../hooks/use-stock-details";
 import { useStockHistory } from "../hooks/use-stock-history";
-import { closeSeries } from "../utils/chart-series";
+import {
+  closeSeries,
+  relativeVolumeByDate,
+  volumeSeries,
+} from "../utils/chart-series";
 import { historyRequestStart } from "../utils/history-window";
 import {
   availableSeriesIds,
@@ -242,6 +246,18 @@ function StockDetailsContent({
     () => closeSeries(loaded.history.prices),
     [loaded.history.prices],
   );
+  // Volume rides on the same canonical bars as the close, so it needs no second request and is
+  // already aligned to the chart's session axis.
+  const chartVolume = useMemo(
+    () => volumeSeries(loaded.history.prices),
+    [loaded.history.prices],
+  );
+  // The precomputed Relative Volume readings, taken straight off the daily technical rows. The
+  // page never calculates one: the backend materialized them when the derived state was prepared.
+  const chartRelativeVolume = useMemo(
+    () => relativeVolumeByDate(loaded.history.technicals),
+    [loaded.history.technicals],
+  );
   // The close series is the chart's trading-day axis: every overlay is aligned to it so a day a
   // series has no value for stays visibly absent instead of being drawn through.
   const tradingDays = useMemo(
@@ -301,6 +317,8 @@ function StockDetailsContent({
         >
           <StockPriceChart
             points={chartPoints}
+            volume={chartVolume}
+            relativeVolume={chartRelativeVolume}
             overlays={chartOverlays}
             currency={security.currency}
             loading={loaded.status === "loading"}

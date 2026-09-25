@@ -112,6 +112,35 @@ async function dragChart(page: Page, dx: number): Promise<void> {
   await page.mouse.up();
 }
 
+test.describe("PRO_USER Stock Details volume", () => {
+  test("draws a volume bar per session and reports the RVOL readings on hover", async ({
+    page,
+  }) => {
+    await openStock(page);
+    const wrapper = chartWrapper(page);
+
+    // One histogram bar per drawn session. The bars live on a canvas, so the count is asserted
+    // through the same DOM contract the viewport is: equal to the price series' own bar count is
+    // what "aligned to the session timeline" means here.
+    const barCount = await wrapper.getAttribute("data-bar-count");
+    expect(Number(barCount)).toBeGreaterThan(0);
+    await expect(wrapper).toHaveAttribute("data-volume-bars", barCount!);
+
+    // Hovering the plot reports the hovered session's volume and its precomputed Relative Volume
+    // readings — a share count, never money, and multiples carrying their unit.
+    const box = await priceChart(page).boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width * 0.7, box!.y + box!.height * 0.4);
+    const legend = page.getByTestId("chart-legend");
+    await expect(legend).toContainText(/Volume\s*[\d.]+[KMB]/);
+    await expect(legend).toContainText(/RVOL 10\s*\d+\.\d{2}x/);
+    await expect(legend).toContainText(/RVOL 20\s*\d+\.\d{2}x/);
+    await expect(legend).toContainText(/RVOL 50\s*\d+\.\d{2}x/);
+    // A share count is not a price: the volume row must never be money-formatted.
+    await expect(legend).not.toContainText(/Volume\s*\$/);
+  });
+});
+
 test.describe("PRO_USER Stock Details price chart navigation", () => {
   test("pans through history by dragging @smoke", async ({ page }) => {
     await openStock(page);

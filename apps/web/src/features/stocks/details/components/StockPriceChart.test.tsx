@@ -9,6 +9,9 @@ type FakeSeries = {
   applyOptions: Mock;
   createPriceLine: Mock;
   removePriceLine: Mock;
+  /** The series' own price scale; the volume histogram applies its scale margins through it. */
+  priceScale: Mock;
+  scaleOptions: Record<string, unknown>;
 };
 
 type FakePane = { setStretchFactor: Mock };
@@ -86,7 +89,9 @@ vi.mock("lightweight-charts", () => {
     const chart: FakeChart = {
       options,
       addedSeries: [],
+      // Price, volume, oscillator: the volume pane is always present, so there are three.
       panesList: [
+        { setStretchFactor: vi.fn() },
         { setStretchFactor: vi.fn() },
         { setStretchFactor: vi.fn() },
       ],
@@ -105,6 +110,12 @@ vi.mock("lightweight-charts", () => {
             // track which specific lines are still attached to which series.
             createPriceLine: vi.fn((options: { price: number }) => ({ options })),
             removePriceLine: vi.fn(),
+            scaleOptions: {},
+            priceScale: vi.fn(() => ({
+              applyOptions: vi.fn((next: Record<string, unknown>) => {
+                Object.assign(api.scaleOptions, next);
+              }),
+            })),
           };
           chart.addedSeries.push({ definition, options, paneIndex, api });
           return api;
@@ -128,6 +139,7 @@ vi.mock("lightweight-charts", () => {
   return {
     createChart: createChartMock,
     AreaSeries: "AreaSeries",
+    HistogramSeries: "HistogramSeries",
     LineSeries: "LineSeries",
     LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
   };
@@ -177,6 +189,26 @@ function leadBarsFor(oldest: string): number {
 }
 
 /**
+ * Daily volume for the same sessions as `POINTS`.
+ *
+ * Most suites assert nothing about it — the histogram is always drawn, so it is simply part of a
+ * valid render, and the volume-specific behaviour has its own suite below.
+ */
+const VOLUME = [
+  { date: "2026-08-27", value: 41_237_500 },
+  { date: "2026-08-28", value: 52_100_000 },
+] as const;
+
+/**
+ * No Relative Volume readings: the warm-up state, and the default for every suite that is not
+ * about the legend. A session with no entry must leave the legend silent rather than print a zero.
+ */
+const NO_RELATIVE_VOLUME = new Map<
+  string,
+  { rvol10?: number; rvol20?: number; rvol50?: number }
+>();
+
+/**
  * The window a selected range asks the chart to show. The default asks for exactly what `POINTS`
  * holds, which is the ordinary case: the range fits inside the loaded history, so framing it is
  * `fitContent()`.
@@ -196,6 +228,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -226,6 +260,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[overlay]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -234,7 +270,8 @@ describe("StockPriceChart", () => {
     );
 
     const chart = lastChart();
-    const overlaySeries = chart.addedSeries[1];
+    // 0 is the price area, 1 is the always-present volume histogram; overlays follow.
+    const overlaySeries = chart.addedSeries[2];
     expect(overlaySeries?.definition).toBe("LineSeries");
     expect(overlaySeries?.options.color).toBe(overlayColorAt(0));
     expect(overlaySeries?.api.setData).toHaveBeenCalledWith([
@@ -245,6 +282,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -263,6 +302,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[priceOverlay(0), rsiOverlay("RSI_14D", "RSI 14D", 1, 54.32)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -279,7 +320,8 @@ describe("StockPriceChart", () => {
     const formatterOf = (options: Record<string, unknown>) =>
       (options.priceFormat as { formatter: (value: number) => string })
         .formatter;
-    const [price, overlay, oscillator] = chart.addedSeries;
+    const [price, volumeHistogram, overlay, oscillator] = chart.addedSeries;
+    expect(formatterOf(volumeHistogram!.options)(41_237_500)).toBe("41.2M");
     expect(formatterOf(price!.options)(232.139)).toBe("$232.14");
     expect(formatterOf(overlay!.options)(232.139)).toBe("$232.14");
     // The oscillator reads as a bare number on its own axis, in both panes' crosshair labels.
@@ -306,6 +348,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[overlay]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -313,7 +357,7 @@ describe("StockPriceChart", () => {
       />,
     );
 
-    const written = lastChart().addedSeries[1]?.api.setData.mock
+    const written = lastChart().addedSeries[2]?.api.setData.mock
       .calls[0]?.[0] as Array<Record<string, unknown>>;
     expect(written).toEqual([
       // Painting the point *before* the gap transparent is what removes the bridging segment:
@@ -357,6 +401,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={overlays}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -370,15 +416,17 @@ describe("StockPriceChart", () => {
     ) => void;
     const seriesData = new Map<unknown, { value: number }>([
       [chart.addedSeries[0]?.api, { value: 232 }],
-      [chart.addedSeries[1]?.api, { value: 220 }],
-      [chart.addedSeries[2]?.api, { value: 216 }],
-      [chart.addedSeries[3]?.api, { value: 290 }],
+      [chart.addedSeries[1]?.api, { value: 52_100_000 }],
+      [chart.addedSeries[2]?.api, { value: 220 }],
+      [chart.addedSeries[3]?.api, { value: 216 }],
+      [chart.addedSeries[4]?.api, { value: 290 }],
     ]);
     onCrosshairMove({ time: "2026-08-28", seriesData });
 
     const legend = screen.getByTestId("chart-legend");
     expect(legend.hidden).toBe(false);
     expect(legend.textContent).toContain("Close$232.00");
+    expect(legend.textContent).toContain("Volume52.1M");
     expect(legend.textContent).toContain("SMA 50D$220.00");
     expect(legend.textContent).toContain("SMA 20W$216.00");
     expect(legend.textContent).toContain("Balanced$290.00");
@@ -396,6 +444,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[{ ...weekly, color: overlayColorAt(0) }]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -404,7 +454,7 @@ describe("StockPriceChart", () => {
     );
 
     const chart = lastChart();
-    const overlaySeries = chart.addedSeries[1];
+    const overlaySeries = chart.addedSeries[2];
     expect(overlaySeries?.options.color).toBe(overlayColorAt(0));
 
     // A daily average is enabled ahead of it, so the weekly line moves to the next palette slot.
@@ -421,6 +471,8 @@ describe("StockPriceChart", () => {
           },
           { ...weekly, color: overlayColorAt(1) },
         ]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -438,6 +490,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={[{ date: "2026-08-28", value: 10 }]}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -455,6 +509,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         loading
         fitKey="1Y"
@@ -473,6 +529,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -508,6 +566,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -523,6 +583,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={[{ date: "2026-08-26", value: 190 }, ...POINTS]}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -534,6 +596,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={[{ date: "2026-08-26", value: 190 }, ...POINTS]}
         overlays={[priceOverlay(0)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -549,6 +613,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -561,6 +627,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="5Y"
         {...FRAME}
@@ -578,6 +646,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -591,6 +661,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="3M"
         frameFrom="2026-08-28"
@@ -615,6 +687,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y|true"
         {...FRAME}
@@ -633,6 +707,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         loading
         fitKey="5Y|false"
@@ -649,6 +725,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={longHistory}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="5Y|true"
         {...fiveYear}
@@ -662,6 +740,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={longHistory}
         overlays={[priceOverlay(0)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="5Y|true"
         {...fiveYear}
@@ -676,6 +756,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -696,6 +778,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={older}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -718,6 +802,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -732,6 +818,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={[...POINTS, { date: "2026-08-31", value: 240 }]}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -748,6 +836,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={dailySeries(260)}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -786,6 +876,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={points}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -821,6 +913,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={dailySeries(260)}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -854,6 +948,8 @@ describe("StockPriceChart", () => {
     const onReachHistoryEdge = vi.fn();
     const props = {
       overlays: [],
+      volume: VOLUME,
+      relativeVolume: NO_RELATIVE_VOLUME,
       currency: "USD",
       fitKey: "1Y|true",
       ...FRAME,
@@ -886,6 +982,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -909,6 +1007,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -930,6 +1030,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={points}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -945,6 +1047,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={points}
         overlays={[priceOverlay(0)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -969,6 +1073,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={points}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1006,6 +1112,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={points}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1021,6 +1129,8 @@ describe("StockPriceChart", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1056,9 +1166,15 @@ function priceOverlay(position: number) {
   };
 }
 
-/** Chart-mock entries that were added for oscillator overlays, in creation order. */
+/**
+ * Chart-mock entries that were added for oscillator overlays, in creation order.
+ *
+ * Matched on the oscillator pane's own index rather than on "has a pane index at all": the volume
+ * histogram is also placed into a pane, and counting it here would make every oscillator
+ * assertion off by one.
+ */
 function oscillatorSeries(chart: FakeChart) {
-  return chart.addedSeries.filter((entry) => entry.paneIndex !== undefined);
+  return chart.addedSeries.filter((entry) => entry.paneIndex === 2);
 }
 
 /** Oscillator series the chart has not removed, in creation order. */
@@ -1109,6 +1225,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[priceOverlay(0), rsiOverlay("RSI_14D", "RSI 14D", 1, 54.32)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1118,11 +1236,12 @@ describe("StockPriceChart oscillator pane", () => {
 
     const chart = lastChart();
     // The price overlay stays on the price pane; the oscillator is never drawn over it.
-    const price = chart.addedSeries[1];
+    const price = chart.addedSeries[2];
     expect(price?.paneIndex).toBeUndefined();
-    const rsi = chart.addedSeries[2];
+    const rsi = chart.addedSeries[3];
     expect(rsi?.definition).toBe("LineSeries");
-    expect(rsi?.paneIndex).toBe(1);
+    // Pane 1 is volume; the oscillator pane sits below it.
+    expect(rsi?.paneIndex).toBe(2);
     expect(rsi?.api.setData).toHaveBeenCalledWith([
       { time: "2026-08-28", value: 54.32 },
     ]);
@@ -1139,8 +1258,10 @@ describe("StockPriceChart oscillator pane", () => {
     };
     expect(priceFormat.type).toBe("custom");
     expect(priceFormat.formatter(54.32)).toBe("54.3");
-    // The price pane keeps most of the height.
-    expect(chart.panesList[1]?.setStretchFactor).toHaveBeenCalledWith(0.35);
+    // The price pane keeps most of the height. Pane 1 is volume, pane 2 the oscillator, and both
+    // factors are relative to the price pane's own 2 — not to 1.
+    expect(chart.panesList[1]?.setStretchFactor).toHaveBeenCalledWith(0.45);
+    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.35);
   });
 
   it("keeps one set of 30/50/70 reference levels no matter how many periods are on", () => {
@@ -1151,6 +1272,8 @@ describe("StockPriceChart oscillator pane", () => {
           rsiOverlay("RSI_7D", "RSI 7D", 0, 61.2),
           rsiOverlay("RSI_14D", "RSI 14D", 1, 54.3),
         ]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1183,6 +1306,8 @@ describe("StockPriceChart oscillator pane", () => {
           rsiOverlay("RSI_14D", "RSI 14D", 1, 54.3),
           rsiOverlay("RSI_21D", "RSI 21D", 2, 48.9),
         ]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1204,6 +1329,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={both}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1218,6 +1345,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1233,6 +1362,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={both}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1250,6 +1381,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[rsiOverlay("RSI_7D", "RSI 7D", 0, 61.2)]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1266,6 +1399,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1287,6 +1422,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[overlay]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1300,6 +1437,8 @@ describe("StockPriceChart oscillator pane", () => {
         <StockPriceChart
           points={POINTS}
           overlays={[]}
+          volume={VOLUME}
+          relativeVolume={NO_RELATIVE_VOLUME}
           currency="USD"
           fitKey="1Y"
           {...FRAME}
@@ -1310,6 +1449,8 @@ describe("StockPriceChart oscillator pane", () => {
         <StockPriceChart
           points={POINTS}
           overlays={[overlay]}
+          volume={VOLUME}
+          relativeVolume={NO_RELATIVE_VOLUME}
           currency="USD"
           fitKey="1Y"
           {...FRAME}
@@ -1343,6 +1484,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[rsi7]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1356,6 +1499,8 @@ describe("StockPriceChart oscillator pane", () => {
         <StockPriceChart
           points={POINTS}
           overlays={overlays}
+          volume={VOLUME}
+          relativeVolume={NO_RELATIVE_VOLUME}
           currency="USD"
           fitKey="1Y"
           {...FRAME}
@@ -1414,6 +1559,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[rsi14]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1427,6 +1574,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={[rsi7, rsi14]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1451,6 +1600,8 @@ describe("StockPriceChart oscillator pane", () => {
       <StockPriceChart
         points={POINTS}
         overlays={overlays}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
@@ -1464,8 +1615,9 @@ describe("StockPriceChart oscillator pane", () => {
     ) => void;
     const seriesData = new Map<unknown, { value: number }>([
       [chart.addedSeries[0]?.api, { value: 232 }],
-      [chart.addedSeries[1]?.api, { value: 220 }],
-      [chart.addedSeries[2]?.api, { value: 54.32 }],
+      [chart.addedSeries[1]?.api, { value: 52_100_000 }],
+      [chart.addedSeries[2]?.api, { value: 220 }],
+      [chart.addedSeries[3]?.api, { value: 54.32 }],
     ]);
     onCrosshairMove({ time: "2026-08-28", seriesData });
 

@@ -7,6 +7,7 @@ import {
   PRICE_OPERAND,
   marginOfSafetyOperand,
   readOperand,
+  relativeVolumeOperand,
   seriesOperand,
 } from "@intrinsic/strategy";
 import { describe, expect, it } from "vitest";
@@ -18,6 +19,7 @@ import {
 } from "./monitor-frame.js";
 import { calculateDailyTechnicals } from "./technicals.js";
 import { calculateDailyOscillators } from "./oscillators.js";
+import { calculateDailyRelativeVolumes } from "./relative-volume.js";
 
 /**
  * The provisional current-day observation.
@@ -40,10 +42,13 @@ const SECURITY: Security = {
 };
 
 /** Consecutive weekday closes ending on the given date, so the window is a real trading calendar. */
-function closedHistory(closes: readonly number[]): DailyPrice[] {
+function closedHistory(
+  closes: readonly number[],
+  volumes?: readonly number[],
+): DailyPrice[] {
   const prices: DailyPrice[] = [];
   const cursor = new Date("2026-01-05T00:00:00.000Z"); // a Monday
-  for (const close of closes) {
+  for (const [index, close] of closes.entries()) {
     prices.push({
       securityId: SECURITY.id,
       date: cursor.toISOString().slice(0, 10),
@@ -51,7 +56,7 @@ function closedHistory(closes: readonly number[]): DailyPrice[] {
       high: close,
       low: close,
       close,
-      volume: 1_000,
+      volume: volumes?.[index] ?? 1_000,
     });
     do {
       cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -474,5 +479,157 @@ describe("projectMonitorEvaluationFrame", () => {
       },
     ]);
     expect(upRsi).toBeCloseTo(canonical[canonical.length - 1]!.rsi14d!, 10);
+  });
+});
+
+describe("relative volume in a monitor cycle", () => {
+  const RVOL_20 = relativeVolumeOperand(20);
+
+  /** Twenty-one closed sessions of 1,000 shares each: a baseline mean anyone can check. */
+  function quietHistory(): DailyPrice[] {
+    return closedHistory(Array.from({ length: 21 }, () => 100));
+  }
+
+  it("resolves only the periods the operands name", () => {
+    const required = requiredDailySeries([RVOL_20]);
+
+    expect(required.relativeVolumes.map((entry) => entry.period)).toEqual([20]);
+    expect(required.movingAverages).toEqual([]);
+    expect(required.oscillators).toEqual([]);
+  });
+
+  it("asks for the full lookback plus the provisional session", () => {
+    // Exact, not approximate: RVOL carries no seed, so `period + 1` closed observations plus the
+    // provisional row is genuinely all it needs to equal its canonical materialized value.
+    expect(
+      dailySeriesWarmupObservations({ kind: "RELATIVE_VOLUME", period: 20 }),
+    ).toBe(21);
+    expect(monitorWindowObservations(requiredDailySeries([RVOL_20]))).toBe(22);
+  });
+
+  it("measures the live session's volume against the twenty closed sessions before it", () => {
+    const prices = quietHistory();
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [],
+      operands: [PRICE_OPERAND, RVOL_20],
+      observation: { price: 100, volume: 2_500 },
+      observationDate: nextTradingDate(prices),
+    });
+
+    expect(frame).not.toBeNull();
+    expect(readOperand(frame!.frame, RVOL_20, frame!.observationIndex)).toBe(
+      2.5,
+    );
+  });
+
+  it("supersedes a repriced session rather than lengthening its own baseline", () => {
+    // The provider has restated today, which is already persisted. The live bar replaces it, so
+    // the twenty-session baseline is still the twenty sessions *before* it.
+    const prices = quietHistory();
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [],
+      operands: [PRICE_OPERAND, RVOL_20],
+      observation: { price: 100, volume: 3_000 },
+      observationDate: prices.at(-1)!.date,
+    });
+
+    expect(frame).not.toBeNull();
+    expect(frame!.closedObservations).toBe(prices.length - 1);
+    expect(readOperand(frame!.frame, RVOL_20, frame!.observationIndex)).toBe(3);
+  });
+
+  it("is NOT_EVALUABLE when the quote reports no volume, never a zero reading", () => {
+    // The regression this exists for: a missing field must not read as "this session has traded
+    // nothing", which would match `RVOL 20 is below 0.5x` on every symbol the provider was quiet
+    // about — a signal manufactured out of an absent field.
+    const prices = quietHistory();
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [],
+      operands: [PRICE_OPERAND, RVOL_20],
+      observation: { price: 100 },
+      observationDate: nextTradingDate(prices),
+    });
+
+    expect(frame).not.toBeNull();
+    // The price half of the observation is unaffected: only the volume-derived value is withheld.
+    expect(readOperand(frame!.frame, PRICE_OPERAND, frame!.observationIndex)).toBe(100);
+    expect(
+      readOperand(frame!.frame, RVOL_20, frame!.observationIndex),
+    ).toBeNaN();
+  });
+
+  it("is NOT_EVALUABLE while the closed history is shorter than the lookback", () => {
+    const prices = closedHistory(Array.from({ length: 12 }, () => 100));
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [],
+      operands: [PRICE_OPERAND, RVOL_20],
+      observation: { price: 100, volume: 5_000 },
+      observationDate: nextTradingDate(prices),
+    });
+
+    expect(frame).not.toBeNull();
+    expect(
+      readOperand(frame!.frame, RVOL_20, frame!.observationIndex),
+    ).toBeNaN();
+  });
+
+  it("never lets a persisted value survive next to a recomputed one", () => {
+    // The persisted row says 9; this window's own calculation says 2.5. Reading the stale value
+    // would put two methodologies on one frame, which is exactly what rule 1 of the projector
+    // forbids for the daily families.
+    const prices = quietHistory();
+    const stale: DailyDerivedState = {
+      securityId: SECURITY.id,
+      date: prices.at(-1)!.date,
+      rvol20: 9,
+    };
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [stale],
+      operands: [PRICE_OPERAND, RVOL_20],
+      observation: { price: 100, volume: 2_500 },
+      observationDate: nextTradingDate(prices),
+    });
+
+    expect(frame).not.toBeNull();
+    expect(
+      readOperand(frame!.frame, RVOL_20, frame!.observationIndex - 1),
+    ).toBe(1);
+  });
+
+  it("agrees with the canonical materialized value for a closed session", () => {
+    // The Monitor recomputes over a bounded window; ingestion computes over the whole history.
+    // For a non-recursive series the two must be identical, not merely close.
+    const volumes = Array.from({ length: 60 }, (_unused, index) =>
+      Math.round(1_000 + index * 73 + (index % 6) * 250),
+    );
+    const prices = closedHistory(
+      Array.from({ length: 60 }, () => 100),
+      volumes,
+    );
+    const canonical = calculateDailyRelativeVolumes(prices);
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [],
+      operands: [PRICE_OPERAND, RVOL_20],
+      observation: { price: 100, volume: 4_000 },
+      observationDate: nextTradingDate(prices),
+    });
+
+    expect(frame).not.toBeNull();
+    // The row before the provisional one is the newest closed session.
+    expect(
+      readOperand(frame!.frame, RVOL_20, frame!.observationIndex - 1),
+    ).toBeCloseTo(canonical.at(-1)!.rvol20!, 12);
   });
 });

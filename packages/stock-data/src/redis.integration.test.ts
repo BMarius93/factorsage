@@ -3,6 +3,7 @@ import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient, SecurityType, StockDataset } from "@intrinsic/database";
 import {
   DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
@@ -1728,6 +1729,11 @@ describeInfrastructure("cross-process canonical hydration", () => {
           persisted.at(-1)?.[oscillator.field],
         );
       }
+      expect(DAILY_RELATIVE_VOLUMES.length).toBeGreaterThan(0);
+      for (const entry of DAILY_RELATIVE_VOLUMES) {
+        expect(cachedLast?.[entry.field]).toBeDefined();
+        expect(cachedLast?.[entry.field]).toBe(persisted.at(-1)?.[entry.field]);
+      }
       expect(cachedLast?.weeklySourceWeekStart).toBe(
         persisted.at(-1)?.weeklySourceWeekStart,
       );
@@ -1740,6 +1746,9 @@ describeInfrastructure("cross-process canonical hydration", () => {
       }
       for (const oscillator of DAILY_OSCILLATORS) {
         expect(cachedFirst && oscillator.field in cachedFirst).toBe(false);
+      }
+      for (const entry of DAILY_RELATIVE_VOLUMES) {
+        expect(cachedFirst && entry.field in cachedFirst).toBe(false);
       }
 
       // 3. Eviction removes the complete stock, not a partial dataset.

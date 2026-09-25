@@ -11,6 +11,7 @@ import {
 import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
+  RELATIVE_VOLUME_FIELDS,
   type DateRange,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
@@ -311,6 +312,9 @@ describe("Stock Details API", () => {
           rsi7d: 71.55,
           rsi14d: 63.4,
           rsi21d: 58.9,
+          rvol10: 2.31,
+          rvol20: 1.94,
+          rvol50: 1.67,
         },
       ],
     });
@@ -516,11 +520,76 @@ describe("Stock Details API", () => {
       }
       expect(row[series.source.field]).toBeTypeOf("number");
     }
-    // Every catalog technical series plus the date; nothing else leaks onto the contract.
-    expect(Object.keys(row)).toHaveLength(TECHNICAL_SERIES.length + 1);
+    // Relative Volume rides on the same row although it is not a catalog series.
+    for (const field of RELATIVE_VOLUME_FIELDS) {
+      expect(row[field]).toBeTypeOf("number");
+    }
+    // Every catalog technical series, plus Relative Volume, plus the date; nothing else leaks
+    // onto the contract.
+    expect(Object.keys(row)).toHaveLength(
+      TECHNICAL_SERIES.length + RELATIVE_VOLUME_FIELDS.length + 1,
+    );
     expect(row).not.toHaveProperty("securityId");
     expect(row).not.toHaveProperty("weeklySourceWeekStart");
     expect(row).not.toHaveProperty("calculationVersion");
+  });
+
+  it("serves Relative Volume beside the catalog series, and omits it during warm-up", async () => {
+    const [row] = (
+      await request(app.getHttpServer())
+        .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28`)
+        .expect(200)
+    ).body as Record<string, unknown>[];
+
+    expect(row).toMatchObject({ rvol10: 2.31, rvol20: 1.94, rvol50: 1.67 });
+
+    // A warm-up day omits the fields entirely rather than reporting a neutral 1x or a null.
+    const [warmUp] = (
+      await request(app.getHttpServer())
+        .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-24`)
+        .expect(200)
+    ).body as Record<string, unknown>[];
+    for (const field of RELATIVE_VOLUME_FIELDS) {
+      expect(warmUp && field in warmUp).toBe(false);
+    }
+    expect(JSON.stringify(warmUp)).not.toContain("null");
+  });
+
+  it("is not addressable through the catalog `series=` filter", async () => {
+    // Relative Volume has no catalog id, so nothing can name it there. A narrowed read returns
+    // exactly the catalog series asked for — which is the honest answer, not a silent inclusion.
+    await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=RVOL_20`)
+      .expect(400);
+
+    const [row] = (
+      await request(app.getHttpServer())
+        .get(
+          `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=SMA_20D`,
+        )
+        .expect(200)
+    ).body as Record<string, unknown>[];
+    expect(Object.keys(row ?? {})).toEqual(["date", "sma20d"]);
+  });
+
+  it("carries the daily traded volume on every price row", async () => {
+    // Volume comes from the same canonical bar the OHLC values do — one FMP historical EOD
+    // payload, no second request — and is what Stock Details draws its histogram from.
+    const rows = (
+      await request(app.getHttpServer())
+        .get(
+          `/stocks/${baseSymbol}/prices?from=${OLDER_PRICE_DATE}&to=${LATEST_PRICE_DATE}`,
+        )
+        .expect(200)
+    ).body as { date: string; volume: number }[];
+
+    expect(rows.map((priceRow) => priceRow.date)).toEqual([
+      OLDER_PRICE_DATE,
+      LATEST_PRICE_DATE,
+    ]);
+    // The persisted column is a BigInt; the contract is a plain number, and the exact counts
+    // survive the projection rather than being rounded or bucketed.
+    expect(rows.map((priceRow) => priceRow.volume)).toEqual([1_000, 2_000]);
   });
 
   it("never exposes a completed-week value to earlier days of that same week", async () => {

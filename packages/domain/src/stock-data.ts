@@ -83,6 +83,16 @@ export type DailyPrice = {
   high: number;
   low: number;
   close: number;
+  /**
+   * Session volume in shares.
+   *
+   * Every **persisted** bar carries one: the provider mapping refuses a historical row whose
+   * volume is not a finite number rather than substituting a zero, so a security's stored history
+   * never contains an invented session volume. The one bar that can lack it is the Monitor's
+   * *provisional* observation, built from a live quote a provider may report without a volume; it
+   * carries `NaN` there, which every volume-derived calculation reads as absent. Zero is a real
+   * reading — a session that traded nothing — and is never a stand-in for absence.
+   */
   volume: number;
   vwap?: number;
 };
@@ -212,6 +222,73 @@ export type DailyOscillatorField = (typeof DAILY_OSCILLATORS)[number]["field"];
  */
 export const RSI_VALUE_RANGE = { min: 0, max: 100 } as const;
 
+/**
+ * Fixed Relative Volume lookback periods. Exactly three: 10, 20 and 50 trading sessions.
+ *
+ * Deliberately not user-parameterizable. A custom window would be a second methodology per
+ * security and would make a persisted column per period impossible, so the product decision is
+ * three presets and `docs/decisions/relative-volume.md` is where changing that is argued.
+ */
+export const RELATIVE_VOLUME_PERIODS = [10, 20, 50] as const;
+
+export type RelativeVolumePeriod = (typeof RELATIVE_VOLUME_PERIODS)[number];
+
+/**
+ * Field carrying one Relative Volume value on the persisted/derived daily state.
+ *
+ * `rvol20` counts **trading sessions**, never calendar days, so the moving averages' `d`/`w`
+ * timeframe suffix would say nothing here: there is exactly one timeframe and the period is the
+ * whole identity.
+ */
+export type RelativeVolumeField = `rvol${number}`;
+
+export type MaterializedRelativeVolume = {
+  /** Number of **previous** sessions averaged, never calendar days and never including `t`. */
+  period: RelativeVolumePeriod;
+  timeframe: TechnicalTimeframe;
+  /** Column/field the calculated value is materialized into on `DailyDerivedState`. */
+  field: RelativeVolumeField;
+};
+
+/**
+ * Product-supported Relative Volume series, materialized from the canonical daily session volumes
+ * that ride on the same `DailyPrice` bars as the closes every other daily series consumes.
+ *
+ * `RVOL(p)(t) = volume(t) / mean(volume(t - p) … volume(t - 1))`. The session being measured is
+ * never part of its own baseline, and the full lookback is required: `rvol10` has no value until
+ * ten previous sessions exist, so eleven bars in total. One methodology serves all three periods.
+ */
+export const DAILY_RELATIVE_VOLUMES = [
+  { period: 10, timeframe: "1D", field: "rvol10" },
+  { period: 20, timeframe: "1D", field: "rvol20" },
+  { period: 50, timeframe: "1D", field: "rvol50" },
+] as const satisfies readonly MaterializedRelativeVolume[];
+
+export type DailyRelativeVolumeField =
+  (typeof DAILY_RELATIVE_VOLUMES)[number]["field"];
+
+/** Every Relative Volume field in canonical registry order. */
+export const RELATIVE_VOLUME_FIELDS: readonly DailyRelativeVolumeField[] =
+  DAILY_RELATIVE_VOLUMES.map((entry) => entry.field);
+
+/**
+ * The registry entry for one supported period.
+ *
+ * The single lookup from a product period to its materialization field, so no caller builds a
+ * field name by string concatenation.
+ */
+export function relativeVolumeDefinition(
+  period: RelativeVolumePeriod,
+): (typeof DAILY_RELATIVE_VOLUMES)[number] {
+  const entry = DAILY_RELATIVE_VOLUMES.find(
+    (candidate) => candidate.period === period,
+  );
+  if (!entry) {
+    throw new Error(`Unsupported relative-volume period ${period}`);
+  }
+  return entry;
+}
+
 /** Any field served by the daily technical projection: a moving average or a daily oscillator. */
 export type TechnicalSeriesField =
   | DailyMovingAverageField
@@ -227,6 +304,26 @@ export const TECHNICAL_SERIES_FIELDS: readonly TechnicalSeriesField[] = [
   ...MATERIALIZED_MOVING_AVERAGES.map((average) => average.field),
   ...DAILY_OSCILLATORS.map((oscillator) => oscillator.field),
 ];
+
+/**
+ * Any value field the daily technical projection serves: a catalog technical series, or a
+ * Relative Volume value.
+ *
+ * Relative Volume is deliberately **not** a `TechnicalSeriesField`. That union is the set of
+ * selectable-series catalog identities the `series=` filter addresses, and RVOL is not a catalog
+ * series — it is never a chart overlay and never a Strategy `Value`. It still rides on the same
+ * daily row, so it has its own union and joins the projection list after the catalog fields.
+ */
+export type DailyTechnicalProjectionField =
+  | TechnicalSeriesField
+  | DailyRelativeVolumeField;
+
+/**
+ * Every field the daily technical projection writes, in canonical wire order: moving averages,
+ * oscillators, then Relative Volume.
+ */
+export const DAILY_TECHNICAL_PROJECTION_FIELDS: readonly DailyTechnicalProjectionField[] =
+  [...TECHNICAL_SERIES_FIELDS, ...RELATIVE_VOLUME_FIELDS];
 
 /**
  * Daily technical read projection over `DailyDerivedState`.
@@ -267,6 +364,15 @@ export type DailyTechnical = {
   rsi7d?: number;
   rsi14d?: number;
   rsi21d?: number;
+  /**
+   * Relative Volume over the canonical daily session volumes: this session's volume divided by the
+   * mean of the previous `period` sessions. Unitless multiples — `2` means twice the baseline —
+   * absent until the full lookback of previous sessions exists, and absent rather than infinite
+   * when that baseline is zero. Never zero during warm-up.
+   */
+  rvol10?: number;
+  rvol20?: number;
+  rvol50?: number;
 };
 
 /**
@@ -457,6 +563,19 @@ export type DailyDerivedState = {
   rsi7d?: number;
   rsi14d?: number;
   rsi21d?: number;
+  /**
+   * Relative Volume over the canonical daily session volumes, one field per registered period.
+   *
+   * `rvol20` is this session's volume divided by the mean volume of the **twenty previous**
+   * sessions; the session being measured is never part of its own baseline. A period is absent
+   * until the full lookback of previous sessions exists, absent when any of those sessions has no
+   * usable volume, and absent when the baseline mean is zero — a division the value has no
+   * meaning for. Never zero during warm-up: `rvol20 = 0` is the real reading of a session that
+   * traded nothing against a baseline that did.
+   */
+  rvol10?: number;
+  rvol20?: number;
+  rvol50?: number;
   /** Per-model intrinsic value per share, present only for models eligible on this trading day. */
   intrinsicValues?: Partial<Record<IntrinsicValueModel, number>>;
   /** Per-blend intrinsic value per share, present only for blends computable on this trading day. */

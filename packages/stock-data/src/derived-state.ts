@@ -8,6 +8,10 @@ import {
   calculateDailyOscillators,
   type DailyOscillatorValues,
 } from "./oscillators.js";
+import {
+  calculateDailyRelativeVolumes,
+  type DailyRelativeVolumeValues,
+} from "./relative-volume.js";
 import { calculateDailyTechnicals } from "./technicals.js";
 import {
   calculateWeeklyTechnicalValues,
@@ -53,8 +57,17 @@ import {
  *   statements whose provider filing date is the fiscal period end (AUD-03), so every materialized
  *   intrinsic value derived from one of those has to be recomputed. Both make an r4 row a row
  *   calculated under a superseded methodology, which is exactly what a revision bump means.
+ * - r6: adds the Relative Volume family (`rvol10`/`rvol20`/`rvol50`), calculated per trading day
+ *   from the session volumes of the same canonical daily bars the other daily families read their
+ *   closes from. An r5 row carries NULL for every RVOL column, which is indistinguishable from
+ *   warm-up, so r5 coverage and manifests must report nothing and the canonical history is rebuilt
+ *   and replaced as r6. One bump covers the whole family: the three periods are one methodology
+ *   addition. It is also what makes a **historical volume correction** propagate correctly: a
+ *   corrected bar moves every later session whose baseline window contains it, and the existing
+ *   rebuild — which recalculates from the security's earliest persisted bar and replaces the
+ *   affected days — already spans exactly that. There is no separate RVOL correction path.
  */
-export const DERIVED_STATE_REVISION = 5;
+export const DERIVED_STATE_REVISION = 6;
 
 export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
 
@@ -74,6 +87,10 @@ export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE
  * The daily oscillator family is calculated from the same price history and merged onto each row
  * by exact trading date, so an oscillator value can only ever land on the trading day whose close
  * completed its window. A period that has not warmed up stays absent.
+ *
+ * The Relative Volume family is merged the same way, off the session volumes of those same bars.
+ * It is calculated here, once, when the state is prepared — never while a Strategy, a backtest or
+ * a Monitor cycle is evaluated, all of which read the already materialized value.
  *
  * Intrinsic-value and blend fields are never calculated here. `intrinsicStates` carries already
  * materialized intrinsic projections, which are merged by exact trading date only. Merging cannot
@@ -96,6 +113,12 @@ export function buildDailyDerivedState(input: {
       ({ securityId: _securityId, date, ...values }) => [date, values],
     ),
   );
+  // Same merge-by-date rule as the oscillators: the row's identity is the key, not merged data.
+  const relativeVolumesByDate = new Map<LocalDate, DailyRelativeVolumeValues>(
+    calculateDailyRelativeVolumes(input.prices).map(
+      ({ securityId: _securityId, date, ...values }) => [date, values],
+    ),
+  );
   return calculateDailyTechnicals(input.prices).map((row) => {
     const weekly = latestCompletedWeeklyBar(weeklyBars, row.date);
     const withWeekly = weekly
@@ -108,6 +131,7 @@ export function buildDailyDerivedState(input: {
     const withOscillators = {
       ...withWeekly,
       ...oscillatorsByDate.get(row.date),
+      ...relativeVolumesByDate.get(row.date),
     };
     const intrinsic = intrinsicByDate.get(row.date);
     if (!intrinsic) {

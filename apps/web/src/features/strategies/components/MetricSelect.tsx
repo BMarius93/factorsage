@@ -6,6 +6,7 @@ import {
   strategyMetricOptions,
   type StrategyLevelKind,
   type StrategyMetric,
+  type StrategyPredicatePart,
 } from "@intrinsic/contracts";
 import { useMemo } from "react";
 import { metricKey } from "../utils/strategy-draft";
@@ -13,6 +14,8 @@ import { Select } from "../../../components/ui/Select";
 
 type MetricSelectProps = {
   readonly levelKind: StrategyLevelKind;
+  /** Which half of the Signal this row is: the registry decides what each may offer. */
+  readonly part: StrategyPredicatePart;
   readonly metric: StrategyMetric;
   readonly label: string;
   readonly invalid: boolean;
@@ -27,12 +30,14 @@ type MetricSelectProps = {
 /**
  * The Metric control.
  *
- * Its options are `strategyMetricOptions(levelKind)` and nothing else: the registry decides which
- * metrics exist, their labels, their grouping and their order, and which of them a level kind may
- * use. `Gain` and `Loss` are simply absent for BUY rather than filtered out here.
+ * Its options are `strategyMetricOptions(levelKind, part)` and nothing else: the registry decides
+ * which metrics exist, their labels, their grouping and their order, which of them a level kind
+ * may use, and which may be a Trigger. `Gain` and `Loss` are simply absent for BUY, and
+ * `Relative Volume` is simply absent for a Trigger, rather than being filtered out here.
  */
 export function MetricSelect({
   levelKind,
+  part,
   metric,
   label,
   invalid,
@@ -42,7 +47,7 @@ export function MetricSelect({
   onBlur,
   unset = false,
 }: MetricSelectProps) {
-  const options = strategyMetricOptions(levelKind);
+  const options = strategyMetricOptions(levelKind, part);
 
   // Consecutive options of one group, in the registry's own order — never a second ordering array.
   const groups = useMemo(() => {

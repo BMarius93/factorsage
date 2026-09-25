@@ -5,6 +5,7 @@ import type {
   IntrinsicValueBlendResponse,
   IntrinsicValueModelResponse,
   IntrinsicValueResponse,
+  RelativeVolumeValuesResponse,
   TechnicalSeriesFieldResponse,
 } from "@intrinsic/contracts";
 
@@ -57,6 +58,43 @@ export function closeSeries(
   prices: readonly DailyPriceResponse[],
 ): ChartPoint[] {
   return prices.map((row) => ({ date: row.date, value: row.close }));
+}
+
+/**
+ * Daily traded volume, on the same session axis as the close series.
+ *
+ * Volume rides on the canonical price bar, so it needs no second request and no alignment step: a
+ * session that has a close has a volume. Zero is a real reading and is drawn as a zero-height bar
+ * rather than omitted.
+ */
+export function volumeSeries(
+  prices: readonly DailyPriceResponse[],
+): ChartPoint[] {
+  return prices.flatMap((row) =>
+    Number.isFinite(row.volume) ? [{ date: row.date, value: row.volume }] : [],
+  );
+}
+
+/**
+ * The Relative Volume readings of each session, keyed by date.
+ *
+ * A lookup rather than a series: RVOL is reported in the chart's hover legend beside the volume
+ * bar, not drawn as a line. Sessions still inside a period's warm-up simply have no entry for it,
+ * so the legend omits the row instead of printing a fabricated multiple.
+ */
+export function relativeVolumeByDate(
+  technicals: readonly DailyTechnicalResponse[],
+): Map<string, RelativeVolumeValuesResponse> {
+  return new Map(
+    technicals.map((row) => [
+      row.date,
+      {
+        ...(row.rvol10 === undefined ? {} : { rvol10: row.rvol10 }),
+        ...(row.rvol20 === undefined ? {} : { rvol20: row.rvol20 }),
+        ...(row.rvol50 === undefined ? {} : { rvol50: row.rvol50 }),
+      },
+    ]),
+  );
 }
 
 /**

@@ -10,7 +10,7 @@ import {
   defaultValueFor,
   emptyStrategyDefinition,
   strategyMetricOptions,
-  strategyMetricSeriesId,
+  strategyMetricKey,
   triggerOperatorsFor,
   type ConditionOperator,
   type StrategyCondition,
@@ -638,7 +638,13 @@ export function draftPayload(draft: StrategyDraftState): StrategyDraft {
   };
 }
 
-/** A key for a metric option, used only to address a `<select>` option. */
+/**
+ * A key for a metric option, used only to address a `<select>` option.
+ *
+ * The encoding belongs to `@intrinsic/contracts`, beside the metric union it has to keep up with:
+ * not every metric is parameterized by a catalog id, and a key built from `seriesId` alone would
+ * collapse the three Relative Volume periods onto one option.
+ */
 export function metricKey(metric: StrategyMetric): string {
-  return `${metric.kind}:${strategyMetricSeriesId(metric) ?? ""}`;
+  return strategyMetricKey(metric);
 }

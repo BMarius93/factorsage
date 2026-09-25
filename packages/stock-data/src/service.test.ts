@@ -3319,15 +3319,16 @@ describe("intrinsic values in the derived-state lifecycle", () => {
 describe("derived-state revision and valuation warm-up retention", () => {
   const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
 
-  it("materializes one canonical calculation anchor and point-in-time availability under revision 5", () => {
+  it("materializes the Relative Volume family under revision 6", () => {
     // r1 rows carry no intrinsic state, r2 rows no weekly moving-average values, r3 rows no daily
-    // RSI oscillators, and r4 rows were calculated over whichever load window the caller asked for
-    // and from statement availability derived from a provider filing date that is sometimes the
-    // fiscal period end. None of them reads as current: their coverage and manifests must go stale
-    // and rebuild. The revision is deliberately one global number, so a single bump invalidates
-    // every series of every security at once.
-    expect(DERIVED_STATE_REVISION).toBe(5);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r5");
+    // RSI oscillators, r4 rows were calculated over whichever load window the caller asked for and
+    // from statement availability derived from a provider filing date that is sometimes the fiscal
+    // period end, and r5 rows carry no Relative Volume. None of them reads as current: their
+    // coverage and manifests must go stale and rebuild. The revision is deliberately one global
+    // number, so a single bump invalidates every series of every security at once — which is also
+    // what makes a corrected historical volume rebuild every later session it baselines.
+    expect(DERIVED_STATE_REVISION).toBe(6);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r6");
   });
 
   it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {

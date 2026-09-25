@@ -14,12 +14,13 @@ import {
 import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
-  TECHNICAL_SERIES_FIELDS,
+  DAILY_TECHNICAL_PROJECTION_FIELDS,
   type DateRange,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
   type SecurityWithLogo,
   type StockDataService,
+  type DailyTechnicalProjectionField,
   type TechnicalSeriesField,
 } from "@intrinsic/domain";
 import {
@@ -166,11 +167,15 @@ function priceResponse(
 /**
  * Projects one daily technical row onto the wire contract.
  *
- * Every technical series — both moving-average timeframes and the daily oscillators — is copied
- * through the canonical field list, so adding a catalog series can never leave it silently missing
+ * Every daily series — both moving-average timeframes, the daily oscillators and Relative Volume —
+ * is copied through the canonical field list, so adding one can never leave it silently missing
  * from the API. Nothing is calculated here: controllers project canonical stock-data values and
  * never compute financial or technical series. `fields` restricts the projection to a validated
  * selection; unavailable values are omitted rather than zeroed either way.
+ *
+ * Relative Volume is **not** narrowable by `series=`: it is not a selectable-series catalog entry,
+ * so there is no identifier that addresses it. An unfiltered read — which is what Stock Details
+ * issues — carries it, and a caller that explicitly narrows to catalog series gets exactly those.
  */
 function technicalResponse(
   technical: Awaited<
@@ -178,7 +183,8 @@ function technicalResponse(
   >[number],
   fields?: readonly TechnicalSeriesField[],
 ): DailyTechnicalResponse {
-  const selected = fields ?? TECHNICAL_SERIES_FIELDS;
+  const selected: readonly DailyTechnicalProjectionField[] =
+    fields ?? DAILY_TECHNICAL_PROJECTION_FIELDS;
   return {
     date: technical.date,
     ...Object.fromEntries(

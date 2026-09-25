@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   DAILY_MOVING_AVERAGES,
   DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
+  DAILY_TECHNICAL_PROJECTION_FIELDS,
+  RELATIVE_VOLUME_FIELDS,
+  RELATIVE_VOLUME_PERIODS,
+  relativeVolumeDefinition,
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
@@ -95,6 +100,33 @@ describe("stock data foundation", () => {
     }
   });
 
+  it("defines exactly the three supported Relative Volume periods, in canonical order", () => {
+    expect(RELATIVE_VOLUME_PERIODS).toEqual([10, 20, 50]);
+    expect(DAILY_RELATIVE_VOLUMES).toEqual([
+      { period: 10, timeframe: "1D", field: "rvol10" },
+      { period: 20, timeframe: "1D", field: "rvol20" },
+      { period: 50, timeframe: "1D", field: "rvol50" },
+    ]);
+    // The registry is the period list: a period the product offers but does not materialize would
+    // read as permanent warm-up rather than failing anywhere.
+    expect(DAILY_RELATIVE_VOLUMES.map((entry) => entry.period)).toEqual([
+      ...RELATIVE_VOLUME_PERIODS,
+    ]);
+  });
+
+  it("derives each Relative Volume field from its own period, and resolves it back", () => {
+    expect(DAILY_RELATIVE_VOLUMES.length).toBeGreaterThan(0);
+    for (const entry of DAILY_RELATIVE_VOLUMES) {
+      expect(entry.timeframe).toBe("1D");
+      expect(entry.field).toBe(`rvol${entry.period}`);
+      expect(Number.isInteger(entry.period)).toBe(true);
+      expect(relativeVolumeDefinition(entry.period)).toBe(entry);
+    }
+    expect(RELATIVE_VOLUME_FIELDS).toEqual(
+      DAILY_RELATIVE_VOLUMES.map((entry) => entry.field),
+    );
+  });
+
   it("locks the RSI unit range the shared oscillator pane renders", () => {
     expect(RSI_VALUE_RANGE).toEqual({ min: 0, max: 100 });
   });
@@ -109,6 +141,19 @@ describe("stock data foundation", () => {
     ]);
     expect(new Set(TECHNICAL_SERIES_FIELDS).size).toBe(
       TECHNICAL_SERIES_FIELDS.length,
+    );
+  });
+
+  it("appends Relative Volume after the catalog series in the daily projection", () => {
+    // The `series=` filter addresses catalog identities, so Relative Volume stays out of
+    // `TECHNICAL_SERIES_FIELDS` and joins only the projection list the API writes rows from.
+    expect(TECHNICAL_SERIES_FIELDS).not.toContain("rvol20");
+    expect(DAILY_TECHNICAL_PROJECTION_FIELDS).toEqual([
+      ...TECHNICAL_SERIES_FIELDS,
+      ...RELATIVE_VOLUME_FIELDS,
+    ]);
+    expect(new Set(DAILY_TECHNICAL_PROJECTION_FIELDS).size).toBe(
+      DAILY_TECHNICAL_PROJECTION_FIELDS.length,
     );
   });
 

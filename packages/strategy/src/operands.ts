@@ -1,5 +1,7 @@
 import {
   findSelectableSeries,
+  RELATIVE_VOLUME_PERIODS,
+  type RelativeVolumePeriod,
   type SelectableSeries,
   type SelectableSeriesId,
   type StrategyCondition,
@@ -42,6 +44,39 @@ export function operandSeriesId(key: OperandKey): SelectableSeriesId | null {
     : null;
 }
 
+const RELATIVE_VOLUME_PREFIX = "relative-volume:";
+
+/**
+ * Relative Volume for one supported period, read straight off the materialized daily derived state.
+ *
+ * It is its own key family rather than a `series:` key because Relative Volume is not a catalog
+ * series: it is parameterized by period, has no catalog id, and is never a comparison Value.
+ */
+export function relativeVolumeOperand(
+  period: RelativeVolumePeriod,
+): OperandKey {
+  return `${RELATIVE_VOLUME_PREFIX}${period}`;
+}
+
+/**
+ * The Relative Volume period a key addresses, or null when it addresses something else.
+ *
+ * The inverse of {@link relativeVolumeOperand}, here for the same reason the builder is: the
+ * encoding is this module's, and a caller that needs the period must ask rather than slice the
+ * string itself.
+ */
+export function operandRelativeVolumePeriod(
+  key: OperandKey,
+): RelativeVolumePeriod | null {
+  if (!key.startsWith(RELATIVE_VOLUME_PREFIX)) {
+    return null;
+  }
+  const period = Number(key.slice(RELATIVE_VOLUME_PREFIX.length));
+  return (RELATIVE_VOLUME_PERIODS as readonly number[]).includes(period)
+    ? (period as RelativeVolumePeriod)
+    : null;
+}
+
 /**
  * Margin of Safety against one explicitly selected intrinsic-value source.
  *
@@ -67,6 +102,8 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
       return seriesOperand(metric.seriesId);
+    case "RELATIVE_VOLUME":
+      return relativeVolumeOperand(metric.period);
     case "MARGIN_OF_SAFETY":
       return marginOfSafetyOperand(metric.sourceId);
     case "GAIN":

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
 import {
   DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
@@ -162,6 +163,13 @@ describe("daily derived state persistence", () => {
           );
         }
       }
+      for (const entry of DAILY_RELATIVE_VOLUMES) {
+        if (original[entry.field] === undefined) {
+          expect(row[entry.field]).toBeUndefined();
+        } else {
+          expect(row[entry.field]).toBeCloseTo(original[entry.field]!, 7);
+        }
+      }
       expect(row.weeklySourceWeekStart).toBe(original.weeklySourceWeekStart);
       expect(row.intrinsicValues).toEqual(original.intrinsicValues);
       expect(row.intrinsicValueBlends).toEqual(original.intrinsicValueBlends);
@@ -189,6 +197,11 @@ describe("daily derived state persistence", () => {
         7,
       );
     }
+    expect(DAILY_RELATIVE_VOLUMES.length).toBeGreaterThan(0);
+    for (const entry of DAILY_RELATIVE_VOLUMES) {
+      expect(expected[entry.field]).toBeDefined();
+      expect(read?.[entry.field]).toBeCloseTo(expected[entry.field]!, 7);
+    }
     expect(read?.weeklySourceWeekStart).toBe(expected.weeklySourceWeekStart);
   });
 
@@ -212,6 +225,9 @@ describe("daily derived state persistence", () => {
     for (const oscillator of DAILY_OSCILLATORS) {
       expect(columnNames).toContain(oscillator.field);
     }
+    for (const entry of DAILY_RELATIVE_VOLUMES) {
+      expect(columnNames).toContain(entry.field);
+    }
   });
 
   it("keeps unavailable technical values absent instead of turning them into zero", async () => {
@@ -230,6 +246,11 @@ describe("daily derived state persistence", () => {
       expect(read && oscillator.field in read).toBe(false);
       expect(read?.[oscillator.field]).toBeUndefined();
     }
+    // Nor any Relative Volume: the first session has no previous sessions to average.
+    for (const entry of DAILY_RELATIVE_VOLUMES) {
+      expect(read && entry.field in read).toBe(false);
+      expect(read?.[entry.field]).toBeUndefined();
+    }
     expect(read?.sma200d).toBeUndefined();
 
     const stored = await prisma.dailyDerivedState.findUniqueOrThrow({
@@ -245,6 +266,9 @@ describe("daily derived state persistence", () => {
     }
     for (const oscillator of DAILY_OSCILLATORS) {
       expect(stored[oscillator.field]).toBeNull();
+    }
+    for (const entry of DAILY_RELATIVE_VOLUMES) {
+      expect(stored[entry.field]).toBeNull();
     }
   });
 
