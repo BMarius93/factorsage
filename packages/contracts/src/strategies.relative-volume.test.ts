@@ -12,9 +12,11 @@ import {
   STRATEGY_LEVEL_KINDS,
   STRATEGY_METRIC_DEFINITIONS,
   STRATEGY_SCHEMA_VERSION,
+  strategyDefinitionFingerprint,
   strategyMetricKey,
   strategyMetricLabel,
   strategyMetricOptions,
+  strategySignalFingerprint,
   strategyValueLabel,
   triggerOperatorsFor,
   validateStrategyDefinition,
@@ -174,6 +176,196 @@ describe("Relative Volume as a Strategy metric", () => {
     });
     // Idempotent: a saved definition read back and re-canonicalized is the same document.
     expect(normalizeStrategyDefinition(normalized)).toEqual(normalized);
+  });
+});
+
+describe("Relative Volume period is part of the semantic identity", () => {
+  /**
+   * The defect this suite pins.
+   *
+   * Relative Volume is parameterized by a period and by nothing else — it has no catalog id — so an
+   * identity built from `kind` plus a series id collapsed all three periods into one string. Two
+   * consequences followed: `RVOL 10 is above 2 AND RVOL 20 is above 2` was refused as a duplicate,
+   * and two levels whose logic genuinely differed shared one `strategySignalFingerprint`, which is
+   * the key `StrategyVersion.definitionHash` and `MonitorSignalState.signalFingerprint` are built
+   * from.
+   */
+  it("gives each period its own signal fingerprint", () => {
+    const fingerprints = RELATIVE_VOLUME_PERIODS.map((period) =>
+      strategySignalFingerprint({
+        conditions: [rvolCondition(period, "IS_ABOVE", 2)],
+      }),
+    );
+
+    expect(new Set(fingerprints).size).toBe(RELATIVE_VOLUME_PERIODS.length);
+    // Stated pairwise as well, because a set of three says nothing about which pair collided.
+    expect(fingerprints[0]).not.toBe(fingerprints[1]);
+    expect(fingerprints[1]).not.toBe(fingerprints[2]);
+    expect(fingerprints[0]).not.toBe(fingerprints[2]);
+  });
+
+  it("gives each period its own definition fingerprint", () => {
+    const fingerprints = RELATIVE_VOLUME_PERIODS.map((period) =>
+      strategyDefinitionFingerprint(
+        saveableWith(rvolCondition(period, "IS_ABOVE", 2)),
+      ),
+    );
+
+    expect(new Set(fingerprints).size).toBe(RELATIVE_VOLUME_PERIODS.length);
+  });
+
+  it("keeps the same period on the same fingerprint", () => {
+    // The other half of the guarantee: the period participates, and nothing else about the row's
+    // identity moved, so the same logic written twice still serializes once.
+    expect(
+      strategySignalFingerprint({
+        conditions: [rvolCondition(20, "IS_ABOVE", 2, "condition-a")],
+      }),
+    ).toBe(
+      strategySignalFingerprint({
+        conditions: [rvolCondition(20, "IS_ABOVE", 2, "condition-b")],
+      }),
+    );
+  });
+
+  it("serializes the period as the metric's third element", () => {
+    // Pinned byte-for-byte: this string is what a persisted `definitionHash` is a digest of, so it
+    // may not drift silently. The period sits in the third slot, which only the metrics that are
+    // *not* parameterized by a catalog id use.
+    expect(
+      strategyDefinitionFingerprint(
+        saveableWith(rvolCondition(20, "IS_ABOVE", 2)),
+      ),
+    ).toBe(
+      '[1,[[25,[[[["RELATIVE_VOLUME",null,20],"IS_ABOVE",["MULTIPLE",2]]],null]]],[],null]',
+    );
+  });
+
+  it("leaves a definition without Relative Volume byte-identical", () => {
+    // The backwards-compatibility guarantee: fixing RVOL may not move the stored hash, or the
+    // Monitor latch, of a strategy that never mentioned it. This is the same pinned string
+    // `strategies.alternative-data.test.ts` asserts, for the same reason.
+    const definition: StrategyDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 50,
+          signal: {
+            conditions: [
+              {
+                id: "c1",
+                metric: { kind: "PRICE" },
+                operator: "IS_BELOW",
+                value: { kind: "SERIES", seriesId: "SMA_200D" },
+              },
+              {
+                id: "c2",
+                metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+                operator: "IS_BELOW",
+                value: { kind: "NUMBER", value: 30 },
+              },
+            ],
+            trigger: {
+              id: "t1",
+              metric: { kind: "PRICE" },
+              operator: "CROSSES_ABOVE",
+              value: { kind: "SERIES", seriesId: "EMA_50D" },
+            },
+          },
+        },
+      ],
+      sellLevels: [],
+    };
+
+    expect(strategyDefinitionFingerprint(definition)).toBe(
+      '[1,[[50,[[[["PRICE",null],"IS_BELOW",["SERIES","SMA_200D"]],[["OSCILLATOR","RSI_14D"],"IS_BELOW",["NUMBER",30]]],[["PRICE",null],"CROSSES_ABOVE",["SERIES","EMA_50D"]]]]],[],null]',
+    );
+  });
+
+  it("accepts two periods in one Signal", () => {
+    // The reported rejection: both rows are `is above 2`, and before the fix the second was refused
+    // as `DUPLICATE_CONDITION` because the identity dropped the period.
+    const issues = validateStrategyDefinition(
+      definitionOf({
+        conditions: [
+          rvolCondition(10, "IS_ABOVE", 2, "condition-1"),
+          rvolCondition(20, "IS_ABOVE", 2, "condition-2"),
+        ],
+      }),
+    );
+
+    expect(issues).toEqual([]);
+  });
+
+  it("accepts all three periods in one Signal", () => {
+    expect(
+      validateStrategyDefinition(
+        definitionOf({
+          conditions: RELATIVE_VOLUME_PERIODS.map((period, index) =>
+            rvolCondition(period, "IS_ABOVE", 2, `condition-${index + 1}`),
+          ),
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still rejects the same period written twice", () => {
+    const issues = validateStrategyDefinition(
+      definitionOf({
+        conditions: [
+          rvolCondition(10, "IS_ABOVE", 2, "condition-1"),
+          rvolCondition(10, "IS_ABOVE", 2, "condition-2"),
+        ],
+      }),
+    );
+
+    expect(codesOf(issues)).toContain("DUPLICATE_CONDITION");
+    const issue = issues.find(
+      (candidate) => candidate.code === "DUPLICATE_CONDITION",
+    );
+    // Reported against the repeat, not the row the user wrote first.
+    expect(issue?.path.conditionIndex).toBe(1);
+  });
+
+  it("separates the periods in FINAL EXIT duplicate detection too", () => {
+    const exitRule = (period: RelativeVolumePeriod, id: string) => ({
+      id,
+      signal: { conditions: [rvolCondition(period, "IS_ABOVE", 2, `${id}-c`)] },
+    });
+    const withRules = (rules: ReturnType<typeof exitRule>[]) =>
+      validateStrategyDefinition(
+        definitionOf(
+          { conditions: [rvolCondition(20, "IS_ABOVE", 2, "buy-condition-1")] },
+          { finalExit: { id: "exit-1", rules } },
+        ),
+      );
+
+    expect(
+      withRules([exitRule(10, "exit-rule-1"), exitRule(20, "exit-rule-2")]),
+    ).toEqual([]);
+    expect(
+      codesOf(
+        withRules([exitRule(10, "exit-rule-1"), exitRule(10, "exit-rule-2")]),
+      ),
+    ).toContain("DUPLICATE_EXIT_RULE");
+  });
+
+  it("round-trips every period through canonicalization", () => {
+    for (const period of RELATIVE_VOLUME_PERIODS) {
+      const definition = saveableWith(rvolCondition(period, "IS_ABOVE", 2));
+      const normalized = normalizeStrategyDefinition(definition);
+
+      expect(normalized.buyLevels[0]?.signal.conditions[0]?.metric).toEqual({
+        kind: "RELATIVE_VOLUME",
+        period,
+      });
+      // Canonicalizing a canonical document changes nothing, and neither does its fingerprint.
+      expect(normalizeStrategyDefinition(normalized)).toEqual(normalized);
+      expect(strategyDefinitionFingerprint(normalized)).toBe(
+        strategyDefinitionFingerprint(definition),
+      );
+    }
   });
 });
 
