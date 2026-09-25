@@ -11,6 +11,7 @@ import {
   createEvaluationFrame,
   type EvaluationFrame,
   type OperandKey,
+  requiredAlternativeDataLeadingSessions,
 } from "@intrinsic/strategy";
 import type { MonitorDataLoader } from "./monitor-cycle.js";
 
@@ -111,7 +112,12 @@ export class FixtureLoader implements MonitorDataLoader {
   }
 
   monitorWindowObservations(operands: readonly OperandKey[]): number {
-    return monitorWindowObservations(requiredDailySeries(operands));
+    return monitorWindowObservations(
+      requiredDailySeries(operands),
+      // The longest alternative-data lookback must fit inside the loaded window, or the one session a
+      // Monitor evaluates would report NOT_EVALUABLE for a metric whose data is fully present.
+      requiredAlternativeDataLeadingSessions(operands),
+    );
   }
 
   /** When true, reconstruction sees the history with its SMA columns materialized. */

@@ -41,7 +41,10 @@ import {
   type CurrentObservation,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
-import type { OperandKey } from "@intrinsic/strategy";
+import {
+  requiredAlternativeDataLeadingSessions,
+  type OperandKey,
+} from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import { MonitorCycle, type MonitorDataLoader } from "./monitor-cycle.js";
 import {
@@ -626,15 +629,21 @@ class TimedLoader implements MonitorDataLoader {
   }
 
   monitorWindowObservations(operands: readonly OperandKey[]): number {
-    return monitorWindowObservations(requiredDailySeries(operands));
+    return monitorWindowObservations(
+      requiredDailySeries(operands),
+      // The longest alternative-data lookback must fit inside the loaded window, or the one session a
+      // Monitor evaluates would report NOT_EVALUABLE for a metric whose data is fully present.
+      requiredAlternativeDataLeadingSessions(operands),
+    );
   }
 
   prepareReconstructionData(
     security: Security,
     range: { from: LocalDate; to: LocalDate },
+    operands: readonly OperandKey[] = [],
   ): Promise<void> {
     return timed(this.phases.prepareHistory, async () => {
-      await this.stockData.prepareDailyEvaluationData(security, range);
+      await this.stockData.prepareDailyEvaluationData(security, range, operands);
     });
   }
 

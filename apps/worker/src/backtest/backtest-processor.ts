@@ -84,12 +84,20 @@ export interface BacktestFrameLoader {
   prepareDailyEvaluationData(
     security: Security,
     range: Required<DateRange>,
+    /**
+     * The operands the run will read.
+     *
+     * Passed to preparation as well as to the read because the alternative-data domains are ingested
+     * here, in the phase that is allowed to reach the provider — exactly like price history.
+     */
+    operands?: readonly OperandKey[],
   ): Promise<DailyPriceBounds | null>;
   /** Projects one already-prepared window. Must not hydrate. */
   readDailyEvaluationFrame(
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
+    options?: { resolveGroupMembers?: (groupId: string) => Promise<readonly string[]> },
   ): Promise<EvaluationFrame>;
 }
 
@@ -119,6 +127,27 @@ export interface BacktestBenchmarkLoader {
   ): Promise<Required<DateRange>[]>;
 }
 
+/**
+ * Resolves an actor group from the run's **own snapshot**, never from the database.
+ *
+ * The whole point of freezing group membership at submission: a group edited, emptied or deleted after
+ * a run was created cannot change what that run counts. A group the snapshot does not carry resolves to
+ * no members, which counts nothing — the honest reading for a run whose strategy did not reference it.
+ *
+ * Asynchronous to match the resolver the live path uses, so one loader signature serves both.
+ */
+function frozenActorGroupResolver(
+  snapshot: BacktestRunSnapshot,
+): (groupId: string) => Promise<readonly string[]> {
+  const byId = new Map(
+    (snapshot.actorGroups ?? []).map((group) => [
+      group.groupId,
+      group.members.map((member) => member.actorId),
+    ]),
+  );
+  return async (groupId: string) => byId.get(groupId) ?? [];
+}
+
 /** One run security after `PREPARING_DATA`: its resolved identity and what its history covers. */
 type PreparedSecurity = {
   security: Security;
@@ -139,6 +168,15 @@ type PreparedRun = {
   operands: readonly OperandKey[];
   benchmark: BenchmarkSeriesInput | null;
   executionCalendar: LocalDate[];
+  /**
+   * How a `GROUP` actor scope resolves for this run: from the **snapshot's frozen membership**, never
+   * from the database.
+   *
+   * This is what implements the product rule that editing an actor group cannot change a run that
+   * already exists. A group the snapshot does not carry resolves to no members, which counts nothing —
+   * the honest reading for a run submitted before the group was referenced.
+   */
+  resolveGroupMembers: (groupId: string) => Promise<readonly string[]>;
 };
 
 export type BacktestProcessorOptions = {
@@ -495,7 +533,12 @@ export class BacktestProcessor implements BacktestJobProcessor {
           throw new BacktestInterruptedError(interruption);
         }
 
-        const outcome = await this.prepareSecurity(member, catalog, period);
+        const outcome = await this.prepareSecurity(
+          member,
+          catalog,
+          period,
+          operands,
+        );
         preparationRecords[index] = outcome.record;
         if (outcome.prepared) {
           loaded[index] = outcome.prepared;
@@ -560,6 +603,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       operands,
       benchmark: await this.loadBenchmark(snapshot, period, archive),
       executionCalendar,
+      resolveGroupMembers: frozenActorGroupResolver(snapshot),
     };
   }
 
@@ -576,6 +620,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     member: BacktestSnapshotSecurity,
     catalog: Map<string, Security>,
     period: Required<DateRange>,
+    operands: readonly OperandKey[],
   ): Promise<PreparedSecurityOutcome> {
     const startedAt = Date.now();
     // The forensic record of this one hydration, built whether it succeeded or not: "this security
@@ -623,6 +668,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       await this.dependencies.stockData.prepareDailyEvaluationData(
         security,
         period,
+        operands,
       );
     if (coverage === null) {
       // No persisted price row anywhere in the period. The security stays in the run only if it
@@ -1029,6 +1075,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
           entry.security,
           range,
           prepared.operands,
+          { resolveGroupMembers: prepared.resolveGroupMembers },
         );
     });
     return frames;

@@ -34,7 +34,9 @@ import {
   type StrategyDraftAction,
   type StrategyDraftState,
 } from "../utils/strategy-draft";
+import { ScopeNamesContext } from "./scope-names";
 import { UnsetRowsContext } from "./unset-rows";
+import { useStrategyScopeNames } from "../../alternative-data/hooks/use-scope-names";
 import { ExplanationPanel } from "./ExplanationPanel";
 import type { HelpFocus } from "./help-focus";
 import { LogicPreview } from "./LogicPreview";
@@ -118,6 +120,9 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
    * document, which is the one a reader's eye lands on anyway.
    */
   const authored = authoredDefinition(draft);
+  // The names behind whatever actors and groups the draft's rules reference, re-requested only when
+  // that set of ids changes. Unresolved is a fine state: every surface falls back to a neutral label.
+  const scopeNames = useStrategyScopeNames(authored);
   const firstRow =
     authored.buyLevels[0]?.signal.conditions[0] ??
     authored.buyLevels[0]?.signal.trigger;
@@ -209,6 +214,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
   return (
     <PageContainer>
       <UnsetRowsContext.Provider value={unsetRows}>
+        <ScopeNamesContext.Provider value={scopeNames}>
         <div className={styles.builder} data-testid="strategy-builder">
           <div className={styles.editor}>
             <PageHeader
@@ -341,9 +347,10 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
             <div className={panel.sideExplanation}>
               <ExplanationPanel focus={shownFocus} />
             </div>
-            <LogicPreview definition={authored} />
+            <LogicPreview definition={authored} scopeNames={scopeNames} />
           </aside>
         </div>
+        </ScopeNamesContext.Provider>
       </UnsetRowsContext.Provider>
 
       <div className={styles.saveBar} data-testid="strategy-save-bar">

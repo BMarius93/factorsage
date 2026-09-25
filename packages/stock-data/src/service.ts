@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { EvaluationFrame, OperandKey } from "@intrinsic/strategy";
+import {
+  requiredAlternativeDataLeadingSessions,
+  type AlternativeDataFacts,
+  type EvaluationFrame,
+  type OperandKey,
+} from "@intrinsic/strategy";
+import {
+  alternativeDataDomainsFor,
+  type ActorGroupMembershipResolver,
+  type CanonicalAlternativeDataService,
+} from "./alternative-data-service.js";
 import {
   DAILY_MOVING_AVERAGES,
   DAILY_OSCILLATORS,
@@ -329,6 +339,27 @@ export type CanonicalStockDataServiceOptions = {
    * not grow one. The API and worker composition roots point this at their own structured logger.
    */
   onProviderRequest?: (event: ProviderRequestEvent) => void;
+  /**
+   * The alternative-data loader, when this composition offers those metrics.
+   *
+   * Optional so an unrelated composition — a fixture, a narrow script — need not construct it, and
+   * **required in practice**: `projectEvaluationFrame` refuses an alternative-data operand with no
+   * loaded facts rather than projecting it as absent, so a production root that forgot to wire it
+   * fails loudly on the first strategy that names one instead of silently never firing.
+   */
+  alternativeData?: CanonicalAlternativeDataService;
+};
+
+/**
+ * Per-read options for an evaluation frame.
+ *
+ * `resolveGroupMembers` is how a backtest keeps its promise that editing an actor group never changes
+ * a run that already exists: the worker passes a resolver reading the **frozen membership in the
+ * run's own snapshot**, while a live surface passes nothing and the loader reads the group as it
+ * stands.
+ */
+export type EvaluationFrameOptions = {
+  resolveGroupMembers?: ActorGroupMembershipResolver;
 };
 
 export class CanonicalStockDataService implements StockDataService {
@@ -341,6 +372,7 @@ export class CanonicalStockDataService implements StockDataService {
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
+  private readonly alternativeData?: CanonicalAlternativeDataService;
 
   constructor(
     private readonly store: StockDataStore,
@@ -364,6 +396,9 @@ export class CanonicalStockDataService implements StockDataService {
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
+    if (options.alternativeData) {
+      this.alternativeData = options.alternativeData;
+    }
     for (const [name, value] of Object.entries({
       defaultHistoryDays: this.defaultHistoryDays,
       productHistoryYears: this.productHistoryYears,
@@ -601,6 +636,68 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
+  /**
+   * The read window one evaluation frame needs: the requested period plus its leading context.
+   *
+   * Two things are added ahead of the period. A Trigger needs the immediately preceding eligible
+   * value, which {@link TRIGGER_CONTEXT_CALENDAR_DAYS} covers. An alternative-data metric needs its
+   * whole lookback **inside the frame**, because the window is counted on the frame's own session
+   * axis — so a 60-session lookback that was not widened for would make the first sixty sessions of
+   * every calendar-year execution window NOT_EVALUABLE, not just the first sixty of the run.
+   *
+   * The session-to-calendar conversion is the same one the Monitor window uses, which is deliberately
+   * generous: asking for slightly more calendar history costs a wider projection read, while asking
+   * for too little silently shortens exactly the window the widening exists to guarantee.
+   */
+  private evaluationContextRange(
+    period: Required<DateRange>,
+    operands: readonly OperandKey[],
+  ): Required<DateRange> {
+    const leadingSessions = requiredAlternativeDataLeadingSessions(operands);
+    const calendarDays =
+      TRIGGER_CONTEXT_CALENDAR_DAYS +
+      (leadingSessions > 0 ? monitorWindowCalendarDays(leadingSessions) : 0);
+    return { from: addDays(period.from, -calendarDays), to: period.to };
+  }
+
+  /**
+   * Ingests the alternative-data domains a set of operands names, or does nothing when it names none.
+   *
+   * Silent when no loader is composed: a frame that references one of these operands without loaded
+   * facts is refused by the projector, which is a much clearer failure than an ingest that quietly
+   * did not happen.
+   */
+  private async ensureAlternativeDataIngested(
+    security: Security,
+    operands: readonly OperandKey[],
+  ): Promise<void> {
+    const domains = alternativeDataDomainsFor(operands);
+    if (domains.length === 0 || !this.alternativeData) {
+      return;
+    }
+    await this.alternativeData.ensureIngested(security, domains);
+  }
+
+  private async loadAlternativeDataFacts(
+    security: Security,
+    operands: readonly OperandKey[],
+    context: Required<DateRange>,
+    options: EvaluationFrameOptions,
+  ): Promise<ReadonlyMap<OperandKey, AlternativeDataFacts> | undefined> {
+    if (!this.alternativeData || alternativeDataDomainsFor(operands).length === 0) {
+      return undefined;
+    }
+    return this.alternativeData.loadFacts({
+      security,
+      operands,
+      from: context.from,
+      to: context.to,
+      ...(options.resolveGroupMembers
+        ? { resolveGroupMembers: options.resolveGroupMembers }
+        : {}),
+    });
+  }
+
   async getDailyPrices(symbol: string, range: DateRange) {
     const bounded = this.requireBoundedRange(range);
     const security = await this.getSecurity(symbol);
@@ -636,18 +733,18 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
+    options: EvaluationFrameOptions = {},
   ): Promise<EvaluationFrame> {
     const period = this.requireBoundedRange(range);
-    const context = {
-      from: addDays(period.from, -TRIGGER_CONTEXT_CALENDAR_DAYS),
-      to: period.to,
-    };
+    const context = this.evaluationContextRange(period, operands);
     const load = this.loadTarget(security, context);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
-    const [prices, derived] = await Promise.all([
+    await this.ensureAlternativeDataIngested(security, operands);
+    const [prices, derived, alternativeData] = await Promise.all([
       this.readDailyPriceProjection(security, context, "BACKTEST"),
       this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
+      this.loadAlternativeDataFacts(security, operands, context, options),
     ]);
     return projectEvaluationFrame({
       security,
@@ -655,6 +752,7 @@ export class CanonicalStockDataService implements StockDataService {
       derived,
       operands,
       periodStart: period.from,
+      alternativeData,
     }).frame;
   }
 
@@ -681,15 +779,17 @@ export class CanonicalStockDataService implements StockDataService {
   async prepareDailyEvaluationData(
     security: Security,
     range: Required<DateRange>,
+    operands: readonly OperandKey[] = [],
   ): Promise<DailyPriceBounds | null> {
     const period = this.requireBoundedRange(range);
-    const context = {
-      from: addDays(period.from, -TRIGGER_CONTEXT_CALENDAR_DAYS),
-      to: period.to,
-    };
+    const context = this.evaluationContextRange(period, operands);
     const load = this.loadTarget(security, context);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
+    // The alternative-data domains the strategy names are ingested here, in the same phase and for
+    // the same reason price history is: once per security per run, so every later window read is a
+    // pure projection that reaches no provider.
+    await this.ensureAlternativeDataIngested(security, operands);
     const projection = this.projectionRange(security, period, "BACKTEST");
     return projection
       ? this.store.getDailyPriceBounds(security.id, projection)
@@ -717,15 +817,15 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
+    options: EvaluationFrameOptions = {},
   ): Promise<EvaluationFrame> {
     const period = this.requireBoundedRange(range);
-    const context = {
-      from: addDays(period.from, -TRIGGER_CONTEXT_CALENDAR_DAYS),
-      to: period.to,
-    };
-    const [prices, derived] = await Promise.all([
+    const context = this.evaluationContextRange(period, operands);
+    const [prices, derived, alternativeData] = await Promise.all([
       this.readDailyPriceProjection(security, context, "BACKTEST"),
       this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
+      // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
+      this.loadAlternativeDataFacts(security, operands, context, options),
     ]);
     return projectEvaluationFrame({
       security,
@@ -733,6 +833,7 @@ export class CanonicalStockDataService implements StockDataService {
       derived,
       operands,
       periodStart: period.from,
+      alternativeData,
     }).frame;
   }
 
@@ -758,11 +859,15 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     observations: number,
     asOf: LocalDate,
+    operands: readonly OperandKey[] = [],
   ): Promise<void> {
     const window = this.monitorWindowRange(observations, asOf);
     const load = this.loadTarget(security, window);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
+    // Ingested here, in the cycle's own preparation phase, so the read below reaches no provider and
+    // several Monitors sharing a symbol share one ingest.
+    await this.ensureAlternativeDataIngested(security, operands);
   }
 
   /**
@@ -807,6 +912,15 @@ export class CanonicalStockDataService implements StockDataService {
         })
       : [];
 
+    const alternativeData = await this.loadAlternativeDataFacts(
+      input.security,
+      input.operands,
+      // The whole projected window, so a lookback that reaches behind the newest closed session is
+      // counted from the same rows the frame carries.
+      { from: prices[0]?.date ?? input.observationDate, to: input.observationDate },
+      {},
+    );
+
     return projectMonitorEvaluationFrame({
       security: input.security,
       prices,
@@ -814,6 +928,7 @@ export class CanonicalStockDataService implements StockDataService {
       operands: input.operands,
       observation: input.observation,
       observationDate: input.observationDate,
+      ...(alternativeData ? { alternativeData } : {}),
     });
   }
 

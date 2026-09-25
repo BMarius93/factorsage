@@ -1,15 +1,20 @@
 "use client";
 
-import type {
-  ConditionOperator,
-  StrategyCondition,
-  StrategyIssuePath,
-  StrategyLevelKind,
-  StrategyMetric,
-  StrategyTrigger,
-  StrategyValue,
-  TriggerOperator,
+import {
+  asAlternativeDataMetric,
+  describePredicateScope,
+  strategyMetricLabel,
+  type ConditionOperator,
+  type StrategyCondition,
+  type StrategyIssuePath,
+  type StrategyLevelKind,
+  type StrategyMetric,
+  type StrategyTrigger,
+  type StrategyValue,
+  type TriggerOperator,
 } from "@intrinsic/contracts";
+import { useState } from "react";
+import { AlternativeDataConfigDialog } from "../../alternative-data/components/AlternativeDataConfigDialog";
 import type { PredicateRef } from "../utils/strategy-draft";
 import type { StrategyIssueLookup } from "../utils/strategy-issues";
 import { messageAt } from "../utils/strategy-issues";
@@ -20,6 +25,7 @@ import { ValueControl } from "./ValueControl";
 import { ExplanationPanel } from "./ExplanationPanel";
 import panel from "./ExplanationPanel.module.css";
 import { rowOriginKey, type HelpFocus } from "./help-focus";
+import { useScopeNames } from "./scope-names";
 import { useIsUnsetRow } from "./unset-rows";
 
 type PredicateRowProps = {
@@ -61,6 +67,15 @@ export function PredicateRow({
   removeLabel,
   focus,
 }: PredicateRowProps) {
+  // From context, not a prop: only the row needs the names, and four intermediate components carrying
+  // one they never read is how a builder accumulates noise (`ScopeNamesContext`).
+  const scopeNames = useScopeNames();
+  // A metric whose configuration belongs to the signal rather than to the row. The dialog edits a
+  // draft and commits through the same `setMetric` a change of metric uses, so the operator and the
+  // value are reconciled by the one canonical rule.
+  const [configuring, setConfiguring] = useState(false);
+  const alternative = asAlternativeDataMetric(row.metric);
+  const scopeSummary = describePredicateScope(row, scopeNames);
   // A row the user has not chosen a Metric for authors nothing yet (UI-013): it asks for the Metric
   // and holds back the Condition and Value, which would only describe a placeholder.
   const unset = useIsUnsetRow(row.id);
@@ -159,10 +174,45 @@ export function PredicateRow({
       >
         ×
       </button>
+      {alternative && !unset ? (
+        <div className={styles.operandConfig}>
+          <button
+            type="button"
+            className={styles.operandConfigButton}
+            data-testid="operand-config-button"
+            aria-label={`Configure ${strategyMetricLabel(row.metric)}`}
+            onClick={() => setConfiguring(true)}
+          >
+            Configure
+          </button>
+          {scopeSummary ? (
+            <span
+              className={styles.operandScope}
+              data-testid="operand-scope-summary"
+              title={scopeSummary}
+            >
+              {scopeSummary}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       {message ? (
         <p className={styles.rowError} id={errorId} role="alert">
           {message}
         </p>
+      ) : null}
+
+      {configuring && alternative ? (
+        <AlternativeDataConfigDialog
+          metric={alternative}
+          onClose={() => setConfiguring(false)}
+          onApply={(next) => {
+            touch(pathFor("METRIC"));
+            onSetMetric(next);
+            setConfiguring(false);
+          }}
+        />
       ) : null}
       {focus?.origin === origin ? (
         <div className={panel.inlineHelp} data-testid="inline-help">

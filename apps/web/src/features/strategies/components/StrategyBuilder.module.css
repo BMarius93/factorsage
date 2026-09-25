@@ -493,6 +493,58 @@
   grid-column: 1 / -1;
 }
 
+/*
+ * The configured first operand's own line: a trigger to open its configuration, and the subtle
+ * summary of what was narrowed.
+ *
+ * Under the fields rather than beside them, and spanning the row, because the product's grammar is
+ * three controls and a fourth would break it on a phone before it broke it anywhere else
+ * (`docs/alternative-data-signals.md`). It is absent entirely for a metric that takes no
+ * configuration, so no row gains a line it has nothing to put in.
+ */
+.operandConfig {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.operandConfigButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.operandConfigButton:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.operandConfigButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* What was narrowed, in the same restrained register the rest of the row's metadata uses. */
+.operandScope {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .addRow,
 .addLevel,
 .addExitRule {
@@ -658,6 +710,12 @@
   }
 
   .rowError {
+    grid-column: 2 / -1;
+  }
+
+  /* Aligned under the fields rather than under the reserved connector column, exactly as the row's
+     error is: the summary describes the first operand, so it must start where the operand does. */
+  .operandConfig {
     grid-column: 2 / -1;
   }
 }

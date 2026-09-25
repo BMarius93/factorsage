@@ -1,0 +1,57 @@
+/* Rhythm and the two row-specific pieces only. Headers, surfaces, tables and empty states all come
+   from `components/ui`; what stays here is what is specific to an actor-group row. */
+.collection {
+  composes: stack from "../../../components/ui/page.module.css";
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.lead {
+  flex: 1;
+  min-width: 240px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.nameLink {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.name {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: var(--weight-emphasis);
+  overflow-wrap: anywhere;
+}
+
+.nameLink:hover .name {
+  color: var(--color-primary);
+}
+
+.nameLink:focus-visible {
+  outline: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--focus-ring);
+}
+
+/* A description is context, not a title: it stays to one line and never widens the name column. */
+.description {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

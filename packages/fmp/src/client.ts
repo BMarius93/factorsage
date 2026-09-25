@@ -1,12 +1,17 @@
 import type {
   BenchmarkDailyPrice,
+  CongressChamber,
   DateRange,
   FinancialStatementCadence,
   FinancialStatementDraft,
   FinancialStatementType,
 } from "@intrinsic/domain";
 import {
+  FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
+  FMP_INSIDER_TRADING_MAX_PAGE_SIZE,
+  mapFmpCongressTrades,
   mapFmpDailyPrices,
+  mapFmpInsiderTrades,
   mapFmpBenchmarkDailyPrices,
   mapFmpFinancialStatements,
   financialStatementPath,
@@ -17,8 +22,14 @@ import {
   type FmpCurrentQuote,
   type FmpCurrentQuoteProviderPort,
   type FmpExchangeCalendarPort,
+  type FmpCongressTradeDto,
+  type FmpCongressTradingPort,
   type FmpExchangeHoliday,
   type FmpExchangeHolidayDto,
+  type FmpInsiderTradeDto,
+  type FmpInsiderTradingPort,
+  type MappedFmpCongressTrade,
+  type MappedFmpInsiderTrade,
   type FmpDailyPriceDto,
   type FmpProfileDto,
   type FmpQuoteDto,
@@ -141,7 +152,9 @@ export class FmpClient
     FmpSecurityCatalogPort,
     FmpBenchmarkProviderPort,
     FmpCurrentQuoteProviderPort,
-    FmpExchangeCalendarPort
+    FmpExchangeCalendarPort,
+    FmpInsiderTradingPort,
+    FmpCongressTradingPort
 {
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
@@ -347,6 +360,63 @@ export class FmpClient
       statementType,
       rows: payload as readonly Record<string, unknown>[],
     });
+  }
+
+  /**
+   * One page of Form 4 insider transactions for one symbol, newest filing first.
+   *
+   * The endpoint accepts no date range — `from` and `to` are silently ignored, verified live on
+   * 2026-09-25 — so history is reached by paging, and the caller decides when to stop. `limit` is
+   * clamped to the provider's own cap rather than passed through, so a caller asking for more than the
+   * endpoint returns does not silently believe it received a complete page.
+   */
+  async getInsiderTrades(input: {
+    symbol: string;
+    page: number;
+    limit: number;
+  }): Promise<MappedFmpInsiderTrade[]> {
+    const payload = await this.request<FmpInsiderTradeDto[]>(
+      "insider-trading/search",
+      {
+        symbol: input.symbol.trim().toUpperCase(),
+        page: String(Math.max(0, Math.trunc(input.page))),
+        limit: String(
+          Math.min(
+            Math.max(1, Math.trunc(input.limit)),
+            FMP_INSIDER_TRADING_MAX_PAGE_SIZE,
+          ),
+        ),
+      },
+    );
+    return mapFmpInsiderTrades(payload);
+  }
+
+  /**
+   * One page of congressional disclosures for one symbol and one chamber, newest disclosure first.
+   *
+   * The chamber decides the endpoint and is also passed to the mapper, because the payload does not
+   * state it: both endpoints return the member's bioguide id in a field named `senateID`.
+   */
+  async getCongressTrades(input: {
+    chamber: CongressChamber;
+    symbol: string;
+    page: number;
+    limit: number;
+  }): Promise<MappedFmpCongressTrade[]> {
+    const payload = await this.request<FmpCongressTradeDto[]>(
+      input.chamber === "SENATE" ? "senate-trades" : "house-trades",
+      {
+        symbol: input.symbol.trim().toUpperCase(),
+        page: String(Math.max(0, Math.trunc(input.page))),
+        limit: String(
+          Math.min(
+            Math.max(1, Math.trunc(input.limit)),
+            FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
+          ),
+        ),
+      },
+    );
+    return mapFmpCongressTrades(input.chamber, payload);
   }
 
   private async request<T>(

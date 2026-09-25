@@ -5,6 +5,7 @@ import {
   STRATEGY_LEVEL_PERCENTAGE_BASIS,
   describeStrategy,
   type StrategyDefinition,
+  type StrategyScopeNames,
 } from "@intrinsic/contracts";
 import { Fragment } from "react";
 import styles from "./ExplanationPanel.module.css";
@@ -22,15 +23,24 @@ import styles from "./ExplanationPanel.module.css";
 export function LogicPreview({
   definition,
   framed = true,
+  scopeNames,
 }: {
   readonly definition: StrategyDefinition;
+  /**
+   * Names for the actors and groups the definition references.
+   *
+   * Passed in rather than fetched here, because the same lines are rendered by the Builder (which has
+   * the live names) and by the read-only view; and because an unresolved name renders a neutral
+   * fallback rather than nothing, so this component never waits on a request.
+   */
+  readonly scopeNames?: StrategyScopeNames;
   /**
    * `false` renders the lines alone, for a page whose `SectionCard` is already the surface. The
    * Builder's side column keeps the framed card with its own heading and mobile disclosure.
    */
   readonly framed?: boolean;
 }) {
-  const lines = describeStrategy(definition);
+  const lines = describeStrategy(definition, scopeNames);
   const body =
     lines.length === 0 ? (
       <p className={styles.panelEmpty}>
@@ -119,6 +129,11 @@ function PreviewLines({
               <span className={styles.previewConnector}>{line.connector} </span>
             ) : null}
             {line.text}
+            {line.scope ? (
+              // The configured first operand's summary, joined with an em dash so the line still reads
+              // as one sentence: `Institutional buyers 60D is at least 3 — Superinvestors`.
+              <span className={styles.previewScope}> — {line.scope}</span>
+            ) : null}
             {line.kind === "TRIGGER" ? (
               <span className={styles.previewTag}> (trigger)</span>
             ) : null}

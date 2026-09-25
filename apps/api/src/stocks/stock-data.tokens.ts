@@ -7,6 +7,16 @@ export const STOCK_DATA_SERVICE = Symbol("STOCK_DATA_SERVICE");
 export const SECURITY_CATALOG_SERVICE = Symbol("SECURITY_CATALOG_SERVICE");
 
 /**
+ * The alternative-data store and loader.
+ *
+ * Exported by `StocksModule` for the same reason the provider and the coordinator are: the
+ * alternative-data feature module must read the **same** store and spend the **same** gated provider
+ * allowance, not construct a second of either.
+ */
+export const ALTERNATIVE_DATA_STORE = Symbol("ALTERNATIVE_DATA_STORE");
+export const ALTERNATIVE_DATA_SERVICE = Symbol("ALTERNATIVE_DATA_SERVICE");
+
+/**
  * Retained years of history this deployment can serve, as the Stock Details surface sees it.
  *
  * Provided rather than read from configuration inside the controller so the HTTP layer stays a

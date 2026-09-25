@@ -29,6 +29,9 @@ const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
+  // The page reads `?view=` to choose between its three collections; the default view is the stock
+  // lists this suite is about.
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({

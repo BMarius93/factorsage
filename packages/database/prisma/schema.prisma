@@ -128,6 +128,10 @@ enum StockDataset {
   CASH_FLOW
   DIVIDEND
   STOCK_SPLIT
+  /// Form 4 insider transactions for one security.
+  INSIDER_TRADE
+  /// House and Senate periodic transaction reports naming one security.
+  CONGRESS_TRADE
 }
 
 enum FinancialStatementType {
@@ -221,6 +225,8 @@ model User {
   updatedMonitors            Monitor[]                      @relation("MonitorUpdatedBy")
   legalRecords               LegalRecord[]
   legalRequests              LegalRequest[]
+  actorGroups                ActorGroup[]
+  updatedActorGroups         ActorGroup[]                   @relation("ActorGroupUpdatedBy")
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -351,6 +357,8 @@ model Security {
   monitorSignals      MonitorSignal[]
   monitorTransitions  MonitorStateTransition[]
   recentViews         RecentSecurityView[]
+  insiderTransactions InsiderTransaction[]
+  congressTrades      CongressTrade[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -1564,4 +1572,246 @@ model StripeWebhookEvent {
 
   @@index([type, processedAt])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Alternative data: insider activity and congressional trading
+//
+// `docs/alternative-data-signals.md` is the product decision these tables implement. Three rules
+// shape all of them:
+//
+// 1. **Two dates, always.** Every row keeps the economic date (the trade) *and* the date the
+//    information became public, plus the derived `availableFromDate` a strategy reads. Nothing
+//    substitutes one for the other.
+// 2. **Raw beside normalized.** `raw` holds the provider's own row and the `*Raw` columns hold its
+//    own strings, so a normalized enum can never be mistaken for a statement the source made — and a
+//    historical signal can be audited back to the disclosure that produced it.
+// 3. **Content-addressed, never overwritten.** A `contentHash` over the provider's meaningful fields
+//    makes reingestion idempotent and makes an amendment a new row rather than a destructive update.
+// ---------------------------------------------------------------------------
+
+enum CongressChamber {
+  HOUSE
+  SENATE
+}
+
+/// What one Form 4 line was. Only `OPEN_MARKET_PURCHASE` and `OPEN_MARKET_SALE` are discretionary
+/// trades at the market price; the rest are awards, gifts, exercises, conversions and withholdings,
+/// which a strategy metric never counts as buying or selling.
+enum InsiderTransactionCategory {
+  OPEN_MARKET_PURCHASE
+  OPEN_MARKET_SALE
+  AWARD
+  GIFT
+  OPTION_EXERCISE
+  CONVERSION
+  DISPOSITION_TO_ISSUER
+  OTHER
+}
+
+enum InsiderRole {
+  CEO
+  CFO
+  COO
+  PRESIDENT
+  CHAIRMAN
+  DIRECTOR
+  OFFICER
+  TEN_PERCENT_OWNER
+  OTHER
+}
+
+enum CongressTransactionKind {
+  PURCHASE
+  SALE
+  EXCHANGE
+  OTHER
+}
+
+/// The disclosed owner. `UNSPECIFIED` is what an empty provider field becomes and is never folded
+/// into `SELF`: a filing that names no owner has not said the member holds it personally.
+enum CongressOwner {
+  SELF
+  SPOUSE
+  JOINT
+  CHILD
+  DEPENDENT
+  OTHER
+  UNSPECIFIED
+}
+
+/// The disclosed asset class. Only `STOCK` maps safely onto the `Security` model, and only `STOCK`
+/// rows feed a V1 metric; the rest are ingested, preserved and never counted as share activity.
+enum CongressAssetClass {
+  STOCK
+  STOCK_OPTION
+  BOND
+  FUND
+  CRYPTO
+  OTHER
+}
+
+/// A canonical actor a user may select or group: in V1, a member of Congress.
+///
+/// `externalId` is the identity — the member's bioguide id — and `displayName` is a label. Two members
+/// can share a display name and a member can be renamed; neither may move a group's membership, which
+/// is why `externalId` is the unique key and the name is not unique at all.
+///
+/// There is deliberately **no actor-kind discriminator**. Insider persons are not actors — V1 has no
+/// insider person groups, and an insider metric counts distinct reporting CIKs straight off
+/// `InsiderTransaction` — so a discriminator would have exactly one value, which is a distinction the
+/// product does not make. A second kind adds the column back.
+model AlternativeDataActor {
+  id              String             @id @default(uuid())
+  externalId      String             @unique
+  displayName     String
+  chamber         CongressChamber
+  /// The two-letter state, where the provider reports one.
+  state           String?
+  /// The provider's district string, e.g. `TX17`. Senate rows carry none.
+  district        String?
+  /// Provider fields worth keeping that no column claims. Never read by a query.
+  metadata        Json?
+  firstObservedAt DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  groupMembers    ActorGroupMember[]
+  congressTrades  CongressTrade[]
+
+  /// Backs the searchable actor picker.
+  @@index([displayName])
+}
+
+/// A reusable, explicit collection of actors, owned by a user or by the system (built-in).
+///
+/// It is the Lists product area's second collection, not a new top-level concept, and it follows
+/// `StockList`'s ownership model exactly — including the CHECK constraint pairing `ownership` with
+/// `userId`/`systemKey`. Membership is explicit: V1 has no semantic or historical group such as
+/// "current senators".
+model ActorGroup {
+  id              String             @id @default(uuid())
+  ownership       ContentOwnership   @default(USER)
+  userId          String?
+  systemKey       String?            @unique
+  name            String
+  description     String?
+  displayOrder    Int?
+  updatedByUserId String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  user            User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy       User?              @relation("ActorGroupUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  members         ActorGroupMember[]
+
+  @@index([userId])
+  @@index([ownership])
+}
+
+/// Membership of one canonical actor in one group.
+///
+/// `onDelete: Restrict` on the actor is deliberate and matches `StockListItem`: the actor catalog is
+/// grown by ingestion and never product-deleted, and a user's curated group must not silently lose a
+/// member through a catalog mutation.
+model ActorGroupMember {
+  groupId   String
+  actorId   String
+  createdAt DateTime             @default(now())
+  group     ActorGroup           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  actor     AlternativeDataActor @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@id([groupId, actorId])
+  @@index([actorId])
+}
+
+/// One Form 4 line for one security.
+///
+/// `transactionDate` is when the insider traded and `filingDate` is when the form reached the SEC;
+/// `availableFromDate` is `filingDate + 1 day`, the first date a historical calculation may use it,
+/// and is the only one a strategy window is measured on.
+///
+/// `transactionValue` is present only where the form stated both a share count and a positive price.
+/// An award priced at zero carries no value rather than a value of zero, so a purchase-value metric
+/// can never read an award as a tiny purchase.
+model InsiderTransaction {
+  id                       String                     @id @default(uuid())
+  securityId               String
+  transactionDate          DateTime                   @db.Date
+  filingDate               DateTime                   @db.Date
+  availableFromDate        DateTime                   @db.Date
+  /// The reporting person's CIK: the stable identity a distinct-buyer count is keyed by.
+  reportingCik             String
+  reportingName            String
+  companyCik               String?
+  /// The provider's own `typeOfOwner` text, preserved.
+  typeOfOwner              String?
+  /// Roles derived from `typeOfOwner`. Never empty: an unrecognizable string yields `OTHER`.
+  roles                    InsiderRole[]
+  /// The SEC transaction code letter, where the provider's string carried one.
+  transactionCode          String?
+  /// The provider's own transaction type string, e.g. `S-Sale`.
+  transactionTypeRaw       String
+  category                 InsiderTransactionCategory
+  acquisitionOrDisposition String?
+  directOrIndirect         String?
+  formType                 String?
+  securityName             String?
+  securitiesTransacted     Decimal?                   @db.Decimal(24, 6)
+  securitiesOwned          Decimal?                   @db.Decimal(24, 6)
+  price                    Decimal?                   @db.Decimal(20, 8)
+  transactionValue         Decimal?                   @db.Decimal(24, 4)
+  sourceUrl                String?
+  raw                      Json
+  /// Digest of the provider's meaningful fields. Reingesting an unchanged row is a no-op; a corrected
+  /// or amended one is a new row, so history is never destructively overwritten.
+  contentHash              String
+  observedAt               DateTime                   @default(now())
+  security                 Security                   @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, contentHash])
+  /// The read every column projection makes: one security, ascending by availability.
+  @@index([securityId, availableFromDate])
+  @@index([securityId, category, availableFromDate])
+  @@index([reportingCik])
+}
+
+/// One congressional periodic transaction report line naming one security.
+///
+/// House and Senate are one domain and one table: they differ by `chamber`, not by shape.
+/// `transactionDate` and `disclosureDate` are separate facts, and the gap between them is routinely
+/// weeks — which is why `availableFromDate` exists and why no metric windows on the transaction date.
+///
+/// Amounts are **bands**. `amountLowerBound` and `amountUpperBound` carry what the filing disclosed,
+/// `amountRangeRaw` carries its own text, and no midpoint is stored anywhere.
+model CongressTrade {
+  id                     String                  @id @default(uuid())
+  securityId             String
+  actorId                String
+  chamber                CongressChamber
+  transactionDate        DateTime                @db.Date
+  disclosureDate         DateTime                @db.Date
+  availableFromDate      DateTime                @db.Date
+  kind                   CongressTransactionKind
+  /// The provider's own `type`, e.g. `Sale (Partial)`.
+  transactionTypeRaw     String
+  owner                  CongressOwner
+  ownerRaw               String?
+  assetClass             CongressAssetClass
+  assetTypeRaw           String?
+  assetDescription       String?
+  amountRangeRaw         String?
+  /// Open-ended top bands ("Over $50,000,000") carry a lower bound and no upper one.
+  amountLowerBound       Decimal?                @db.Decimal(24, 2)
+  amountUpperBound       Decimal?                @db.Decimal(24, 2)
+  capitalGainsOver200Usd Boolean?
+  comment                String?
+  sourceUrl              String?
+  raw                    Json
+  contentHash            String
+  observedAt             DateTime                @default(now())
+  security               Security                @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  actor                  AlternativeDataActor    @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([securityId, contentHash])
+  @@index([securityId, availableFromDate])
+  @@index([securityId, kind, availableFromDate])
+  @@index([actorId, availableFromDate])
 }

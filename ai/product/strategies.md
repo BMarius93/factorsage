@@ -546,6 +546,8 @@ above is what the metric means and does not depend on that answer.
 | Margin of Safety · selected IV source           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
 | Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
 | Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
+| Insider Activity · 4 measures                   | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                             | BUY, SELL, FINAL EXIT |
+| Congressional Trading · 5 measures              | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                             | BUY, SELL, FINAL EXIT |
 
 **Relative Volume is the one Condition-only metric**, and the empty Trigger column is a product
 decision rather than an omission. A Trigger is a crossing event; the Monitor's existing
@@ -557,6 +559,19 @@ periods are fixed presets — 10, 20 and 50 **trading sessions**, default 20 —
 deliberately not offered: each period is a persisted column, not a parameter evaluated on demand.
 Scope is Volume and these three periods; no average volume, dollar volume, volume change, OBV or
 volume oscillator is part of it.
+
+The two **alternative-data** kinds — Insider Activity and Congressional Trading — are the second
+family of condition-only metrics, for the reason Relative Volume is: a
+disclosure count is a state, and the Monitor's not-matched -> matched transition already raises a
+Signal on the session a Condition first holds. They are the only metrics that offer the inclusive
+`is at least` / `is at most` pair, because they count discrete events and
+`docs/alternative-data-signals.md` writes its own examples that way; no other metric gained an
+inclusive form, so no existing rule changed meaning. Each kind is parameterized by a **measure plus
+configuration** — a lookback in trading sessions, and where the domain has actors an actor scope with
+its chamber, owner or role filters — which belongs to the signal and never becomes a fourth control
+in the condition row. `docs/alternative-data-signals.md` is the product decision; its point-in-time
+rule (a window is measured on the session a disclosure became *observable*, never on the transaction
+date) is not restated here.
 
 This is the current baseline, not a declaration that these are the only eventual metrics.
 Additional technical metrics, fundamentals and other derived metrics must be added deliberately with

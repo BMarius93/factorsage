@@ -839,6 +839,18 @@ export type BacktestSnapshotSecurity = {
 };
 
 /**
+ * One actor group as a run froze it.
+ *
+ * `actorIds` are this product's canonical ids, in the group's own member order. They are the identity
+ * execution filters by; the names beside them are labels for reporting and are never matched on.
+ */
+export type BacktestSnapshotActorGroup = {
+  groupId: string;
+  name: string;
+  members: { actorId: string; externalId: string; displayName: string }[];
+};
+
+/**
  * Everything needed to reproduce one run, written once and never updated.
  *
  * This is the reproducibility authority `ai/product/backtests.md` requires. It is a server-side
@@ -932,6 +944,23 @@ export type BacktestRunSnapshot = {
     name: string;
   };
   securities: BacktestSnapshotSecurity[];
+  /**
+   * The actor groups the strategy references, with their membership **frozen at submission**.
+   *
+   * An actor group is mutable configuration, exactly like a Stock List, so a run must never depend on
+   * its current state: `docs/alternative-data-signals.md` requires that editing a group later can
+   * never change the semantics or the results of a run that already exists. Freezing the member ids
+   * here is what implements that — execution resolves a `GROUP` scope through this list and never
+   * through the database.
+   *
+   * Each member carries its identity *and* its label, so a completed run can still name the actors it
+   * counted even after one has been renamed — or after the group itself has been deleted.
+   *
+   * **Optional, and absent on every run submitted before this feature.** A strategy that references no
+   * group has nothing to freeze, so the field is omitted rather than written as an empty list; that
+   * also means no existing snapshot changes, and `BACKTEST_SNAPSHOT_VERSION` does not move.
+   */
+  actorGroups?: BacktestSnapshotActorGroup[];
   period: {
     startDate: string;
     endDate: string;
