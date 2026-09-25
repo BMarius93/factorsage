@@ -557,6 +557,9 @@ thing. The registry expresses this as an empty `triggerOperators` list, which is
 metric from the Builder's Trigger row and what validation rejects a stored document by. The three
 periods are fixed presets — 10, 20 and 50 **trading sessions**, default 20 — and a custom window is
 deliberately not offered: each period is a persisted column, not a parameter evaluated on demand.
+The period is part of the metric's **identity**, not a display detail: `RVOL 10 is above 2` and
+`RVOL 20 is above 2` are two different conditions, so both may be ANDed in one Signal and they
+fingerprint — and therefore version, and latch — separately.
 Scope is Volume and these three periods; no average volume, dollar volume, volume change, OBV or
 volume oscillator is part of it.
 

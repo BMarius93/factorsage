@@ -2434,9 +2434,16 @@ function predicateIdentity(
   // or lookback are different conditions. Keying them by kind alone would make
   // `Insider buyers 20D is at least 2` and `Insider sellers 20D is at least 2` look like one rule
   // written twice, and the second would be rejected as a duplicate.
+  //
+  // Relative Volume is in the same situation with its period: it is parameterized by a period
+  // rather than by a catalog id, so `strategyMetricSeriesId` has nothing to give and every period
+  // would key alike. `RVOL 10 is above 2 AND RVOL 20 is above 2` is two different conditions and
+  // must stay authorable; two rows sharing a period are still one rule written twice.
   const metricKey = alternative
     ? alternativeDataMetricSignature(alternative)
-    : (strategyMetricSeriesId(metric) ?? "");
+    : metric.kind === "RELATIVE_VOLUME"
+      ? String(metric.period)
+      : (strategyMetricSeriesId(metric) ?? "");
   const valueKey =
     value.kind === "SERIES" ? value.seriesId : String(value.value);
   return `${metric.kind}:${metricKey}|${operator}|${value.kind}:${valueKey}`;
@@ -3248,16 +3255,24 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
       : [input.kind, input.value];
   const metric = (input: StrategyMetric): unknown => {
     const alternative = asAlternativeDataMetric(input);
-    // A third element is **appended only for the alternative-data kinds**, so every metric shape
-    // that already existed serializes to exactly the two elements it always did. That is what keeps
-    // every persisted `StrategyVersion.definitionHash` valid and every Monitor latch in place
-    // through this change. `alternativeDataMetricSignature` covers measure, lookback, scope and
-    // filters, so editing a lookback or a scope correctly appends a version and resets that level.
+    // A third element is **appended only for the kinds that are parameterized by something other
+    // than a catalog id**, so every metric whose whole identity is `kind` plus a catalog id — the
+    // moving averages, the oscillators, Margin of Safety, Price, Gain and Loss — serializes to
+    // exactly the two elements it always did. That is what keeps every persisted
+    // `StrategyVersion.definitionHash` valid and every non-RVOL Monitor latch in place.
     //
-    // Relative Volume's period is deliberately *not* carried here. Adding it would move the stored
-    // hash of every existing RVOL strategy and reset its Monitor state, which is a change nobody
-    // asked for as part of this feature; that two RVOL periods currently fingerprint identically is
-    // a defect reported separately rather than fixed inside this change.
+    // `alternativeDataMetricSignature` covers measure, lookback, scope and filters, so editing a
+    // lookback or a scope correctly appends a version and resets that level.
+    //
+    // Relative Volume carries its period for the same reason: the period *is* the metric's
+    // identity, and leaving it out made `RVOL 10 is above 2` and `RVOL 20 is above 2` serialize
+    // identically — one definition hash and one Monitor latch for two different rules. Adding it
+    // moves the stored hash of every existing RVOL strategy and resets the Monitor state of its
+    // RVOL levels exactly once; that is the intended correction, because the state those rows
+    // latched was never keyed to the logic it belonged to.
+    if (input.kind === "RELATIVE_VOLUME") {
+      return [input.kind, null, input.period];
+    }
     return alternative
       ? [input.kind, null, alternativeDataMetricSignature(alternative)]
       : [input.kind, strategyMetricSeriesId(input) ?? null];

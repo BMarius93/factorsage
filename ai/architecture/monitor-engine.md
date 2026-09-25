@@ -198,6 +198,20 @@ both in `@intrinsic/contracts` and both sharing their serialization with
 `strategyDefinitionFingerprint` so none of them can disagree), never on the Strategy version. Keying
 on the version would reset every level on any edit and re-emit a Signal on each unchanged one.
 
+A metric's fingerprint carries whatever parameterizes it. For the catalog-backed metrics that is a
+series id; for the alternative-data kinds it is the configured signature; for **Relative Volume it
+is the period**, which was missing until the RVOL identity fix and made `RVOL 10` and `RVOL 20`
+fingerprint identically — one durable state, one latch and one Signal for two different levels.
+Correcting it moves the fingerprint of every RVOL level exactly once, so the first cycle after that
+deploy takes the ordinary **edited-level** path for those levels and no other: the stale state's
+occurrence closes with `LOGIC_CHANGED`, and the level is then **reconstructed from history** rather
+than started blank, re-establishing the correct lifecycle on the first decidable observation. It is
+a one-time reset of RVOL Monitor state, accepted rather than worked around, because what those rows
+latched was never keyed to the logic it belonged to. No non-RVOL level is affected, and no stored
+`definitionHash` of a Strategy without RVOL moves, because every other metric shape serializes
+byte-for-byte as it always did. A Strategy that *does* use RVOL gets one new `StrategyVersion` the
+next time it is saved, for the same reason.
+
 FINAL EXIT's fingerprint covers **every** Exit Rule, so editing, adding or removing any one of them
 resets that level's transition state and no other level's. A single-rule FINAL EXIT fingerprints
 byte-identically to the same logic under document schema version 1 — an OR of one alternative is

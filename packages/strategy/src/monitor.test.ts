@@ -237,6 +237,38 @@ describe("monitorStrategyLevels", () => {
     ]);
   });
 
+  /**
+   * Two Relative Volume periods are two levels, and a Monitor keys durable state by the level's own
+   * fingerprint — so identical fingerprints would have let `RVOL 10` and `RVOL 20` latch on each
+   * other's state, one silently resolving the other's Signal on every scan.
+   */
+  it("gives Relative Volume levels of different periods different fingerprints", () => {
+    const rvolAbove = (period: 10 | 20 | 50): StrategySignal => ({
+      conditions: [
+        {
+          id: `c${period}`,
+          metric: { kind: "RELATIVE_VOLUME", period },
+          operator: "IS_ABOVE",
+          value: { kind: "MULTIPLE", value: 2 },
+        },
+      ],
+    });
+    const levels = monitorStrategyLevels({
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        { id: "b10", signal: rvolAbove(10), percentage: 50 },
+        { id: "b20", signal: rvolAbove(20), percentage: 25 },
+        { id: "b50", signal: rvolAbove(50), percentage: 25 },
+      ],
+      sellLevels: [],
+    });
+
+    expect(levels).toHaveLength(3);
+    expect(new Set(levels.map((entry) => entry.fingerprint)).size).toBe(3);
+    // Every level is evaluated: Relative Volume needs no position state.
+    expect(levels.map((entry) => entry.id)).toEqual(["b10", "b20", "b50"]);
+  });
+
   it("excludes a level whose condition is Gain or Loss", () => {
     expect(
       monitorStrategyLevels({
