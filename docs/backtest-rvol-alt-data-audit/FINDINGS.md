@@ -555,3 +555,41 @@ case 2026-09-26 was a Saturday.
 
 **Tests.** `matrix-preflight.test.ts` — coverage stopping before today fails the check even though
 every simulated session is covered; coverage reaching today passes.
+
+## V-06 — The configured metrics fire, and every filter is a strict subset
+
+**Verification. No defect.**
+
+A column that is always zero would pass every comparison in S-B1 and prove nothing. Sessions holding
+a non-zero reading, over the 259,735 session-metric pairs of each configured metric:
+
+| Metric | sessions > 0 | share |
+| --- | --- | --- |
+| `Insider buyers 20D` | 11,163 | 4.3% |
+| `Insider buyers 20D` · Director | 9,832 | 3.8% |
+| `Insider buyers 20D` · CEO, CFO | 938 | **0.4%** |
+| `Insider buyers 5D` | 3,100 | 1.2% |
+| `Insider sellers 20D` | 85,013 | 32.7% |
+| `Insider purchase value 60D` | 52,523 | 20.2% |
+| `Insider sale value 20D` | 128,111 | 49.3% |
+| `Congress purchases 30D` | 50,868 | 19.6% |
+| `Congress purchases 30D` · House | 41,339 | 15.9% |
+| `Congress purchases 30D` · Senate | 16,367 | 6.3% |
+| `Congress purchases 30D` · owner Self | 3,692 | **1.4%** |
+| `Congress sales 30D` | 48,112 | 18.5% |
+| `Congress buyers 90D` | 73,431 | 28.3% |
+| `Congress minimum disclosed purchase value 90D` | 73,431 | 28.3% |
+
+Every relationship is the right shape, and each is a thing a leak would break:
+
+- **Role and owner filters are strict subsets.** CEO+CFO is a tenth of the unfiltered buyer count and
+  Director is just under it; owner `Self` is a fourteenth of unfiltered purchases, which is what R-01's
+  3.6% of rows produces once windowed.
+- **A shorter lookback is a subset of a longer one.** `Insider buyers 5D` at 1.2% against `20D` at 4.3%.
+- **Chambers overlap rather than partition, per session.** House 15.9% and Senate 6.3% exceed the
+  unfiltered 19.6% together, because one session's window can hold both — which is correct, and is the
+  opposite of the row-level partition in V-05.
+- **Sellers vastly outnumber buyers** — 32.7% against 4.3% — which is what insider activity is.
+- **Two aggregations of the same filtered facts land on the identical session set.**
+  `Congress buyers 90D` and `Congress minimum disclosed purchase value 90D` both read
+  `CONGRESS_PURCHASE` over 90 sessions and both report 73,431, as they must.
