@@ -47,6 +47,16 @@ export type StubOptions = {
   noStatements?: readonly string[];
   /** Persist a stale derived-state variant instead of the current one. */
   staleDerivedVariant?: boolean;
+  /**
+   * End recorded price coverage here instead of at the clock.
+   *
+   * The loader's own target runs to today, so coverage that stops earlier is a gap the first run
+   * would fill from the provider — which is how a matrix provisioned before a UTC day boundary
+   * reaches the provider on its first run after it.
+   */
+  priceCoverageTo?: string;
+  /** The clock the preflight is given, when a case needs coverage compared against it. */
+  today?: string;
   /** Report these migrations as never applied. */
   unappliedMigrations?: readonly string[];
   /** Report a different connected database than the URL names. */
@@ -83,6 +93,9 @@ export function weekdays(from: string, to: string): string[] {
 }
 
 const asDate = (value: string): Date => new Date(`${value}T00:00:00.000Z`);
+
+/** The clock the suites pass as `today`; coverage reaches it unless a case says otherwise. */
+const TODAY = "2026-09-09";
 
 export function stubPrisma(
   fixtures: QaMatrixFixtures,
@@ -217,6 +230,13 @@ export function stubPrisma(
               ipoDate: fixture ? asDate(fixture.listedOn) : null,
             };
           }),
+    },
+    stockDatasetCoverage: {
+      aggregate: async () => ({
+        _max: {
+          toDate: asDate(options.priceCoverageTo ?? options.today ?? TODAY),
+        },
+      }),
     },
     dailyPrice: {
       aggregate: async ({ where }: { where: { securityId: string } }) => {

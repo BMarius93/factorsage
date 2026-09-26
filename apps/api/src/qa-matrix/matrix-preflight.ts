@@ -1102,6 +1102,32 @@ async function checkSecurityCoverage(
         `\`${security.symbol}\` prices end ${to}, before the last execution date ${requiredTo} the matrix simulates.`,
       );
     }
+    // The **loader's** own target, which is not the same question as the one above.
+    //
+    // `loadTarget` ends at today, not at the last session a configuration simulates, because the
+    // product keeps the recent tail current. A matrix whose price coverage stops at the last session
+    // therefore has a gap between that session and today, and the first run to touch a security
+    // fills it from the provider — which the gate then refuses as unpinned data, after a warm-up has
+    // already run. That is exactly what happened when the UTC day rolled from 2026-09-25 to
+    // 2026-09-26 between two sweeps of one provisioned matrix: the preflight passed, the warm-up made
+    // 33 requests, and nothing was swept.
+    //
+    // Coverage rather than bars: a weekend or a holiday legitimately has no bar, so what must reach
+    // today is the recorded interval, which is the thing the loader subtracts against.
+    const coverageTo = await input.prisma.stockDatasetCoverage.aggregate({
+      where: { securityId: security.id, dataset: "DAILY_PRICE" },
+      _max: { toDate: true },
+    });
+    const covered = coverageTo._max.toDate
+      ? toLocalDate(coverageTo._max.toDate)
+      : null;
+    if (covered === null || covered < input.today) {
+      problems.push(
+        `\`${security.symbol}\` price coverage ends ${covered ?? "nowhere"}, before ${input.today}. ` +
+          "The loader's target runs to today, so the first run to touch this security would fetch " +
+          "the gap from the provider. Re-provision the matrix.",
+      );
+    }
   }
 
   facts.pricesFrom = earliest;

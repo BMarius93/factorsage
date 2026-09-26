@@ -518,3 +518,40 @@ contains it, and `derived-state.ts` claims the ordinary rebuild — recalculatin
 earliest persisted bar — already spans exactly that. V-01 recomputed every stored Relative Volume
 against the **current** volumes and found zero value mismatches, `DIS` included. The revision
 propagated correctly.
+
+## F-07 — The preflight proved coverage for the simulated sessions, not for the loader's target
+
+**Severity: medium. Test infrastructure. Fixed.**
+
+The preflight's price-coverage check requires each security's bars to reach the **last execution date
+the matrix simulates**. The loader's own target does not end there: `loadTarget` runs to **today**,
+because the product keeps the recent tail current. Between the last session and today there is a gap
+the preflight never looked at.
+
+It is normally invisible, because a matrix provisioned and swept on one day has coverage through that
+day. It became visible the moment the UTC day rolled over between two sweeps of one provisioned
+matrix:
+
+```text
+PREFLIGHT GREEN — 17 checks, 0 warning(s).
+Warming canonical data with 2 serial run(s) over L06, L08…
+Warm-up complete; 33 provider request(s).
+Refusing to start the matrix: the warm-up made 33 provider request(s), so the canonical
+dataset is not pinned. Nothing was swept.
+```
+
+All 33 were `DAILY_PRICE MISSING_COVERAGE from 2026-09-15 to 2026-09-26`, one per security —
+coverage recorded through 2026-09-25, a target ending 2026-09-26. No alternative-data request was
+made, so the `ALT_DATA_FRESHNESS_MS` pin from F-03 held.
+
+The gate behaved exactly as designed: it refused before the timed sweep rather than reporting a
+thousand runs against partly-live data. But the preflight exists so that the gate never has to, and
+it had said green.
+
+**Fix.** The check now also requires recorded `DAILY_PRICE` coverage to reach `today`, and says
+"re-provision the matrix" when it does not. Coverage rather than bars, because a weekend or a holiday
+legitimately has no bar — the recorded interval is what the loader subtracts against, and in this
+case 2026-09-26 was a Saturday.
+
+**Tests.** `matrix-preflight.test.ts` — coverage stopping before today fails the check even though
+every simulated session is covered; coverage reaching today passes.
