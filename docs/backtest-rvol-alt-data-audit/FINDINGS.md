@@ -171,8 +171,18 @@ of all 33 matrix securities:
 to. The stored values are the correctly-rounded representation of the exact ratio.
 
 Warm-up boundaries are exact after the full-history rebuild: every security holds `n − 10`, `n − 20`
-and `n − 50` values for the three periods, and a late listing warms up from its own first bar
-(`ALAB`: first `rvol10` ten sessions after listing, `rvol20` at twenty, `rvol50` at fifty).
+and `n − 50` values for the three periods. Counted as ordinals from each security's own first bar:
+
+| Security | first `rvol10` | first `rvol20` | first `rvol50` |
+| --- | --- | --- | --- |
+| `MRNA` (listed 2018-12-07, wholly inside the retention window) | session **11** | session **21** | session **51** |
+| `AAPL` (history predates the 34-year retention window) | session 13 | session 21 | session 51 |
+
+`MRNA` is the clean case and it is exact: a period of `p` produces its first value on the session
+after its `p`-th predecessor, so ten prior sessions and then a value, never nine. `AAPL`'s `rvol10`
+at 13 rather than 11 is O-02 and nothing else — the two sessions before the r6 rebuild boundary,
+1992-09-23 and 1992-09-24, three and a half years outside the product horizon. `rvol20` and `rvol50`
+are unaffected there because their own warm-up boundaries fall after the rebuild start.
 
 ## V-02 — Every persisted disclosure's availability date is publication + 1 day
 
