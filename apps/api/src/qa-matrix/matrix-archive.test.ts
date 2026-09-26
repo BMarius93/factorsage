@@ -124,7 +124,7 @@ describe("invariant 36 — Relative Volume and alternative-data operands", () =>
   function contentsFor(
     condition: Record<string, unknown>,
     operandKey: string,
-    columnValues: (number | null)[],
+    columnValues: number[],
     tradeDate = "2024-01-03",
   ): ArchiveContents {
     return {
@@ -225,7 +225,12 @@ describe("invariant 36 — Relative Volume and alternative-data operands", () =>
     expect(
       byId(
         verifyArchiveInvariants(
-          contentsFor(condition, alternativeDataOperand(metric), [0, null, 0]),
+          // `NaN` is the frame's one representation of absence, exactly as the projector writes it.
+          contentsFor(condition, alternativeDataOperand(metric), [
+            0,
+            Number.NaN,
+            0,
+          ]),
         ),
         36,
       ).status,

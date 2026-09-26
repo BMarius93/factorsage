@@ -292,6 +292,7 @@ async function main(): Promise<void> {
         byCategory: result.ledger.byCategory(),
         rows: result.rows,
         availabilityViolations: result.availabilityViolations,
+        lastPlaceRoundings: result.lastPlaceRoundings,
         filedBeforeTransaction: result.filedBeforeTransaction,
         observableSessionViolations: result.observableSessionViolations,
         perMetric: result.perMetric,
@@ -305,6 +306,7 @@ async function main(): Promise<void> {
           detail: {
             rows: result.rows,
             availabilityViolations: result.availabilityViolations,
+            lastPlaceRoundings: result.lastPlaceRoundings,
             filedBeforeTransaction: result.filedBeforeTransaction,
             observableSessionViolations: result.observableSessionViolations,
             perMetric: result.perMetric,
@@ -315,6 +317,9 @@ async function main(): Promise<void> {
             `${result.filedBeforeTransaction} row(s) the provider dated as filed on or before the ` +
               "transaction they report. A provider anomaly: availability is still publication + 1 " +
               "day on every one of them, which is the only rule the product states.",
+            `${result.lastPlaceRoundings} stored transaction value(s) one unit in the last place ` +
+              "below the exact product, from float64 multiplication before Decimal(24,4) " +
+              "quantization. Maximum absolute error $0.0001.",
           ],
         }),
       );

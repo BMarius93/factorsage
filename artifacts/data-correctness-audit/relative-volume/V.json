@@ -1,0 +1,81 @@
+{
+  "symbol": "V",
+  "securityId": "e819f6b8-16c8-4788-bdf7-1a1543b9cc47",
+  "priceRows": 4660,
+  "derivedRows": 4660,
+  "visibleFrom": "1996-09-10",
+  "firstStoredValue": {
+    "rvol10": "2008-04-03",
+    "rvol20": "2008-04-17",
+    "rvol50": "2008-05-30"
+  },
+  "compared": 13980,
+  "failed": 0,
+  "samples": [
+    {
+      "date": "2008-03-19",
+      "volume": 708486016,
+      "rvol10": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol20": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol50": {
+        "expected": null,
+        "actual": null
+      }
+    },
+    {
+      "date": "2014-03-05",
+      "volume": 11329892,
+      "rvol10": {
+        "expected": "0.99896642580266174452",
+        "actual": "0.99896643"
+      },
+      "rvol20": {
+        "expected": "0.93910786455379252836",
+        "actual": "0.93910786"
+      },
+      "rvol50": {
+        "expected": "0.88913878975747051016",
+        "actual": "0.88913879"
+      }
+    },
+    {
+      "date": "2020-02-19",
+      "volume": 5927543,
+      "rvol10": {
+        "expected": "0.74942143567699580006",
+        "actual": "0.74942144"
+      },
+      "rvol20": {
+        "expected": "0.67365660876517889192",
+        "actual": "0.67365661"
+      },
+      "rvol50": {
+        "expected": "0.71832033848855648807",
+        "actual": "0.71832034"
+      }
+    },
+    {
+      "date": "2026-02-06",
+      "volume": 7798819,
+      "rvol10": {
+        "expected": "0.93412226234978057499",
+        "actual": "0.93412226"
+      },
+      "rvol20": {
+        "expected": "0.87174213745290440449",
+        "actual": "0.87174214"
+      },
+      "rvol50": {
+        "expected": "1.0578835266617957589",
+        "actual": "1.05788353"
+      }
+    }
+  ],
+  "mismatches": []
+}

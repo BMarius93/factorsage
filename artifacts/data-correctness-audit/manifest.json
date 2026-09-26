@@ -1,23 +1,21 @@
 {
-  "generatedAt": "2026-09-23T18:36:54.381Z",
+  "generatedAt": "2026-09-26T01:26:08.206Z",
   "git": {
-    "commit": "78c6e2c3",
-    "branch": "audit-large"
+    "commit": "eef25d95",
+    "branch": "audit/backtest-rvol-alternative-data"
   },
-  "durationMs": 637940,
+  "durationMs": 21522,
   "context": {
     "database": "intrinsic_value_matrix",
     "asOf": "2026-09-22",
-    "securities": 33,
-    "sweep": "2026-09-22-20260922-212011",
-    "matrixExecution": "2026-09-22-20260922-212011"
+    "securities": 33
   },
   "totals": {
-    "comparisons": 69814984,
-    "passed": 69814983,
+    "comparisons": 74739860,
+    "passed": 74739859,
     "failed": 1,
     "skipped": 0,
-    "tolerancePasses": 7694254
+    "tolerancePasses": 8617700
   },
   "status": "FAIL",
   "sections": [
@@ -892,6 +890,145 @@
         }
       },
       "notes": []
+    },
+    {
+      "section": "relative-volume",
+      "status": "PASS",
+      "comparisons": 703305,
+      "passed": 703305,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 702657,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "perPeriod": {
+          "rvol10": {
+            "compared": 234435,
+            "failed": 0,
+            "storedValues": 234355,
+            "maxAbsDifference": 4.999980207642807e-9,
+            "absenceMismatches": 0
+          },
+          "rvol20": {
+            "compared": 234435,
+            "failed": 0,
+            "storedValues": 234275,
+            "maxAbsDifference": 4.999978264752514e-9,
+            "absenceMismatches": 0
+          },
+          "rvol50": {
+            "compared": 234435,
+            "failed": 0,
+            "storedValues": 234035,
+            "maxAbsDifference": 4.999999969612645e-9,
+            "absenceMismatches": 0
+          }
+        },
+        "periodCollisions": 0,
+        "warmupRegion": {
+          "compared": 75900,
+          "failed": 50
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "alternative-data",
+      "status": "PASS",
+      "comparisons": 4221571,
+      "passed": 4221571,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 220789,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "rows": {
+          "insider": 179782,
+          "congress": 9187
+        },
+        "availabilityViolations": 0,
+        "lastPlaceRoundings": 11,
+        "filedBeforeTransaction": 12,
+        "observableSessionViolations": 0,
+        "perMetric": {
+          "insider-buyers-20": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 11163
+          },
+          "insider-buyers-5": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 3100
+          },
+          "insider-sellers-20": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 85013
+          },
+          "insider-purchase-value-60": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 52523
+          },
+          "insider-sale-value-20": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 128111
+          },
+          "insider-buyers-20-ceo-cfo": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 938
+          },
+          "insider-buyers-20-director": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 9832
+          },
+          "congress-purchases-30": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 50868
+          },
+          "congress-sales-30": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 48112
+          },
+          "congress-buyers-90": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 73431
+          },
+          "congress-purchases-30-house": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 41339
+          },
+          "congress-purchases-30-senate": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 16367
+          },
+          "congress-purchases-30-self": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 3692
+          },
+          "congress-min-purchase-value-90": {
+            "compared": 259735,
+            "failed": 0,
+            "sessionsWithValue": 73431
+          }
+        }
+      },
+      "notes": [
+        "12 row(s) the provider dated as filed on or before the transaction they report. A provider anomaly: availability is still publication + 1 day on every one of them, which is the only rule the product states.",
+        "11 stored transaction value(s) one unit in the last place below the exact product, from float64 multiplication before Decimal(24,4) quantization. Maximum absolute error $0.0001."
+      ]
     }
   ]
 }

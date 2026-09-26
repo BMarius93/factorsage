@@ -1,0 +1,232 @@
+{
+  "securities": 33,
+  "comparisons": {
+    "compared": 4221571,
+    "passed": 4221571,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 220789
+  },
+  "byCategory": {
+    "alternative-data": {
+      "compared": 4221571,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "rows": {
+    "insider": 179782,
+    "congress": 9187
+  },
+  "availabilityViolations": 0,
+  "lastPlaceRoundings": 11,
+  "filedBeforeTransaction": 12,
+  "observableSessionViolations": 0,
+  "perMetric": {
+    "insider-buyers-20": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 11163
+    },
+    "insider-buyers-5": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 3100
+    },
+    "insider-sellers-20": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 85013
+    },
+    "insider-purchase-value-60": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 52523
+    },
+    "insider-sale-value-20": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 128111
+    },
+    "insider-buyers-20-ceo-cfo": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 938
+    },
+    "insider-buyers-20-director": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 9832
+    },
+    "congress-purchases-30": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 50868
+    },
+    "congress-sales-30": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 48112
+    },
+    "congress-buyers-90": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 73431
+    },
+    "congress-purchases-30-house": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 41339
+    },
+    "congress-purchases-30-senate": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 16367
+    },
+    "congress-purchases-30-self": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 3692
+    },
+    "congress-min-purchase-value-90": {
+      "compared": 259735,
+      "failed": 0,
+      "sessionsWithValue": 73431
+    }
+  },
+  "coverage": {
+    "AAPL": {
+      "insider": "2018-08-18",
+      "congress": "2014-02-28"
+    },
+    "ADBE": {
+      "insider": "2003-05-15",
+      "congress": "2018-09-26"
+    },
+    "AMGN": {
+      "insider": "2003-07-03",
+      "congress": "2014-07-18"
+    },
+    "AMZN": {
+      "insider": "2003-05-08",
+      "congress": "2014-04-16"
+    },
+    "AXP": {
+      "insider": "2003-05-14",
+      "congress": "2014-04-30"
+    },
+    "BA": {
+      "insider": "2003-05-10",
+      "congress": "2014-02-12"
+    },
+    "CAT": {
+      "insider": "2003-05-08",
+      "congress": "2014-04-16"
+    },
+    "CRM": {
+      "insider": "2019-08-24",
+      "congress": "2014-02-01"
+    },
+    "CSCO": {
+      "insider": "2003-05-28",
+      "congress": "2014-11-19"
+    },
+    "CVX": {
+      "insider": "2003-08-27",
+      "congress": "2014-02-12"
+    },
+    "DIS": {
+      "insider": "2003-10-02",
+      "congress": "2014-05-16"
+    },
+    "GOOGL": {
+      "insider": "2018-09-28",
+      "congress": "2014-05-16"
+    },
+    "GS": {
+      "insider": "2003-07-16",
+      "congress": "2014-04-30"
+    },
+    "HD": {
+      "insider": "2003-07-29",
+      "congress": "2015-04-24"
+    },
+    "HON": {
+      "insider": "2003-05-14",
+      "congress": "2014-02-06"
+    },
+    "IBM": {
+      "insider": "2003-06-17",
+      "congress": "2014-03-12"
+    },
+    "JNJ": {
+      "insider": "2003-05-28",
+      "congress": "2014-08-15"
+    },
+    "JPM": {
+      "insider": "2003-05-17",
+      "congress": "2014-03-27"
+    },
+    "KO": {
+      "insider": "2003-07-03",
+      "congress": "2014-03-27"
+    },
+    "MCD": {
+      "insider": "2003-05-24",
+      "congress": "2015-05-29"
+    },
+    "MMM": {
+      "insider": "2003-06-20",
+      "congress": "2015-03-04"
+    },
+    "MRK": {
+      "insider": "2003-06-26",
+      "congress": "2015-06-04"
+    },
+    "MRNA": {
+      "insider": "2008-06-13",
+      "congress": "2020-06-11"
+    },
+    "MSFT": {
+      "insider": "2003-05-07",
+      "congress": "2014-02-01"
+    },
+    "NKE": {
+      "insider": "2003-07-19",
+      "congress": "2014-09-08"
+    },
+    "NVDA": {
+      "insider": "2003-05-07",
+      "congress": "2016-01-21"
+    },
+    "PG": {
+      "insider": "2003-05-15",
+      "congress": "2014-06-28"
+    },
+    "SHW": {
+      "insider": "2003-05-13",
+      "congress": "2018-07-04"
+    },
+    "TRV": {
+      "insider": "2007-03-01",
+      "congress": "2014-08-15"
+    },
+    "UNH": {
+      "insider": "2003-05-09",
+      "congress": "2014-05-14"
+    },
+    "V": {
+      "insider": "2008-03-21",
+      "congress": "2014-02-28"
+    },
+    "WMT": {
+      "insider": "2003-07-03",
+      "congress": "2014-06-28"
+    },
+    "XOM": {
+      "insider": "2003-05-06",
+      "congress": "2014-12-02"
+    }
+  },
+  "differences": []
+}

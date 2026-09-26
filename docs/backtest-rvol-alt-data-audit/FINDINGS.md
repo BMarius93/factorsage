@@ -440,3 +440,81 @@ Ten trades, 7,544 equity rows, every invariant passed, zero provider requests, s
 combination is sound and the engine computed it correctly; what failed under concurrency was the
 bookkeeping write described in F-06. That is the whole of the difference between this sweep and a
 green one.
+
+## S-B1 — The two new audit sections at full scale
+
+Against the matrix database, all 33 securities, full persisted history.
+
+| Section | comparisons | failed | tolerance passes |
+| --- | --- | --- | --- |
+| `relative-volume` | **703,305** | **0** | 702,657 |
+| `alternative-data` | **4,221,571** | **0** | 220,789 |
+
+`relative-volume`, per period, each against a reference recomputed from that security's own persisted
+volumes in exact decimal arithmetic:
+
+| | compared | failed | stored values | max abs difference | absence mismatches |
+| --- | --- | --- | --- | --- | --- |
+| `rvol10` | 234,435 | 0 | 234,355 | 5.0e-9 | 0 |
+| `rvol20` | 234,435 | 0 | 234,275 | 5.0e-9 | 0 |
+| `rvol50` | 234,435 | 0 | 234,035 | 5.0e-9 | 0 |
+
+**Period collisions: 0.** No session anywhere holds one stored value across all three periods where
+the reference says they differ.
+
+`alternative-data`, over 179,782 insider and 9,187 congressional rows and 3,636,290 projected column
+values across fourteen configured metrics:
+
+| | |
+| --- | --- |
+| Availability-date violations | **0** |
+| Observable-session violations (leave-one-out) | **0** |
+| Provider rows filed on or before their transaction | 12 (O-01) |
+| Stored values one unit in the last place from the exact product | 11 (O-05) |
+
+## O-05 — Eleven stored transaction values are one unit in the last place low
+
+**Observation. Maximum absolute error $0.0001. No change.**
+
+`insiderTransactionValue` multiplies share count by price in **float64**, and the column quantizes
+that to `Decimal(24,4)`. An exact product lying within one float64 ulp of a four-decimal boundary can
+therefore be stored one unit in the last place below the exact decimal product.
+
+Eleven rows of 179,782 (0.006%) are, and the shape is uniform: **always low, never high, always by
+exactly $0.0001**, whether the trade was $907.71 or $8,512,242.59.
+
+| Symbol / filing | exact product | stored |
+| --- | --- | --- |
+| `BA` 2012-02-27 | 97,218.8795 | 97,218.8794 |
+| `CSCO` 2025-11-13 | 8,512,242.5909 | 8,512,242.5908 |
+| `WMT` 2023-01-19 | 835,519.9295 | 835,519.9294 |
+
+Against a `SUM_AMOUNT` threshold denominated in whole dollars — the product's own example is
+`Insider purchase value 20D is at least $1,000,000` — one hundredth of a cent cannot change a
+decision. Reported as a counted quantity rather than absorbed silently into a tolerance, so that if
+the count ever grows the arithmetic has changed.
+
+## O-06 — The one `source-data` failure is a provider tail revision, not a defect
+
+**Observation. Stale artifact from the previous audit. No change.**
+
+The cumulative audit manifest carries a `source-data` FAIL of 1 in 209,359. It is dated 2026-09-23 and
+belongs to the earlier sweep; this branch did not re-run that section. The single difference is
+`DIS 2026-09-22 volume`, and the provider has revised that figure twice:
+
+| Source | DIS 2026-09-22 volume |
+| --- | --- |
+| Frozen snapshot, captured 2026-09-22 | 7,173,330 |
+| Matrix database at the previous audit | 7,167,667 |
+| **Provider, queried 2026-09-26** | **7,282,248** |
+| **Development database, 2026-09-26** | **7,282,248** |
+
+The database matches the provider exactly. The frozen snapshot is simply older than the data, which
+is what a snapshot of a same-day end-of-day volume becomes.
+
+It is also an unplanned end-to-end confirmation of the Relative Volume correction path. A revised
+volume moves `rvol10/20/50` for that session and for every later session whose baseline window
+contains it, and `derived-state.ts` claims the ordinary rebuild — recalculating from the security's
+earliest persisted bar — already spans exactly that. V-01 recomputed every stored Relative Volume
+against the **current** volumes and found zero value mismatches, `DIS` included. The revision
+propagated correctly.

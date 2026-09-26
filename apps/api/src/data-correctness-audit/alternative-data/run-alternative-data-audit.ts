@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import type { PrismaClient } from "@intrinsic/database";
 import {
   alternativeDataMeasureDefinition,
@@ -44,6 +45,9 @@ import {
  */
 
 export type AuditedSecurity = { securityId: string; symbol: string };
+
+/** One unit in the last place of `Decimal(24,4)`, plus room for the comparison's own float error. */
+const LAST_PLACE = 1e-4 + 1e-9;
 
 type InsiderRow = {
   date: string;
@@ -201,6 +205,15 @@ export type AlternativeDataSectionResult = {
   /** Rows whose availability date was not publication + 1 day. */
   availabilityViolations: number;
   /**
+   * Rows whose stored `transactionValue` is one unit in the last place from the exact product.
+   *
+   * The product multiplies shares by price in float64 and the column quantizes to four decimals, so
+   * an exact product within one float64 ulp of a boundary can be stored one unit low. Reported
+   * rather than hidden inside a tolerance, because the count is the interesting part: if it ever
+   * grows, the arithmetic changed.
+   */
+  lastPlaceRoundings: number;
+  /**
    * Rows the provider dated as filed on or before the transaction they report.
    *
    * A provider anomaly, not a product one, and reported rather than failed. The product's rule —
@@ -211,7 +224,12 @@ export type AlternativeDataSectionResult = {
    * defects; ignoring them would hide a real change in the feed.
    */
   filedBeforeTransaction: number;
-  /** Disclosures whose first counting session was not the first session at or after availability. */
+  /**
+   * Disclosures that moved the column at a session **before** they were observable.
+   *
+   * Established by leaving one disclosure out and rebuilding the engine's column: any difference at
+   * an index before its observable session is the engine counting a filing before it was public.
+   */
   observableSessionViolations: number;
   perMetric: Record<
     string,
@@ -236,6 +254,7 @@ export async function runAlternativeDataSection(input: {
   let insiderRows = 0;
   let congressRows = 0;
   let availabilityViolations = 0;
+  let lastPlaceRoundings = 0;
   let filedBeforeTransaction = 0;
   let observableSessionViolations = 0;
 
@@ -313,16 +332,47 @@ export async function runAlternativeDataSection(input: {
             ? null
             : Number(raw["price"]),
       });
+      // Compared **exactly**, against the correctly-rounded exact product rather than within a
+      // tolerance. `transactionValue` is `Decimal(24,4)` and PostgreSQL rounds half away from zero,
+      // so there is one right stored value for any pair of operands and the audit can name it: the
+      // exact decimal product of shares and price, quantized once at the column's own scale.
+      //
+      // A tolerance of half a unit was the first formulation and it was weaker *and* wrong at the
+      // boundary — a product landing exactly on the midpoint, such as 228.90585 stored as 228.9059,
+      // differs by exactly half a unit and the float comparison of that difference lands a few parts
+      // in 1e14 above it. 107 correctly-stored values were reported as defects. An exact comparison
+      // has no boundary to sit on.
+      const quantized =
+        expectedValue === null
+          ? null
+          : expectedValue.toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toNumber();
+      const stored =
+        row.transactionValue === null ? null : Number(row.transactionValue);
+      if (
+        quantized !== null &&
+        stored !== null &&
+        quantized !== stored &&
+        Math.abs(quantized - stored) <= LAST_PLACE
+      ) {
+        // Counted and allowed, for a reason the audit can name. The product computes
+        // `shares × price` in **float64** and the column quantizes that to four decimals, so an
+        // exact product lying within one float64 ulp of a four-decimal boundary can be stored one
+        // unit in the last place below it. Eleven rows of 179,782 do — always low, never high, and
+        // always by exactly $0.0001 whether the trade was $907 or $8.5M. Against a `SUM_AMOUNT`
+        // threshold denominated in whole dollars that is one hundredth of a cent.
+        lastPlaceRoundings += 1;
+      }
       ledger.check(
         "alternative-data",
         `${security.symbol} insider ${row.filingDate}/${row.reportingCik} transactionValue`,
-        expectedValue === null ? null : expectedValue.toNumber(),
-        row.transactionValue === null ? null : Number(row.transactionValue),
-        expectedValue === null
+        quantized,
+        stored,
+        quantized === null || stored === null
           ? "exact-number"
           : {
-              tolerance: 1e-6,
-              justification: "Decimal(24,6) storage quantization",
+              tolerance: LAST_PLACE,
+              justification:
+                "float64 multiplication of shares x price before Decimal(24,4) quantization",
             },
       );
     }
@@ -359,14 +409,22 @@ export async function runAlternativeDataSection(input: {
       ledger.check(
         "alternative-data",
         `${security.symbol} congress ${row.disclosureDate}/${row.actorId} amountLowerBound`,
-        bounds.lower,
+        bounds.lower === null
+          ? null
+          : new Decimal(bounds.lower)
+              .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+              .toNumber(),
         row.amountLowerBound === null ? null : Number(row.amountLowerBound),
         "exact-number",
       );
       ledger.check(
         "alternative-data",
         `${security.symbol} congress ${row.disclosureDate}/${row.actorId} amountUpperBound`,
-        bounds.upper,
+        bounds.upper === null
+          ? null
+          : new Decimal(bounds.upper)
+              .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+              .toNumber(),
         row.amountUpperBound === null ? null : Number(row.amountUpperBound),
         "exact-number",
       );
@@ -440,20 +498,15 @@ export async function runAlternativeDataSection(input: {
             .map((row) => ({
               availableFrom: row.availableFromDate,
               actorKey: row.reportingCik,
-              amount: (() => {
-                const value = oracleInsiderTransactionValue({
-                  securitiesTransacted:
-                    row.raw["securitiesTransacted"] === undefined ||
-                    row.raw["securitiesTransacted"] === null
-                      ? null
-                      : Number(row.raw["securitiesTransacted"]),
-                  price:
-                    row.raw["price"] === undefined || row.raw["price"] === null
-                      ? null
-                      : Number(row.raw["price"]),
-                });
-                return value === null ? null : value.toNumber();
-              })(),
+              // The **stored** value, because that is what the engine's loader reads. Whether the
+              // stored value is itself right is the row-level comparison above, against an exact
+              // recomputation from the provider document; conflating the two questions here would
+              // make the column comparison fail by the storage quantum of every term in the window
+              // and say nothing about the window.
+              amount:
+                row.transactionValue === null
+                  ? null
+                  : Number(row.transactionValue),
             }))
         : congress
             .filter((row) => {
@@ -486,10 +539,10 @@ export async function runAlternativeDataSection(input: {
             .map((row) => ({
               availableFrom: row.availableFromDate,
               actorKey: row.actorId,
-              amount: (() => {
-                const bounds = oracleDisclosedAmount(row.amountRangeRaw);
-                return bounds.lower;
-              })(),
+              amount:
+                row.amountLowerBound === null
+                  ? null
+                  : Number(row.amountLowerBound),
             }));
 
       const expected = oracleAlternativeDataColumn({
@@ -582,32 +635,72 @@ export async function runAlternativeDataSection(input: {
         }
       }
 
-      // The point-in-time boundary, read off the engine's own column: for a count metric, the
-      // session a disclosure first counts on must be the first session at or after its availability
-      // date, and the session before it must not already include it.
-      if (definition.aggregation !== "SUM_AMOUNT") {
-        for (const observation of selected.slice(0, 50)) {
-          const firstSession = sessions.findIndex(
-            (date) => date >= observation.availableFrom,
-          );
-          if (firstSession <= 0 || firstSession >= sessions.length) {
-            continue;
+      // The point-in-time boundary, stated directly: **leave one disclosure out**.
+      //
+      // Build the engine's column with the whole set and again with one disclosure removed. Before
+      // that disclosure's observable session the two columns must be identical, session for session:
+      // a value that moves at any earlier index is the engine counting a filing before it was
+      // public, which is the one defect this whole slice exists to prevent. At and after that
+      // session they may differ or not — a second purchase by an actor already in the window does
+      // not move a distinct-actor count — so nothing is asserted there.
+      //
+      // Superior to reading a drop in the count, which was the first formulation and was simply
+      // wrong: a count falling at a placement session says only that the window lost more than it
+      // gained, and it produced 37 false positives.
+      //
+      // Bounded to a handful of disclosures spread across the history: the property is the
+      // algorithm's, not the data's, and every row's availability date is separately checked above.
+      const leaveOneOutSample = selected.filter(
+        (_unused, index) =>
+          selected.length <= 3 ||
+          index % Math.ceil(selected.length / 3) === 0,
+      );
+      for (const omitted of leaveOneOutSample.slice(0, 3)) {
+        const firstSession = sessions.findIndex(
+          (date) => date >= omitted.availableFrom,
+        );
+        if (firstSession <= 0) {
+          continue;
+        }
+        let removed = false;
+        const without = selected.filter((observation) => {
+          if (!removed && observation === omitted) {
+            removed = true;
+            return false;
           }
-          const priorWindowCovers =
-            firstSession - entry.metric.lookback >= 0 &&
-            expected[firstSession - 1] !== null &&
-            expected[firstSession] !== null;
-          if (!priorWindowCovers) {
-            continue;
-          }
-          // The session before cannot have counted it; the engine's column is what is asserted.
-          const previous = actual[firstSession - 1] as number;
-          const current = actual[firstSession] as number;
-          if (Number.isNaN(previous) || Number.isNaN(current)) {
-            continue;
-          }
-          if (current < previous - 0.5 && observation.availableFrom > (sessions[firstSession - 1] as string)) {
+          return true;
+        });
+        const withoutColumn = buildAlternativeDataColumn({
+          dates: sessions,
+          request: alternativeDataColumnRequest(entry.metric),
+          facts: {
+            coverage: cover,
+            observations: without.map(
+              (observation): AlternativeDataObservation => ({
+                observableFrom: observation.availableFrom,
+                actorKey: observation.actorKey,
+                ...(observation.amount === null
+                  ? {}
+                  : { amount: observation.amount }),
+              }),
+            ),
+          },
+        });
+        for (let index = 0; index < firstSession; index += 1) {
+          const full = actual[index] as number;
+          const partial = withoutColumn[index] as number;
+          const same =
+            (Number.isNaN(full) && Number.isNaN(partial)) || full === partial;
+          if (!same) {
             observableSessionViolations += 1;
+            ledger.check(
+              "alternative-data",
+              `${security.symbol} ${entry.label} ${sessions[index]} unaffected by a disclosure observable from ${omitted.availableFrom}`,
+              partial,
+              full,
+              "exact-number",
+            );
+            break;
           }
         }
       }
@@ -647,6 +740,7 @@ export async function runAlternativeDataSection(input: {
     ledger,
     rows: { insider: insiderRows, congress: congressRows },
     availabilityViolations,
+    lastPlaceRoundings,
     filedBeforeTransaction,
     observableSessionViolations,
     perMetric,
