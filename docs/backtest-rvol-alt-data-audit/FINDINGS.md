@@ -316,3 +316,80 @@ filing did not make.
 That is the correct semantics and the alternative would be inventing a fact. But a user selecting
 "Self" will see a metric that is nearly always zero, and the reason is invisible from the condition
 row. Worth a line of help text rather than a change to the rule.
+
+## F-06 — A progress checkpoint can kill a backtest that has computed everything correctly
+
+**Severity: medium. Reliability, not correctness. Diagnosed, quantified, deliberately not changed
+here.**
+
+`BacktestProcessor.publishCheckpoint` → `writeProgress` → `BacktestJobRepository.updateProgress` runs
+inside `prisma.$transaction(...)` at **Prisma's default 5,000 ms interactive-transaction timeout** —
+a library default, not a value anybody chose for this write. Inside it: the lease check
+(`claimHeld`), an upsert on `BacktestRunProgress` that writes a JSON live-snapshot document, a
+milestone `count` plus `createMany`, and a run-status update.
+
+Under the product's own supported concurrency that transaction can exceed five seconds, and when it
+does the **whole run fails**:
+
+```
+backtest.failed  phase=RUNNING
+PrismaClientKnownRequestError: Transaction API error: Transaction already closed:
+  A query cannot be executed on an expired transaction. The timeout for this transaction
+  was 5000 ms, however 5576 ms passed since the start of the transaction.
+  → prisma.backtestRunProgress.upsert()
+```
+
+The user sees `EXECUTION_FAILED` and "The backtest could not be completed. Please try running it
+again." Nothing was wrong with the simulation: the engine is sequential, deterministic and had
+computed the window. A **bookkeeping write that nothing reads for correctness** aborted hours of
+correct work.
+
+Measured rate, same machine, same three worker processes:
+
+| | failures | cases | cause |
+| --- | --- | --- | --- |
+| before F-02's fix | 4 | 59 | 1,982 MB of bloat in `BacktestDailyEquity` |
+| after F-02's fix | 1 | 1,000 | contention alone |
+
+So F-02 removed about 98% of it and the residue is the timeout itself. It is **not** introduced by
+this branch — `S08` is a core fixture and the failure is independent of Relative Volume and
+alternative data.
+
+**Why this branch does not change it.** The fix is a change to the worker's durability semantics —
+make a checkpoint failure non-fatal, retry it, or give this one transaction its own timeout — and it
+touches the durable job-claim protocol that `AGENTS.md` invariant 14 fixes. That deserves its own
+change with its own tests rather than being folded into an audit, and the audit's own rule is not to
+move a timeout to make a gate green. What the audit can say is the part that was not known before:
+the timeout bounding this write is a **library default**, the write it bounds is not
+correctness-critical, and its expiry is reported to the user as a failed backtest.
+
+**Recommended follow-up (not done here).** Treat a checkpoint write as best-effort: a lost progress
+row costs a progress bar, and a lost milestone is re-derivable. The lease renewal it carries is the
+only part that must not be lost, and that is one statement rather than four.
+
+## O-04 — One reporting CIK is unpadded, which would count one insider as two
+
+**Observation. One row, in a category no metric counts. No change.**
+
+Insider distinct-buyer counting keys on `reportingCik` as the provider spells it. The provider is
+almost, but not entirely, consistent about zero-padding:
+
+| | distinct CIKs | rows |
+| --- | --- | --- |
+| zero-padded (`0001050572`) | 2,157 | 179,781 |
+| unpadded (`1050572`) | **1** | **1** |
+
+`GILLIGAN J KEVIN` appears under both spellings on `HON`. If both fell inside one lookback window,
+`Insider buyers 20D` would count one person as two.
+
+They cannot, here: the unpadded row is a single `AWARD` on 2003-05-14, and no V1 measure counts an
+award. The padded rows are also awards. So the blast radius today is zero rows of counted activity.
+
+Normalizing the CIK would be a one-line change with a variant bump behind it, and it is the kind of
+thing that is right to do when it matters rather than speculatively — recorded so that "one insider
+counted twice" has a known cause if it is ever seen.
+
+The reverse case is common and is exactly why identity is the CIK: **one CIK carries several display
+names** — `DILLER BARRY` / `Diller Barry`, and `SMITH JOSHUA T` / `Smith Joshua I`, a genuine typo in
+the provider's own name field. Keying a buyer count on the name would have split that person in two
+every time the provider changed its mind about capitalization.
