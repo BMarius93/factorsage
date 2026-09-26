@@ -332,6 +332,12 @@ row. Worth a line of help text rather than a change to the rule.
 **Severity: medium. Reliability, not correctness. Diagnosed, quantified, deliberately not changed
 here.**
 
+> **Resolved after this audit** on `fix/backtest-progress-checkpoint-durability`, along the lines
+> recommended below: a progress write that *fails to execute* is no longer fatal, while a write
+> that executes and matches no row still stops the worker instantly. No timeout was moved. See
+> `ai/architecture/backtest-execution.md` under **Progress and live results** for the semantics.
+> The audit text below is left as it was written.
+
 `BacktestProcessor.publishCheckpoint` → `writeProgress` → `BacktestJobRepository.updateProgress` runs
 inside `prisma.$transaction(...)` at **Prisma's default 5,000 ms interactive-transaction timeout** —
 a library default, not a value anybody chose for this write. Inside it: the lease check

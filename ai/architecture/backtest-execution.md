@@ -550,6 +550,42 @@ Checkpoints are pure observation: the day loop never reads them back, so neither
 milestones can change a result. `packages/strategy/src/backtest/simulate.test.ts` asserts exactly
 that.
 
+**And because they are observation, one cannot fail a run.** Every progress write is guarded on
+`claimedBy` plus `status = CLAIMED`, and that guard has two different answers which used to be
+conflated:
+
+- **The write executed and matched no row.** This worker no longer owns the run. It is proof, it is
+  the ownership answer, and the processor stops on it immediately — `markLost()` and
+  `BacktestInterruptedError("LEASE_LOST")` — for every kind of progress write.
+- **The write did not execute.** A stalled transaction, an exhausted pool, an unreachable database.
+  That is not evidence about ownership, and treating it as fatal is what made a bookkeeping write
+  able to destroy a correct simulation. `updateProgress` runs inside Prisma's **default** 5,000 ms
+  interactive-transaction timeout — a library default, not a chosen budget — and under the
+  product's own supported concurrency the upsert of a JSON live-snapshot document can exceed it.
+  The run then failed with `EXECUTION_FAILED` in `RUNNING` having computed everything correctly,
+  which is what the 2,000-run audit measured at roughly one run in a thousand (`F-06`).
+
+So the processor now logs `backtest.progress.write.failed` and keeps simulating. `RenewableJobLease`
+already reasoned exactly this way about the identical error on the identical row; the two paths
+simply disagreed. The lease is renewed on its own timer besides, and if the database really is gone
+the lease expires, the run is recovered, and this worker's next guarded write reports `false`.
+`persistResult` is guarded too, so a displaced worker can never complete a run it lost.
+
+**The run's status is bookkeeping as well**, and the three writes that move it — `PREPARING_DATA`,
+`RUNNING`, `FINALIZING` — are tolerated the same way, because every durable decision is taken by a
+differently-guarded write: the claim already set `PREPARING_DATA`; `persistResult` sets `COMPLETED`
+without reading what it replaces; `failJob` records the phase from the processor's own variable, not
+from the row; lease recovery keys on `status NOT IN ('COMPLETED','FAILED')` and `releaseJob` on all
+three in-flight statuses, so *which* in-flight status a run holds changes nothing. What a missed
+transition costs is a phase **label**, so a missed one is **re-sent on the next checkpoint until it
+lands** rather than abandoned.
+
+Nothing here raises a timeout. The result write keeps its own explicit budget for the different
+reason described under **Durable work**, and the checkpoint keeps the library default it always had.
+`apps/worker/src/backtest/backtest-annual-execution.test.ts` pins the behaviour — a faulted run and
+a clean run produce identical trades, equity, positions and summary — and
+`job-repository.integration.test.ts` pins the ownership half against real PostgreSQL.
+
 The live snapshot is **not** the result. Results are persisted in `BacktestRunSummary`,
 `BacktestDailyEquity`, `BacktestTrade` and `BacktestPosition` when execution completes.
 

@@ -550,6 +550,212 @@ describe("backtest job claiming", () => {
       }),
     ).toBe(2);
   });
+
+  /**
+   * What a worker that lost the run may still do to it: nothing.
+   *
+   * The processor now tolerates a progress write that **fails to execute** — a slow bookkeeping
+   * transaction must not destroy a correct simulation (audit F-06). That tolerance rests entirely
+   * on this: a write that *does* execute and matches no row reports `false`, and `false` is the
+   * ownership answer the worker stops on. These cases prove the guard is what says so, against
+   * real PostgreSQL, for every state a displaced worker can come back from.
+   */
+  describe("a worker that lost the run", () => {
+    it("cannot overwrite the progress of the owner that took it over", async () => {
+      const seeded = await seedJob();
+      expect(
+        (await repository.claimNextJob(workerA, new Date(), LEASE_MS))?.jobId,
+      ).toBe(seeded.jobId);
+
+      // A's lease expires, recovery requeues the run, and B claims it as the next attempt.
+      await prisma.backtestJob.update({
+        where: { id: seeded.jobId },
+        data: { leaseExpiresAt: ancient },
+      });
+      expect(await repository.recoverStaleJobs(new Date(), 0)).toMatchObject({
+        requeued: 1,
+      });
+      expect(
+        (await repository.claimNextJob(workerB, new Date(), LEASE_MS))?.jobId,
+      ).toBe(seeded.jobId);
+
+      expect(
+        await repository.updateProgress({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerB,
+          now: new Date(),
+          leaseMs: LEASE_MS,
+          percent: 60,
+          message: "The new owner is running",
+          simulatedThrough: "2015-09-30",
+        }),
+      ).toBe(true);
+
+      // A, still simulating, arrives late with a checkpoint and a milestone of its own.
+      expect(
+        await repository.updateProgress({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          leaseMs: LEASE_MS,
+          percent: 94,
+          message: "Written by the displaced worker",
+          simulatedThrough: "2015-12-31",
+          milestone: milestone("2015"),
+        }),
+      ).toBe(false);
+
+      const after = await progressOf(seeded.runId);
+      expect(after.percent).toBe(60);
+      expect(after.message).toBe("The new owner is running");
+      expect(after.simulatedThrough?.toISOString().slice(0, 10)).toBe(
+        "2015-09-30",
+      );
+      // The milestone did not land either: the whole write is one guarded transaction.
+      expect(
+        await prisma.backtestRunMilestone.count({
+          where: { runId: seeded.runId },
+        }),
+      ).toBe(0);
+      // And A's lease renewal did not extend a claim it no longer holds.
+      expect((await job(seeded.jobId)).claimedBy).toBe(workerB);
+    });
+
+    it("cannot complete or fail a run the new owner is executing", async () => {
+      const seeded = await seedJob();
+      await repository.claimNextJob(workerA, new Date(), LEASE_MS);
+      await prisma.backtestJob.update({
+        where: { id: seeded.jobId },
+        data: { leaseExpiresAt: ancient },
+      });
+      await repository.recoverStaleJobs(new Date(), 0);
+      await repository.claimNextJob(workerB, new Date(), LEASE_MS);
+
+      expect(
+        await repository.persistResult({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          result: emptyResult(),
+        }),
+      ).toBe(false);
+      expect(
+        await repository.failJob({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          code: "EXECUTION_FAILED",
+          message: "Written by the displaced worker",
+          phase: "RUNNING",
+          detail: { phase: "RUNNING", name: "Error", message: "nope" },
+        }),
+      ).toBe(false);
+      expect(
+        await repository.releaseJob(
+          seeded.jobId,
+          seeded.runId,
+          workerA,
+          new Date(),
+        ),
+      ).toBe(false);
+
+      // The run is still the new owner's, mid-flight, with no result and no failure recorded.
+      const runRow = await run(seeded.runId);
+      expect(runRow.status).toBe(BacktestRunStatus.PREPARING_DATA);
+      expect(runRow.failureCode).toBeNull();
+      expect(runRow.completedAt).toBeNull();
+      expect(await job(seeded.jobId)).toMatchObject({
+        claimedBy: workerB,
+        status: BacktestJobStatus.CLAIMED,
+      });
+      expect(
+        await prisma.backtestRunSummary.count({
+          where: { runId: seeded.runId },
+        }),
+      ).toBe(0);
+    });
+
+    it("cannot resurrect a run that already reached a terminal state", async () => {
+      const seeded = await seedJob();
+      await repository.claimNextJob(workerA, new Date(), LEASE_MS);
+      expect(
+        await repository.persistResult({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          result: emptyResult(),
+        }),
+      ).toBe(true);
+
+      // The same worker, arriving late with the checkpoint it was mid-write on when the run
+      // finished. A completed run is immutable, and the job is no longer `CLAIMED`, so the guard
+      // refuses it — including the one from the worker that legitimately owned the run.
+      expect(
+        await repository.updateProgress({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          leaseMs: LEASE_MS,
+          status: BacktestRunStatus.RUNNING,
+          percent: 94,
+          message: "A checkpoint that outlived its run",
+          simulatedThrough: "2015-11-30",
+          milestone: milestone("2015"),
+        }),
+      ).toBe(false);
+
+      const runRow = await run(seeded.runId);
+      expect(runRow.status).toBe(BacktestRunStatus.COMPLETED);
+      expect(runRow.completedAt).not.toBeNull();
+      const progress = await progressOf(seeded.runId);
+      expect(progress.percent).toBe(100);
+      expect(progress.message).toBe("Backtest complete");
+      expect(
+        await prisma.backtestRunMilestone.count({
+          where: { runId: seeded.runId },
+        }),
+      ).toBe(0);
+      expect(await job(seeded.jobId)).toMatchObject({
+        status: BacktestJobStatus.COMPLETED,
+        leaseExpiresAt: null,
+      });
+    });
+
+    it("cannot reopen a run that was abandoned after exhausting its attempts", async () => {
+      const seeded = await seedJob({ attempts: 2, maxAttempts: 3 });
+      await repository.claimNextJob(workerA, new Date(), LEASE_MS);
+      await prisma.backtestJob.update({
+        where: { id: seeded.jobId },
+        data: { leaseExpiresAt: ancient },
+      });
+      expect(await repository.recoverStaleJobs(new Date(), 0)).toMatchObject({
+        abandoned: 1,
+      });
+
+      expect(
+        await repository.updateProgress({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          leaseMs: LEASE_MS,
+          status: BacktestRunStatus.RUNNING,
+          percent: 80,
+          message: "Written after the run was given up on",
+        }),
+      ).toBe(false);
+
+      const runRow = await run(seeded.runId);
+      expect(runRow.status).toBe(BacktestRunStatus.FAILED);
+      expect(runRow.failureCode).toBe("ABANDONED");
+    });
+  });
 });
 
 /** A minimal completed run: no trades and no open positions, but a real equity curve. */

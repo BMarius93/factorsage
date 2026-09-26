@@ -277,6 +277,19 @@ class BacktestRunFailure extends Error {
   }
 }
 
+/**
+ * What one progress write carries, and therefore what missing it costs.
+ *
+ * Stated at every call site rather than inferred from the payload, so adding a write is a decision
+ * about durability and not an accident of which fields it happens to carry. Neither kind may fail
+ * a run — see `writeProgress` — and the difference is only what the worker does next.
+ */
+type ProgressWriteKind =
+  /** Moves `BacktestRun.status`. A miss is re-sent until it lands, so the phase self-heals. */
+  | "PHASE"
+  /** A sample of a running simulation. A miss is simply skipped; the next one carries more. */
+  | "OBSERVATION";
+
 /** Progress budget per phase. 100 belongs to a persisted result and to nothing else. */
 const PREPARING_START_PERCENT = 2;
 const RUNNING_START_PERCENT = 20;
@@ -477,7 +490,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       snapshot.securities.map((security) => security.securityId),
     );
 
-    await this.writeProgress(claim, lease, {
+    await this.writeProgress(claim, lease, "PHASE", {
       status: BacktestRunStatus.PREPARING_DATA,
       percent: PREPARING_START_PERCENT,
       message: "Preparing market data",
@@ -514,7 +527,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
         return;
       }
       lastReportAt = at;
-      await this.writeProgress(claim, lease, {
+      await this.writeProgress(claim, lease, "OBSERVATION", {
         percent:
           PREPARING_START_PERCENT +
           Math.round(
@@ -970,11 +983,22 @@ export class BacktestProcessor implements BacktestJobProcessor {
     prepared: PreparedRun,
     archive: BacktestDebugArchive | null,
   ): Promise<BacktestResult> {
-    await this.writeProgress(claim, lease, {
-      status: BacktestRunStatus.RUNNING,
-      percent: RUNNING_START_PERCENT,
-      message: "Running backtest",
-    });
+    // Carried, not asserted. If the transition into `RUNNING` cannot be written — a stalled
+    // bookkeeping transaction, not a lost claim — the run keeps simulating and the next
+    // checkpoint re-sends the status, so the phase a poller sees repairs itself within seconds
+    // instead of the run being destroyed for it.
+    let pendingStatus: BacktestRunStatus | null = (await this.writeProgress(
+      claim,
+      lease,
+      "PHASE",
+      {
+        status: BacktestRunStatus.RUNNING,
+        percent: RUNNING_START_PERCENT,
+        message: "Running backtest",
+      },
+    ))
+      ? null
+      : BacktestRunStatus.RUNNING;
 
     let lastCheckpointAt = 0;
     // The run's own levels and Exit Rules, described once. A checkpoint carries a handful of recent
@@ -1024,7 +1048,17 @@ export class BacktestProcessor implements BacktestJobProcessor {
           }
           lastCheckpointAt = at;
 
-          await this.publishCheckpoint(claim, lease, checkpoint, reasons);
+          if (
+            await this.publishCheckpoint(
+              claim,
+              lease,
+              checkpoint,
+              reasons,
+              pendingStatus,
+            )
+          ) {
+            pendingStatus = null;
+          }
         },
       },
     );
@@ -1081,12 +1115,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
     return frames;
   }
 
+  /** Publishes one checkpoint, repairing a phase transition that never landed. Reports success. */
   private async publishCheckpoint(
     claim: ClaimedBacktestJob,
     lease: BacktestJobLease,
     checkpoint: BacktestCheckpoint,
     reasons: BacktestTradeReasonIndex,
-  ): Promise<void> {
+    pendingStatus: BacktestRunStatus | null,
+  ): Promise<boolean> {
     const progressed =
       checkpoint.totalDays > 0
         ? checkpoint.completedDays / checkpoint.totalDays
@@ -1110,32 +1146,38 @@ export class BacktestProcessor implements BacktestJobProcessor {
       totalDays: checkpoint.totalDays,
     });
 
-    await this.writeProgress(claim, lease, {
-      percent,
-      message: `Running backtest — simulated through ${checkpoint.simulatedThrough}`,
-      simulatedThrough: checkpoint.simulatedThrough,
-      snapshot: toLiveSnapshotResponse(checkpoint, reasons),
-      ...(checkpoint.milestone
-        ? {
-            milestone: {
-              year: checkpoint.milestone,
-              simulatedThrough: checkpoint.simulatedThrough,
-              percent,
-              completedDays: checkpoint.completedDays,
-              totalDays: checkpoint.totalDays,
-              cash: checkpoint.cash,
-              totalValue: checkpoint.totalValue,
-              investedCapital: checkpoint.investedCapital,
-              portfolioReturnPercent: checkpoint.portfolioReturnPercent,
-              benchmarkReturnPercent: checkpoint.benchmarkReturnPercent,
-              alphaPercent: checkpoint.alphaPercent,
-              maxDrawdownPercent: checkpoint.maxDrawdownPercent,
-              tradeCount: checkpoint.tradeCount,
-              openPositions: checkpoint.openPositions,
-            },
-          }
-        : {}),
-    });
+    return this.writeProgress(
+      claim,
+      lease,
+      pendingStatus ? "PHASE" : "OBSERVATION",
+      {
+        ...(pendingStatus ? { status: pendingStatus } : {}),
+        percent,
+        message: `Running backtest — simulated through ${checkpoint.simulatedThrough}`,
+        simulatedThrough: checkpoint.simulatedThrough,
+        snapshot: toLiveSnapshotResponse(checkpoint, reasons),
+        ...(checkpoint.milestone
+          ? {
+              milestone: {
+                year: checkpoint.milestone,
+                simulatedThrough: checkpoint.simulatedThrough,
+                percent,
+                completedDays: checkpoint.completedDays,
+                totalDays: checkpoint.totalDays,
+                cash: checkpoint.cash,
+                totalValue: checkpoint.totalValue,
+                investedCapital: checkpoint.investedCapital,
+                portfolioReturnPercent: checkpoint.portfolioReturnPercent,
+                benchmarkReturnPercent: checkpoint.benchmarkReturnPercent,
+                alphaPercent: checkpoint.alphaPercent,
+                maxDrawdownPercent: checkpoint.maxDrawdownPercent,
+                tradeCount: checkpoint.tradeCount,
+                openPositions: checkpoint.openPositions,
+              },
+            }
+          : {}),
+      },
+    );
   }
 
   /** FINALIZING — the durable result and the terminal transition, in one transaction. */
@@ -1144,7 +1186,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     lease: BacktestJobLease,
     result: BacktestResult,
   ): Promise<void> {
-    await this.writeProgress(claim, lease, {
+    await this.writeProgress(claim, lease, "PHASE", {
       status: BacktestRunStatus.FINALIZING,
       percent: FINALIZING_PERCENT,
       message: "Finalizing results",
@@ -1240,12 +1282,52 @@ export class BacktestProcessor implements BacktestJobProcessor {
   /**
    * Publishes progress and renews the lease in one guarded write.
    *
-   * A write that matches no row means this worker no longer owns the run, so it stops immediately
-   * rather than continuing to compute a result it may not persist.
+   * **Nothing this method writes is authoritative, so nothing it writes may fail a run.** That is
+   * the defect it exists to close. The write runs inside Prisma's **default** five-second
+   * interactive-transaction timeout, and under the product's own supported concurrency a
+   * checkpoint that upserts a JSON live-snapshot document can exceed it. A P2028 then aborted
+   * hours of correct, deterministic work and told the user to try again — a bookkeeping write
+   * deciding the fate of a simulation it cannot influence.
+   *
+   * The claim to be careful about is that the run's *status* is bookkeeping too, and it holds
+   * because every durable decision is taken elsewhere, by a differently-guarded write:
+   *
+   * - The claim already moved the run to `PREPARING_DATA`, in the transaction that took it, so
+   *   that write re-asserts a status the run is known to hold.
+   * - `FINALIZING` is followed immediately by `persistResult`, which sets `COMPLETED` under its
+   *   own generous budget and does not read the status it replaces.
+   * - `failJob` records the phase from the processor's own `phase` variable, never from the row,
+   *   so a user reading a failure sees where it really happened.
+   * - Lease recovery keys on `status NOT IN ('COMPLETED','FAILED')` and `releaseJob` on the set of
+   *   all three in-flight statuses, so *which* in-flight status a run holds changes nothing about
+   *   being recovered, requeued or handed back.
+   *
+   * What a missed transition does cost is a phase **label**: a poller could see "Preparing market
+   * data" beside a message and a percentage that are plainly further along. So `PHASE` writes are
+   * not merely tolerated, they are **re-sent on the next checkpoint until one lands** — repair
+   * rather than resignation, and at no cost on the path where nothing went wrong.
+   *
+   * Only the observation half was measured failing in the audit, because it is the expensive
+   * write. The phase half is the same class of defect and is closed the same way: a stall that
+   * happened to land on one of those three writes would otherwise still destroy a correct run,
+   * which a forced-stall reproduction confirmed.
+   *
+   * **A thrown write is not evidence the claim is gone**, and it is deliberately not treated as
+   * such. `RenewableJobLease.renew` already reasons exactly this way about the identical error on
+   * the identical row; before this split the two paths contradicted each other, one calling a
+   * transient database error inconclusive and the other calling it fatal. Ownership is answered by
+   * `held === false` — a write that *executed* and matched no row — and that answer still stops
+   * the run instantly, for both kinds of write. A worker whose database stays unreachable renews
+   * nothing, its lease expires on its own, another worker takes the run over, and this one's next
+   * guarded write reports `false`; `persistResult` is guarded too, so it can never complete a run
+   * it no longer owns.
+   *
+   * Returns whether the write landed, which is what lets a missed `PHASE` transition be re-sent.
    */
   private async writeProgress(
     claim: ClaimedBacktestJob,
     lease: BacktestJobLease,
+    kind: ProgressWriteKind,
     update: {
       status?: BacktestRunStatus;
       percent: number;
@@ -1257,19 +1339,40 @@ export class BacktestProcessor implements BacktestJobProcessor {
       // rename would go unnoticed here.
       milestone?: BacktestMilestoneWrite;
     },
-  ): Promise<void> {
-    const held = await this.dependencies.repository.updateProgress({
-      jobId: claim.jobId,
-      runId: claim.runId,
-      workerId: this.options.workerId,
-      now: this.now(),
-      leaseMs: this.options.leaseMs,
-      ...update,
-    });
+  ): Promise<boolean> {
+    let held: boolean;
+    try {
+      held = await this.dependencies.repository.updateProgress({
+        jobId: claim.jobId,
+        runId: claim.runId,
+        workerId: this.options.workerId,
+        now: this.now(),
+        leaseMs: this.options.leaseMs,
+        ...update,
+      });
+    } catch (err) {
+      // Narrow on purpose: this swallows a failed *attempt* to record progress, never an
+      // ownership answer and never an error from anything the run's numbers depend on.
+      this.dependencies.logger.warn({
+        event: "backtest.progress.write.failed",
+        runId: claim.runId,
+        jobId: claim.jobId,
+        kind,
+        percent: update.percent,
+        ...(update.status ? { runStatus: update.status } : {}),
+        ...(update.simulatedThrough
+          ? { simulatedThrough: update.simulatedThrough }
+          : {}),
+        ...(update.milestone ? { milestone: update.milestone.year } : {}),
+        err,
+      });
+      return false;
+    }
     if (!held) {
       lease.markLost();
       throw new BacktestInterruptedError("LEASE_LOST");
     }
+    return true;
   }
 
   /** Runs `task` over `items` with at most `frameConcurrency` in flight. */
