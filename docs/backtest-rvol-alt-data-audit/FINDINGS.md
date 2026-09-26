@@ -403,3 +403,40 @@ The reverse case is common and is exactly why identity is the CIK: **one CIK car
 names** — `DILLER BARRY` / `Diller Barry`, and `SMITH JOSHUA T` / `Smith Joshua I`, a genuine typo in
 the provider's own name field. Keying a buyer count on the name would have split that person in two
 every time the provider changed its mind about capitalization.
+
+
+## S-A — Original matrix, 1,000 runs, re-executed unchanged
+
+Sweep `2026-09-26-20260925-223445`, clock `2026-09-26`, concurrency 3, `--archive`.
+
+| | |
+| --- | --- |
+| Cases expected / submitted / completed | 1,000 / 1,000 / **999** |
+| Failed | **1** — `S08-L04-C08`, the F-06 checkpoint transaction |
+| Trades | **184,836** (largest single run 10,898) |
+| Daily equity rows | **3,612,556** |
+| Invariant checks passed | **37,962** |
+| Invariant checks failed | **2**, both on the failed case (`reaches COMPLETED`, `no failure metadata`) |
+| Invariant checks indeterminate | **0** |
+| Frame-level archive invariants | **6 of 6 archives, 3/3 proven each** (invariants 36, 37, 38) |
+| Determinism | **0 differences** over 6 golden reruns, every persisted column compared |
+| Provider requests | **0** (warm-up, sweep and rerun ledgers all zero) |
+| Runner errors | 0 |
+| Zero-trade cases | 107 — `S06` 47, `S09` 26, the rest ≤ 15 each |
+| Duration | 9,377 s, 6.40 runs/min; median case 20.9 s, slowest 332 s |
+| Gate | **NOT GREEN** — `COUNTS_MISMATCH`, `EXECUTION_FAILED`, `INVARIANT_FAILED`, all three from the one failed case |
+
+The zero-trade distribution is the expected shape and not a finding: `S06` is the deliberately sparse
+confluence strategy and `S09` the valuation one, against short configurations.
+
+**The one failure reproduces green in isolation.** Re-executed on its own:
+
+```text
+[   1/1] S08-L04-C08 ok 7s trades=10 equity=7544
+GATE                 GREEN — every mandatory condition enforced and met
+```
+
+Ten trades, 7,544 equity rows, every invariant passed, zero provider requests, seven seconds. So the
+combination is sound and the engine computed it correctly; what failed under concurrency was the
+bookkeeping write described in F-06. That is the whole of the difference between this sweep and a
+green one.

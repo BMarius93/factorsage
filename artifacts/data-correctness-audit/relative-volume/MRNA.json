@@ -1,0 +1,49 @@
+{
+  "symbol": "MRNA",
+  "securityId": "6ad3be0e-a56a-4724-8d1d-a7fd5a371f70",
+  "priceRows": 1960,
+  "derivedRows": 1960,
+  "visibleFrom": "1996-09-10",
+  "firstStoredValue": {
+    "rvol10": "2018-12-21",
+    "rvol20": "2019-01-08",
+    "rvol50": "2019-02-21"
+  },
+  "compared": 5880,
+  "failed": 0,
+  "samples": [
+    {
+      "date": "2018-12-07",
+      "volume": 12995569,
+      "rvol10": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol20": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol50": {
+        "expected": null,
+        "actual": null
+      }
+    },
+    {
+      "date": "2024-11-22",
+      "volume": 13410800,
+      "rvol10": {
+        "expected": "1.077229701738994042",
+        "actual": "1.07722970"
+      },
+      "rvol20": {
+        "expected": "1.4037003499799228396",
+        "actual": "1.40370035"
+      },
+      "rvol50": {
+        "expected": "1.9308814640323711958",
+        "actual": "1.93088146"
+      }
+    }
+  ],
+  "mismatches": []
+}

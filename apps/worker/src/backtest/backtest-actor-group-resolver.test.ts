@@ -1,6 +1,6 @@
 import type { BacktestRunSnapshot } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
-import { frozenActorGroupResolver } from "./backtest-processor";
+import { frozenActorGroupResolver } from "./backtest-processor.js";
 
 /**
  * The one function the actor-group freeze invariant rests on.
