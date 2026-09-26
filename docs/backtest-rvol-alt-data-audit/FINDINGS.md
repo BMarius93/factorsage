@@ -218,3 +218,59 @@ than audit findings, so this branch only records the coupling.
 The same interaction cannot affect a matrix sweep: `ALT_DATA_FRESHNESS_MS` is pinned to ten years
 there (F-03), so `syncedThroughDate` is fixed at the provisioning ingest and every simulated session
 is inside it.
+
+## V-03 — The insider point-in-time boundary, hand-checked on real filings
+
+**Verification. No defect.**
+
+`Insider buyers / purchases / purchase value 20D` for AAPL, recomputed independently in SQL from the
+persisted rows and read session by session across two real filings. Every number below is
+hand-checkable from the rows underneath it.
+
+| Session | buyers 20D | purchases 20D | purchase value 20D | Why |
+| --- | --- | --- | --- | --- |
+| 2006-09-01 | 0 | 0 | $0 | Fadell filed **on** 2006-09-01. The filing date itself is never credited. |
+| 2006-09-05 | 1 | 3 | $18,077.40 | Available 09-02, a Saturday; the first session at or after it is Tuesday 09-05, because Monday 09-04 was Labor Day. Three fills, one person. |
+| 2006-09-06 | 1 | 3 | $18,077.40 | |
+| 2006-09-07 | 1 | 3 | $18,077.40 | Schmidt **traded** 09-05 and **filed** 09-07. A reader on 09-07 cannot have seen it. |
+| 2006-09-08 | **2** | **8** | $716,007.40 | Schmidt available 09-08. Two distinct people; eight fills. |
+| 2006-10-05 | 1 | 5 | $697,930.00 | Fadell's three have left the twenty-session window. |
+| 2006-10-06 | 0 | 0 | $0 | Schmidt's five have left too. A real zero, and a rule may act on it. |
+| 2007-10-26 | 0 | 0 | $0 | Campbell filed **on** 2007-10-26. |
+| 2007-10-29 | 1 | 3 | $696,071.00 | Available Saturday 10-27; first session Monday 10-29. |
+
+Four separate properties, each proved by a real row rather than by a fixture:
+
+- **The publication date is not the availability date.** Two filings, two zeros on their own filing
+  date.
+- **The observable session is the frame's own next session.** A Saturday availability rolls to
+  Tuesday across Labor Day in one case and to Monday in the other, with no holiday calendar anywhere
+  in the evaluator — the security's own date axis does it.
+- **Distinct actors are people, not rows.** 2006-09-08 holds eight purchases and two buyers.
+- **The transaction date is preserved and is not what the window measures.** Campbell's three
+  purchases were made on 2006-02-28, 2006-09-12 and 2007-01-26 and are all counted on 2007-10-29 —
+  up to twenty months after the trade, because that is when the filing appeared.
+
+## V-04 — The disclosure lag is large enough that windowing on the transaction date would be silently useless
+
+**Verification of the product decision, measured.**
+
+`docs/alternative-data-signals.md` argues that a congressional window must be measured on the
+observable session because "a congressional disclosure routinely lags its transaction by up to
+forty-five days, so windowing on the transaction date would produce a metric that is almost always
+zero while still looking correct". Measured over the ingested universe:
+
+| | value |
+| --- | --- |
+| Congressional stock disclosures ingested | 8,782 |
+| Mean transaction → disclosure lag | **78 days** |
+| Disclosures with a lag over 30 days | **3,482 (39.6%)** |
+| AAPL mean lag / maximum lag | 98 days / **1,686 days** |
+
+The default Congress lookback is 30 **sessions** — about six calendar weeks. Nearly forty per cent of
+all disclosures become public after that window has already passed over their transaction date, so a
+metric windowed on the transaction date would never see them. The argument in the specification is
+not a rule of thumb; it is what the data does.
+
+The minimum lag is **−21 days** — a disclosure dated before the transaction it reports, which is one
+of the twelve provider anomalies in O-01.
