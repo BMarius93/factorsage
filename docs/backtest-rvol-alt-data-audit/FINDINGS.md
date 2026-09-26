@@ -593,3 +593,101 @@ Every relationship is the right shape, and each is a thing a leak would break:
 - **Two aggregations of the same filtered facts land on the identical session set.**
   `Congress buyers 90D` and `Congress minimum disclosed purchase value 90D` both read
   `CONGRESS_PURCHASE` over 90 sessions and both report 73,431, as they must.
+
+## S-B — Audit-dimension matrix, 1,000 runs
+
+Sweep `2026-09-26-20260926-014140`, clock `2026-09-26`, concurrency 3, `--archive`,
+`--strategies audit`.
+
+| | |
+| --- | --- |
+| Expected / submitted / completed | 1,000 / 1,000 / **999** |
+| Failed | **1** — `A08-L05-C10`, the F-06 checkpoint transaction (6,377 ms) |
+| Trades | **360,896** — nearly double the core matrix's 184,836 |
+| Daily equity rows | **3,612,556** |
+| Invariant checks passed / failed / indeterminate | **37,962** / 2 / **0** |
+| Frame-level archive invariants | 6 of 6 archives, **3/3 proven each** |
+| Determinism | **0 differences**, 6 golden reruns, every persisted column |
+| Provider requests | **0** |
+| Zero-trade cases | 116 |
+| Duration | 4,428 s at 13.55 runs/min; median case 8.0 s |
+| Gate | NOT GREEN — three codes, all from the one failed case |
+
+Per strategy:
+
+| | runs | trades | zero-trade | invariants OK | failed |
+| --- | --- | --- | --- | --- | --- |
+| `A01` RVOL 10, buy-and-hold | 100 | 1,145 | 3 | 3,800 | 0 |
+| `A02` RVOL 10 ∧ 20 ∧ 50 ladder | 100 | 2,460 | 3 | 3,800 | 0 |
+| `A03` RVOL 50 ∧ SMA 200D | 100 | 8,014 | 4 | 3,800 | 0 |
+| `A04` RVOL ∧ RSI three-level ladder | 100 | 23,648 | 3 | 3,800 | 0 |
+| `A05` insider buyer ladder | 100 | 22,936 | 22 | 3,800 | 0 |
+| `A06` insider value ∧ CEO/CFO roles ∧ SMA 50D | 100 | 4,882 | **36** | 3,800 | 0 |
+| `A07` congress purchases ∧ buyers | 100 | **286,488** | 2 | 3,800 | 0 |
+| `A08` chamber / owner / named-member scopes | 100 | 3,754 | 3 | 3,762 | **2** |
+| `A09` actor group ∧ RVOL 20 | 100 | 6,827 | 3 | 3,800 | 0 |
+| `A10` valuation ∧ RVOL ∧ 250-session windows | 100 | 39 | **92** | 3,800 | 0 |
+
+Three shapes are worth naming, because each is a thing a defect would flatten:
+
+- **The turnover gradient tracks the definitions.** A01's single buy-and-hold Condition through A04's
+  three-level ladder, and A07's continuous enter-on-purchase / exit-on-sale cycle. If a metric were
+  constant or undecidable these would not separate.
+- **A06 is the narrowest and behaves so.** `Insider purchase value 60D ≥ $1M` ∧ role-filtered buyers
+  (CEO/CFO, 0.4% of sessions) ∧ `Price above SMA 50D` yields 36 zero-trade runs and a fifth of A05's
+  trades. The role filter and the money threshold are real constraints end to end.
+- **A10, the NOT_EVALUABLE probe, traded 39 times in 100 runs with 92 zero-trade runs.** Its
+  250-session windows are undecidable across most of a thirty-year horizon. Note what this does *not*
+  prove on its own: every A10 Condition is a `≥`/`above` threshold, so reading an undecidable operand
+  as zero would also produce no trade. What it shows is that the engine completes cleanly with mostly
+  undecidable operands and invents nothing. The direct proof that absence is never zero is S-B1's
+  4,221,571 column comparisons, in which absence is compared **exactly** on both sides.
+
+**Equity rows are identical to the core matrix's — 3,612,556 in both.** That is a consistency check
+worth stating: a daily equity curve's length is a function of the period and the list, not of the
+strategy, and both sweeps covered the same hundred list × configuration pairs.
+
+**The one failure reproduces green in isolation**, exactly as sweep A's did:
+
+```text
+[   1/1] A08-L05-C10 ok 10s trades=... 
+GATE                 GREEN — every mandatory condition enforced and met
+```
+
+F-06 has now fired twice in 2,000 runs (0.1%) — `S08-L04-C08` at 5,576 ms and `A08-L05-C10` at
+6,377 ms, both on `backtestRunProgress.upsert()`. Two different strategy dimensions, lists and
+configurations, one shared code path: it is strategy-independent and unrelated to Relative Volume or
+alternative data.
+
+## V-07 — The frozen actor group drives the result, and restoring it reproduces the result exactly
+
+**Verification. No defect.**
+
+`A09-L08-C02`, submitted three times against the real API and executed by the real worker, with the
+**live** group mutated between submissions. The fingerprint is an MD5 over every persisted trade
+(sequence, date, security, action, level, shares, price, amount), every daily equity row (cash,
+positions value, total) and the summary (final value, return, total trades, realized and unrealized
+P&L).
+
+| Live group at submission | frozen in snapshot | trades | fingerprint |
+| --- | --- | --- | --- |
+| 5 members | 5 | 328 | `5a85f138b57e11d89e71c0a517c8852a` |
+| **emptied** | **0** | **0** | `a5508fb265ee99920970de5e5ac5c60a` |
+| restored to 5 | 5 | 328 | **`5a85f138b57e11d89e71c0a517c8852a`** |
+
+- **The membership is load-bearing.** Emptying the group takes the run from 328 trades to none: the
+  group-scoped Condition can no longer hold, and nothing substitutes for it.
+- **Restoring reproduces the result byte for byte.** Not "equivalent" — the same digest.
+- **The snapshot is what the worker reads.** The emptied run froze zero members and counted nothing,
+  which is the honest reading, rather than falling back to a live lookup.
+
+A first attempt at this shrank the group to **one** member and produced an identical result, which
+looked like a failed test and was not. The member kept was `K000389`, who alone discloses trades in
+32 of the 33 matrix securities, so `Congress purchases 60D is at least 1` held on exactly the same
+sessions as with all five. Recorded because it is the way a group-freeze test passes for the wrong
+reason: the mutation has to be one the data can actually feel.
+
+The complementary half — that a **completed** run's snapshot and its `snapshotHash` never move when
+the group is edited, emptied, renamed or deleted — is proven by
+`backtests.actor-groups.integration.test.ts`, and the worker's own resolver is now pinned directly by
+`backtest-actor-group-resolver.test.ts`.
