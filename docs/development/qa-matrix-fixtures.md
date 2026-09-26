@@ -173,6 +173,60 @@ strongest eligible BUY level; lifecycle reset; contribution-day top-up eligibili
 strategy; a sparse one; same-day rotation; and signals that persist for months set against one-day
 triggers.
 
+## The audit strategy variant — the second strategy dimension
+
+`S01` … `S10` are the Backtest V1 baseline and are **not edited**. Relative Volume and the two
+alternative-data families arrived after them, and folding new metrics into the ten would silently
+move a baseline a thousand recorded runs were measured against. So the matrix gained a second
+strategy dimension instead, selected explicitly:
+
+```bash
+pnpm qa:matrix:run                      # S01 … S10, 1,000 runs — unchanged
+pnpm qa:matrix:run --strategies audit   # A01 … A10, 1,000 runs — same Lists, same configurations
+```
+
+Both sets are seeded into the same database (`QA-MATRIX-S…` and `QA-MATRIX-A…` are separate reserved
+namespaces, pruned independently), both run against the same ten Lists and ten configurations, and
+the set is part of the run label — `QA-MATRIX-A02-L09-C06` — so no two sweeps' case identities
+collide. Definitions live in `packages/testing/src/qa-matrix/audit-strategies.ts`.
+
+| Id  | Name                                               | Shape                                                                                              | What it is for                                                                                                     |
+| --- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| A01 | `QA-MATRIX-A01-rvol10-spike`                       | BUY 100% · RVOL 10 above 2                                                                         | The simplest Relative Volume strategy, and the shortest period: a value almost everywhere, readable against the stored column. |
+| A02 | `QA-MATRIX-A02-rvol-multi-period-ladder`           | BUY 50% (RVOL 20) / BUY 100% (RVOL 10 ∧ 20 ∧ 50) · SELL 50% · FINAL EXIT                          | **The definition the period-identity defect made unauthorable**: two RVOL rows at the same threshold in one Signal, and two levels differing only by period. |
+| A03 | `QA-MATRIX-A03-rvol50-trend-confirmation`          | BUY 100% · RVOL 50 above 3 ∧ Price above SMA 200D · FINAL EXIT on the reverse                     | The longest RVOL warm-up against the longest daily average; the fifty-session lookback across a year boundary.     |
+| A04 | `QA-MATRIX-A04-rvol-rsi-capitulation`              | BUY 25 / 50 / 100% on RSI 14D 40 / 30 / 20 each ∧ a rising RVOL 10 floor · SELL 50% · FINAL EXIT   | Different thresholds of one period across three levels, mixed with an oscillator, plus the strongest-eligible-BUY rule. |
+| A05 | `QA-MATRIX-A05-insider-buyer-ladder`               | BUY 50 / 100% on Insider buyers 20D ≥ 1 / ≥ 2 · SELL 50% · FINAL EXIT on Insider sellers 20D ≥ 3   | The inclusive operators, two thresholds of one measure, and distinct-**person** counting.                          |
+| A06 | `QA-MATRIX-A06-insider-value-and-roles`            | BUY 100% · Insider purchase value 60D ≥ $1M ∧ role-filtered buyers ∧ Price above SMA 50D            | The money measures and the role filter. A line the Form 4 prices at zero must contribute nothing.                  |
+| A07 | `QA-MATRIX-A07-congress-activity-ladder`           | BUY 50 / 100% on Congress purchases 30D ≥ 1 / (≥ 2 ∧ buyers ≥ 2) · SELL 50% · FINAL EXIT on sales  | Event counts and distinct-actor counts of the same disclosures in one Signal.                                      |
+| A08 | `QA-MATRIX-A08-congress-scoped-filters`            | BUY 25% House-only / BUY 50% Senate-only + owner SELF / BUY 100% one named member                   | Every scope and filter on its own level, so a leak between two of them fires a level that should not have.         |
+| A09 | `QA-MATRIX-A09-congress-group-and-volume`          | BUY 100% · group-scoped Congress purchases 60D ≥ 1 ∧ RVOL 20 above 1.5 · SELL 25% · FINAL EXIT     | The **actor-group scope**, whose membership a submitted run freezes into its own snapshot.                         |
+| A10 | `QA-MATRIX-A10-valuation-volume-disclosure-confluence` | BUY 75% · MOS (DCF) > 20% ∧ RVOL 50 > 1.5 ∧ Congress purchases 250D ≥ 1 ∧ Insider buyers 250D ≥ 1 | The deliberate **NOT_EVALUABLE probe**: 250-session windows undecidable across most of the horizon.               |
+
+Between them: all three RVOL periods alone, in pairs and all three at once, at the same and at
+different thresholds; every insider measure and a role filter; every congressional measure, both
+chamber filters, an owner filter, a named member and an actor group; and mixtures with Price, SMA,
+RSI and Margin of Safety.
+
+### Actor scopes are resolved, never written down
+
+`A08` scopes to one member and `A09` to a group, and both name **this product's own ids**, which are
+generated when a row is created. The fixtures therefore hold the stable external identity — a
+bioguide id, and the reserved group name `QA-MATRIX-congress-watchlist` — and the seeder resolves
+them against the database it is seeding. A strategy that named a display name instead would follow a
+member through a rename into somebody else's trades.
+
+The named member is `K000389`, and the group is five members across both chambers. The choice is not
+arbitrary: in the matrix universe `K000389` has disclosed stock transactions in 32 of the 33
+securities over five years and in both directions, so a specific-actor scope produces real trades
+rather than an empty column that would pass for the wrong reason.
+
+**The audit set needs ingested disclosure history.** `pnpm data:alt-data:ingest --matrix` writes it
+into the development database through the ordinary loader; `pnpm qa:matrix:provision` then mirrors
+`AlternativeDataActor`, `InsiderTransaction` and `CongressTrade` along with the price history. Where
+the actor catalog is empty — a lightweight test database — the seeder reports that the audit set was
+skipped rather than substituting a different scope, and `--strategies audit` refuses to run.
+
 ## The 10 Stock Lists
 
 All membership uses **real catalog identities** — `Security` is the identity authority, and a

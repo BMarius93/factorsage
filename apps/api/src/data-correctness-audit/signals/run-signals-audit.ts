@@ -179,6 +179,7 @@ function runScan(
         ...process.env,
         STOCK_RECENT_PRICE_FRESHNESS_MS: String(10 * 365 * 24 * 60 * 60 * 1000),
         STOCK_FUNDAMENTALS_FRESHNESS_MS: String(10 * 365 * 24 * 60 * 60 * 1000),
+        ALT_DATA_FRESHNESS_MS: String(10 * 365 * 24 * 60 * 60 * 1000),
         LOG_LEVEL: "warn",
       },
     },

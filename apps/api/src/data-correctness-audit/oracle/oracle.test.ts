@@ -22,6 +22,17 @@ import {
   referenceAnnualReturns,
   runReferenceBacktest,
 } from "./reference-backtester";
+import {
+  oracleAlternativeDataColumn,
+  oracleAvailabilityDate,
+  oracleCongressEligible,
+  oracleCongressKind,
+  oracleDisclosedAmount,
+  oracleInsiderCategory,
+  oracleInsiderTransactionValue,
+  oracleObservableSession,
+} from "./alternative-data";
+import { oracleRelativeVolume } from "./relative-volume";
 import { oracleSessionClose } from "./sessions";
 import { parseOracleStrategy } from "./strategy-model";
 
@@ -425,5 +436,275 @@ describe("reference backtester on a hand-computed run", () => {
     expect(prismaFloatBoundAtScale(8.8441117764499992, 10)).toBe(
       "8.8441117764",
     );
+  });
+});
+
+describe("reference relative volume", () => {
+  it("divides the session by the mean of the p sessions strictly before it", () => {
+    // Hand-computed: the baseline is 1..4, mean 2.5, and the measured session is 10.
+    const values = oracleRelativeVolume([1, 2, 3, 4, 10], 4);
+    expect(values.slice(0, 4)).toEqual([null, null, null, null]);
+    expect(values[4]!.toString()).toBe("4");
+  });
+
+  it("requires the full lookback before any value exists", () => {
+    // Eleven observations are needed before `RVOL 10` has one: the first value is at index 10.
+    const volumes = Array.from({ length: 12 }, () => 100);
+    const values = oracleRelativeVolume(volumes, 10);
+    expect(values.slice(0, 10).every((value) => value === null)).toBe(true);
+    expect(values[10]!.toString()).toBe("1");
+    expect(values[11]!.toString()).toBe("1");
+  });
+
+  it("never lets the measured session enter its own baseline", () => {
+    // If index 2 were included the baseline would be (10+10+40)/3 = 20 and the value 2. It is not:
+    // the baseline is (10+10)/2 = 10 and the value is 4.
+    const values = oracleRelativeVolume([10, 10, 40], 2);
+    expect(values[2]!.toString()).toBe("4");
+  });
+
+  it("has no value where the baseline is entirely zero", () => {
+    expect(oracleRelativeVolume([0, 0, 5], 2)[2]).toBeNull();
+    // A zero *measured* session against a real baseline is a real reading of zero, not an absence.
+    expect(oracleRelativeVolume([10, 10, 0], 2)[2]!.toString()).toBe("0");
+  });
+
+  it("has no value while an unusable observation is inside the baseline", () => {
+    const values = oracleRelativeVolume([10, null, 10, 10, 10], 2);
+    // index 2's baseline holds the null; index 3's still does; index 4's has passed it.
+    expect(values[2]).toBeNull();
+    expect(values[3]).toBeNull();
+    expect(values[4]!.toString()).toBe("1");
+  });
+
+  it("reproduces AAPL's first stored RVOL 10 from its own persisted volumes", () => {
+    // The real series, read out of the development database. The baseline is the ten sessions
+    // 1992-09-11 … 1992-09-24 and the measured session is 1992-09-25; the stored value is
+    // 0.89808224 at Decimal(20,8).
+    const volumes = [
+      179883376, 214681811, 218523416, 178718576, 172435372, 115606512,
+      89678487, 111540908, 123972920, 125652924, 137468936,
+    ];
+    const value = oracleRelativeVolume(volumes, 10)[10]!;
+    expect(value.toDecimalPlaces(8).toString()).toBe("0.89808224");
+  });
+});
+
+describe("reference alternative-data availability", () => {
+  it("is the publication date plus one calendar day", () => {
+    expect(oracleAvailabilityDate("2026-03-03")).toBe("2026-03-04");
+    // Across a month, a year and a leap day.
+    expect(oracleAvailabilityDate("2026-01-31")).toBe("2026-02-01");
+    expect(oracleAvailabilityDate("2025-12-31")).toBe("2026-01-01");
+    expect(oracleAvailabilityDate("2024-02-28")).toBe("2024-02-29");
+  });
+
+  it("resolves the observable session as the first session at or after it", () => {
+    // Friday 2026-03-06, Monday 2026-03-09: a Saturday filing is first readable on the Monday.
+    const dates = ["2026-03-05", "2026-03-06", "2026-03-09", "2026-03-10"];
+    expect(oracleObservableSession(dates, "2026-03-07")).toBe(2);
+    expect(oracleObservableSession(dates, "2026-03-09")).toBe(2);
+    expect(oracleObservableSession(dates, "2026-03-06")).toBe(1);
+    // Past the end of the axis there is no session at all.
+    expect(oracleObservableSession(dates, "2026-03-11")).toBe(-1);
+  });
+});
+
+describe("reference alternative-data column", () => {
+  const dates = [
+    "2026-03-02",
+    "2026-03-03",
+    "2026-03-04",
+    "2026-03-05",
+    "2026-03-06",
+  ];
+  const coverage = { from: "2026-01-01", to: "2026-12-31" };
+
+  it("counts a disclosure only from the session after it was published", () => {
+    // Published 2026-03-03, so available 2026-03-04 and first counted on that session.
+    const column = oracleAlternativeDataColumn({
+      dates,
+      lookback: 2,
+      aggregation: "EVENT_COUNT",
+      coverage,
+      observations: [
+        { availableFrom: "2026-03-04", actorKey: "A", amount: null },
+      ],
+    });
+    expect(column[0]).toBeNull(); // no complete window
+    expect(column[1]!.toString()).toBe("0");
+    expect(column[2]!.toString()).toBe("1");
+    expect(column[3]!.toString()).toBe("1");
+    // Two sessions later the window has moved past it.
+    expect(column[4]!.toString()).toBe("0");
+  });
+
+  it("counts distinct actors, not rows", () => {
+    const observations = [
+      { availableFrom: "2026-03-03", actorKey: "A", amount: null },
+      { availableFrom: "2026-03-03", actorKey: "A", amount: null },
+      { availableFrom: "2026-03-03", actorKey: "B", amount: null },
+    ];
+    const distinct = oracleAlternativeDataColumn({
+      dates,
+      lookback: 2,
+      aggregation: "DISTINCT_ACTORS",
+      coverage,
+      observations,
+    });
+    const events = oracleAlternativeDataColumn({
+      dates,
+      lookback: 2,
+      aggregation: "EVENT_COUNT",
+      coverage,
+      observations,
+    });
+    expect(distinct[1]!.toString()).toBe("2");
+    expect(events[1]!.toString()).toBe("3");
+  });
+
+  it("is absent, never zero, where the window is not wholly inside coverage", () => {
+    const column = oracleAlternativeDataColumn({
+      dates,
+      lookback: 2,
+      aggregation: "EVENT_COUNT",
+      coverage: { from: "2026-03-04", to: "2026-03-05" },
+      observations: [],
+    });
+    // index 1's window opens on 2026-03-02, before the floor; index 4 is past the ceiling.
+    expect(column[1]).toBeNull();
+    expect(column[2]).toBeNull();
+    expect(column[3]!.toString()).toBe("0");
+    expect(column[4]).toBeNull();
+  });
+
+  it("sums only the amounts the source states", () => {
+    const column = oracleAlternativeDataColumn({
+      dates,
+      lookback: 3,
+      aggregation: "SUM_AMOUNT",
+      coverage,
+      observations: [
+        { availableFrom: "2026-03-03", actorKey: "A", amount: 15_001 },
+        { availableFrom: "2026-03-03", actorKey: "B", amount: null },
+      ],
+    });
+    expect(column[2]!.toString()).toBe("15001");
+  });
+
+  it("places every disclosure where the readable definition says it belongs", () => {
+    // The column resolves placements by merging two ascending sequences in one pass; this holds that
+    // against `oracleObservableSession`, the readable one-at-a-time definition, so the fast form
+    // cannot drift from the rule it implements.
+    const axis = [
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-09",
+    ];
+    const availabilities = [
+      "2026-03-01",
+      "2026-03-03",
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+    ];
+    for (const availableFrom of availabilities) {
+      const expected = oracleObservableSession(axis, availableFrom);
+      const column = oracleAlternativeDataColumn({
+        dates: axis,
+        lookback: 1,
+        aggregation: "EVENT_COUNT",
+        coverage: { from: "2026-01-01", to: "2026-12-31" },
+        observations: [{ availableFrom, actorKey: "A", amount: null }],
+      });
+      const counted = column.findIndex(
+        (value) => value !== null && value.equals(1),
+      );
+      // Before the axis, or past its end, the disclosure belongs to no session here.
+      const placed =
+        expected === -1 || availableFrom < (axis[0] as string) ? -1 : expected;
+      expect(counted, availableFrom).toBe(placed);
+    }
+  });
+
+  it("drops a disclosure that became observable before the frame begins", () => {
+    // Its observable session is not in this frame, so counting it at index 0 would place it inside
+    // windows it was never in.
+    const column = oracleAlternativeDataColumn({
+      dates,
+      lookback: 2,
+      aggregation: "EVENT_COUNT",
+      coverage,
+      observations: [
+        { availableFrom: "2026-02-20", actorKey: "A", amount: null },
+      ],
+    });
+    expect(column[1]!.toString()).toBe("0");
+  });
+});
+
+describe("reference alternative-data classification", () => {
+  it("treats only P and S as discretionary open-market trades", () => {
+    expect(oracleInsiderCategory("P-Purchase")).toBe("OPEN_MARKET_PURCHASE");
+    expect(oracleInsiderCategory("S-Sale")).toBe("OPEN_MARKET_SALE");
+    // Published SEC Form 4 codes: A award, G gift, M/X option exercise, C conversion,
+    // D/F disposition to the issuer.
+    expect(oracleInsiderCategory("A-Award")).toBe("AWARD");
+    expect(oracleInsiderCategory("G-Gift")).toBe("GIFT");
+    expect(oracleInsiderCategory("M-Exempt")).toBe("OPTION_EXERCISE");
+    expect(oracleInsiderCategory("F-InKind")).toBe("DISPOSITION_TO_ISSUER");
+    expect(oracleInsiderCategory("")).toBe("OTHER");
+    expect(oracleInsiderCategory("Z-Trust")).toBe("OTHER");
+  });
+
+  it("gives an unpriced line no value at all", () => {
+    // An award the form prices at zero is not a $0 purchase.
+    expect(
+      oracleInsiderTransactionValue({ securitiesTransacted: 30_104, price: 0 }),
+    ).toBeNull();
+    expect(
+      oracleInsiderTransactionValue({ securitiesTransacted: 100, price: null }),
+    ).toBeNull();
+    expect(
+      oracleInsiderTransactionValue({
+        securitiesTransacted: 2_399,
+        price: 340.06,
+      })!.toString(),
+    ).toBe("815803.94");
+  });
+
+  it("stores a disclosed band's own bounds and never a midpoint", () => {
+    expect(oracleDisclosedAmount("$15,001 - $50,000")).toEqual({
+      lower: 15_001,
+      upper: 50_000,
+    });
+    expect(oracleDisclosedAmount("Over $50,000,000")).toEqual({
+      lower: 50_000_000,
+      upper: null,
+    });
+    expect(oracleDisclosedAmount("$50,000,001 +")).toEqual({
+      lower: 50_000_001,
+      upper: null,
+    });
+    // A band with no readable figure has no bounds rather than bounds of zero.
+    expect(oracleDisclosedAmount("Unknown")).toEqual({
+      lower: null,
+      upper: null,
+    });
+    expect(oracleDisclosedAmount(null)).toEqual({ lower: null, upper: null });
+  });
+
+  it("classifies a partial sale as a sale and admits only common stock", () => {
+    expect(oracleCongressKind("Sale (Partial)")).toBe("SALE");
+    expect(oracleCongressKind("Sale (Full)")).toBe("SALE");
+    expect(oracleCongressKind("Purchase")).toBe("PURCHASE");
+    expect(oracleCongressKind("Exchange")).toBe("EXCHANGE");
+    expect(oracleCongressEligible("STOCK")).toBe(true);
+    expect(oracleCongressEligible("STOCK_OPTION")).toBe(false);
+    expect(oracleCongressEligible("BOND")).toBe(false);
   });
 });

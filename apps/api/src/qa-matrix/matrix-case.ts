@@ -34,7 +34,14 @@ export type QaMatrixCase = {
   readonly combination: QaMatrixCombination;
 };
 
-const CASE_ID_PATTERN = /^S(\d{2})-L(\d{2})-C(\d{2})$/;
+/**
+ * `S04-L09-C06`, or `A04-L09-C06` for the audit strategy dimension.
+ *
+ * The strategy letter is captured rather than assumed: the two dimensions share the Lists and the
+ * configurations, so the letter is the only thing that distinguishes `A02-L09-C06` from
+ * `S02-L09-C06`, and a parser that normalized it away would silently reproduce the wrong case.
+ */
+const CASE_ID_PATTERN = /^([SA])(\d{2})-L(\d{2})-C(\d{2})$/;
 
 /** `S04-L09-C06` — the label without the reserved prefix. */
 export function qaMatrixCaseId(
@@ -46,7 +53,7 @@ export function qaMatrixCaseId(
 }
 
 /**
- * Parses `S03-L07-C04`, with or without the `QA-MATRIX-` prefix.
+ * Parses `S03-L07-C04` or `A03-L07-C04`, with or without the `QA-MATRIX-` prefix.
  *
  * Deliberately strict about the two-digit shape: `S3-L7-C4` would be a different string for the
  * same cell, and a reproduction command that is only sometimes the same string is not a
@@ -66,9 +73,9 @@ export function parseQaMatrixCaseId(value: string): {
     return null;
   }
   return {
-    strategyId: `S${match[1] as string}`,
-    listId: `L${match[2] as string}`,
-    configId: `C${match[3] as string}`,
+    strategyId: `${match[1] as string}${match[2] as string}`,
+    listId: `L${match[3] as string}`,
+    configId: `C${match[4] as string}`,
   };
 }
 
@@ -122,7 +129,8 @@ export function selectQaMatrixCases(
     const parsed = parseQaMatrixCaseId(raw);
     if (!parsed) {
       throw new QaMatrixCaseSelectionError(
-        `\`${raw}\` is not a matrix case identity. Expected Sxx-Lxx-Cxx, for example S03-L07-C04.`,
+        `\`${raw}\` is not a matrix case identity. Expected Sxx-Lxx-Cxx (or Axx-Lxx-Cxx for the ` +
+          "audit strategy dimension), for example S03-L07-C04.",
       );
     }
     const caseId = qaMatrixCaseId(
@@ -132,7 +140,9 @@ export function selectQaMatrixCases(
     );
     if (!byCaseId.has(caseId)) {
       throw new QaMatrixCaseSelectionError(
-        `\`${caseId}\` is not a combination of this matrix. Strategies are S01-S${String(
+        `\`${caseId}\` is not a combination of this matrix. Strategies are ${
+          cases[0]?.strategyId.charAt(0) ?? "S"
+        }01-${cases[0]?.strategyId.charAt(0) ?? "S"}${String(
           QA_MATRIX_EXPECTED_STRATEGIES,
         ).padStart(2, "0")}, lists L01-L${String(
           QA_MATRIX_EXPECTED_LISTS,
@@ -207,9 +217,16 @@ export const QA_MATRIX_GOLDEN_CASES: readonly {
 export function qaMatrixGoldenCases(
   cases: readonly QaMatrixCase[],
 ): readonly QaMatrixCase[] {
+  // The golden set is named against the core dimension. The audit dimension shares its Lists and its
+  // configurations, so the same List/configuration pairs are the right ones to re-execute there too —
+  // only the strategy letter changes. Re-lettering rather than keeping a second hand-written list is
+  // what stops the two drifting into naming different cells for the same reason.
+  const letter = cases[0]?.strategyId.charAt(0) ?? "S";
   return selectQaMatrixCases(
     cases,
-    QA_MATRIX_GOLDEN_CASES.map((entry) => entry.caseId),
+    QA_MATRIX_GOLDEN_CASES.map(
+      (entry) => `${letter}${entry.caseId.slice(1)}`,
+    ),
   );
 }
 

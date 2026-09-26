@@ -1,0 +1,346 @@
+{
+  "securities": 33,
+  "visibleFrom": "1996-09-10",
+  "comparisons": {
+    "compared": 703305,
+    "passed": 703305,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 702657
+  },
+  "byCategory": {
+    "relative-volume": {
+      "compared": 703305,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "perPeriod": {
+    "rvol10": {
+      "compared": 234435,
+      "failed": 0,
+      "storedValues": 234355,
+      "maxAbsDifference": 4.999980207642807e-9,
+      "absenceMismatches": 0
+    },
+    "rvol20": {
+      "compared": 234435,
+      "failed": 0,
+      "storedValues": 234275,
+      "maxAbsDifference": 4.999978264752514e-9,
+      "absenceMismatches": 0
+    },
+    "rvol50": {
+      "compared": 234435,
+      "failed": 0,
+      "storedValues": 234035,
+      "maxAbsDifference": 4.999999969612645e-9,
+      "absenceMismatches": 0
+    }
+  },
+  "perSecurity": {
+    "AAPL": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "ADBE": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "AMGN": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "AMZN": {
+      "compared": 22161,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1997-05-30",
+        "rvol20": "1997-06-13",
+        "rvol50": "1997-07-28"
+      }
+    },
+    "AXP": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "BA": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "CAT": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "CRM": {
+      "compared": 16803,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "2004-07-08",
+        "rvol20": "2004-07-22",
+        "rvol50": "2004-09-02"
+      }
+    },
+    "CSCO": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "CVX": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "DIS": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "GOOGL": {
+      "compared": 16683,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "2004-09-02",
+        "rvol20": "2004-09-17",
+        "rvol50": "2004-10-29"
+      }
+    },
+    "GS": {
+      "compared": 20676,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1999-05-18",
+        "rvol20": "1999-06-02",
+        "rvol50": "1999-07-15"
+      }
+    },
+    "HD": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "HON": {
+      "compared": 19311,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "2001-03-07",
+        "rvol20": "2001-03-21",
+        "rvol50": "2001-05-03"
+      }
+    },
+    "IBM": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "JNJ": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "JPM": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "KO": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "MCD": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "MMM": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "MRK": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "MRNA": {
+      "compared": 5880,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "2018-12-21",
+        "rvol20": "2019-01-08",
+        "rvol50": "2019-02-21"
+      }
+    },
+    "MSFT": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "NKE": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "NVDA": {
+      "compared": 20886,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1999-02-05",
+        "rvol20": "1999-02-22",
+        "rvol50": "1999-04-06"
+      }
+    },
+    "PG": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "SHW": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "TRV": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "UNH": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "V": {
+      "compared": 13980,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "2008-04-03",
+        "rvol20": "2008-04-17",
+        "rvol50": "2008-05-30"
+      }
+    },
+    "WMT": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    },
+    "XOM": {
+      "compared": 22677,
+      "failed": 0,
+      "firstValue": {
+        "rvol10": "1996-09-10",
+        "rvol20": "1996-09-10",
+        "rvol50": "1996-09-10"
+      }
+    }
+  },
+  "periodCollisions": 0,
+  "warmupRegion": {
+    "compared": 75900,
+    "failed": 50
+  },
+  "differences": []
+}

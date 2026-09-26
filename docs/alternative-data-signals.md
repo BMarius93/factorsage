@@ -412,6 +412,23 @@ differently latched way to say the same thing.
 - Because the payloads carry no per-line identity, two genuinely separate same-day trades by one
   actor with identical size, price and amount band **collapse into one row**. Collapsing is the
   deterministic choice; the alternative is a row count that grows on every reingest.
+- **A full page can contain rows this product cannot normalize**, and the two counts must not be
+  confused (verified live on 2026-09-26). `insider-trading/search` returns Form 3 rows — an initial
+  statement of holdings, not a transaction — with an empty `transactionType`; sixteen of them were in
+  AAPL's newest thousand. The mapper correctly drops them, so a full 1,000-row page arrived as 984
+  mapped rows. Paging is therefore decided on the **provider's** own row count, never on the mapped
+  one: the first implementation read 984 as "shorter than the cap, therefore the last page" and every
+  cold ingest stopped after one page. AAPL's insider coverage floor was recorded as 2018-08-18 when
+  the provider holds filings back to 2003-05-28, and the fifteen intervening years read NOT_EVALUABLE
+  for a reason that had nothing to do with the data. The fix is in the port — `FmpProviderPage`
+  carries `providerRowCount` beside `rows` — and the dataset variants are bumped to `v2`, because a
+  `v1` state row is a coverage statement that is *wrong* rather than merely old and the refresh rule
+  (stop at the first page that inserts nothing new) cannot repair it.
+- **History is bounded by `ALT_DATA_MAX_PAGES_PER_INGEST`, and that bound is honest.** At twelve
+  pages of a thousand insider rows a heavily-filed symbol can exhaust the budget before reaching its
+  oldest filing — `CRM` reaches 2019 and `GOOGL` 2018 where most symbols reach 2003. The earliest
+  availability date actually ingested is recorded as the coverage floor, so those years are
+  NOT_EVALUABLE rather than silently zero, which is the same rule every other gap follows.
 
 ### Institutional Activity / 13F is out of V1
 

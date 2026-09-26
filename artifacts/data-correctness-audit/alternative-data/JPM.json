@@ -1,0 +1,129 @@
+{
+  "symbol": "JPM",
+  "securityId": "4ef4938c-1873-4a25-832d-4f7f0d3a58cb",
+  "sessions": 8571,
+  "insiderRows": 4652,
+  "congressRows": 383,
+  "insiderCoverage": {
+    "from": "2003-05-17",
+    "to": "2026-09-25"
+  },
+  "congressCoverage": {
+    "from": "2014-03-27",
+    "to": "2026-09-25"
+  },
+  "metrics": [
+    {
+      "metric": "insider-buyers-20",
+      "observations": 119,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2004-08-03",
+      "firstValue": 1
+    },
+    {
+      "metric": "insider-buyers-5",
+      "observations": 119,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2004-08-03",
+      "firstValue": 1
+    },
+    {
+      "metric": "insider-sellers-20",
+      "observations": 448,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2003-07-29",
+      "firstValue": 1
+    },
+    {
+      "metric": "insider-purchase-value-60",
+      "observations": 119,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2004-08-03",
+      "firstValue": 96094.72
+    },
+    {
+      "metric": "insider-sale-value-20",
+      "observations": 448,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2003-07-29",
+      "firstValue": 1211987
+    },
+    {
+      "metric": "insider-buyers-20-ceo-cfo",
+      "observations": 22,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2008-10-24",
+      "firstValue": 1
+    },
+    {
+      "metric": "insider-buyers-20-director",
+      "observations": 111,
+      "coverageFrom": "2003-05-17",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2004-08-03",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-purchases-30",
+      "observations": 173,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-05-08",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-sales-30",
+      "observations": 159,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2017-04-03",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-buyers-90",
+      "observations": 173,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-08-04",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-purchases-30-house",
+      "observations": 137,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2018-08-21",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-purchases-30-senate",
+      "observations": 36,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-05-08",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-purchases-30-self",
+      "observations": 4,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2016-02-24",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90",
+      "observations": 173,
+      "coverageFrom": "2014-03-27",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-08-04",
+      "firstValue": 2002
+    }
+  ]
+}

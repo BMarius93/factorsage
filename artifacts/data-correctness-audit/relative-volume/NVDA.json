@@ -1,0 +1,97 @@
+{
+  "symbol": "NVDA",
+  "securityId": "26afda3e-f5e1-43fc-8002-cc0cad58f42a",
+  "priceRows": 6962,
+  "derivedRows": 6962,
+  "visibleFrom": "1996-09-10",
+  "firstStoredValue": {
+    "rvol10": "1999-02-05",
+    "rvol20": "1999-02-22",
+    "rvol50": "1999-04-06"
+  },
+  "compared": 20886,
+  "failed": 0,
+  "samples": [
+    {
+      "date": "1999-01-22",
+      "volume": 2714688000,
+      "rvol10": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol20": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol50": {
+        "expected": null,
+        "actual": null
+      }
+    },
+    {
+      "date": "2005-01-10",
+      "volume": 580897880,
+      "rvol10": {
+        "expected": "1.027959540125061331",
+        "actual": "1.02795954"
+      },
+      "rvol20": {
+        "expected": "0.87003404970059909149",
+        "actual": "0.87003405"
+      },
+      "rvol50": {
+        "expected": "0.70020118877639958062",
+        "actual": "0.70020119"
+      }
+    },
+    {
+      "date": "2010-12-23",
+      "volume": 273784000,
+      "rvol10": {
+        "expected": "0.46423340249605724454",
+        "actual": "0.46423340"
+      },
+      "rvol20": {
+        "expected": "0.4774520203654359978",
+        "actual": "0.47745202"
+      },
+      "rvol50": {
+        "expected": "0.40253017650748874325",
+        "actual": "0.40253018"
+      }
+    },
+    {
+      "date": "2016-12-08",
+      "volume": 381544080,
+      "rvol10": {
+        "expected": "0.77893054800079080388",
+        "actual": "0.77893055"
+      },
+      "rvol20": {
+        "expected": "0.56365576060915062902",
+        "actual": "0.56365576"
+      },
+      "rvol50": {
+        "expected": "0.81175579964913836011",
+        "actual": "0.81175580"
+      }
+    },
+    {
+      "date": "2022-11-23",
+      "volume": 427241000,
+      "rvol10": {
+        "expected": "0.76095085898467816992",
+        "actual": "0.76095086"
+      },
+      "rvol20": {
+        "expected": "0.77935001499885910605",
+        "actual": "0.77935001"
+      },
+      "rvol50": {
+        "expected": "0.73059084022739129418",
+        "actual": "0.73059084"
+      }
+    }
+  ],
+  "mismatches": []
+}

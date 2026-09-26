@@ -19,6 +19,7 @@
     "reset:benchmark-data": "tsx src/reset-benchmark-data.ts",
     "seed:qa-securities": "tsx src/seed-qa-securities.ts",
     "data:resync": "tsx src/resync-canonical-stock-data.ts",
+    "data:alt-data:ingest": "tsx src/ingest-alternative-data.ts",
     "seed:qa-builtins": "tsx src/seed-qa-builtins.ts",
     "seed:qa-matrix": "tsx src/seed-qa-matrix.ts",
     "e2e:fake-fmp": "tsx src/e2e-fake-fmp.ts",

@@ -59,6 +59,10 @@ export class AuditStack {
       ...process.env,
       STOCK_RECENT_PRICE_FRESHNESS_MS: pinned,
       STOCK_FUNDAMENTALS_FRESHNESS_MS: pinned,
+      // The alternative-data domains too: their ordinary window is twelve hours, so an audit stack
+      // reading a matrix copy would re-ingest disclosure history from the provider on the first page
+      // view that named an insider or congressional metric.
+      ALT_DATA_FRESHNESS_MS: pinned,
       // The monitor scan cadence decides when Dashboard rows read as stale; the audit reads a
       // frozen scan, so a day's staleness window keeps the freshness badge meaningful.
       MONITOR_SCAN_INTERVAL_MS: String(24 * 60 * 60 * 1000),

@@ -211,6 +211,28 @@ describe("preflight rejection", () => {
     expect(coverage?.problems?.join(" ")).toContain("KO");
   });
 
+  it("refuses price coverage that stops before today, even when it covers every simulated session", async () => {
+    // The gap the preflight used to miss entirely. Coverage is checked against the last **execution
+    // date** the matrix simulates, but the loader's own target ends at **today** — so a matrix
+    // provisioned before a UTC day boundary satisfies every check and then fetches the difference
+    // from the provider on its first run. That is what happened between two sweeps of one
+    // provisioned matrix: preflight green, warm-up made 33 requests, gate refused, nothing swept.
+    //
+    // The last simulated session here is well inside the coverage below; only the tail is short.
+    const report = await preflight({ priceCoverageTo: "2026-09-08", today: AS_OF });
+    const coverage = check(report, "security-coverage");
+    expect(coverage?.status).toBe("FAIL");
+    expect(coverage?.problems?.join(" ")).toContain("2026-09-08");
+    expect(coverage?.problems?.join(" ")).toContain("Re-provision");
+  });
+
+  it("accepts coverage that reaches today", async () => {
+    expect(
+      check(await preflight({ priceCoverageTo: AS_OF }), "security-coverage")
+        ?.status,
+    ).toBe("PASS");
+  });
+
   it("accepts a later listing, because pre-listing data must never be fabricated", async () => {
     // `MRNA` legitimately has no history before 2018. That is correct data, not a coverage gap.
     const report = await preflight();

@@ -16,7 +16,9 @@ import {
   runBacktestSection,
   type BacktestExpectation,
 } from "./backtests/run-backtest-audit";
+import { runAlternativeDataSection } from "./alternative-data/run-alternative-data-audit";
 import { runIntrinsicSection } from "./intrinsic/run-intrinsic-audit";
+import { runRelativeVolumeSection } from "./relative-volume/run-relative-volume-audit";
 import { runFilingDateImpact } from "./lookahead/filing-date-impact";
 import { ComparisonLedger } from "./comparison";
 import { runBuyWindowAudit } from "./lists/buy-window-audit";
@@ -40,6 +42,8 @@ import { runUiSection } from "./ui/run-ui-audit";
 const ALL_SECTIONS = [
   "source",
   "technicals",
+  "relative-volume",
+  "alternative-data",
   "intrinsic",
   "strategies",
   "lists",
@@ -236,6 +240,87 @@ async function main(): Promise<void> {
             weekStartMismatches: result.weekStartMismatches,
             warmupRegion: result.warmupRegion,
           },
+        }),
+      );
+    }
+
+    if (sections.has("relative-volume")) {
+      log("\n== relative volume");
+      const result = await runRelativeVolumeSection({
+        prisma,
+        writer,
+        securities,
+        horizonStart: visibleFrom,
+        log,
+      });
+      writer.writeJson("relative-volume/summary.json", {
+        securities: securities.length,
+        visibleFrom,
+        comparisons: result.ledger.totals(),
+        byCategory: result.ledger.byCategory(),
+        perPeriod: result.perPeriod,
+        perSecurity: result.perSecurity,
+        periodCollisions: result.periodCollisions,
+        warmupRegion: result.warmupRegion,
+        differences: result.ledger.differences,
+      });
+      results.push(
+        section("relative-volume", result.ledger.totals(), {
+          independentOracle: true,
+          endToEnd: false,
+          detail: {
+            perPeriod: result.perPeriod,
+            periodCollisions: result.periodCollisions,
+            warmupRegion: result.warmupRegion,
+          },
+          failures: result.periodCollisions,
+        }),
+      );
+    }
+
+    if (sections.has("alternative-data")) {
+      log("\n== alternative data");
+      const result = await runAlternativeDataSection({
+        prisma,
+        writer,
+        securities,
+        log,
+      });
+      writer.writeJson("alternative-data/summary.json", {
+        securities: securities.length,
+        comparisons: result.ledger.totals(),
+        byCategory: result.ledger.byCategory(),
+        rows: result.rows,
+        availabilityViolations: result.availabilityViolations,
+        lastPlaceRoundings: result.lastPlaceRoundings,
+        filedBeforeTransaction: result.filedBeforeTransaction,
+        observableSessionViolations: result.observableSessionViolations,
+        perMetric: result.perMetric,
+        coverage: result.coverage,
+        differences: result.ledger.differences,
+      });
+      results.push(
+        section("alternative-data", result.ledger.totals(), {
+          independentOracle: true,
+          endToEnd: false,
+          detail: {
+            rows: result.rows,
+            availabilityViolations: result.availabilityViolations,
+            lastPlaceRoundings: result.lastPlaceRoundings,
+            filedBeforeTransaction: result.filedBeforeTransaction,
+            observableSessionViolations: result.observableSessionViolations,
+            perMetric: result.perMetric,
+          },
+          failures:
+            result.availabilityViolations + result.observableSessionViolations,
+          notes: [
+            `${result.filedBeforeTransaction} row(s) the provider dated as filed on or before the ` +
+              "transaction they report. A provider anomaly: availability is still publication + 1 " +
+              "day on every one of them, which is the only rule the product states.",
+            `${result.lastPlaceRoundings} stored transaction value(s) one unit in the last place ` +
+              "below the exact product, from float64 multiplication before Decimal(24,4) " +
+              "quantization. Maximum absolute error $0.0001.",
+          ],
         }),
       );
     }

@@ -90,6 +90,18 @@ export type AlternativeDataServiceOptions = {
   maxPagesPerIngest: number;
   now?: () => Date;
   onProviderRequest?: (event: AlternativeDataRequestEvent) => void;
+  /**
+   * Reported when a page carried rows for a symbol other than the one asked for.
+   *
+   * Never observed on either endpoint, and the ingest drops those rows rather than binding them to
+   * the wrong security. It is surfaced rather than swallowed because it would mean the provider's
+   * own filter had changed, and a silent drop would then look like a symbol with no disclosures.
+   */
+  onForeignRows?: (event: {
+    domain: AlternativeDataDomain;
+    symbol: string;
+    rows: number;
+  }) => void;
 };
 
 /**
@@ -396,9 +408,10 @@ export class CanonicalAlternativeDataService {
   ): Promise<void> {
     const syncedAt = this.now().toISOString();
     const window = new AvailabilityWindow();
+    let foreignRows = 0;
 
     for (let page = 0; page < this.options.maxPagesPerIngest; page += 1) {
-      const rows = await this.provider.getInsiderTrades({
+      const { providerRowCount, rows } = await this.provider.getInsiderTrades({
         symbol: security.symbol,
         page,
         limit: FMP_INSIDER_TRADING_MAX_PAGE_SIZE,
@@ -410,10 +423,19 @@ export class CanonicalAlternativeDataService {
         page,
         rows: rows.length,
       });
-      if (rows.length === 0) {
+      if (providerRowCount === 0) {
         break;
       }
-      const writes: InsiderTransactionWrite[] = rows.map((row) => ({
+      // Every row is bound to `security.id`, so a row the provider returned for a *different*
+      // symbol would be persisted as this security's insider history — and then counted by its
+      // metrics. The endpoints have not been observed to do that, and this is not a fix for a
+      // defect anybody saw; it is the check that makes the binding true rather than assumed, at the
+      // one place the binding is made. A mismatched row is dropped and counted, never rewritten.
+      const forThisSecurity = rows.filter(
+        (row) => row.providerSymbol === security.symbol.toUpperCase(),
+      );
+      foreignRows += rows.length - forThisSecurity.length;
+      const writes: InsiderTransactionWrite[] = forThisSecurity.map((row) => ({
         securityId: security.id,
         transactionDate: row.transactionDate,
         filingDate: row.filingDate,
@@ -455,13 +477,27 @@ export class CanonicalAlternativeDataService {
         contentHash: insiderContentHash(row),
       }));
       const result = await this.store.saveInsiderTransactions(writes);
-      window.observe(rows);
-      if (rows.length < FMP_INSIDER_TRADING_MAX_PAGE_SIZE) {
+      // Coverage describes the rows this security actually holds, so it observes the filtered set.
+      window.observe(forThisSecurity);
+      // The **provider's** page size decides whether this was the last page, never the mapped row
+      // count. `insider-trading/search` returns Form 3 initial-holdings rows with an empty
+      // `transactionType`, which the mapper legitimately drops; testing `rows.length` made a full
+      // 1,000-row page look short and stopped every cold ingest after one page, silently setting a
+      // symbol's coverage floor years later than the provider could supply.
+      if (providerRowCount < FMP_INSIDER_TRADING_MAX_PAGE_SIZE) {
         break;
       }
       if (reason === "STALE" && result.inserted === 0) {
         break;
       }
+    }
+
+    if (foreignRows > 0) {
+      this.options.onForeignRows?.({
+        domain: "INSIDER",
+        symbol: security.symbol,
+        rows: foreignRows,
+      });
     }
 
     // A symbol with no insider filings at all still records a successful sync, but records no
@@ -482,15 +518,18 @@ export class CanonicalAlternativeDataService {
   ): Promise<void> {
     const syncedAt = this.now().toISOString();
     const window = new AvailabilityWindow();
+    let foreignRows = 0;
 
     for (const chamber of ["SENATE", "HOUSE"] as const) {
       for (let page = 0; page < this.options.maxPagesPerIngest; page += 1) {
-        const rows = await this.provider.getCongressTrades({
-          chamber,
-          symbol: security.symbol,
-          page,
-          limit: FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
-        });
+        const { providerRowCount, rows } = await this.provider.getCongressTrades(
+          {
+            chamber,
+            symbol: security.symbol,
+            page,
+            limit: FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
+          },
+        );
         this.options.onProviderRequest?.({
           domain: "CONGRESS",
           symbol: security.symbol,
@@ -498,13 +537,19 @@ export class CanonicalAlternativeDataService {
           page,
           rows: rows.length,
         });
-        if (rows.length === 0) {
+        if (providerRowCount === 0) {
           break;
         }
+        // The same binding check the insider walk makes, for the same reason: a disclosure about a
+        // different company may never become this security's congressional history.
+        const forThisSecurity = rows.filter(
+          (row) => row.providerSymbol === security.symbol.toUpperCase(),
+        );
+        foreignRows += rows.length - forThisSecurity.length;
         // Members are created on first sight, so the identity a group holds exists before any user can
         // select it. The canonical id then replaces the bioguide id on every trade row.
         const actorIds = await this.store.upsertActors(
-          rows.map((row) => ({
+          forThisSecurity.map((row) => ({
             externalId: row.actorExternalId,
             displayName: row.actorDisplayName,
             chamber: row.chamber,
@@ -513,7 +558,7 @@ export class CanonicalAlternativeDataService {
           })),
         );
         const writes: CongressTradeWrite[] = [];
-        for (const row of rows) {
+        for (const row of forThisSecurity) {
           const actorId = actorIds.get(row.actorExternalId);
           if (!actorId) {
             continue;
@@ -559,14 +604,23 @@ export class CanonicalAlternativeDataService {
         const result = await this.store.saveCongressTrades(writes);
         // The availability window covers every ingested disclosure, including the non-stock asset
         // classes: coverage is a statement about what was read, not about what a metric counts.
-        window.observe(rows);
-        if (rows.length < FMP_CONGRESS_TRADING_MAX_PAGE_SIZE) {
+        window.observe(forThisSecurity);
+        // The provider's own page size, for the same reason the insider walk uses it.
+        if (providerRowCount < FMP_CONGRESS_TRADING_MAX_PAGE_SIZE) {
           break;
         }
         if (reason === "STALE" && result.inserted === 0) {
           break;
         }
       }
+    }
+
+    if (foreignRows > 0) {
+      this.options.onForeignRows?.({
+        domain: "CONGRESS",
+        symbol: security.symbol,
+        rows: foreignRows,
+      });
     }
 
     await this.store.recordAlternativeDatasetSync({

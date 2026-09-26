@@ -26,10 +26,10 @@ import {
   type FmpCongressTradingPort,
   type FmpExchangeHoliday,
   type FmpExchangeHolidayDto,
+  type FmpCongressTradePage,
   type FmpInsiderTradeDto,
+  type FmpInsiderTradePage,
   type FmpInsiderTradingPort,
-  type MappedFmpCongressTrade,
-  type MappedFmpInsiderTrade,
   type FmpDailyPriceDto,
   type FmpProfileDto,
   type FmpQuoteDto,
@@ -374,7 +374,7 @@ export class FmpClient
     symbol: string;
     page: number;
     limit: number;
-  }): Promise<MappedFmpInsiderTrade[]> {
+  }): Promise<FmpInsiderTradePage> {
     const payload = await this.request<FmpInsiderTradeDto[]>(
       "insider-trading/search",
       {
@@ -388,7 +388,13 @@ export class FmpClient
         ),
       },
     );
-    return mapFmpInsiderTrades(payload);
+    // The payload's own length, reported beside the mapped rows: the caller's "was this the last
+    // page?" test is about the provider, and a row this product could not normalize must never make
+    // a full page look short. See `FmpProviderPage`.
+    return {
+      providerRowCount: Array.isArray(payload) ? payload.length : 0,
+      rows: mapFmpInsiderTrades(payload),
+    };
   }
 
   /**
@@ -402,7 +408,7 @@ export class FmpClient
     symbol: string;
     page: number;
     limit: number;
-  }): Promise<MappedFmpCongressTrade[]> {
+  }): Promise<FmpCongressTradePage> {
     const payload = await this.request<FmpCongressTradeDto[]>(
       input.chamber === "SENATE" ? "senate-trades" : "house-trades",
       {
@@ -416,7 +422,10 @@ export class FmpClient
         ),
       },
     );
-    return mapFmpCongressTrades(input.chamber, payload);
+    return {
+      providerRowCount: Array.isArray(payload) ? payload.length : 0,
+      rows: mapFmpCongressTrades(input.chamber, payload),
+    };
   }
 
   private async request<T>(

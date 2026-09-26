@@ -446,6 +446,100 @@ function copiers(securityIds: readonly string[]): readonly Copier[] {
       },
     },
     {
+      // The canonical actor catalog: a global identity table, like `Security`, and copied whole so a
+      // congressional disclosure's `actorId` resolves and an actor group can name a real member.
+      table: "AlternativeDataActor",
+      copy(source, target) {
+        // `metadata` is nullable `JSONB`, which Prisma's read type admits as `null` and its write
+        // types do not. An absent document is written as an omitted field rather than as a JSON
+        // null, which is the same stored value and the same thing a fresh ingest writes; a document
+        // that is present crosses unchanged.
+        const writable = <T extends { metadata: Prisma.JsonValue }>(
+          row: T,
+        ): Omit<T, "metadata"> & { metadata?: Prisma.InputJsonValue } => {
+          const { metadata, ...rest } = row;
+          return metadata === null
+            ? rest
+            : { ...rest, metadata: metadata as Prisma.InputJsonValue };
+        };
+        return reconcileIdentityRows({
+          readSource: () => source.alternativeDataActor.findMany(),
+          readTarget: () => target.alternativeDataActor.findMany(),
+          insertTarget: (rows) =>
+            insertBatches(rows, (batch) =>
+              target.alternativeDataActor.createMany({
+                data: batch.map(writable),
+              }),
+            ),
+          updateTarget: async ({ id, updatedAt: _updatedAt, ...data }) => {
+            await target.alternativeDataActor.update({
+              where: { id },
+              data: writable(data),
+            });
+          },
+        });
+      },
+    },
+    {
+      // Insider and congressional disclosure history, per security, exactly as the price history is.
+      // Without them a matrix strategy naming an alternative-data metric would evaluate against no
+      // coverage at all — every session NOT_EVALUABLE — and a sweep would report a thousand green
+      // runs that never tested the thing they were built to test. Their `StockDatasetState` and
+      // `StockDatasetCoverage` rows come across with every other dataset's above, which is what
+      // makes the copied coverage floor the same statement here as in the source.
+      table: "InsiderTransaction",
+      async copy(source, target) {
+        return totalMirrored(
+          await perSecurity(securityIds, (securityId) =>
+            mirrorScope(
+              (skip, take) =>
+                source.insiderTransaction.findMany({
+                  where: { securityId },
+                  orderBy: { id: "asc" },
+                  skip,
+                  take,
+                }),
+              () =>
+                target.insiderTransaction.deleteMany({ where: { securityId } }),
+              (rows) =>
+                target.insiderTransaction.createMany({
+                  data: rows.map((row) => ({
+                    ...row,
+                    raw: row.raw as Prisma.InputJsonValue,
+                  })),
+                }),
+            ),
+          ),
+        );
+      },
+    },
+    {
+      table: "CongressTrade",
+      async copy(source, target) {
+        return totalMirrored(
+          await perSecurity(securityIds, (securityId) =>
+            mirrorScope(
+              (skip, take) =>
+                source.congressTrade.findMany({
+                  where: { securityId },
+                  orderBy: { id: "asc" },
+                  skip,
+                  take,
+                }),
+              () => target.congressTrade.deleteMany({ where: { securityId } }),
+              (rows) =>
+                target.congressTrade.createMany({
+                  data: rows.map((row) => ({
+                    ...row,
+                    raw: row.raw as Prisma.InputJsonValue,
+                  })),
+                }),
+            ),
+          ),
+        );
+      },
+    },
+    {
       table: "BenchmarkDatasetCoverage",
       copy(source, target) {
         return mirrorScope(

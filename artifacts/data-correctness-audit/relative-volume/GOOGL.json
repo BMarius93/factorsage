@@ -1,0 +1,81 @@
+{
+  "symbol": "GOOGL",
+  "securityId": "e9a06aca-5f90-4b10-9bc3-6ebb6738c822",
+  "priceRows": 5561,
+  "derivedRows": 5561,
+  "visibleFrom": "1996-09-10",
+  "firstStoredValue": {
+    "rvol10": "2004-09-02",
+    "rvol20": "2004-09-17",
+    "rvol50": "2004-10-29"
+  },
+  "compared": 16683,
+  "failed": 0,
+  "samples": [
+    {
+      "date": "2004-08-19",
+      "volume": 893257060,
+      "rvol10": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol20": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol50": {
+        "expected": null,
+        "actual": null
+      }
+    },
+    {
+      "date": "2010-08-04",
+      "volume": 152416940,
+      "rvol10": {
+        "expected": "1.648086023175835368",
+        "actual": "1.64808602"
+      },
+      "rvol20": {
+        "expected": "1.1736191555961430019",
+        "actual": "1.17361916"
+      },
+      "rvol50": {
+        "expected": "1.2758278996919427165",
+        "actual": "1.27582790"
+      }
+    },
+    {
+      "date": "2016-07-20",
+      "volume": 22502340,
+      "rvol10": {
+        "expected": "0.80728959072808442065",
+        "actual": "0.80728959"
+      },
+      "rvol20": {
+        "expected": "0.62725411774210622537",
+        "actual": "0.62725412"
+      },
+      "rvol50": {
+        "expected": "0.66810949097934552754",
+        "actual": "0.66810949"
+      }
+    },
+    {
+      "date": "2022-07-06",
+      "volume": 37432000,
+      "rvol10": {
+        "expected": "1.0318090022082785527",
+        "actual": "1.03180900"
+      },
+      "rvol20": {
+        "expected": "1.004860899166348263",
+        "actual": "1.00486090"
+      },
+      "rvol50": {
+        "expected": "0.91046294520888868687",
+        "actual": "0.91046295"
+      }
+    }
+  ],
+  "mismatches": []
+}

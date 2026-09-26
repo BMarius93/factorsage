@@ -156,6 +156,7 @@ export function e2eStackEnvironment(
     FMP_API_KEY: E2E_FAKE_FMP_API_KEY,
     STOCK_RECENT_PRICE_FRESHNESS_MS: freshness,
     STOCK_FUNDAMENTALS_FRESHNESS_MS: freshness,
+    ALT_DATA_FRESHNESS_MS: freshness,
     ...(input.role === "api"
       ? {
           // Playwright signs in far more often than a person does, from one loopback address.

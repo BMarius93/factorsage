@@ -1,0 +1,97 @@
+{
+  "symbol": "HON",
+  "securityId": "37fc61c7-f69b-4f99-8de9-520496018525",
+  "priceRows": 6437,
+  "derivedRows": 6437,
+  "visibleFrom": "1996-09-10",
+  "firstStoredValue": {
+    "rvol10": "2001-03-07",
+    "rvol20": "2001-03-21",
+    "rvol50": "2001-05-03"
+  },
+  "compared": 19311,
+  "failed": 0,
+  "samples": [
+    {
+      "date": "2001-02-21",
+      "volume": 3728334,
+      "rvol10": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol20": {
+        "expected": null,
+        "actual": null
+      },
+      "rvol50": {
+        "expected": null,
+        "actual": null
+      }
+    },
+    {
+      "date": "2007-02-12",
+      "volume": 3098120,
+      "rvol10": {
+        "expected": "0.84787071047198816749",
+        "actual": "0.84787071"
+      },
+      "rvol20": {
+        "expected": "0.84354086934029449953",
+        "actual": "0.84354087"
+      },
+      "rvol50": {
+        "expected": "0.79089854705566053829",
+        "actual": "0.79089855"
+      }
+    },
+    {
+      "date": "2013-01-28",
+      "volume": 4698539,
+      "rvol10": {
+        "expected": "1.433158395005250346",
+        "actual": "1.43315840"
+      },
+      "rvol20": {
+        "expected": "1.3213527553280678489",
+        "actual": "1.32135276"
+      },
+      "rvol50": {
+        "expected": "1.3148963107710379942",
+        "actual": "1.31489631"
+      }
+    },
+    {
+      "date": "2019-01-11",
+      "volume": 1912449,
+      "rvol10": {
+        "expected": "0.68852994450678681814",
+        "actual": "0.68852994"
+      },
+      "rvol20": {
+        "expected": "0.59114450265926298064",
+        "actual": "0.59114450"
+      },
+      "rvol50": {
+        "expected": "0.55511387469954186399",
+        "actual": "0.55511387"
+      }
+    },
+    {
+      "date": "2024-12-27",
+      "volume": 3089317,
+      "rvol10": {
+        "expected": "0.67450803137858809803",
+        "actual": "0.67450803"
+      },
+      "rvol20": {
+        "expected": "0.77504294662115197045",
+        "actual": "0.77504295"
+      },
+      "rvol50": {
+        "expected": "0.65454310822444303536",
+        "actual": "0.65454311"
+      }
+    }
+  ],
+  "mismatches": []
+}

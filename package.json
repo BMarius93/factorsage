@@ -37,6 +37,7 @@
     "db:studio": "pnpm --filter @intrinsic/database prisma:studio",
     "benchmarks:prewarm": "pnpm build:packages && pnpm --filter @intrinsic/api prewarm:benchmark-data",
     "data:resync": "pnpm build:packages && pnpm --filter @intrinsic/api data:resync",
+    "data:alt-data:ingest": "pnpm build:packages && pnpm --filter @intrinsic/api data:alt-data:ingest",
     "db:benchmarks:reset": "pnpm build:packages && pnpm --filter @intrinsic/api reset:benchmark-data",
     "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin",
     "builtins:bootstrap": "pnpm build:packages && pnpm --filter @intrinsic/api builtins:bootstrap",

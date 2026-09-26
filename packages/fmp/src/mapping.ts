@@ -995,6 +995,30 @@ export function mapFmpCongressTrades(
 }
 
 /**
+ * One page of provider rows, and how many rows the provider actually sent.
+ *
+ * The two numbers are different and the difference matters. `rows` holds what survived
+ * normalization; `providerRowCount` is the length of the payload itself. A caller pages backwards
+ * through a newest-first endpoint and decides it has reached the end when a page comes back shorter
+ * than the endpoint's cap — and that decision is a statement about the *provider*, never about this
+ * product's normalizer.
+ *
+ * Reading it off `rows.length` was a real defect: `insider-trading/search` returns Form 3 rows with
+ * an empty `transactionType`, which the mapper legitimately drops, so a **full** 1,000-row page
+ * arrived as 984 mapped rows and every cold ingest stopped after one page. A symbol's whole
+ * disclosure history before that page then read NOT_EVALUABLE — not because the provider had
+ * nothing, but because sixteen initial-holdings statements were not transactions.
+ */
+export type FmpProviderPage<T> = {
+  /** Rows the provider's payload carried, before any normalization dropped one. */
+  providerRowCount: number;
+  rows: T[];
+};
+
+export type FmpInsiderTradePage = FmpProviderPage<MappedFmpInsiderTrade>;
+export type FmpCongressTradePage = FmpProviderPage<MappedFmpCongressTrade>;
+
+/**
  * Insider Form 4 activity, kept as its own port.
  *
  * One request per symbol and page. The caller decides how far back to page, because only it knows
@@ -1005,7 +1029,7 @@ export type FmpInsiderTradingPort = {
     symbol: string;
     page: number;
     limit: number;
-  }): Promise<MappedFmpInsiderTrade[]>;
+  }): Promise<FmpInsiderTradePage>;
 };
 
 /** Congressional disclosures for one chamber, kept as its own port. */
@@ -1015,5 +1039,5 @@ export type FmpCongressTradingPort = {
     symbol: string;
     page: number;
     limit: number;
-  }): Promise<MappedFmpCongressTrade[]>;
+  }): Promise<FmpCongressTradePage>;
 };
