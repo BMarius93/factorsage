@@ -274,3 +274,45 @@ not a rule of thumb; it is what the data does.
 
 The minimum lag is **−21 days** — a disclosure dated before the transaction it reports, which is one
 of the twelve provider anomalies in O-01.
+
+## V-05 — Every congressional vocabulary partitions exactly, and no scope leaks
+
+**Verification. No defect.**
+
+Recomputed over the 9,187 ingested congressional disclosures. Each normalization is a partition: the
+parts sum to the whole, so no row is counted twice and none is lost.
+
+| Dimension | Breakdown | Sum |
+| --- | --- | --- |
+| Asset class | `STOCK` 8,782 · `STOCK_OPTION` 311 · `BOND` 92 · `OTHER` 2 | 9,187 ✓ |
+| Chamber (stock only) | `HOUSE` 6,878 · `SENATE` 1,904 | 8,782 ✓ |
+| Owner (stock only) | `UNSPECIFIED` 3,566 · `SPOUSE` 2,890 · `JOINT` 1,876 · `SELF` 313 · `DEPENDENT` 137 | 8,782 ✓ |
+| Kind (stock only) | `SALE` 4,399 · `PURCHASE` 4,364 · `EXCHANGE` 19 | 8,782 ✓ |
+
+- **405 non-stock rows are ingested, preserved and never counted.** A corporate bond or an option on
+  the same ticker is a different instrument; the `STOCK` filter in the observation query is what keeps
+  it out of a share-purchase count, and it is applied in the store rather than left to a caller.
+- **`EXCHANGE` is neither a purchase nor a sale.** Nineteen rows are counted by no V1 measure, which
+  is the honest reading of a transaction the product does not model.
+- **Every amount band parsed**: zero rows carry an unreadable figure, and no lower bound equals its
+  band's midpoint.
+- **No two actors share a display name** among the 217 ingested, and identity is the bioguide id
+  regardless.
+
+Read session by session on MSFT, the filters compose without leaking: on 2026-09-22 an unfiltered
+`Congress purchases 30D` is 6, `HOUSE` is 4 and `SENATE` is 2 — the two chambers partition the
+unfiltered count exactly — while `Congress buyers 30D` is 4, correctly below the event count.
+
+## R-01 — An owner filter of `SELF` selects almost nothing, and that is the data rather than a bug
+
+**Provider limitation. Worth stating to a user; no code change.**
+
+Only **313 of 8,782** congressional stock disclosures (3.6%) name `Self` as the owner, and **3,566
+(40.6%) name no owner at all**. The product deliberately maps an empty owner field to `UNSPECIFIED`
+and never folds it into `SELF`, because a filing that names no owner has not said the member holds it
+personally — so an owner filter of `SELF` excludes forty per cent of the data on a distinction the
+filing did not make.
+
+That is the correct semantics and the alternative would be inventing a fact. But a user selecting
+"Self" will see a metric that is nearly always zero, and the reason is invisible from the condition
+row. Worth a line of help text rather than a change to the rule.
