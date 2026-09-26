@@ -75,7 +75,48 @@ transaction and not on the combination.
 
 ## 4. Extended RVOL / Insider / Congress matrix results
 
-_(sweep B)_
+Sweep `2026-09-26-20260926-014140`, `--strategies audit --archive`, concurrency 3.
+
+| | Sweep A (core) | Sweep B (audit) |
+| --- | --- | --- |
+| Expected / submitted / completed | 1,000 / 1,000 / **999** | 1,000 / 1,000 / **999** |
+| Failed | 1 — `S08-L04-C08` | 1 — `A08-L05-C10` |
+| Trades | 184,836 | **360,896** |
+| Daily equity rows | 3,612,556 | **3,612,556** |
+| Invariants passed / failed / indeterminate | 37,962 / 2 / 0 | 37,962 / 2 / 0 |
+| Archives | 6 of 6, 3/3 each | 6 of 6, 3/3 each |
+| Determinism | **0 differences** | **0 differences** |
+| Provider requests | **0** | **0** |
+| Zero-trade cases | 107 | 116 |
+| Duration | 9,377 s (6.40/min) | 4,428 s (13.55/min) |
+
+Both failures are F-06 and both reproduce **green in isolation**. Both sweeps' two failed invariant
+checks are the `reaches COMPLETED` / `no failure metadata` pair on that one case; **no engine
+invariant failed in either sweep**.
+
+Equity rows are identical across the two sweeps, which is the consistency check it looks like: a
+daily equity curve's length is a function of the period and the list, not of the strategy, and both
+covered the same hundred list × configuration pairs.
+
+Per audit strategy:
+
+| | runs | trades | zero-trade | invariants OK | failed |
+| --- | --- | --- | --- | --- | --- |
+| `A01` RVOL 10, buy-and-hold | 100 | 1,145 | 3 | 3,800 | 0 |
+| `A02` RVOL 10 ∧ 20 ∧ 50 ladder | 100 | 2,460 | 3 | 3,800 | 0 |
+| `A03` RVOL 50 ∧ SMA 200D | 100 | 8,014 | 4 | 3,800 | 0 |
+| `A04` RVOL ∧ RSI three-level ladder | 100 | 23,648 | 3 | 3,800 | 0 |
+| `A05` insider buyer ladder | 100 | 22,936 | 22 | 3,800 | 0 |
+| `A06` insider value ∧ CEO/CFO ∧ SMA 50D | 100 | 4,882 | 36 | 3,800 | 0 |
+| `A07` congress purchases ∧ buyers | 100 | **286,488** | 2 | 3,800 | 0 |
+| `A08` chamber / owner / named-member scopes | 100 | 3,754 | 3 | 3,762 | 2 |
+| `A09` actor group ∧ RVOL 20 | 100 | 6,827 | 3 | 3,800 | 0 |
+| `A10` valuation ∧ RVOL ∧ 250-session windows | 100 | **39** | **92** | 3,800 | 0 |
+
+`A02` is the one to note: its strongest BUY is `RVOL 10 above 2 AND RVOL 20 above 2 AND RVOL 50 above
+1.5`, two rows at the same threshold differing only by period. Before `d4ce4aa2` that definition was
+refused at validation as a duplicate condition and could not have been submitted at all. It now runs
+1,000 times.
 
 ## 5. Data-correctness findings
 
@@ -314,7 +355,51 @@ canonical operand builders.
 
 ## 16. Exact gate results
 
-_(final gate)_
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | **PASS** |
+| `pnpm typecheck` | **PASS** — every package and app |
+| `pnpm db:validate` | **PASS** |
+| `pnpm db:test:prepare` | **PASS** — no pending migrations |
+| `pnpm build` | **PASS** |
+| `pnpm openapi:validate` | **PASS** — 60 paths, OpenAPI 3.1 valid |
+| `pnpm test` | **4,165 of 4,166 passed**, 284 files, **1 failure** |
+
+Per package:
+
+| | files | tests |
+| --- | --- | --- |
+| `config` | 2 | 67 |
+| `domain` | 7 | 118 |
+| `contracts` | 13 | 316 |
+| `valuation` | 9 | 38 |
+| `fmp` | 3 | 80 |
+| `strategy` | 13 | 270 |
+| `stock-data` | 30 | 523 (1 flake) |
+| `web` | 106 | 1,139 |
+| `api` | 86 | 1,378 |
+| `worker` | 15 | 237 |
+
+**The one failure and how it was classified.**
+`redis.integration.test.ts > cross-process canonical hydration > uses one FMP delta for two service
+instances with different projections`, `Error: Test timed out in 5000ms`.
+
+- It is a **timeout**, not a wrong value and not a failed assertion.
+- Run **standalone** with its sibling file: `2 files, 37 tests, all passing`.
+- Across two full-suite runs the failing subset **moved** — the first run also failed
+  `provider-reuse.integration.test.ts`, which passed in the second. A defect does not alternate;
+  contention does.
+- The timeout was **not raised**, the test was **not skipped**, and nothing was weakened to make the
+  gate green.
+
+`pnpm lint` also caught one real problem during the audit, and the guard deserves naming:
+`fmp-gate-coverage.test.ts` pins the exact set of files permitted to construct the shared
+`RedisFmpRequestGate`, "listed rather than counted, so adding a process is a deliberate edit here".
+The new `data:alt-data:ingest` command is a legitimate sixth root — paging a decade of Form 4 filings
+for thirty-three securities is exactly the job most likely to starve a live read — so it was added to
+the list rather than exempted.
+
+The matrix is not part of `pnpm test` and was run explicitly; its results are sections 3 and 4.
 
 ## 17. Remaining risks and provider limitations
 
@@ -335,4 +420,39 @@ _(final gate)_
 
 ## 18. Merge-ready
 
-_(final verdict)_
+**YES for this branch**, with F-06 recorded as a pre-existing defect that should be fixed next and is
+not a reason to hold this work.
+
+The verdict rests on independent verification of the data and the outputs, not on the gate:
+
+- **Relative Volume is exact.** Two independent recomputations — PostgreSQL window functions and a
+  decimal-arithmetic oracle — over every persisted row of all 33 securities. 259,735 rows × 3 periods,
+  **zero value mismatches**, maximum difference 5.0e-9, which is exactly the storage quantum. Zero
+  period collisions. Warm-up exact at sessions 11 / 21 / 51.
+- **Point-in-time correctness holds.** Availability is publication + 1 day on all **188,969** rows;
+  **4,221,571** projected column comparisons against an independent oracle with **zero** failures,
+  absence compared exactly on both sides; a leave-one-out test finds **zero** disclosures affecting
+  any session before they were observable; and two real filings trace correctly by hand, including a
+  Saturday availability rolling across Labor Day and a purchase counted twenty months after the trade.
+- **The engine is sound under both matrices.** 2,000 runs, **75,924 invariant checks passed, zero
+  engine-invariant failures, zero indeterminate**, 12 archives with all 36 frame-level invariants
+  proven, **zero determinism differences**, **zero provider requests**.
+- **The group freeze is real.** Emptying the live group takes a run from 328 trades to zero;
+  restoring it reproduces the result byte for byte.
+
+What merging changes for the better is concrete: F-01 alone recovers fifteen years of insider history
+per security that the product previously reported as NOT_EVALUABLE, and the variant bump makes every
+already-ingested security self-heal.
+
+**F-06 is the one open defect and it is not this branch's.** A progress checkpoint runs inside
+Prisma's *default* 5,000 ms interactive transaction; under concurrency it can expire and fail a run
+that computed everything correctly. It fired twice in 2,000 runs (0.1%), on `S08` and on `A08` —
+different strategy dimensions, lists and configurations, one shared bookkeeping write — and both cases
+reproduce green in isolation. It predates this work and is unrelated to Relative Volume and
+alternative data. It is left unfixed deliberately: the remedy is a change to the worker's durability
+semantics and the durable job-claim protocol `AGENTS.md` invariant 14 fixes, which deserves its own
+change with its own tests, and the audit's own rule is not to move a timeout to make a gate green.
+
+Both matrix gates therefore read NOT GREEN, and in both cases every unmet condition traces to that
+single case. That is the honest state: the engine is correct, and one non-correctness-critical write
+is fragile under load.
