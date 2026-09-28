@@ -152,6 +152,19 @@ function finiteValue(
     : undefined;
 }
 
+/**
+ * The exact sum of a window's reported values, or `undefined` when there is nothing to sum or the
+ * sum leaves the double range. A window is never empty, so an empty list is a defect upstream and
+ * not a zero; an overflowing sum has no finite value a formula could divide by or into.
+ */
+function finiteSum(values: readonly number[]): number | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+  const total = exactDecimalSum(values);
+  return Number.isFinite(total) ? total : undefined;
+}
+
 /** Sum of one Income line over a window, or `undefined` if any quarter lacks it. */
 function incomeSum(
   rows: readonly FinancialStatement[],
@@ -165,7 +178,7 @@ function incomeSum(
     }
     values.push(value);
   }
-  return exactDecimalSum(values);
+  return finiteSum(values);
 }
 
 /**
@@ -189,7 +202,7 @@ function freeCashFlowSum(
     // FCF_q = operatingCashFlow_q + capitalExpenditure_q, summed exactly over the window.
     components.push(operatingCashFlow, capitalExpenditure);
   }
-  return exactDecimalSum(components);
+  return finiteSum(components);
 }
 
 /**
@@ -231,7 +244,8 @@ function averageState(
   if (opening === undefined || ending === undefined) {
     return undefined;
   }
-  return exactDecimalSum([opening, ending]) / 2;
+  const total = finiteSum([opening, ending]);
+  return total === undefined ? undefined : total / 2;
 }
 
 /**
@@ -353,8 +367,11 @@ function roicTtm(windows: FundamentalStatementWindows): number | undefined {
   }
   const nopatTtm = operatingIncomeTtm * (1 - FUNDAMENTAL_ROIC_TAX_RATE);
   // (openingInvestedCapital + endingInvestedCapital) / 2, with both states summed exactly at once.
-  const averageInvestedCapital =
-    exactDecimalSum([...openingTerms, ...endingTerms]) / 2;
+  const investedCapitalTotal = finiteSum([...openingTerms, ...endingTerms]);
+  if (investedCapitalTotal === undefined) {
+    return undefined;
+  }
+  const averageInvestedCapital = investedCapitalTotal / 2;
   if (!(averageInvestedCapital > 0)) {
     return undefined;
   }
