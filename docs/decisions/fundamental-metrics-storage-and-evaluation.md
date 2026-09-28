@@ -75,7 +75,7 @@ The accepted wide-column decision applies unchanged. Add exactly fifteen nullabl
 
 ```text
 revenueGrowthTtmYoy
- epsGrowthTtmYoy
+epsGrowthTtmYoy
 fcfGrowthTtmYoy
 
 grossMarginTtm
@@ -93,9 +93,6 @@ netDebtToEbitdaTtm
 interestCoverageTtm
 assetTurnoverTtm
 ```
-
-(The leading space above `epsGrowthTtmYoy` is formatting only; the field name is exactly
-`epsGrowthTtmYoy`.)
 
 Each is nullable and uses the existing calculated-series decimal precision/scale. `NULL` means the
 metric is unavailable on that trading day. It never means zero.
