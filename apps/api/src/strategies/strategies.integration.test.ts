@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
+  describeStrategy,
+  normalizeStrategyDefinition,
   STRATEGY_SCHEMA_VERSION,
+  strategyDefinitionFingerprint,
   type StrategyCondition,
   type StrategyDefinition,
   type StrategyDetailResponse,
@@ -19,6 +22,7 @@ import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
 import { StrategiesModule } from "./strategies.module";
+import { definitionHashOf } from "./strategy-versions";
 
 // Before PrismaService constructs its client during Nest module compilation.
 useTestDatabase();
@@ -596,6 +600,280 @@ describe("strategies", () => {
       )
       .digest("hex");
   }
+
+  /**
+   * Configured metrics and the strict comparison pair across the HTTP boundary and back out of
+   * PostgreSQL. A metric's configuration is stored canonically beside its identity, and a document
+   * naming a removed inclusive operator is refused on the way in and never reinterpreted on the way
+   * out.
+   */
+  describe("configured metrics: identity, configuration and strict comparisons", () => {
+    /**
+     * A strategy exercising both alternative-data kinds at a non-default configuration, the strict
+     * comparison pair, and the price-scaled `is close to` beside them. Roles are written out of
+     * canonical order on purpose: the stored document is canonical, and the order is presentation.
+     */
+    function configured(): StrategyDefinition {
+      return {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: nextId("buy"),
+            percentage: 50,
+            signal: {
+              conditions: [
+                {
+                  id: nextId("condition"),
+                  metric: {
+                    kind: "INSIDER_ACTIVITY",
+                    measure: "SELLERS",
+                    lookback: 180,
+                    roles: ["CFO", "CEO"],
+                  },
+                  operator: "IS_BELOW",
+                  value: { kind: "NUMBER", value: 1 },
+                },
+                {
+                  id: nextId("condition"),
+                  metric: {
+                    kind: "CONGRESS_ACTIVITY",
+                    measure: "PURCHASES",
+                    lookback: 180,
+                    scope: { kind: "ANY" },
+                    chamber: "HOUSE",
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 0 },
+                },
+                {
+                  id: nextId("condition"),
+                  metric: { kind: "PRICE" },
+                  operator: "IS_CLOSE_TO",
+                  value: { kind: "SERIES", seriesId: "SMA_200D" },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [],
+      };
+    }
+
+    it("E: persists a configured strategy exactly and reads it back with no drift", async () => {
+      const authored = configured();
+      const created = await createStrategy(owner, {
+        name: `Configured ${suffix}`,
+        definition: authored,
+      });
+
+      // What the API answers is the canonical document, and it is exactly what is stored.
+      const canonical = normalizeStrategyDefinition(authored);
+      expect(created.definition).toEqual(canonical);
+      expect(
+        created.definition.buyLevels[0]?.signal.conditions[0]?.metric,
+      ).toEqual({
+        kind: "INSIDER_ACTIVITY",
+        measure: "SELLERS",
+        lookback: 180,
+        roles: ["CEO", "CFO"],
+      });
+      const [stored] = await prisma.strategyVersion.findMany({
+        where: { strategyId: created.id },
+      });
+      expect(stored?.definition).toEqual(canonical);
+      expect(stored?.definitionHash).toBe(definitionHashOf(canonical));
+
+      // Read, and hand back to the Builder: the same document, the same sentences.
+      const read = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      expect(read.definition).toEqual(created.definition);
+      expect(describeStrategy(read.definition).slice(1)).toEqual([
+        {
+          kind: "CONDITION",
+          text: "Insider sellers is below 1",
+          configuration: "180D · CEO, CFO",
+        },
+        {
+          kind: "CONDITION",
+          connector: "AND",
+          text: "Congress purchases is above 0",
+          configuration: "180D · House",
+        },
+        {
+          kind: "CONDITION",
+          connector: "AND",
+          text: "Price is close to SMA 200D",
+        },
+      ]);
+
+      // Saving what was read changes nothing, and neither does writing a filter in another order.
+      const resaved = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: read.definition })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(resaved.versionNumber).toBe(1);
+      const reordered = structuredClone(read.definition);
+      const insider = reordered.buyLevels[0]!.signal.conditions[0]!;
+      if (insider.metric.kind === "INSIDER_ACTIVITY") {
+        insider.metric = { ...insider.metric, roles: ["CFO", "CEO"] };
+      }
+      expect(
+        (
+          (
+            await owner
+              .put(`/strategies/${created.id}/definition`)
+              .send({ definition: reordered })
+              .expect(200)
+          ).body as StrategyDetailResponse
+        ).versionNumber,
+      ).toBe(1);
+
+      // A configuration change is a change of logic: a new version, with the previous one intact.
+      const relooked = structuredClone(read.definition);
+      const congress = relooked.buyLevels[0]!.signal.conditions[1]!;
+      if (congress.metric.kind === "CONGRESS_ACTIVITY") {
+        congress.metric = { ...congress.metric, lookback: 120 };
+      }
+      const afterChange = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: relooked })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(afterChange.versionNumber).toBe(2);
+      expect(describeStrategy(afterChange.definition)[2]).toMatchObject({
+        configuration: "120D · House",
+      });
+      const versions = await prisma.strategyVersion.findMany({
+        where: { strategyId: created.id },
+        orderBy: { versionNumber: "asc" },
+      });
+      expect(versions[0]?.definition).toEqual(canonical);
+      expect(versions[0]?.definitionHash).not.toBe(versions[1]?.definitionHash);
+
+      await owner.delete(`/strategies/${created.id}`).expect(204);
+    });
+
+    it("duplicates a configured strategy as the same logic under new identities", async () => {
+      const source = await createStrategy(owner, {
+        name: `Configured source ${suffix}`,
+        definition: configured(),
+      });
+      const copy = (
+        await owner
+          .post(`/strategies/${source.id}/duplicate`)
+          .send({ name: `Configured copy ${suffix}` })
+          .expect(201)
+      ).body as StrategyDetailResponse;
+
+      expect(strategyDefinitionFingerprint(copy.definition)).toBe(
+        strategyDefinitionFingerprint(source.definition),
+      );
+      expect(describeStrategy(copy.definition)).toEqual(
+        describeStrategy(source.definition),
+      );
+      expect(copy.definition.buyLevels[0]?.id).not.toBe(
+        source.definition.buyLevels[0]?.id,
+      );
+      const [copyVersion] = await prisma.strategyVersion.findMany({
+        where: { strategyId: copy.id },
+      });
+      expect(copyVersion?.definitionHash).toBe(
+        definitionHashOf(source.definition),
+      );
+
+      await owner.delete(`/strategies/${copy.id}`).expect(204);
+      await owner.delete(`/strategies/${source.id}`).expect(204);
+    });
+
+    it("refuses the removed inclusive operators on create and on replace, and writes nothing", async () => {
+      for (const operator of ["IS_AT_LEAST", "IS_AT_MOST"]) {
+        const legacy = configured();
+        const row = legacy.buyLevels[0]!.signal.conditions[0]!;
+        (row as { operator: string }).operator = operator;
+        const response = await owner
+          .post("/strategies")
+          .send({ name: `Legacy ${operator} ${suffix}`, definition: legacy })
+          .expect(400);
+        const body = response.body as StrategyValidationErrorResponse;
+        expect(body.code).toBe("STRATEGY_INVALID");
+        expect(body.issues).toEqual([
+          {
+            code: "OPERATOR_NOT_SUPPORTED",
+            path: {
+              levelKind: "BUY",
+              levelIndex: 0,
+              part: "CONDITION",
+              conditionIndex: 0,
+              field: "OPERATOR",
+            },
+            message:
+              "Insider sellers does not support that condition. Available: is above, is below.",
+          },
+        ]);
+      }
+      expect(
+        await prisma.strategy.count({
+          where: {
+            name: { startsWith: "Legacy " },
+            user: { email: ownerEmail },
+          },
+        }),
+      ).toBe(0);
+
+      const created = await createStrategy(owner, {
+        name: `Strict ${suffix}`,
+        definition: configured(),
+      });
+      const legacy = structuredClone(created.definition);
+      (
+        legacy.buyLevels[0]!.signal.conditions[1] as { operator: string }
+      ).operator = "IS_AT_LEAST";
+      await owner
+        .put(`/strategies/${created.id}/definition`)
+        .send({ definition: legacy })
+        .expect(400);
+      expect(
+        await prisma.strategyVersion.count({
+          where: { strategyId: created.id },
+        }),
+      ).toBe(1);
+
+      await owner.delete(`/strategies/${created.id}`).expect(204);
+    });
+
+    it("never reinterprets a stored row that still names a removed operator", async () => {
+      // No environment holds such a row (verified before the operators were removed), but the read
+      // path must still fail loudly rather than map `>=` onto `>`: those are different rules.
+      const created = await createStrategy(owner, {
+        name: `Stored legacy ${suffix}`,
+        definition: configured(),
+      });
+      const legacy = structuredClone(created.definition) as unknown as {
+        buyLevels: { signal: { conditions: { operator: string }[] } }[];
+      };
+      legacy.buyLevels[0]!.signal.conditions[0]!.operator = "IS_AT_LEAST";
+      await prisma.strategyVersion.updateMany({
+        where: { strategyId: created.id },
+        data: { definition: legacy as never },
+      });
+
+      const response = await owner.get(`/strategies/${created.id}`);
+      expect(response.status).toBe(400);
+      expect(
+        (response.body as StrategyValidationErrorResponse).issues?.[0]?.code,
+      ).toBe("OPERATOR_NOT_SUPPORTED");
+      // Nothing was rewritten on the way.
+      const [row] = await prisma.strategyVersion.findMany({
+        where: { strategyId: created.id },
+      });
+      expect(row?.definition).toEqual(legacy);
+
+      await owner.delete(`/strategies/${created.id}`).expect(204);
+    });
+  });
 
   /**
    * FINAL EXIT's Exit Rules across the HTTP boundary and back out of PostgreSQL.

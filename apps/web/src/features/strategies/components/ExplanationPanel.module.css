@@ -36,6 +36,24 @@
   line-height: 1.55;
 }
 
+/* The category a metric was chosen from, in the restrained register of a section label. */
+.panelEyebrow {
+  margin: 0 0 -4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A configured metric's configuration: the same text its row and the Strategy logic print. */
+.panelConfiguration {
+  margin: -4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .panelBody,
 .panelEmpty {
   margin: 0;
@@ -212,7 +230,7 @@
 
 /* What a configured first operand was narrowed to. The same muted register the basis and the
    trigger tag use, so a qualified line reads as one sentence rather than as two. */
-.previewScope {
+.previewConfiguration {
   color: var(--color-text-muted);
 }
 

@@ -7,6 +7,7 @@ import {
   findSelectableSeries,
   normalizeStrategyDefinition,
   resolveEntitlements,
+  StrategyValidationError,
   subtractYears,
   withinLimit,
   type SelectableSeriesId,
@@ -465,9 +466,20 @@ async function checkStrategyFixtures(
       problems.push(`\`${fixture.name}\` has no saved definition.`);
       continue;
     }
-    const stored = JSON.stringify(
-      normalizeStrategyDefinition(version.definition),
-    );
+    let stored: string;
+    try {
+      stored = JSON.stringify(normalizeStrategyDefinition(version.definition));
+    } catch (err) {
+      if (!(err instanceof StrategyValidationError)) {
+        throw err;
+      }
+      // A row the current product can no longer read — for example one still naming a Condition
+      // operator that has since been removed — is drift like any other: reported, never guessed at.
+      problems.push(
+        `\`${fixture.name}\` version ${version.versionNumber} is no longer a valid strategy (${err.message}); re-seed the matrix.`,
+      );
+      continue;
+    }
     const wanted = JSON.stringify(
       normalizeStrategyDefinition(fixture.definition),
     );

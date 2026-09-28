@@ -248,6 +248,13 @@ Three properties keep this honest, and each is covered by
   the executable projection: the upcast is deterministic, so the executed form stays derivable, while
   the reverse is not true.
 
+One refusal does live at this boundary, and it is not a revalidation: a definition naming an
+operator the engine no longer defines — `is at least` / `is at most`, removed on 2026-09-28 — is
+refused (`BacktestSnapshotError`) before any data is prepared. No rule is judged again; the engine
+simply has no meaning for that operator, and mapping `>= 2` onto `> 2` would be exactly the
+reinterpretation above. Every other snapshot evaluates exactly as it did, which is why
+`strategyEvaluation` did not move.
+
 `strategyEvaluation` deserves its own note. `STRATEGY_SCHEMA_VERSION` protects a Strategy document's
 _shape_; it says nothing about what evaluating it means. Correcting what "crosses above" does to a
 series that was flat for a week changes the answer for an unchanged document, an unchanged schema

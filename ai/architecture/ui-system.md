@@ -709,9 +709,10 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | ----- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | 380px | Topbar search (`AppTopbar`, `StockSearch`)        | below it the field cannot sit beside the brand and account; it collapses to an icon             |
 | 960px | Strategy Builder side column (`ExplanationPanel`) | the editor rows need ~560px beside a 360px logic column; at 880 they would wrap every predicate |
+| 680px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Category, Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it they read as two lines of two |
 
 Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's
-two-up predicate fields at 600px, and the plan cards three abreast at 880px. See
+reserved `AND` column and control scale at 600px, and the plan cards three abreast at 880px. See
 `v1-visual-parity.md`.
 
 ## Known read-model gaps

@@ -1,8 +1,12 @@
 import {
   BACKTEST_SNAPSHOT_VERSION,
+  CONDITION_OPERATORS,
+  TRIGGER_OPERATORS,
   withExecutableStrategyDefinition,
   type BacktestRunSnapshot,
   type BacktestSnapshotSecurity,
+  type StrategyDefinition,
+  type StrategySignal,
 } from "@intrinsic/contracts";
 import type { BuyWindowConfiguration } from "@intrinsic/domain";
 
@@ -37,7 +41,9 @@ export class BacktestSnapshotError extends Error {
  * It stays a document *upcast* and not a revalidation. This function's contract is unchanged: the
  * API validated the definition when it wrote it, and re-validating here would let a snapshot the
  * worker has always executed start being refused because a later release tightened a rule — the
- * retroactive reinterpretation invariant 12 exists to prevent.
+ * retroactive reinterpretation invariant 12 exists to prevent. The one thing it reads in a rule is
+ * whether the engine still defines its operator (`refuseUndefinedOperators`), because a snapshot
+ * whose meaning the engine no longer has cannot be executed faithfully under any reading.
  */
 export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
   const document = record(value, "snapshot");
@@ -109,7 +115,67 @@ export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
 
   // The returned snapshot is a copy whenever the upcast changed anything: `value` — the document
   // the claim carried, and the shape of the persisted row — is never written through.
-  return withExecutableStrategyDefinition(value as BacktestRunSnapshot);
+  const executable = withExecutableStrategyDefinition(
+    value as BacktestRunSnapshot,
+  );
+  refuseUndefinedOperators(executable.strategy.definition);
+  return executable;
+}
+
+/**
+ * Refuses a definition naming an operator this engine does not define.
+ *
+ * The same kind of refusal as an unknown snapshot version, not a product rule judged again: the
+ * product removed `is at least` / `is at most` on 2026-09-28, and `>= 2` is not `> 2`, so a snapshot
+ * still naming one has no meaning the engine may assume and is never mapped onto a neighbour. The
+ * evaluator would refuse it too, but only once it reached the rule; here the run stops before any
+ * data is prepared, whatever that data would have been.
+ */
+function refuseUndefinedOperators(definition: StrategyDefinition): void {
+  const signals: [string, StrategySignal][] = [
+    ...definition.buyLevels.map((level, index): [string, StrategySignal] => [
+      `buyLevels[${index}]`,
+      level.signal,
+    ]),
+    ...definition.sellLevels.map((level, index): [string, StrategySignal] => [
+      `sellLevels[${index}]`,
+      level.signal,
+    ]),
+    ...(definition.finalExit?.rules ?? []).map(
+      (rule, index): [string, StrategySignal] => [
+        `finalExit.rules[${index}]`,
+        rule.signal,
+      ],
+    ),
+  ];
+  for (const [at, signal] of signals) {
+    signal.conditions.forEach((condition, index) =>
+      refuseUndefinedOperator(
+        CONDITION_OPERATORS,
+        condition.operator,
+        `${at}.signal.conditions[${index}]`,
+      ),
+    );
+    if (signal.trigger) {
+      refuseUndefinedOperator(
+        TRIGGER_OPERATORS,
+        signal.trigger.operator,
+        `${at}.signal.trigger`,
+      );
+    }
+  }
+}
+
+function refuseUndefinedOperator(
+  defined: readonly string[],
+  operator: string,
+  at: string,
+): void {
+  if (!defined.includes(operator)) {
+    throw new BacktestSnapshotError(
+      `snapshot.strategy.definition.${at}.operator ${operator} is not an operator this engine defines`,
+    );
+  }
 }
 
 /**

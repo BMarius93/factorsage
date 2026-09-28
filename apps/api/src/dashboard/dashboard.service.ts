@@ -235,7 +235,9 @@ export class DashboardService {
         described.length > 0 ? described : level.rules
       ).map((rule) => ({
         ...(rule.exitRule === undefined ? {} : { exitRule: rule.exitRule }),
-        conditions: rule.signal.conditions.map(describeCondition),
+        conditions: rule.signal.conditions.map((condition) =>
+          describeCondition(condition),
+        ),
         ...(rule.signal.trigger
           ? { trigger: describeTrigger(rule.signal.trigger) }
           : {}),

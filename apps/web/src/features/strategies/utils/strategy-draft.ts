@@ -6,11 +6,11 @@ import {
   checkStrategyValue,
   conditionOperatorsFor,
   defaultConditionOperatorFor,
+  defaultStrategyMetric,
   defaultTriggerOperatorFor,
   defaultValueFor,
   emptyStrategyDefinition,
-  strategyMetricOptions,
-  strategyMetricKey,
+  strategyMetricCategory,
   triggerOperatorsFor,
   type ConditionOperator,
   type StrategyCondition,
@@ -20,6 +20,8 @@ import {
   type StrategyExitRule,
   type StrategyLevelKind,
   type StrategyMetric,
+  type StrategyMetricCategoryId,
+  type StrategyPredicatePart,
   type StrategySignal,
   type StrategyTrigger,
   type StrategyValue,
@@ -37,23 +39,16 @@ import {
  * intermediate state unreachable rather than merely flagged: choosing a Metric that does not
  * support the current operator replaces the operator, and a Value the new Metric cannot be
  * compared with is replaced by that Metric's default.
+ *
+ * A row's category is never stored. It is a property of its metric (`strategyMetricCategory`), so
+ * the two controls that choose them can never disagree, and changing the category is nothing but
+ * installing that category's first metric.
  */
 export type StrategyDraftState = {
   readonly name: string;
   /** Always a string so the textarea stays controlled; trimmed to `undefined` when saved. */
   readonly description: string;
   readonly definition: StrategyDefinition;
-  /**
-   * Rows the user added but has not chosen a Metric for yet (UI-013).
-   *
-   * The canonical document has no "no metric" value — every Condition and Trigger names one — so a
-   * freshly added row carries a placeholder there, and its id is listed here until the user picks
-   * a Metric. A listed row authors no logic: validation asks for its Metric instead of judging the
-   * placeholder, the logic preview leaves it out, and the draft cannot be saved while one remains.
-   * The persisted document, its semantics and its fingerprint are untouched by this, because an
-   * unset row can never be saved.
-   */
-  readonly unset: readonly string[];
 };
 
 /**
@@ -88,6 +83,11 @@ export type StrategyDraftAction =
   | { type: "removeCondition"; ref: PredicateRef }
   | { type: "addTrigger"; ref: LevelRef }
   | { type: "removeTrigger"; ref: LevelRef }
+  | {
+      type: "setCategory";
+      ref: PredicateRef;
+      category: StrategyMetricCategoryId;
+    }
   | { type: "setMetric"; ref: PredicateRef; metric: StrategyMetric }
   | { type: "setOperator"; ref: PredicateRef; operator: string }
   | { type: "setValue"; ref: PredicateRef; value: StrategyValue }
@@ -110,15 +110,20 @@ export function newRowId(prefix: string): string {
   return `${prefix}-${localIdCounter}-${unique}`;
 }
 
-/** The first Metric the registry offers for a level kind: `Price` in every V1 level. */
-function firstMetricFor(levelKind: StrategyLevelKind): StrategyMetric {
-  const [first] = strategyMetricOptions(levelKind);
-  // The registry always offers at least Price in every level kind.
-  return first?.metric ?? { kind: "PRICE" };
+/**
+ * The Metric a new row starts from: the first metric of the first category the registry offers for
+ * this level kind and half of a Signal — `Price` in every V1 level.
+ */
+function firstMetricFor(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+): StrategyMetric {
+  // The registry offers Price in every level kind and both halves of a Signal.
+  return defaultStrategyMetric(levelKind, part) ?? { kind: "PRICE" };
 }
 
 function newCondition(levelKind: StrategyLevelKind): StrategyCondition {
-  const metric = firstMetricFor(levelKind);
+  const metric = firstMetricFor(levelKind, "CONDITION");
   return {
     id: newRowId("condition"),
     metric,
@@ -128,7 +133,7 @@ function newCondition(levelKind: StrategyLevelKind): StrategyCondition {
 }
 
 function newTrigger(levelKind: StrategyLevelKind): StrategyTrigger {
-  const metric = firstMetricFor(levelKind);
+  const metric = firstMetricFor(levelKind, "TRIGGER");
   return {
     id: newRowId("trigger"),
     metric,
@@ -138,25 +143,18 @@ function newTrigger(levelKind: StrategyLevelKind): StrategyTrigger {
 }
 
 /**
- * A new level opens with one Condition row waiting for its Metric — a place to start, not a rule
- * the user did not choose. It used to open as the complete rule "Price is above SMA 20D", so every
- * "+ Add" authored real, and often duplicate, logic (UI-013).
+ * A new level opens with one complete Condition row: the first category's first metric, with that
+ * metric's default operator and Value. There is never a row without a valid category and metric —
+ * a new row is an ordinary rule the user edits, and validation judges it like any other (a row
+ * repeating another is reported as a duplicate once touched or saved).
  */
 function newSignal(levelKind: StrategyLevelKind): StrategySignal {
   return { conditions: [newCondition(levelKind)] };
 }
 
-/** A new Exit Rule: its own identity and one Condition row waiting for its Metric. */
+/** A new Exit Rule: its own identity and one Condition row, exactly as a new level has. */
 function newExitRule(): StrategyExitRule {
   return { id: newRowId("exit-rule"), signal: newSignal("FINAL_EXIT") };
-}
-
-/** Every Condition and Trigger row id in a signal. */
-function rowIdsOf(signal: StrategySignal): string[] {
-  return [
-    ...signal.conditions.map((row) => row.id),
-    ...(signal.trigger ? [signal.trigger.id] : []),
-  ];
 }
 
 /** The row a predicate ref points at, if it exists. */
@@ -177,45 +175,29 @@ export function rowAt(
 }
 
 /**
- * The document with every unset row left out: what the user has actually authored so far. The
- * logic preview reads this, so a row waiting for its Metric is never described as a rule.
+ * The row with this id, wherever in the document it sits now.
+ *
+ * Unlike a `PredicateRef`, an id survives the removal of a row or level before it: the canonical
+ * validator keeps predicate ids unique across a definition, and no edit of a row changes its own.
  */
-export function authoredDefinition(
-  state: Pick<StrategyDraftState, "definition" | "unset">,
-): StrategyDefinition {
-  if (state.unset.length === 0) {
-    return state.definition;
+export function rowWithId(
+  definition: StrategyDefinition,
+  rowId: string,
+): StrategyCondition | StrategyTrigger | undefined {
+  const signals = [
+    ...definition.buyLevels.map((level) => level.signal),
+    ...definition.sellLevels.map((level) => level.signal),
+    ...(definition.finalExit?.rules.map((rule) => rule.signal) ?? []),
+  ];
+  for (const signal of signals) {
+    const row =
+      signal.conditions.find((condition) => condition.id === rowId) ??
+      (signal.trigger?.id === rowId ? signal.trigger : undefined);
+    if (row) {
+      return row;
+    }
   }
-  const unset = new Set(state.unset);
-  const strip = (signal: StrategySignal): StrategySignal => ({
-    conditions: signal.conditions.filter((row) => !unset.has(row.id)),
-    ...(signal.trigger && !unset.has(signal.trigger.id)
-      ? { trigger: signal.trigger }
-      : {}),
-  });
-  const definition = state.definition;
-  return {
-    ...definition,
-    buyLevels: definition.buyLevels.map((level) => ({
-      ...level,
-      signal: strip(level.signal),
-    })),
-    sellLevels: definition.sellLevels.map((level) => ({
-      ...level,
-      signal: strip(level.signal),
-    })),
-    ...(definition.finalExit
-      ? {
-          finalExit: {
-            ...definition.finalExit,
-            rules: definition.finalExit.rules.map((rule) => ({
-              ...rule,
-              signal: strip(rule.signal),
-            })),
-          },
-        }
-      : {}),
-  };
+  return undefined;
 }
 
 export function emptyDraft(): StrategyDraftState {
@@ -223,7 +205,6 @@ export function emptyDraft(): StrategyDraftState {
     name: "",
     description: "",
     definition: emptyStrategyDefinition(),
-    unset: [],
   };
 }
 
@@ -235,14 +216,32 @@ export function draftFrom(
     name: strategy.name,
     description: strategy.description ?? "",
     definition: strategy.definition,
-    unset: [],
+  };
+}
+
+/** The metric's own starting rule: its default operator for this half of a Signal, and its default Value. */
+function freshRule(
+  part: "CONDITION" | "TRIGGER",
+  metric: StrategyMetric,
+  value: StrategyValue,
+): { operator: string; value: StrategyValue } {
+  return {
+    operator:
+      part === "TRIGGER"
+        ? defaultTriggerOperatorFor(metric)
+        : defaultConditionOperatorFor(metric),
+    value: defaultValueFor(metric) ?? value,
   };
 }
 
 /**
  * Replaces an operator or Value the new Metric cannot carry.
  *
- * Compatibility is asked of the registry through `checkStrategyValue`, never re-decided here.
+ * Compatibility is asked of the registry through `checkStrategyValue`, never re-decided here. A
+ * Value that survives keeps the operator it was written with. A Value that cannot survive is
+ * replaced **together with** the operator: the replacement is the metric's own starting rule, and
+ * pairing a kept operator with it can say nothing at all — `Price is below SMA 200D` would become
+ * `Insider buyers is below 0`, which no session can ever satisfy.
  */
 function reconcile(
   part: "CONDITION" | "TRIGGER",
@@ -250,17 +249,19 @@ function reconcile(
   operator: string,
   value: StrategyValue,
 ): { operator: string; value: StrategyValue } {
+  if (!checkStrategyValue(metric, value).compatible) {
+    return freshRule(part, metric, value);
+  }
   const supported: readonly string[] =
     part === "TRIGGER"
       ? triggerOperatorsFor(metric)
       : conditionOperatorsFor(metric);
-  const nextOperator = supported.includes(operator)
-    ? operator
-    : (supported[0] ?? operator);
-  const nextValue = checkStrategyValue(metric, value).compatible
-    ? value
-    : (defaultValueFor(metric) ?? value);
-  return { operator: nextOperator, value: nextValue };
+  return {
+    operator: supported.includes(operator)
+      ? operator
+      : (supported[0] ?? operator),
+    value,
+  };
 }
 
 function mapSignal(
@@ -347,42 +348,12 @@ function withSignal(
   } as StrategyDefinition;
 }
 
-/**
- * The draft reducer: the document edit, plus the bookkeeping of which rows are still unset.
- *
- * A row becomes unset when an "+ Add" action creates it and stops being unset when the user picks
- * its Metric. Ids of rows that were removed simply fall out of the list.
- */
+/** The draft reducer: every edit a user can make to the name, the description and the document. */
 export function strategyDraftReducer(
   state: StrategyDraftState,
   action: StrategyDraftAction,
 ): StrategyDraftState {
-  if (action.type === "reset") {
-    return action.draft;
-  }
-  const next = documentReducer(state, action);
-  if (next === state) {
-    return state;
-  }
-  const before = new Set(allRowIds(state.definition));
-  const after = allRowIds(next.definition);
-  const created = after.filter((id) => !before.has(id));
-  const present = new Set(after);
-  let unset = [...state.unset, ...created].filter((id) => present.has(id));
-  if (action.type === "setMetric") {
-    const chosen = rowAt(next.definition, action.ref)?.id;
-    unset = unset.filter((id) => id !== chosen);
-  }
-  return { ...next, unset };
-}
-
-function allRowIds(definition: StrategyDefinition): string[] {
-  return [
-    ...definition.buyLevels.flatMap((level) => rowIdsOf(level.signal)),
-    ...definition.sellLevels.flatMap((level) => rowIdsOf(level.signal)),
-    ...(definition.finalExit?.rules.flatMap((rule) => rowIdsOf(rule.signal)) ??
-      []),
-  ];
+  return documentReducer(state, action);
 }
 
 function documentReducer(
@@ -582,6 +553,35 @@ function documentReducer(
         })),
       };
 
+    case "setCategory": {
+      // A category is chosen by installing its first metric as that metric's own starting rule:
+      // default configuration, default operator, default Value. A category change changes what the
+      // rule measures, so nothing of the previous rule means anything any more — not its
+      // configuration, and not a threshold written in another unit (an insider count of 1 is not
+      // an RSI level of 1).
+      const row = rowAt(state.definition, action.ref);
+      if (!row || strategyMetricCategory(row.metric) === action.category) {
+        return state;
+      }
+      const metric = defaultStrategyMetric(
+        action.ref.levelKind,
+        action.ref.part,
+        action.category,
+      );
+      if (!metric) {
+        return state;
+      }
+      return {
+        ...state,
+        definition: withSignal(state.definition, action.ref, (signal) =>
+          mapSignal(signal, action.ref, (current) => ({
+            metric,
+            ...freshRule(action.ref.part, metric, current.value),
+          })),
+        ),
+      };
+    }
+
     case "setMetric":
       return {
         ...state,
@@ -636,15 +636,4 @@ export function draftPayload(draft: StrategyDraftState): StrategyDraft {
     ...(description === "" ? {} : { description }),
     definition: draft.definition,
   };
-}
-
-/**
- * A key for a metric option, used only to address a `<select>` option.
- *
- * The encoding belongs to `@intrinsic/contracts`, beside the metric union it has to keep up with:
- * not every metric is parameterized by a catalog id, and a key built from `seriesId` alone would
- * collapse the three Relative Volume periods onto one option.
- */
-export function metricKey(metric: StrategyMetric): string {
-  return strategyMetricKey(metric);
 }

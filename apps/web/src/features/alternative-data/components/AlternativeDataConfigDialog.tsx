@@ -126,7 +126,9 @@ export function AlternativeDataConfigDialog({
 
   return (
     <Modal
-      title={`Configure ${strategyMetricLabel(draft)}`}
+      // The metric's identity, which nothing in this dialog can change: the title names what is being
+      // configured, never a lookback being edited below it.
+      title={`Configure ${strategyMetricLabel(metric)}`}
       onClose={onClose}
       testId="alternative-data-config"
     >

@@ -1,15 +1,14 @@
 "use client";
 
 import {
-  STRATEGY_METRIC_GROUP_LABELS,
+  strategyMetricCategories,
+  strategyMetricCategory,
+  strategyMetricKey,
   strategyMetricLabel,
-  strategyMetricOptions,
   type StrategyLevelKind,
   type StrategyMetric,
   type StrategyPredicatePart,
 } from "@intrinsic/contracts";
-import { useMemo } from "react";
-import { metricKey } from "../utils/strategy-draft";
 import { Select } from "../../../components/ui/Select";
 
 type MetricSelectProps = {
@@ -21,19 +20,20 @@ type MetricSelectProps = {
   readonly invalid: boolean;
   readonly describedBy?: string;
   readonly onChange: (metric: StrategyMetric) => void;
-  readonly onFocus: (metric: StrategyMetric) => void;
+  readonly onFocus: () => void;
   readonly onBlur: () => void;
-  /** The row has no Metric chosen yet: the control opens on "Choose a metric…". */
-  readonly unset?: boolean;
 };
 
 /**
- * The Metric control.
+ * The second of the two Metric controls: which metric of the row's category it reads.
  *
- * Its options are `strategyMetricOptions(levelKind, part)` and nothing else: the registry decides
- * which metrics exist, their labels, their grouping and their order, which of them a level kind
- * may use, and which may be a Trigger. `Gain` and `Loss` are simply absent for BUY, and
- * `Relative Volume` is simply absent for a Trigger, rather than being filtered out here.
+ * Its options are the metrics `strategyMetricCategories(levelKind, part)` lists for the metric's own
+ * category, each named by its identity label — `Insider sellers`, never `Insider sellers 20D`. A
+ * metric's configuration is not part of its identity: it is edited after the metric is chosen and
+ * summarized beneath the row, so this control reads the same whatever the lookback or filters are,
+ * and no option ever enumerates a configuration.
+ *
+ * Choosing an option installs that metric at its canonical default configuration.
  */
 export function MetricSelect({
   levelKind,
@@ -45,73 +45,42 @@ export function MetricSelect({
   onChange,
   onFocus,
   onBlur,
-  unset = false,
 }: MetricSelectProps) {
-  const options = strategyMetricOptions(levelKind, part);
-
-  // Consecutive options of one group, in the registry's own order — never a second ordering array.
-  const groups = useMemo(() => {
-    const built: {
-      id: string;
-      label: string;
-      options: typeof options extends readonly (infer T)[] ? T[] : never;
-    }[] = [];
-    for (const option of options) {
-      const last = built[built.length - 1];
-      if (last && last.id === option.group) {
-        last.options.push(option);
-      } else {
-        built.push({
-          id: option.group,
-          label: STRATEGY_METRIC_GROUP_LABELS[option.group],
-          options: [option],
-        });
-      }
-    }
-    return built;
-  }, [options]);
-
-  const selected = unset ? "" : metricKey(metric);
+  const category = strategyMetricCategory(metric);
+  const options =
+    strategyMetricCategories(levelKind, part).find(
+      (entry) => entry.id === category,
+    )?.options ?? [];
+  const selected = strategyMetricKey(metric);
 
   return (
     <Select
       density="compact"
       testId="metric-select"
       aria-label={label}
-      // A long metric truncates in a phone's row; the full label stays available on hover and is
+      // A long metric truncates in a narrow row; the full label stays available on hover and is
       // what the native picker shows either way.
-      {...(unset ? {} : { title: strategyMetricLabel(metric) })}
+      title={strategyMetricLabel(metric)}
       invalid={invalid}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={selected}
-      onFocus={() => {
-        if (!unset) {
-          onFocus(metric);
-        }
-      }}
+      onFocus={onFocus}
       onBlur={onBlur}
       onValueChange={(value) => {
         const next = options.find(
-          (option) => metricKey(option.metric) === value,
+          (option) => strategyMetricKey(option.metric) === value,
         );
-        if (next) {
+        if (next && value !== selected) {
           onChange(next.metric);
-          onFocus(next.metric);
         }
       }}
       // A saved strategy can carry a Metric a level no longer offers — for example after a product
       // change. `Select` keeps it readable as "Unavailable metric" instead of silently showing the
       // wrong metric; validation is what reports it.
-      {...(unset
-        ? { placeholder: "Choose a metric…", placeholderDisabled: true }
-        : {})}
       unavailableLabel="Unavailable metric"
-      groups={groups.map((group) => ({
-        label: group.label,
-        options: group.options.map((option) => ({
-          value: metricKey(option.metric),
-          label: option.label,
-        })),
+      options={options.map((option) => ({
+        value: strategyMetricKey(option.metric),
+        label: option.label,
       }))}
     />
   );

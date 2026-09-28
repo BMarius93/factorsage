@@ -190,23 +190,47 @@ namespaces, pruned independently), both run against the same ten Lists and ten c
 the set is part of the run label — `QA-MATRIX-A02-L09-C06` — so no two sweeps' case identities
 collide. Definitions live in `packages/testing/src/qa-matrix/audit-strategies.ts`.
 
-| Id  | Name                                               | Shape                                                                                              | What it is for                                                                                                     |
-| --- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| A01 | `QA-MATRIX-A01-rvol10-spike`                       | BUY 100% · RVOL 10 above 2                                                                         | The simplest Relative Volume strategy, and the shortest period: a value almost everywhere, readable against the stored column. |
-| A02 | `QA-MATRIX-A02-rvol-multi-period-ladder`           | BUY 50% (RVOL 20) / BUY 100% (RVOL 10 ∧ 20 ∧ 50) · SELL 50% · FINAL EXIT                          | **The definition the period-identity defect made unauthorable**: two RVOL rows at the same threshold in one Signal, and two levels differing only by period. |
-| A03 | `QA-MATRIX-A03-rvol50-trend-confirmation`          | BUY 100% · RVOL 50 above 3 ∧ Price above SMA 200D · FINAL EXIT on the reverse                     | The longest RVOL warm-up against the longest daily average; the fifty-session lookback across a year boundary.     |
-| A04 | `QA-MATRIX-A04-rvol-rsi-capitulation`              | BUY 25 / 50 / 100% on RSI 14D 40 / 30 / 20 each ∧ a rising RVOL 10 floor · SELL 50% · FINAL EXIT   | Different thresholds of one period across three levels, mixed with an oscillator, plus the strongest-eligible-BUY rule. |
-| A05 | `QA-MATRIX-A05-insider-buyer-ladder`               | BUY 50 / 100% on Insider buyers 20D ≥ 1 / ≥ 2 · SELL 50% · FINAL EXIT on Insider sellers 20D ≥ 3   | The inclusive operators, two thresholds of one measure, and distinct-**person** counting.                          |
-| A06 | `QA-MATRIX-A06-insider-value-and-roles`            | BUY 100% · Insider purchase value 60D ≥ $1M ∧ role-filtered buyers ∧ Price above SMA 50D            | The money measures and the role filter. A line the Form 4 prices at zero must contribute nothing.                  |
-| A07 | `QA-MATRIX-A07-congress-activity-ladder`           | BUY 50 / 100% on Congress purchases 30D ≥ 1 / (≥ 2 ∧ buyers ≥ 2) · SELL 50% · FINAL EXIT on sales  | Event counts and distinct-actor counts of the same disclosures in one Signal.                                      |
-| A08 | `QA-MATRIX-A08-congress-scoped-filters`            | BUY 25% House-only / BUY 50% Senate-only + owner SELF / BUY 100% one named member                   | Every scope and filter on its own level, so a leak between two of them fires a level that should not have.         |
-| A09 | `QA-MATRIX-A09-congress-group-and-volume`          | BUY 100% · group-scoped Congress purchases 60D ≥ 1 ∧ RVOL 20 above 1.5 · SELL 25% · FINAL EXIT     | The **actor-group scope**, whose membership a submitted run freezes into its own snapshot.                         |
-| A10 | `QA-MATRIX-A10-valuation-volume-disclosure-confluence` | BUY 75% · MOS (DCF) > 20% ∧ RVOL 50 > 1.5 ∧ Congress purchases 250D ≥ 1 ∧ Insider buyers 250D ≥ 1 | The deliberate **NOT_EVALUABLE probe**: 250-session windows undecidable across most of the horizon.               |
+| Id  | Name                                                   | Shape                                                                                                  | What it is for                                                                                                                                               |
+| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A01 | `QA-MATRIX-A01-rvol10-spike`                           | BUY 100% · RVOL 10 above 2                                                                             | The simplest Relative Volume strategy, and the shortest period: a value almost everywhere, readable against the stored column.                               |
+| A02 | `QA-MATRIX-A02-rvol-multi-period-ladder`               | BUY 50% (RVOL 20) / BUY 100% (RVOL 10 ∧ 20 ∧ 50) · SELL 50% · FINAL EXIT                               | **The definition the period-identity defect made unauthorable**: two RVOL rows at the same threshold in one Signal, and two levels differing only by period. |
+| A03 | `QA-MATRIX-A03-rvol50-trend-confirmation`              | BUY 100% · RVOL 50 above 3 ∧ Price above SMA 200D · FINAL EXIT on the reverse                          | The longest RVOL warm-up against the longest daily average; the fifty-session lookback across a year boundary.                                               |
+| A04 | `QA-MATRIX-A04-rvol-rsi-capitulation`                  | BUY 25 / 50 / 100% on RSI 14D 40 / 30 / 20 each ∧ a rising RVOL 10 floor · SELL 50% · FINAL EXIT       | Different thresholds of one period across three levels, mixed with an oscillator, plus the strongest-eligible-BUY rule.                                      |
+| A05 | `QA-MATRIX-A05-insider-buyer-ladder`                   | BUY 50 / 100% on Insider buyers > 0 / > 1 (20D) · SELL 50% · FINAL EXIT on Insider sellers > 2 (20D)   | Strict comparisons on a whole-number count (`> 1` is exactly "at least two"), two thresholds of one measure, and distinct-**person** counting.               |
+| A06 | `QA-MATRIX-A06-insider-value-and-roles`                | BUY 100% · Insider purchase value > $1M (60D) ∧ role-filtered buyers > 0 ∧ Price above SMA 50D         | The money measures and the role filter. A line the Form 4 prices at zero must contribute nothing.                                                            |
+| A07 | `QA-MATRIX-A07-congress-activity-ladder`               | BUY 50 / 100% on Congress purchases > 0 / (> 1 ∧ buyers > 1), all 30D · SELL 50% · FINAL EXIT on sales | Event counts and distinct-actor counts of the same disclosures in one Signal.                                                                                |
+| A08 | `QA-MATRIX-A08-congress-scoped-filters`                | BUY 25% House-only / BUY 50% Senate-only + owner SELF / BUY 100% one named member                      | Every scope and filter on its own level, so a leak between two of them fires a level that should not have.                                                   |
+| A09 | `QA-MATRIX-A09-congress-group-and-volume`              | BUY 100% · group-scoped Congress purchases > 0 (60D) ∧ RVOL 20 above 1.5 · SELL 25% · FINAL EXIT       | The **actor-group scope**, whose membership a submitted run freezes into its own snapshot.                                                                   |
+| A10 | `QA-MATRIX-A10-valuation-volume-disclosure-confluence` | BUY 75% · MOS (DCF) > 20% ∧ RVOL 50 > 1.5 ∧ Congress purchases > 0 (250D) ∧ Insider buyers > 0 (250D)  | The deliberate **NOT_EVALUABLE probe**: 250-session windows undecidable across most of the horizon.                                                          |
 
 Between them: all three RVOL periods alone, in pairs and all three at once, at the same and at
 different thresholds; every insider measure and a role filter; every congressional measure, both
 chamber filters, an owner filter, a named member and an actor group; and mixtures with Price, SMA,
 RSI and Margin of Safety.
+
+### Strict comparisons only (2026-09-28)
+
+`A05`–`A10` were written with the inclusive `is at least` / `is at most` operators, which the product
+removed on 2026-09-28 (`ai/product/strategies.md` § Conditions). They were rewritten explicitly, never
+by a silent `>=` to `>` mapping:
+
+- **Counts are exact.** Every count measure is a whole number, so `is at least N` became
+  `is above N−1` and `is at most N` became `is below N+1` — the same rule, which is why the table
+  above reads `> 0`, `> 1` and `> 2`.
+- **`A09`'s exit is exact.** `minimum disclosed purchase value is at most $0` became `is below $1`:
+  every stored disclosed band floor is a whole number of dollars (verified across all 9,187 stored
+  congressional trades), so the two admit exactly the same sessions.
+- **`A06`'s money thresholds moved at one point.** `is at least $1,000,000` / `$5,000,000` became
+  `is above` the same amount. A purchase or sale value is a sum of share-times-price products with no
+  such quantization, so no strict threshold is exactly equivalent; the two rules differ only on a
+  window that sums to exactly the threshold.
+
+A matrix database seeded before the rewrite still holds the old rows. The preflight reports each as
+`… is no longer a valid strategy …; re-seed the matrix` and refuses to start a sweep until
+`pnpm qa:matrix:provision` has re-seeded it — which appends a new version and rewrites no stored row.
+Completed runs of the old fixtures keep their immutable snapshots; the API refuses to canonicalize a
+snapshot that names a removed operator rather than reinterpreting it, so compare them from the
+recorded reports under `docs/backtest-rvol-alt-data-audit/`, not by re-reading those runs.
 
 ### Actor scopes are resolved, never written down
 

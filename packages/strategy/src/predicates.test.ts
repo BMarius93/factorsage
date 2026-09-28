@@ -10,7 +10,9 @@ import {
   evaluateConditionValues,
   evaluateMarketSignal,
   evaluateTriggerValues,
+  UnsupportedStrategyOperatorError,
 } from "./predicates.js";
+import type { StrategyCondition } from "@intrinsic/contracts";
 import { STRATEGY_SCHEMA_VERSION } from "@intrinsic/contracts";
 
 const { NOT_EVALUABLE, FALSE, TRUE } = Evaluability;
@@ -40,6 +42,43 @@ describe("condition operators", () => {
         NOT_EVALUABLE,
       );
     }
+  });
+
+  it("refuses an operator it does not define instead of letting it read as TRUE", () => {
+    // A run snapshot is executed without revalidation, so a document still naming a removed
+    // inclusive operator can reach the evaluator. Returning nothing would read as TRUE under the
+    // strong AND and make the rule silently always hold; the run must stop instead.
+    for (const operator of ["IS_AT_LEAST", "IS_AT_MOST", "IS_EQUAL"]) {
+      expect(() => evaluateConditionValues(operator as never, 2, 2)).toThrow(
+        UnsupportedStrategyOperatorError,
+      );
+    }
+    expect(() =>
+      evaluateTriggerValues("CROSSES" as never, 11, 10, 9, 10),
+    ).toThrow(UnsupportedStrategyOperatorError);
+  });
+
+  it("refuses an undefined operator even where its data is unavailable", () => {
+    // Judged before the numbers: otherwise a rule whose data never resolves would pass every
+    // session as NOT_EVALUABLE and the run would finish as if nothing were wrong.
+    for (const [metric, value] of [
+      [Number.NaN, 2],
+      [2, Number.NaN],
+      [Number.POSITIVE_INFINITY, 2],
+    ] as const) {
+      expect(() =>
+        evaluateConditionValues("IS_AT_LEAST" as never, metric, value),
+      ).toThrow(UnsupportedStrategyOperatorError);
+    }
+    expect(() =>
+      evaluateTriggerValues(
+        "CROSSES" as never,
+        Number.NaN,
+        Number.NaN,
+        Number.NaN,
+        Number.NaN,
+      ),
+    ).toThrow(UnsupportedStrategyOperatorError);
   });
 });
 
@@ -125,6 +164,26 @@ describe("signal evaluation over a frame", () => {
     expect(evaluateMarketSignal(signal, frame, 1)).toBe(TRUE);
     // The operand is unavailable on the third day: absence is never a substitute zero.
     expect(evaluateMarketSignal(signal, frame, 2)).toBe(NOT_EVALUABLE);
+  });
+
+  it("stops on a legacy inclusive operator rather than treating the signal as matched", () => {
+    const legacy = {
+      conditions: [
+        {
+          id: "c1",
+          metric: { kind: "PRICE" },
+          operator: "IS_AT_LEAST",
+          value: { kind: "SERIES", seriesId: "SMA_50D" },
+        } as unknown as StrategyCondition,
+      ],
+    };
+    expect(() => evaluateMarketSignal(legacy, frame, 1)).toThrow(
+      UnsupportedStrategyOperatorError,
+    );
+    // Including on a session whose operand is unavailable.
+    expect(() => evaluateMarketSignal(legacy, frame, 2)).toThrow(
+      UnsupportedStrategyOperatorError,
+    );
   });
 
   it("collects the operand columns a definition references, price always included", () => {

@@ -19,7 +19,8 @@ type OperatorSelectProps = {
   readonly invalid: boolean;
   readonly describedBy?: string;
   readonly onChange: (operator: string) => void;
-  readonly onFocus: (operator: ConditionOperator | TriggerOperator) => void;
+  /** The control came into focus, or a new operator was chosen; the explanation reads which from the draft. */
+  readonly onFocus: () => void;
   readonly onBlur: () => void;
 };
 
@@ -60,11 +61,11 @@ export function OperatorSelect({
       invalid={invalid}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={operator}
-      onFocus={() => onFocus(operator as ConditionOperator | TriggerOperator)}
+      onFocus={onFocus}
       onBlur={onBlur}
       onValueChange={(value) => {
         onChange(value);
-        onFocus(value as ConditionOperator | TriggerOperator);
+        onFocus();
       }}
       options={options.map((candidate) => ({
         value: candidate,

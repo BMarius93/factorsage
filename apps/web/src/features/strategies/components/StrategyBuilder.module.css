@@ -379,6 +379,9 @@
 }
 
 .predicateList {
+  /* The rows lay their fields out by the width the list actually has, not by the viewport: the
+     same list is full-width on a tablet and two-thirds of the page beside the explanation panel. */
+  container: predicate-list / inline-size;
   display: grid;
   gap: 8px;
   margin: 0;
@@ -389,10 +392,11 @@
 /*
  * One rule, on a phone.
  *
- * The three fields stay on one line here as they do on a desktop, because a predicate is one
- * sentence and three stacked selects per rule made a two-condition level taller than the screen.
- * What gives way instead is the desktop's reserved `AND` column: on a phone the connector is a
- * small line above the rule it joins, which is the same relationship in a fifth of the width.
+ * The fields read as two short lines — Category and Metric, then Condition and Value — because a
+ * predicate is one sentence, four selects side by side do not fit a phone, and four stacked selects
+ * per rule made a two-condition level taller than the screen. What also gives way is the desktop's
+ * reserved `AND` column: on a phone the connector is a small line above the rule it joins, which is
+ * the same relationship in a fifth of the width.
  */
 .predicateRow {
   display: grid;
@@ -416,24 +420,21 @@
 }
 
 /*
- * Sized to the vocabulary rather than split evenly. The operator's longest label is
- * `crosses above`, and it is the one field whose whole option set is short enough to always fit,
- * so it gets the few pixels that keep it from ellipsizing; the Metric and the Value keep the rest
- * and truncate cleanly, because their catalog labels ("Dividend Discount (DDM)") have no width
- * that would ever be enough. A truncated label stays whole in `title`, in the native picker and
- * in the control's accessible value.
+ * Category, Metric, Condition and Value, in document order: two to a line in a narrow list, all four
+ * on one line once the list is wide enough (below). A truncated label stays whole in `title`, in the
+ * native picker and in the control's accessible value.
  */
 .predicateFields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 4px;
   min-width: 0;
 }
 
 /*
- * Feature-owned density, not a change to the shared control: these three selects are the only
- * place in the product where three of them share one phone-width row, so they trade the compact
- * scale's side padding for readable text and keep a 40px target.
+ * Feature-owned density, not a change to the shared control: these selects are the only place in
+ * the product where several of them share one phone-width line, so they trade the compact scale's
+ * side padding for readable text and keep a 40px target.
  */
 .predicateFields select[data-density="compact"] {
   min-height: 40px;
@@ -473,6 +474,8 @@
 }
 
 .rowRemove {
+  /* Beside the rule's first line, not centred on its two. */
+  align-self: start;
   min-width: 28px;
   min-height: 40px;
   border: none;
@@ -534,8 +537,8 @@
   box-shadow: var(--focus-ring);
 }
 
-/* What was narrowed, in the same restrained register the rest of the row's metadata uses. */
-.operandScope {
+/* The metric's configuration, in the same restrained register the rest of the row's metadata uses. */
+.operandConfiguration {
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-muted);
@@ -687,8 +690,6 @@
   }
 
   .predicateFields {
-    /* Metric / operator / Value read as one sentence once there is room for it. */
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr);
     gap: 8px;
   }
 
@@ -720,6 +721,20 @@
   }
 }
 
+/*
+ * Category / Metric / Condition / Value read as one sentence once the list has room for all four.
+ * Sized to the vocabulary rather than split evenly: the operator's longest label is `crosses above`,
+ * and the Metric gets the most because catalog labels ("Margin of Safety · DCF (FCFF)") are the
+ * longest. Below this width the two-line layout above keeps every control readable.
+ */
+@container predicate-list (min-width: 680px) {
+  .predicateFields {
+    grid-template-columns:
+      minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 0.95fr)
+      minmax(0, 1fr);
+  }
+}
+
 /* The bottom navigation is gone at this width, so the bar sits on the viewport edge again. */
 @media (min-width: 880px) {
   .saveBar {
@@ -748,18 +763,6 @@
     /* Spans both columns so the save surface is never hidden behind the panel. */
     grid-column: 1 / -1;
   }
-}
-
-/* A row waiting for its Metric: the Condition and Value fields are held back until there is a
-   Metric for them to describe (UI-013). */
-.unsetHint {
-  grid-column: 2 / -1;
-  display: flex;
-  align-items: center;
-  min-height: var(--control-height-compact);
-  color: var(--color-text-muted);
-  font-size: var(--text-secondary);
-  font-style: italic;
 }
 
 /* The issue count before anything was touched: a neutral count of what is left, not an error. */

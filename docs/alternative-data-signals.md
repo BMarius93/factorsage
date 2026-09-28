@@ -132,8 +132,9 @@ The current Strategy page design is authoritative.
 
 Preserve:
 
-- the existing large categorized selector for the first operand
-- the existing three-control condition row
+- the Category / Metric selector for the first operand (it replaced the single large categorized
+  selector on 2026-09-28; `ai/product/strategies.md` § Strategy Builder surface owns it)
+- the condition row's grammar
 - the current `signal / operator / value-or-series` grammar
 - the Strategy Logic sidebar
 - current responsive/mobile behavior
@@ -143,23 +144,22 @@ Do not replace conditions with alternative-data cards or large forms.
 The condition row must remain conceptually:
 
 ```text
-[first operand / signal] [operator] [value / comparison operand]
+[first operand: category + metric] [operator] [value / comparison operand]
 ```
 
 Examples:
 
 ```text
-Insider buyers 20D       | is at least | 2
-Congress purchases 30D   | is at least | 2
-Congress buyers 30D      | is at least | 2
+Insider activity      | Insider buyers     | is above | 1     Configure · 20D
+Congressional trading | Congress purchases | is above | 1     Configure · 30D
+Congressional trading | Congress buyers    | is above | 1     Configure · 30D · Congress Watchlist
 ```
 
 ### First-operand selector
 
-Add grouped sections to the existing large selector, matching the current visual pattern:
-
-- Insider Activity
-- Congressional Trading
+Insider activity and Congressional trading are two categories of the Category control, and each
+measure is one entry of the Metric control within it — `Insider buyers`, never `Insider buyers 20D`:
+the lookback is configuration, so no entry carries one and no configuration is ever enumerated.
 
 Do not create a separate “Alternative Data” strategy-builder page.
 
@@ -178,11 +178,12 @@ Possible configuration:
 - owner
 - insider role, where supported
 
-After configuration, keep the condition row compact and optionally render a subtle secondary summary below the first operand, e.g.:
+After configuration, keep the condition row compact and render a subtle secondary summary below the first operand. It always leads with the lookback, because the lookback is configuration rather than part of the metric's name, and then names only what narrows the metric, e.g.:
 
-- `Congress Watchlist`
-- `Congress Watchlist · Any owner · Any chamber`
-- `CEO, CFO, Director`
+- `20D`
+- `30D · Congress Watchlist`
+- `30D · Congress Watchlist · Senate · Self, Spouse`
+- `180D · CEO, CFO, Director`
 
 ### Strategy Logic summary
 
@@ -190,9 +191,9 @@ Render readable natural-language summaries using the same semantics as the condi
 
 Examples:
 
-- `Insider buyers 20D is at least 2`
-- `Congress purchases 30D is at least 2 — Congress Watchlist`
-- `Congress buyers 30D is at least 2 — House leadership`
+- `Insider buyers is above 1 (20D)`
+- `Congress purchases is above 1 (30D · Congress Watchlist)`
+- `Congress buyers is above 1 (30D · House leadership)`
 
 Do not make the sidebar noisy.
 
@@ -336,15 +337,17 @@ Avoid unrelated refactors and cosmetic redesigns.
 
 ## Implementation clarifications (added during implementation)
 
-The product decisions above are unchanged. What follows are semantics the implementation had to fix
+The product decisions above are unchanged except where a later decision is dated in place (the
+Category / Metric selector and the removal of the inclusive operators, 2026-09-28). What follows are
+semantics the implementation had to fix
 precisely, and provider facts verified live on 2026-09-25, recorded here so no surface has to
 rediscover them. Nothing in this section relaxes the point-in-time rule.
 
 ### The lookback window is measured on the observable session
 
-A disclosure has two dates and a backtest may only ever see the second. `Congress purchases 30D`
-therefore counts the purchases **disclosed** in the last thirty sessions, not the purchases *made* in
-them.
+A disclosure has two dates and a backtest may only ever see the second. `Congress purchases` over a
+30-session lookback therefore counts the purchases **disclosed** in the last thirty sessions, not the
+purchases _made_ in them.
 
 This is a clarification rather than a change, and it is load-bearing: a congressional disclosure
 routinely lags its transaction by up to forty-five days, so windowing on the transaction date would
@@ -368,7 +371,7 @@ impossible and there is no coverage statement to read. The earliest availability
 ingested is therefore the earliest date a metric may report for, and before it the column is
 NOT_EVALUABLE — never zero. "The provider had no filing" and "the dataset does not reach that far"
 are indistinguishable from the payload, and reporting the second as the first would make
-`Insider sellers 20D is at most 0` true across every year the data does not reach. A session is
+`Insider sellers is below 1` true across every year the data does not reach. A session is
 evaluable only when its **whole** lookback window lies inside coverage, for the same reason a
 partially warmed-up moving average is unavailable rather than short.
 
@@ -376,15 +379,16 @@ The upper bound is the date of the last successful ingest. Past it the product k
 
 ### Operators and units the catalog gained
 
-- **`is at least` / `is at most`** were added to the Condition vocabulary and are offered by the
-  alternative-data metrics **only**. The specification writes its own examples as
-  `Insider buyers 20D is at least 2`; expressing that as `is above 1` would make a reader reason
-  about the gap between whole numbers. No other metric gained an inclusive form, so no existing rule
-  changed meaning.
+- **`is at least` / `is at most`** were added to the Condition vocabulary for these metrics and then
+  **removed on 2026-09-28**: every comparison in the product is now the strict `is above` / `is below`
+  pair, and on a whole-number count "at least two" is written `is above 1`. A rule still naming the
+  inclusive pair is refused, never mapped onto a strict comparison (`>= 2` is not `> 2`). No product
+  data held one — V2 was unreleased — and the developer-only QA-matrix fixtures were rewritten
+  explicitly (`docs/development/qa-matrix-fixtures.md`).
 - **A `MONEY` Value kind** was added for the amount measures (`$1,000,000`), for the same reason
   `MULTIPLE` exists: the unit is what lets one renderer print `30`, `2x` and `$1,000,000` without a
   per-metric formatting rule.
-- **Count thresholds are whole numbers.** `Insider buyers 20D is at least 2.5` is refused, and the
+- **Count thresholds are whole numbers.** `Insider buyers is above 2.5` is refused, and the
   bound is `0..1000` — a product bound no real disclosure count reaches, which keeps the validator's
   message readable and the control's range finite.
 - **The lookback is a closed preset list** — 5, 10, 20, 30, 60, 90, 120, 180 and 250 trading sessions,

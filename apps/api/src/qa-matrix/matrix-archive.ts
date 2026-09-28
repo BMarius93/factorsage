@@ -130,41 +130,49 @@ function valueSeries(
 const usable = (value: number | undefined): value is number =>
   value !== undefined && Number.isFinite(value);
 
-function conditionHolds(
+/**
+ * The comparison a Condition operator names.
+ *
+ * Resolved before any column is read: an operator the product grammar does not define is a document
+ * this check cannot judge, never one it may quietly read as unmatched — or as NOT_EVALUABLE because
+ * its data happens to be missing.
+ */
+function conditionTest(
   operator: ConditionOperator,
-  metric: number,
-  value: number,
-): boolean {
+): (metric: number, value: number) => boolean {
   switch (operator) {
     case "IS_ABOVE":
-      return metric > value;
+      return (metric, value) => metric > value;
     case "IS_BELOW":
-      return metric < value;
+      return (metric, value) => metric < value;
     case "IS_CLOSE_TO":
       // `abs(metric - value) / abs(value) <= 0.02`; an unusable divisor is NOT_EVALUABLE.
-      return (
+      return (metric, value) =>
         value !== 0 &&
-        Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE
-      );
-    case "IS_AT_LEAST":
-      return metric >= value;
-    case "IS_AT_MOST":
-      return metric <= value;
+        Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE;
+    default:
+      throw new Error(`Unsupported condition operator: ${String(operator)}`);
   }
 }
 
-function triggerHolds(
+/** The transition a Trigger operator names, resolved as `conditionTest` is. */
+function triggerTest(
   operator: TriggerOperator,
+): (
   metric: number,
   value: number,
   previousMetric: number,
   previousValue: number,
-): boolean {
+) => boolean {
   switch (operator) {
     case "CROSSES_ABOVE":
-      return metric > value && previousMetric <= previousValue;
+      return (metric, value, previousMetric, previousValue) =>
+        metric > value && previousMetric <= previousValue;
     case "CROSSES_BELOW":
-      return metric < value && previousMetric >= previousValue;
+      return (metric, value, previousMetric, previousValue) =>
+        metric < value && previousMetric >= previousValue;
+    default:
+      throw new Error(`Unsupported trigger operator: ${String(operator)}`);
   }
 }
 
@@ -175,6 +183,7 @@ function evaluateCondition(
   condition: StrategyCondition,
   index: number,
 ): Evaluation {
+  const holds = conditionTest(condition.operator);
   const metrics = metricSeries(frame, condition.metric);
   if (!metrics) {
     return "NOT_EVALUABLE";
@@ -185,7 +194,7 @@ function evaluateCondition(
   if (!usable(metric) || !usable(value)) {
     return "NOT_EVALUABLE";
   }
-  return conditionHolds(condition.operator, metric, value) ? "TRUE" : "FALSE";
+  return holds(metric, value) ? "TRUE" : "FALSE";
 }
 
 function evaluateTrigger(
@@ -193,6 +202,7 @@ function evaluateTrigger(
   trigger: StrategyTrigger,
   index: number,
 ): Evaluation {
+  const holds = triggerTest(trigger.operator);
   if (index < 1) {
     // No previous eligible row in this frame. That is precisely what the retained context row
     // exists to prevent at a year boundary, so its absence is itself a finding (invariant 37).
@@ -215,15 +225,7 @@ function evaluateTrigger(
   ) {
     return "NOT_EVALUABLE";
   }
-  return triggerHolds(
-    trigger.operator,
-    metric,
-    value,
-    previousMetric,
-    previousValue,
-  )
-    ? "TRUE"
-    : "FALSE";
+  return holds(metric, value, previousMetric, previousValue) ? "TRUE" : "FALSE";
 }
 
 /** Conditions ANDed, with the optional Trigger ANDed for the same date. */

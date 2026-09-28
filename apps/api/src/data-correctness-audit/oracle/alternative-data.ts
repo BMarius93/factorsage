@@ -31,7 +31,7 @@ import { Decimal } from "decimal.js";
  * A session reports a number only when its **whole** window lies inside ingested coverage. Outside
  * it the column is absent. "The provider had no filing" and "the dataset does not reach that far"
  * are indistinguishable from the payload, so reporting the second as the first would make
- * `Insider sellers 20D is at most 0` true across every year the data does not reach. A partially
+ * `Insider sellers is below 1` true across every year the data does not reach. A partially
  * covered window is refused for the same reason a half-warmed moving average is.
  */
 
@@ -236,7 +236,7 @@ export function oracleInsiderCategory(providerTransactionType: string): string {
  *
  * A zero or absent price is **not** a $0 trade: it is an award, a gift or an exercise whose price
  * the form does not state. Reporting `0` would make a purchase-value metric read as a real, tiny
- * purchase, and would drag a `is at least $X` rule's denominator nowhere while quietly adding rows.
+ * purchase, and would drag an `is above $X` rule's denominator nowhere while quietly adding rows.
  */
 export function oracleInsiderTransactionValue(input: {
   securitiesTransacted: number | null;

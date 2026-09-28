@@ -19,11 +19,11 @@ type ValueControlProps = {
   /**
    * The Value came into focus, or a new one was chosen.
    *
-   * Series-valued only: the explanation surface describes the selected series exactly as it
-   * describes the same series chosen as a Metric. A numeric threshold never reports focus,
-   * because there is no canonical help for a number the user typed.
+   * Series-valued only: the explanation surface reads the selected series from the draft and
+   * describes it exactly as it describes the same series chosen as a Metric. A numeric threshold
+   * never reports focus, because there is no canonical help for a number the user typed.
    */
-  readonly onFocus?: (value: StrategyValue) => void;
+  readonly onFocus?: () => void;
   readonly onBlur: () => void;
 };
 
@@ -62,7 +62,7 @@ export function ValueControl({
         value={selected}
         onFocus={() => {
           if (value.kind === "SERIES") {
-            onFocus?.(value);
+            onFocus?.();
           }
         }}
         onBlur={onBlur}
@@ -72,7 +72,7 @@ export function ValueControl({
             seriesId: seriesId as (typeof spec.seriesIds)[number],
           };
           onChange(next);
-          onFocus?.(next);
+          onFocus?.();
         }}
         {...(selected === ""
           ? { placeholder: "Choose", placeholderDisabled: true }

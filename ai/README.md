@@ -198,7 +198,9 @@ Strategy (user-owned, or SYSTEM built-in)
   |    +-- zero or more Conditions, ANDed
   |    +-- zero or one optional Trigger, ANDed with the Conditions
   +-- Condition product grammar = Metric / Condition / Value
+  |    (Metric = Category -> Metric, plus configuration such as a lookback; never in its name)
   +-- Trigger product grammar = Metric / Trigger / Value
+  +-- Condition comparisons are strict only: is above (>), is below (<); is close to is proximity
   +-- no global valuation source
   +-- no Stock List
   +-- no capital/contributions/maximumPositions/date-range execution inputs

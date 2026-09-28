@@ -5,6 +5,7 @@ import {
   normalizeStrategyDefinition,
   upgradeStrategyDefinitionDocument,
   type StrategyDefinition,
+  type StrategyScopeNames,
   type StrategySignal,
 } from "./strategies.js";
 
@@ -346,29 +347,60 @@ export type BacktestTradeReasonBody = {
   exitRule?: number;
 };
 
-function reasonBodyOf(signal: StrategySignal): BacktestTradeReasonBody {
+function reasonBodyOf(
+  signal: StrategySignal,
+  names: StrategyScopeNames | undefined,
+): BacktestTradeReasonBody {
   return {
-    conditions: signal.conditions.map(describeCondition),
-    ...(signal.trigger ? { trigger: describeTrigger(signal.trigger) } : {}),
+    conditions: signal.conditions.map((condition) =>
+      describeCondition(condition, names),
+    ),
+    ...(signal.trigger
+      ? { trigger: describeTrigger(signal.trigger, names) }
+      : {}),
   };
 }
 
-/** Prepares {@link BacktestTradeReasonIndex} from the definition a run executed. */
+/**
+ * The display names a run's own snapshot can vouch for: every actor group it froze, by the name the
+ * group had at submission.
+ *
+ * Passed to {@link backtestTradeReasonIndex} so a group-scoped rule reads
+ * `Congress buyers is above 1 (30D · House leadership)` in the trade log, from the snapshot rather
+ * than from the group as it stands today — or `Selected group` if the run froze none.
+ */
+export function backtestSnapshotScopeNames(
+  snapshot: Pick<BacktestRunSnapshot, "actorGroups">,
+): StrategyScopeNames {
+  return {
+    groups: Object.fromEntries(
+      (snapshot.actorGroups ?? []).map((group) => [group.groupId, group.name]),
+    ),
+  };
+}
+
+/**
+ * Prepares {@link BacktestTradeReasonIndex} from the definition a run executed.
+ *
+ * `names` are the snapshot's own ({@link backtestSnapshotScopeNames}), so the descriptions are the
+ * canonical sentences the Strategy logic preview prints, configuration included.
+ */
 export function backtestTradeReasonIndex(
   definition: StrategyDefinition,
+  names?: StrategyScopeNames,
 ): BacktestTradeReasonIndex {
   const levels = new Map<string, BacktestTradeReasonBody>();
   const exitRules = new Map<string, BacktestTradeReasonBody>();
   for (const level of definition.buyLevels) {
-    levels.set(level.id, reasonBodyOf(level.signal));
+    levels.set(level.id, reasonBodyOf(level.signal, names));
   }
   for (const level of definition.sellLevels) {
-    levels.set(level.id, reasonBodyOf(level.signal));
+    levels.set(level.id, reasonBodyOf(level.signal, names));
   }
   const rules = definition.finalExit?.rules ?? [];
   rules.forEach((rule, index) => {
     exitRules.set(rule.id, {
-      ...reasonBodyOf(rule.signal),
+      ...reasonBodyOf(rule.signal, names),
       // A lone alternative is not a choice, so it is not numbered — the same rule the Strategy
       // logic preview applies.
       ...(rules.length > 1 ? { exitRule: index + 1 } : {}),

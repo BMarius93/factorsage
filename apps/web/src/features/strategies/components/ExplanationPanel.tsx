@@ -4,52 +4,73 @@ import {
   CONDITION_OPERATORS,
   STRATEGY_LEVEL_HELP,
   STRATEGY_LEVEL_LABELS,
+  STRATEGY_METRIC_CATEGORY_LABELS,
   STRATEGY_METRIC_HELP,
   STRATEGY_OPERATOR_HELP,
   conditionOperatorLabel,
+  describeMetricConfiguration,
+  strategyMetricCategory,
   strategyMetricLabel,
   strategySeriesHelp,
   strategyValueLabel,
   triggerOperatorLabel,
   type ConditionOperator,
   type StrategyHelpEntry,
+  type StrategyScopeNames,
   type TriggerOperator,
 } from "@intrinsic/contracts";
-import type { HelpFocus } from "./help-focus";
+import type { HelpSubject } from "./help-focus";
+import { useScopeNames } from "./scope-names";
 import styles from "./ExplanationPanel.module.css";
 
-function titleAndHelp(
-  focus: HelpFocus,
-): { title: string; help: StrategyHelpEntry } | null {
-  if (!focus) {
+type PanelContent = {
+  title: string;
+  help: StrategyHelpEntry;
+  /** A metric's category, named above it: the first of the two choices that selected it. */
+  category?: string;
+  /** A configured metric's configuration, exactly as its row and the Strategy logic print it. */
+  configuration?: string;
+};
+
+function panelContent(
+  subject: HelpSubject | null,
+  names: StrategyScopeNames,
+): PanelContent | null {
+  if (!subject) {
     return null;
   }
-  if (focus.kind === "METRIC") {
+  if (subject.kind === "METRIC") {
+    const configuration = describeMetricConfiguration(subject.metric, names);
     return {
-      title: strategyMetricLabel(focus.metric),
-      help: STRATEGY_METRIC_HELP[focus.metric.kind],
+      title: strategyMetricLabel(subject.metric),
+      help: STRATEGY_METRIC_HELP[subject.metric.kind],
+      category:
+        STRATEGY_METRIC_CATEGORY_LABELS[strategyMetricCategory(subject.metric)],
+      ...(configuration === null ? {} : { configuration }),
     };
   }
-  if (focus.kind === "OPERATOR") {
+  if (subject.kind === "OPERATOR") {
     return {
-      title: (CONDITION_OPERATORS as readonly string[]).includes(focus.operator)
-        ? conditionOperatorLabel(focus.operator as ConditionOperator)
-        : triggerOperatorLabel(focus.operator as TriggerOperator),
-      help: STRATEGY_OPERATOR_HELP[focus.operator],
+      title: (CONDITION_OPERATORS as readonly string[]).includes(
+        subject.operator,
+      )
+        ? conditionOperatorLabel(subject.operator as ConditionOperator)
+        : triggerOperatorLabel(subject.operator as TriggerOperator),
+      help: STRATEGY_OPERATOR_HELP[subject.operator],
     };
   }
-  if (focus.kind === "VALUE") {
+  if (subject.kind === "VALUE") {
     // Only a series has anything canonical to say. A typed threshold is the user's own number and
-    // gets no invented explanation — the panel simply keeps describing what it already was.
+    // gets no invented explanation.
     const help =
-      focus.value.kind === "SERIES"
-        ? strategySeriesHelp(focus.value.seriesId)
+      subject.value.kind === "SERIES"
+        ? strategySeriesHelp(subject.value.seriesId)
         : undefined;
-    return help ? { title: strategyValueLabel(focus.value), help } : null;
+    return help ? { title: strategyValueLabel(subject.value), help } : null;
   }
   return {
-    title: STRATEGY_LEVEL_LABELS[focus.levelKind],
-    help: STRATEGY_LEVEL_HELP[focus.levelKind],
+    title: STRATEGY_LEVEL_LABELS[subject.levelKind],
+    help: STRATEGY_LEVEL_HELP[subject.levelKind],
   };
 }
 
@@ -59,18 +80,21 @@ function titleAndHelp(
  * Every word comes from `@intrinsic/contracts`, keyed by the same identities that supply the
  * options themselves — the feature holds no help strings, for the same reason it holds no labels.
  * Margin of Safety is the metric that most needs this: its row stays three fields with nothing to
- * configure, and the formula, the worked examples and the distinction from upside live here.
+ * configure, and the formula, the worked examples and the distinction from upside live here. A
+ * configured metric names its category above it and its configuration beneath it, from the same
+ * functions its row and the Strategy logic use, so the three can never disagree.
  *
  * The panel describes **what a signal means**, never what a backtest does with it. Level
  * repetition, precedence between a partial sell and a final exit, and candidate ordering are open
  * decisions and must not appear here as established behaviour.
  */
 export function ExplanationPanel({
-  focus,
+  subject,
   testId = "explanation-panel",
   compact = false,
 }: {
-  readonly focus: HelpFocus;
+  /** What to explain, already resolved from the current draft; `null` renders nothing. */
+  readonly subject: HelpSubject | null;
   /** The two placements — beside the editor and inline under a row — are addressed separately. */
   readonly testId?: string;
   /**
@@ -83,13 +107,14 @@ export function ExplanationPanel({
    */
   readonly compact?: boolean;
 }) {
-  const current = titleAndHelp(focus);
+  const names = useScopeNames();
+  const current = panelContent(subject, names);
 
   if (!current) {
     return null;
   }
 
-  const { title, help } = current;
+  const { title, help, category, configuration } = current;
 
   const detail = (
     <>
@@ -143,7 +168,20 @@ export function ExplanationPanel({
       data-testid={testId}
       {...(compact ? { "data-compact": "true" } : {})}
     >
+      {category ? (
+        <p className={styles.panelEyebrow} data-testid="help-category">
+          {category}
+        </p>
+      ) : null}
       <h2 className={styles.panelHeading}>{title}</h2>
+      {configuration ? (
+        <p
+          className={styles.panelConfiguration}
+          data-testid="help-configuration"
+        >
+          {configuration}
+        </p>
+      ) : null}
       <p className={styles.panelSummary}>{help.summary}</p>
       {compact ? (
         <details className={styles.moreDetail}>

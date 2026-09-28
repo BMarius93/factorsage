@@ -135,8 +135,8 @@ describe("alternative-data operand keys", () => {
               {
                 id: "c1",
                 metric: insiderBuyers20,
-                operator: "IS_AT_LEAST",
-                value: { kind: "NUMBER", value: 2 },
+                operator: "IS_ABOVE",
+                value: { kind: "NUMBER", value: 1 },
               },
               {
                 id: "c2",
@@ -159,8 +159,8 @@ describe("alternative-data operand keys", () => {
                 {
                   id: "c3",
                   metric: congressPurchases30,
-                  operator: "IS_AT_LEAST",
-                  value: { kind: "NUMBER", value: 1 },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 0 },
                 },
               ],
             },
@@ -371,12 +371,13 @@ describe("coverage", () => {
   it("keeps a real zero a zero, so a rule can act on the absence of activity", () => {
     const values = column({ lookbackSessions: 3, observations: [] });
     expect(values[9]).toBe(0);
-    expect(
-      evaluateConditionValues("IS_AT_MOST", values[9] as number, 0),
-    ).toBe(Evaluability.TRUE);
-    expect(
-      evaluateConditionValues("IS_AT_MOST", values[0] as number, 0),
-    ).toBe(Evaluability.NOT_EVALUABLE);
+    // "No insider sold" is `is below 1` on a whole-number count.
+    expect(evaluateConditionValues("IS_BELOW", values[9] as number, 1)).toBe(
+      Evaluability.TRUE,
+    );
+    expect(evaluateConditionValues("IS_BELOW", values[0] as number, 1)).toBe(
+      Evaluability.NOT_EVALUABLE,
+    );
   });
 });
 

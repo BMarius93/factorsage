@@ -38,7 +38,7 @@ type SelectProps = Omit<
    * selectable, so a user can go back to "nothing chosen" exactly as they started.
    */
   readonly placeholder?: string;
-  /** The placeholder is a prompt only and cannot be chosen back (a row that must name a metric). */
+  /** The placeholder is a prompt only and cannot be chosen back (a Value that must name a series). */
   readonly placeholderDisabled?: boolean;
   /**
    * What a value that is not among the options is shown as — a deleted strategy, a metric a level no

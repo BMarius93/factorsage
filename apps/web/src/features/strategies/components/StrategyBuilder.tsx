@@ -8,7 +8,7 @@ import {
   type StrategySignal,
 } from "@intrinsic/contracts";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
@@ -27,7 +27,6 @@ import {
 } from "../api/strategies-api";
 import { useStrategyDraft } from "../hooks/use-strategy-draft";
 import {
-  authoredDefinition,
   draftFrom,
   draftPayload,
   emptyDraft,
@@ -35,10 +34,13 @@ import {
   type StrategyDraftState,
 } from "../utils/strategy-draft";
 import { ScopeNamesContext } from "./scope-names";
-import { UnsetRowsContext } from "./unset-rows";
 import { useStrategyScopeNames } from "../../alternative-data/hooks/use-scope-names";
 import { ExplanationPanel } from "./ExplanationPanel";
-import type { HelpFocus } from "./help-focus";
+import {
+  resolveHelpSubject,
+  type HelpFocus,
+  type HelpSubject,
+} from "./help-focus";
 import { LogicPreview } from "./LogicPreview";
 import panel from "./ExplanationPanel.module.css";
 import { FinalExitCard } from "./FinalExitCard";
@@ -94,7 +96,6 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
     readonly draft: StrategyDraftState;
   } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const unsetRows = useMemo(() => new Set(draft.unset), [draft.unset]);
 
   /**
    * Every edit goes through here. Removing a level or an Exit Rule that holds authored logic is
@@ -115,19 +116,21 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
   const definition = draft.definition;
   const canSave = dirty && issueCount === 0 && !pending;
 
-  /**
-   * What the explanation panel describes before anything is focused: the first rule in the
-   * document, which is the one a reader's eye lands on anyway.
-   */
-  const authored = authoredDefinition(draft);
   // The names behind whatever actors and groups the draft's rules reference, re-requested only when
   // that set of ids changes. Unresolved is a fine state: every surface falls back to a neutral label.
-  const scopeNames = useStrategyScopeNames(authored);
+  const scopeNames = useStrategyScopeNames(definition);
+  /**
+   * What the explanation panel describes: the focused field as the draft holds it **now**, so a
+   * configuration applied from a dialog is described the moment it lands. Before anything is
+   * focused — or once the focused row is gone — it is the first rule in the document, which is the
+   * one a reader's eye lands on anyway.
+   */
   const firstRow =
-    authored.buyLevels[0]?.signal.conditions[0] ??
-    authored.buyLevels[0]?.signal.trigger;
-  const shownFocus: HelpFocus =
-    focus ?? (firstRow ? { kind: "METRIC", metric: firstRow.metric } : null);
+    definition.buyLevels[0]?.signal.conditions[0] ??
+    definition.buyLevels[0]?.signal.trigger;
+  const shownSubject: HelpSubject | null =
+    resolveHelpSubject(focus, definition) ??
+    (firstRow ? { kind: "METRIC", metric: firstRow.metric } : null);
 
   const save = async () => {
     markSaveAttempted();
@@ -213,8 +216,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
 
   return (
     <PageContainer>
-      <UnsetRowsContext.Provider value={unsetRows}>
-        <ScopeNamesContext.Provider value={scopeNames}>
+      <ScopeNamesContext.Provider value={scopeNames}>
         <div className={styles.builder} data-testid="strategy-builder">
           <div className={styles.editor}>
             <PageHeader
@@ -345,13 +347,12 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
 
           <aside className={panel.panel} data-testid="strategy-explanation">
             <div className={panel.sideExplanation}>
-              <ExplanationPanel focus={shownFocus} />
+              <ExplanationPanel subject={shownSubject} />
             </div>
-            <LogicPreview definition={authored} scopeNames={scopeNames} />
+            <LogicPreview definition={definition} scopeNames={scopeNames} />
           </aside>
         </div>
-        </ScopeNamesContext.Provider>
-      </UnsetRowsContext.Provider>
+      </ScopeNamesContext.Provider>
 
       <div className={styles.saveBar} data-testid="strategy-save-bar">
         <div className={styles.saveStatus} aria-live="polite">
@@ -444,17 +445,15 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
 
 /**
  * What a removal took away, when it took authored logic — the label the Undo offer names. A level
- * or rule with nothing chosen yet is removed without ceremony.
+ * or rule whose signal holds no row is removed without ceremony.
  */
 function removalLabel(
   draft: StrategyDraftState,
   action: StrategyDraftAction,
 ): string | null {
-  const unset = new Set(draft.unset);
   const authored = (signal: StrategySignal | undefined) =>
     signal !== undefined &&
-    (signal.conditions.some((row) => !unset.has(row.id)) ||
-      (signal.trigger !== undefined && !unset.has(signal.trigger.id)));
+    (signal.conditions.length > 0 || signal.trigger !== undefined);
   const definition = draft.definition;
   if (action.type === "removeLevel") {
     const { levelKind, levelIndex } = action.ref;
