@@ -3128,9 +3128,14 @@ components:
               TOO_MANY_LEVELS,
               TOO_MANY_CONDITIONS,
               SIGNAL_EMPTY,
+              EXIT_RULE_REQUIRED,
+              TOO_MANY_EXIT_RULES,
+              DUPLICATE_EXIT_RULE,
               PERCENTAGE_INVALID,
               METRIC_NOT_ALLOWED_IN_LEVEL,
               METRIC_SERIES_UNSUPPORTED,
+              METRIC_PERIOD_UNSUPPORTED,
+              METRIC_NOT_ALLOWED_IN_PART,
               OPERATOR_NOT_SUPPORTED,
               VALUE_KIND_MISMATCH,
               VALUE_OUT_OF_DOMAIN,
@@ -3138,6 +3143,10 @@ components:
               SERIES_NOT_COMPARABLE,
               DUPLICATE_CONDITION,
               DUPLICATE_ID,
+              MEASURE_UNSUPPORTED,
+              LOOKBACK_UNSUPPORTED,
+              SCOPE_INVALID,
+              FILTER_INVALID,
             ]
         message: { type: string }
         path:
@@ -3147,14 +3156,22 @@ components:
           properties:
             levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
             levelIndex: { type: integer, minimum: 0 }
+            ruleIndex:
+              type: integer
+              minimum: 0
+              description: |
+                Which FINAL EXIT exit rule, 0-based. Present only under `FINAL_EXIT`, and absent on
+                an issue that belongs to FINAL EXIT as a whole — an empty or over-long rule list.
             part:
               type: string
+              description: "`EXIT_RULE` is one FINAL EXIT exit rule as a whole."
               enum:
                 [
                   STRATEGY,
                   NAME,
                   DESCRIPTION,
                   LEVEL,
+                  EXIT_RULE,
                   PERCENTAGE,
                   CONDITION,
                   TRIGGER,
@@ -3859,11 +3876,44 @@ components:
       description: |
         An identifier from the canonical selectable-series catalog — a moving average, an oscillator,
         an intrinsic-value model or a blend. One catalog serves Stock Details and strategy
-        conditions alike, so there is no second list of options anywhere.
-      examples: [sma50d, rsi14d, iv-blend-balanced]
+        conditions alike, so there is no second list of options anywhere. An identifier outside the
+        catalog is refused with `SERIES_UNKNOWN`; which catalog entries a metric accepts, as its
+        parameter or as its Value, is decided by the metric.
+      enum:
+        [
+          SMA_20D,
+          SMA_50D,
+          SMA_100D,
+          SMA_200D,
+          EMA_20D,
+          EMA_50D,
+          EMA_200D,
+          SMA_20W,
+          SMA_50W,
+          SMA_100W,
+          SMA_200W,
+          EMA_20W,
+          EMA_50W,
+          EMA_200W,
+          RSI_7D,
+          RSI_14D,
+          RSI_21D,
+          BALANCED,
+          CONSERVATIVE,
+          DIVIDEND,
+          DCF_FCFF,
+          RESIDUAL_INCOME,
+          DDM,
+          GRAHAM,
+        ]
+      examples: [SMA_50D, RSI_14D, BALANCED]
 
     StrategyMetric:
-      description: The left-hand side of a condition or a trigger.
+      description: |
+        The left-hand side of a condition or a trigger. A metric's identity is its kind plus the one
+        field that selects it — a series, a valuation source, a Relative Volume period or an
+        alternative-data measure. A lookback, an actor scope and filters are configuration: carried
+        beside the identity, and never part of a metric's name.
       oneOf:
         - type: object
           required: [kind]
@@ -3879,6 +3929,15 @@ components:
             kind: { type: string, const: OSCILLATOR }
             seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
         - type: object
+          required: [kind, period]
+          description: |
+            Relative Volume: the session's volume as a multiple of the mean volume of the previous
+            `period` trading sessions. Compared with a `MULTIPLE`. Condition only — it has no
+            trigger operators.
+          properties:
+            kind: { type: string, const: RELATIVE_VOLUME }
+            period: { type: integer, enum: [10, 20, 50] }
+        - type: object
           required: [kind, sourceId]
           description: Margin of safety against one intrinsic-value series. Percent domain, at most 100.
           properties:
@@ -3893,12 +3952,109 @@ components:
         - type: object
           required: [kind]
           properties: { kind: { type: string, const: LOSS } }
+        - type: object
+          required: [kind, measure, lookback]
+          description: |
+            Insider activity from Form 4 disclosures over the last `lookback` trading sessions, each
+            disclosure placed on the session it became observable, never on its transaction date.
+            `BUYERS` and `SELLERS` count distinct insiders and are compared with a whole `NUMBER`;
+            `PURCHASE_VALUE` and `SALE_VALUE` sum amounts and are compared with `MONEY`. Condition
+            only.
+          properties:
+            kind: { type: string, const: INSIDER_ACTIVITY }
+            measure:
+              type: string
+              enum: [BUYERS, SELLERS, PURCHASE_VALUE, SALE_VALUE]
+            lookback: { $ref: "#/components/schemas/AlternativeDataLookback" }
+            roles:
+              type: array
+              minItems: 1
+              description: |
+                Counts only insiders reporting one of these roles. Absent when every insider counts,
+                never an empty list; duplicates are collapsed and the list is stored in canonical
+                order. `OTHER` is accepted and kept, but the Builder never offers it as a filter.
+              items:
+                type: string
+                enum:
+                  [
+                    CEO,
+                    CFO,
+                    COO,
+                    PRESIDENT,
+                    CHAIRMAN,
+                    DIRECTOR,
+                    OFFICER,
+                    TEN_PERCENT_OWNER,
+                    OTHER,
+                  ]
+        - type: object
+          required: [kind, measure, lookback, scope, chamber]
+          description: |
+            Congressional trading from periodic transaction reports over the last `lookback`
+            trading sessions, each disclosure placed on the session it became observable, never on
+            its transaction date. `PURCHASES` and `SALES` count disclosures and `BUYERS` and
+            `SELLERS` count distinct members, all compared with a whole `NUMBER`;
+            `MINIMUM_PURCHASE_VALUE` sums each disclosed band's lower bound and is compared with
+            `MONEY`. Condition only.
+          properties:
+            kind: { type: string, const: CONGRESS_ACTIVITY }
+            measure:
+              type: string
+              enum: [PURCHASES, SALES, BUYERS, SELLERS, MINIMUM_PURCHASE_VALUE]
+            lookback: { $ref: "#/components/schemas/AlternativeDataLookback" }
+            scope: { $ref: "#/components/schemas/ActorScope" }
+            chamber:
+              type: string
+              enum: [ANY, HOUSE, SENATE]
+              description: "`ANY` counts both chambers."
+            owners:
+              type: array
+              minItems: 1
+              description: |
+                Counts only disclosures whose owner is one of these. Absent when every owner counts,
+                never an empty list; duplicates are collapsed and the list is stored in canonical
+                order. `UNSPECIFIED` is accepted and kept, but the Builder never offers it.
+              items:
+                type: string
+                enum:
+                  [SELF, SPOUSE, JOINT, CHILD, DEPENDENT, OTHER, UNSPECIFIED]
+
+    AlternativeDataLookback:
+      type: integer
+      enum: [5, 10, 20, 30, 60, 90, 120, 180, 250]
+      description: |
+        How many trading sessions an alternative-data metric looks back over. Configuration, not
+        identity: `Insider sellers` is the same metric at 20 sessions or at 180.
+
+    ActorScope:
+      description: |
+        Whose activity a congressional metric counts. `ACTOR` and `GROUP` name this product's own
+        canonical ids; one that does not exist, or a group the caller may not read, is refused with
+        `SCOPE_INVALID`. A backtest freezes a referenced group's membership at submission.
+      oneOf:
+        - type: object
+          required: [kind]
+          properties: { kind: { type: string, const: ANY } }
+        - type: object
+          required: [kind, actorId]
+          properties:
+            kind: { type: string, const: ACTOR }
+            actorId: { type: string, format: uuid }
+        - type: object
+          required: [kind, groupId]
+          properties:
+            kind: { type: string, const: GROUP }
+            groupId: { type: string, format: uuid }
 
     StrategyValue:
       description: |
-        The right-hand side. Domains are metric-specific: margin of safety is at most 100, gain is
-        at least -100, loss is 0..100, and a series value must be comparable with its metric — same
-        timeframe, and never the metric's own series.
+        The right-hand side. Its kind is decided by the metric: a series for Price and the moving
+        averages, a `NUMBER` for an oscillator and for a disclosure count, a `PERCENT` for margin of
+        safety, gain and loss, a `MULTIPLE` for Relative Volume and `MONEY` for an alternative-data
+        amount. Domains are metric-specific: margin of safety is at most 100, gain is at least -100,
+        loss is 0..100, a disclosure count is a whole number 0..1000, a multiple and an amount are
+        at least 0, and a series value must be comparable with its metric — same timeframe, and
+        never the metric's own series.
       oneOf:
         - type: object
           required: [kind, seriesId]
@@ -3915,6 +4071,18 @@ components:
           properties:
             kind: { type: string, const: PERCENT }
             value: { type: number }
+        - type: object
+          required: [kind, value]
+          description: A multiple of a baseline — `2` means twice it.
+          properties:
+            kind: { type: string, const: MULTIPLE }
+            value: { type: number, minimum: 0 }
+        - type: object
+          required: [kind, value]
+          description: An amount of money in the product's reporting currency.
+          properties:
+            kind: { type: string, const: MONEY }
+            value: { type: number, minimum: 0 }
 
     StrategyCondition:
       type: object
@@ -3922,14 +4090,22 @@ components:
       properties:
         id: { type: string }
         metric: { $ref: "#/components/schemas/StrategyMetric" }
-        operator: { type: string, enum: [IS_ABOVE, IS_BELOW, IS_CLOSE_TO] }
+        operator:
+          type: string
+          enum: [IS_ABOVE, IS_BELOW, IS_CLOSE_TO]
+          description: |
+            `IS_ABOVE` is strictly greater than (`>`) and `IS_BELOW` strictly less than (`<`). There
+            is no inclusive form: on a whole-number count, "at least two" is `IS_ABOVE` 1.
+            `IS_CLOSE_TO` is a ±2% proximity state offered only for the price-scaled metrics. An
+            operator the metric does not offer is refused with `OPERATOR_NOT_SUPPORTED`.
         value: { $ref: "#/components/schemas/StrategyValue" }
 
     StrategyTrigger:
       type: object
       description: |
         An event on one observation date rather than a state, which is what makes a trigger level
-        fire at most once per date.
+        fire at most once per date. Relative Volume and the alternative-data metrics have no
+        trigger form; a trigger on one is refused with `METRIC_NOT_ALLOWED_IN_PART`.
       required: [id, metric, operator, value]
       properties:
         id: { type: string }

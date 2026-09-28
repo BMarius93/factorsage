@@ -562,7 +562,9 @@ any test here supports.
 **Hand-maintained, and not checked by anything.** These are as good as the author made them:
 
 - request and response **schemas** — nothing compares them with the hand-written `parse*Request`
-  functions or with what a controller actually returns;
+  functions or with what a controller actually returns. The one exception is the Strategy
+  definition and its validation issues: `openapi.strategy-schema.test.ts` holds those schemas to
+  `@intrinsic/contracts` and checks them against real canonical documents;
 - **validation constraints** (`maxLength`, `minimum`, enum members) — these were transcribed from
   the parsers and the contracts package by hand;
 - **examples** — not validated against their own schemas;

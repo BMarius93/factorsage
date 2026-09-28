@@ -509,6 +509,12 @@ and requires `docs/openapi.yaml` to describe exactly the routes that exist, with
 rate-limit policy, `429`, fail-closed `503`, cookie authentication and `401`/`403`. A new or renamed
 route that is not documented fails here.
 
+`apps/api/src/openapi/openapi.strategy-schema.test.ts` needs nothing. It holds the document's
+Strategy schemas — metric and value kinds, their parameters, operators, validation codes and issue
+paths, limits — to `@intrinsic/contracts`, and checks them against real canonical documents: every
+metric the registry offers, at its fullest configuration, as the API stores and sends it. A Strategy
+model change that the document does not follow fails here.
+
 `pnpm openapi:validate` is a separate, infrastructure-free check that the document is valid
 OpenAPI 3.1 with every `$ref` resolvable. Run it after editing `docs/openapi.yaml`; it is part of
 the completion gate.

@@ -3,6 +3,10 @@
 Branch `audit/backtest-rvol-alternative-data`. Working record of what the audit established, with the
 evidence each conclusion rests on. The narrative report is `REPORT.md`.
 
+> The audit-dimension fixtures quoted here predate the 2026-09-28 removal of `is at least` /
+> `is at most` and the move of a metric's lookback out of its name; `REPORT.md` opens with what
+> changed and where the rewrite is recorded.
+
 ## F-01 — Insider ingestion stopped after one page whenever a page held an unmappable row
 
 **Severity: high. Data completeness. Fixed.**
