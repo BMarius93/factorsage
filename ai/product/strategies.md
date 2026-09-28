@@ -126,8 +126,15 @@ Initial V1 Condition operators are:
 - `is below`;
 - `is close to` where compatible.
 
-`is above` and `is below` are strict comparisons. V1 intentionally does not expose equality,
-`above or equal`, or `below or equal` variants.
+`is above` and `is below` are strict comparisons — `is above` is `metric > value` and `is below`
+is `metric < value` — and they are the only comparisons, for every metric. V1 intentionally does not
+expose equality, `above or equal`, or `below or equal` variants. On a whole-number count a threshold
+is written one step away instead: "at least two insiders bought" is `Insider buyers is above 1`, and
+"no insider sold" is `Insider sellers is below 1`.
+
+The alternative-data metrics briefly offered an inclusive `is at least` / `is at most` pair. It was
+removed on 2026-09-28 so that every comparison in the product is strict; see § Metric compatibility
+table for how a stored rule that still names one is treated.
 
 ### `is close to`
 
@@ -546,8 +553,8 @@ above is what the metric means and does not depend on that answer.
 | Margin of Safety · selected IV source           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
 | Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
 | Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
-| Insider Activity · 4 measures                   | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                             | BUY, SELL, FINAL EXIT |
-| Congressional Trading · 5 measures              | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                             | BUY, SELL, FINAL EXIT |
+| Insider Activity · 4 measures                   | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
+| Congressional Trading · 5 measures              | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
 
 **Relative Volume is the one Condition-only metric**, and the empty Trigger column is a product
 decision rather than an omission. A Trigger is a crossing event; the Monitor's existing
@@ -566,15 +573,24 @@ volume oscillator is part of it.
 The two **alternative-data** kinds — Insider Activity and Congressional Trading — are the second
 family of condition-only metrics, for the reason Relative Volume is: a
 disclosure count is a state, and the Monitor's not-matched -> matched transition already raises a
-Signal on the session a Condition first holds. They are the only metrics that offer the inclusive
-`is at least` / `is at most` pair, because they count discrete events and
-`docs/alternative-data-signals.md` writes its own examples that way; no other metric gained an
-inclusive form, so no existing rule changed meaning. Each kind is parameterized by a **measure plus
-configuration** — a lookback in trading sessions, and where the domain has actors an actor scope with
-its chamber, owner or role filters — which belongs to the signal and never becomes a fourth control
-in the condition row. `docs/alternative-data-signals.md` is the product decision; its point-in-time
-rule (a window is measured on the session a disclosure became *observable*, never on the transaction
-date) is not restated here.
+Signal on the session a Condition first holds. Like every metric other than Price and the moving
+averages, they compare only with the strict `is above` / `is below` pair. Each kind is identified by
+its **measure** — `Insider sellers`, `Congress purchases` — and parameterized by **configuration**: a
+lookback in trading sessions, and where the domain has actors an actor scope with its chamber, owner
+or role filters. The configuration belongs to the metric, is edited after the metric is chosen, and
+never becomes a fourth control in the condition row — and it is **never part of the metric's name**,
+because a name that carried a lookback would be invalidated the moment the lookback was changed
+(§ Strategy Builder surface). `docs/alternative-data-signals.md` is the product decision; its
+point-in-time rule (a window is measured on the session a disclosure became _observable_, never on the
+transaction date) is not restated here.
+
+A stored or submitted rule that still names the removed `is at least` / `is at most` is **refused,
+never reinterpreted**: `>= 2` is not `> 2`, so no read path maps one onto the other. The canonical
+validator reports it as an unsupported operator; the backtest worker refuses a run snapshot naming
+one before it prepares any data; and the evaluator judges a rule's operator before its data and
+refuses one it does not define rather than treating the rule as matched. No product data held one
+when the pair was removed (V2 was unreleased); the developer-only QA-matrix fixtures were rewritten
+explicitly — `docs/development/qa-matrix-fixtures.md` records how.
 
 This is the current baseline, not a declaration that these are the only eventual metrics.
 Additional technical metrics, fundamentals and other derived metrics must be added deliberately with
@@ -762,6 +778,35 @@ Each Signal visually separates:
 - **Conditions** — zero or more rows, combined with AND;
 - **Trigger (optional)** — zero or one row.
 
+### Authoring a rule: Category -> Metric -> Configuration -> Condition -> Value
+
+A row names its Metric with **two** controls rather than one long list: a **Category** — Price,
+Moving averages, Oscillators, Volume, Valuation, Position, Insider activity, Congressional trading —
+and then a **Metric** inside it. Both lists come from the registry, so a category the level or the
+half of the Signal cannot use is simply absent: Position (Gain, Loss) in a BUY level, and Volume and
+both alternative-data categories in a Trigger row.
+
+- The category is a property of the metric, never stored beside it, so the two controls can never
+  disagree.
+- A new row is a complete rule: the first category's first metric (`Price`), with that metric's
+  default Condition and Value. There is no row without a valid category and metric.
+- Changing the category installs that category's first metric; choosing another metric installs that
+  metric. Either way the new metric starts at **its own default configuration** — nothing of the
+  previous metric's lookback, scope or filters is carried over — and the Condition and Value are
+  kept only where the new metric still supports them.
+- The Metric control shows the metric's **identity** only (`Insider sellers`, never
+  `Insider sellers 20D`), one entry per measure and never one per configuration.
+- A configurable metric offers **Configure** beneath the fields, and a compact summary of its
+  configuration beside it: `180D · CEO, CFO`, `180D · House`. The lookback always appears, because it
+  is configuration; a filter appears only when it narrows the metric.
+
+One canonical sentence describes a rule everywhere — the Strategy logic preview, a backtest's trade
+reasons and the Dashboard: the metric's identity, the operator and the Value, then the configuration
+in parentheses — `Insider sellers is above 2 (180D · CEO, CFO)`. Enclosed, a configuration's own
+comma list can never be read as part of a list of Conditions around it. The row, the Configure dialog, the
+explanation panel and that sentence are all derived from the same stored metric, so none of them can
+disagree with another or with what a backtest or Monitor evaluates.
+
 FINAL EXIT stays **one card**. Its Exit Rules appear inside it, separated by an unmistakable `OR`
 divider and labelled `Exit rule 1`, `Exit rule 2`, … with a `+ Add exit rule` control beneath them. The logic preview and the Dashboard use the same `Exit rule N` name (UI-058).
 They are alternatives within one action, so they are grouped by a divider rather than nested in
@@ -812,8 +857,10 @@ rendering may differ between the two; the semantics must not.
 
 Explanation content must be derived from canonical Strategy metric metadata — the same registry
 definitions that supply Metric, operator and Value options — rather than hard-coded inside the
-Strategy Builder feature. Two surfaces explaining one metric differently is the drift the single
-canonical catalog and registry exist to prevent.
+Strategy Builder feature. For a configurable metric the explanation names its category and shows its
+current configuration, read from the rule as it stands rather than as it was when first focused. Two
+surfaces explaining one metric differently is the drift the single canonical catalog and registry
+exist to prevent.
 
 Builder help text describes **what a signal means**, never what the backtest engine does with it.
 Execution behaviour that is still an open decision — whether a level fires once or repeatedly, how

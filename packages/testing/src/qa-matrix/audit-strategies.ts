@@ -353,27 +353,28 @@ function auditStrategySpecs(
       id: "A05",
       slug: "insider-buyer-ladder",
       description:
-        "BUY 50% on `Insider buyers 20D is at least 1`; BUY 100% on `Insider buyers 20D is at " +
-        "least 2`; SELL 50% on Gain; FINAL EXIT on `Insider sellers 20D is at least 3`. The " +
-        "inclusive operators the alternative-data metrics introduced, at two thresholds of one " +
-        "measure, with the opposite measure driving the exit. Distinct-buyer counting is what this " +
-        "fixture is really testing: one insider filing three purchases must move it by one.",
+        "BUY 50% on `Insider buyers is above 0 (20D)`; BUY 100% on `Insider buyers is above 1 " +
+        "(20D)`; SELL 50% on Gain; FINAL EXIT on `Insider sellers is above 2 (20D)`. Strict " +
+        'comparisons on a whole-number count — `is above 1` is exactly "at least two" — at two ' +
+        "thresholds of one measure, with the opposite measure driving the exit. Distinct-buyer " +
+        "counting is what this fixture is really testing: one insider filing three purchases must " +
+        "move it by one.",
       definition: {
         buyLevels: [
           {
             percentage: 50,
-            conditions: [when(insider("BUYERS", 20), "IS_AT_LEAST", number(1))],
+            conditions: [when(insider("BUYERS", 20), "IS_ABOVE", number(0))],
           },
           {
             percentage: 100,
-            conditions: [when(insider("BUYERS", 20), "IS_AT_LEAST", number(2))],
+            conditions: [when(insider("BUYERS", 20), "IS_ABOVE", number(1))],
           },
         ],
         sellLevels: [
           { percentage: 50, conditions: [when(gain, "IS_ABOVE", percent(30))] },
         ],
         finalExit: {
-          conditions: [when(insider("SELLERS", 20), "IS_AT_LEAST", number(3))],
+          conditions: [when(insider("SELLERS", 20), "IS_ABOVE", number(2))],
         },
       },
     },
@@ -381,22 +382,22 @@ function auditStrategySpecs(
       id: "A06",
       slug: "insider-value-and-roles",
       description:
-        "BUY 100% on `Insider purchase value 60D is at least $1,000,000 AND role-filtered insider " +
-        "buyers 20D (CEO, CFO, Director) is at least 1 AND Price is above SMA 50D`; SELL 25% on " +
-        "Gain; FINAL EXIT on `Insider sale value 20D is at least $5,000,000`. The money-valued " +
-        "measures and the role filter, mixed with a price condition. A line the Form 4 prices at " +
-        "zero must contribute nothing here, so an award-heavy security must not reach the " +
-        "million-dollar threshold on awards.",
+        "BUY 100% on `Insider purchase value is above $1,000,000 (60D) AND Insider buyers is " +
+        "above 0 (20D · CEO, CFO, Director) AND Price is above SMA 50D`; SELL 25% on Gain; FINAL " +
+        "EXIT on `Insider sale value is above $5,000,000 (20D)`. The money-valued measures and the " +
+        "role filter, mixed with a price condition. A line the Form 4 prices at zero must " +
+        "contribute nothing here, so an award-heavy security must not reach the million-dollar " +
+        "threshold on awards.",
       definition: {
         buyLevels: [
           {
             percentage: 100,
             conditions: [
-              when(insider("PURCHASE_VALUE", 60), "IS_AT_LEAST", money(1_000_000)),
+              when(insider("PURCHASE_VALUE", 60), "IS_ABOVE", money(1_000_000)),
               when(
                 insider("BUYERS", 20, ["CEO", "CFO", "DIRECTOR"]),
-                "IS_AT_LEAST",
-                number(1),
+                "IS_ABOVE",
+                number(0),
               ),
               when(price, "IS_ABOVE", series("SMA_50D")),
             ],
@@ -407,7 +408,7 @@ function auditStrategySpecs(
         ],
         finalExit: {
           conditions: [
-            when(insider("SALE_VALUE", 20), "IS_AT_LEAST", money(5_000_000)),
+            when(insider("SALE_VALUE", 20), "IS_ABOVE", money(5_000_000)),
           ],
         },
       },
@@ -416,9 +417,9 @@ function auditStrategySpecs(
       id: "A07",
       slug: "congress-activity-ladder",
       description:
-        "BUY 50% on `Congress purchases 30D is at least 1`; BUY 100% on `Congress purchases 30D is " +
-        "at least 2 AND Congress buyers 30D is at least 2`; SELL 50% on Gain; FINAL EXIT on " +
-        "`Congress sales 30D is at least 2`. Event counts and distinct-actor counts of the same " +
+        "BUY 50% on `Congress purchases is above 0 (30D)`; BUY 100% on `Congress purchases is " +
+        "above 1 (30D) AND Congress buyers is above 1 (30D)`; SELL 50% on Gain; FINAL EXIT on " +
+        "`Congress sales is above 1 (30D)`. Event counts and distinct-actor counts of the same " +
         "underlying disclosures in one Signal: two purchases by one member satisfy the first and " +
         "not the second, which is the whole difference between the two aggregations.",
       definition: {
@@ -426,14 +427,14 @@ function auditStrategySpecs(
           {
             percentage: 50,
             conditions: [
-              when(congress("PURCHASES", 30), "IS_AT_LEAST", number(1)),
+              when(congress("PURCHASES", 30), "IS_ABOVE", number(0)),
             ],
           },
           {
             percentage: 100,
             conditions: [
-              when(congress("PURCHASES", 30), "IS_AT_LEAST", number(2)),
-              when(congress("BUYERS", 30), "IS_AT_LEAST", number(2)),
+              when(congress("PURCHASES", 30), "IS_ABOVE", number(1)),
+              when(congress("BUYERS", 30), "IS_ABOVE", number(1)),
             ],
           },
         ],
@@ -441,7 +442,7 @@ function auditStrategySpecs(
           { percentage: 50, conditions: [when(gain, "IS_ABOVE", percent(25))] },
         ],
         finalExit: {
-          conditions: [when(congress("SALES", 30), "IS_AT_LEAST", number(2))],
+          conditions: [when(congress("SALES", 30), "IS_ABOVE", number(1))],
         },
       },
     },
@@ -461,8 +462,8 @@ function auditStrategySpecs(
             conditions: [
               when(
                 congress("PURCHASES", 30, { chamber: "HOUSE" }),
-                "IS_AT_LEAST",
-                number(1),
+                "IS_ABOVE",
+                number(0),
               ),
             ],
           },
@@ -474,8 +475,8 @@ function auditStrategySpecs(
                   chamber: "SENATE",
                   owners: ["SELF"],
                 }),
-                "IS_AT_LEAST",
-                number(1),
+                "IS_ABOVE",
+                number(0),
               ),
             ],
           },
@@ -486,8 +487,8 @@ function auditStrategySpecs(
                 congress("PURCHASES", 60, {
                   scope: { kind: "ACTOR", actorId: scopes.actorId },
                 }),
-                "IS_AT_LEAST",
-                number(1),
+                "IS_ABOVE",
+                number(0),
               ),
             ],
           },
@@ -502,9 +503,9 @@ function auditStrategySpecs(
       id: "A09",
       slug: "congress-group-and-volume",
       description:
-        "BUY 100% on `Congress purchases 60D scoped to the QA-MATRIX watchlist group is at least 1 " +
-        "AND RVOL 20 is above 1.5`; SELL 25% on Gain; FINAL EXIT on the same group's minimum " +
-        "disclosed purchase value 90D. The actor-group scope, which a submitted run freezes into its " +
+        "BUY 100% on `Congress purchases is above 0 (60D · QA-MATRIX watchlist group) AND RVOL 20 " +
+        "is above 1.5`; SELL 25% on Gain; FINAL EXIT on the same group's minimum disclosed purchase " +
+        "value being below $1 over 90D. The actor-group scope, which a submitted run freezes into its " +
         "own snapshot: the worker resolves it from there and never from the database, so editing or " +
         "deleting the group afterwards cannot move this run's result.",
       definition: {
@@ -516,8 +517,8 @@ function auditStrategySpecs(
                 congress("PURCHASES", 60, {
                   scope: { kind: "GROUP", groupId: scopes.groupId },
                 }),
-                "IS_AT_LEAST",
-                number(1),
+                "IS_ABOVE",
+                number(0),
               ),
               when(rvol(20), "IS_ABOVE", multiple(1.5)),
             ],
@@ -532,8 +533,10 @@ function auditStrategySpecs(
               congress("MINIMUM_PURCHASE_VALUE", 90, {
                 scope: { kind: "GROUP", groupId: scopes.groupId },
               }),
-              "IS_AT_MOST",
-              money(0),
+              // Disclosed band floors are whole dollars, so "no disclosed purchase value" is
+              // exactly `is below $1`.
+              "IS_BELOW",
+              money(1),
             ),
           ],
         },
@@ -544,7 +547,7 @@ function auditStrategySpecs(
       slug: "valuation-volume-disclosure-confluence",
       description:
         "BUY 75% on `Margin of Safety (DCF) is above 20% AND RVOL 50 is above 1.5 AND Congress " +
-        "purchases 250D is at least 1 AND Insider buyers 250D is at least 1`; no SELL; FINAL EXIT " +
+        "purchases is above 0 (250D) AND Insider buyers is above 0 (250D)`; no SELL; FINAL EXIT " +
         "on Gain. The deliberate NOT_EVALUABLE probe: the 250-session alternative-data windows " +
         "cannot be decided across most of a thirty-year horizon, and a valuation metric cannot be " +
         "decided where fundamentals are absent — so this strategy must trade rarely and must never " +
@@ -556,8 +559,8 @@ function auditStrategySpecs(
             conditions: [
               when(mos("DCF_FCFF"), "IS_ABOVE", percent(20)),
               when(rvol(50), "IS_ABOVE", multiple(1.5)),
-              when(congress("PURCHASES", 250), "IS_AT_LEAST", number(1)),
-              when(insider("BUYERS", 250), "IS_AT_LEAST", number(1)),
+              when(congress("PURCHASES", 250), "IS_ABOVE", number(0)),
+              when(insider("BUYERS", 250), "IS_ABOVE", number(0)),
             ],
           },
         ],

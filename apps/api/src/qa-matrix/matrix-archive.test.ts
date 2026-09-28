@@ -188,14 +188,67 @@ describe("invariant 36 — Relative Volume and alternative-data operands", () =>
         {
           id: "c1",
           metric,
-          operator: "IS_AT_LEAST",
-          value: { kind: "NUMBER", value: 2 },
+          operator: "IS_ABOVE",
+          value: { kind: "NUMBER", value: 1 },
         },
         alternativeDataOperand(metric),
         [0, 2, 1],
       ),
     );
     expect(byId(results, 36).status).toBe("PASS");
+
+    // Strict: two buyers are not above two, so the same BUY is not entitled by `is above 2`.
+    const atTheThreshold = verifyArchiveInvariants(
+      contentsFor(
+        {
+          id: "c1",
+          metric,
+          operator: "IS_ABOVE",
+          value: { kind: "NUMBER", value: 2 },
+        },
+        alternativeDataOperand(metric),
+        [0, 2, 1],
+      ),
+    );
+    expect(byId(atTheThreshold, 36).status).toBe("FAIL");
+  });
+
+  it("refuses to judge a removed inclusive operator rather than reading it as unmatched", () => {
+    const metric = {
+      kind: "INSIDER_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 20,
+    } as const;
+    expect(() =>
+      verifyArchiveInvariants(
+        contentsFor(
+          {
+            id: "c1",
+            metric,
+            operator: "IS_AT_LEAST",
+            value: { kind: "NUMBER", value: 2 },
+          } as never,
+          alternativeDataOperand(metric),
+          [0, 2, 1],
+        ),
+      ),
+    ).toThrow("Unsupported condition operator: IS_AT_LEAST");
+    // Judged before the data: a column with no usable session must not turn the refusal into a
+    // quiet NOT_EVALUABLE.
+    expect(() =>
+      verifyArchiveInvariants(
+        contentsFor(
+          {
+            id: "c1",
+            metric,
+            operator: "IS_AT_LEAST",
+            value: { kind: "NUMBER", value: 2 },
+          } as never,
+          alternativeDataOperand(metric),
+          [Number.NaN, Number.NaN, Number.NaN],
+        ),
+      ),
+    ).toThrow("Unsupported condition operator: IS_AT_LEAST");
   });
 
   it("reads a group-scoped congressional Condition, and treats absence as absence", () => {
@@ -209,8 +262,8 @@ describe("invariant 36 — Relative Volume and alternative-data operands", () =>
     const condition = {
       id: "c1",
       metric,
-      operator: "IS_AT_LEAST",
-      value: { kind: "NUMBER", value: 1 },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 0 },
     };
     expect(
       byId(
@@ -248,7 +301,7 @@ describe("invariant 36 — Relative Volume and alternative-data operands", () =>
         {
           id: "c1",
           metric,
-          operator: "IS_AT_LEAST",
+          operator: "IS_ABOVE",
           value: { kind: "MONEY", value: 1_000_000 },
         },
         // A key the Condition does not address: the verifier must not find a column for it.

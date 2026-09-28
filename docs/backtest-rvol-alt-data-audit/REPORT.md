@@ -1,5 +1,12 @@
 # Backtest re-validation — Relative Volume and Alternative Data
 
+> **Read with the 2026-09-28 Strategy Builder refactor in mind.** The sweeps below ran the original
+> `A05`–`A10` fixtures, which used the inclusive `is at least` / `is at most` operators. Those operators
+> were removed from the product and the fixtures were rewritten with strict comparisons —
+> `docs/development/qa-matrix-fixtures.md` § Strict comparisons only records each rewrite and when it is
+> exact. Metric names quoted here also carry their lookback (`Insider buyers 20D`); the product now
+> names the metric alone and states the lookback as configuration — `Insider buyers is above 1 (20D)`.
+
 Branch `audit/backtest-rvol-alternative-data`, from `439f634a`. Clock `2026-09-26`.
 
 An end-to-end re-validation of the Backtest V1 engine after the Relative Volume period-identity fix

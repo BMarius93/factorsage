@@ -16,41 +16,55 @@ import {
 } from "./operands.js";
 
 /**
+ * An operator this engine does not define reached evaluation.
+ *
+ * Unreachable for a validated document, but a run snapshot is executed after an upcast and never
+ * revalidated (`AGENTS.md` invariant 12), so a document naming an operator the product no longer has
+ * could arrive here. It must stop the run: the alternative — returning nothing — reads as TRUE under
+ * `evaluabilityAnd` and would make the rule silently always hold.
+ */
+export class UnsupportedStrategyOperatorError extends Error {
+  constructor(operator: unknown) {
+    super(`Unsupported strategy operator: ${String(operator)}`);
+    this.name = "UnsupportedStrategyOperatorError";
+  }
+}
+
+/**
  * Evaluates one Condition from two already-resolved numbers.
  *
- * `is above` and `is below` are strict, as `ai/product/strategies.md` states. `is close to` is
- * `abs(metric - value) / abs(value) <= 2%`, with the 2% tolerance owned by `@intrinsic/contracts`
- * so the Builder's help text and this evaluator read one constant. A zero comparison value makes
- * the ratio undefined, which is NOT_EVALUABLE rather than an invented fallback.
+ * `is above` and `is below` are strict — `>` and `<` — as `ai/product/strategies.md` states, and
+ * there is no inclusive form. `is close to` is `abs(metric - value) / abs(value) <= 2%`, with the 2%
+ * tolerance owned by `@intrinsic/contracts` so the Builder's help text and this evaluator read one
+ * constant. A zero comparison value makes the ratio undefined, which is NOT_EVALUABLE rather than an
+ * invented fallback.
+ *
+ * The operator is judged before the numbers, so an operator this engine does not define stops the
+ * run on the first session it is evaluated at — not only once its data first happens to exist, which
+ * for a rule whose data never resolves would be never.
  */
 export function evaluateConditionValues(
   operator: ConditionOperator,
   metric: number,
   value: number,
 ): Evaluability {
-  if (!Number.isFinite(metric) || !Number.isFinite(value)) {
-    return Evaluability.NOT_EVALUABLE;
-  }
   switch (operator) {
     case "IS_ABOVE":
-      return fromBoolean(metric > value);
+      return bothResolved(metric, value)
+        ? fromBoolean(metric > value)
+        : Evaluability.NOT_EVALUABLE;
     case "IS_BELOW":
-      return fromBoolean(metric < value);
+      return bothResolved(metric, value)
+        ? fromBoolean(metric < value)
+        : Evaluability.NOT_EVALUABLE;
     case "IS_CLOSE_TO":
-      if (value === 0) {
-        return Evaluability.NOT_EVALUABLE;
-      }
-      return fromBoolean(
-        Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE,
-      );
-    // The inclusive pair, offered only by the alternative-data metrics. They are ordinary
-    // comparisons — no tolerance, no special absence handling — because the metrics that use them
-    // count discrete things and a strict comparison would make a user reason about the gap between
-    // whole numbers to say `at least two insiders bought`.
-    case "IS_AT_LEAST":
-      return fromBoolean(metric >= value);
-    case "IS_AT_MOST":
-      return fromBoolean(metric <= value);
+      return bothResolved(metric, value) && value !== 0
+        ? fromBoolean(
+            Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE,
+          )
+        : Evaluability.NOT_EVALUABLE;
+    default:
+      throw new UnsupportedStrategyOperatorError(operator);
   }
 }
 
@@ -59,7 +73,7 @@ export function evaluateConditionValues(
  *
  * A Trigger is an event: it needs `t` and the immediately preceding eligible value of the same
  * series. If any of the four values is unavailable the Trigger is NOT_EVALUABLE — the evaluator
- * never searches backwards for a substitute.
+ * never searches backwards for a substitute. As for a Condition, the operator is judged first.
  */
 export function evaluateTriggerValues(
   operator: TriggerOperator,
@@ -68,20 +82,25 @@ export function evaluateTriggerValues(
   previousMetric: number,
   previousValue: number,
 ): Evaluability {
-  if (
-    !Number.isFinite(metric) ||
-    !Number.isFinite(value) ||
-    !Number.isFinite(previousMetric) ||
-    !Number.isFinite(previousValue)
-  ) {
-    return Evaluability.NOT_EVALUABLE;
-  }
   switch (operator) {
     case "CROSSES_ABOVE":
-      return fromBoolean(metric > value && previousMetric <= previousValue);
+      return bothResolved(metric, value) &&
+        bothResolved(previousMetric, previousValue)
+        ? fromBoolean(metric > value && previousMetric <= previousValue)
+        : Evaluability.NOT_EVALUABLE;
     case "CROSSES_BELOW":
-      return fromBoolean(metric < value && previousMetric >= previousValue);
+      return bothResolved(metric, value) &&
+        bothResolved(previousMetric, previousValue)
+        ? fromBoolean(metric < value && previousMetric >= previousValue)
+        : Evaluability.NOT_EVALUABLE;
+    default:
+      throw new UnsupportedStrategyOperatorError(operator);
   }
+}
+
+/** Whether both sides of a comparison resolved; either one missing leaves it NOT_EVALUABLE. */
+function bothResolved(metric: number, value: number): boolean {
+  return Number.isFinite(metric) && Number.isFinite(value);
 }
 
 /** Resolves the right-hand side of a predicate at one frame index. */

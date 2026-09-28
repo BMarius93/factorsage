@@ -1,6 +1,9 @@
 import {
   STRATEGY_MAX_EXIT_RULES,
   conditionOperatorsFor,
+  strategyMetricCategories,
+  strategyMetricCategory,
+  strategyMetricKey,
   strategyMetricOptions,
   validateStrategy,
   valueSpecFor,
@@ -8,12 +11,11 @@ import {
   type StrategyMetric,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
-import { draftIssues } from "../hooks/use-strategy-draft";
 import {
-  authoredDefinition,
   draftFrom,
   draftPayload,
   emptyDraft,
+  rowWithId,
   strategyDraftReducer,
   type StrategyDraftAction,
   type StrategyDraftState,
@@ -231,6 +233,32 @@ describe("strategy draft reducer", () => {
     expect(added.definition.buyLevels[0]?.signal.trigger).toBeDefined();
     const removed = apply(added, { type: "removeTrigger", ref });
     expect(removed.definition.buyLevels[0]?.signal.trigger).toBeUndefined();
+  });
+
+  it("finds a row by its id wherever it sits, and still after a row before it is removed", () => {
+    // The explanation panel follows a row by id, so a removal above it never hands the explanation
+    // to whichever row moves into the old position.
+    const ref = { levelKind: "BUY", levelIndex: 0 } as const;
+    const state = apply(
+      withOneBuyLevel(),
+      { type: "addCondition", ref },
+      { type: "addTrigger", ref },
+      { type: "addLevel", levelKind: "FINAL_EXIT" },
+    );
+    const buy = state.definition.buyLevels[0]!.signal;
+    const second = buy.conditions[1]!;
+    const trigger = buy.trigger!;
+    const exitRow = state.definition.finalExit!.rules[0]!.signal.conditions[0]!;
+    expect(rowWithId(state.definition, second.id)).toBe(second);
+    expect(rowWithId(state.definition, trigger.id)).toBe(trigger);
+    expect(rowWithId(state.definition, exitRow.id)).toBe(exitRow);
+    expect(rowWithId(state.definition, "no-such-row")).toBeUndefined();
+
+    const removed = apply(state, { type: "removeCondition", ref: BUY_ROW });
+    expect(removed.definition.buyLevels[0]!.signal.conditions[0]!.id).toBe(
+      second.id,
+    );
+    expect(rowWithId(removed.definition, second.id)).toBe(second);
   });
 
   it("reorders levels and preserves the order in the saved payload", () => {
@@ -471,68 +499,330 @@ describe("final exit rules", () => {
   });
 });
 
-describe("rows waiting for a metric (UI-013)", () => {
-  it("marks every row an Add creates as unset, and authors it once a metric is chosen", () => {
-    let state = strategyDraftReducer(emptyDraft(), {
-      type: "addLevel",
-      levelKind: "BUY",
-    });
-    const rowId = state.definition.buyLevels[0]!.signal.conditions[0]!.id;
-    expect(state.unset).toEqual([rowId]);
+describe("category and metric", () => {
+  const INSIDER_SELLERS_180D: StrategyMetric = {
+    kind: "INSIDER_ACTIVITY",
+    measure: "SELLERS",
+    lookback: 180,
+    roles: ["CEO", "CFO"],
+  };
 
-    state = strategyDraftReducer(state, {
-      type: "addCondition",
+  it("starts every new row on the first category's first metric, never on an empty one", () => {
+    const state = apply(
+      withOneBuyLevel(),
+      { type: "addCondition", ref: { levelKind: "BUY", levelIndex: 0 } },
+      { type: "addTrigger", ref: { levelKind: "BUY", levelIndex: 0 } },
+      { type: "addLevel", levelKind: "SELL" },
+      { type: "addLevel", levelKind: "FINAL_EXIT" },
+    );
+    const buy = state.definition.buyLevels[0]!.signal;
+    for (const row of [
+      ...buy.conditions,
+      buy.trigger!,
+      ...state.definition.sellLevels[0]!.signal.conditions,
+      ...state.definition.finalExit!.rules[0]!.signal.conditions,
+    ]) {
+      expect(row.metric).toEqual({ kind: "PRICE" });
+      expect(strategyMetricCategory(row.metric)).toBe("PRICE");
+    }
+    expect(buy.conditions[0]).toMatchObject({
+      operator: "IS_ABOVE",
+      value: { kind: "SERIES", seriesId: "SMA_20D" },
+    });
+    expect(buy.trigger).toMatchObject({
+      operator: "CROSSES_ABOVE",
+      value: { kind: "SERIES", seriesId: "SMA_20D" },
+    });
+  });
+
+  it("installs the first metric of a chosen category, reconciling operator and value", () => {
+    const rsi = apply(withOneBuyLevel(), {
+      type: "setCategory",
+      ref: BUY_ROW,
+      category: "OSCILLATORS",
+    });
+    expect(firstCondition(rsi.definition)).toMatchObject({
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_7D" },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 50 },
+    });
+
+    const insider = apply(rsi, {
+      type: "setCategory",
+      ref: BUY_ROW,
+      category: "INSIDER_ACTIVITY",
+    });
+    expect(firstCondition(insider.definition)?.metric).toEqual({
+      kind: "INSIDER_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 20,
+    });
+  });
+
+  it("ignores a category the row's level or half of a signal does not offer", () => {
+    const state = apply(withOneBuyLevel(), {
+      type: "addTrigger",
       ref: { levelKind: "BUY", levelIndex: 0 },
     });
-    expect(state.unset).toHaveLength(2);
+    // Volume is condition-only and Position does not exist before a buy.
+    expect(
+      strategyDraftReducer(state, {
+        type: "setCategory",
+        ref: { levelKind: "BUY", levelIndex: 0, part: "TRIGGER" },
+        category: "VOLUME",
+      }),
+    ).toBe(state);
+    expect(
+      strategyDraftReducer(state, {
+        type: "setCategory",
+        ref: BUY_ROW,
+        category: "POSITION",
+      }),
+    ).toBe(state);
+  });
 
-    state = strategyDraftReducer(state, {
+  it("does nothing when the category chosen is the row's own", () => {
+    const configured = apply(withOneBuyLevel(), {
       type: "setMetric",
-      ref: { levelKind: "BUY", levelIndex: 0, part: "CONDITION", conditionIndex: 0 },
-      metric: { kind: "PRICE" },
+      ref: BUY_ROW,
+      metric: INSIDER_SELLERS_180D,
     });
-    expect(state.unset).not.toContain(rowId);
-    expect(state.unset).toHaveLength(1);
+    expect(
+      strategyDraftReducer(configured, {
+        type: "setCategory",
+        ref: BUY_ROW,
+        category: "INSIDER_ACTIVITY",
+      }),
+    ).toBe(configured);
   });
 
-  it("leaves unset rows out of the authored document, never out of the draft", () => {
-    const state = strategyDraftReducer(emptyDraft(), {
+  it("starts a new category on its own rule, never on the previous rule's operator or threshold", () => {
+    // `Price is below SMA 200D` must not become `Insider buyers is below 0`, which is never true,
+    // and an insider count of 3 must not become an RSI level of 3.
+    const below = apply(
+      withOneBuyLevel(),
+      { type: "setOperator", ref: BUY_ROW, operator: "IS_BELOW" },
+      { type: "setCategory", ref: BUY_ROW, category: "INSIDER_ACTIVITY" },
+    );
+    expect(firstCondition(below.definition)).toMatchObject({
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 0 },
+    });
+    const rsi = apply(
+      below,
+      { type: "setOperator", ref: BUY_ROW, operator: "IS_BELOW" },
+      { type: "setValue", ref: BUY_ROW, value: { kind: "NUMBER", value: 3 } },
+      { type: "setCategory", ref: BUY_ROW, category: "OSCILLATORS" },
+    );
+    expect(firstCondition(rsi.definition)).toMatchObject({
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_7D" },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 50 },
+    });
+  });
+
+  it("keeps the operator and threshold across metrics of one category when the threshold still fits", () => {
+    const rsi = apply(
+      withOneBuyLevel(),
+      { type: "setCategory", ref: BUY_ROW, category: "OSCILLATORS" },
+      { type: "setOperator", ref: BUY_ROW, operator: "IS_BELOW" },
+      { type: "setValue", ref: BUY_ROW, value: { kind: "NUMBER", value: 30 } },
+      {
+        type: "setMetric",
+        ref: BUY_ROW,
+        metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      },
+    );
+    expect(firstCondition(rsi.definition)).toMatchObject({
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      operator: "IS_BELOW",
+      value: { kind: "NUMBER", value: 30 },
+    });
+  });
+
+  it("replaces the operator together with a threshold the new metric cannot take", () => {
+    // `Gain is below -50%` cannot become `Loss is below 0%` — Loss is never negative — so the
+    // replacement is Loss's own starting rule.
+    const sellRow = {
+      levelKind: "SELL",
+      levelIndex: 0,
+      part: "CONDITION",
+      conditionIndex: 0,
+    } as const;
+    const state = apply(
+      withOneBuyLevel(),
+      { type: "addLevel", levelKind: "SELL" },
+      { type: "setMetric", ref: sellRow, metric: { kind: "GAIN" } },
+      { type: "setOperator", ref: sellRow, operator: "IS_BELOW" },
+      {
+        type: "setValue",
+        ref: sellRow,
+        value: { kind: "PERCENT", value: -50 },
+      },
+      { type: "setMetric", ref: sellRow, metric: { kind: "LOSS" } },
+    );
+    expect(state.definition.sellLevels[0]?.signal.conditions[0]).toMatchObject({
+      metric: { kind: "LOSS" },
+      operator: "IS_ABOVE",
+      value: { kind: "PERCENT", value: 0 },
+    });
+  });
+
+  it("C: never carries a configured metric's configuration into another category", () => {
+    const configured = apply(withOneBuyLevel(), {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: INSIDER_SELLERS_180D,
+    });
+    expect(firstCondition(configured.definition)?.metric).toEqual(
+      INSIDER_SELLERS_180D,
+    );
+
+    const congress = apply(configured, {
+      type: "setCategory",
+      ref: BUY_ROW,
+      category: "CONGRESSIONAL_TRADING",
+    });
+    expect(firstCondition(congress.definition)?.metric).toEqual({
+      kind: "CONGRESS_ACTIVITY",
+      measure: "PURCHASES",
+      lookback: 30,
+      scope: { kind: "ANY" },
+      chamber: "ANY",
+    });
+
+    // Coming back is a fresh start too: the 180D and the role filter are gone, not remembered.
+    const back = apply(congress, {
+      type: "setCategory",
+      ref: BUY_ROW,
+      category: "INSIDER_ACTIVITY",
+    });
+    expect(firstCondition(back.definition)?.metric).toEqual({
+      kind: "INSIDER_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 20,
+    });
+
+    const price = apply(configured, {
+      type: "setCategory",
+      ref: BUY_ROW,
+      category: "PRICE",
+    });
+    expect(firstCondition(price.definition)?.metric).toEqual({ kind: "PRICE" });
+  });
+
+  it("starts a newly chosen metric of the same category at its own default configuration", () => {
+    const configured = apply(withOneBuyLevel(), {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: INSIDER_SELLERS_180D,
+    });
+    const buyers = strategyMetricCategories("BUY")
+      .find((category) => category.id === "INSIDER_ACTIVITY")!
+      .options.find(
+        (option) =>
+          strategyMetricKey(option.metric) === "INSIDER_ACTIVITY:BUYERS",
+      )!.metric;
+    const state = apply(configured, {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: buyers,
+    });
+    expect(firstCondition(state.definition)?.metric).toEqual({
+      kind: "INSIDER_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 20,
+    });
+  });
+
+  it("keeps identity, category, operator and value when only the configuration changes", () => {
+    const configured = apply(
+      withOneBuyLevel(),
+      { type: "setCategory", ref: BUY_ROW, category: "INSIDER_ACTIVITY" },
+      { type: "setOperator", ref: BUY_ROW, operator: "IS_BELOW" },
+      { type: "setValue", ref: BUY_ROW, value: { kind: "NUMBER", value: 3 } },
+    );
+    // What the Configure dialog dispatches: the same metric, reconfigured.
+    const reconfigured = apply(configured, {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: { kind: "INSIDER_ACTIVITY", measure: "BUYERS", lookback: 180 },
+    });
+    const before = firstCondition(configured.definition)!;
+    const after = firstCondition(reconfigured.definition)!;
+    expect(strategyMetricKey(after.metric)).toBe(
+      strategyMetricKey(before.metric),
+    );
+    expect(strategyMetricCategory(after.metric)).toBe("INSIDER_ACTIVITY");
+    expect(after.operator).toBe("IS_BELOW");
+    expect(after.value).toEqual({ kind: "NUMBER", value: 3 });
+    expect(after.id).toBe(before.id);
+  });
+
+  it("never reaches a row whose category and metric disagree", () => {
+    let state = apply(withOneBuyLevel(), {
       type: "addLevel",
-      levelKind: "BUY",
+      levelKind: "SELL",
     });
-    expect(state.definition.buyLevels[0]!.signal.conditions).toHaveLength(1);
-    expect(authoredDefinition(state).buyLevels[0]!.signal.conditions).toHaveLength(0);
+    const ref = {
+      levelKind: "SELL",
+      levelIndex: 0,
+      part: "CONDITION",
+      conditionIndex: 0,
+    } as const;
+    for (const category of strategyMetricCategories("SELL")) {
+      state = apply(state, { type: "setCategory", ref, category: category.id });
+      const metric =
+        state.definition.sellLevels[0]!.signal.conditions[0]!.metric;
+      expect(strategyMetricCategory(metric)).toBe(category.id);
+      for (const option of category.options) {
+        state = apply(state, { type: "setMetric", ref, metric: option.metric });
+        expect(
+          strategyMetricCategory(
+            state.definition.sellLevels[0]!.signal.conditions[0]!.metric,
+          ),
+        ).toBe(category.id);
+      }
+    }
   });
 
-  it("forgets the ids of removed rows", () => {
-    let state = strategyDraftReducer(emptyDraft(), {
-      type: "addLevel",
-      levelKind: "BUY",
+  it("reports a new row that repeats another as a duplicate rather than removing it", () => {
+    // Every new row is a complete rule, so a second one added beside the first says the same thing
+    // until it is edited. The canonical validator names it; nothing silently deletes it.
+    const state = apply(
+      withOneBuyLevel(),
+      { type: "setName", name: "Two of the same" },
+      { type: "addCondition", ref: { levelKind: "BUY", levelIndex: 0 } },
+    );
+    const issues = validateStrategy(draftPayload(state));
+    expect(issues.map((issue) => issue.code)).toEqual(["DUPLICATE_CONDITION"]);
+    expect(issues[0]?.path).toMatchObject({
+      part: "CONDITION",
+      conditionIndex: 1,
     });
-    state = strategyDraftReducer(state, {
-      type: "removeLevel",
-      ref: { levelKind: "BUY", levelIndex: 0 },
-    });
-    expect(state.unset).toEqual([]);
-  });
-
-  it("asks for the metric instead of judging a placeholder", () => {
-    let state = strategyDraftReducer(emptyDraft(), { type: "setName", name: "x" });
-    state = strategyDraftReducer(state, { type: "addLevel", levelKind: "BUY" });
-    state = strategyDraftReducer(state, {
-      type: "addCondition",
-      ref: { levelKind: "BUY", levelIndex: 0 },
-    });
-    const issues = draftIssues(state);
-    // Two identical placeholders would otherwise be a DUPLICATE_CONDITION the user never wrote.
-    expect(issues.map((issue) => issue.message)).toEqual([
-      "Choose a metric.",
-      "Choose a metric.",
-    ]);
-    expect(issues.every((issue) => issue.path.field === "METRIC")).toBe(true);
   });
 
   it("leaves a loaded strategy exactly as saved", () => {
+    const definition: StrategyDefinition = {
+      schemaVersion: 2,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 100,
+          signal: {
+            conditions: [
+              {
+                id: "c1",
+                metric: INSIDER_SELLERS_180D,
+                operator: "IS_ABOVE",
+                value: { kind: "NUMBER", value: 2 },
+              },
+            ],
+          },
+        },
+      ],
+      sellLevels: [],
+    };
     const draft = draftFrom({
       ownership: "USER",
       canEdit: true,
@@ -544,28 +834,9 @@ describe("rows waiting for a metric (UI-013)", () => {
       versionNumber: 1,
       createdAt: "2026-08-01T10:00:00.000Z",
       updatedAt: "2026-08-01T10:00:00.000Z",
-      definition: {
-        schemaVersion: 2,
-        buyLevels: [
-          {
-            id: "b1",
-            percentage: 100,
-            signal: {
-              conditions: [
-                {
-                  id: "c1",
-                  metric: { kind: "PRICE" },
-                  operator: "IS_ABOVE",
-                  value: { kind: "SERIES", seriesId: "SMA_200D" },
-                },
-              ],
-            },
-          },
-        ],
-        sellLevels: [],
-      },
+      definition,
     });
-    expect(draft.unset).toEqual([]);
-    expect(authoredDefinition(draft)).toBe(draft.definition);
+    expect(draft.definition).toBe(definition);
+    expect(draftPayload(draft).definition).toBe(definition);
   });
 });

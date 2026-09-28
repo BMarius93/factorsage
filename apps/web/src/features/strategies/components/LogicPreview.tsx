@@ -129,10 +129,16 @@ function PreviewLines({
               <span className={styles.previewConnector}>{line.connector} </span>
             ) : null}
             {line.text}
-            {line.scope ? (
-              // The configured first operand's summary, joined with an em dash so the line still reads
-              // as one sentence: `Institutional buyers 60D is at least 3 — Superinvestors`.
-              <span className={styles.previewScope}> — {line.scope}</span>
+            {line.configuration ? (
+              // The metric's configuration, composed exactly as `describeCondition` composes it, so
+              // the line reads as the canonical sentence:
+              // `Insider sellers is above 2 (180D · CEO, CFO)`.
+              <span
+                className={styles.previewConfiguration}
+                data-testid="preview-configuration"
+              >
+                {` (${line.configuration})`}
+              </span>
             ) : null}
             {line.kind === "TRIGGER" ? (
               <span className={styles.previewTag}> (trigger)</span>

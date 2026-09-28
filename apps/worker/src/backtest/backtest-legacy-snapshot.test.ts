@@ -36,7 +36,7 @@ import type {
   ClaimedBacktestJob,
   StaleJobRecovery,
 } from "./job-repository.js";
-import { parseRunSnapshot } from "./run-snapshot.js";
+import { BacktestSnapshotError, parseRunSnapshot } from "./run-snapshot.js";
 
 /**
  * A `BacktestRun` snapshot written **before** FINAL EXIT gained Exit Rules, executed by the current
@@ -445,5 +445,58 @@ describe("a schema version 1 run snapshot under the current worker", () => {
     // classification is the processor's existing one; only the fact of the refusal is asserted here.
     expect(repository.failures[0]?.code).toBeTruthy();
     expect(repository.failures[0]?.message).toBeTruthy();
+  });
+});
+
+/**
+ * A snapshot naming an operator the product removed (`is at least` / `is at most`, 2026-09-28).
+ *
+ * `>= 2` is not `> 2`, so such a document is never mapped onto a neighbouring operator: the boundary
+ * refuses it, wherever in the definition the operator sits and whichever schema it was written in.
+ */
+describe("a run snapshot naming a removed operator", () => {
+  it("is refused at the boundary, for a BUY Condition and for a schema version 1 FINAL EXIT alike", () => {
+    const buy = legacySnapshotDocument();
+    buy.strategy.definition.buyLevels[0]!.signal.conditions[0]!.operator =
+      "IS_AT_LEAST";
+    expect(() => parseRunSnapshot(buy)).toThrow(BacktestSnapshotError);
+    expect(() => parseRunSnapshot(buy)).toThrow(
+      "snapshot.strategy.definition.buyLevels[0].signal.conditions[0].operator IS_AT_LEAST " +
+        "is not an operator this engine defines",
+    );
+
+    // Read after the upcast, so the flat schema version 1 FINAL EXIT is reported as its one rule.
+    const exit = legacySnapshotDocument();
+    exit.strategy.definition.finalExit = {
+      id: "exit-1",
+      signal: {
+        conditions: [
+          { ...LEGACY_EXIT_SIGNAL.conditions[0]!, operator: "IS_AT_MOST" },
+        ],
+      },
+    };
+    expect(() => parseRunSnapshot(exit)).toThrow(
+      "snapshot.strategy.definition.finalExit.rules[0].signal.conditions[0].operator IS_AT_MOST",
+    );
+  });
+
+  it("fails the run before any data is prepared", async () => {
+    const stored = legacySnapshotDocument();
+    stored.strategy.definition.buyLevels[0]!.signal.conditions[0]!.operator =
+      "IS_AT_LEAST";
+    const frozen = structuredClone(stored);
+    const { processor, repository } = processorWith();
+
+    await processor.process(claimOf(stored), lease);
+
+    expect(repository.results).toEqual([]);
+    expect(repository.progress).toEqual([]);
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.detail).toMatchObject({
+      phase: "SNAPSHOT",
+      name: "BacktestSnapshotError",
+    });
+    // Refused, never rewritten: the stored document still says exactly what was submitted.
+    expect(stored).toEqual(frozen);
   });
 });

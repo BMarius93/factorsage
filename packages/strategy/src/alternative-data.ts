@@ -135,7 +135,7 @@ export type AlternativeDataObservation = {
  * `from` is the earliest date the ingested history can vouch for and `to` the last date it was
  * refreshed through. Outside it the column is absent, never zero: "this product holds no disclosure
  * history here" and "no insider bought" are different statements, and reporting the first as the
- * second would make `Insider sellers is at most 0` true across every year the data does not reach.
+ * second would make `Insider sellers is below 1` true across every year the data does not reach.
  */
 export type AlternativeDataCoverage = {
   from: LocalDate;

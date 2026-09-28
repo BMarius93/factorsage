@@ -196,6 +196,18 @@ describe("preflight rejection", () => {
     expect(strategies?.problems?.join(" ")).toContain("re-seed the matrix");
   });
 
+  it("reports a stored strategy the product can no longer read as drift, not as a crash", async () => {
+    // A matrix database seeded before the inclusive Condition operators were removed still holds
+    // rows naming them. The preflight must refuse the sweep and say how to fix it.
+    const report = await preflight({ legacyOperatorStrategy: "S01" });
+    const strategies = check(report, "fixture-strategies");
+    expect(strategies?.status).toBe("FAIL");
+    expect(strategies?.problems?.join(" ")).toContain(
+      "is no longer a valid strategy",
+    );
+    expect(strategies?.problems?.join(" ")).toContain("re-seed the matrix");
+  });
+
   it("refuses a list member with no catalog identity", async () => {
     const report = await preflight({ missingSymbols: ["NVDA"] });
     expect(check(report, "missing-symbols")?.status).toBe("FAIL");

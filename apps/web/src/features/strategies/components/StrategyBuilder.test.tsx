@@ -1,5 +1,7 @@
 import {
   STRATEGY_SCHEMA_VERSION,
+  strategyMetricLabel,
+  type StrategyCondition,
   type StrategyDetailResponse,
 } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -98,20 +100,27 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/**
- * Chooses a Metric on every row still waiting for one (UI-013), so a test about something else can
- * start from authored rows. `within` scopes it to one card or rule.
- */
-async function chooseMetrics(
+/** Chooses a Metric the way a user does: its category first, then the metric within it. */
+async function chooseMetric(
   user: ReturnType<typeof userEvent.setup>,
-  scope: Pick<typeof screen, "getAllByTestId"> = screen,
-  metric = "PRICE:",
+  row: HTMLElement,
+  category: string,
+  metric: string,
 ) {
-  for (const select of scope.getAllByTestId("metric-select")) {
-    if ((select as HTMLSelectElement).value === "") {
-      await user.selectOptions(select, metric);
-    }
+  await user.selectOptions(
+    within(row).getByTestId("metric-category-select"),
+    category,
+  );
+  const select = within(row).getByTestId("metric-select") as HTMLSelectElement;
+  if (select.value !== metric) {
+    await user.selectOptions(select, metric);
   }
+}
+
+function optionTexts(select: HTMLElement): (string | null)[] {
+  return within(select)
+    .getAllByRole("option")
+    .map((option) => option.textContent);
 }
 
 beforeEach(() => {
@@ -134,33 +143,51 @@ describe("StrategyBuilder", () => {
     expect(screen.getByText("Nothing to save yet")).toBeDefined();
   });
 
-  it("adds rows that author nothing until a metric is chosen (UI-013)", async () => {
+  it("adds every row on the first category's first metric, never on an empty one", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
 
-    // The new row asks for its Metric; no Condition or Value is shown for a placeholder.
+    // A complete rule: category, metric, condition and value, all chosen and all consistent.
+    const category = screen.getByTestId(
+      "metric-category-select",
+    ) as HTMLSelectElement;
     const metric = screen.getByTestId("metric-select") as HTMLSelectElement;
-    expect(metric.value).toBe("");
-    expect(screen.getByTestId("predicate-unset-hint")).toBeDefined();
-    expect(screen.queryByTestId("operator-select")).toBeNull();
-    // Nothing is described as logic yet.
+    expect(category.value).toBe("PRICE");
+    expect(metric.value).toBe("PRICE:");
+    expect(metric.selectedOptions[0]?.textContent).toBe("Price");
+    expect(
+      (screen.getByTestId("operator-select") as HTMLSelectElement).value,
+    ).toBe("IS_ABOVE");
+    expect(
+      (screen.getByTestId("value-control") as HTMLSelectElement).value,
+    ).toBe("SMA_20D");
     const preview = within(screen.getByTestId("logic-preview"));
-    expect(preview.queryByText(/Price is above/)).toBeNull();
-    // The count is neutral until the user engages, and the save stays closed.
+    expect(preview.getByText(/Price is above SMA 20D/)).toBeDefined();
+    // The count stays neutral until the user engages; the missing name keeps the save closed.
     expect(screen.getByTestId("issue-count").getAttribute("data-tone")).toBe(
       "neutral",
     );
     expect(screen.getByTestId("save-strategy")).toHaveProperty("disabled", true);
+  });
 
-    // Adding another condition creates another empty row, never a duplicate rule.
-    await user.click(screen.getByTestId("add-condition"));
-    await user.click(screen.getByTestId("issue-count"));
-    expect(screen.getAllByText("Choose a metric.")).toHaveLength(2);
-    expect(screen.queryByText(/repeats condition/)).toBeNull();
-
-    await user.selectOptions(screen.getAllByTestId("metric-select")[0]!, "PRICE:");
-    expect(preview.getByText(/Price is above/)).toBeDefined();
+  it("moves through Category, Metric, Condition and Value in that order from the keyboard", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={savedStrategy()} />);
+    const row = screen.getByTestId("predicate-row");
+    await user.click(within(row).getByTestId("metric-category-select"));
+    for (const next of ["metric-select", "operator-select", "value-control"]) {
+      await user.tab();
+      expect(document.activeElement).toBe(within(row).getByTestId(next));
+    }
+    expect(
+      within(row)
+        .getByTestId("metric-category-select")
+        .getAttribute("aria-label"),
+    ).toBe("Category");
+    expect(
+      within(row).getByTestId("metric-select").getAttribute("aria-label"),
+    ).toBe("Metric");
   });
 
   it("makes removing a level with authored logic recoverable (UI-014)", async () => {
@@ -204,7 +231,6 @@ describe("StrategyBuilder", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    await chooseMetrics(user);
 
     const operator = screen.getByTestId("operator-select");
     const priceOptions = within(operator)
@@ -213,8 +239,10 @@ describe("StrategyBuilder", () => {
     expect(priceOptions).toEqual(["is above", "is below", "is close to"]);
 
     // RSI does not expose `is close to` in V1.
-    await user.selectOptions(
-      screen.getByTestId("metric-select"),
+    await chooseMetric(
+      user,
+      screen.getByTestId("predicate-row"),
+      "OSCILLATORS",
       "OSCILLATOR:RSI_14D",
     );
     expect(
@@ -228,8 +256,10 @@ describe("StrategyBuilder", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    await user.selectOptions(
-      screen.getByTestId("metric-select"),
+    await chooseMetric(
+      user,
+      screen.getByTestId("predicate-row"),
+      "MOVING_AVERAGES",
       "MOVING_AVERAGE:SMA_50D",
     );
 
@@ -246,8 +276,10 @@ describe("StrategyBuilder", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    await user.selectOptions(
-      screen.getByTestId("metric-select"),
+    await chooseMetric(
+      user,
+      screen.getByTestId("predicate-row"),
+      "OSCILLATORS",
       "OSCILLATOR:RSI_14D",
     );
 
@@ -258,53 +290,53 @@ describe("StrategyBuilder", () => {
     expect((value as HTMLInputElement).value).toBe("50");
   });
 
-  it("offers no Gain or Loss metric in a BUY level, and both in a SELL level", async () => {
+  it("offers no Position category in a BUY level, and Gain and Loss under it in a SELL level", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    const buyMetrics = within(screen.getByTestId("metric-select"))
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(buyMetrics).not.toContain("Gain");
-    expect(buyMetrics).not.toContain("Loss");
+    expect(
+      optionTexts(screen.getByTestId("metric-category-select")),
+    ).not.toContain("Position");
 
     await user.click(screen.getByTestId("add-level-SELL"));
     const sellCard = screen.getByTestId("level-card-SELL");
-    const sellMetrics = within(within(sellCard).getByTestId("metric-select"))
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(sellMetrics).toContain("Gain");
-    expect(sellMetrics).toContain("Loss");
+    expect(
+      optionTexts(within(sellCard).getByTestId("metric-category-select")),
+    ).toContain("Position");
+    await user.selectOptions(
+      within(sellCard).getByTestId("metric-category-select"),
+      "POSITION",
+    );
+    expect(optionTexts(within(sellCard).getByTestId("metric-select"))).toEqual([
+      "Gain",
+      "Loss",
+    ]);
   });
 
   it("offers Relative Volume in a Signal's conditions, at the three fixed periods", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-
-    const options = within(screen.getByTestId("metric-select"))
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(options).toContain("RVOL 10");
-    expect(options).toContain("RVOL 20");
-    expect(options).toContain("RVOL 50");
-    // Exactly three, under one heading: no custom window, and no second volume indicator.
-    expect(options.filter((label) => label?.startsWith("RVOL "))).toHaveLength(
-      3,
+    await user.selectOptions(
+      screen.getByTestId("metric-category-select"),
+      "VOLUME",
     );
-    expect(
-      within(screen.getByTestId("metric-select"))
-        .getAllByRole("group")
-        .map((group) => group.getAttribute("label")),
-    ).toContain("Volume");
+    // Exactly three, in one category: no custom window, and no second volume indicator.
+    expect(optionTexts(screen.getByTestId("metric-select"))).toEqual([
+      "RVOL 10",
+      "RVOL 20",
+      "RVOL 50",
+    ]);
   });
 
   it("authors an RVOL condition as a multiple, and describes it that way", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    await user.selectOptions(
-      screen.getByTestId("metric-select"),
+    await chooseMetric(
+      user,
+      screen.getByTestId("predicate-row"),
+      "VOLUME",
       "RELATIVE_VOLUME:20",
     );
 
@@ -333,23 +365,17 @@ describe("StrategyBuilder", () => {
     await user.click(screen.getByTestId("add-level-BUY"));
     await user.click(screen.getByTestId("add-trigger"));
 
-    const selects = screen.getAllByTestId(
-      "metric-select",
-    ) as HTMLSelectElement[];
-    // The last row is the Trigger; the first is the Condition it was added beside.
-    const triggerOptions = within(selects.at(-1)!)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(
-      triggerOptions.some((label) => label?.startsWith("RVOL ")),
-    ).toBe(false);
-    // …and the Condition row above it still offers all three, so this is a part rule.
-    const conditionOptions = within(selects[0]!)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(
-      conditionOptions.filter((label) => label?.startsWith("RVOL ")),
-    ).toHaveLength(3);
+    const categories = screen.getAllByTestId("metric-category-select");
+    // The last row is the Trigger; the first is the Condition it was added beside. The condition-only
+    // families — Volume and both alternative-data categories — are simply not offered to a Trigger.
+    expect(optionTexts(categories.at(-1)!)).toEqual([
+      "Price",
+      "Moving averages",
+      "Oscillators",
+      "Valuation",
+    ]);
+    // …and the Condition row above it still offers Volume, so this is a part rule.
+    expect(optionTexts(categories[0]!)).toContain("Volume");
   });
 
   it("shows a percentage control on BUY and SELL levels and none on FINAL EXIT", async () => {
@@ -380,8 +406,7 @@ describe("StrategyBuilder", () => {
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
     await user.click(screen.getByTestId("add-condition"));
-    // The user chooses the same Metric twice; operator and value default identically.
-    await chooseMetrics(user);
+    // Both rows start as the same complete rule, so the second repeats the first until edited.
     expect(screen.getAllByTestId("predicate-row")).toHaveLength(2);
     // Save stays disabled, so the issue count is the way to see what is wrong.
     expect(screen.getByTestId("save-strategy")).toHaveProperty(
@@ -393,6 +418,88 @@ describe("StrategyBuilder", () => {
     expect(screen.getAllByTestId("predicate-row")).toHaveLength(2);
   });
 
+  it("reports a repeated condition once any field of that row is touched, not before", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-condition"));
+    const [first, second] = screen.getAllByTestId("predicate-row");
+    // Nothing the user wrote is wrong yet: the repeat is the default rule, not their logic.
+    expect(screen.queryByText(/repeats condition 1/)).toBeNull();
+
+    // Touching the first row says nothing about the second.
+    await user.click(within(first!).getByTestId("operator-select"));
+    await user.tab();
+    expect(screen.queryByText(/repeats condition 1/)).toBeNull();
+
+    // The issue belongs to the row rather than to one field, so any of its fields reveals it.
+    await user.click(within(second!).getByTestId("operator-select"));
+    await user.tab();
+    expect(within(second!).getByRole("alert").textContent).toMatch(
+      /repeats condition 1/,
+    );
+    expect(within(first!).queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps explaining the focused rule when a rule before it is removed", async () => {
+    const user = userEvent.setup();
+    const rsi: StrategyCondition = {
+      id: "c2",
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      operator: "IS_BELOW",
+      value: { kind: "NUMBER", value: 30 },
+    };
+    const saved = savedStrategy();
+    render(
+      <StrategyBuilder
+        strategy={{
+          ...saved,
+          definition: {
+            ...saved.definition,
+            buyLevels: [
+              {
+                id: "buy-1",
+                percentage: 25,
+                signal: {
+                  conditions: [
+                    saved.definition.buyLevels[0]!.signal.conditions[0]!,
+                    rsi,
+                    {
+                      id: "c3",
+                      metric: { kind: "RELATIVE_VOLUME", period: 20 },
+                      operator: "IS_ABOVE",
+                      value: { kind: "MULTIPLE", value: 2 },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    const explained = () =>
+      within(screen.getByTestId("explanation-panel")).getByRole("heading")
+        .textContent;
+
+    await user.click(
+      within(screen.getAllByTestId("predicate-row")[1]!).getByTestId(
+        "metric-select",
+      ),
+    );
+    expect(explained()).toBe(strategyMetricLabel(rsi.metric));
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove condition 1" }),
+    );
+    const [moved, last] = screen.getAllByTestId("predicate-row");
+    // The explanation follows the rule into its new position; it never passes to the rule that
+    // now holds the old one.
+    expect(explained()).toBe(strategyMetricLabel(rsi.metric));
+    expect(within(moved!).queryByTestId("inline-help")).not.toBeNull();
+    expect(within(last!).queryByTestId("inline-help")).toBeNull();
+  });
+
   it("saves a valid new strategy and routes to its own page", async () => {
     const user = userEvent.setup();
     createStrategyMock.mockResolvedValue(savedStrategy());
@@ -400,7 +507,6 @@ describe("StrategyBuilder", () => {
 
     await user.type(screen.getByLabelText("Name"), "Deep value");
     await user.click(screen.getByTestId("add-level-BUY"));
-    await chooseMetrics(user);
     await user.click(screen.getByTestId("save-strategy"));
 
     await waitFor(() => expect(createStrategyMock).toHaveBeenCalledTimes(1));
@@ -442,7 +548,12 @@ describe("StrategyBuilder", () => {
     render(<StrategyBuilder strategy={strategy} />);
 
     await user.click(screen.getByTestId("add-level-BUY"));
-    await chooseMetrics(user, screen, "OSCILLATOR:RSI_14D");
+    await chooseMetric(
+      user,
+      screen.getAllByTestId("predicate-row").at(-1)!,
+      "OSCILLATORS",
+      "OSCILLATOR:RSI_14D",
+    );
     await user.click(screen.getByTestId("save-strategy"));
 
     await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalledTimes(1));
@@ -467,7 +578,6 @@ describe("StrategyBuilder", () => {
 
     await user.type(screen.getByLabelText("Name"), "Deep value");
     await user.click(screen.getByTestId("add-level-BUY"));
-    await chooseMetrics(user);
 
     expect(navigateAway().preventDefault).toHaveBeenCalledTimes(1);
     expect(confirm).toHaveBeenCalledTimes(1);
@@ -503,7 +613,6 @@ describe("StrategyBuilder", () => {
 
     await user.type(screen.getByLabelText("Name"), "Deep value");
     await user.click(screen.getByTestId("add-level-BUY"));
-    await chooseMetrics(user);
     await user.click(screen.getByTestId("save-strategy"));
     await screen.findByText("All changes saved");
 
@@ -577,7 +686,6 @@ describe("StrategyBuilder final exit rules", () => {
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
     await user.click(screen.getByTestId("add-level-FINAL_EXIT"));
-    await chooseMetrics(user);
     return user;
   }
 
@@ -675,7 +783,6 @@ describe("StrategyBuilder final exit rules", () => {
     await user.click(exitCard().getByTestId("add-exit-rule"));
     // Make rule 2 different, so the document is valid and the preview reads distinctly.
     const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
-    await chooseMetrics(user, secondRule);
     await user.selectOptions(
       secondRule.getAllByTestId("operator-select")[0] as HTMLElement,
       "IS_BELOW",
@@ -713,7 +820,6 @@ describe("StrategyBuilder final exit rules", () => {
     const user = await builderWithFinalExit();
     await user.click(exitCard().getByTestId("add-exit-rule"));
     const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
-    await chooseMetrics(user, secondRule);
     await user.selectOptions(
       secondRule.getAllByTestId("operator-select")[0] as HTMLElement,
       "IS_BELOW",

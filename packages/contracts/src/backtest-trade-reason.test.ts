@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { backtestTradeReason, backtestTradeReasonIndex } from "./backtests.js";
+import {
+  backtestSnapshotScopeNames,
+  backtestTradeReason,
+  backtestTradeReasonIndex,
+} from "./backtests.js";
 import {
   STRATEGY_SCHEMA_VERSION,
   type StrategyDefinition,
@@ -240,5 +244,64 @@ describe("backtestTradeReason", () => {
   it("says nothing for a level the snapshot does not contain", () => {
     expect(reasonFor({ action: "BUY", levelId: "gone" })).toBeNull();
     expect(reasonFor({ action: "BUY", levelId: null })).toBeNull();
+  });
+
+  it("describes a configured metric with its configuration, naming the group the run froze", () => {
+    const definition: StrategyDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 100,
+          signal: {
+            conditions: [
+              {
+                id: "c1",
+                metric: {
+                  kind: "CONGRESS_ACTIVITY",
+                  measure: "BUYERS",
+                  lookback: 180,
+                  scope: { kind: "GROUP", groupId: "g1" },
+                  chamber: "HOUSE",
+                },
+                operator: "IS_ABOVE",
+                value: { kind: "NUMBER", value: 1 },
+              },
+            ],
+          },
+        },
+      ],
+      sellLevels: [],
+    };
+    const trade = {
+      source: "STRATEGY",
+      action: "BUY",
+      levelId: "b1",
+      exitRuleId: null,
+    } as const;
+    // The snapshot's own frozen name, never the group as it stands today.
+    const names = backtestSnapshotScopeNames({
+      actorGroups: [{ groupId: "g1", name: "House leadership", members: [] }],
+    });
+    expect(
+      backtestTradeReason(backtestTradeReasonIndex(definition, names), trade),
+    ).toEqual({
+      kind: "STRATEGY",
+      conditions: [
+        "Congress buyers is above 1 (180D · House leadership · House)",
+      ],
+    });
+    // A run that froze no group still says honestly that the rule was scoped.
+    expect(
+      backtestTradeReason(
+        backtestTradeReasonIndex(definition, backtestSnapshotScopeNames({})),
+        trade,
+      ),
+    ).toEqual({
+      kind: "STRATEGY",
+      conditions: [
+        "Congress buyers is above 1 (180D · Selected group · House)",
+      ],
+    });
   });
 });

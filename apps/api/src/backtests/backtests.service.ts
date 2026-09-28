@@ -7,6 +7,7 @@ import {
   type StrategyDefinition,
   backtestAnnualReturns,
   backtestPeriodYears,
+  backtestSnapshotScopeNames,
   backtestTradeReason,
   backtestTradeReasonIndex,
   BACKTEST_MAX_SECURITIES,
@@ -1099,10 +1100,13 @@ export class BacktestsService {
       take: pageSize,
     });
     // The run's own frozen definition — never the strategy as it stands today — described once for
-    // the whole page.
+    // the whole page, naming any actor group by the name the run froze.
+    const snapshot = withCanonicalStrategyDefinition(
+      readSnapshot(run.snapshot),
+    );
     const reasons = backtestTradeReasonIndex(
-      withCanonicalStrategyDefinition(readSnapshot(run.snapshot)).strategy
-        .definition,
+      snapshot.strategy.definition,
+      backtestSnapshotScopeNames(snapshot),
     );
     return {
       items: rows.map((row) => tradeOf(row, reasons)),

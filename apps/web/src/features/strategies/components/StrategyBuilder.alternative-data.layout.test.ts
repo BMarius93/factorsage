@@ -45,8 +45,31 @@ describe("the alternative-data operand summary", () => {
   });
 
   it("truncates the summary itself instead of widening the row", () => {
-    const body = ruleBody(".operandScope");
+    const body = ruleBody(".operandConfiguration");
     expect(body).toContain("text-overflow: ellipsis");
     expect(body).toContain("white-space: nowrap");
+  });
+});
+
+describe("the Category / Metric / Condition / Value fields", () => {
+  it("lay out by the width the list actually has, not by the viewport", () => {
+    // The same list is full-width on a tablet and two-thirds of the page beside the explanation
+    // panel, so only its own width can say whether four controls fit on one line.
+    expect(ruleBody(".predicateList")).toContain(
+      "container: predicate-list / inline-size",
+    );
+  });
+
+  it("read as two short lines in a narrow list, so no control is squeezed", () => {
+    expect(ruleBody(".predicateFields")).toContain(
+      "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);",
+    );
+  });
+
+  it("read as one sentence once the list is wide enough for all four", () => {
+    const wide = css.indexOf("@container predicate-list (min-width: 680px)");
+    expect(wide).toBeGreaterThan(-1);
+    const body = ruleBody(".predicateFields", wide);
+    expect(body.match(/minmax\(/g)).toHaveLength(4);
   });
 });

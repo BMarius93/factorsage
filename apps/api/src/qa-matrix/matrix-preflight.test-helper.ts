@@ -1,6 +1,9 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeStrategyDefinition } from "@intrinsic/contracts";
+import {
+  normalizeStrategyDefinition,
+  type StrategyDefinition,
+} from "@intrinsic/contracts";
 import type { PrismaClient } from "@intrinsic/database";
 import {
   DAILY_DERIVED_STATE_VARIANT,
@@ -37,6 +40,11 @@ export type StubOptions = {
   missingLists?: readonly string[];
   /** Corrupt the stored definition of this strategy fixture id. */
   driftedStrategy?: string;
+  /**
+   * Store this strategy fixture id as written before the inclusive Condition operators were removed:
+   * its first BUY condition names `IS_AT_LEAST`, exactly as the persisted row would.
+   */
+  legacyOperatorStrategy?: string;
   /** Symbols with no `Security` row. */
   missingSymbols?: readonly string[];
   /** Symbols whose prices start here instead of covering the horizon. */
@@ -145,7 +153,11 @@ export function stubPrisma(
                   ...fixture.definition,
                   buyLevels: fixture.definition.buyLevels.slice(0, 1),
                 })
-              : normalizeStrategyDefinition(fixture.definition),
+              : options.legacyOperatorStrategy === fixture.id
+                ? withLegacyOperator(
+                    normalizeStrategyDefinition(fixture.definition),
+                  )
+                : normalizeStrategyDefinition(fixture.definition),
         },
       ],
     }));
@@ -288,4 +300,32 @@ export function stubPrisma(
     },
   };
   return stub as unknown as PrismaClient;
+}
+
+/** A stored document whose first BUY condition still names the removed `IS_AT_LEAST`. */
+function withLegacyOperator(definition: StrategyDefinition): unknown {
+  const [first, ...rest] = definition.buyLevels;
+  const [condition, ...conditions] = first?.signal.conditions ?? [];
+  if (!first || !condition) {
+    // A fixture with nothing to rewrite would quietly store a valid row and prove nothing.
+    throw new Error(
+      "legacyOperatorStrategy needs a fixture whose first BUY level has a condition",
+    );
+  }
+  return {
+    ...definition,
+    buyLevels: [
+      {
+        ...first,
+        signal: {
+          ...first.signal,
+          conditions: [
+            { ...condition, operator: "IS_AT_LEAST" },
+            ...conditions,
+          ],
+        },
+      },
+      ...rest,
+    ],
+  };
 }

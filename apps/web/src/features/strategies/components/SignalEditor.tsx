@@ -67,6 +67,13 @@ export function SignalEditor({
                 touch={touch}
                 connector={conditionIndex === 0 ? null : "AND"}
                 removeLabel={`Remove condition ${conditionIndex + 1}`}
+                onSetCategory={(category) =>
+                  dispatch({
+                    type: "setCategory",
+                    ref: { ...levelRef, part: "CONDITION", conditionIndex },
+                    category,
+                  })
+                }
                 onSetMetric={(metric) =>
                   dispatch({
                     type: "setMetric",
@@ -127,6 +134,13 @@ export function SignalEditor({
               touch={touch}
               connector={signal.conditions.length > 0 ? "AND" : null}
               removeLabel="Remove trigger"
+              onSetCategory={(category) =>
+                dispatch({
+                  type: "setCategory",
+                  ref: { ...levelRef, part: "TRIGGER" },
+                  category,
+                })
+              }
               onSetMetric={(metric) =>
                 dispatch({
                   type: "setMetric",

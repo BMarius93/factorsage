@@ -84,7 +84,7 @@ things:
 
 | Boundary | Projection | Why |
 | --- | --- | --- |
-| `parseRunSnapshot` (worker) | `withExecutableStrategyDefinition` — document upcast only | Its job is to run what was submitted. The API validated that document when it wrote it, and re-validating would let a later release's stricter rule refuse a snapshot the worker has always executed. |
+| `parseRunSnapshot` (worker) | `withExecutableStrategyDefinition` — document upcast only | Its job is to run what was submitted. The API validated that document when it wrote it, and re-validating would let a later release's stricter rule refuse a snapshot the worker has always executed. It refuses only an operator the engine no longer defines (`is at least` / `is at most`, 2026-09-28), which it has no meaning for and must not map. |
 | `getRunStrategy` (API) | `withCanonicalStrategyDefinition` — full normalization | Its job is to honour a published contract. `BacktestRunStrategyResponse.definition` is the current `StrategyDefinition`, so returning an older document verbatim would publish a shape the contract does not describe. |
 
 Neither writes. The stored snapshot stays exactly what was submitted, which is the whole point of

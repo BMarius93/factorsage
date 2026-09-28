@@ -192,7 +192,8 @@ export type StrategyMetricDefinition = {
   kind: StrategyMetric["kind"];
   /** Catalog-backed metrics carry no label here; theirs comes from the catalog. */
   label?: string;
-  group: "PRICE" | "OSCILLATORS" | "VALUATION" | "POSITION";
+  /** The first of the Builder's two metric controls; see "Categories" below. */
+  category: StrategyMetricCategoryId;
   /** Catalog ids this metric may be instantiated with (moving averages, RSI periods, MOS sources). */
   parameterSeriesIds?: readonly SelectableSeriesId[];
   /**
@@ -249,13 +250,17 @@ presentation choice — a technical decision, not a product bound.
 ### Exported functions
 
 ```ts
-strategyMetricOptions(levelKind): readonly StrategyMetricOption[]  // grouped, ordered
+strategyMetricOptions(levelKind, part): readonly StrategyMetricOption[]      // flat, in category order
+strategyMetricCategories(levelKind, part): readonly StrategyMetricCategory[] // the same, partitioned
+strategyMetricCategory(metric): StrategyMetricCategoryId                    // derived, never stored
+defaultStrategyMetric(levelKind, part, category?): StrategyMetric | undefined
 conditionOperatorsFor(metric): readonly ConditionOperator[]
 triggerOperatorsFor(metric): readonly TriggerOperator[]
 valueSpecFor(metric, operator): StrategyValueSpec   // resolves per-instance series sets
 defaultValueFor(metric, operator): StrategyValue
 
-strategyMetricLabel(metric): string
+strategyMetricLabel(metric): string            // identity only — never configuration
+describeMetricConfiguration(metric, names?): string | null  // "180D · CEO, CFO"
 strategyValueLabel(value): string
 conditionOperatorLabel(op): string   // "is above" | "is below" | "is close to"
 triggerOperatorLabel(op): string     // "crosses above" | "crosses below"
@@ -267,10 +272,22 @@ nothing else. A source label can carry its own parentheses, so `strategyMetricLa
 in **one** function — a composition, not a second label map.
 A parity test (§ 11) asserts this, which is what keeps invariant 9 true.
 
-**Ordering.** Metric options are grouped
-`PRICE → MOVING_AVERAGES → OSCILLATORS → VALUATION → POSITION`, and inside the catalog-backed
-groups the order is the catalog's own (daily moving averages before weekly). That top-level grouping is Strategy
-metadata the catalog does not define, so it lives here once.
+An alternative-data metric's label is its measure alone — `Insider sellers` — because its lookback,
+scope and filters are **configuration**, edited after the metric is chosen. A label that carried the
+lookback was invalidated by the first Configure change: the selector, built from each measure's
+default instance, read `Insider sellers 20D` while the rest of the page read `180D`.
+`describeMetricConfiguration` is the one rendering of configuration (lookback first, then whatever
+narrows the metric, filters in canonical order), and every surface prints the two side by side.
+
+**Categories and ordering.** Metric options are categorized
+`PRICE → MOVING_AVERAGES → OSCILLATORS → VOLUME → VALUATION → POSITION → INSIDER_ACTIVITY →
+CONGRESSIONAL_TRADING` (`STRATEGY_METRIC_CATEGORIES`, labels in `STRATEGY_METRIC_CATEGORY_LABELS`),
+and inside the catalog-backed categories the order is the catalog's own (daily moving averages before
+weekly). That top-level categorization is Strategy metadata the catalog does not define, so it lives
+here once. The Builder names a metric with two selects over it — the category, then the metric within
+it — and `strategyMetricCategories` is what both read; a category with nothing to offer a level kind
+or a half of a Signal is absent rather than empty. A metric's category is a property of its kind, so
+it is never stored and a row can never hold a category and a metric that disagree.
 
 The legacy builder prioritized a "Most used" section that was reordered per BUY/SELL tone
 (`displayPriorityByTone` in `ConditionBuilder.tsx`). **Do not port it.** Invariant 9 forbids a
@@ -282,14 +299,20 @@ divergent order. If it is wanted later it must become registry metadata, not com
 ```ts
 export type StrategyPreviewLine =
   | { kind: "LEVEL"; levelKind: StrategyLevelKind; index?: number; percentage?: number }
-  | { kind: "CONDITION"; text: string; connector?: "AND" }
-  | { kind: "TRIGGER"; text: string }
+  | { kind: "CONDITION"; text: string; configuration?: string; connector?: "AND" }
+  | { kind: "TRIGGER"; text: string; configuration?: string; connector?: "AND" }
   | { kind: "EMPTY"; levelKind: StrategyLevelKind };
 
-describeCondition(condition): string
-describeTrigger(trigger): string
-describeStrategy(definition): readonly StrategyPreviewLine[]
+describeCondition(condition, names?): string   // "Insider sellers is above 2 (180D · CEO, CFO)"
+describeTrigger(trigger, names?): string
+describeStrategy(definition, names?): readonly StrategyPreviewLine[]
 ```
+
+A line's `text` is the metric's identity, the operator and the Value; `configuration` is
+`describeMetricConfiguration`, present exactly when the metric has any. With the configuration in
+parentheses they are the one canonical sentence `describeCondition` returns, which is also what a
+backtest's trade reasons (named from the run's frozen snapshot) and the Dashboard print — where
+Conditions are joined with "and", so an enclosed configuration's own comma list stays unambiguous.
 
 Structured lines, not one string. The legacy implementation generated a formula string and then
 re-parsed it with regular expressions to humanize it (`humanizeSingleClause` in
@@ -543,8 +566,8 @@ apps/web/src/features/strategies/
     LevelCard.tsx            # one BUY/SELL level: tone, ordinal, percentage, remove, reorder
     FinalExitCard.tsx        # FINAL EXIT: one card, its Exit Rules, the OR dividers, + Add exit rule
     SignalEditor.tsx         # Conditions block + optional Trigger block
-    PredicateRow.tsx         # Metric / operator / Value — one component, two modes
-    MetricSelect.tsx  OperatorSelect.tsx  ValueControl.tsx
+    PredicateRow.tsx         # Category / Metric / operator / Value — one component, two modes
+    CategorySelect.tsx  MetricSelect.tsx  OperatorSelect.tsx  ValueControl.tsx
     LevelPercentageSelect.tsx
     ExplanationPanel.tsx     # desktop right column
     LogicPreview.tsx         # renders StrategyPreviewLine[]
@@ -556,27 +579,33 @@ apps/web/src/features/strategies/
 
 State boundaries, each owning exactly one thing:
 
-- **Draft** — a `useReducer` over `{ name, description, definition, unset }`. `unset` lists the
-  Condition/Trigger rows an "+ Add" created whose Metric the user has not chosen yet (UI-013): the
-  canonical document has no "no metric" value, so such a row holds a placeholder and is listed until
-  `setMetric` names it. An unset row authors no logic — validation reports only "Choose a metric."
-  for it (never a duplicate or operator issue about the placeholder), the logic preview reads
-  `authoredDefinition`, and the draft cannot be saved while one remains, so the persisted document,
-  its semantics and its fingerprint never contain a placeholder. The reducer lives in
+- **Draft** — a `useReducer` over `{ name, description, definition }`. Every row in it is a complete
+  rule: an "+ Add" creates the first category's first metric (`defaultStrategyMetric`) with its
+  default Condition and Value, so there is never a row without a valid category and metric. (This
+  supersedes UI-013's "Choose a metric…" placeholder rows: with a Category control and a Metric
+  control, an unchosen row would be an empty or mismatched pair.) A second new row that repeats the
+  first is reported as a duplicate once touched or saved, never removed. The reducer lives in
   `utils/strategy-draft.ts` as a pure function so it is unit-testable without React. Actions:
   `addLevel`, `removeLevel`, `moveLevel`, `setPercentage`, `addCondition`, `removeCondition`,
-  `setMetric`, `setOperator`, `setValue`, `setTrigger`, `removeTrigger`, `setName`,
-  `setDescription`, `reset`.
+  `setCategory`, `setMetric`, `setOperator`, `setValue`, `addTrigger`, `removeTrigger`,
+  `addExitRule`, `removeExitRule`, `setName`, `setDescription`, `reset`.
 - **Cascading resets belong in the reducer, not in components.** `setMetric` must clear an operator
   the new metric does not support and replace the Value with `defaultValueFor(...)`; `setOperator`
-  must do the same for the Value. Doing this in the reducer is what makes an invalid intermediate
-  state unreachable rather than merely flagged.
+  must do the same for the Value; `setCategory` installs the category's first metric through the
+  same path. A newly chosen metric always starts at its own default configuration, so nothing of the
+  previous metric's lookback, scope or filters can survive a change of metric or category. Doing
+  this in the reducer is what makes an invalid intermediate state unreachable rather than merely
+  flagged.
 - **Validation** — derived, never stored:
   `useMemo(() => validateStrategyDefinition(draft), [draft])`. No component holds a rule.
 - **Touched fields** — a `Set<string>` of issue-path keys, for the "show errors after touch"
   behaviour in § 10. UI-only, separate from the draft.
-- **Focus context** — which predicate row or control is active, driving the explanation panel.
-  UI-only, separate from the draft, so typing in a row does not re-render the whole editor.
+- **Focus context** — which control of which predicate row is active (the row's id plus the
+  field), driving the explanation panel. UI-only, separate from the draft, so typing in a row does
+  not re-render the whole editor. It records a **row**, never a copy of it: the panel reads the
+  focused field back from the draft whenever it draws, so a configuration applied from the
+  Configure dialog is described the moment it lands. An id rather than a position, so removing a
+  rule or level above the focused one never passes the explanation to the row that moves up.
 - **Server state** — `use-strategy` mirrors `use-stock-list` exactly, including treating 404 as a
   product state rather than an error.
 
@@ -640,11 +669,15 @@ else; there is no Stock List, period, capital or `maximumPositions` control anyw
 └─────────────────────────────────────────────────────────┘
 ```
 
-Predicate row grid:
-`grid-template-columns: minmax(150px, 1.3fr) minmax(130px, 0.9fr) minmax(150px, 1.3fr) 32px`.
-The Metric and Value columns are equally weighted so the row reads as a sentence rather than
-tapering. `AND` connectors render between condition rows, not as a control — the product forbids
-exposing boolean-expression vocabulary as an editable operator.
+Predicate row fields: **Category, Metric, Condition, Value**, in that order. The list is a size
+container (`container: predicate-list / inline-size`), so the fields lay out by the width the list
+actually has — full-width below 960px, two-thirds of the page beside the explanation panel above it:
+two to a line (Category and Metric, then Condition and Value) in a narrow list, all four on one line
+once the list is at least 680px wide. The two metric controls together take about the space the
+single Metric control used to, so the row gets no wider. A configurable metric adds one line beneath
+the fields: `Configure` and its configuration summary. `AND` connectors render between condition
+rows, not as a control — the product forbids exposing boolean-expression vocabulary as an editable
+operator.
 
 **Tone.** BUY = `--color-positive` / `--color-positive-soft`, SELL = `--color-negative` /
 `--color-negative-soft`, FINAL EXIT = `--color-warning` / `--color-warning-soft`, drawn as a 3px
@@ -665,7 +698,8 @@ band.
 A dedicated composition, not the desktop grid narrowed. Single column below 1280px; the treatments
 below apply below 600px unless stated.
 
-**Predicate row — two lines, never clipped, never horizontally scrolled:**
+**Predicate row — two lines, never clipped, never horizontally scrolled** (as implemented:
+Category and Metric on the first line, Condition and Value on the second):
 
 ```text
 ┌───────────────────────────────────────┐
@@ -725,7 +759,9 @@ and the save action moves into the sticky page header.
 
 ## 10. Contextual explanation and logic preview
 
-**Content lives in contracts**, beside the registry, keyed by the same identities:
+**Content lives in contracts**, beside the registry, keyed by the same identities. For a metric the
+panel also names its category above the title and its current configuration beneath it, from
+`STRATEGY_METRIC_CATEGORY_LABELS` and `describeMetricConfiguration`:
 
 ```ts
 STRATEGY_METRIC_HELP: Record<
@@ -823,8 +859,9 @@ to fill in, the count is neutral ("2 things left to complete") until a field is 
 is attempted, and only then reads as "2 issues to fix" (UI-013).
 
 **Removing authored logic is recoverable** (UI-014). Remove is neutral ink, never red at rest.
-Removing a level or Exit Rule that holds a chosen Metric keeps the previous draft until the next
-edit or save, and the save bar offers "Undo"; removing an empty level needs no ceremony.
+Removing a level or Exit Rule that holds any rule keeps the previous draft until the next edit or
+save, and the save bar offers "Undo"; removing one whose rules were all removed needs no ceremony.
+A new level starts with a complete rule, so removing even a just-added level offers Undo.
 
 **Identity** (UI-015). An existing strategy's page is titled with its name. Its header offers
 "Run backtest" (New Backtest prefilled with the strategy — the saved version) and an overflow with
@@ -837,6 +874,8 @@ keyed by level and condition index, so each control asks for its own:
 
 - field issues (`METRIC`/`OPERATOR`/`VALUE`) render under the control, with `aria-invalid` and
   `aria-describedby`;
+- row issues (`DUPLICATE_CONDITION`) render under the row; they concern no single field, so touching
+  any of the row's fields reveals them;
 - level issues (`SIGNAL_EMPTY`, `PERCENTAGE_INVALID`) render inside the level card header area;
 - strategy issues (`NAME_REQUIRED`, `BUY_LEVEL_REQUIRED`, `TOO_MANY_LEVELS`) render next to the
   field or at the top of the editor column.

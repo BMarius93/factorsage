@@ -16,15 +16,17 @@ import type { ContentOwnershipResponse } from "./builtins.js";
  *
  * Every entry here resolves to one number per eligible trading session, exactly like `RSI 14D` or
  * `RVOL 20`, so it is an ordinary Strategy Metric in the existing
- * `[metric] [condition] [value]` grammar. What is new is that some of them carry **configuration**
- * — a lookback, an actor scope, a role or owner filter — which belongs to the metric itself and
- * never becomes a fourth column in the condition row.
+ * `[metric] [condition] [value]` grammar. What is new is that they carry **configuration** — a
+ * lookback, an actor scope, a role or owner filter — which belongs to the metric itself and never
+ * becomes a fourth column in the condition row. The measure is the metric's identity; the
+ * configuration is not part of its label (`strategyMetricLabel`) and is rendered beside it by
+ * {@link describeAlternativeDataConfiguration}.
  *
  * ## Why the lookback window is measured on the observable session
  *
  * A disclosure has two dates: when the trade happened and when the filing became public. A
- * backtest may only ever see the second. `Congress purchases 30D` therefore counts the purchases
- * **disclosed** in the last thirty sessions, not the purchases *made* in them — a congressional
+ * backtest may only ever see the second. `Congress purchases` over a 30-session lookback therefore
+ * counts the purchases **disclosed** in the last thirty sessions, not the purchases *made* in them — a congressional
  * disclosure routinely lags its transaction by up to forty-five days, so windowing on the
  * transaction date would produce a metric that is almost always zero while still looking correct.
  * The transaction date is preserved on every row and is what the product reports; it is simply not
@@ -248,7 +250,10 @@ export const ALTERNATIVE_DATA_UNITS = ["COUNT", "MONEY"] as const;
 export type AlternativeDataUnit = (typeof ALTERNATIVE_DATA_UNITS)[number];
 
 export type AlternativeDataMeasureDefinition = {
-  /** The product label, without its lookback. `strategyMetricLabel` appends that. */
+  /**
+   * The measure's product label, which is the metric's whole identity label. The lookback is
+   * configuration and is never part of it.
+   */
   label: string;
   filter: AlternativeDataFactFilter;
   aggregation: AlternativeDataAggregation;
@@ -747,20 +752,20 @@ export function describeActorScope(
 }
 
 /**
- * The subtle secondary line under a configured first operand, or `null` when there is nothing to
- * add.
+ * One configured metric's configuration in words: the lookback first, then whatever the user
+ * narrowed, joined by ` · `.
  *
- * Only what the user actually narrowed appears. The lookback is deliberately absent: it is already
- * part of the metric label (`Insider buyers 20D`), and repeating it would make the commonest case —
- * a metric with no filters at all — carry a redundant line.
+ * The lookback always appears, because it is configuration rather than part of the metric's label —
+ * `Insider sellers` reads `20D` or `180D` here and nowhere else. A scope, chamber, owner or role
+ * filter appears only when one narrows the metric; "anyone" and "any chamber" add nothing.
  *
- * Examples: `Superinvestors`, `Congress Watchlist · Senate · Self, Spouse`, `CEO, CFO, Director`.
+ * Examples: `20D`, `180D · CEO, CFO`, `30D · Congress Watchlist · Senate · Self, Spouse`.
  */
 export function describeAlternativeDataConfiguration(
   metric: AlternativeDataMetric,
   names: ActorScopeNames = {},
-): string | null {
-  const parts: string[] = [];
+): string {
+  const parts: string[] = [alternativeDataLookbackLabel(metric.lookback)];
   const scope = alternativeDataScope(metric);
   if (scope) {
     const described = describeActorScope(scope, names);
@@ -768,24 +773,30 @@ export function describeAlternativeDataConfiguration(
       parts.push(described);
     }
   }
+  // Filters are listed in canonical order, never in the order a document happens to hold them: one
+  // configuration reads one way before normalization, after it, and on every surface.
   if (metric.kind === "CONGRESS_ACTIVITY") {
     if (metric.chamber !== "ANY") {
       parts.push(CONGRESS_CHAMBER_FILTER_LABELS[metric.chamber]);
     }
     if (metric.owners && metric.owners.length > 0) {
       parts.push(
-        metric.owners.map((owner) => CONGRESS_OWNER_LABELS[owner]).join(", "),
+        CONGRESS_OWNERS.filter((owner) => metric.owners?.includes(owner))
+          .map((owner) => CONGRESS_OWNER_LABELS[owner])
+          .join(", "),
       );
     }
   }
   if (metric.kind === "INSIDER_ACTIVITY") {
     if (metric.roles && metric.roles.length > 0) {
       parts.push(
-        metric.roles.map((role) => INSIDER_ROLE_LABELS[role]).join(", "),
+        INSIDER_ROLES.filter((role) => metric.roles?.includes(role))
+          .map((role) => INSIDER_ROLE_LABELS[role])
+          .join(", "),
       );
     }
   }
-  return parts.length === 0 ? null : parts.join(" · ");
+  return parts.join(" · ");
 }
 
 // ---------------------------------------------------------------------------

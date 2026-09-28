@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "../fixtures";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
+import { chooseMetric } from "../utils/strategy-builder";
 
 /**
  * Full Strategy Builder journey for PRO_USER.
@@ -44,20 +45,6 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
 }
 
 /** No page may scroll sideways: a signal must be definable without horizontal scrolling. */
-/**
- * A new row waits for its Metric (UI-013) and authors nothing until one is chosen. Picks Price on
- * every row still waiting, the way a user completes a level before saving.
- */
-async function chooseUnsetMetrics(page: Page) {
-  const selects = page.getByTestId("metric-select");
-  for (let index = 0; index < (await selects.count()); index += 1) {
-    const select = selects.nth(index);
-    if ((await select.inputValue()) === "") {
-      await select.selectOption("PRICE:");
-    }
-  }
-}
-
 async function expectNoHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -127,9 +114,7 @@ test.describe("strategy builder", () => {
     // ... AND Margin of Safety · DCF is above 25%.
     await buyCard.getByTestId("add-condition").click();
     const second = buyCard.getByTestId("predicate-row").nth(1);
-    await second
-      .getByTestId("metric-select")
-      .selectOption("MARGIN_OF_SAFETY:DCF_FCFF");
+    await chooseMetric(second, "VALUATION", "MARGIN_OF_SAFETY:DCF_FCFF");
     await second.getByTestId("value-control").fill("25");
 
     // The explanation panel must explain Margin of Safety correctly.
@@ -151,13 +136,17 @@ test.describe("strategy builder", () => {
     // A SELL level may use Gain; a BUY level may not.
     await page.getByTestId("add-level-SELL").click();
     const sellCard = page.getByTestId("level-card-SELL").first();
-    await sellCard.getByTestId("metric-select").first().selectOption("GAIN:");
+    await chooseMetric(
+      sellCard.getByTestId("predicate-row").first(),
+      "POSITION",
+      "GAIN:",
+    );
     await sellCard.getByTestId("value-control").first().fill("25");
     await expect(
       buyCard
-        .getByTestId("metric-select")
+        .getByTestId("metric-category-select")
         .first()
-        .locator("option", { hasText: "Gain" }),
+        .locator("option", { hasText: "Position" }),
     ).toHaveCount(0);
 
     await expect(page.getByTestId("logic-preview")).toContainText(
@@ -185,7 +174,6 @@ test.describe("strategy builder", () => {
       .first()
       .getByTestId("add-trigger")
       .click();
-    await chooseUnsetMetrics(page);
     await page.getByTestId("save-strategy").click();
     await expect(page.getByText("All changes saved")).toBeVisible();
     await page.reload();
@@ -218,10 +206,9 @@ test.describe("strategy builder", () => {
     await page.goto("/strategies/new");
     await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
-    // Two identical conditions: ANDing a predicate with itself is always a mistake. A new row
-    // authors nothing until its Metric is chosen, so the user makes both rows the same rule.
+    // Two identical conditions: ANDing a predicate with itself is always a mistake. Every new row
+    // starts as the same complete rule, so the second repeats the first until it is edited.
     await page.getByTestId("add-condition").click();
-    await chooseUnsetMetrics(page);
 
     await expect(page.getByTestId("save-strategy")).toBeDisabled();
     await page.getByTestId("issue-count").click();
@@ -261,7 +248,6 @@ test.describe("strategy builder final exit rules", () => {
 
     // A BUY level, because a strategy without one can never buy anything.
     await page.getByTestId("add-level-BUY").click();
-    await chooseUnsetMetrics(page);
 
     await page.getByTestId("add-level-FINAL_EXIT").click();
     const exitCard = page.getByTestId("level-card-FINAL_EXIT");
@@ -276,10 +262,14 @@ test.describe("strategy builder final exit rules", () => {
     await first.getByTestId("value-control").first().selectOption("SMA_200D");
     await first.getByTestId("add-condition").click();
     const firstSecondRow = first.getByTestId("predicate-row").nth(1);
+    await chooseMetric(
+      firstSecondRow,
+      "MOVING_AVERAGES",
+      "MOVING_AVERAGE:SMA_50D",
+    );
     await firstSecondRow
-      .getByTestId("metric-select")
-      .selectOption("MOVING_AVERAGE:SMA_50D");
-    await firstSecondRow.getByTestId("operator-select").selectOption("IS_BELOW");
+      .getByTestId("operator-select")
+      .selectOption("IS_BELOW");
     await firstSecondRow.getByTestId("value-control").selectOption("SMA_200D");
 
     // Rule 2: RSI 14D is above 80.
@@ -294,10 +284,11 @@ test.describe("strategy builder final exit rules", () => {
     await expect(page.getByTestId("level-card-FINAL_EXIT")).toHaveCount(1);
 
     const second = exitRule(page, 1);
-    await second
-      .getByTestId("metric-select")
-      .first()
-      .selectOption("OSCILLATOR:RSI_14D");
+    await chooseMetric(
+      second.getByTestId("predicate-row").first(),
+      "OSCILLATORS",
+      "OSCILLATOR:RSI_14D",
+    );
     await second.getByTestId("operator-select").first().selectOption("IS_ABOVE");
     await second.getByTestId("value-control").first().fill("80");
 
@@ -378,7 +369,6 @@ test.describe("strategy builder final exit rules", () => {
     await page.getByLabel("Name", { exact: true }).fill(MULTI_RULE_NAME);
     await page.getByTestId("add-level-BUY").click();
     await page.getByTestId("add-level-FINAL_EXIT").click();
-    await chooseUnsetMetrics(page);
 
     const exitCard = page.getByTestId("level-card-FINAL_EXIT");
     await exitCard.getByTestId("add-exit-rule").click();
@@ -393,8 +383,8 @@ test.describe("strategy builder final exit rules", () => {
     await expect(page.getByTestId("save-strategy")).toBeDisabled();
 
     // Two identical rules are refused too: FINAL EXIT already occurs when the first one matches.
+    // The re-added row starts as the same complete rule that Exit Rule 1 holds.
     await exitRule(page, 1).getByTestId("add-condition").click();
-    await chooseUnsetMetrics(page);
     await page.getByTestId("issue-count").click();
     await expect(exitRule(page, 1).getByRole("alert")).toContainText(
       "repeats exit rule 1",
@@ -477,7 +467,6 @@ test.describe("strategy builder unsaved changes", () => {
     await page.goto("/strategies/new");
     await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
-    await chooseUnsetMetrics(page);
     await navLink(page, "Primary", "Backtests").click();
     await expect(page).toHaveURL(/\/strategies\/new$/);
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue(STRATEGY_NAME);
@@ -527,10 +516,11 @@ test.describe("strategy builder on a phone", () => {
     await page.getByTestId("add-level-BUY").click();
 
     const buyCard = page.getByTestId("level-card-BUY").first();
-    await buyCard
-      .getByTestId("metric-select")
-      .first()
-      .selectOption("OSCILLATOR:RSI_14D");
+    await chooseMetric(
+      buyCard.getByTestId("predicate-row").first(),
+      "OSCILLATORS",
+      "OSCILLATOR:RSI_14D",
+    );
     await buyCard
       .getByTestId("operator-select")
       .first()
@@ -578,38 +568,40 @@ test.describe("strategy builder on a phone", () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test("keeps a rule's three fields on one row, and explains the one in hand", async ({
+  test("reads a rule as two short lines on a phone, and explains the field in hand", async ({
     page,
   }) => {
     await page.goto("/strategies/new");
     await page.getByTestId("add-level-BUY").click();
 
     const buyCard = page.getByTestId("level-card-BUY").first();
-    await buyCard
-      .getByTestId("metric-select")
-      .first()
-      .selectOption("MOVING_AVERAGE:SMA_50D");
-    await buyCard
-      .getByTestId("operator-select")
-      .first()
-      .selectOption("IS_BELOW");
-    await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
+    const row = buyCard.getByTestId("predicate-row").first();
+    await chooseMetric(row, "MOVING_AVERAGES", "MOVING_AVERAGE:SMA_50D");
+    await row.getByTestId("operator-select").selectOption("IS_BELOW");
+    await row.getByTestId("value-control").selectOption("EMA_200D");
 
-    // `SMA 50D | is below | EMA 200D` reads as one sentence on a phone exactly as it does on a
-    // desktop: one row, three fields in order, and targets that stay tappable.
-    const boxes = await Promise.all(
-      ["metric-select", "operator-select", "value-control"].map((testId) =>
-        buyCard.getByTestId(testId).first().boundingBox(),
-      ),
+    // `Moving averages · SMA 50D` then `is below · EMA 200D`: four controls do not fit one phone line,
+    // and four stacked would make a two-condition level taller than the screen, so the rule reads as
+    // two lines of two, in order, with targets that stay tappable and wide enough to read.
+    const [category, metric, operator, value] = await Promise.all(
+      [
+        "metric-category-select",
+        "metric-select",
+        "operator-select",
+        "value-control",
+      ].map((testId) => row.getByTestId(testId).boundingBox()),
     );
-    const [metric, operator, value] = boxes;
-    expect(metric && operator && value).toBeTruthy();
-    expect(Math.abs(operator!.y - metric!.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(value!.y - metric!.y)).toBeLessThanOrEqual(1);
-    expect(metric!.x).toBeLessThan(operator!.x);
+    expect(category && metric && operator && value).toBeTruthy();
+    expect(Math.abs(metric!.y - category!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(value!.y - operator!.y)).toBeLessThanOrEqual(1);
+    expect(operator!.y).toBeGreaterThanOrEqual(
+      category!.y + category!.height - 1,
+    );
+    expect(category!.x).toBeLessThan(metric!.x);
     expect(operator!.x).toBeLessThan(value!.x);
-    for (const box of boxes) {
+    for (const box of [category, metric, operator, value]) {
       expect(box!.height).toBeGreaterThanOrEqual(40);
+      expect(box!.width).toBeGreaterThanOrEqual(120);
     }
 
     // A second condition still reads as joined, without a reserved column for the word.
@@ -618,7 +610,7 @@ test.describe("strategy builder on a phone", () => {
     await expectNoHorizontalScroll(page);
 
     // The third field explains itself like the first two do.
-    await buyCard.getByTestId("value-control").first().focus();
+    await row.getByTestId("value-control").focus();
     await expect(page.getByTestId("inline-help")).toContainText("EMA 200D");
     await expectNoHorizontalScroll(page);
   });

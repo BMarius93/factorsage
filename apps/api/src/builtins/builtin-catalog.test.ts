@@ -85,7 +85,9 @@ describe("built-in catalog", () => {
         const describe = (
           signal: (typeof definition.buyLevels)[number]["signal"],
         ) => ({
-          conditions: signal.conditions.map(describeCondition),
+          conditions: signal.conditions.map((condition) =>
+            describeCondition(condition),
+          ),
           trigger: signal.trigger ? describeTrigger(signal.trigger) : null,
         });
         return [

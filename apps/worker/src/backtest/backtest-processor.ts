@@ -1,4 +1,5 @@
 import {
+  backtestSnapshotScopeNames,
   backtestTradeReasonIndex,
   revisionMismatches,
   type BacktestFailureCode,
@@ -1004,7 +1005,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
     // The run's own levels and Exit Rules, described once. A checkpoint carries a handful of recent
     // trades every few seconds, and re-reading the definition for each of them would be the same
     // work over and over for an answer that cannot change inside a run.
-    const reasons = backtestTradeReasonIndex(snapshot.strategy.definition);
+    const reasons = backtestTradeReasonIndex(
+      snapshot.strategy.definition,
+      backtestSnapshotScopeNames(snapshot),
+    );
 
     const simulation = createBacktestSimulation(
       {

@@ -1,11 +1,10 @@
 import {
   ALTERNATIVE_DATA_COUNT_MAX,
   ALTERNATIVE_DATA_LOOKBACKS,
-  alternativeDataLookbackLabel,
   alternativeDataMeasureDefinition,
   alternativeDataMeasures,
   alternativeDataMetricSignature,
-  alternativeDataSupportsScope,
+  alternativeDataScope,
   buildAlternativeDataMetric,
   CONGRESS_CHAMBER_FILTERS,
   CONGRESS_OWNERS,
@@ -191,20 +190,16 @@ export type StrategyValueKind = StrategyValue["kind"];
 /**
  * The Condition operators.
  *
- * `IS_AT_LEAST` and `IS_AT_MOST` are the inclusive pair, and they exist for the
- * **alternative-data count and amount metrics only** — the registry gives them to no other metric,
- * and `validatePredicate` rejects a document that names one elsewhere. The reason is that those
- * metrics are counts of discrete events: `docs/alternative-data-signals.md` writes the product's own
- * examples as `Insider buyers 20D is at least 2`, and expressing that as `is above 1` would make a
- * user reason about the gap between integers to say something simple. Nothing else in the catalog
- * gains an inclusive form, so no existing rule changes meaning.
+ * `is above` and `is below` are the only comparisons, and they are **strict** — `>` and `<` — for
+ * every metric (`ai/product/strategies.md` § Conditions). There is no inclusive form: on a
+ * whole-number count "at least two insiders bought" is written `is above 1`, which says exactly the
+ * same thing. `is close to` is not a comparison but a ±2% proximity state, and the registry offers it
+ * to the price-scaled metrics only.
  */
 export const CONDITION_OPERATORS = [
   "IS_ABOVE",
   "IS_BELOW",
   "IS_CLOSE_TO",
-  "IS_AT_LEAST",
-  "IS_AT_MOST",
 ] as const;
 
 export const TRIGGER_OPERATORS = ["CROSSES_ABOVE", "CROSSES_BELOW"] as const;
@@ -352,7 +347,14 @@ export function emptyStrategyDefinition(): StrategyDefinition {
 // The one Metric / operator / Value compatibility registry
 // ---------------------------------------------------------------------------
 
-export const STRATEGY_METRIC_GROUPS = [
+/**
+ * The metric categories, in canonical order: the first of the Builder's two metric controls.
+ *
+ * A row is authored as Category -> Metric -> Configuration -> Condition -> Value. The category is
+ * never stored: it is a property of the metric's kind (`strategyMetricCategory`), so a row can never
+ * hold a category and a metric that disagree.
+ */
+export const STRATEGY_METRIC_CATEGORIES = [
   "PRICE",
   "MOVING_AVERAGES",
   "OSCILLATORS",
@@ -363,15 +365,16 @@ export const STRATEGY_METRIC_GROUPS = [
   "CONGRESSIONAL_TRADING",
 ] as const;
 
-export type StrategyMetricGroupId = (typeof STRATEGY_METRIC_GROUPS)[number];
+export type StrategyMetricCategoryId =
+  (typeof STRATEGY_METRIC_CATEGORIES)[number];
 
 /**
- * Group headings for the Metric select.
+ * The one product label per category.
  *
- * The top-level grouping is Strategy metadata the series catalog does not define, so it lives here
- * once. Inside a catalog-backed group the order is the catalog's own.
+ * The top-level categorization is Strategy metadata the series catalog does not define, so it lives
+ * here once. Inside a catalog-backed category the order is the catalog's own.
  */
-export const STRATEGY_METRIC_GROUP_LABELS = {
+export const STRATEGY_METRIC_CATEGORY_LABELS = {
   PRICE: "Price",
   MOVING_AVERAGES: "Moving averages",
   OSCILLATORS: "Oscillators",
@@ -380,7 +383,7 @@ export const STRATEGY_METRIC_GROUP_LABELS = {
   POSITION: "Position",
   INSIDER_ACTIVITY: "Insider activity",
   CONGRESSIONAL_TRADING: "Congressional trading",
-} as const satisfies Record<StrategyMetricGroupId, string>;
+} as const satisfies Record<StrategyMetricCategoryId, string>;
 
 /**
  * The permitted Values for one Metric.
@@ -398,10 +401,10 @@ export type StrategyValueSpec =
       /**
        * The value must be a whole number.
        *
-       * Set only where the metric counts discrete things: `Insider buyers 20D is at least 2.5` is
-       * not a rule anybody means, while `RSI 14D is below 30.5` is perfectly ordinary. It is a
-       * property of what the metric measures, so it is declared here and enforced by the one
-       * validator rather than by an input's `step`.
+       * Set only where the metric counts discrete things: `Insider buyers is above 2.5` is not a
+       * rule anybody means, while `RSI 14D is below 30.5` is perfectly ordinary. It is a property of
+       * what the metric measures, so it is declared here and enforced by the one validator rather
+       * than by an input's `step`.
        */
       integer?: true;
     }
@@ -414,7 +417,7 @@ type StrategyMetricDefinitionBase = {
   kind: StrategyMetricKind;
   /** Catalog-backed identities carry no label here; theirs comes from the catalog. */
   label?: string;
-  group: StrategyMetricGroupId;
+  category: StrategyMetricCategoryId;
   /**
    * The catalog ids this metric may be instantiated with: the moving averages, the RSI periods, or
    * the intrinsic-value sources a Margin of Safety metric can read. Absent for the metrics that
@@ -474,22 +477,14 @@ const POSITION_LEVEL_KINDS: readonly StrategyLevelKind[] = [
   "FINAL_EXIT",
 ];
 
-const COMPARISON_OPERATORS: readonly ConditionOperator[] = [
-  "IS_ABOVE",
-  "IS_BELOW",
-];
 /**
- * The operators an alternative-data metric offers: the inclusive pair first, then the strict one.
+ * The strict comparison pair: every metric's Condition operators except the price-scaled ones,
+ * which add `is close to`.
  *
- * Inclusive first because it is what the product's own examples are written with — `is at least 2` —
- * and because the first entry is what a freshly added row starts from.
- *
- * `is close to` is deliberately absent. It is a ±2% tolerance, which is meaningless on a count of
- * two insiders and arbitrary on an amount of money.
+ * `is close to` is a ±2% tolerance, which is meaningless on a unitless oscillator, on a count of two
+ * insiders and arbitrary on an amount of money, so those metrics offer the comparison pair alone.
  */
-const ALTERNATIVE_DATA_CONDITION_OPERATORS: readonly ConditionOperator[] = [
-  "IS_AT_LEAST",
-  "IS_AT_MOST",
+const COMPARISON_OPERATORS: readonly ConditionOperator[] = [
   "IS_ABOVE",
   "IS_BELOW",
 ];
@@ -517,7 +512,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   PRICE: {
     kind: "PRICE",
     label: "Price",
-    group: "PRICE",
+    category: "PRICE",
     conditionOperators: PRICE_SCALE_CONDITION_OPERATORS,
     triggerOperators: TRIGGER_OPERATORS,
     value: { kind: "SERIES", seriesIds: catalogIds(PRICE_COMPARABLE_SERIES) },
@@ -525,7 +520,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   },
   MOVING_AVERAGE: {
     kind: "MOVING_AVERAGE",
-    group: "MOVING_AVERAGES",
+    category: "MOVING_AVERAGES",
     parameterSeriesIds: catalogIds(MOVING_AVERAGE_SERIES),
     conditionOperators: PRICE_SCALE_CONDITION_OPERATORS,
     triggerOperators: TRIGGER_OPERATORS,
@@ -534,7 +529,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   },
   OSCILLATOR: {
     kind: "OSCILLATOR",
-    group: "OSCILLATORS",
+    category: "OSCILLATORS",
     parameterSeriesIds: catalogIds(OSCILLATOR_SERIES),
     conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: TRIGGER_OPERATORS,
@@ -558,7 +553,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   RELATIVE_VOLUME: {
     kind: "RELATIVE_VOLUME",
     label: "Relative Volume",
-    group: "VOLUME",
+    category: "VOLUME",
     conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: [],
     value: { kind: "MULTIPLE", min: 0, step: 0.1 },
@@ -567,7 +562,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   MARGIN_OF_SAFETY: {
     kind: "MARGIN_OF_SAFETY",
     label: "Margin of Safety",
-    group: "VALUATION",
+    category: "VALUATION",
     parameterSeriesIds: catalogIds(INTRINSIC_VALUE_SERIES),
     conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: TRIGGER_OPERATORS,
@@ -581,7 +576,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   GAIN: {
     kind: "GAIN",
     label: "Gain",
-    group: "POSITION",
+    category: "POSITION",
     conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: TRIGGER_OPERATORS,
     /** Signed, and unbounded above: a long position cannot lose more than its whole cost. */
@@ -591,7 +586,7 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   LOSS: {
     kind: "LOSS",
     label: "Loss",
-    group: "POSITION",
+    category: "POSITION",
     conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: TRIGGER_OPERATORS,
     /** Non-negative by definition, clamped at zero, and capped by the position's own cost. */
@@ -602,20 +597,22 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
    * The two alternative-data kinds.
    *
    * They declare no `parameterSeriesIds` — neither is a catalog series — and each is instantiated
-   * once per **measure** by `instancesOf`, so the selector offers `Insider buyers`,
-   * `Insider sellers`, `Insider purchase value` and `Insider sale value` as four ordinary options
-   * inside one group. Their configuration is edited after selection and never becomes a column.
+   * once per **measure** by `instancesOf`, so the Insider activity category offers `Insider buyers`,
+   * `Insider sellers`, `Insider purchase value` and `Insider sale value` as four ordinary metrics.
+   * The measure is the metric's identity; its lookback, scope and filters are **configuration**,
+   * edited after selection, and never part of the metric's label or its selector entry.
    *
-   * `triggerOperators` is empty for both, exactly as it is for Relative Volume and for the
-   * same reason: a disclosure count is a state, and a Monitor's own not-matched -> matched
-   * transition already raises a Signal on the session `Insider buyers 20D is at least 2` first
-   * holds. A `crosses above` form would be a second, differently latched way to say that.
+   * Their Condition operators are the strict comparison pair every non-price metric has.
+   * `triggerOperators` is empty for both, exactly as it is for Relative Volume and for the same
+   * reason: a disclosure count is a state, and a Monitor's own not-matched -> matched transition
+   * already raises a Signal on the session `Insider buyers is above 1` first holds. A
+   * `crosses above` form would be a second, differently latched way to say that.
    */
   INSIDER_ACTIVITY: {
     kind: "INSIDER_ACTIVITY",
     label: "Insider activity",
-    group: "INSIDER_ACTIVITY",
-    conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
+    category: "INSIDER_ACTIVITY",
+    conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: [],
     valueSource: "ALTERNATIVE_DATA_MEASURE",
     allowedIn: ALL_LEVEL_KINDS,
@@ -623,8 +620,8 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
   CONGRESS_ACTIVITY: {
     kind: "CONGRESS_ACTIVITY",
     label: "Congressional trading",
-    group: "CONGRESSIONAL_TRADING",
-    conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
+    category: "CONGRESSIONAL_TRADING",
+    conditionOperators: COMPARISON_OPERATORS,
     triggerOperators: [],
     valueSource: "ALTERNATIVE_DATA_MEASURE",
     allowedIn: ALL_LEVEL_KINDS,
@@ -682,20 +679,22 @@ export function strategyMetricSeriesId(
 }
 
 /**
- * A Metric's stable identity as one string: kind plus whatever parameterizes it.
+ * A Metric's **identity** as one string: kind plus whatever identifies it — a catalog id, a
+ * Relative Volume period, an alternative-data measure.
  *
  * The select control needs one scalar per option, and two options must never collide. It lives
  * here rather than in the Builder so the encoding follows the metric union — adding a
  * period-parameterized kind is a change to one function, not to a component that happened to
  * assume every parameter was a catalog id.
+ *
+ * Configuration is deliberately **not** part of it. An alternative-data metric's lookback, scope and
+ * filters are edited after the metric is chosen, so the identity — and the select option it
+ * addresses — must be the same before and after: `Insider sellers` stays `Insider sellers` whether
+ * it looks back 20 sessions or 180. `describeMetricConfiguration` is what renders the rest.
  */
 export function strategyMetricKey(metric: StrategyMetric): string {
   const alternative = asAlternativeDataMetric(metric);
   if (alternative) {
-    // Deliberately the measure only, **not** the configuration. The select's value must survive a
-    // change of lookback, scope or filter: keying on the whole configuration would leave the control
-    // holding a value that matches no option the moment a user edited the popover, which `Select`
-    // renders as "Unavailable metric".
     return `${alternative.kind}:${alternative.measure}`;
   }
   return metric.kind === "RELATIVE_VOLUME"
@@ -794,14 +793,15 @@ export function defaultValueFor(
   metric: StrategyMetric,
 ): StrategyValue | undefined {
   const spec = valueSpecFor(metric);
-  // A count of disclosures has no midpoint to take — its range is deliberately unbounded above —
-  // and its neutral point is not zero either: `is at least 0` is true on every session. One is the
-  // smallest threshold that says anything, which is "there was any such activity at all".
+  // A count of disclosures has no neutral midpoint to take — the product bound on its threshold is
+  // not a range the reading lives in. It starts at the floor of its unit instead, exactly as a money
+  // threshold does below: with the default `is above`, `Insider buyers is above 0` reads "there was
+  // any such activity at all", the smallest rule that says anything.
   if (
     spec.kind === "NUMBER" &&
     asAlternativeDataMetric(metric) !== undefined
   ) {
-    return { kind: "NUMBER", value: 1 };
+    return { kind: "NUMBER", value: spec.min };
   }
   switch (spec.kind) {
     case "SERIES": {
@@ -847,10 +847,14 @@ function clampToSpec(value: number, min?: number, max?: number): number {
 // Metric options
 // ---------------------------------------------------------------------------
 
+/**
+ * One selectable Metric: a metric at its canonical default configuration, its identity label and
+ * the category it belongs to.
+ */
 export type StrategyMetricOption = {
   metric: StrategyMetric;
   label: string;
-  group: StrategyMetricGroupId;
+  category: StrategyMetricCategoryId;
 };
 
 function instantiateMetric(
@@ -893,8 +897,8 @@ function instantiateMetric(
 function instancesOf(kind: StrategyMetricKind): readonly StrategyMetric[] {
   if (isAlternativeDataMetricKind(kind)) {
     // One option per measure, each at its own default configuration. The lookback, scope and filters
-    // are edited after selection, so the list stays as short as the number of things the domain
-    // actually measures.
+    // are configuration edited after selection, so the list stays as short as the number of things
+    // the domain actually measures and never enumerates configuration permutations.
     return alternativeDataMeasures(kind).flatMap((measure) => {
       const metric = defaultAlternativeDataMetric(kind, measure);
       return metric ? [metric] : [];
@@ -920,10 +924,10 @@ function buildMetricOptions(
   part: StrategyPredicatePart,
 ): readonly StrategyMetricOption[] {
   const options: StrategyMetricOption[] = [];
-  for (const group of STRATEGY_METRIC_GROUPS) {
+  for (const category of STRATEGY_METRIC_CATEGORIES) {
     for (const kind of STRATEGY_METRIC_KINDS) {
       const definition = STRATEGY_METRIC_DEFINITIONS[kind];
-      if (definition.group !== group) {
+      if (definition.category !== category) {
         continue;
       }
       if (!definition.allowedIn.includes(levelKind)) {
@@ -935,34 +939,79 @@ function buildMetricOptions(
         continue;
       }
       for (const metric of instancesOf(kind)) {
-        options.push({ metric, label: strategyMetricLabel(metric), group });
+        options.push({ metric, label: strategyMetricLabel(metric), category });
       }
     }
   }
   return options;
 }
 
-const METRIC_OPTIONS_BY_LEVEL: Record<
+/**
+ * One category of the Metric control, with the metrics it offers in one level kind and one half of a
+ * Signal. A category with nothing to offer there is absent rather than empty.
+ */
+export type StrategyMetricCategory = {
+  id: StrategyMetricCategoryId;
+  label: string;
+  options: readonly StrategyMetricOption[];
+};
+
+/** Consecutive options of one category, in the registry's own order — never a second ordering. */
+function buildMetricCategories(
+  options: readonly StrategyMetricOption[],
+): readonly StrategyMetricCategory[] {
+  const categories: {
+    id: StrategyMetricCategoryId;
+    options: StrategyMetricOption[];
+  }[] = [];
+  for (const option of options) {
+    const last = categories[categories.length - 1];
+    if (last && last.id === option.category) {
+      last.options.push(option);
+    } else {
+      categories.push({ id: option.category, options: [option] });
+    }
+  }
+  return categories.map((category) => ({
+    id: category.id,
+    label: STRATEGY_METRIC_CATEGORY_LABELS[category.id],
+    options: category.options,
+  }));
+}
+
+type MetricMenu = {
+  readonly options: readonly StrategyMetricOption[];
+  readonly categories: readonly StrategyMetricCategory[];
+};
+
+function buildMetricMenu(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+): MetricMenu {
+  const options = buildMetricOptions(levelKind, part);
+  return { options, categories: buildMetricCategories(options) };
+}
+
+const METRIC_MENU_BY_LEVEL: Record<
   StrategyLevelKind,
-  Record<StrategyPredicatePart, readonly StrategyMetricOption[]>
+  Record<StrategyPredicatePart, MetricMenu>
 > = {
   BUY: {
-    CONDITION: buildMetricOptions("BUY", "CONDITION"),
-    TRIGGER: buildMetricOptions("BUY", "TRIGGER"),
+    CONDITION: buildMetricMenu("BUY", "CONDITION"),
+    TRIGGER: buildMetricMenu("BUY", "TRIGGER"),
   },
   SELL: {
-    CONDITION: buildMetricOptions("SELL", "CONDITION"),
-    TRIGGER: buildMetricOptions("SELL", "TRIGGER"),
+    CONDITION: buildMetricMenu("SELL", "CONDITION"),
+    TRIGGER: buildMetricMenu("SELL", "TRIGGER"),
   },
   FINAL_EXIT: {
-    CONDITION: buildMetricOptions("FINAL_EXIT", "CONDITION"),
-    TRIGGER: buildMetricOptions("FINAL_EXIT", "TRIGGER"),
+    CONDITION: buildMetricMenu("FINAL_EXIT", "CONDITION"),
+    TRIGGER: buildMetricMenu("FINAL_EXIT", "TRIGGER"),
   },
 };
 
 /**
- * Every Metric selectable in one level kind and one half of a Signal, grouped and in canonical
- * order.
+ * Every Metric selectable in one level kind and one half of a Signal, in canonical category order.
  *
  * `Gain` and `Loss` are simply absent for BUY: they are position-dependent and no position exists
  * before the first buy. `Relative Volume` is simply absent for `TRIGGER`: it declares no Trigger
@@ -972,7 +1021,52 @@ export function strategyMetricOptions(
   levelKind: StrategyLevelKind,
   part: StrategyPredicatePart = "CONDITION",
 ): readonly StrategyMetricOption[] {
-  return METRIC_OPTIONS_BY_LEVEL[levelKind][part];
+  return METRIC_MENU_BY_LEVEL[levelKind][part].options;
+}
+
+/**
+ * The categories the Metric control offers in one level kind and one half of a Signal, each with its
+ * metrics, in canonical order.
+ *
+ * The same options as {@link strategyMetricOptions}, partitioned: the Builder's first control lists
+ * the categories and its second the chosen category's metrics, so no component groups, filters or
+ * orders anything itself. A category with no metric there — `Position` in a BUY level, `Volume` in
+ * a Trigger — is simply absent.
+ */
+export function strategyMetricCategories(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart = "CONDITION",
+): readonly StrategyMetricCategory[] {
+  return METRIC_MENU_BY_LEVEL[levelKind][part].categories;
+}
+
+/** The category a metric belongs to: a property of its kind, never stored beside it. */
+export function strategyMetricCategory(
+  metric: StrategyMetric,
+): StrategyMetricCategoryId {
+  return STRATEGY_METRIC_DEFINITIONS[metric.kind].category;
+}
+
+/**
+ * The metric a freshly created row, or a change of category, starts from: the first metric of the
+ * given category — or of the first category when none is given — at its canonical default
+ * configuration.
+ *
+ * `undefined` when the category offers nothing in that level kind and half of a Signal, so no caller
+ * silently receives a metric the registry would not have offered there. Every level kind offers
+ * `Price` in both halves, so the first category always has one.
+ */
+export function defaultStrategyMetric(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+  category?: StrategyMetricCategoryId,
+): StrategyMetric | undefined {
+  const categories = strategyMetricCategories(levelKind, part);
+  const chosen =
+    category === undefined
+      ? categories[0]
+      : categories.find((candidate) => candidate.id === category);
+  return chosen?.options[0]?.metric;
 }
 
 // ---------------------------------------------------------------------------
@@ -983,8 +1077,6 @@ export const CONDITION_OPERATOR_LABELS = {
   IS_ABOVE: "is above",
   IS_BELOW: "is below",
   IS_CLOSE_TO: "is close to",
-  IS_AT_LEAST: "is at least",
-  IS_AT_MOST: "is at most",
 } as const satisfies Record<ConditionOperator, string>;
 
 export const TRIGGER_OPERATOR_LABELS = {
@@ -1011,24 +1103,24 @@ function seriesLabel(id: SelectableSeriesId): string {
 }
 
 /**
- * The one Metric label.
+ * The one Metric label: the metric's **identity**, never its configuration.
  *
  * For every catalog-backed identity it is `findSelectableSeries(id).label` and nothing else.
  * A source label can carry its own parentheses ("DCF (FCFF)"), so the source follows the product's
  * `·` separator — `Margin of Safety · DCF (FCFF)` — rather than nesting a second pair (UI-058). The
  * composition happens here, in one function: a composition of the catalog label, never a second
  * label map.
+ *
+ * An alternative-data metric is named by its measure alone — `Insider sellers` — because its
+ * lookback, scope and filters are configuration a user edits after choosing it. A label that carried
+ * the lookback would be a label a Configure change silently invalidates, which is how the selector
+ * once read `20D` while the rule said `180D`. {@link describeMetricConfiguration} renders the
+ * configuration, and every surface shows the two together.
  */
 export function strategyMetricLabel(metric: StrategyMetric): string {
   const alternative = asAlternativeDataMetric(metric);
   if (alternative) {
-    // The measure's label plus its lookback, so the row reads `Insider buyers 20D` — one label for
-    // the selector, the condition row, the Strategy Logic sidebar and a completed backtest alike.
-    // The lookback belongs in the label because it changes what the number means; the scope and the
-    // filters do not, and appear in the row's secondary line instead.
-    return `${alternativeDataMeasureDefinition(alternative).label} ${alternativeDataLookbackLabel(
-      alternative.lookback,
-    )}`;
+    return alternativeDataMeasureDefinition(alternative).label;
   }
   switch (metric.kind) {
     case "MOVING_AVERAGE":
@@ -1101,14 +1193,14 @@ export type StrategyPreviewLine =
    */
   | { kind: "EXIT_RULE"; index: number; connector?: "OR" }
   /**
-   * `scope` is the configured first operand's secondary summary — `Superinvestors`,
-   * `Congress Watchlist · Senate` — and is present only on a row that has one. The sidebar reads it
-   * as `… — Superinvestors`; a row with nothing narrowed carries none, which is what keeps the
-   * sidebar from turning into a wall of qualifiers.
+   * One Condition as {@link StrategyPredicateDescription}: `text` is the metric's identity, the
+   * operator and the Value, and `configuration` is the metric's configuration summary —
+   * `180D · CEO, CFO`, `30D · Congress Watchlist · Senate` — present exactly when the metric has
+   * configuration. The sidebar composes them exactly as {@link describeCondition} does.
    */
-  | { kind: "CONDITION"; text: string; connector?: "AND"; scope?: string }
+  | ({ kind: "CONDITION"; connector?: "AND" } & StrategyPredicateDescription)
   /** `connector` is present exactly when Conditions precede the Trigger it is ANDed with. */
-  | { kind: "TRIGGER"; text: string; connector?: "AND"; scope?: string }
+  | ({ kind: "TRIGGER"; connector?: "AND" } & StrategyPredicateDescription)
   | { kind: "EMPTY"; levelKind: StrategyLevelKind };
 
 /**
@@ -1182,82 +1274,132 @@ function scopeNamesFor(
 }
 
 /**
- * The subtle secondary line a configured first operand carries, or `null` when it has none.
+ * The configuration of one metric in words, or `null` when the metric takes none.
  *
- * Separate from {@link describeCondition} on purpose: the condition row renders it under the metric
- * control, while the Strategy Logic sidebar appends it to the sentence with an em dash. One function
- * produces the text; each surface decides where to put it.
+ * Only the alternative-data metrics are configured, and their summary always leads with the lookback
+ * — `180D`, `180D · CEO, CFO`, `30D · Congress Watchlist · Senate · Self, Spouse` — because the
+ * lookback is configuration, not identity (`strategyMetricLabel` never carries it). This is the one
+ * rendering of a metric's configuration: the condition row's summary line, the Strategy Logic
+ * sidebar, the explanation panel, a backtest's trade reasons and the Dashboard all print this
+ * string, so none of them can disagree with another about what a rule is configured to count.
  */
-export function describePredicateScope(
-  predicate: StrategyCondition | StrategyTrigger,
+export function describeMetricConfiguration(
+  metric: StrategyMetric,
   names?: StrategyScopeNames,
 ): string | null {
-  const alternative = asAlternativeDataMetric(predicate.metric);
+  const alternative = asAlternativeDataMetric(metric);
   if (!alternative) {
     return null;
   }
   return describeAlternativeDataConfiguration(
     alternative,
-    scopeNamesFor(
-      alternativeDataSupportsScope(alternative.kind)
-        ? (alternative as CongressActivityMetric).scope
-        : undefined,
+    scopeNamesFor(alternativeDataScope(alternative), names),
+  );
+}
+
+/**
+ * One Condition or Trigger in words, in its two parts.
+ *
+ * `text` is the metric's identity, the operator and the Value — `Insider sellers is above 2`.
+ * `configuration` is {@link describeMetricConfiguration}, present exactly when the metric has any.
+ * Kept apart so a surface can set the configuration in a quieter register; joined, they are exactly
+ * {@link describeCondition} or {@link describeTrigger}.
+ */
+export type StrategyPredicateDescription = {
+  text: string;
+  configuration?: string;
+};
+
+function describePredicate(
+  metric: StrategyMetric,
+  operatorLabel: string,
+  value: StrategyValue,
+  names: StrategyScopeNames | undefined,
+): StrategyPredicateDescription {
+  const text = `${strategyMetricLabel(metric)} ${operatorLabel} ${strategyValueLabel(value)}`;
+  const configuration = describeMetricConfiguration(metric, names);
+  return configuration === null ? { text } : { text, configuration };
+}
+
+/**
+ * The one-line form: the configuration follows the sentence in parentheses.
+ *
+ * Parentheses rather than a trailing dash because a sentence is also printed inside lists of
+ * sentences — a Dashboard reason or a trade log joins its Conditions with "and" — and a
+ * configuration carries its own comma list (`CEO, CFO`). Enclosed, it can never be read as part of
+ * the list around it.
+ */
+function predicateSentence(description: StrategyPredicateDescription): string {
+  return description.configuration === undefined
+    ? description.text
+    : `${description.text} (${description.configuration})`;
+}
+
+/**
+ * One Condition as a single canonical sentence: `RSI 14D is below 30`,
+ * `Insider sellers is above 2 (180D · CEO, CFO)`.
+ *
+ * `names` resolves an actor or group scope to its display name; without it the neutral fallback
+ * (`Selected group`) is printed, which stays honest when a name is unavailable.
+ */
+export function describeCondition(
+  condition: StrategyCondition,
+  names?: StrategyScopeNames,
+): string {
+  return predicateSentence(
+    describePredicate(
+      condition.metric,
+      conditionOperatorLabel(condition.operator),
+      condition.value,
       names,
     ),
   );
 }
 
-export function describeCondition(condition: StrategyCondition): string {
-  return `${strategyMetricLabel(condition.metric)} ${conditionOperatorLabel(
-    condition.operator,
-  )} ${strategyValueLabel(condition.value)}`;
-}
-
-export function describeTrigger(trigger: StrategyTrigger): string {
-  return `${strategyMetricLabel(trigger.metric)} ${triggerOperatorLabel(
-    trigger.operator,
-  )} ${strategyValueLabel(trigger.value)}`;
+/** One Trigger as a single canonical sentence, exactly as {@link describeCondition} words a Condition. */
+export function describeTrigger(
+  trigger: StrategyTrigger,
+  names?: StrategyScopeNames,
+): string {
+  return predicateSentence(
+    describePredicate(
+      trigger.metric,
+      triggerOperatorLabel(trigger.operator),
+      trigger.value,
+      names,
+    ),
+  );
 }
 
 function describeSignal(
   signal: StrategySignal,
   names?: StrategyScopeNames,
 ): StrategyPreviewLine[] {
-  const scopeOf = (
-    predicate: StrategyCondition | StrategyTrigger,
-  ): { scope: string } | Record<string, never> => {
-    const scope = describePredicateScope(predicate, names);
-    return scope === null ? {} : { scope };
-  };
   const lines: StrategyPreviewLine[] = signal.conditions.map(
-    (condition, index) =>
-      index === 0
-        ? {
-            kind: "CONDITION",
-            text: describeCondition(condition),
-            ...scopeOf(condition),
-          }
-        : {
-            kind: "CONDITION",
-            text: describeCondition(condition),
-            connector: "AND",
-            ...scopeOf(condition),
-          },
+    (condition, index) => ({
+      kind: "CONDITION",
+      ...(index === 0 ? {} : { connector: "AND" as const }),
+      ...describePredicate(
+        condition.metric,
+        conditionOperatorLabel(condition.operator),
+        condition.value,
+        names,
+      ),
+    }),
   );
   if (signal.trigger) {
-    const text = describeTrigger(signal.trigger);
     // The Trigger is ANDed with the Conditions for the same date, so the preview keeps the
     // connector a reader would expect. A trigger-only Signal has nothing to join and carries none.
-    lines.push(
-      lines.length === 0
-        ? { kind: "TRIGGER", text, ...scopeOf(signal.trigger) }
-        : {
-            kind: "TRIGGER",
-            text,
-            connector: "AND",
-            ...scopeOf(signal.trigger),
-          },
-    );
+    lines.push({
+      kind: "TRIGGER",
+      ...(lines.length === 0 ? {} : { connector: "AND" as const }),
+      ...describePredicate(
+        signal.trigger.metric,
+        triggerOperatorLabel(signal.trigger.operator),
+        signal.trigger.value,
+        names,
+      ),
+    });
   }
   return lines;
 }
@@ -1548,12 +1690,14 @@ export const STRATEGY_OPERATOR_HELP: Record<
   IS_ABOVE: {
     summary: "A state: the metric is strictly greater than the value.",
     detail:
-      "Conditions describe a state that can stay true for many days in a row. V1 has no `above or equal` variant.",
+      "Conditions describe a state that can stay true for many days in a row. There is no `above or equal` variant: on a whole-number count, `at least 2` is written `is above 1`.",
+    formula: "metric > value",
   },
   IS_BELOW: {
     summary: "A state: the metric is strictly less than the value.",
     detail:
-      "Conditions describe a state that can stay true for many days in a row. V1 has no `below or equal` variant.",
+      "Conditions describe a state that can stay true for many days in a row. There is no `below or equal` variant: on a whole-number count, `none at all` is written `is below 1`.",
+    formula: "metric < value",
   },
   IS_CLOSE_TO: {
     summary: `A state: the metric is within ${CLOSE_TO_PERCENT} of the value.`,
@@ -1561,16 +1705,6 @@ export const STRATEGY_OPERATOR_HELP: Record<
     formula: `abs(metric - value) / abs(value) <= ${IS_CLOSE_TO_TOLERANCE}`,
     notEvaluableWhen:
       "The comparison value is unavailable or cannot be used safely for the calculation.",
-  },
-  IS_AT_LEAST: {
-    summary: "A state: the metric is greater than or equal to the value.",
-    detail:
-      "The inclusive form, offered only by the alternative-data metrics, because those count discrete things: `Insider buyers 20D is at least 2` is what a reader means, where `is above 1` says the same thing by making them reason about the gap between whole numbers. Like every Condition it is a state and may stay true for several sessions.",
-  },
-  IS_AT_MOST: {
-    summary: "A state: the metric is less than or equal to the value.",
-    detail:
-      "The mirror of `is at least`, and available on the same metrics. `Insider sellers 20D is at most 0` is how a rule says no insider sold in the window — which `is below 1` would also say, less plainly.",
   },
   CROSSES_ABOVE: {
     summary:
@@ -1978,8 +2112,8 @@ function parseAlternativeDataMetric(
     issues.add(
       "MEASURE_UNSUPPORTED",
       path,
-      `\`${String(rawMeasure)}\` is not a ${STRATEGY_METRIC_GROUP_LABELS[
-        STRATEGY_METRIC_DEFINITIONS[kind].group
+      `\`${String(rawMeasure)}\` is not a ${STRATEGY_METRIC_CATEGORY_LABELS[
+        STRATEGY_METRIC_DEFINITIONS[kind].category
       ].toLowerCase()} measure.`,
     );
     return undefined;
@@ -2168,7 +2302,7 @@ function parseMetric(
       "METRIC_NOT_ALLOWED_IN_LEVEL",
       path,
       `${metricBaseLabel(kind)} is not available in a ${STRATEGY_LEVEL_LABELS[levelKind]} level.${
-        definition.group === "POSITION"
+        definition.category === "POSITION"
           ? " It depends on an open position."
           : ""
       }`,
@@ -2226,7 +2360,7 @@ function parseMetric(
     issues.add(
       "METRIC_SERIES_UNSUPPORTED",
       path,
-      `${seriesLabel(seriesId)} cannot be used as a ${STRATEGY_METRIC_GROUP_LABELS[definition.group].toLowerCase()} metric.`,
+      `${seriesLabel(seriesId)} cannot be used as a ${STRATEGY_METRIC_CATEGORY_LABELS[definition.category].toLowerCase()} metric.`,
     );
     return undefined;
   }
@@ -2432,7 +2566,7 @@ function predicateIdentity(
   const alternative = asAlternativeDataMetric(metric);
   // The whole configured metric, because two alternative-data rows differing only in measure, scope
   // or lookback are different conditions. Keying them by kind alone would make
-  // `Insider buyers 20D is at least 2` and `Insider sellers 20D is at least 2` look like one rule
+  // `Insider buyers is above 1 (20D)` and `Insider buyers is above 1 (60D)` look like one rule
   // written twice, and the second would be rejected as a duplicate.
   //
   // Relative Volume is in the same situation with its period: it is parameterized by a period

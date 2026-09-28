@@ -162,9 +162,11 @@ Read `ai/README.md` before substantial work.
     `apps/api/src/openapi/openapi.contract.test.ts` compiles the real application and requires the
     document to match it operation for operation — each route's rate-limit policy, its `429`, its
     `503` where the policy fails closed, its cookie authentication and its `401`/`403` — so a new
-    or renamed route cannot land undocumented. `pnpm openapi:validate` separately validates the
-    document against the official OpenAPI 3.1 schema. Do not document an endpoint that does not
-    exist, and do not add a route without documenting it.
+    or renamed route cannot land undocumented. `openapi.strategy-schema.test.ts` holds the Strategy
+    schemas to `@intrinsic/contracts`, so a Strategy model change must update the document too.
+    `pnpm openapi:validate` separately validates the document against the official OpenAPI 3.1
+    schema. Do not document an endpoint that does not exist, and do not add a route without
+    documenting it.
 
 21. Built-in content is `SYSTEM`-owned, never owned by a special customer account:
     `ownership = SYSTEM`, `userId = null`, an immutable `systemKey` that is the only bootstrap

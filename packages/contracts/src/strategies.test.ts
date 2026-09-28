@@ -11,8 +11,10 @@ import {
 } from "./selectable-series.js";
 import {
   BUY_LEVEL_PERCENTAGES,
+  CONDITION_OPERATOR_LABELS,
   CONDITION_OPERATORS,
   conditionOperatorsFor,
+  defaultStrategyMetric,
   defaultValueFor,
   describeStrategy,
   emptyStrategyDefinition,
@@ -21,6 +23,8 @@ import {
   rekeyStrategyDefinition,
   SELL_LEVEL_PERCENTAGES,
   STRATEGY_LEVEL_KINDS,
+  STRATEGY_METRIC_CATEGORIES,
+  STRATEGY_METRIC_CATEGORY_LABELS,
   STRATEGY_METRIC_DEFINITIONS,
   STRATEGY_METRIC_HELP,
   STRATEGY_VALUE_SERIES_HELP,
@@ -30,11 +34,14 @@ import {
   strategyDefinitionFingerprint,
   strategyFinalExitFingerprint,
   strategySignalFingerprint,
+  strategyMetricCategories,
+  strategyMetricCategory,
   strategyMetricLabel,
   strategySeriesHelp,
   strategyMetricOptions,
   strategyValueLabel,
   StrategyValidationError,
+  TRIGGER_OPERATOR_LABELS,
   TRIGGER_OPERATORS,
   triggerOperatorsFor,
   validateStrategy,
@@ -308,27 +315,105 @@ describe("strategy metric registry", () => {
     }
   });
 
-  it("lists metric options grouped, in canonical catalog order", () => {
+  it("lists metric options by category, in canonical catalog order", () => {
     const options = strategyMetricOptions("SELL");
     expect(
       options
-        .filter((option) => option.group === "MOVING_AVERAGES")
+        .filter((option) => option.category === "MOVING_AVERAGES")
         .map((option) => option.label),
     ).toEqual(MOVING_AVERAGE_SERIES.map((entry) => entry.label));
-    // Grouping never reorders: the group of each option is non-decreasing in canonical order.
-    const groupOrder = options.map((option) =>
-      [
-        "PRICE",
-        "MOVING_AVERAGES",
-        "OSCILLATORS",
-        "VOLUME",
-        "VALUATION",
-        "POSITION",
-        "INSIDER_ACTIVITY",
-        "CONGRESSIONAL_TRADING",
-      ].indexOf(option.group),
+    // Categorizing never reorders: the category of each option is non-decreasing in canonical order.
+    const categoryOrder = options.map((option) =>
+      STRATEGY_METRIC_CATEGORIES.indexOf(option.category),
     );
-    expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
+    expect(categoryOrder).toEqual([...categoryOrder].sort((a, b) => a - b));
+  });
+
+  it("partitions the options into categories, in canonical order, with none empty", () => {
+    for (const levelKind of STRATEGY_LEVEL_KINDS) {
+      for (const part of ["CONDITION", "TRIGGER"] as const) {
+        const categories = strategyMetricCategories(levelKind, part);
+        // The same options as the flat list, in the same order: one registry, two views of it.
+        expect(categories.flatMap((category) => category.options)).toEqual(
+          strategyMetricOptions(levelKind, part),
+        );
+        const ids = categories.map((category) => category.id);
+        expect(ids).toEqual(
+          STRATEGY_METRIC_CATEGORIES.filter((id) => ids.includes(id)),
+        );
+        for (const category of categories) {
+          expect(category.options.length, category.id).toBeGreaterThan(0);
+          expect(category.label).toBe(
+            STRATEGY_METRIC_CATEGORY_LABELS[category.id],
+          );
+          for (const option of category.options) {
+            // The category is derived from the metric, so an option can never disagree with it.
+            expect(option.category).toBe(category.id);
+            expect(strategyMetricCategory(option.metric)).toBe(category.id);
+          }
+        }
+      }
+    }
+  });
+
+  it("offers each level kind and half of a signal exactly the categories it can use", () => {
+    const ids = (levelKind: StrategyLevelKind, part: "CONDITION" | "TRIGGER") =>
+      strategyMetricCategories(levelKind, part).map((category) => category.id);
+    expect(ids("BUY", "CONDITION")).toEqual([
+      "PRICE",
+      "MOVING_AVERAGES",
+      "OSCILLATORS",
+      "VOLUME",
+      "VALUATION",
+      "INSIDER_ACTIVITY",
+      "CONGRESSIONAL_TRADING",
+    ]);
+    for (const levelKind of ["SELL", "FINAL_EXIT"] as const) {
+      expect(ids(levelKind, "CONDITION")).toEqual([
+        ...STRATEGY_METRIC_CATEGORIES,
+      ]);
+    }
+    // The condition-only families have nothing to offer a Trigger row, so their categories vanish.
+    expect(ids("BUY", "TRIGGER")).toEqual([
+      "PRICE",
+      "MOVING_AVERAGES",
+      "OSCILLATORS",
+      "VALUATION",
+    ]);
+    expect(ids("SELL", "TRIGGER")).toEqual([
+      "PRICE",
+      "MOVING_AVERAGES",
+      "OSCILLATORS",
+      "VALUATION",
+      "POSITION",
+    ]);
+  });
+
+  it("starts a new row, and a change of category, on the category's first metric", () => {
+    for (const levelKind of STRATEGY_LEVEL_KINDS) {
+      for (const part of ["CONDITION", "TRIGGER"] as const) {
+        expect(defaultStrategyMetric(levelKind, part)).toEqual({
+          kind: "PRICE",
+        });
+        for (const category of strategyMetricCategories(levelKind, part)) {
+          expect(defaultStrategyMetric(levelKind, part, category.id)).toEqual(
+            category.options[0]?.metric,
+          );
+        }
+      }
+    }
+    expect(defaultStrategyMetric("BUY", "CONDITION", "OSCILLATORS")).toEqual({
+      kind: "OSCILLATOR",
+      seriesId: "RSI_7D",
+    });
+    expect(
+      defaultStrategyMetric("BUY", "CONDITION", "INSIDER_ACTIVITY"),
+    ).toEqual({ kind: "INSIDER_ACTIVITY", measure: "BUYERS", lookback: 20 });
+    // A category the level or the half of the signal does not offer yields nothing to install.
+    expect(
+      defaultStrategyMetric("BUY", "CONDITION", "POSITION"),
+    ).toBeUndefined();
+    expect(defaultStrategyMetric("SELL", "TRIGGER", "VOLUME")).toBeUndefined();
   });
 
   it("labels every catalog-backed identity with the catalog's own label", () => {
@@ -788,6 +873,75 @@ describe("operator compatibility", () => {
       "CROSSES_ABOVE",
       "CROSSES_BELOW",
     ]);
+  });
+
+  it("compares only strictly: `is above` and `is below`, with no inclusive form anywhere", () => {
+    // The whole Condition vocabulary. The comparisons are the strict pair; `is close to` is the
+    // price-scaled proximity state, not a comparison.
+    expect(CONDITION_OPERATORS).toEqual([
+      "IS_ABOVE",
+      "IS_BELOW",
+      "IS_CLOSE_TO",
+    ]);
+    expect(CONDITION_OPERATOR_LABELS).toEqual({
+      IS_ABOVE: "is above",
+      IS_BELOW: "is below",
+      IS_CLOSE_TO: "is close to",
+    });
+    expect(Object.keys(STRATEGY_OPERATOR_HELP).sort()).toEqual(
+      [...CONDITION_OPERATORS, ...TRIGGER_OPERATORS].sort(),
+    );
+    expect(STRATEGY_OPERATOR_HELP.IS_ABOVE.formula).toBe("metric > value");
+    expect(STRATEGY_OPERATOR_HELP.IS_BELOW.formula).toBe("metric < value");
+    for (const kind of STRATEGY_METRIC_KINDS) {
+      expect(
+        STRATEGY_METRIC_DEFINITIONS[kind].conditionOperators,
+        kind,
+      ).toEqual(
+        kind === "PRICE" || kind === "MOVING_AVERAGE"
+          ? ["IS_ABOVE", "IS_BELOW", "IS_CLOSE_TO"]
+          : ["IS_ABOVE", "IS_BELOW"],
+      );
+    }
+  });
+
+  it("keeps the Trigger vocabulary exactly the two crossing events", () => {
+    expect(TRIGGER_OPERATORS).toEqual(["CROSSES_ABOVE", "CROSSES_BELOW"]);
+    expect(TRIGGER_OPERATOR_LABELS).toEqual({
+      CROSSES_ABOVE: "crosses above",
+      CROSSES_BELOW: "crosses below",
+    });
+  });
+
+  it("refuses the removed inclusive operators on every metric rather than reinterpreting them", () => {
+    // `>= X` is not `> X`, so a stored or submitted document naming one is refused outright and
+    // never silently mapped to a strict comparison.
+    for (const levelKind of ["SELL", "FINAL_EXIT", "BUY"] as const) {
+      for (const option of strategyMetricOptions(levelKind)) {
+        for (const operator of ["IS_AT_LEAST", "IS_AT_MOST"]) {
+          const document = definitionInLevel(
+            levelKind,
+            signal([
+              {
+                id: "condition-legacy",
+                metric: option.metric,
+                operator,
+                value: defaultValueFor(option.metric),
+              } as unknown as StrategyCondition,
+            ]),
+          );
+          const issues = validateStrategyDefinition(document);
+          expect(codesOf(issues), `${option.label} ${operator}`).toEqual([
+            "OPERATOR_NOT_SUPPORTED",
+          ]);
+          expect(issues[0]?.path.field).toBe("OPERATOR");
+          expect(issues[0]?.message).not.toMatch(/at least|at most/);
+          expect(() => normalizeStrategyDefinition(document)).toThrow(
+            StrategyValidationError,
+          );
+        }
+      }
+    }
   });
 });
 
