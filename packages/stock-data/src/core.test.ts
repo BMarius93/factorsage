@@ -14,7 +14,10 @@ import {
   assertOneRowPerTradingDay,
   buildDailyDerivedState,
 } from "./derived-state.js";
-import { INTRINSIC_VALUE_BLENDS } from "@intrinsic/domain";
+import {
+  FUNDAMENTAL_METRIC_FIELDS,
+  INTRINSIC_VALUE_BLENDS,
+} from "@intrinsic/domain";
 import { calculateBlend } from "@intrinsic/valuation";
 import { validateBlendDefinition } from "./intrinsic-values.js";
 import { calculateDailyOscillators } from "./oscillators.js";
@@ -489,6 +492,88 @@ describe("unified daily derived state", () => {
         intrinsicCurrency: undefined,
       })),
     );
+  });
+
+  it("leaves every fundamental metric absent when no fundamental state is materialized", () => {
+    for (const row of buildDailyDerivedState({ prices })) {
+      for (const field of FUNDAMENTAL_METRIC_FIELDS) {
+        expect(row, `${row.date} ${field}`).not.toHaveProperty(field);
+      }
+    }
+  });
+
+  it("merges materialized fundamental state by exact trading date, registered fields only", () => {
+    const rows = buildDailyDerivedState({
+      prices,
+      fundamentalStates: [
+        {
+          date: "2026-08-12",
+          roicTtm: 18.42,
+          debtToEquity: 0,
+          netDebtToEbitdaTtm: -1.25,
+          // Not a registered metric: it must never reach a persisted row.
+          ...({ priceToEarnings: 21 } as object),
+        },
+        // No DailyPrice exists for this date, so it must not create a derived row.
+        { date: "2026-08-15", roicTtm: 99 },
+      ],
+      intrinsicStates: [
+        {
+          date: "2026-08-12",
+          intrinsicValues: { GRAHAM: 148 },
+          grahamSourceAsOf: "2026-08-01T00:00:00.000Z",
+          intrinsicCurrency: "USD",
+        },
+      ],
+    });
+
+    expect(rows.map((row) => row.date)).toEqual(prices.map((row) => row.date));
+    const row = rows.find((each) => each.date === "2026-08-12");
+    // Fundamentals, intrinsic values and technicals share the one unified row.
+    expect(row).toMatchObject({
+      roicTtm: 18.42,
+      debtToEquity: 0,
+      netDebtToEbitdaTtm: -1.25,
+      intrinsicValues: { GRAHAM: 148 },
+    });
+    expect(row).not.toHaveProperty("priceToEarnings");
+    expect(row).not.toHaveProperty("grossMarginTtm");
+    expect(rows.find((each) => each.date === "2026-08-13")).not.toHaveProperty(
+      "roicTtm",
+    );
+  });
+
+  it("does not let fundamental merging change technicals, weekly or intrinsic state", () => {
+    const weeklyBars = aggregateCompletedWeeks(prices, "2026-08-25");
+    const intrinsicStates = [
+      {
+        date: "2026-08-11",
+        intrinsicValues: { DCF_FCFF: 180 },
+        dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+    ];
+    const without = buildDailyDerivedState({
+      prices,
+      weeklyBars,
+      intrinsicStates,
+    });
+    const withFundamentals = buildDailyDerivedState({
+      prices,
+      weeklyBars,
+      intrinsicStates,
+      fundamentalStates: prices.map((each) => ({
+        date: each.date,
+        grossMarginTtm: 40,
+        currentRatio: 1.5,
+      })),
+    });
+
+    expect(
+      withFundamentals.map(
+        ({ grossMarginTtm: _gross, currentRatio: _current, ...row }) => row,
+      ),
+    ).toEqual(without);
   });
 
   it("carries no calculation version on any derived row", () => {

@@ -1,3 +1,5 @@
+import type { DailyDerivedState } from "./stock-data.js";
+
 /**
  * Fundamental Metrics V1: the fifteen statement-derived metrics locked by
  * `docs/decisions/fundamental-metrics-v1.md`.
@@ -92,6 +94,15 @@ export function fundamentalMetricDefinition(
   }
   return definition;
 }
+
+/**
+ * Every registered field is a numeric field of `DailyDerivedState`: registering a metric without
+ * declaring its field on the unified daily row is a compile error here.
+ */
+export type FundamentalMetricRowFields = Pick<
+  DailyDerivedState,
+  FundamentalMetricField
+>;
 
 /**
  * The fifteen metrics as evaluated from the point-in-time statement set of one trading day.

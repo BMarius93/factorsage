@@ -3,10 +3,14 @@ import { PrismaClient, SecurityType } from "@intrinsic/database";
 import {
   DAILY_OSCILLATORS,
   DAILY_RELATIVE_VOLUMES,
+  FUNDAMENTAL_METRIC_FIELDS,
+  FUNDAMENTAL_METRICS,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
   type DailyPrice,
+  type FundamentalMetricField,
+  type FundamentalMetricSnapshot,
 } from "@intrinsic/domain";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -16,6 +20,12 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
+import { materializeDailyFundamentals } from "./fundamental-metrics-materializer.js";
+import {
+  GOLDEN_EXPECTED,
+  goldenStatements,
+  SECURITY_ID as FIXTURE_SECURITY_ID,
+} from "./fundamental-metrics.test-helper.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
 import { aggregateCompletedWeeks } from "./weekly.js";
 
@@ -363,5 +373,308 @@ describe("daily derived state persistence", () => {
       to: prices.at(-1)!.date,
     });
     expect(read.every((row) => row.sma20w === 1.5)).toBe(true);
+  });
+});
+
+/**
+ * PostgreSQL round trip of the fifteen Fundamental Metrics columns.
+ *
+ * Values cross `DECIMAL(20,8)`, so expectations are the stored quantum written as literals (rounded
+ * half away from zero at the eighth decimal), never the pre-quantization double.
+ */
+describe("fundamental metrics persistence", () => {
+  const prisma = new PrismaClient();
+  const store = new PrismaStockDataStore(prisma);
+  const symbol = `F${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+  let securityId = "";
+
+  /** Full-precision golden values and their stored quanta. */
+  const POSITIVE: Record<FundamentalMetricField, [number, number]> = {
+    revenueGrowthTtmYoy: [GOLDEN_EXPECTED.revenueGrowthTtmYoy, 17.39130435],
+    epsGrowthTtmYoy: [GOLDEN_EXPECTED.epsGrowthTtmYoy, 27.27272727],
+    fcfGrowthTtmYoy: [GOLDEN_EXPECTED.fcfGrowthTtmYoy, 25],
+    grossMarginTtm: [GOLDEN_EXPECTED.grossMarginTtm, 44.81481481],
+    operatingMarginTtm: [GOLDEN_EXPECTED.operatingMarginTtm, 18.14814815],
+    netMarginTtm: [GOLDEN_EXPECTED.netMarginTtm, 11.66666667],
+    fcfMarginTtm: [GOLDEN_EXPECTED.fcfMarginTtm, 18.51851852],
+    roicTtm: [GOLDEN_EXPECTED.roicTtm, 14.07636364],
+    roeTtm: [GOLDEN_EXPECTED.roeTtm, 14],
+    roaTtm: [GOLDEN_EXPECTED.roaTtm, 5.72727273],
+    debtToEquity: [GOLDEN_EXPECTED.debtToEquity, 0.44],
+    currentRatio: [GOLDEN_EXPECTED.currentRatio, 1.6],
+    netDebtToEbitdaTtm: [GOLDEN_EXPECTED.netDebtToEbitdaTtm, 0.76923077],
+    interestCoverageTtm: [GOLDEN_EXPECTED.interestCoverageTtm, 10.6],
+    assetTurnoverTtm: [GOLDEN_EXPECTED.assetTurnoverTtm, 0.49090909],
+  };
+
+  /** The metrics whose methodology allows a negative reading, with their stored quanta. */
+  const NEGATIVE: Partial<Record<FundamentalMetricField, [number, number]>> = {
+    revenueGrowthTtmYoy: [-10.370370370370372, -10.37037037],
+    grossMarginTtm: [-7.181818181818182, -7.18181818],
+    operatingMarginTtm: [-4.090909090909091, -4.09090909],
+    netMarginTtm: [-0.123456789, -0.12345679],
+    fcfMarginTtm: [-2.5, -2.5],
+    roicTtm: [-7.181818181818182, -7.18181818],
+    roeTtm: [-10, -10],
+    roaTtm: [-4.090909090909091, -4.09090909],
+    netDebtToEbitdaTtm: [-2, -2],
+    interestCoverageTtm: [-2.5, -2.5],
+  };
+
+  function row(
+    date: string,
+    values: Partial<Record<FundamentalMetricField, number>>,
+  ): DailyDerivedState {
+    return { securityId, date, sma20d: 100, ...values };
+  }
+
+  function valuesOf(
+    table: Partial<Record<FundamentalMetricField, [number, number]>>,
+    index: 0 | 1,
+  ): FundamentalMetricSnapshot {
+    return Object.fromEntries(
+      Object.entries(table).map(([field, pair]) => [field, pair![index]]),
+    );
+  }
+
+  beforeAll(async () => {
+    const security = await prisma.security.create({
+      data: {
+        providerSymbol: symbol,
+        symbol,
+        name: "Fundamental Persistence Corp",
+        exchangeCode: "NASDAQ",
+        currency: "USD",
+        type: SecurityType.STOCK,
+        isAdr: false,
+        isActivelyTrading: true,
+      },
+    });
+    securityId = security.id;
+  });
+
+  afterAll(async () => {
+    if (securityId) {
+      await prisma.security.delete({ where: { id: securityId } });
+    }
+    await prisma.$disconnect();
+  });
+
+  it("has a nullable DECIMAL(20,8) column for every registered metric", async () => {
+    const columns = await prisma.$queryRaw<
+      {
+        column_name: string;
+        data_type: string;
+        numeric_precision: number;
+        numeric_scale: number;
+        is_nullable: string;
+      }[]
+    >`
+      SELECT column_name, data_type, numeric_precision, numeric_scale, is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'DailyDerivedState'
+    `;
+    const byName = new Map(
+      columns.map((column) => [column.column_name, column]),
+    );
+
+    expect(FUNDAMENTAL_METRICS).toHaveLength(15);
+    for (const metric of FUNDAMENTAL_METRICS) {
+      expect(byName.get(metric.field), metric.field).toMatchObject({
+        data_type: "numeric",
+        numeric_precision: 20,
+        numeric_scale: 8,
+        is_nullable: "YES",
+      });
+    }
+    // Still one row per (securityId, date): no calculation revision joined the identity.
+    const key = await prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT kcu.column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+      WHERE tc.table_name = 'DailyDerivedState' AND tc.constraint_type = 'PRIMARY KEY'
+      ORDER BY kcu.ordinal_position
+    `;
+    expect(key.map((column) => column.column_name)).toEqual([
+      "securityId",
+      "date",
+    ]);
+    // The metrics live on the unified row only: no snapshot, EAV or per-family table exists.
+    const tables = await prisma.$queryRaw<{ table_name: string }[]>`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND (table_name ILIKE '%fundamental%' OR table_name ILIKE '%metric%')
+    `;
+    expect(tables).toEqual([]);
+  });
+
+  it("round-trips positive, negative, zero and absent values at storage precision", async () => {
+    const zero = Object.fromEntries(
+      FUNDAMENTAL_METRIC_FIELDS.map((field) => [field, 0]),
+    );
+    const written = [
+      row("2026-03-02", valuesOf(POSITIVE, 0)),
+      row("2026-03-03", valuesOf(NEGATIVE, 0)),
+      row("2026-03-04", zero),
+      row("2026-03-05", {}),
+    ];
+    await store.saveDailyDerivedState({
+      securityId,
+      rows: written,
+      weeklyPrices: [],
+      successfulCoverage: { from: "2026-03-02", to: "2026-03-05" },
+      syncedAt: "2026-03-05T21:00:00.000Z",
+    });
+
+    const [positive, negative, zeros, absent] =
+      await store.getDailyDerivedState(securityId, {
+        from: "2026-03-02",
+        to: "2026-03-05",
+      });
+
+    expect(positive).toEqual(row("2026-03-02", valuesOf(POSITIVE, 1)));
+    expect(negative).toEqual(row("2026-03-03", valuesOf(NEGATIVE, 1)));
+    // A real zero stays a present zero.
+    expect(zeros).toEqual(row("2026-03-04", zero));
+    // Absence stays absence: no key at all, not null and not zero.
+    expect(absent).toEqual(row("2026-03-05", {}));
+    for (const field of FUNDAMENTAL_METRIC_FIELDS) {
+      expect(absent && field in absent, field).toBe(false);
+    }
+
+    const stored = await prisma.dailyDerivedState.findMany({
+      where: { securityId },
+      orderBy: { date: "asc" },
+    });
+    for (const field of FUNDAMENTAL_METRIC_FIELDS) {
+      expect(stored[3]?.[field], field).toBeNull();
+      expect(stored[2]?.[field]?.toString(), field).toBe("0");
+    }
+    // Metrics that cannot be negative were left out of the negative row, and stay NULL.
+    expect(stored[1]?.debtToEquity).toBeNull();
+    expect(stored[1]?.currentRatio).toBeNull();
+  });
+
+  it("round-trips very large finite values inside the column's bounds exactly", async () => {
+    const written = [
+      row("2026-04-01", {
+        revenueGrowthTtmYoy: 999_999_999_999.9999,
+        interestCoverageTtm: 987_654_321_098.5,
+        netDebtToEbitdaTtm: -987_654_321_098.5,
+      }),
+    ];
+    await store.saveDailyDerivedState({
+      securityId,
+      rows: written,
+      weeklyPrices: [],
+      successfulCoverage: { from: "2026-04-01", to: "2026-04-01" },
+      syncedAt: "2026-04-01T21:00:00.000Z",
+    });
+
+    await expect(
+      store.getDailyDerivedState(securityId, {
+        from: "2026-04-01",
+        to: "2026-04-01",
+      }),
+    ).resolves.toEqual(written);
+  });
+
+  it("rejects a value outside DECIMAL(20,8) instead of storing a clamped or infinite number", async () => {
+    const date = "2026-04-02";
+    const good = row(date, { roicTtm: 12.5 });
+    await store.saveDailyDerivedState({
+      securityId,
+      rows: [good],
+      weeklyPrices: [],
+      successfulCoverage: { from: date, to: date },
+      syncedAt: "2026-04-02T21:00:00.000Z",
+    });
+
+    // 1e12 needs thirteen integer digits: PostgreSQL refuses it. Non-finite values are refused by
+    // the store before Prisma could write them as NULL.
+    for (const value of [
+      1e12,
+      -1e12,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NaN,
+    ]) {
+      await expect(
+        store.saveDailyDerivedState({
+          securityId,
+          rows: [row(date, { roicTtm: value })],
+          weeklyPrices: [],
+          successfulCoverage: { from: date, to: date },
+          syncedAt: "2026-04-02T22:00:00.000Z",
+        }),
+      ).rejects.toThrow();
+    }
+    // The replacement ran in one transaction: the previously stored row is untouched.
+    await expect(
+      store.getDailyDerivedState(securityId, { from: date, to: date }),
+    ).resolves.toEqual([good]);
+  });
+
+  it("stores the materialized snapshot on the same daily row as technical and intrinsic state", async () => {
+    const prices: DailyPrice[] = [];
+    for (let day = 0; prices.length < 30; day += 1) {
+      const date = addDays("2026-05-04", day);
+      const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+      if (weekday !== 0 && weekday !== 6) {
+        prices.push({
+          securityId,
+          date,
+          open: 100,
+          high: 101,
+          low: 99,
+          close: 100 + prices.length,
+          volume: 1_000,
+        });
+      }
+    }
+    const statements = goldenStatements({ available: "2026-05-01" }).map(
+      (each) => ({ ...each, securityId }),
+    );
+    expect(statements[0]?.securityId).not.toBe(FIXTURE_SECURITY_ID);
+    const fundamentalStates = materializeDailyFundamentals({
+      securityId,
+      tradingDates: prices.map((price) => price.date),
+      statements,
+    });
+    const rows = buildDailyDerivedState({
+      prices,
+      fundamentalStates,
+      intrinsicStates: [
+        {
+          date: prices.at(-1)!.date,
+          intrinsicValues: { GRAHAM: 148 },
+          grahamSourceAsOf: "2026-05-01T00:00:00.000Z",
+          intrinsicCurrency: "USD",
+        },
+      ],
+    });
+    await store.saveDailyDerivedState({
+      securityId,
+      rows,
+      weeklyPrices: [],
+      successfulCoverage: { from: prices[0]!.date, to: prices.at(-1)!.date },
+      syncedAt: "2026-06-12T21:00:00.000Z",
+    });
+
+    const [last] = await store.getDailyDerivedState(securityId, {
+      from: prices.at(-1)!.date,
+      to: prices.at(-1)!.date,
+    });
+    expect(last?.sma20d).toBeCloseTo(
+      prices.slice(-20).reduce((sum, price) => sum + price.close, 0) / 20,
+      7,
+    );
+    expect(last?.rsi14d).toBeDefined();
+    expect(last?.intrinsicValues).toEqual({ GRAHAM: 148 });
+    for (const [field, quanta] of Object.entries(POSITIVE)) {
+      expect(last?.[field as FundamentalMetricField], field).toBe(quanta[1]);
+    }
   });
 });
