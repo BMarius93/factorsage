@@ -6,6 +6,8 @@ export * from "./coordination.js";
 export * from "./dates.js";
 export * from "./derived-state.js";
 export * from "./fmp-gate.js";
+export * from "./fundamental-metrics.js";
+export * from "./fundamental-metrics-materializer.js";
 export * from "./intrinsic-value-evaluator.js";
 export * from "./intrinsic-value-inputs.js";
 export * from "./intrinsic-value-materializer.js";

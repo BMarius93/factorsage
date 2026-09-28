@@ -11,6 +11,10 @@ import {
   INTRINSIC_MODEL_SOURCE_FIELDS,
   type IntrinsicModelSourceField,
 } from "./intrinsic-values.js";
+import {
+  normalizeTradingDates,
+  planStatementEvaluationDates,
+} from "./statement-events.js";
 
 /**
  * Intrinsic-only projection of one trading day's derived state.
@@ -46,87 +50,22 @@ type IntrinsicSnapshot = Omit<DailyIntrinsicState, "date">;
 
 const EMPTY_SNAPSHOT: IntrinsicSnapshot = {};
 
-/**
- * Ascending, duplicate-free trading dates.
- *
- * Unsorted input is normalized rather than rejected, because ordering carries no information. A
- * duplicated trading date is rejected: it violates the one-row-per-trading-day identity and is a
- * caller/data defect, not a financial outcome.
- */
-function normalizeTradingDates(
-  tradingDates: readonly LocalDate[],
-): LocalDate[] {
-  const sorted = [...tradingDates].sort((left, right) =>
-    left.localeCompare(right),
-  );
-  for (const [index, date] of sorted.entries()) {
-    if (index > 0 && date === sorted[index - 1]) {
-      throw new Error(
-        `Trading dates must be unique; duplicate ${date} supplied for intrinsic materialization`,
-      );
-    }
-  }
-  return sorted;
-}
-
-/** First supplied trading date on or after `date`, or `undefined` when the range ends first. */
-function firstTradingDateOnOrAfter(
-  sortedDates: readonly LocalDate[],
-  date: LocalDate,
-): LocalDate | undefined {
-  let low = 0;
-  let high = sortedDates.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if ((sortedDates[middle] as LocalDate) < date) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-  return sortedDates[low];
-}
+const MATERIALIZATION = "intrinsic materialization";
 
 /**
  * Trading days on which the intrinsic snapshot must be re-evaluated.
  *
- * A model result can only change when newly eligible point-in-time information arrives, so the
- * first supplied trading day (which establishes the opening state from everything already
- * eligible) plus the effective day of each later statement revision is sufficient. A revision that
- * becomes available on a weekend, a holiday, or any other non-supplied date takes effect on the
- * first supplied trading day on or after it, and several revisions landing on the same trading day
- * cause a single evaluation.
- *
- * `observedAt` plays no part; a later revision of the same fiscal identity is an event in its own
- * right through its own `availableFromDate`. Which model a statement affects is deliberately not
- * guessed: every event re-evaluates all four models.
+ * The first supplied trading day plus the effective trading day of each later statement revision,
+ * decided by the shared {@link planStatementEvaluationDates} so intrinsic values and Fundamental
+ * Metrics change on exactly the same day for the same revision. A revision available on a
+ * weekend or holiday takes effect on the first supplied trading day on or after it, and several
+ * revisions landing on one trading day cause a single evaluation. Which model a statement affects
+ * is deliberately not guessed: every event re-evaluates all four models.
  */
 export function planIntrinsicEvaluationDates(
   request: DailyIntrinsicMaterializationRequest,
 ): LocalDate[] {
-  const sortedDates = normalizeTradingDates(request.tradingDates);
-  const first = sortedDates[0];
-  const last = sortedDates.at(-1);
-  if (first === undefined || last === undefined) {
-    return [];
-  }
-
-  const events = new Set<LocalDate>([first]);
-  for (const statement of request.statements) {
-    if (statement.securityId !== request.securityId) {
-      continue;
-    }
-    const availableFrom = statement.availableFromDate;
-    // Already reflected in the opening evaluation, or beyond the requested range.
-    if (availableFrom <= first || availableFrom > last) {
-      continue;
-    }
-    const effective = firstTradingDateOnOrAfter(sortedDates, availableFrom);
-    if (effective !== undefined) {
-      events.add(effective);
-    }
-  }
-  return [...events].sort((left, right) => left.localeCompare(right));
+  return planStatementEvaluationDates(request, MATERIALIZATION);
 }
 
 /**
@@ -192,7 +131,10 @@ function toSnapshot(
 export function materializeDailyIntrinsicValues(
   request: DailyIntrinsicMaterializationRequest,
 ): DailyIntrinsicState[] {
-  const sortedDates = normalizeTradingDates(request.tradingDates);
+  const sortedDates = normalizeTradingDates(
+    request.tradingDates,
+    MATERIALIZATION,
+  );
   if (sortedDates.length === 0) {
     return [];
   }
