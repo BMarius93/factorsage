@@ -243,8 +243,29 @@ function sessionOn(date: string): Date {
 async function signalsOf(monitorId: string) {
   return prisma.monitorSignal.findMany({
     where: { monitorId },
-    orderBy: { detectedAt: "asc" },
+    // A **total** order, exactly as `monitors.service.ts` reads them. `detectedAt` alone is not
+    // one: every Signal a cycle emits is stamped with that cycle's `now`, so two occurrences from
+    // the same clock tie, and PostgreSQL is then free to return them either way round.
+    orderBy: [{ detectedAt: "asc" }, { id: "asc" }],
   });
+}
+
+/**
+ * The occurrence a case already saw, and the one that appeared after it.
+ *
+ * Which of two same-cycle occurrences comes back first is not a fact about the Monitor — it is a
+ * tie in the query. A case asserting on *both* therefore names them by identity rather than by
+ * position, which is also the stronger statement: that *this* occurrence ended and *that* new one
+ * is live, not merely that some row is resolved and some row is not.
+ */
+function pairedWith<T extends { id: string }>(
+  signals: readonly T[],
+  earlierId: string,
+): { earlier: T | undefined; later: T | undefined } {
+  return {
+    earlier: signals.find((row) => row.id === earlierId),
+    later: signals.find((row) => row.id !== earlierId),
+  };
 }
 
 /** A decided write that opens an ACTIVE occurrence on a level that has no state yet. */
@@ -1181,6 +1202,8 @@ describe("monitor evaluation cycle", () => {
 
     loader.currentPrice = 150;
     await cycle.run(nextCycle());
+    const [opened] = await signalsOf(monitorId);
+    expect(opened).toBeDefined();
     loader.currentPrice = 80;
     await cycle.run(nextCycle());
     loader.currentPrice = 150;
@@ -1190,8 +1213,9 @@ describe("monitor evaluation cycle", () => {
     // suppressed within a day: the state really did end and begin again.
     const signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(2);
-    expect(signals[0]?.resolvedAt).not.toBeNull();
-    expect(signals[1]?.resolvedAt).toBeNull();
+    const { earlier, later } = pairedWith(signals, opened!.id);
+    expect(earlier?.resolvedAt).not.toBeNull();
+    expect(later?.resolvedAt).toBeNull();
   });
 
   it("resolves a Signal whose security left the monitored list", async () => {
@@ -1421,7 +1445,9 @@ describe("monitor evaluation cycle", () => {
     const cycle = cycleOf(loader);
 
     await cycle.run(nextCycle());
-    expect(await signalsOf(monitorId)).toHaveLength(1);
+    const firstRound = await signalsOf(monitorId);
+    expect(firstRound).toHaveLength(1);
+    const firstSignalId = firstRound[0]!.id;
 
     // Removed while still matching: the sweep closes the Signal and must leave the row coherent.
     const listId = (
@@ -1444,7 +1470,9 @@ describe("monitor evaluation cycle", () => {
 
     signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(2);
-    expect(signals[1]?.resolvedAt).toBeNull();
+    const { earlier, later } = pairedWith(signals, firstSignalId);
+    expect(earlier?.resolvedAt).not.toBeNull();
+    expect(later?.resolvedAt).toBeNull();
   });
 
   it("records the scan without touching the Monitor's user-facing updatedAt", async () => {
@@ -1863,6 +1891,52 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(1);
     // The loser's transition rolled back with its Signal.
     expect(await transitionsOf(monitorId)).toHaveLength(1);
+  });
+
+  it("initializes one state when two whole cycles overlap on the same level", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`OVL${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+
+    // The same race as the case above, but through the whole cycle rather than one repository
+    // call: both cycles load "no state for this level", both decide the match, and both try to
+    // create `(monitorId, securityId, levelId)`. The loser's unique violation is the
+    // `MonitorSignalState_identity_key` collision a CI run logged — it is handled inside the
+    // repository, so it must never reach the caller and must leave nothing behind.
+    const [left, right] = await Promise.all([
+      cycleOf(loader).run(nextCycle()),
+      cycleOf(loader).run(nextCycle()),
+    ]);
+
+    // Exactly one durable state, one occurrence, one transition — whichever cycle won.
+    expect(
+      await prisma.monitorSignalState.count({
+        where: { monitorId, securityId: security.id, levelId: "buy-1" },
+      }),
+    ).toBe(1);
+    const signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+    expect(await transitionsOf(monitorId)).toHaveLength(1);
+    // One cycle emitted it; neither reported a failure, because a lost race is not an error.
+    expect(left.signalsEmitted + right.signalsEmitted).toBe(1);
+
+    // And the state the winner left is the one a following cycle reads: no duplicate, no reset.
+    await cycleOf(loader).run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
+    expect(
+      await prisma.monitorSignalState.count({
+        where: { monitorId, securityId: security.id, levelId: "buy-1" },
+      }),
+    ).toBe(1);
   });
 
   /**
@@ -2305,7 +2379,9 @@ describe("monitor evaluation cycle", () => {
     loader.currentPrice = 150;
     const cycle = cycleOf(loader);
     await cycle.run(nextCycle());
-    expect(await signalsOf(monitorId)).toHaveLength(1);
+    const beforeEdit = await signalsOf(monitorId);
+    expect(beforeEdit).toHaveLength(1);
+    const beforeEditId = beforeEdit[0]!.id;
 
     // The user edits THIS level: a still-true match under the new logic is a new occurrence.
     const edited = priceAboveSmaDefinition();
@@ -2320,9 +2396,10 @@ describe("monitor evaluation cycle", () => {
 
     const signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(2);
-    expect(signals[0]?.resolvedAt).not.toBeNull();
-    expect(signals[0]?.resolutionReason).toBe("LOGIC_CHANGED");
-    expect(signals[1]?.resolvedAt).toBeNull();
+    const { earlier, later } = pairedWith(signals, beforeEditId);
+    expect(earlier?.resolvedAt).not.toBeNull();
+    expect(earlier?.resolutionReason).toBe("LOGIC_CHANGED");
+    expect(later?.resolvedAt).toBeNull();
     const transitions = await transitionsOf(monitorId);
     expect(transitions.map((row) => [row.fromState, row.toState, row.reason])).toEqual([
       ["INACTIVE", "ACTIVE", "CONDITIONS_MET"],
@@ -2332,7 +2409,8 @@ describe("monitor evaluation cycle", () => {
     // The reset is recorded under the logic it ended.
     expect(transitions[1]!.signalFingerprint).toBe(transitions[0]!.signalFingerprint);
     expect(transitions[2]!.signalFingerprint).not.toBe(transitions[0]!.signalFingerprint);
-    expect(transitions[1]!.signalId).toBe(signals[0]!.id);
+    // The closing transition points at the occurrence that ended, named rather than indexed.
+    expect(transitions[1]!.signalId).toBe(earlier!.id);
   });
 
   it("keeps an unchanged level's match when another level of the Strategy is edited", async () => {

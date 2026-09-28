@@ -19,6 +19,7 @@ import type {
   DateRange,
   Security,
 } from "@intrinsic/domain";
+import { BacktestRunStatus } from "@intrinsic/database";
 import { createLogger } from "@intrinsic/observability";
 import { describe, expect, it } from "vitest";
 import {
@@ -31,6 +32,7 @@ import type {
   BacktestFailureWrite,
   BacktestJobRepository,
   BacktestMilestoneWrite,
+  BacktestProgressWrite,
   BacktestResultWrite,
   ClaimedBacktestJob,
   StaleJobRecovery,
@@ -49,6 +51,20 @@ const lease: BacktestJobLease = {
   interruption: () => null,
   markLost: () => {},
 } as unknown as BacktestJobLease;
+
+/** A lease that remembers being told the claim is gone, so a test can prove the run noticed. */
+function recordingLease(): BacktestJobLease & { readonly lost: () => boolean } {
+  let lost = false;
+  return {
+    jobId: "job-1",
+    runId: "run-1",
+    interruption: () => null,
+    markLost: () => {
+      lost = true;
+    },
+    lost: () => lost,
+  };
+}
 
 function weekdays(from: string, to: string): string[] {
   const dates: string[] = [];
@@ -149,14 +165,51 @@ function claimOf(snapshot: unknown): ClaimedBacktestJob {
 
 type ProgressWrite = {
   percent: number;
+  status?: BacktestRunStatus;
   snapshot?: BacktestLiveSnapshotResponse;
   milestone?: BacktestMilestoneWrite;
 };
+
+/**
+ * How a seeded repository answers one progress write.
+ *
+ * `THROW` is the case F-06 is about: the write reached the database and the database did not
+ * answer in time. `DENY` is the ownership answer — the write executed and matched no row.
+ */
+type ProgressFault = "THROW" | "DENY";
+
+/**
+ * The exact error the audit observed, reproduced without waiting for a slow machine.
+ *
+ * `updateProgress` runs inside Prisma's **default** five-second interactive-transaction timeout,
+ * and under the product's own supported concurrency a checkpoint upserting a JSON live-snapshot
+ * document can exceed it. Constructing the error directly is what makes this deterministic:
+ * nothing here sleeps, and the case does not depend on how loaded the machine running it is.
+ */
+function transactionExpired(): Error {
+  const err = new Error(
+    "Transaction API error: Transaction already closed: A query cannot be executed on an " +
+      "expired transaction. The timeout for this transaction was 5000 ms, however 5576 ms " +
+      "passed since the start of the transaction.",
+  );
+  err.name = "PrismaClientKnownRequestError";
+  (err as Error & { code: string }).code = "P2028";
+  return err;
+}
 
 class RecordingRepository implements BacktestJobRepository {
   readonly failures: BacktestFailureWrite[] = [];
   readonly results: BacktestResultWrite[] = [];
   readonly progress: ProgressWrite[] = [];
+  /** Every write attempted, faulted ones included, so a test can prove one was tried. */
+  readonly attempted: BacktestProgressWrite[] = [];
+
+  constructor(
+    /** Decides each write's fate from the write itself; absent means every write succeeds. */
+    private readonly fault?: (
+      write: BacktestProgressWrite,
+    ) => ProgressFault | null,
+  ) {}
 
   async claimNextJob(): Promise<ClaimedBacktestJob | null> {
     return null;
@@ -167,13 +220,18 @@ class RecordingRepository implements BacktestJobRepository {
   async recoverStaleJobs(): Promise<StaleJobRecovery> {
     return { requeued: 0, abandoned: 0 };
   }
-  async updateProgress(write: {
-    percent: number;
-    snapshot?: BacktestLiveSnapshotResponse;
-    milestone?: BacktestMilestoneWrite;
-  }): Promise<boolean> {
+  async updateProgress(write: BacktestProgressWrite): Promise<boolean> {
+    this.attempted.push(write);
+    const fault = this.fault?.(write) ?? null;
+    if (fault === "THROW") {
+      throw transactionExpired();
+    }
+    if (fault === "DENY") {
+      return false;
+    }
     this.progress.push({
       percent: write.percent,
+      ...(write.status ? { status: write.status } : {}),
       ...(write.snapshot ? { snapshot: write.snapshot } : {}),
       ...(write.milestone ? { milestone: write.milestone } : {}),
     });
@@ -293,8 +351,10 @@ class FixtureBenchmarks implements BacktestBenchmarkLoader {
   }
 }
 
-function processorWith(stockData: BacktestFrameLoader) {
-  const repository = new RecordingRepository();
+function processorWith(
+  stockData: BacktestFrameLoader,
+  repository: RecordingRepository = new RecordingRepository(),
+) {
   const processor = new BacktestProcessor(
     {
       repository,
@@ -469,5 +529,178 @@ describe("annual execution windows", () => {
       repository.progress.filter((write) => write.milestone !== undefined),
     ).toHaveLength(2);
     expect(loader.windows).toHaveLength(3);
+  });
+});
+
+/**
+ * A bookkeeping write must not be able to fail a simulation it cannot influence.
+ *
+ * These cases are about the seam between the worker and the **repository** — what a progress write
+ * is allowed to decide about a run — rather than the loader seam the cases above cover. They share
+ * the fixture because the property only means anything on a run that really executes: the proof is
+ * that a faulted run and a clean run produce the same numbers, which needs both to be real.
+ *
+ * The defect they pin (audit F-06): `updateProgress` runs inside Prisma's default five-second
+ * interactive-transaction timeout, and a checkpoint that exceeded it aborted the whole run with
+ * `EXECUTION_FAILED`. The engine had computed the window correctly; a progress bar killed it.
+ *
+ * Nothing here moves a timeout, and no case depends on wall-clock timing.
+ */
+describe("progress checkpoint durability", () => {
+  /** Written by `PREPARING_DATA` / `RUNNING` / `FINALIZING`, and by nothing else. */
+  const isPhaseTransition = (write: BacktestProgressWrite): boolean =>
+    write.status !== undefined;
+
+  it("completes the run, unchanged, when every checkpoint write expires", async () => {
+    const clean = processorWith(new RecordingFrameLoader());
+    await clean.processor.process(claimOf(snapshotDocument()), lease);
+    const expected = clean.repository.results[0]?.result;
+    expect(expected).toBeDefined();
+
+    // Every observation write fails the way the audit observed. The three phase transitions still
+    // succeed: this is a slow bookkeeping write, not an unreachable database.
+    const faulted = processorWith(
+      new RecordingFrameLoader(),
+      new RecordingRepository((write) =>
+        isPhaseTransition(write) ? null : "THROW",
+      ),
+    );
+    await faulted.processor.process(claimOf(snapshotDocument()), lease);
+
+    // The run survived, and it is the same run.
+    expect(faulted.repository.failures).toEqual([]);
+    expect(faulted.repository.results).toHaveLength(1);
+    const actual = faulted.repository.results[0]?.result;
+    expect(actual?.summary).toEqual(expected?.summary);
+    expect(actual?.trades).toEqual(expected?.trades);
+    expect(actual?.equity).toEqual(expected?.equity);
+    expect(actual?.positions).toEqual(expected?.positions);
+
+    // The checkpoints really were attempted and really did fail, so the case proves tolerance
+    // rather than a fixture that happens to checkpoint nothing.
+    const observations = faulted.repository.attempted.filter(
+      (write) => !isPhaseTransition(write),
+    );
+    expect(observations.length).toBeGreaterThan(0);
+    expect(observations.some((write) => write.milestone)).toBe(true);
+    // Not one of them landed: the run's three phase transitions are all that reached the row.
+    expect(faulted.repository.progress.map((write) => write.percent)).toEqual([
+      2, 20, 95,
+    ]);
+  });
+
+  it("persists one result, once, after its checkpoints failed", async () => {
+    const { processor, repository } = processorWith(
+      new RecordingFrameLoader(),
+      new RecordingRepository((write) =>
+        isPhaseTransition(write) ? null : "THROW",
+      ),
+    );
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    // A tolerated checkpoint must not turn into a retry of anything durable: one result write,
+    // one set of trades, no duplicated terminal sale.
+    expect(repository.results).toHaveLength(1);
+    const trades = repository.results[0]?.result.trades ?? [];
+    expect(
+      trades.filter((trade) => trade.source === "END_OF_BACKTEST"),
+    ).toHaveLength(1);
+    expect(
+      new Set(trades.map((trade) => `${trade.date}:${trade.action}`)).size,
+    ).toBe(trades.length);
+  });
+
+  it("stops at once when a checkpoint reports the claim is gone", async () => {
+    const claimLost = recordingLease();
+    const { processor, repository } = processorWith(
+      new RecordingFrameLoader(),
+      new RecordingRepository((write) =>
+        isPhaseTransition(write) ? null : "DENY",
+      ),
+    );
+
+    // A write that executed and matched no row is the ownership answer, and it is unaffected by
+    // the tolerance above: another worker holds this run, so this one must write nothing more.
+    await expect(
+      processor.process(claimOf(snapshotDocument()), claimLost),
+    ).rejects.toMatchObject({
+      name: "BacktestInterruptedError",
+      reason: "LEASE_LOST",
+    });
+    expect(claimLost.lost()).toBe(true);
+    expect(repository.results).toEqual([]);
+    expect(repository.failures).toEqual([]);
+  });
+
+  it("re-sends a phase transition that never landed, and completes", async () => {
+    // Only the *first* attempt at the transition into RUNNING fails, which is what a stalled
+    // bookkeeping transaction looks like: the database is busy for a moment, not gone.
+    let refused = false;
+    const { processor, repository } = processorWith(
+      new RecordingFrameLoader(),
+      new RecordingRepository((write) => {
+        if (write.status === "RUNNING" && !refused) {
+          refused = true;
+          return "THROW";
+        }
+        return null;
+      }),
+    );
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(refused).toBe(true);
+    expect(repository.failures).toEqual([]);
+    expect(repository.results).toHaveLength(1);
+
+    // The status was carried to the next checkpoint rather than abandoned, so a poller sees the
+    // right phase within seconds instead of a run that is running while the row says otherwise.
+    const landed = repository.progress.filter(
+      (write) => write.status === "RUNNING",
+    );
+    expect(landed).toHaveLength(1);
+    // And it was repaired once, not re-sent on every checkpoint afterwards.
+    expect(
+      repository.attempted.filter((write) => write.status === "RUNNING"),
+    ).toHaveLength(2);
+  });
+
+  it("completes even when no phase transition can be written at all", async () => {
+    const { processor, repository } = processorWith(
+      new RecordingFrameLoader(),
+      new RecordingRepository(() => "THROW"),
+    );
+
+    // The strongest form: not one progress write of any kind reaches the database for the whole
+    // run. Nothing the day loop computes depends on one, so the run still produces its result —
+    // `persistResult` is a different, ownership-guarded write with its own budget.
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toEqual([]);
+    expect(repository.results).toHaveLength(1);
+    expect(repository.progress).toEqual([]);
+  });
+
+  it("loses only the milestone when a year-boundary write expires", async () => {
+    const { processor, repository } = processorWith(
+      new RecordingFrameLoader(),
+      new RecordingRepository((write) =>
+        write.milestone?.year === "2020" ? "THROW" : null,
+      ),
+    );
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toEqual([]);
+    expect(repository.results).toHaveLength(1);
+
+    // 2020's milestone is gone — that is the whole cost — and 2019's still landed. A milestone is
+    // a record of progress the day loop never reads, and a requeue discards the lot anyway.
+    const years = repository.progress
+      .map((write) => write.milestone?.year)
+      .filter((year): year is string => year !== undefined);
+    expect(years).not.toContain("2020");
+    expect(years).toContain("2019");
   });
 });
