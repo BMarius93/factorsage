@@ -1202,10 +1202,11 @@ export class PrismaStockDataStore implements StockDataStore {
         ...(statementPeriods(input.cadence)
           ? { period: { in: statementPeriods(input.cadence) } }
           : {}),
-        ...(input.from
-          ? { fiscalDate: { gte: toDatabaseDate(input.from) } }
+        // One `fiscalDate` condition carrying both bounds. Two spread conditions on the same key
+        // keep only the last, which silently dropped `from` whenever `to` was also given.
+        ...(input.from || input.to
+          ? { fiscalDate: rangeWhere({ from: input.from, to: input.to }) }
           : {}),
-        ...(input.to ? { fiscalDate: { lte: toDatabaseDate(input.to) } } : {}),
       },
       orderBy: [
         { fiscalDate: "asc" },
