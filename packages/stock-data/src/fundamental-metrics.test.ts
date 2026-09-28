@@ -1240,6 +1240,43 @@ describe("determinism and purity", () => {
     expectValue(snapshot, "operatingMarginTtm", 490 / 27);
   });
 
+  it("never divides by an overflowing sum, which would read as a finite zero", () => {
+    // Revenue beyond the double range: a margin over an infinite revenue would compute as 0.
+    const snapshot = evaluate(
+      currentIncome(GOLDEN, "revenue", [1e308, 1e308, 1e308, 1e308]),
+    );
+
+    for (const field of [
+      "revenueGrowthTtmYoy",
+      "grossMarginTtm",
+      "operatingMarginTtm",
+      "netMarginTtm",
+      "fcfMarginTtm",
+      "assetTurnoverTtm",
+    ] as const) {
+      expectUnavailable(snapshot, field);
+    }
+    // Metrics that do not read revenue are unaffected.
+    expectValue(snapshot, "roeTtm", 14);
+    expectValue(snapshot, "interestCoverageTtm", 10.6);
+
+    // The same for the balance-sheet averages behind ROE, ROA and asset turnover.
+    const assets = evaluate(
+      balanceSheet(
+        balanceSheet(GOLDEN, 2024, "Q4", (values) => ({
+          ...values,
+          totalAssets: 1e308,
+        })),
+        2025,
+        "Q4",
+        (values) => ({ ...values, totalAssets: 1e308 }),
+      ),
+    );
+    expectUnavailable(assets, "roaTtm");
+    expectUnavailable(assets, "assetTurnoverTtm");
+    expectValue(assets, "roeTtm", 14);
+  });
+
   it("returns an extreme but finite ratio unclamped", () => {
     // Previous revenue 0.000001 + 0 + 0 + 0: (540 / 0.000001 - 1) * 100.
     const snapshot = evaluate(
