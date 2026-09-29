@@ -1181,7 +1181,16 @@ export class PrismaStockDataStore implements StockDataStore {
       let unchangedCount = 0;
       const plannedRevisions = new Set<string>();
 
-      for (const statement of input.statements) {
+      // Oldest filing first. A row is judged against the filings already known for its identity,
+      // including rows this sync planned before it, so a response listing an amendment before the
+      // original would otherwise make the original look like a correction "first observed now" and
+      // erase it from every session between the two filings. Ascending filing date makes the
+      // outcome independent of the provider's order; the sort is stable, so rows sharing a filing
+      // date keep the order the provider gave them, exactly as before.
+      const byFilingDate = [...input.statements].sort((left, right) =>
+        left.filingDate.localeCompare(right.filingDate),
+      );
+      for (const statement of byFilingDate) {
         if (statement.securityId !== input.securityId) {
           throw new Error("Financial statement securityId mismatch");
         }

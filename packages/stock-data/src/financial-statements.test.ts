@@ -497,6 +497,85 @@ describe("financial statement persistence", () => {
       }
     });
 
+    it("judges two filings of one quarter in one sync against earlier syncs only, whatever the provider order", async () => {
+      // Q1 2020 arrives with its original filing (2020-04-20) and a later amendment (2020-05-20)
+      // in one response. Each filing was public the day after it was filed; neither may be judged
+      // against the other merely because the provider listed the newer one first — that would date
+      // the original from this sync's observation and erase it from every session in between.
+      for (const reversed of [false, true]) {
+        await withSecurity("Same Sync Amendment Corp", async (securityId, store) => {
+          const batch = [
+            statement({ securityId, values: { revenue: 100 } }),
+            statement({
+              securityId,
+              filingDate: "2020-05-20",
+              values: { revenue: 150 },
+            }),
+          ];
+          await store.saveFinancialStatements({
+            securityId,
+            statements: reversed ? [...batch].reverse() : batch,
+            syncedAt: "2026-09-01T12:00:00.000Z",
+          });
+
+          const revisions = await store.getFinancialStatementRevisions({
+            securityId,
+          });
+          expect(
+            Object.fromEntries(
+              revisions.map((revision) => [
+                revision.filingDate,
+                revision.availableFromDate,
+              ]),
+            ),
+            reversed ? "newer filing first" : "older filing first",
+          ).toEqual({ "2020-04-20": "2020-04-21", "2020-05-20": "2020-05-21" });
+          // Between the two filings the original is what was public.
+          await expect(
+            store.getFinancialStatements(securityId, {
+              cadence: "QUARTERLY",
+              asOf: "2020-05-01",
+            }),
+          ).resolves.toMatchObject([{ values: { revenue: 100 } }]);
+        });
+      }
+    });
+
+    it("still dates a same-filing correction of a stored quarter from its observation", async () => {
+      // The other half of the rule, unchanged: a stored quarter whose content changes without a
+      // newer filing date is a correction first observed now.
+      await withSecurity("Silent Correction Corp", async (securityId, store) => {
+        await store.saveFinancialStatements({
+          securityId,
+          statements: [statement({ securityId, values: { revenue: 100 } })],
+          syncedAt: "2020-04-21T16:00:00.000Z",
+        });
+        await store.saveFinancialStatements({
+          securityId,
+          statements: [
+            statement({ securityId, values: { revenue: 120 } }),
+            statement({ securityId, values: { revenue: 130 } }),
+          ],
+          syncedAt: "2020-09-01T09:00:00.000Z",
+        });
+        const revisions = await store.getFinancialStatementRevisions({
+          securityId,
+        });
+        expect(
+          revisions
+            .map((revision) => [
+              (revision.values as { revenue: number }).revenue,
+              revision.availableFromDate,
+            ])
+            .sort(),
+        ).toEqual([
+          [100, "2020-04-21"],
+          [120, "2020-09-01"],
+          [130, "2020-09-01"],
+        ]);
+      });
+    });
+
     it("never lets a period-end placeholder that moved pose as a newer filing", async () => {
       // FMP gives the period end as the filing date when it holds none (AUD-03): Q3 FY2018 ends and
       // is "filed" on 2018-06-30, so it is dated at its statutory deadline, public 2018-08-15. On
