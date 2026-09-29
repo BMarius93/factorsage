@@ -10,9 +10,9 @@ import type { DailyDerivedState } from "./stock-data.js";
  * by changing case or parsing one into the other.
  *
  * It deliberately carries no product label and no grouping. Those are presentation, owned by the
- * one product-facing catalog in `@intrinsic/contracts` once a surface needs them and pinned against
- * this registry by a drift test — the same split `SELECTABLE_SERIES_CATALOG` keeps with the moving
- * average and oscillator registries.
+ * one product-facing catalog, `FUNDAMENTAL_METRIC_CATALOG` in `@intrinsic/contracts`, and pinned
+ * against this registry by `packages/stock-data/src/fundamental-metrics-catalog.test.ts` — the same
+ * split `SELECTABLE_SERIES_CATALOG` keeps with the moving average and oscillator registries.
  *
  * Units are part of what a stored number means, so they live here:
  *
