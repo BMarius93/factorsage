@@ -25,6 +25,7 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient, SecurityType, StockDataset } from "@intrinsic/database";
 import {
+  FUNDAMENTAL_METRICS,
   INTRINSIC_VALUE_BLENDS,
   type DailyPrice,
   type DateRange,
@@ -267,6 +268,54 @@ function fiscalQuarterRange(
   return quarters;
 }
 
+/**
+ * Ten flat fiscal quarters, 2024 Q1 to 2026 Q2, each filed 31 days after it ends: every reading of
+ * the Fundamental Metrics they support is a hand-computable constant once its window is complete.
+ *
+ * - Debt / Equity 300 / 600 = 0.5 from the first balance sheet, public long before the first bar.
+ * - ROIC TTM 200 x 0.79 / 800 x 100 = 19.75 once a window has its opening balance sheet: the 2025
+ *   Q1 filings, public Friday 2025-05-02. Unavailable on every session before.
+ * - Revenue Growth TTM YoY needs eight quarters; flat revenue makes it exactly 0 — a real zero —
+ *   from the 2025 Q4 filings, public on Sunday 2026-02-01 and so effective Monday 2026-02-02.
+ */
+function fundamentalChartQuarters(): Map<StatementKey, DraftTemplate[]> {
+  const income = {
+    revenue: 400,
+    grossProfit: 160,
+    operatingIncome: 50,
+    netIncome: 25,
+    ebitda: 60,
+    ebit: 52,
+    interestExpense: 4,
+    epsDiluted: 1,
+    weightedAverageShsOutDil: 25,
+  };
+  const balanceSheet = {
+    totalDebt: 300,
+    totalStockholdersEquity: 600,
+    cashAndShortTermInvestments: 100,
+    totalAssets: 1_500,
+    totalCurrentAssets: 700,
+    totalCurrentLiabilities: 350,
+    netDebt: 200,
+  };
+  const quarters = fiscalQuarterRange(2024, "Q1", 2026, "Q2");
+  return new Map<StatementKey, DraftTemplate[]>([
+    [
+      "INCOME:QUARTERLY",
+      quarters.map((q) =>
+        quarterDraft("INCOME", q.fiscalYear, q.period, income),
+      ),
+    ],
+    [
+      "BALANCE_SHEET:QUARTERLY",
+      quarters.map((q) =>
+        quarterDraft("BALANCE_SHEET", q.fiscalYear, q.period, balanceSheet),
+      ),
+    ],
+  ]);
+}
+
 class DeterministicFmpProvider implements FmpStockProviderPort {
   readonly fixtures = new Map<string, StockFixture>();
   readonly profileCalls: string[] = [];
@@ -381,6 +430,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     lruTwo: `L2${suffix}`,
     widening: `G${suffix}`,
     legacy: `V${suffix}`,
+    fundamentals: `F${suffix}`,
   };
 
   const clock = { instant: new Date(T0) };
@@ -812,6 +862,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
       name: "Legacy Revision Corp",
       prices: priceSeries(LEGACY_PROVIDER_START, TODAY, 90),
       statements: new Map(),
+    });
+    provider.register(symbols.fundamentals, {
+      name: "Fundamental Chart Corp",
+      prices: priceSeries("2025-01-02", TODAY, 80),
+      statements: fundamentalChartQuarters(),
     });
 
     app = await createStockApp({ provider, namespace });
@@ -2050,6 +2105,136 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
 
         expect(provider.profileCalls.length).toBe(profileCallsBefore);
         expect(await prisma.security.count({ where: { providerSymbol: symbol } })).toBe(0);
+      },
+      SLOW,
+    );
+  });
+
+  describe("fundamental metric history through the full stack", () => {
+    const fundamentalHistory = (metric: string, from = "2025-01-02") =>
+      http()
+        .get(
+          `/stocks/${symbols.fundamentals}/fundamentals/daily?from=${from}&to=${TODAY}&metric=${metric}`,
+        )
+        .expect(200);
+
+    it(
+      "hydrates once through the provider, then charts every metric from stored state alone",
+      async () => {
+        const symbol = symbols.fundamentals;
+        // Opening the page is the one moment the provider is involved: a cold stock is hydrated.
+        await http()
+          .get(`/stocks/${symbol}?from=2025-08-24&to=${TODAY}`)
+          .expect(200);
+        const hydrated = provider.callCounts();
+        const securityId = await securityIdOf(symbol);
+
+        const roic = await fundamentalHistory("ROIC_TTM");
+        const growth = await fundamentalHistory("REVENUE_GROWTH_TTM_YOY");
+        const debtToEquity = await fundamentalHistory("DEBT_TO_EQUITY");
+        // Every chart read after hydration is provider-free, even the first read of each metric.
+        expect(provider.callCounts()).toEqual(hydrated);
+
+        const byDate = (response: request.Response) =>
+          new Map<string, number | undefined>(
+            (response.body as Array<{ date: string; value?: number }>).map(
+              (row) => [row.date, row.value],
+            ),
+          );
+        const roicByDate = byDate(roic);
+        const growthByDate = byDate(growth);
+        expect(roicByDate.get("2025-05-01")).toBeUndefined();
+        expect(roicByDate.has("2025-05-01")).toBe(true);
+        expect(roicByDate.get("2025-05-02")).toBe(19.75);
+        expect(roicByDate.get(TODAY)).toBe(19.75);
+        // Public on a Sunday: the Friday before is unavailable, the Monday after a real zero.
+        expect(growthByDate.get("2026-01-30")).toBeUndefined();
+        expect(growthByDate.has("2026-01-31")).toBe(false);
+        expect(growthByDate.has("2026-02-01")).toBe(false);
+        expect(growthByDate.get("2026-02-02")).toBe(0);
+        expect(
+          (debtToEquity.body as Array<{ value?: number }>).every(
+            (row) => row.value === 0.5,
+          ),
+        ).toBe(true);
+
+        // HTTP is exactly the stored decimal, for every metric on every session, and absence is
+        // omission — no null, no zero standing in.
+        const rows = await prisma.dailyDerivedState.findMany({
+          where: {
+            securityId,
+            date: { gte: new Date("2025-01-02T00:00:00.000Z") },
+          },
+          orderBy: { date: "asc" },
+        });
+        for (const metric of FUNDAMENTAL_METRICS) {
+          const response = await fundamentalHistory(metric.id);
+          expect(JSON.stringify(response.body)).not.toContain("null");
+          expect(response.body).toEqual(
+            rows.map((row) => {
+              const stored = row[metric.field];
+              const date = row.date.toISOString().slice(0, 10);
+              return stored === null
+                ? { date }
+                : { date, value: Number(stored) };
+            }),
+          );
+        }
+        expect(provider.callCounts()).toEqual(hydrated);
+
+        // The metrics ride in the one daily-state chunk family; there is no fundamentals key.
+        const keys = await readRedisStockKeys(securityId);
+        expect(
+          keys
+            .map((key) => key.slice(namespace.length))
+            .filter((key) => /fundamental/i.test(key)),
+        ).toEqual([]);
+        const chunk = (await readRedisDailyStateYear(
+          securityId,
+          2026,
+        )) as Array<{
+          date: string;
+          roicTtm?: number;
+        }>;
+        expect(chunk.find((row) => row.date === "2026-08-24")?.roicTtm).toBe(
+          19.75,
+        );
+      },
+      SLOW,
+    );
+
+    it(
+      "answers the same bytes after the stock's Redis state is lost, with no provider call",
+      async () => {
+        const symbol = symbols.fundamentals;
+        const securityId = await securityIdOf(symbol);
+        const before = await Promise.all(
+          ["ROIC_TTM", "REVENUE_GROWTH_TTM_YOY", "NET_DEBT_TO_EBITDA_TTM"].map(
+            (metric) => fundamentalHistory(metric),
+          ),
+        );
+        const dbBefore = await readDbStockSnapshot(securityId);
+
+        const registered = await readRedisStockKeys(securityId);
+        await redis.del(
+          ...registered,
+          `${namespace}:security:${securityId}:keys`,
+        );
+        await redis.zrem(`${namespace}:resident-stocks`, securityId);
+
+        const calls = provider.callCounts();
+        const after = await Promise.all(
+          ["ROIC_TTM", "REVENUE_GROWTH_TTM_YOY", "NET_DEBT_TO_EBITDA_TTM"].map(
+            (metric) => fundamentalHistory(metric),
+          ),
+        );
+        expect(after.map((response) => response.text)).toEqual(
+          before.map((response) => response.text),
+        );
+        expect(provider.callCounts()).toEqual(calls);
+        // Durable state untouched: the cache was rebuilt from it, nothing was recalculated.
+        expect(await readDbStockSnapshot(securityId)).toEqual(dbBefore);
+        expect((await readRedisManifest(securityId))?.status).toBe("READY");
       },
       SLOW,
     );
