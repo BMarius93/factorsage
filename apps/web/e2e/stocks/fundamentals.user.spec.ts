@@ -742,10 +742,11 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     expect(new Set(seen.values())).toEqual(new Set(["-0.4x"]));
     await expect(page.getByTestId("chart-legend")).toContainText("RSI 14D");
 
-    // Both panes created within one animation frame, fundamental first — before the library has
-    // rendered either. The metric's rows are still held, so choosing it again draws its pane in
-    // that same commit, and the RSI's pane follows in the next one; the swap that orders them must
-    // not depend on panes the library has not rendered yet.
+    // Both panes created within one task, fundamental first — before the library has rendered
+    // either, since it only renders on an animation frame between tasks. The metric's rows are
+    // still held, so choosing it again draws its pane in that same commit, and the RSI's pane
+    // follows in the next one; the swap that orders them must not depend on panes the library has
+    // not rendered yet.
     await openIndicators(page);
     await rsi.uncheck();
     await fundamentalSelect(page).selectOption("");
@@ -759,20 +760,36 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
         ),
     );
     const fundamentalRequests = watchFundamentalRequests(page);
-    await page.evaluate(async () => {
+    const orderBetween = await page.evaluate(async () => {
       const select = document.querySelector<HTMLSelectElement>(
         '[data-testid="fundamental-select"]',
       )!;
+      const chartWrapper = document.querySelector<HTMLElement>(
+        '[role="img"][aria-label*="daily closing price chart"]',
+      )!.parentElement!;
       select.value = "NET_DEBT_TO_EBITDA_TTM";
       select.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Microtasks only — no timer, so no frame can be rendered in between. React commits a
+      // discrete update, effects included, in a microtask; wait for the fundamental's pane to be
+      // in the chart's model, and fail loudly rather than test something else if it is not.
+      for (
+        let hop = 0;
+        hop < 50 &&
+        chartWrapper.dataset.paneOrder !== "price,volume,fundamental";
+        hop += 1
+      ) {
+        await Promise.resolve();
+      }
+      const between = chartWrapper.dataset.paneOrder;
       const checkbox = [
         ...document.querySelectorAll<HTMLInputElement>(
           '[data-testid="indicators-panel"] input[type="checkbox"]',
         ),
       ].find((input) => input.labels?.[0]?.textContent?.trim() === "RSI 14D")!;
       checkbox.click();
+      return between;
     });
+    expect(orderBetween).toBe("price,volume,fundamental");
     await expect(wrapper).toHaveAttribute(
       "data-pane-order",
       "price,volume,oscillator,fundamental",
@@ -785,6 +802,75 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     // Drawn from the rows already held: nothing was asked for again.
     expect(fundamentalRequests).toEqual([]);
 
+    expect(issues.consoleErrors).toEqual([]);
+    expect(issues.pageErrors).toEqual([]);
+    expect(issues.failedRequests).toEqual([]);
+  });
+
+  test("holds the pane's place while the next metric loads: neither the page nor the price pane moves", async ({
+    page,
+  }) => {
+    const issues = watchForIssues(page);
+    await openStock(page);
+    const wrapper = chartWrapper(page);
+    const pricePane = priceChart(page).locator("tr").first();
+    const settle = () =>
+      page.evaluate(
+        () =>
+          new Promise((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => resolve(null)),
+            ),
+          ),
+      );
+    const heights = async () => {
+      await settle();
+      return {
+        wrapper: (await wrapper.boundingBox())!.height,
+        price: (await pricePane.boundingBox())!.height,
+      };
+    };
+
+    await chooseFundamental(page, "DEBT_TO_EQUITY");
+    await expect(wrapper).toHaveAttribute("data-fundamental-pane", "true");
+    const drawn = await heights();
+
+    // The next metric's answer is held back: the wait is a wait, the old line is gone, and an
+    // empty pane keeps its place.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      /\/stocks\/QATEST1\/fundamentals\/daily\?.*metric=ROIC_TTM/,
+      async (route) => {
+        await held;
+        await route.continue();
+      },
+    );
+    await fundamentalSelect(page).selectOption("ROIC_TTM");
+    await expect(page.getByTestId("fundamental-status")).toHaveText(
+      "Loading ROIC TTM…",
+    );
+    await expect(wrapper).not.toHaveAttribute("data-fundamental-pane");
+    await expect(wrapper).toHaveAttribute("data-fundamental-space", "true");
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,fundamental",
+    );
+    const waiting = await heights();
+    expect(waiting.wrapper).toBe(drawn.wrapper);
+    expect(Math.abs(waiting.price - drawn.price)).toBeLessThanOrEqual(1);
+
+    release();
+    await expect(wrapper).toHaveAttribute("data-fundamental", "ROIC_TTM");
+    await expect(wrapper).toHaveAttribute("data-fundamental-pane", "true");
+    await expect(page.getByTestId("fundamental-status")).toHaveCount(0);
+    const arrived = await heights();
+    expect(arrived.wrapper).toBe(drawn.wrapper);
+    expect(Math.abs(arrived.price - drawn.price)).toBeLessThanOrEqual(1);
+
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     expect(issues.consoleErrors).toEqual([]);
     expect(issues.pageErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);

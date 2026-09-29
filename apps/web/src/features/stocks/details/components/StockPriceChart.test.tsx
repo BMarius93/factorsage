@@ -2,7 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { createChart } from "lightweight-charts";
 import { StrictMode } from "react";
 import { describe, expect, it, vi, type Mock } from "vitest";
-import type { ChartFundamentalSeries } from "../utils/chart-series";
+import type {
+  ChartFundamentalSeries,
+  ChartOverlaySeries,
+} from "../utils/chart-series";
 import { CHART_COLORS, overlayColorAt } from "../utils/chart-theme";
 import { StockPriceChart } from "./StockPriceChart";
 
@@ -30,6 +33,8 @@ type FakePane = {
   setStretchFactor: Mock;
   paneIndex: () => number;
   series: FakeSeries[];
+  /** Kept when its last series goes, as `addPane(true)` asks the library to. */
+  preserved: boolean;
 };
 
 /**
@@ -70,6 +75,8 @@ type FakeChart = {
   subscribeVisibleLogicalRangeChange: Mock;
   unsubscribeVisibleLogicalRangeChange: Mock;
   panes: Mock;
+  addPane: Mock;
+  removePane: Mock;
   swapPanes: Mock;
   subscribeCrosshairMove: Mock;
   unsubscribeCrosshairMove: Mock;
@@ -105,11 +112,12 @@ vi.mock("lightweight-charts", () => {
         subscribeVisibleLogicalRangeChange,
         unsubscribeVisibleLogicalRangeChange,
       };
-      const newPane = (): FakePane => {
+      const newPane = (preserved = false): FakePane => {
         const pane: FakePane = {
           setStretchFactor: vi.fn(),
           paneIndex: () => chart.panesList.indexOf(pane),
           series: [],
+          preserved,
         };
         return pane;
       };
@@ -169,7 +177,11 @@ vi.mock("lightweight-charts", () => {
             throw new Error("Series not found");
           }
           pane.series.splice(pane.series.indexOf(api), 1);
-          if (pane.series.length === 0 && chart.panesList.length > 1) {
+          if (
+            pane.series.length === 0 &&
+            !pane.preserved &&
+            chart.panesList.length > 1
+          ) {
             chart.panesList.splice(chart.panesList.indexOf(pane), 1);
           }
         }),
@@ -180,6 +192,21 @@ vi.mock("lightweight-charts", () => {
         subscribeVisibleLogicalRangeChange,
         unsubscribeVisibleLogicalRangeChange,
         panes: vi.fn(() => chart.panesList),
+        // An empty pane at the bottom, kept without series when asked to be.
+        addPane: vi.fn((preserved = false) => {
+          const pane = newPane(preserved);
+          chart.panesList.push(pane);
+          return pane;
+        }),
+        // The real one drops the pane but not its series, so removing a pane that still holds
+        // one is a bug the mock refuses too.
+        removePane: vi.fn((index: number) => {
+          const pane = chart.panesList[index];
+          if (!pane || pane.series.length > 0) {
+            throw new Error("Refusing to remove a missing or non-empty pane");
+          }
+          chart.panesList.splice(index, 1);
+        }),
         // Checked against the model's panes, as the real chart does, and a swap of two panes.
         swapPanes: vi.fn((first: number, second: number) => {
           const count = chart.panesList.length;
@@ -2054,58 +2081,116 @@ describe("StockPriceChart fundamental pane", () => {
     expect(wrapper.dataset.fundamentalRuns).toBe("0");
   });
 
-  it("keeps the pane's room while a chosen metric loads, and draws nothing in it", () => {
-    const { rerender, container } = render(
+  it("holds the fundamental's place with an empty pane while a chosen metric loads", () => {
+    const chartFor = (props: {
+      fundamental?: ChartFundamentalSeries;
+      fundamentalPending?: boolean;
+      overlays?: ChartOverlaySeries[];
+    }) => (
       <StockPriceChart
         points={POINTS}
-        overlays={[]}
-        fundamentalPending
+        overlays={props.overlays ?? []}
+        {...(props.fundamental ? { fundamental: props.fundamental } : {})}
+        fundamentalPending={props.fundamentalPending ?? false}
         volume={VOLUME}
         relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
         ariaLabel="AAPL chart"
-      />,
+      />
+    );
+    const { rerender, container } = render(
+      chartFor({ fundamentalPending: true }),
     );
     const chart = lastChart();
     const wrapper = container.firstElementChild as HTMLElement;
+
+    // Chosen, nothing arrived yet: an empty, preserved pane at the fundamental's height, and the
+    // wrapper's room for it. No line, and no pane reported as drawn.
+    expect(chart.addPane).toHaveBeenCalledWith(true);
+    const placeholder = chart.panesList[2];
+    expect(chart.panesList).toHaveLength(3);
+    expect(placeholder?.series).toEqual([]);
+    expect(placeholder?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(liveFundamentalSeries(chart)).toEqual([]);
     expect(wrapper.dataset.fundamentalSpace).toBe("true");
     expect(wrapper.dataset.fundamentalPane).toBeUndefined();
-    expect(liveFundamentalSeries(chart)).toEqual([]);
-    expect(chart.panesList).toHaveLength(2);
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
 
-    // Arrived and drawn: the room is the pane's.
-    rerender(
-      <StockPriceChart
-        points={POINTS}
-        overlays={[]}
-        fundamental={ROIC}
-        volume={VOLUME}
-        relativeVolume={NO_RELATIVE_VOLUME}
-        currency="USD"
-        fitKey="1Y"
-        {...FRAME}
-        ariaLabel="AAPL chart"
-      />,
-    );
+    // Arrived: the placeholder goes and the line opens a fresh pane of its own in the same place,
+    // so no scale or range of anything before it can carry over.
+    rerender(chartFor({ fundamental: ROIC }));
+    expect(chart.removePane).toHaveBeenCalledWith(2);
+    expect(chart.panesList).toHaveLength(3);
+    expect(chart.panesList).not.toContain(placeholder);
+    const [line] = liveFundamentalSeries(chart);
+    expect(line?.api.getPane()).toBe(chart.panesList[2]);
     expect(wrapper.dataset.fundamentalSpace).toBe("true");
     expect(wrapper.dataset.fundamentalPane).toBe("true");
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
 
-    // None: no pane and no room.
-    rerender(
+    // Another metric chosen: the line goes and a placeholder holds the same place again.
+    rerender(chartFor({ fundamentalPending: true }));
+    expect(liveFundamentalSeries(chart)).toEqual([]);
+    expect(chart.panesList).toHaveLength(3);
+    expect(chart.panesList[2]?.series).toEqual([]);
+    expect(chart.addPane).toHaveBeenCalledTimes(2);
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
+
+    // None, a failure, or a metric with nothing to draw: no pane and no room.
+    rerender(chartFor({}));
+    expect(chart.panesList).toHaveLength(2);
+    expect(wrapper.dataset.fundamentalSpace).toBeUndefined();
+    expect(wrapper.dataset.paneOrder).toBe("price,volume");
+    rerender(chartFor({ fundamental: fundamentalSeries({ points: [] }) }));
+    expect(chart.panesList).toHaveLength(2);
+    expect(wrapper.dataset.fundamentalSpace).toBeUndefined();
+  });
+
+  it("keeps the placeholder below an RSI switched on while it waits, and draws the line there", () => {
+    const rsi = rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3);
+    const chartFor = (props: {
+      fundamental?: ChartFundamentalSeries;
+      fundamentalPending?: boolean;
+      overlays: ChartOverlaySeries[];
+    }) => (
       <StockPriceChart
         points={POINTS}
-        overlays={[]}
+        overlays={props.overlays}
+        {...(props.fundamental ? { fundamental: props.fundamental } : {})}
+        fundamentalPending={props.fundamentalPending ?? false}
         volume={VOLUME}
         relativeVolume={NO_RELATIVE_VOLUME}
         currency="USD"
         fitKey="1Y"
         {...FRAME}
         ariaLabel="AAPL chart"
-      />,
+      />
     );
-    expect(wrapper.dataset.fundamentalSpace).toBeUndefined();
+    const { rerender, container } = render(
+      chartFor({ overlays: [], fundamentalPending: true }),
+    );
+    const chart = lastChart();
+    const wrapper = container.firstElementChild as HTMLElement;
+    const placeholder = chart.panesList[2];
+
+    // The RSI's pane arrives below the placeholder and is swapped above it, as above a line.
+    rerender(chartFor({ overlays: [rsi], fundamentalPending: true }));
+    expect(chart.swapPanes).toHaveBeenCalledWith(3, 2);
+    expect(chart.panesList.indexOf(placeholder!)).toBe(3);
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,oscillator,fundamental",
+    );
+
+    rerender(chartFor({ overlays: [rsi], fundamental: DEBT_TO_EQUITY }));
+    expect(chart.removePane).toHaveBeenCalledWith(3);
+    const [line] = liveFundamentalSeries(chart);
+    expect(chart.panesList.indexOf(line!.api.getPane())).toBe(3);
+    expect(chart.panesList[2]?.series.length).toBeGreaterThan(0);
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,oscillator,fundamental",
+    );
   });
 
   it("does not redraw the fundamental when an unrelated overlay is toggled", () => {
@@ -2157,6 +2242,32 @@ describe("StockPriceChart fundamental pane", () => {
     const chart = lastChart();
     expect(liveFundamentalSeries(chart)).toHaveLength(2);
     expect(chart.panesList).toHaveLength(4);
+  });
+
+  it("builds a fresh placeholder on a development remount, never removing the disposed one", () => {
+    // The first chart's placeholder is disposed with it. Were it remembered, the second chart
+    // would be asked to remove a pane it does not have.
+    expect(() =>
+      render(
+        <StrictMode>
+          <StockPriceChart
+            points={POINTS}
+            overlays={[]}
+            fundamentalPending
+            volume={VOLUME}
+            relativeVolume={NO_RELATIVE_VOLUME}
+            currency="USD"
+            fitKey="1Y"
+            {...FRAME}
+            ariaLabel="AAPL chart"
+          />
+        </StrictMode>,
+      ),
+    ).not.toThrow();
+    const chart = lastChart();
+    expect(chart.removePane).not.toHaveBeenCalled();
+    expect(chart.panesList).toHaveLength(3);
+    expect(chart.panesList[2]?.series).toEqual([]);
   });
 });
 

@@ -1489,6 +1489,35 @@ describe("StockDetails fundamentals", () => {
     ]);
   });
 
+  it("holds no extra room while an older gap of a metric already on screen loads", async () => {
+    // EPS Growth has nothing to draw, so the chart holds no pane for it. Panning asks for its
+    // older gap; that wait is not a reason to grow the chart and shrink it back again.
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2024-09-03", 120)]);
+    const gap = deferred<{ date: string; value?: number }[]>();
+    fetchDailyFundamentalHistoryMock
+      .mockResolvedValueOnce([{ date: "2026-08-27" }, { date: "2026-08-28" }])
+      .mockReturnValueOnce(gap.promise);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "EPS_GROWTH_TTM_YOY");
+    await waitFor(() =>
+      expect(screen.getByTestId("fundamental-status").textContent).toContain(
+        "is unavailable for every session",
+      ),
+    );
+    expect(chart().dataset.fundamentalPending).toBe("false");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await waitFor(() => expect(fundamentalRequests()).toHaveLength(2));
+    // The gap is in flight, and the chart was not told to hold a place for it.
+    expect(chart().dataset.fundamentalPending).toBe("false");
+
+    await act(async () => gap.resolve([{ date: "2024-09-03" }]));
+    expect(chart().dataset.fundamentalPending).toBe("false");
+  });
+
   it("does not ask for the metric again when unrelated chart state changes", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);

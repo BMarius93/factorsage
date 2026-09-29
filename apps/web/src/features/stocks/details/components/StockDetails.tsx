@@ -371,8 +371,12 @@ function StockDetailsContent({
             relativeVolume={chartRelativeVolume}
             overlays={chartOverlays}
             {...(chartFundamental ? { fundamental: chartFundamental } : {})}
+            // Only while the chosen metric has nothing yet: an older gap of a metric already on
+            // screen, drawn or not, holds no extra room.
             fundamentalPending={
-              fundamental !== null && fundamentalHistory.status === "loading"
+              fundamental !== null &&
+              fundamentalHistory.status === "loading" &&
+              !fundamentalHistory.loaded
             }
             currency={security.currency}
             loading={loaded.status === "loading"}
