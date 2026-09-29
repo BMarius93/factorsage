@@ -702,6 +702,7 @@ describe("the category and metric selectors", () => {
       "Oscillators",
       "Volume",
       "Valuation",
+      "Fundamentals",
       "Insider activity",
       "Congressional trading",
     ]);

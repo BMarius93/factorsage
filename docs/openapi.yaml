@@ -3135,6 +3135,7 @@ components:
               METRIC_NOT_ALLOWED_IN_LEVEL,
               METRIC_SERIES_UNSUPPORTED,
               METRIC_PERIOD_UNSUPPORTED,
+              FUNDAMENTAL_METRIC_UNSUPPORTED,
               METRIC_NOT_ALLOWED_IN_PART,
               OPERATOR_NOT_SUPPORTED,
               VALUE_KIND_MISMATCH,
@@ -3911,9 +3912,9 @@ components:
     StrategyMetric:
       description: |
         The left-hand side of a condition or a trigger. A metric's identity is its kind plus the one
-        field that selects it — a series, a valuation source, a Relative Volume period or an
-        alternative-data measure. A lookback, an actor scope and filters are configuration: carried
-        beside the identity, and never part of a metric's name.
+        field that selects it — a series, a valuation source, a Relative Volume period, a fundamental
+        metric or an alternative-data measure. A lookback, an actor scope and filters are
+        configuration: carried beside the identity, and never part of a metric's name.
       oneOf:
         - type: object
           required: [kind]
@@ -3943,6 +3944,39 @@ components:
           properties:
             kind: { type: string, const: MARGIN_OF_SAFETY }
             sourceId: { $ref: "#/components/schemas/SelectableSeriesId" }
+        - type: object
+          required: [kind, metricId]
+          description: |
+            One of the fifteen Fundamental Metrics, read from the point-in-time daily derived state:
+            calculated only from the statements public on each trading day, and unavailable — never
+            zero — where the statement history is incomplete. The identity is the whole metric; no
+            label or storage field is stored. The growth, margin and return metrics are compared with
+            a `PERCENT` in percentage points (`15` is 15%); Debt / Equity, Current Ratio, Net Debt /
+            EBITDA, Interest Coverage and Asset Turnover with a raw `MULTIPLE`. Condition only — it has
+            no trigger operators. An identity outside this list is refused with
+            `FUNDAMENTAL_METRIC_UNSUPPORTED`.
+          properties:
+            kind: { type: string, const: FUNDAMENTAL }
+            metricId:
+              type: string
+              enum:
+                [
+                  REVENUE_GROWTH_TTM_YOY,
+                  EPS_GROWTH_TTM_YOY,
+                  FCF_GROWTH_TTM_YOY,
+                  GROSS_MARGIN_TTM,
+                  OPERATING_MARGIN_TTM,
+                  NET_MARGIN_TTM,
+                  FCF_MARGIN_TTM,
+                  ROIC_TTM,
+                  ROE_TTM,
+                  ROA_TTM,
+                  DEBT_TO_EQUITY,
+                  CURRENT_RATIO,
+                  NET_DEBT_TO_EBITDA_TTM,
+                  INTEREST_COVERAGE_TTM,
+                  ASSET_TURNOVER_TTM,
+                ]
         - type: object
           description: |
             Position-dependent, so it is only meaningful where simulated position state exists;
@@ -4050,10 +4084,12 @@ components:
       description: |
         The right-hand side. Its kind is decided by the metric: a series for Price and the moving
         averages, a `NUMBER` for an oscillator and for a disclosure count, a `PERCENT` for margin of
-        safety, gain and loss, a `MULTIPLE` for Relative Volume and `MONEY` for an alternative-data
-        amount. Domains are metric-specific: margin of safety is at most 100, gain is at least -100,
-        loss is 0..100, a disclosure count is a whole number 0..1000, a multiple and an amount are
-        at least 0, and a series value must be comparable with its metric — same timeframe, and
+        safety, gain, loss and the percentage fundamental metrics, a `MULTIPLE` for Relative Volume
+        and the ratio fundamental metrics, and `MONEY` for an alternative-data amount. Domains are
+        metric-specific: margin of safety is at most 100, gain is at least -100, loss is 0..100, a
+        fundamental growth rate is at least -100, a disclosure count is a whole number 0..1000, an
+        amount is at least 0, a multiple is at least 0 except Net Debt / EBITDA and Interest Coverage,
+        which are signed, and a series value must be comparable with its metric — same timeframe, and
         never the metric's own series.
       oneOf:
         - type: object
@@ -4073,10 +4109,13 @@ components:
             value: { type: number }
         - type: object
           required: [kind, value]
-          description: A multiple of a baseline — `2` means twice it.
+          description: |
+            A raw multiple — `2` means twice the baseline or denominator. Not negative for Relative
+            Volume, Debt / Equity, Current Ratio and Asset Turnover; signed for Net Debt / EBITDA and
+            Interest Coverage.
           properties:
             kind: { type: string, const: MULTIPLE }
-            value: { type: number, minimum: 0 }
+            value: { type: number }
         - type: object
           required: [kind, value]
           description: An amount of money in the product's reporting currency.
@@ -4104,8 +4143,8 @@ components:
       type: object
       description: |
         An event on one observation date rather than a state, which is what makes a trigger level
-        fire at most once per date. Relative Volume and the alternative-data metrics have no
-        trigger form; a trigger on one is refused with `METRIC_NOT_ALLOWED_IN_PART`.
+        fire at most once per date. Relative Volume, the fundamental metrics and the alternative-data
+        metrics have no trigger form; a trigger on one is refused with `METRIC_NOT_ALLOWED_IN_PART`.
       required: [id, metric, operator, value]
       properties:
         id: { type: string }

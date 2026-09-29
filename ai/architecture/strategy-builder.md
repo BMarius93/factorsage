@@ -260,6 +260,7 @@ valueSpecFor(metric, operator): StrategyValueSpec   // resolves per-instance ser
 defaultValueFor(metric, operator): StrategyValue
 
 strategyMetricLabel(metric): string            // identity only — never configuration
+strategyMetricHelp(metric): StrategyHelpEntry  // the kind's help; a Fundamental Metric's own summary and formula first
 describeMetricConfiguration(metric, names?): string | null  // "180D · CEO, CFO"
 strategyValueLabel(value): string
 conditionOperatorLabel(op): string   // "is above" | "is below" | "is close to"
@@ -272,6 +273,10 @@ nothing else. A source label can carry its own parentheses, so `strategyMetricLa
 in **one** function — a composition, not a second label map.
 A parity test (§ 11) asserts this, which is what keeps invariant 9 true.
 
+A Fundamental Metric (`{ kind: "FUNDAMENTAL", metricId }`, Conditions only) is labelled by its entry
+in `FUNDAMENTAL_METRIC_CATALOG` — `ROIC TTM`, `Debt / Equity` — and takes a `PERCENT` or a `MULTIPLE`
+Value by that entry's unit (`valueSource: "FUNDAMENTAL_METRIC"`); it has no configuration.
+
 An alternative-data metric's label is its measure alone — `Insider sellers` — because its lookback,
 scope and filters are **configuration**, edited after the metric is chosen. A label that carried the
 lookback was invalidated by the first Configure change: the selector, built from each measure's
@@ -280,10 +285,11 @@ default instance, read `Insider sellers 20D` while the rest of the page read `18
 narrows the metric, filters in canonical order), and every surface prints the two side by side.
 
 **Categories and ordering.** Metric options are categorized
-`PRICE → MOVING_AVERAGES → OSCILLATORS → VOLUME → VALUATION → POSITION → INSIDER_ACTIVITY →
-CONGRESSIONAL_TRADING` (`STRATEGY_METRIC_CATEGORIES`, labels in `STRATEGY_METRIC_CATEGORY_LABELS`),
-and inside the catalog-backed categories the order is the catalog's own (daily moving averages before
-weekly). That top-level categorization is Strategy metadata the catalog does not define, so it lives
+`PRICE → MOVING_AVERAGES → OSCILLATORS → VOLUME → VALUATION → FUNDAMENTALS → POSITION →
+INSIDER_ACTIVITY → CONGRESSIONAL_TRADING` (`STRATEGY_METRIC_CATEGORIES`, labels in
+`STRATEGY_METRIC_CATEGORY_LABELS`), and inside the catalog-backed categories the order is the
+catalog's own (daily moving averages before weekly; the fifteen Fundamental Metrics in the order of
+`FUNDAMENTAL_METRIC_CATALOG`). That top-level categorization is Strategy metadata the catalog does not define, so it lives
 here once. The Builder names a metric with two selects over it — the category, then the metric within
 it — and `strategyMetricCategories` is what both read; a category with nothing to offer a level kind
 or a half of a Signal is absent rather than empty. A metric's category is a property of its kind, so

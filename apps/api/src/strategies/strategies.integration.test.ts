@@ -876,6 +876,355 @@ describe("strategies", () => {
   });
 
   /**
+   * Fundamental Metrics across the HTTP boundary and back out of PostgreSQL.
+   *
+   * The API is where a hand-crafted document meets the canonical validator, so the Condition-only
+   * rule is proven here by requests no Builder would send — and the stored identity is proven by
+   * reading the row itself.
+   */
+  describe("fundamental metrics as conditions", () => {
+    function fundamentalStrategy(): StrategyDefinition {
+      return {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: nextId("buy"),
+            percentage: 50,
+            signal: {
+              conditions: [
+                {
+                  id: nextId("condition"),
+                  metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+                  operator: "IS_ABOVE",
+                  value: { kind: "PERCENT", value: 15 },
+                },
+                {
+                  id: nextId("condition"),
+                  metric: { kind: "FUNDAMENTAL", metricId: "DEBT_TO_EQUITY" },
+                  operator: "IS_BELOW",
+                  value: { kind: "MULTIPLE", value: 0.75 },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [
+          {
+            id: nextId("sell"),
+            percentage: 50,
+            signal: {
+              conditions: [
+                {
+                  id: nextId("condition"),
+                  metric: { kind: "FUNDAMENTAL", metricId: "NET_MARGIN_TTM" },
+                  operator: "IS_BELOW",
+                  value: { kind: "PERCENT", value: 0 },
+                },
+              ],
+            },
+          },
+        ],
+        finalExit: {
+          id: nextId("exit"),
+          rules: [
+            {
+              id: nextId("exit-rule"),
+              signal: {
+                conditions: [
+                  {
+                    id: nextId("condition"),
+                    metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+                    operator: "IS_BELOW",
+                    value: { kind: "PERCENT", value: 5 },
+                  },
+                ],
+              },
+            },
+            {
+              id: nextId("exit-rule"),
+              signal: {
+                conditions: [
+                  {
+                    id: nextId("condition"),
+                    metric: {
+                      kind: "FUNDAMENTAL",
+                      metricId: "NET_DEBT_TO_EBITDA_TTM",
+                    },
+                    operator: "IS_ABOVE",
+                    value: { kind: "MULTIPLE", value: 3.5 },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+    }
+
+    it("persists Fundamental Conditions in every level kind exactly, by identity, and reads them back", async () => {
+      const authored = fundamentalStrategy();
+      const created = await createStrategy(owner, {
+        name: `Fundamentals ${suffix}`,
+        definition: authored,
+      });
+
+      const canonical = normalizeStrategyDefinition(authored);
+      expect(created.definition).toEqual(canonical);
+      const [stored] = await prisma.strategyVersion.findMany({
+        where: { strategyId: created.id },
+      });
+      // The row holds the identity and nothing else: no label, no group, no storage field.
+      expect(stored?.definition).toEqual(canonical);
+      expect(
+        (stored?.definition as unknown as StrategyDefinition).buyLevels[0]
+          ?.signal.conditions[0]?.metric,
+      ).toEqual({ kind: "FUNDAMENTAL", metricId: "ROIC_TTM" });
+      expect(JSON.stringify(stored?.definition)).not.toMatch(
+        /ROIC TTM|roicTtm|QUALITY|Debt \/ Equity|debtToEquity/,
+      );
+      expect(stored?.definitionHash).toBe(definitionHashOf(canonical));
+
+      const read = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      expect(read.definition).toEqual(created.definition);
+      expect(
+        describeStrategy(read.definition).flatMap((line) =>
+          line.kind === "CONDITION" ? [line.text] : [],
+        ),
+      ).toEqual([
+        "ROIC TTM is above 15%",
+        "Debt / Equity is below 0.75x",
+        "Net Margin TTM is below 0%",
+        "ROIC TTM is below 5%",
+        "Net Debt / EBITDA TTM is above 3.5x",
+      ]);
+
+      // Saving what was read is not a change.
+      const resaved = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: read.definition })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(resaved.versionNumber).toBe(1);
+
+      // Choosing another metric under the same rule is a change of logic: a new version and hash.
+      const switched = structuredClone(read.definition);
+      switched.buyLevels[0]!.signal.conditions[0]!.metric = {
+        kind: "FUNDAMENTAL",
+        metricId: "ROE_TTM",
+      };
+      const afterSwitch = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: switched })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(afterSwitch.versionNumber).toBe(2);
+      const versions = await prisma.strategyVersion.findMany({
+        where: { strategyId: created.id },
+        orderBy: { versionNumber: "asc" },
+      });
+      expect(versions).toHaveLength(2);
+      expect(versions[0]?.definitionHash).not.toBe(versions[1]?.definitionHash);
+
+      await owner.delete(`/strategies/${created.id}`).expect(204);
+    });
+
+    it("refuses a hand-crafted Fundamental Trigger in every level kind, on create and on replace", async () => {
+      const trigger = {
+        id: "fundamental-trigger",
+        metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+        operator: "CROSSES_ABOVE",
+        value: { kind: "PERCENT", value: 15 },
+      };
+      const attempts: {
+        where: string;
+        path: Record<string, unknown>;
+        definition: (base: StrategyDefinition) => unknown;
+      }[] = [
+        {
+          where: "BUY",
+          path: { levelKind: "BUY", levelIndex: 0, part: "TRIGGER" },
+          definition: (base) => {
+            (base.buyLevels[0]!.signal as { trigger?: unknown }).trigger =
+              trigger;
+            return base;
+          },
+        },
+        {
+          where: "SELL",
+          path: { levelKind: "SELL", levelIndex: 0, part: "TRIGGER" },
+          definition: (base) => {
+            (base.sellLevels[0]!.signal as { trigger?: unknown }).trigger =
+              trigger;
+            return base;
+          },
+        },
+        {
+          where: "FINAL_EXIT",
+          path: { levelKind: "FINAL_EXIT", ruleIndex: 1, part: "TRIGGER" },
+          definition: (base) => {
+            (
+              base.finalExit!.rules[1]!.signal as { trigger?: unknown }
+            ).trigger = trigger;
+            return base;
+          },
+        },
+      ];
+      for (const attempt of attempts) {
+        const response = await owner
+          .post("/strategies")
+          .send({
+            name: `Fundamental trigger ${attempt.where} ${suffix}`,
+            definition: attempt.definition(fundamentalStrategy()),
+          })
+          .expect(400);
+        const body = response.body as StrategyValidationErrorResponse;
+        expect(body.code).toBe("STRATEGY_INVALID");
+        expect(body.issues).toEqual([
+          {
+            code: "METRIC_NOT_ALLOWED_IN_PART",
+            path: { ...attempt.path, field: "METRIC" },
+            message:
+              "ROIC TTM cannot be used as a trigger. Use it as a condition instead.",
+          },
+        ]);
+      }
+      expect(
+        await prisma.strategy.count({
+          where: {
+            name: { startsWith: "Fundamental trigger " },
+            user: { email: ownerEmail },
+          },
+        }),
+      ).toBe(0);
+
+      const created = await createStrategy(owner, {
+        name: `Fundamental replace ${suffix}`,
+        definition: fundamentalStrategy(),
+      });
+      await owner
+        .put(`/strategies/${created.id}/definition`)
+        .send({
+          definition: attempts[0]!.definition(
+            structuredClone(created.definition),
+          ),
+        })
+        .expect(400);
+      expect(
+        await prisma.strategyVersion.count({
+          where: { strategyId: created.id },
+        }),
+      ).toBe(1);
+      await owner.delete(`/strategies/${created.id}`).expect(204);
+    });
+
+    it("refuses an unknown identity, a smuggled label and `is close to`, and writes nothing", async () => {
+      const cases: {
+        change: (condition: Record<string, unknown>) => void;
+        code: string;
+        field: string;
+      }[] = [
+        {
+          change: (condition) => {
+            condition.metric = { kind: "FUNDAMENTAL", metricId: "roic_ttm" };
+          },
+          code: "FUNDAMENTAL_METRIC_UNSUPPORTED",
+          field: "METRIC",
+        },
+        {
+          change: (condition) => {
+            condition.metric = { kind: "FUNDAMENTAL", metricId: "PE_TTM" };
+          },
+          code: "FUNDAMENTAL_METRIC_UNSUPPORTED",
+          field: "METRIC",
+        },
+        {
+          change: (condition) => {
+            condition.metric = {
+              kind: "FUNDAMENTAL",
+              metricId: "ROIC_TTM",
+              label: "ROIC TTM",
+            };
+          },
+          code: "UNKNOWN_FIELD",
+          field: "METRIC",
+        },
+        {
+          change: (condition) => {
+            condition.operator = "IS_CLOSE_TO";
+          },
+          code: "OPERATOR_NOT_SUPPORTED",
+          field: "OPERATOR",
+        },
+        {
+          change: (condition) => {
+            condition.value = { kind: "MULTIPLE", value: 15 };
+          },
+          code: "VALUE_KIND_MISMATCH",
+          field: "VALUE",
+        },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const definition = fundamentalStrategy() as unknown as {
+          buyLevels: { signal: { conditions: Record<string, unknown>[] } }[];
+        };
+        testCase.change(definition.buyLevels[0]!.signal.conditions[0]!);
+        const response = await owner
+          .post("/strategies")
+          .send({ name: `Fundamental invalid ${index} ${suffix}`, definition })
+          .expect(400);
+        const issues = (response.body as StrategyValidationErrorResponse)
+          .issues;
+        expect(
+          issues.map((issue) => issue.code),
+          testCase.code,
+        ).toEqual([testCase.code]);
+        expect(issues[0]?.path).toEqual({
+          levelKind: "BUY",
+          levelIndex: 0,
+          part: "CONDITION",
+          conditionIndex: 0,
+          field: testCase.field,
+        });
+      }
+      expect(
+        await prisma.strategy.count({
+          where: {
+            name: { startsWith: "Fundamental invalid " },
+            user: { email: ownerEmail },
+          },
+        }),
+      ).toBe(0);
+    });
+
+    it("duplicates a Fundamental strategy as the same logic under new identities", async () => {
+      const source = await createStrategy(owner, {
+        name: `Fundamental source ${suffix}`,
+        definition: fundamentalStrategy(),
+      });
+      const copy = (
+        await owner
+          .post(`/strategies/${source.id}/duplicate`)
+          .send({ name: `Fundamental copy ${suffix}` })
+          .expect(201)
+      ).body as StrategyDetailResponse;
+      expect(strategyDefinitionFingerprint(copy.definition)).toBe(
+        strategyDefinitionFingerprint(source.definition),
+      );
+      expect(describeStrategy(copy.definition)).toEqual(
+        describeStrategy(source.definition),
+      );
+      expect(copy.definition.buyLevels[0]?.signal.conditions[0]?.id).not.toBe(
+        source.definition.buyLevels[0]?.signal.conditions[0]?.id,
+      );
+      await owner.delete(`/strategies/${copy.id}`).expect(204);
+      await owner.delete(`/strategies/${source.id}`).expect(204);
+    });
+  });
+
+  /**
    * FINAL EXIT's Exit Rules across the HTTP boundary and back out of PostgreSQL.
    *
    * The definition is a JSON document, so "does it round-trip" is not a formality: every rule, its

@@ -365,6 +365,7 @@ describe("strategy metric registry", () => {
       "OSCILLATORS",
       "VOLUME",
       "VALUATION",
+      "FUNDAMENTALS",
       "INSIDER_ACTIVITY",
       "CONGRESSIONAL_TRADING",
     ]);
@@ -831,12 +832,14 @@ describe("operator compatibility", () => {
     // product decision should fail this assertion rather than pass a range check. Relative Volume
     // and the two alternative-data kinds are condition-only for the same stated reason — a
     // Monitor's own not-matched -> matched transition already raises the event a crossing operator
-    // would duplicate.
+    // would duplicate — and the Fundamental Metrics because `fundamental-metrics-v1.md` makes them
+    // Condition metrics only in V1.
     const conditionOnly = STRATEGY_METRIC_KINDS.filter(
       (kind) => STRATEGY_METRIC_DEFINITIONS[kind].triggerOperators.length === 0,
     );
     expect(conditionOnly).toEqual([
       "RELATIVE_VOLUME",
+      "FUNDAMENTAL",
       "INSIDER_ACTIVITY",
       "CONGRESS_ACTIVITY",
     ]);

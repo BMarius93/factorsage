@@ -551,6 +551,7 @@ above is what the metric means and does not depend on that answer.
 | RSI 7D / 14D / 21D                              | `is above`, `is below`                | `crosses above`, `crosses below` | user-entered numeric threshold `1..100`                                                 | BUY, SELL, FINAL EXIT |
 | RVOL 10 / 20 / 50                               | `is above`, `is below`                | **none — condition only**        | user-entered multiple `>= 0`, rendered `2.0x`                                           | BUY, SELL, FINAL EXIT |
 | Margin of Safety · selected IV source           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
+| Fundamentals · 15 metrics                       | `is above`, `is below`                | **none — condition only**        | percentage points or a raw multiple, by metric (see § Fundamental Metrics)              | BUY, SELL, FINAL EXIT |
 | Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
 | Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
 | Insider Activity · 4 measures                   | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
@@ -584,6 +585,13 @@ because a name that carried a lookback would be invalidated the moment the lookb
 point-in-time rule (a window is measured on the session a disclosure became _observable_, never on the
 transaction date) is not restated here.
 
+The fifteen **Fundamental Metrics** of `../../docs/decisions/fundamental-metrics-v1.md` are the third
+condition-only family: that decision makes them Condition metrics only in V1. A value that changes
+only when a statement is published is a state, and a Monitor's not-matched -> matched transition
+already raises a Signal on the session a Condition first holds. They sit in their own **Fundamentals**
+category — deliberately separate from Valuation, which compares a statement-derived value with the
+market price — and compare with the strict pair only. See § Fundamental Metrics below.
+
 A stored or submitted rule that still names the removed `is at least` / `is at most` is **refused,
 never reinterpreted**: `>= 2` is not `> 2`, so no read path maps one onto the other. The canonical
 validator reports it as an unsupported operator; the backtest worker refuses a run snapshot naming
@@ -596,6 +604,48 @@ This is the current baseline, not a declaration that these are the only eventual
 Additional technical metrics, fundamentals and other derived metrics must be added deliberately with
 their own compatible Value types and operators. Do not infer compatibility merely because two
 values are numeric.
+
+### Fundamental Metrics
+
+One metric kind, `FUNDAMENTAL`, parameterized by the stable identity of one of the fifteen metrics in
+the product catalog (`FUNDAMENTAL_METRIC_CATALOG` in `@intrinsic/contracts`), for example:
+
+```text
+Metric -> Fundamentals -> ROIC TTM
+Condition -> is above
+Value -> 15%
+```
+
+```text
+Metric -> Fundamentals -> Debt / Equity
+Condition -> is below
+Value -> 1.0x
+```
+
+The identity is the whole metric: a Strategy document stores `{ kind: "FUNDAMENTAL", metricId }` and
+never a label, group or storage field, and the identity is part of the fingerprint, so two metrics
+never share a definition hash or a Monitor latch. There is no configuration to edit.
+
+**Values.** The growth, margin and return metrics are compared with a percentage in **percentage
+points** — a rule set at 15% compares with 15, exactly as a reading of 15.42% is 15.42 — and never with
+a fraction. Debt / Equity, Current Ratio, Net Debt / EBITDA TTM, Interest Coverage TTM and Asset
+Turnover TTM are compared with a raw multiple, rendered `1.5x`. A threshold is bounded only where the
+metric's own mathematics is:
+
+| Metrics                                                      | Value      | Domain                                                             |
+| ------------------------------------------------------------ | ---------- | ------------------------------------------------------------------ |
+| Revenue, EPS and FCF Growth TTM YoY                          | percentage | `>= -100` — both windows must be positive                          |
+| Gross, Operating, Net and FCF Margin TTM; ROIC, ROE, ROA TTM | percentage | any finite number — signed without bound                           |
+| Debt / Equity, Current Ratio, Asset Turnover TTM             | multiple   | `>= 0` — ratios of non-negative quantities                         |
+| Net Debt / EBITDA TTM, Interest Coverage TTM                 | multiple   | any finite number — net cash and a negative EBIT are real readings |
+
+A new row starts at the neutral point of its unit: `0%` or `1.0x`.
+
+**Availability.** A Fundamental Metric is point-in-time: on each trading day it is read from the
+materialized daily derived state, which used only the statements public by then. Where the statement
+history is incomplete the metric is **unavailable** and the Condition is `NOT_EVALUABLE` — never a
+reading of zero. That matters most for a leverage screen: an unavailable Debt / Equity read as zero
+would satisfy `Debt / Equity is below 1.0x` for every security without statements.
 
 ## BUY levels
 
@@ -723,7 +773,10 @@ At minimum, Strategy validation must enforce:
 - moving-average Values restricted to the canonical compatible set for the selected moving-average
   Metric — same timeframe, never the metric itself, and never inferred from numeric similarity;
 - percentage Values inside their metric's own semantic domain: Margin of Safety `<= 100`, Gain
-  `>= -100`, Loss `0..100`. There is no single shared percentage range;
+  `>= -100`, Loss `0..100`, a fundamental growth rate `>= -100`. There is no single shared
+  percentage range;
+- a Fundamental Metric only as a Condition, only with `is above` / `is below`, only with its own
+  unit's Value, and only under an identity the product catalog defines;
 - no two semantically identical Conditions inside one Signal. A duplicate is rejected with an error
   pointing at the duplicated row; it is never silently removed, because ANDing a predicate with
   itself is a no-op and always a mistake. Identity is semantic — same Metric, same operator, same
@@ -781,10 +834,10 @@ Each Signal visually separates:
 ### Authoring a rule: Category -> Metric -> Configuration -> Condition -> Value
 
 A row names its Metric with **two** controls rather than one long list: a **Category** — Price,
-Moving averages, Oscillators, Volume, Valuation, Position, Insider activity, Congressional trading —
-and then a **Metric** inside it. Both lists come from the registry, so a category the level or the
-half of the Signal cannot use is simply absent: Position (Gain, Loss) in a BUY level, and Volume and
-both alternative-data categories in a Trigger row.
+Moving averages, Oscillators, Volume, Valuation, Fundamentals, Position, Insider activity,
+Congressional trading — and then a **Metric** inside it. Both lists come from the registry, so a
+category the level or the half of the Signal cannot use is simply absent: Position (Gain, Loss) in a
+BUY level, and Volume, Fundamentals and both alternative-data categories in a Trigger row.
 
 - The category is a property of the metric, never stored beside it, so the two controls can never
   disagree.

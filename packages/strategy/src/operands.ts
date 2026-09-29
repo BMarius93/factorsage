@@ -132,14 +132,15 @@ export function isPositionDependentMetric(metric: StrategyMetric): boolean {
   return metric.kind === "GAIN" || metric.kind === "LOSS";
 }
 
-/** The frame column a Metric reads, or null when the metric is position-dependent. */
+/**
+ * The frame column a Metric reads, or null when the metric is position-dependent.
+ *
+ * Exhaustive over the metric kinds, with no fallback: a new kind must name its column here or fail
+ * to compile. A `default` returning null would make it read as position-dependent — excluded from
+ * the market gate and, through `evaluateMarketCondition`, permanently NOT_EVALUABLE — which is the
+ * silent failure a new family must never have.
+ */
 export function metricOperand(metric: StrategyMetric): OperandKey | null {
-  // The alternative-data kinds are addressed by their whole configuration, which `alternative-data.ts`
-  // owns; asking it first keeps that encoding in one module instead of repeating the signature here.
-  const alternative = alternativeDataMetricOperand(metric);
-  if (alternative) {
-    return alternative;
-  }
   switch (metric.kind) {
     case "PRICE":
       return PRICE_OPERAND;
@@ -150,11 +151,15 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
       return relativeVolumeOperand(metric.period);
     case "MARGIN_OF_SAFETY":
       return marginOfSafetyOperand(metric.sourceId);
+    case "FUNDAMENTAL":
+      return fundamentalMetricOperand(metric.metricId);
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+      // Addressed by their whole configuration, which `alternative-data.ts` owns, so the signature is
+      // encoded in one module rather than repeated here.
+      return alternativeDataMetricOperand(metric);
     case "GAIN":
     case "LOSS":
-      return null;
-    default:
-      // Unreachable: every remaining kind is an alternative-data one, answered above.
       return null;
   }
 }
