@@ -499,6 +499,53 @@ describe("invalidation and restoration", () => {
   });
 });
 
+describe("currency events", () => {
+  it("invalidates from a currency-changing revision's session, leaving history untouched", () => {
+    // FY2026 Q2's income statement is restated in EUR on Tuesday 2026-10-06 and back in USD on
+    // Monday 2026-11-02.
+    const inEuro = fy2026Q2("INCOME", "2026-10-06", FY2026_Q2.INCOME, {
+      filingDate: "2026-10-05",
+      reportedCurrency: "EUR",
+      contentHash: "restated-in-eur",
+    });
+    const backInDollars = fy2026Q2("INCOME", "2026-11-02", FY2026_Q2.INCOME, {
+      filingDate: "2026-11-01",
+      contentHash: "restated-in-usd",
+    });
+    const before = materialize([...OPENING, ...NEW_QUARTER]);
+    const states = materialize([
+      ...OPENING,
+      ...NEW_QUARTER,
+      inEuro,
+      backInDollars,
+    ]);
+
+    // Every session before the revision is byte-for-byte what it was without it.
+    expect(
+      JSON.stringify(states.filter((each) => each.date < "2026-10-06")),
+    ).toBe(JSON.stringify(before.filter((each) => each.date < "2026-10-06")));
+    for (const state of states) {
+      if (state.date < "2026-08-03") {
+        continue;
+      }
+      if (state.date >= "2026-10-06" && state.date < "2026-11-02") {
+        // An EUR quarter inside a USD window: every Income-window metric is unavailable, and the
+        // stale USD reading is not carried through.
+        expect(state, state.date).not.toHaveProperty("grossMarginTtm");
+        expect(state, state.date).not.toHaveProperty("revenueGrowthTtmYoy");
+        expect(state, state.date).not.toHaveProperty("roeTtm");
+        // Balance-sheet-only metrics are untouched.
+        expect(state.debtToEquity, state.date).toBe(0.4);
+      } else {
+        expect(state.grossMarginTtm, state.date).toBeCloseTo(
+          (309 / 620) * 100,
+          10,
+        );
+      }
+    }
+  });
+});
+
 describe("determinism, purity and coverage", () => {
   const statements = [...OPENING, ...NEW_QUARTER];
 

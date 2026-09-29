@@ -204,6 +204,23 @@ Required cases:
 - revenue `<= 0` -> unavailable;
 - ratio uses TTM revenue sum and two state points, not mean of quarterly turnover values.
 
+## Currency matrix
+
+For the metric families that combine statements:
+
+- one currency throughout (`USD` + `USD`, `JPY` + `JPY`) -> valid, identical readings;
+- `USD` + `JPY` inside one four-quarter flow window -> unavailable;
+- the previous TTM window in another currency than the current one -> the YoY metrics unavailable,
+  the four-quarter metrics unaffected;
+- Income and Cash Flow in different currencies -> FCF Margin unavailable;
+- Income and an aligned Balance Sheet in different currencies -> ROIC, ROE, ROA, Asset Turnover
+  unavailable; Income and the latest Balance Sheet -> Net Debt / EBITDA unavailable;
+- a single-statement ratio in its own currency -> valid;
+- a contributing statement without a currency -> unavailable;
+- two spellings of one code -> different currencies, unavailable;
+- a revision that changes a statement's currency invalidates from its PIT-effective session, and
+  every earlier session is unchanged.
+
 ## Shared fiscal-window tests
 
 The common quarter-window helper requires one reusable behavioral suite covering:

@@ -1,4 +1,7 @@
-import type { FinancialStatement } from "@intrinsic/domain";
+import type {
+  FinancialStatement,
+  FinancialStatementType,
+} from "@intrinsic/domain";
 
 /**
  * Independent reference implementation of the fifteen Fundamental Metrics V1 formulas.
@@ -283,11 +286,40 @@ function investedCapital(state: FinancialStatement): Rational | undefined {
 
 export type ReferenceSnapshot = Record<string, number | undefined>;
 
+/** One metric's exact value and the statements it was built from, or nothing when unavailable. */
+type Candidate = { value: Rational | undefined; sources: FinancialStatement[] };
+
+/** Every contributing statement reports the same non-empty currency. */
+function oneCurrency(sources: readonly FinancialStatement[]): boolean {
+  const currencies = new Set(sources.map((source) => source.reportedCurrency));
+  const [only] = [...currencies];
+  return (
+    currencies.size === 1 && typeof only === "string" && only.trim() !== ""
+  );
+}
+
+function stepsBack(quarter: Q, steps: number): Q {
+  let cursor = quarter;
+  for (let step = 0; step < steps; step += 1) {
+    cursor = previousQuarter(cursor);
+  }
+  return cursor;
+}
+
+/**
+ * A switch for measuring how much the currency rule removes; the comparison itself always runs
+ * with it on.
+ */
+export type ReferenceRules = {
+  ignoreCurrency?: boolean;
+};
+
 /** The fifteen metrics for `date`, evaluated from scratch. */
 export function referenceFundamentals(
   statements: readonly FinancialStatement[],
   securityId: string,
   date: string,
+  rules: ReferenceRules = {},
 ): ReferenceSnapshot {
   const books = visibleBooks(statements, securityId, date);
   const incomeEnd = latestQuarter(books.INCOME);
@@ -309,16 +341,10 @@ export function referenceFundamentals(
     alignedEnd && walkBack(books.CASH_FLOW, alignedEnd, 4);
 
   // Aligned states: Q[0] and the quarter immediately before Q[-3], i.e. four steps back.
-  let opening: FinancialStatement | undefined;
-  let ending: FinancialStatement | undefined;
-  if (incomeEnd) {
-    ending = books.BALANCE_SHEET.get(label(incomeEnd));
-    let cursor = incomeEnd;
-    for (let step = 0; step < 4; step += 1) {
-      cursor = previousQuarter(cursor);
-    }
-    opening = books.BALANCE_SHEET.get(label(cursor));
-  }
+  const ending = incomeEnd && books.BALANCE_SHEET.get(label(incomeEnd));
+  const opening =
+    incomeEnd && books.BALANCE_SHEET.get(label(stepsBack(incomeEnd, 4)));
+  const states = opening && ending ? [opening, ending] : undefined;
   const balanceSheetEnd = latestQuarter(books.BALANCE_SHEET);
   const latestState =
     balanceSheetEnd && books.BALANCE_SHEET.get(label(balanceSheetEnd));
@@ -327,97 +353,406 @@ export function referenceFundamentals(
   const previous = incomeEight?.slice(4);
   const netIncome = incomeCurrent && total(incomeCurrent, "netIncome");
   const revenue = incomeCurrent && total(incomeCurrent, "revenue");
+  const ONE = new Rational(1n);
 
-  const result: Record<string, Rational | undefined> = {
+  const candidates: Record<string, Candidate | undefined> = {
     revenueGrowthTtmYoy:
       current && previous
-        ? growth(total(current, "revenue"), total(previous, "revenue"))
+        ? {
+            value: growth(
+              total(current, "revenue"),
+              total(previous, "revenue"),
+            ),
+            sources: [...current, ...previous],
+          }
         : undefined,
     epsGrowthTtmYoy:
       current && previous
-        ? growth(total(current, "epsDiluted"), total(previous, "epsDiluted"))
+        ? {
+            value: growth(
+              total(current, "epsDiluted"),
+              total(previous, "epsDiluted"),
+            ),
+            sources: [...current, ...previous],
+          }
         : undefined,
     fcfGrowthTtmYoy: cashFlowEight
-      ? growth(
-          freeCashFlow(cashFlowEight.slice(0, 4)),
-          freeCashFlow(cashFlowEight.slice(4)),
-        )
+      ? {
+          value: growth(
+            freeCashFlow(cashFlowEight.slice(0, 4)),
+            freeCashFlow(cashFlowEight.slice(4)),
+          ),
+          sources: cashFlowEight,
+        }
       : undefined,
     grossMarginTtm: incomeCurrent
-      ? share(total(incomeCurrent, "grossProfit"), revenue)
+      ? {
+          value: share(total(incomeCurrent, "grossProfit"), revenue),
+          sources: incomeCurrent,
+        }
       : undefined,
     operatingMarginTtm: incomeCurrent
-      ? share(total(incomeCurrent, "operatingIncome"), revenue)
+      ? {
+          value: share(total(incomeCurrent, "operatingIncome"), revenue),
+          sources: incomeCurrent,
+        }
       : undefined,
-    netMarginTtm: incomeCurrent ? share(netIncome, revenue) : undefined,
+    netMarginTtm: incomeCurrent
+      ? { value: share(netIncome, revenue), sources: incomeCurrent }
+      : undefined,
     fcfMarginTtm:
       alignedIncome && alignedCashFlow
-        ? share(freeCashFlow(alignedCashFlow), total(alignedIncome, "revenue"))
+        ? {
+            value: share(
+              freeCashFlow(alignedCashFlow),
+              total(alignedIncome, "revenue"),
+            ),
+            sources: [...alignedIncome, ...alignedCashFlow],
+          }
         : undefined,
-    roicTtm: (() => {
-      const operatingIncome =
-        incomeCurrent && total(incomeCurrent, "operatingIncome");
-      const averageCapital = average(opening, ending, investedCapital);
-      return operatingIncome
-        ? share(operatingIncome.mul(AFTER_TAX), averageCapital)
-        : undefined;
-    })(),
-    roeTtm: incomeCurrent
-      ? share(
-          netIncome,
-          average(opening, ending, (state) =>
-            field(state, "totalStockholdersEquity"),
-          ),
-        )
-      : undefined,
-    roaTtm: incomeCurrent
-      ? share(
-          netIncome,
-          average(opening, ending, (state) => field(state, "totalAssets")),
-        )
-      : undefined,
+    roicTtm:
+      incomeCurrent && states
+        ? {
+            value: (() => {
+              const operatingIncome = total(incomeCurrent, "operatingIncome");
+              const averageCapital = average(opening, ending, investedCapital);
+              return operatingIncome
+                ? share(operatingIncome.mul(AFTER_TAX), averageCapital)
+                : undefined;
+            })(),
+            sources: [...incomeCurrent, ...states],
+          }
+        : undefined,
+    roeTtm:
+      incomeCurrent && states
+        ? {
+            value: share(
+              netIncome,
+              average(opening, ending, (state) =>
+                field(state, "totalStockholdersEquity"),
+              ),
+            ),
+            sources: [...incomeCurrent, ...states],
+          }
+        : undefined,
+    roaTtm:
+      incomeCurrent && states
+        ? {
+            value: share(
+              netIncome,
+              average(opening, ending, (state) => field(state, "totalAssets")),
+            ),
+            sources: [...incomeCurrent, ...states],
+          }
+        : undefined,
     debtToEquity: latestState
-      ? share(
-          field(latestState, "totalDebt"),
-          field(latestState, "totalStockholdersEquity"),
-          new Rational(1n),
-        )
+      ? {
+          value: share(
+            field(latestState, "totalDebt"),
+            field(latestState, "totalStockholdersEquity"),
+            ONE,
+          ),
+          sources: [latestState],
+        }
       : undefined,
     currentRatio: latestState
-      ? share(
-          field(latestState, "totalCurrentAssets"),
-          field(latestState, "totalCurrentLiabilities"),
-          new Rational(1n),
-        )
+      ? {
+          value: share(
+            field(latestState, "totalCurrentAssets"),
+            field(latestState, "totalCurrentLiabilities"),
+            ONE,
+          ),
+          sources: [latestState],
+        }
       : undefined,
     netDebtToEbitdaTtm:
       incomeCurrent && latestState
-        ? share(
-            field(latestState, "netDebt"),
-            total(incomeCurrent, "ebitda"),
-            new Rational(1n),
-          )
+        ? {
+            value: share(
+              field(latestState, "netDebt"),
+              total(incomeCurrent, "ebitda"),
+              ONE,
+            ),
+            sources: [...incomeCurrent, latestState],
+          }
         : undefined,
     interestCoverageTtm: incomeCurrent
-      ? share(
-          total(incomeCurrent, "ebit"),
-          total(incomeCurrent, "interestExpense"),
-          new Rational(1n),
-        )
+      ? {
+          value: share(
+            total(incomeCurrent, "ebit"),
+            total(incomeCurrent, "interestExpense"),
+            ONE,
+          ),
+          sources: incomeCurrent,
+        }
       : undefined,
-    assetTurnoverTtm: (() => {
-      if (!incomeCurrent || !revenue || !revenue.isPositive()) {
-        return undefined;
-      }
-      return share(
-        revenue,
-        average(opening, ending, (state) => field(state, "totalAssets")),
-        new Rational(1n),
-      );
-    })(),
+    assetTurnoverTtm:
+      incomeCurrent && states && revenue && revenue.isPositive()
+        ? {
+            value: share(
+              revenue,
+              average(opening, ending, (state) => field(state, "totalAssets")),
+              ONE,
+            ),
+            sources: [...incomeCurrent, ...states],
+          }
+        : undefined,
   };
 
   return Object.fromEntries(
-    Object.entries(result).map(([name, value]) => [name, value?.toNumber()]),
+    Object.entries(candidates).map(([name, candidate]) => {
+      const value = candidate?.value;
+      const available =
+        candidate !== undefined &&
+        value !== undefined &&
+        (rules.ignoreCurrency || oneCurrency(candidate.sources));
+      return [name, available ? value.toNumber() : undefined];
+    }),
   );
+}
+
+/** mulberry32: a small deterministic PRNG, so every failure reproduces from its seed. */
+function random(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+function addDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** Last day of `month` (1-12) in `year`, as a fiscal period end. */
+function monthEnd(year: number, month: number): string {
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+
+export type HistoryScenario = {
+  seed: number;
+  /** Calendar month (1-12) the fiscal year ends in. */
+  fiscalYearEndMonth: number;
+  firstFiscalYear: number;
+  fiscalYears: number;
+  /**
+   * Reported currencies. Without it every statement is `USD`. `switchTo` from `switchAtFiscalYear`
+   * models a change of reporting currency; `noise` is the probability that one statement reports a
+   * different (`EUR`) or no currency; restatements may then change a statement's currency too.
+   */
+  currency?: {
+    base: string;
+    switchAtFiscalYear?: number;
+    switchTo?: string;
+    noise?: number;
+  };
+};
+
+/**
+ * A deliberately messy, fully deterministic statement history for one security: losses and
+ * near-zero sums, two-decimal EPS, missing fields and quarters, families filed on different days,
+ * restatements that flip signs or drop fields, annual rows no metric may read, and — when asked for
+ * — currency changes. The default options draw exactly the random stream they always did, so an
+ * existing scenario's history never moves.
+ */
+export function generateHistory(
+  scenario: HistoryScenario,
+  securityId: string,
+): FinancialStatement[] {
+  const next = random(scenario.seed);
+  const pick = (probability: number) => next() < probability;
+  const integer = (low: number, high: number) =>
+    Math.round(low + next() * (high - low));
+  const rows: FinancialStatement[] = [];
+  let hashes = 0;
+
+  const currencyOf = (fiscalYear: number): string => {
+    const options = scenario.currency;
+    if (!options) {
+      return "USD";
+    }
+    const reporting =
+      options.switchAtFiscalYear !== undefined &&
+      options.switchTo !== undefined &&
+      fiscalYear >= options.switchAtFiscalYear
+        ? options.switchTo
+        : options.base;
+    if (options.noise !== undefined && pick(options.noise)) {
+      return pick(0.5) ? "EUR" : "";
+    }
+    return reporting;
+  };
+
+  const emit = (
+    statementType: FinancialStatementType,
+    fiscalYear: number,
+    period: FinancialStatement["period"],
+    fiscalDate: string,
+    availableFromDate: string,
+    values: Record<string, number>,
+    reportedCurrency: string,
+  ) => {
+    // A field the provider did not report is an absent key, never a zero.
+    const reported = Object.fromEntries(
+      Object.entries(values).filter(() => !pick(0.015)),
+    );
+    hashes += 1;
+    rows.push({
+      securityId,
+      statementType,
+      fiscalDate,
+      fiscalYear,
+      period,
+      reportedCurrency,
+      filingDate: addDays(availableFromDate, -1),
+      availableFromDate,
+      observedAt: `${availableFromDate}T12:00:00.000Z`,
+      contentHash: `hash-${String(hashes).padStart(6, "0")}`,
+      values: reported,
+    });
+  };
+
+  let scale = 1_000;
+  for (
+    let fiscalYear = scenario.firstFiscalYear;
+    fiscalYear < scenario.firstFiscalYear + scenario.fiscalYears;
+    fiscalYear += 1
+  ) {
+    for (let index = 0; index < 4; index += 1) {
+      const period = (["Q1", "Q2", "Q3", "Q4"] as const)[index]!;
+      // Q4 ends in the fiscal year-end month of the label year; each earlier quarter three months
+      // before, so a September or January year-end puts early quarters in the prior calendar year.
+      const monthsBeforeYearEnd = (3 - index) * 3;
+      const endMonthIndex =
+        fiscalYear * 12 +
+        (scenario.fiscalYearEndMonth - 1) -
+        monthsBeforeYearEnd;
+      const fiscalDate = monthEnd(
+        Math.floor(endMonthIndex / 12),
+        (endMonthIndex % 12) + 1,
+      );
+      const filed = addDays(fiscalDate, integer(25, 55));
+      scale *= 0.97 + next() * 0.09;
+      const loss = pick(0.15);
+      const revenue = pick(0.04) ? 0 : integer(scale * 0.8, scale * 1.2);
+      const netIncome = loss
+        ? -integer(1, scale * 0.2)
+        : integer(0, scale * 0.15);
+      const shares = integer(90, 110);
+      const income = {
+        revenue: pick(0.01) ? -integer(1, 50) : revenue,
+        grossProfit: integer(-scale * 0.1, scale * 0.6),
+        operatingIncome: integer(-scale * 0.2, scale * 0.3),
+        netIncome,
+        // Two-decimal EPS, so sums of reported decimals are exercised, including exact zeros.
+        epsDiluted: Math.round((netIncome / shares) * 100) / 100,
+        weightedAverageShsOutDil: shares,
+        ebitda: integer(-scale * 0.1, scale * 0.4),
+        ebit: integer(-scale * 0.2, scale * 0.3),
+        interestExpense: pick(0.1) ? 0 : integer(1, scale * 0.05),
+        incomeTaxExpense: integer(0, scale * 0.1),
+      };
+      const cashFlow = {
+        operatingCashFlow: integer(-scale * 0.05, scale * 0.4),
+        capitalExpenditure: pick(0.1) ? 0 : -integer(1, scale * 0.15),
+        freeCashFlow: integer(-scale, scale),
+      };
+      const balanceSheet = {
+        totalDebt: pick(0.1) ? 0 : integer(0, scale * 2),
+        totalStockholdersEquity: pick(0.08)
+          ? -integer(1, scale)
+          : integer(1, scale * 3),
+        totalEquity: integer(1, scale * 3),
+        cashAndShortTermInvestments: integer(0, scale * 1.5),
+        cashAndCashEquivalents: integer(0, scale),
+        totalAssets: integer(scale, scale * 6),
+        totalCurrentAssets: integer(0, scale * 2),
+        totalCurrentLiabilities: pick(0.05) ? 0 : integer(1, scale * 1.5),
+        netDebt: integer(-scale, scale * 2),
+      };
+
+      // Families are usually filed together; sometimes one lags by a week or more, and very
+      // occasionally a quarter of one family is never reported at all.
+      const lag = () => (pick(0.15) ? integer(1, 20) : 0);
+      const families: [FinancialStatementType, Record<string, number>][] = [
+        ["INCOME", income],
+        ["CASH_FLOW", cashFlow],
+        ["BALANCE_SHEET", balanceSheet],
+      ];
+      for (const [type, values] of families) {
+        if (pick(0.02)) {
+          continue;
+        }
+        const available = addDays(filed, 1 + lag());
+        const currency = currencyOf(fiscalYear);
+        emit(type, fiscalYear, period, fiscalDate, available, values, currency);
+        if (pick(0.12)) {
+          // A later restatement of the same fiscal identity: perturbed values, sometimes with a
+          // field removed or a sign flipped, eligible only from its own availability date.
+          const restated = Object.fromEntries(
+            Object.entries(values).map(([name, value]) => [
+              name,
+              pick(0.3) ? -value : Math.round(value * (0.8 + next() * 0.4)),
+            ]),
+          );
+          emit(
+            type,
+            fiscalYear,
+            period,
+            fiscalDate,
+            addDays(available, integer(30, 500)),
+            restated,
+            // A restatement can change the reported currency too.
+            scenario.currency ? currencyOf(fiscalYear) : currency,
+          );
+        }
+      }
+    }
+    // Annual rows exist and carry large, different values: no metric may read them.
+    const yearEnd = monthEnd(fiscalYear, scenario.fiscalYearEndMonth);
+    const annualAvailable = addDays(yearEnd, integer(40, 80));
+    for (const type of ["INCOME", "CASH_FLOW", "BALANCE_SHEET"] as const) {
+      emit(
+        type,
+        fiscalYear,
+        "FY",
+        yearEnd,
+        annualAvailable,
+        {
+          revenue: 9e9,
+          grossProfit: 9e9,
+          operatingIncome: 9e9,
+          netIncome: 9e9,
+          epsDiluted: 999,
+          ebitda: 9e9,
+          ebit: 9e9,
+          interestExpense: 1,
+          operatingCashFlow: 9e9,
+          capitalExpenditure: -1,
+          totalDebt: 1,
+          totalStockholdersEquity: 1,
+          totalAssets: 1,
+          totalCurrentAssets: 9e9,
+          totalCurrentLiabilities: 1,
+          netDebt: 9e9,
+        },
+        "USD",
+      );
+    }
+  }
+  return rows;
+}
+
+/** A few fixed exchange holidays each year, so availability also lands on closed weekdays. */
+export function holidays(firstYear: number, lastYear: number): string[] {
+  const dates: string[] = [];
+  for (let year = firstYear; year <= lastYear; year += 1) {
+    dates.push(`${year}-01-01`, `${year}-07-04`, `${year}-12-25`);
+  }
+  return dates;
 }

@@ -649,6 +649,160 @@ describe("newest-window anchoring", () => {
   });
 });
 
+describe("one reported currency per metric", () => {
+  /** The fixture with one statement's reported currency replaced. */
+  function reportedIn(
+    statements: readonly FinancialStatement[],
+    statementType: FinancialStatement["statementType"],
+    target: ReturnType<typeof quarter>,
+    reportedCurrency: string,
+  ): FinancialStatement[] {
+    return statements.map((each) =>
+      each.statementType === statementType &&
+      each.fiscalYear === target.fiscalYear &&
+      each.period === target.period
+        ? { ...each, reportedCurrency }
+        : each,
+    );
+  }
+
+  const INCOME_WINDOW_METRICS = [
+    "revenueGrowthTtmYoy",
+    "epsGrowthTtmYoy",
+    "grossMarginTtm",
+    "operatingMarginTtm",
+    "netMarginTtm",
+    "fcfMarginTtm",
+    "roicTtm",
+    "roeTtm",
+    "roaTtm",
+    "netDebtToEbitdaTtm",
+    "interestCoverageTtm",
+    "assetTurnoverTtm",
+  ] as const;
+
+  it("accepts any one currency: USD + USD and JPY + JPY give the same readings", () => {
+    const inJpy = GOLDEN.map((each) => ({ ...each, reportedCurrency: "JPY" }));
+
+    expect(evaluate(inJpy)).toEqual(evaluate(GOLDEN));
+    expect(Object.keys(evaluate(inJpy))).toHaveLength(15);
+  });
+
+  it("refuses USD + JPY inside one four-quarter flow window", () => {
+    const snapshot = evaluate(
+      reportedIn(GOLDEN, "INCOME", quarter(2025, "Q3"), "JPY"),
+    );
+
+    for (const field of INCOME_WINDOW_METRICS) {
+      expectUnavailable(snapshot, field);
+    }
+    // Metrics that never read that statement are unaffected.
+    expectValue(snapshot, "fcfGrowthTtmYoy", 25);
+    expectValue(snapshot, "debtToEquity", 0.44);
+    expectValue(snapshot, "currentRatio", 1.6);
+  });
+
+  it("refuses a previous TTM window reported in another currency than the current one", () => {
+    const snapshot = evaluate(
+      reportedIn(GOLDEN, "INCOME", quarter(2024, "Q2"), "JPY"),
+    );
+
+    expectUnavailable(snapshot, "revenueGrowthTtmYoy");
+    expectUnavailable(snapshot, "epsGrowthTtmYoy");
+    // The four-quarter metrics only read the current window, which is all USD.
+    expectValue(snapshot, "grossMarginTtm", 1210 / 27);
+    expectValue(snapshot, "interestCoverageTtm", 10.6);
+
+    // The same for the Cash Flow chain behind FCF growth.
+    const cashFlow = evaluate(
+      reportedIn(GOLDEN, "CASH_FLOW", quarter(2024, "Q2"), "JPY"),
+    );
+    expectUnavailable(cashFlow, "fcfGrowthTtmYoy");
+    expectValue(cashFlow, "fcfMarginTtm", 500 / 27);
+    expectValue(cashFlow, "revenueGrowthTtmYoy", 400 / 23);
+  });
+
+  it("refuses Income and Cash Flow reported in different currencies", () => {
+    const snapshot = evaluate(
+      reportedIn(GOLDEN, "CASH_FLOW", quarter(2025, "Q3"), "JPY"),
+    );
+
+    expectUnavailable(snapshot, "fcfMarginTtm");
+    // The Cash Flow chain itself now mixes currencies too.
+    expectUnavailable(snapshot, "fcfGrowthTtmYoy");
+    expectValue(snapshot, "grossMarginTtm", 1210 / 27);
+  });
+
+  it("refuses Income and an aligned Balance Sheet reported in different currencies", () => {
+    const snapshot = evaluate(
+      reportedIn(GOLDEN, "BALANCE_SHEET", quarter(2024, "Q4"), "JPY"),
+    );
+
+    for (const field of [
+      "roicTtm",
+      "roeTtm",
+      "roaTtm",
+      "assetTurnoverTtm",
+    ] as const) {
+      expectUnavailable(snapshot, field);
+    }
+    // The latest balance sheet (FY2025 Q4) is still USD.
+    expectValue(snapshot, "netDebtToEbitdaTtm", 10 / 13);
+    expectValue(snapshot, "debtToEquity", 0.44);
+    expectValue(snapshot, "grossMarginTtm", 1210 / 27);
+  });
+
+  it("accepts a latest balance sheet in its own currency for state ratios, but not against Income", () => {
+    const snapshot = evaluate(
+      reportedIn(GOLDEN, "BALANCE_SHEET", quarter(2025, "Q4"), "JPY"),
+    );
+
+    // Debt / Equity and Current Ratio read one statement: one currency.
+    expectValue(snapshot, "debtToEquity", 0.44);
+    expectValue(snapshot, "currentRatio", 1.6);
+    // Net debt in JPY against USD EBITDA, and JPY ending states against USD flows, are refused.
+    expectUnavailable(snapshot, "netDebtToEbitdaTtm");
+    expectUnavailable(snapshot, "roeTtm");
+    expectUnavailable(snapshot, "roicTtm");
+  });
+
+  it("refuses a statement without a reported currency", () => {
+    const noBalanceSheetCurrency = evaluate(
+      reportedIn(GOLDEN, "BALANCE_SHEET", quarter(2025, "Q4"), ""),
+    );
+    expectUnavailable(noBalanceSheetCurrency, "debtToEquity");
+    expectUnavailable(noBalanceSheetCurrency, "currentRatio");
+    expectUnavailable(noBalanceSheetCurrency, "netDebtToEbitdaTtm");
+    expectValue(noBalanceSheetCurrency, "grossMarginTtm", 1210 / 27);
+
+    const noIncomeCurrency = evaluate(
+      reportedIn(GOLDEN, "INCOME", quarter(2025, "Q1"), "  "),
+    );
+    for (const field of INCOME_WINDOW_METRICS) {
+      expectUnavailable(noIncomeCurrency, field);
+    }
+  });
+
+  it("refuses a missing currency even when every statement shares it", () => {
+    for (const reportedCurrency of ["", "  "]) {
+      const snapshot = evaluate(
+        GOLDEN.map((each) => ({ ...each, reportedCurrency })),
+      );
+
+      expect(snapshot, JSON.stringify(reportedCurrency)).toEqual({});
+    }
+  });
+
+  it("never treats two spellings of a currency as the same currency", () => {
+    const snapshot = evaluate(
+      reportedIn(GOLDEN, "INCOME", quarter(2025, "Q4"), "usd"),
+    );
+
+    expectUnavailable(snapshot, "grossMarginTtm");
+    expectUnavailable(snapshot, "revenueGrowthTtmYoy");
+  });
+});
+
 describe("ROIC TTM", () => {
   it("uses the fixed 21% tax assumption, never the statements' own tax lines", () => {
     const snapshot = evaluate(GOLDEN);

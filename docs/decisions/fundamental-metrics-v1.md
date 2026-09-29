@@ -98,6 +98,14 @@ For a metric effective on trading day `D`:
 11. **No stale-window fallback.** Every flow window is anchored at the newest fiscal quarter the
     metric is evaluated for (see "Window anchors"). When that window is incomplete the metric is
     unavailable; it never falls back to an older complete window.
+12. **One currency per observation.** Every statement that contributes a value to one metric
+    observation — every quarter of its flow window or windows, and every balance-sheet state it
+    reads — must report the same non-empty `reportedCurrency`. Mixed currencies, inside one window,
+    across the current and previous TTM windows, across statement families, or between a flow
+    window and a balance-sheet state, make that metric unavailable; so does a contributing statement
+    without a currency. V1 performs no FX conversion, uses no current FX data and treats no two
+    currency codes as equivalent. A single-statement ratio (Debt / Equity, Current Ratio) needs that
+    statement to carry a currency.
 
 The materializer maps an eligible statement event to the first canonical trading date on or after
 its `availableFromDate`. A weekend or exchange holiday therefore produces no synthetic daily row;

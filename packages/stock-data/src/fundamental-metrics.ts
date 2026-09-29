@@ -34,9 +34,9 @@ import {
  * statements arrive in, and nothing the caller passed is mutated.
  *
  * Unavailability is absence. A metric is omitted from the snapshot when a required quarter
- * identity, a required field or a denominator rule fails, and a result that is not a finite
- * number is rejected rather than returned. Missing is never zero, and a provider-reported zero
- * stays a real zero.
+ * identity, a required field or a denominator rule fails, or when the statements it consumed do
+ * not share one reported currency, and a result that is not a finite number is rejected rather
+ * than returned. Missing is never zero, and a provider-reported zero stays a real zero.
  *
  * Every sum is the exact sum of the reported decimals (`exactDecimalSum`), so a rule such as
  * `require EPS_TTM > 0` is decided on the true sign of the sum, never on binary rounding residue.
@@ -138,6 +138,15 @@ export function assembleFundamentalWindows(
     ...(latestBalanceSheet ? { latestBalanceSheet } : {}),
   };
 }
+
+/**
+ * One metric's result together with every statement whose values produced it — the set the
+ * currency rule is applied to.
+ */
+type MetricReading = {
+  value: number;
+  sources: readonly FinancialStatement[];
+};
 
 /**
  * A line item as a finite number, or `undefined` when the provider did not supply one. A reported
@@ -279,16 +288,27 @@ function investedCapitalTerms(
   return [totalDebt, totalStockholdersEquity, -cash];
 }
 
+/** A reading from a value and the statements behind it, or nothing when there is no value. */
+function reading(
+  value: number | undefined,
+  sources: readonly FinancialStatement[],
+): MetricReading | undefined {
+  return value === undefined ? undefined : { value, sources };
+}
+
 function revenueGrowthTtmYoy(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const chain = windows.incomeYearOverYear;
   if (!chain) {
     return undefined;
   }
-  return trailingGrowthPercent(
-    incomeSum(chain.current, "revenue"),
-    incomeSum(chain.previous, "revenue"),
+  return reading(
+    trailingGrowthPercent(
+      incomeSum(chain.current, "revenue"),
+      incomeSum(chain.previous, "revenue"),
+    ),
+    [...chain.previous, ...chain.current],
   );
 }
 
@@ -298,59 +318,73 @@ function revenueGrowthTtmYoy(
  */
 function epsGrowthTtmYoy(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const chain = windows.incomeYearOverYear;
   if (!chain) {
     return undefined;
   }
-  return trailingGrowthPercent(
-    incomeSum(chain.current, "epsDiluted"),
-    incomeSum(chain.previous, "epsDiluted"),
+  return reading(
+    trailingGrowthPercent(
+      incomeSum(chain.current, "epsDiluted"),
+      incomeSum(chain.previous, "epsDiluted"),
+    ),
+    [...chain.previous, ...chain.current],
   );
 }
 
 function fcfGrowthTtmYoy(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const chain = windows.cashFlowYearOverYear;
   if (!chain) {
     return undefined;
   }
-  return trailingGrowthPercent(
-    freeCashFlowSum(chain.current),
-    freeCashFlowSum(chain.previous),
+  return reading(
+    trailingGrowthPercent(
+      freeCashFlowSum(chain.current),
+      freeCashFlowSum(chain.previous),
+    ),
+    [...chain.previous, ...chain.current],
   );
 }
 
 function incomeMargin(
   windows: FundamentalStatementWindows,
   numerator: IncomeStatementField,
-): number | undefined {
+): MetricReading | undefined {
   const window = windows.incomeTtm;
   if (!window) {
     return undefined;
   }
-  return revenueMarginPercent(
-    incomeSum(window.statements, numerator),
-    incomeSum(window.statements, "revenue"),
+  return reading(
+    revenueMarginPercent(
+      incomeSum(window.statements, numerator),
+      incomeSum(window.statements, "revenue"),
+    ),
+    window.statements,
   );
 }
 
-/** Revenue and free cash flow from one common fiscal window, never two independent ones. */
+/** Revenue and free cash flow from one aligned fiscal window, never two independent ones. */
 function fcfMarginTtm(
   windows: FundamentalStatementWindows,
-): number | undefined {
-  const common = windows.incomeAndCashFlowTtm;
-  if (!common) {
+): MetricReading | undefined {
+  const aligned = windows.incomeAndCashFlowTtm;
+  if (!aligned) {
     return undefined;
   }
-  return revenueMarginPercent(
-    freeCashFlowSum(common.cashFlow),
-    incomeSum(common.income, "revenue"),
+  return reading(
+    revenueMarginPercent(
+      freeCashFlowSum(aligned.cashFlow),
+      incomeSum(aligned.income, "revenue"),
+    ),
+    [...aligned.income, ...aligned.cashFlow],
   );
 }
 
-function roicTtm(windows: FundamentalStatementWindows): number | undefined {
+function roicTtm(
+  windows: FundamentalStatementWindows,
+): MetricReading | undefined {
   const window = windows.incomeTtm;
   const states = windows.alignedBalanceSheets;
   if (!window || !states) {
@@ -376,14 +410,18 @@ function roicTtm(windows: FundamentalStatementWindows): number | undefined {
   if (!(averageInvestedCapital > 0)) {
     return undefined;
   }
-  return (nopatTtm / averageInvestedCapital) * 100;
+  return reading((nopatTtm / averageInvestedCapital) * 100, [
+    ...window.statements,
+    states.opening,
+    states.ending,
+  ]);
 }
 
 /** `sum(netIncome) / average(state) * 100` over the aligned opening and ending states. */
 function returnOnAverageState(
   windows: FundamentalStatementWindows,
   stateField: BalanceSheetField,
-): number | undefined {
+): MetricReading | undefined {
   const window = windows.incomeTtm;
   const states = windows.alignedBalanceSheets;
   if (!window || !states) {
@@ -394,12 +432,16 @@ function returnOnAverageState(
   if (netIncomeTtm === undefined || average === undefined || !(average > 0)) {
     return undefined;
   }
-  return (netIncomeTtm / average) * 100;
+  return reading((netIncomeTtm / average) * 100, [
+    ...window.statements,
+    states.opening,
+    states.ending,
+  ]);
 }
 
 function debtToEquity(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const balanceSheet = windows.latestBalanceSheet;
   if (!balanceSheet) {
     return undefined;
@@ -417,12 +459,12 @@ function debtToEquity(
   ) {
     return undefined;
   }
-  return totalDebt / totalStockholdersEquity;
+  return reading(totalDebt / totalStockholdersEquity, [balanceSheet]);
 }
 
 function currentRatio(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const balanceSheet = windows.latestBalanceSheet;
   if (!balanceSheet) {
     return undefined;
@@ -439,7 +481,7 @@ function currentRatio(
   ) {
     return undefined;
   }
-  return totalCurrentAssets / totalCurrentLiabilities;
+  return reading(totalCurrentAssets / totalCurrentLiabilities, [balanceSheet]);
 }
 
 /**
@@ -449,7 +491,7 @@ function currentRatio(
  */
 function netDebtToEbitdaTtm(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const window = windows.incomeTtm;
   const balanceSheet = windows.latestBalanceSheet;
   if (!window || !balanceSheet) {
@@ -460,7 +502,7 @@ function netDebtToEbitdaTtm(
   if (ebitdaTtm === undefined || netDebt === undefined || !(ebitdaTtm > 0)) {
     return undefined;
   }
-  return netDebt / ebitdaTtm;
+  return reading(netDebt / ebitdaTtm, [...window.statements, balanceSheet]);
 }
 
 /**
@@ -469,7 +511,7 @@ function netDebtToEbitdaTtm(
  */
 function interestCoverageTtm(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const window = windows.incomeTtm;
   if (!window) {
     return undefined;
@@ -483,12 +525,12 @@ function interestCoverageTtm(
   ) {
     return undefined;
   }
-  return ebitTtm / interestExpenseTtm;
+  return reading(ebitTtm / interestExpenseTtm, window.statements);
 }
 
 function assetTurnoverTtm(
   windows: FundamentalStatementWindows,
-): number | undefined {
+): MetricReading | undefined {
   const window = windows.incomeTtm;
   const states = windows.alignedBalanceSheets;
   if (!window || !states) {
@@ -504,12 +546,16 @@ function assetTurnoverTtm(
   ) {
     return undefined;
   }
-  return revenueTtm / averageAssets;
+  return reading(revenueTtm / averageAssets, [
+    ...window.statements,
+    states.opening,
+    states.ending,
+  ]);
 }
 
 type FundamentalMetricCalculator = (
   windows: FundamentalStatementWindows,
-) => number | undefined;
+) => MetricReading | undefined;
 
 /**
  * One calculator per registered identity. Keyed by the registry's own identity type, so a metric
@@ -536,15 +582,38 @@ const CALCULATORS = {
 } as const satisfies Record<FundamentalMetricId, FundamentalMetricCalculator>;
 
 /**
+ * Whether every statement behind one reading reports the same, non-empty currency.
+ *
+ * Nothing is converted and nothing is treated as equivalent: two spellings of a currency are two
+ * currencies, and a statement without one cannot vouch for its monetary values.
+ */
+function sharesOneReportedCurrency(
+  statements: readonly FinancialStatement[],
+): boolean {
+  const currency = statements[0]?.reportedCurrency;
+  if (typeof currency !== "string" || currency.trim() === "") {
+    return false;
+  }
+  return statements.every(
+    (statement) => statement.reportedCurrency === currency,
+  );
+}
+
+/**
  * Evaluates all fifteen metrics for one security from the statements visible on one trading day.
  *
  * A stateless snapshot of `date`: it never remembers or looks up an earlier result, so a newer
  * eligible revision that invalidates a metric yields its absence here rather than a stale value.
  * Carry-forward between statement events belongs to the daily materializer.
  *
- * A result that is not a finite number is rejected, never stored as infinity or `NaN`, and an
- * extreme but finite ratio is returned unclamped. A signed zero is returned as plain zero: the sign
- * of zero carries no financial meaning and the persisted decimal has none.
+ * Two rules apply to every metric alike, after its formula:
+ *
+ * - **One currency.** Every statement that contributed must report the same non-empty currency;
+ *   mixing currencies, or a statement without one, makes the metric unavailable. No conversion.
+ * - **Finite.** A non-finite result is rejected, never stored as infinity or `NaN`.
+ *
+ * An extreme but finite ratio is returned unclamped, and a signed zero as plain zero: the sign of
+ * zero carries no financial meaning and the persisted decimal has none.
  */
 export function evaluateFundamentalMetrics(
   request: FundamentalMetricEvaluationRequest,
@@ -552,10 +621,15 @@ export function evaluateFundamentalMetrics(
   const windows = assembleFundamentalWindows(request);
   const snapshot: FundamentalMetricSnapshot = {};
   for (const metric of FUNDAMENTAL_METRICS) {
-    const value = CALCULATORS[metric.id](windows);
-    if (value !== undefined && Number.isFinite(value)) {
-      snapshot[metric.field] = value === 0 ? 0 : value;
+    const result = CALCULATORS[metric.id](windows);
+    if (
+      result === undefined ||
+      !sharesOneReportedCurrency(result.sources) ||
+      !Number.isFinite(result.value)
+    ) {
+      continue;
     }
+    snapshot[metric.field] = result.value === 0 ? 0 : result.value;
   }
   return snapshot;
 }
