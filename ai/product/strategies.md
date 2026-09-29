@@ -557,7 +557,7 @@ above is what the metric means and does not depend on that answer.
 | Insider Activity · 4 measures                   | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
 | Congressional Trading · 5 measures              | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
 
-**Relative Volume is the one Condition-only metric**, and the empty Trigger column is a product
+**Relative Volume was the first Condition-only metric**, and the empty Trigger column is a product
 decision rather than an omission. A Trigger is a crossing event; the Monitor's existing
 not-matched -> matched transition already emits a Signal on the session `RVOL 20 is above 2.0x`
 first holds, so a `crosses above` form would be a second, differently latched way to say the same

@@ -1267,12 +1267,19 @@ export function strategyMetricLabel(metric: StrategyMetric): string {
  * At least one decimal so `2` and `2.0` cannot read as two different thresholds; never rounded because
  * the text is the rule's canonical description — the preview, a trade reason and the Dashboard print
  * it — and a threshold of 0.75 printed `0.8x` would describe a different rule from the one evaluated.
+ * Plain positional digits, never exponent notation: a tiny threshold reads `0.0000001x`, not `1e-7x`.
  */
 function multipleText(value: number): string {
   if (!Number.isFinite(value)) {
     return String(value);
   }
-  return Number.isInteger(value) ? value.toFixed(1) : String(value);
+  if (Number.isInteger(value)) {
+    return value.toFixed(1);
+  }
+  const shortest = String(value);
+  return shortest.includes("e")
+    ? value.toFixed(20).replace(/0+$/, "")
+    : shortest;
 }
 
 export function strategyValueLabel(value: StrategyValue): string {
@@ -1761,7 +1768,7 @@ export const STRATEGY_METRIC_HELP: Record<
       "A negative reading is a real reading, such as a loss-making margin, and is compared like any other.",
     ],
     notEvaluableWhen:
-      "The statement history the metric needs is incomplete on that date: a missing quarter or line item, a zero or negative denominator, or statements in different currencies. It is then unavailable, never zero, and a condition on it never matches.",
+      "The statements the metric needs cannot support a value on that date: a missing quarter or line item, a denominator that is not positive, statements in different currencies, a growth rate whose current or previous four-quarter total is not positive — a loss, or a turn between loss and profit — or Asset Turnover without positive revenue. It is then unavailable, never zero, and a condition on it never matches.",
   },
   GAIN: {
     summary:

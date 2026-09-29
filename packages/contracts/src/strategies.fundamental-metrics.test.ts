@@ -708,6 +708,9 @@ describe("describing a Fundamental Condition", () => {
     expect(strategyValueLabel(multiple(-2))).toBe("-2.0x");
     expect(strategyValueLabel(multiple(-0.5))).toBe("-0.5x");
     expect(strategyValueLabel(multiple(0))).toBe("0.0x");
+    // Positional digits even where the shortest form of the number would be exponent notation.
+    expect(strategyValueLabel(multiple(1e-7))).toBe("0.0000001x");
+    expect(strategyValueLabel(multiple(-2.5e-7))).toBe("-0.00000025x");
   });
 });
 
@@ -889,6 +892,14 @@ describe("explaining a Fundamental Metric", () => {
     expect(help.detail).toContain("point-in-time");
     expect(help.detail).toContain("condition only");
     expect(help.notEvaluableWhen).toContain("never zero");
+    // The reasons match the calculation: a growth rate needs both trailing totals positive, and
+    // Asset Turnover positive revenue — neither is a denominator rule.
+    expect(help.notEvaluableWhen).toContain(
+      "growth rate whose current or previous four-quarter total is not positive",
+    );
+    expect(help.notEvaluableWhen).toContain(
+      "Asset Turnover without positive revenue",
+    );
     expect(help.notes?.join(" ")).toContain(
       "four consecutive reported fiscal quarters",
     );
@@ -903,5 +914,216 @@ describe("explaining a Fundamental Metric", () => {
         STRATEGY_METRIC_HELP[option.metric.kind],
       );
     }
+  });
+});
+
+describe("a strategy that names no Fundamental Metric", () => {
+  /**
+   * Every metric kind that existed before this family, in every level, with a Trigger and a
+   * multi-rule FINAL EXIT.
+   *
+   * The fingerprint below was computed on `main` before the identity functions were rewritten as
+   * exhaustive switches, and is pinned byte for byte: it is what every persisted
+   * `StrategyVersion.definitionHash` and every Monitor latch is a digest of, so a later edit to
+   * those switches that moved it would silently re-version stored strategies and reset latches.
+   */
+  const EVERY_EXISTING_KIND = {
+    schemaVersion: 2,
+    buyLevels: [
+      {
+        id: "b1",
+        percentage: 50,
+        signal: {
+          conditions: [
+            {
+              id: "c1",
+              metric: {
+                kind: "PRICE",
+              },
+              operator: "IS_CLOSE_TO",
+              value: {
+                kind: "SERIES",
+                seriesId: "SMA_200D",
+              },
+            },
+            {
+              id: "c2",
+              metric: {
+                kind: "MOVING_AVERAGE",
+                seriesId: "SMA_50D",
+              },
+              operator: "IS_ABOVE",
+              value: {
+                kind: "SERIES",
+                seriesId: "SMA_200D",
+              },
+            },
+            {
+              id: "c3",
+              metric: {
+                kind: "OSCILLATOR",
+                seriesId: "RSI_14D",
+              },
+              operator: "IS_BELOW",
+              value: {
+                kind: "NUMBER",
+                value: 30,
+              },
+            },
+            {
+              id: "c4",
+              metric: {
+                kind: "RELATIVE_VOLUME",
+                period: 20,
+              },
+              operator: "IS_ABOVE",
+              value: {
+                kind: "MULTIPLE",
+                value: 1.25,
+              },
+            },
+            {
+              id: "c5",
+              metric: {
+                kind: "MARGIN_OF_SAFETY",
+                sourceId: "DCF_FCFF",
+              },
+              operator: "IS_ABOVE",
+              value: {
+                kind: "PERCENT",
+                value: 22.5,
+              },
+            },
+            {
+              id: "c6",
+              metric: {
+                kind: "INSIDER_ACTIVITY",
+                measure: "PURCHASE_VALUE",
+                lookback: 60,
+                roles: ["CEO", "CFO"],
+              },
+              operator: "IS_ABOVE",
+              value: {
+                kind: "MONEY",
+                value: 250000,
+              },
+            },
+          ],
+          trigger: {
+            id: "t1",
+            metric: {
+              kind: "MOVING_AVERAGE",
+              seriesId: "EMA_50D",
+            },
+            operator: "CROSSES_ABOVE",
+            value: {
+              kind: "SERIES",
+              seriesId: "EMA_200D",
+            },
+          },
+        },
+      },
+    ],
+    sellLevels: [
+      {
+        id: "s1",
+        percentage: 50,
+        signal: {
+          conditions: [
+            {
+              id: "c7",
+              metric: {
+                kind: "GAIN",
+              },
+              operator: "IS_ABOVE",
+              value: {
+                kind: "PERCENT",
+                value: 25,
+              },
+            },
+            {
+              id: "c8",
+              metric: {
+                kind: "CONGRESS_ACTIVITY",
+                measure: "BUYERS",
+                lookback: 30,
+                scope: {
+                  kind: "GROUP",
+                  groupId: "4b8d0f3e-2c1a-4e7b-9a6d-5f0c3b2a1e9d",
+                },
+                chamber: "SENATE",
+                owners: ["SELF", "SPOUSE"],
+              },
+              operator: "IS_ABOVE",
+              value: {
+                kind: "NUMBER",
+                value: 1,
+              },
+            },
+          ],
+        },
+      },
+    ],
+    finalExit: {
+      id: "x1",
+      rules: [
+        {
+          id: "x1-r1",
+          signal: {
+            conditions: [
+              {
+                id: "c9",
+                metric: {
+                  kind: "LOSS",
+                },
+                operator: "IS_ABOVE",
+                value: {
+                  kind: "PERCENT",
+                  value: 10,
+                },
+              },
+            ],
+          },
+        },
+        {
+          id: "x1-r2",
+          signal: {
+            conditions: [
+              {
+                id: "c10",
+                metric: {
+                  kind: "MARGIN_OF_SAFETY",
+                  sourceId: "BALANCED",
+                },
+                operator: "IS_BELOW",
+                value: {
+                  kind: "PERCENT",
+                  value: -20,
+                },
+              },
+            ],
+            trigger: {
+              id: "t2",
+              metric: {
+                kind: "PRICE",
+              },
+              operator: "CROSSES_BELOW",
+              value: {
+                kind: "SERIES",
+                seriesId: "SMA_200D",
+              },
+            },
+          },
+        },
+      ],
+    },
+  } as unknown as StrategyDefinition;
+
+  it("fingerprints byte-identically to before Fundamental Metrics existed", () => {
+    expect(validateStrategyDefinition(EVERY_EXISTING_KIND)).toEqual([]);
+    const normalized = normalizeStrategyDefinition(EVERY_EXISTING_KIND);
+    expect(strategyDefinitionFingerprint(normalized)).toBe(
+      '[1,[[50,[[[["PRICE",null],"IS_CLOSE_TO",["SERIES","SMA_200D"]],[["MOVING_AVERAGE","SMA_50D"],"IS_ABOVE",["SERIES","SMA_200D"]],[["OSCILLATOR","RSI_14D"],"IS_BELOW",["NUMBER",30]],[["RELATIVE_VOLUME",null,20],"IS_ABOVE",["MULTIPLE",1.25]],[["MARGIN_OF_SAFETY","DCF_FCFF"],"IS_ABOVE",["PERCENT",22.5]],[["INSIDER_ACTIVITY",null,"INSIDER_ACTIVITY|PURCHASE_VALUE|60|-|CEO+CFO"],"IS_ABOVE",["MONEY",250000]]],[["MOVING_AVERAGE","EMA_50D"],"CROSSES_ABOVE",["SERIES","EMA_200D"]]]]],[[50,[[[["GAIN",null],"IS_ABOVE",["PERCENT",25]],[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|BUYERS|30|group:4b8d0f3e-2c1a-4e7b-9a6d-5f0c3b2a1e9d|SENATE|SELF+SPOUSE"],"IS_ABOVE",["NUMBER",1]]],null]]],["OR",[[[[["LOSS",null],"IS_ABOVE",["PERCENT",10]]],null],[[[["MARGIN_OF_SAFETY","BALANCED"],"IS_BELOW",["PERCENT",-20]]],[["PRICE",null],"CROSSES_BELOW",["SERIES","SMA_200D"]]]]]]',
+    );
   });
 });

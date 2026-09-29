@@ -84,7 +84,7 @@ describe("the Fundamental Metrics product catalog", () => {
     const labels = FUNDAMENTAL_METRIC_CATALOG.map((entry) => entry.label);
     expect(new Set(labels).size).toBe(15);
     expect(FUNDAMENTAL_METRIC_IDS).toEqual(
-      FUNDAMENTAL_METRIC_CATALOG.map((entry) => entry.id),
+      EXPECTED_CATALOG.map((row) => row[0]),
     );
   });
 
