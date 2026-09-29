@@ -401,7 +401,9 @@ an environment's catalog.
 
 `pnpm test:securities:seed` also seeds `QATEST1`'s market data: a deterministic synthetic price
 history, the derived state the production calculators build from it (daily and weekly moving
-averages, carried-forward completed weeks), fixture intrinsic-value model/blend results, and the
+averages, carried-forward completed weeks), fixture intrinsic-value model/blend results, fixture
+Fundamental Metric readings (`QA_FUNDAMENTAL_STRETCHES` in `@intrinsic/testing/qa-fundamentals`,
+the one table the fundamentals browser suite also derives its expectations from), and the
 dataset coverage/state watermarks that tell the canonical loader nothing is missing. That is what
 lets `e2e/stocks` drive real Stock Details without a market-data provider. `QATEST2` has no market
 data and is declared complete and empty. Rerunning is safe and is the reset (below).
@@ -570,7 +572,13 @@ daily/weekly/model/blend overlays together, deselection, the disabled unavailabl
 always-visible price series, desktop and phone viewports, keyboard operation, and the absence of
 console errors or failed requests — plus the RSI oscillator journey: the shared lower pane's full
 selection lifecycle, the 30/50/70 levels, unitless legend readings beside price overlays, and
-duplication-free repeated toggling.
+duplication-free repeated toggling — plus the Fundamental Metrics journey
+(`e2e/stocks/fundamentals.user.spec.ts`): the Fundamentals section, one request per chosen metric
+by its stable identity, the drawn step/gap/restoration transitions against the fixture table, each
+session's reading in its unit in the hover legend (`18.25%`, `0.75x`, `1.0x`, `Unavailable` in a
+gap), clean switching and a request race, zero, negative and all-unavailable metrics, older
+history fetched as the gap alone, all fifteen metrics in turn, a 390px phone, loading, failure
+and retry, and the choice resetting on reload.
 
 ## 8. Storage state
 

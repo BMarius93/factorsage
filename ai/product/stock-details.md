@@ -17,6 +17,7 @@ Groups:
 3. Oscillators
 4. Intrinsic Value — Blends
 5. Intrinsic Value — Models
+6. Fundamentals — one of the fifteen Fundamental Metrics at a time (see below)
 
 The price series is not an option because it is always shown. The initial chart state keeps
 `Balanced` enabled and every other overlay disabled — every oscillator starts unchecked — driven by
@@ -139,6 +140,44 @@ so a long series is already valid on the oldest day the chart can reach. See
 
 Stock Details may show the complete model/blend summaries outside the chart. Chart selection is
 presentation state and does not alter strategy configuration.
+
+## Fundamental Metrics
+
+The `Indicators` control ends with a **Fundamentals** section: one native select offering `None`
+and the fifteen Fundamental Metrics, grouped Growth, Profitability, Quality, Leverage, Liquidity,
+Solvency and Efficiency. Identities, labels, groups, order, units and the explanation shown under
+the select (the metric's summary and formula) all come from `FUNDAMENTAL_METRIC_CATALOG` in
+`@intrinsic/contracts`, the catalog the Strategy Builder reads; the page keeps no list of its own.
+
+- **One metric at a time**, drawn in its own pane below the price, volume and oscillator panes. A
+  fundamental never shares the price scale — ROIC 15% has no place on an axis of dollars — and the
+  pane shares the chart's time scale and crosshair. Choosing another metric replaces the pane; `None`
+  removes it. Like the overlays, the choice is not kept across a reload.
+- **The same persisted truth as Strategy and Backtest.** Every value is the metric's stored
+  `DailyDerivedState` reading for that session, read through the same derived-state path, so the
+  chart shows exactly what a Strategy Condition on that session evaluates. Nothing is calculated in
+  the API or the browser: no statement, no TTM window, no ratio, no currency check.
+- **Step, never interpolated.** A metric changes only on the first session after a new or revised
+  statement became public, so it is drawn as a step: flat between events and vertical on the session
+  the stored value changes, never a slanted line suggesting a gradual change.
+- **Absence is a gap.** A session the metric is unavailable on — before it is first calculable, or
+  after a later revision invalidated it — is drawn as nothing: each available stretch is its own
+  line, so the value before a gap is never joined to the value after it, and the browser never
+  carries a value forward through it. Zero and negative readings are values and are drawn.
+- **Units.** A `PERCENT` metric is in percentage points and reads `15.42%`; a `MULTIPLE` reads
+  `0.75x` or `1.0x`. The axis, the crosshair label and the hover legend use the metric's own unit;
+  rounding is display only, never hides a reading (`0.75x`, never `0.8x`) and never prints a small
+  non-zero reading as zero. A hovered session inside a gap reads `Unavailable`.
+- **End of day.** Sessions are completed trading sessions, the same ones the price chart draws; no
+  value is synthesized from a quote or a statement. There is no last-value label: after an
+  invalidation it would print an older reading as though it were current.
+- **Selective loading.** Nothing about fundamentals is requested until a metric is chosen; then only
+  that metric, for the history the chart already holds, from
+  `GET /stocks/:symbol/fundamentals/daily`. Older history loaded by panning or a range extends it by
+  the missing interval alone. Switching metrics asks for the new one, and only the newest answer is
+  applied. While it loads the page says so; a failure offers a retry and is never shown as the
+  metric being unavailable; a metric with no value anywhere in the loaded history says that instead
+  of drawing an empty pane.
 
 ## Actions, key and sign convention (UI-017, UI-018)
 

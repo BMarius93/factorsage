@@ -344,7 +344,9 @@ When it is introduced in V2:
   `../../docs/decisions/selectable-series-catalog.md`; feature components must not duplicate its
   option identities, grouping, or ordering.
 - Stock Details exposes that catalog through one grouped multi-select `Indicators` control. Price
-  remains the always-visible base series.
+  remains the always-visible base series. The same control ends with a Fundamentals section offering
+  one Fundamental Metric at a time from `FUNDAMENTAL_METRIC_CATALOG`, drawn as a step line in its own
+  pane from the persisted derived state (`../product/stock-details.md`).
 
 Do not add a second chart library just for convenience when Lightweight Charts can cleanly satisfy the requirement. A different library is acceptable for a materially different visualization category if justified by the task.
 
