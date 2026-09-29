@@ -2,8 +2,9 @@
 
 ## Status
 
-**Proposed methodology lock.** This branch is documentation-only. Merging this decision makes the
-methodology below authoritative for the implementation PRs that follow.
+**Proposed methodology lock.** Merging this decision makes the methodology below authoritative for
+the implementation built on it: the point-in-time calculation first, then its persistence in the
+unified derived state.
 
 This decision builds on, and does not reinterpret:
 
@@ -95,6 +96,17 @@ For a metric effective on trading day `D`:
 10. The existing conservative statement rule remains authoritative: `availableFromDate` is derived
     from filing/revision availability by the fundamentals loader. Fundamental Metrics must not
     reconstruct or second-guess filing timestamps.
+11. **No stale-window fallback.** Every flow window is anchored at the newest fiscal quarter the
+    metric is evaluated for (see "Window anchors"). When that window is incomplete the metric is
+    unavailable; it never falls back to an older complete window.
+12. **One currency per observation.** Every statement that contributes a value to one metric
+    observation — every quarter of its flow window or windows, and every balance-sheet state it
+    reads — must report the same non-empty `reportedCurrency`. Mixed currencies, inside one window,
+    across the current and previous TTM windows, across statement families, or between a flow
+    window and a balance-sheet state, make that metric unavailable; so does a contributing statement
+    without a currency. V1 performs no FX conversion, uses no current FX data and treats no two
+    currency codes as equivalent. A single-statement ratio (Debt / Equity, Current Ratio) needs that
+    statement to carry a currency.
 
 The materializer maps an eligible statement event to the first canonical trading date on or after
 its `availableFromDate`. A weekend or exchange holiday therefore produces no synthetic daily row;
@@ -111,8 +123,29 @@ For a current four-quarter window:
 Q[-3], Q[-2], Q[-1], Q[0]
 ```
 
-`Q[0]` is the latest quarter in the selected consecutive window and all four identities are PIT
-eligible on `D`.
+`Q[0]` is the window's anchor, fixed by the rules below, and all four identities are PIT eligible on
+`D`.
+
+### Window anchors
+
+Freshness wins over completeness: a metric never reports an older period as if it were current.
+
+- **Single-family flow metrics** (Revenue, EPS and FCF Growth, the Income margins, Interest
+  Coverage, and the EBITDA window of Net Debt / EBITDA): `Q[0]` is that family's latest
+  PIT-eligible quarterly fiscal identity. The exact predecessor chain the metric needs —
+  `Q[-3]..Q[0]`, or `Q[-7]..Q[0]` for a TTM YoY metric — must exist in full; a missing identity
+  makes the metric unavailable. There is no search backward for an older complete window.
+- **Cross-family flow metrics** (FCF Margin): `Q[0]` is the newest quarterly fiscal identity held by
+  any of the required families. Every required family must hold exactly `Q[-3]..Q[0]`; when one
+  family lags the others, or has stopped reporting, the metric is unavailable. There is no fallback
+  to an older window the families happen to share.
+- **Averaged-state metrics** (ROIC, ROE, ROA, Asset Turnover): `Q[0]` is the latest Income quarter
+  and the flow window is exactly `Q[-3]..Q[0]` of Income. The balance sheets required are exactly
+  two identities: the opening state (the quarter immediately before `Q[-3]`) and the ending state
+  (`Q[0]`). The interior balance-sheet quarters are not consumed and not required. A newer balance
+  sheet never replaces the ending state.
+- **Latest-state metrics** (Debt / Equity, Current Ratio, and the net debt of Net Debt / EBITDA):
+  the latest PIT-eligible quarterly Balance Sheet as of `D`, independently of any flow window.
 
 A TTM YoY growth metric requires the immediately preceding four-quarter window too:
 
@@ -132,9 +165,11 @@ ending state  = balance sheet for Q[0]
 average state = (opening + ending) / 2
 ```
 
-Both balance-sheet rows must be PIT eligible on `D`. This deliberately requires five balance-sheet
-quarter identities around the four-quarter flow window. It avoids pairing a trailing flow with an
-unrelated newer state merely because that newer filing arrived first.
+Both balance-sheet rows must be PIT eligible on `D`. Exactly these two balance-sheet identities are
+required. The interior balance sheets for `Q[-3]`, `Q[-2]` and `Q[-1]` are neither consumed nor
+required, and their absence never makes a metric unavailable. Requiring the aligned ending state
+avoids pairing a trailing flow with an unrelated newer state merely because that newer filing
+arrived first.
 
 ## Free cash flow convention
 
@@ -254,8 +289,10 @@ A negative net margin is valid.
 
 ### 7. FCF Margin TTM
 
-Use one common four-quarter fiscal window across Income Statement and Cash Flow Statement. Revenue
-and both FCF components must exist for every quarter in the same window.
+Use one aligned four-quarter fiscal window across Income Statement and Cash Flow Statement, ending
+at the newest quarter either family holds (see "Window anchors"). Revenue and both FCF components
+must exist for every quarter in that same window. When the families are not aligned on the newest
+quarter the metric is unavailable; an older window both families share is never used.
 
 ```text
 Revenue_TTM = sum(revenue)
@@ -426,6 +463,13 @@ infinity, a sentinel extreme value, or a stale previous value after an invalidat
 The calculation kernel must reject non-finite results. It must not silently clamp extreme but finite
 financial ratios. Database precision/scale is the existing calculated-series precision; storage
 quantization is a persistence concern and UI rounding is presentation only.
+
+**Out of storage range is unavailable, not a failure.** A finite result whose magnitude the
+calculated-series column cannot hold — `DECIMAL(20,8)`, so `|value| >= 10^12` — is unavailable for
+that observation. It is never clamped, saturated, stored as a sentinel maximum, converted to zero
+or allowed to fail the rebuild: the other fourteen metrics, the security's other derived series and
+its source statements are unaffected. The range is stated once in code
+(`CALCULATED_SERIES_DECIMAL`) and pinned against the live columns.
 
 ## Materialization events and carry-forward
 

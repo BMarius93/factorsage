@@ -106,9 +106,12 @@ Same structural cases, including valid negative net income with positive revenue
 
 Required cases:
 
-- common fiscal window across Income and Cash Flow;
-- Income latest-four and Cash Flow latest-four deliberately differ -> unavailable until a common
-  window exists;
+- one aligned fiscal window across Income and Cash Flow, ending at the newest quarter either holds;
+- Income has a newer quarter than Cash Flow -> unavailable, although an older window both share
+  exists;
+- Cash Flow has a newer quarter than Income -> unavailable;
+- one family stopped reporting while the other continues -> unavailable, never the last shared
+  window;
 - negative FCF -> valid negative margin;
 - ratio-of-sums, not mean of quarterly FCF margins;
 - missing OCF/CapEx/revenue in any required quarter -> unavailable.
@@ -201,6 +204,31 @@ Required cases:
 - revenue `<= 0` -> unavailable;
 - ratio uses TTM revenue sum and two state points, not mean of quarterly turnover values.
 
+## Currency matrix
+
+For the metric families that combine statements:
+
+- one currency throughout (`USD` + `USD`, `JPY` + `JPY`) -> valid, identical readings;
+- `USD` + `JPY` inside one four-quarter flow window -> unavailable;
+- the previous TTM window in another currency than the current one -> the YoY metrics unavailable,
+  the four-quarter metrics unaffected;
+- Income and Cash Flow in different currencies -> FCF Margin unavailable;
+- Income and an aligned Balance Sheet in different currencies -> ROIC, ROE, ROA, Asset Turnover
+  unavailable; Income and the latest Balance Sheet -> Net Debt / EBITDA unavailable;
+- a single-statement ratio in its own currency -> valid;
+- a contributing statement without a currency -> unavailable;
+- two spellings of one code -> different currencies, unavailable;
+- a revision that changes a statement's currency invalidates from its PIT-effective session, and
+  every earlier session is unchanged.
+
+## Storable-range matrix
+
+- a ratio just inside `DECIMAL(20,8)` (`|value| < 10^12`) is present;
+- a ratio at or beyond `10^12`, of either sign, is unavailable — the other fourteen metrics remain;
+- the same boundary for percentage-point metrics;
+- through persistence: the rebuild succeeds, PostgreSQL holds `NULL`, Redis holds absence and a
+  flush reconstructs absence, never zero; no source statement is refused.
+
 ## Shared fiscal-window tests
 
 The common quarter-window helper requires one reusable behavioral suite covering:
@@ -214,6 +242,8 @@ The common quarter-window helper requires one reusable behavioral suite covering
 - FY rows mixed into input but ignored for quarterly windows;
 - eight-quarter current/previous TTM chain;
 - a ninth older quarter that must not alter the latest selected pair of windows;
+- a gap in the newest window while an older complete window exists -> unavailable, never the
+  older window;
 - a future revision that exists in storage but is not yet eligible as of `D`.
 
 ## PIT boundary matrix

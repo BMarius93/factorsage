@@ -1,7 +1,5 @@
 import type {
-  FinancialPeriod,
   FinancialStatement,
-  FinancialStatementType,
   Instant,
   IntrinsicValueModel,
   LocalDate,
@@ -15,6 +13,15 @@ import {
   type GrahamInput,
   type ResidualIncomeInput,
 } from "@intrinsic/valuation";
+import {
+  consecutiveFiscalQuarterRanks,
+  indexFiscalQuarters,
+  latestCommonFiscalQuarterRank,
+  latestFiscalQuarterRank,
+  statementsForFiscalQuarters,
+  TTM_QUARTERS,
+  type FiscalQuarterIndex,
+} from "./fiscal-quarters.js";
 
 /**
  * Why a model's inputs could not be assembled.
@@ -66,61 +73,17 @@ export type IntrinsicValueInputRequest = {
   statements: readonly FinancialStatement[];
 };
 
-const QUARTERLY_PERIODS = ["Q1", "Q2", "Q3", "Q4"] as const;
-type QuarterlyPeriod = (typeof QUARTERLY_PERIODS)[number];
-
-/** Fiscal quarter identity. Never inferred from calendar dates or `fiscalDate` arithmetic. */
-type QuarterIdentity = {
-  fiscalYear: number;
-  period: QuarterlyPeriod;
-};
-
-const TTM_QUARTERS = 4;
 const GROWTH_CAGR_YEARS = 5;
 
-function isQuarterlyPeriod(period: FinancialPeriod): period is QuarterlyPeriod {
-  return period !== "FY";
-}
-
 /**
- * Monotonic rank over fiscal quarters, so `rank - 1` is always the previous quarter identity and
- * Q4 -> next fiscal year's Q1 needs no special case.
+ * Latest four consecutive quarter ranks ending at `anchorRank`, oldest first.
+ *
+ * Quarterly assembly shares the one fiscal-quarter definition in `fiscal-quarters.ts` with
+ * Fundamental Metrics: identity and adjacency come from `(fiscalYear, period)` only, `FY` rows are
+ * never quarters, and a window is exact or absent.
  */
-function quarterRank(identity: QuarterIdentity): number {
-  return identity.fiscalYear * 4 + QUARTERLY_PERIODS.indexOf(identity.period);
-}
-
-type QuarterlyIndex = Map<number, FinancialStatement>;
-
-/** Latest four consecutive quarter ranks ending at `anchorRank`, oldest first. */
 function trailingWindow(anchorRank: number): number[] {
-  return Array.from(
-    { length: TTM_QUARTERS },
-    (_unused, offset) => anchorRank - (TTM_QUARTERS - 1 - offset),
-  );
-}
-
-function indexQuarterly(
-  statements: readonly FinancialStatement[],
-  statementType: FinancialStatementType,
-): QuarterlyIndex {
-  const index: QuarterlyIndex = new Map();
-  for (const statement of statements) {
-    if (
-      statement.statementType !== statementType ||
-      !isQuarterlyPeriod(statement.period)
-    ) {
-      continue;
-    }
-    index.set(
-      quarterRank({
-        fiscalYear: statement.fiscalYear,
-        period: statement.period,
-      }),
-      statement,
-    );
-  }
-  return index;
+  return consecutiveFiscalQuarterRanks(anchorRank, TTM_QUARTERS);
 }
 
 function indexAnnualIncome(
@@ -133,58 +96,6 @@ function indexAnnualIncome(
     }
   }
   return index;
-}
-
-function latestRank(index: QuarterlyIndex): number | undefined {
-  let latest: number | undefined;
-  for (const rank of index.keys()) {
-    if (latest === undefined || rank > latest) {
-      latest = rank;
-    }
-  }
-  return latest;
-}
-
-/**
- * Latest quarter identity for which every required statement family is point-in-time eligible.
- *
- * Field presence deliberately plays no part in choosing the anchor: a newer quarter that is
- * eligible for every required family becomes authoritative even if one of its fields is missing,
- * which then makes the model unavailable rather than silently reusing an older window.
- */
-function latestCommonRank(
-  indexes: readonly QuarterlyIndex[],
-): number | undefined {
-  const [first, ...rest] = indexes;
-  if (!first) {
-    return undefined;
-  }
-  let latest: number | undefined;
-  for (const rank of first.keys()) {
-    if (!rest.every((index) => index.has(rank))) {
-      continue;
-    }
-    if (latest === undefined || rank > latest) {
-      latest = rank;
-    }
-  }
-  return latest;
-}
-
-/** The four statements of a window for one family, or `undefined` when any quarter is missing. */
-function windowStatements(
-  index: QuarterlyIndex,
-  window: readonly number[],
-): FinancialStatement[] | undefined {
-  const rows: FinancialStatement[] = [];
-  for (const rank of window) {
-    const statement = index.get(rank);
-    if (!statement) {
-      return undefined;
-    }
-    rows.push(statement);
-  }
-  return rows;
 }
 
 function numericValue(
@@ -315,18 +226,18 @@ function assembleGrowth(
 }
 
 function assembleDcfFcff(
-  cashFlow: QuarterlyIndex,
-  income: QuarterlyIndex,
-  balanceSheet: QuarterlyIndex,
+  cashFlow: FiscalQuarterIndex,
+  income: FiscalQuarterIndex,
+  balanceSheet: FiscalQuarterIndex,
   growth: GrowthAssembly,
 ): AssembledModelInput<DcfFcffInput> {
-  const anchor = latestCommonRank([cashFlow, income]);
+  const anchor = latestCommonFiscalQuarterRank([cashFlow, income]);
   if (anchor === undefined) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
   const window = trailingWindow(anchor);
-  const cashFlowRows = windowStatements(cashFlow, window);
-  const incomeRows = windowStatements(income, window);
+  const cashFlowRows = statementsForFiscalQuarters(cashFlow, window);
+  const incomeRows = statementsForFiscalQuarters(income, window);
   if (!cashFlowRows || !incomeRows) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
@@ -356,8 +267,8 @@ function assembleDcfFcff(
   }
 
   // Latest-state inputs are independent of the flow window and may be newer than it.
-  const latestBalanceSheetRank = latestRank(balanceSheet);
-  const latestIncomeRank = latestRank(income);
+  const latestBalanceSheetRank = latestFiscalQuarterRank(balanceSheet);
+  const latestIncomeRank = latestFiscalQuarterRank(income);
   if (latestBalanceSheetRank === undefined || latestIncomeRank === undefined) {
     return notApplicable("MISSING_LATEST_STATE");
   }
@@ -398,15 +309,18 @@ function assembleDcfFcff(
 }
 
 function assembleResidualIncome(
-  income: QuarterlyIndex,
-  balanceSheet: QuarterlyIndex,
+  income: FiscalQuarterIndex,
+  balanceSheet: FiscalQuarterIndex,
   growth: GrowthAssembly,
 ): AssembledModelInput<ResidualIncomeInput> {
-  const anchor = latestRank(income);
+  const anchor = latestFiscalQuarterRank(income);
   if (anchor === undefined) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
-  const incomeRows = windowStatements(income, trailingWindow(anchor));
+  const incomeRows = statementsForFiscalQuarters(
+    income,
+    trailingWindow(anchor),
+  );
   if (!incomeRows) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
@@ -420,7 +334,7 @@ function assembleResidualIncome(
     netIncomeTtm += netIncome;
   }
 
-  const latestBalanceSheetRank = latestRank(balanceSheet);
+  const latestBalanceSheetRank = latestFiscalQuarterRank(balanceSheet);
   if (latestBalanceSheetRank === undefined) {
     return notApplicable("MISSING_LATEST_STATE");
   }
@@ -448,16 +362,16 @@ function assembleResidualIncome(
 }
 
 function assembleDdm(
-  cashFlow: QuarterlyIndex,
-  income: QuarterlyIndex,
+  cashFlow: FiscalQuarterIndex,
+  income: FiscalQuarterIndex,
 ): AssembledModelInput<DdmInput> {
-  const anchor = latestCommonRank([cashFlow, income]);
+  const anchor = latestCommonFiscalQuarterRank([cashFlow, income]);
   if (anchor === undefined) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
   const window = trailingWindow(anchor);
-  const cashFlowRows = windowStatements(cashFlow, window);
-  const incomeRows = windowStatements(income, window);
+  const cashFlowRows = statementsForFiscalQuarters(cashFlow, window);
+  const incomeRows = statementsForFiscalQuarters(income, window);
   if (!cashFlowRows || !incomeRows) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
@@ -488,14 +402,17 @@ function assembleDdm(
 }
 
 function assembleGraham(
-  income: QuarterlyIndex,
+  income: FiscalQuarterIndex,
   growth: GrowthAssembly,
 ): AssembledModelInput<GrahamInput> {
-  const anchor = latestRank(income);
+  const anchor = latestFiscalQuarterRank(income);
   if (anchor === undefined) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
-  const incomeRows = windowStatements(income, trailingWindow(anchor));
+  const incomeRows = statementsForFiscalQuarters(
+    income,
+    trailingWindow(anchor),
+  );
   if (!incomeRows) {
     return notApplicable("MISSING_TTM_WINDOW");
   }
@@ -538,9 +455,9 @@ export function assembleIntrinsicValueInputs(
     { asOf: request.valuationDate },
   );
 
-  const quarterlyIncome = indexQuarterly(eligible, "INCOME");
-  const quarterlyCashFlow = indexQuarterly(eligible, "CASH_FLOW");
-  const quarterlyBalanceSheet = indexQuarterly(eligible, "BALANCE_SHEET");
+  const quarterlyIncome = indexFiscalQuarters(eligible, "INCOME");
+  const quarterlyCashFlow = indexFiscalQuarters(eligible, "CASH_FLOW");
+  const quarterlyBalanceSheet = indexFiscalQuarters(eligible, "BALANCE_SHEET");
   const growth = assembleGrowth(indexAnnualIncome(eligible));
 
   return {

@@ -97,6 +97,11 @@ assetTurnoverTtm
 Each is nullable and uses the existing calculated-series decimal precision/scale. `NULL` means the
 metric is unavailable on that trading day. It never means zero.
 
+A value that column cannot hold (`|value| >= 10^12` for `DECIMAL(20,8)`) never reaches storage: the
+calculation reports that metric unavailable for the observation, so it is stored as `NULL` and the
+rebuild proceeds (`fundamental-metrics-v1.md`, "Unavailability and numeric safety"). Storage never
+clamps a value, and an out-of-range metric never fails a rebuild or refuses a source statement.
+
 The `(securityId, date)` identity remains unchanged. No calculation revision enters the primary key
 and no historical parallel copy of old formula versions is retained.
 
