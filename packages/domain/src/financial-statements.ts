@@ -234,6 +234,18 @@ function nextBusinessDay(date: LocalDate): LocalDate {
 }
 
 /**
+ * Whether `filingDate` is a real filing date. FMP puts the fiscal period end there when it does not
+ * hold one (see {@link statementPublicAvailabilityDate}); such a placeholder says nothing about
+ * when, or whether, anything was filed.
+ */
+export function hasProviderFilingDate(statement: {
+  fiscalDate: LocalDate;
+  filingDate: LocalDate;
+}): boolean {
+  return statement.filingDate > statement.fiscalDate;
+}
+
+/**
  * The first date a statement's figures may be used by a historical calculation.
  *
  * **The rule.** A statement may not affect a historical decision before its information could
@@ -258,7 +270,7 @@ export function statementPublicAvailabilityDate(statement: {
   filingDate: LocalDate;
   period: FinancialPeriod;
 }): LocalDate {
-  if (statement.filingDate > statement.fiscalDate) {
+  if (hasProviderFilingDate(statement)) {
     return addCalendarDays(statement.filingDate, 1);
   }
   const deadline =

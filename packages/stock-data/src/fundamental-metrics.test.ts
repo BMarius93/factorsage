@@ -1377,8 +1377,8 @@ describe("point-in-time visibility", () => {
     expectValue(evaluate(statements, "2026-08-19"), "revenueGrowthTtmYoy", 8);
   });
 
-  it("keys a quarter by fiscal identity and prefers the later period end when two coexist", () => {
-    // The provider moved FY2025 Q4's period end by a day; both rows are eligible.
+  it("keys a quarter by fiscal identity and prefers the later period end when one observation carried two", () => {
+    // The provider reported FY2025 Q4 with two period ends at once; both rows are eligible.
     const moved = statement(
       "INCOME",
       quarter(2025, "Q4"),
@@ -1395,6 +1395,33 @@ describe("point-in-time visibility", () => {
       // Current revenue 120 + 130 + 140 + 170 = 560.
       expectValue(
         evaluate(order),
+        "revenueGrowthTtmYoy",
+        (560 / 460 - 1) * 100,
+      );
+    }
+  });
+
+  it("lets a revision that moves a quarter's period end take effect from its own availability", () => {
+    // FY2025 Q4 (period end 2025-12-31, public 2026-02-16) is revised with its period end moved,
+    // earlier or later, and becomes eligible on 2026-05-04.
+    for (const fiscalDate of ["2025-12-27", "2026-01-02"]) {
+      const moved = statement(
+        "INCOME",
+        quarter(2025, "Q4"),
+        { ...GOLDEN_INCOME["2025-Q4"]!, revenue: 170 },
+        "2026-05-04",
+        { fiscalDate, contentHash: `moved-to-${fiscalDate}` },
+      );
+      const statements = shuffled([...GOLDEN, moved], 11);
+
+      expectValue(
+        evaluate(statements, "2026-05-01"),
+        "revenueGrowthTtmYoy",
+        400 / 23,
+      );
+      // Current revenue 120 + 130 + 140 + 170 = 560 from the revision's own availability.
+      expectValue(
+        evaluate(statements, "2026-05-04"),
         "revenueGrowthTtmYoy",
         (560 / 460 - 1) * 100,
       );

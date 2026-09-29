@@ -55,6 +55,7 @@ import {
   projectEvaluationFrame,
   TRIGGER_CONTEXT_CALENDAR_DAYS,
 } from "./evaluation-frame.js";
+import { materializeDailyFundamentals } from "./fundamental-metrics-materializer.js";
 import { materializeDailyIntrinsicValues } from "./intrinsic-value-materializer.js";
 import {
   blendSourceDataAsOf,
@@ -1501,12 +1502,17 @@ export class CanonicalStockDataService implements StockDataService {
    * trading days are written. Persisting replaces those rows: there is one current methodology per
    * `(securityId, date)` and no version history.
    *
-   * Intrinsic materialization deliberately runs over the full canonical trading-date history and
-   * every retained statement revision: starting it at `from` would lose the statement-event and
-   * carry-forward context that establishes the correct opening intrinsic state. Revisions from the
-   * fundamentals warm-up years are read as well, so the first visible trading day can already have
-   * a TTM window and real growth endpoints — but trading dates still come only from the visible
-   * price history, so no derived row is created before the canonical target.
+   * Intrinsic and Fundamental Metrics materialization deliberately run over the full canonical
+   * trading-date history and every retained statement revision: starting either at `from` would
+   * lose the statement-event and carry-forward context that establishes the correct opening state.
+   * Revisions from the fundamentals warm-up years are read as well, so the first visible trading
+   * day can already have a TTM window, an eight-quarter growth chain and real growth endpoints —
+   * but trading dates still come only from the visible price history, so no derived row is created
+   * before the canonical target.
+   *
+   * Both statement-derived families come from the one revision read below and land on the same
+   * rows in the same write, so a newly eligible revision moves intrinsic values and Fundamental
+   * Metrics together, on the same session, under one publication.
    */
   private async rebuildDailyDerivedState(
     security: Security,
@@ -1532,22 +1538,30 @@ export class CanonicalStockDataService implements StockDataService {
         calculation.prices[0]?.date ?? calculation.range.from,
       ),
     );
-    // One bounded read of immutable revisions, not the latest-revision selector: the materializer
-    // needs each revision's own availableFromDate as a distinct evaluation event.
+    // One bounded read of immutable revisions, not the latest-revision selector: each materializer
+    // needs every revision's own availableFromDate as a distinct evaluation event. The same read
+    // feeds both statement-derived families; nothing below reads statements per metric or per day.
     const retention = this.fundamentalsTarget(security);
     const statements = await this.store.getFinancialStatementRevisions({
       securityId: security.id,
       from: retention.from,
       to: retention.to,
     });
+    const tradingDates = calculation.prices.map((price) => price.date);
+    const fundamentalStates = materializeDailyFundamentals({
+      securityId: security.id,
+      tradingDates,
+      statements,
+    });
     const intrinsicStates = materializeDailyIntrinsicValues({
       securityId: security.id,
-      tradingDates: calculation.prices.map((price) => price.date),
+      tradingDates,
       statements,
     });
     const rows = buildDailyDerivedState({
       prices: calculation.prices,
       weeklyBars,
+      fundamentalStates,
       intrinsicStates,
     }).filter((row) => row.date >= from);
     const weeklyDelta = weeklyBars.filter(

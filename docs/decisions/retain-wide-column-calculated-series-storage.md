@@ -87,12 +87,56 @@ independent of this decision because Redis is disposable.
 These are the thresholds this decision is accepted against. Exceeding one is a trigger to
 re-open it, not something to absorb silently.
 
-| Budget | Threshold | Measured today |
+| Budget | Threshold | Measured at acceptance | Measured at r7, worst case |
+| --- | --- | --- | --- |
+| Average `DailyDerivedState` heap row size | ≤ 1 KB | 236.8 B | 457 B (`pg_column_size`) |
+| Redis footprint per security, 30-year history | ≤ 12 MB | ~4.7 MB | **13.2 MB: exceeded** |
+| Redis resident set at configured `maxResidentStocks` | ≤ 2 GB | 32.78 MB (7 stocks) | ≤ 1.49 GB at 100 |
+| Series-adding migrations | ≤ ~1 per sprint, sustained | well below | well below |
+
+### Measured after Fundamental Metrics V1 (r7)
+
+Migration `20260929090000_add_fundamental_metrics_derived_state` took the row to 42 value columns.
+Measured on the final implementation (Fundamental Metrics persistence branch, 2026-09-29) through
+the real rebuild, PostgreSQL and Redis, on a synthetic worst case: one security with every series,
+all fifteen fundamentals included, non-null on every day.
+
+| Measurement | Without the fifteen fields | With them |
 | --- | --- | --- |
-| Average `DailyDerivedState` heap row size | ≤ 1 KB | 236.8 B |
-| Redis footprint per security, 30-year history | ≤ 12 MB | ~4.7 MB |
-| Redis resident set at configured `maxResidentStocks` | ≤ 2 GB | 32.78 MB (7 stocks) |
-| Series-adding migrations | ≤ ~1 per sprint, sustained | well below |
+| `avg(pg_column_size(row))` | 342 B | 457 B |
+| Redis `daily-state:2025` chunk (261 rows) | 244 KB | 343 KB |
+| Redis `daily-state` payload, thirty years (7,826 rows) | 7.16 MB | 10.16 MB |
+| All registered keys, thirty years: payload / `MEMORY USAGE` | ~8.5 MB / — | 11.5 MB / 13.2 MB |
+| Redis `daily-state` payload, full retention (8,871 rows) | 8.13 MB | 11.53 MB |
+| All registered keys, full retention: payload / `MEMORY USAGE` | — | 13.0 MB / 14.9 MB |
+
+A resident security carries its whole retained history, not just the thirty-year product horizon:
+`priceRetentionYears(30)` keeps 34 years of bars plus the current one, and the derived state
+covers every one of them. Real securities agree with the synthetic case. The 19 securities
+resident in the development Redis at r6, before the fifteen fields existed, occupy 0.6–11.0 MB each
+(mean 6.1 MB, 115 MB in total). The eight with a full 35-chunk history use 10.2–11.0 MB, and the
+fifteen fields add roughly 3.4 MB to a fully populated retention, which puts them near 14 MB.
+
+Against the budgets:
+
+- **Row size: holds.** 457 B per row stays far inside 1 KB.
+- **Per security: exceeded.** The worst case uses 13.2 MB of Redis memory for thirty years (11.5 MB
+  of payload) and 14.9 MB for the full retention a resident security holds (13.0 MB of payload),
+  against a 12 MB threshold.
+- **Resident set: holds.** `STOCK_CACHE_MAX_RESIDENT_STOCKS` is not set by any environment file
+  and defaults to 100 (`getStockDataConfig`). Even if every resident security were the worst case,
+  the upper bound is 100 × 14.9 MB ≈ 1.49 GB, 75 % of the 2 GB budget. The budget holds up to about
+  134 worst-case residents.
+
+The per-security threshold is recorded as exceeded, and that is now an explicit trigger for the
+Redis serialization and layout, not for this storage decision. The row-oriented chunk spends most of
+its bytes repeating JSON field names (56 % in the measurement above), so a column-oriented chunk is
+the intervention. It is independent of the PostgreSQL model because Redis is disposable. It is due
+before either of the following:
+
+- another series family is added (the valuation ratios are next);
+- `STOCK_CACHE_MAX_RESIDENT_STOCKS` is raised above about 130. The pre-release audit's O-2 asks
+  for it to cover the monitored universe; at 500 residents the worst case is about 7.5 GB.
 
 ## Triggers for reconsidering JSONB
 

@@ -582,6 +582,35 @@ describe("currency and storable-range events", () => {
   });
 });
 
+describe("a revision that moves a period end", () => {
+  it("changes history only from its own availability, whichever way the end moved", () => {
+    // FY2026 Q2's income statement (period end 2026-06-30, filed 2026-07-31) is reported again on
+    // Tuesday 2026-10-06 with its period end moved and a restated gross profit.
+    const before = materialize([...OPENING, ...NEW_QUARTER]);
+    for (const fiscalDate of ["2026-06-27", "2026-07-03"]) {
+      const moved = fy2026Q2(
+        "INCOME",
+        "2026-10-06",
+        { ...FY2026_Q2.INCOME, grossProfit: 100 },
+        { fiscalDate, contentHash: `moved-to-${fiscalDate}` },
+      );
+      const states = materialize([...OPENING, ...NEW_QUARTER, moved]);
+
+      expect(
+        JSON.stringify(states.filter((each) => each.date < "2026-10-06")),
+        fiscalDate,
+      ).toBe(JSON.stringify(before.filter((each) => each.date < "2026-10-06")));
+      for (const state of states.filter((each) => each.date >= "2026-10-06")) {
+        // Gross profit 309 - 85 + 100 = 324 over revenue 620.
+        expect(state.grossMarginTtm, `${fiscalDate} ${state.date}`).toBeCloseTo(
+          (324 / 620) * 100,
+          10,
+        );
+      }
+    }
+  });
+});
+
 describe("determinism, purity and coverage", () => {
   const statements = [...OPENING, ...NEW_QUARTER];
 

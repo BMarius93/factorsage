@@ -22,7 +22,10 @@ flowchart LR
   AW --> WV["calculateWeeklyTechnicalValues<br/>weekly.ts"]
   FS[("FinancialStatement<br/>PIT revisions")] --> IM["materializeDailyIntrinsicValues<br/>intrinsic-value-materializer.ts"]
   IM --> EV["evaluateIntrinsicValues<br/>+ @intrinsic/valuation"]
+  FS --> FM["materializeDailyFundamentals<br/>fundamental-metrics-materializer.ts"]
+  FM --> FE["evaluateFundamentalMetrics<br/>fundamental-metrics.ts"]
   DT --> BD["buildDailyDerivedState<br/>derived-state.ts"]
+  FE --> BD
   DO --> BD
   RV --> BD
   WV --> BD
@@ -105,6 +108,11 @@ flowchart TD
   error.
 - `INTRINSIC_VALUE_MODELS`, `INTRINSIC_VALUE_BLEND_IDS`, `INTRINSIC_VALUE_BLENDS` (weights,
   versioned).
+- `FUNDAMENTAL_METRICS` (`packages/domain/src/fundamental-metrics.ts`) — the fifteen Fundamental
+  Metrics V1, each `{id, field, unit}`: stable identity (`ROIC_TTM`), `DailyDerivedState` field
+  (`roicTtm`) and unit (`PERCENT` in percentage points, or `MULTIPLE`). `FUNDAMENTAL_METRIC_FIELDS`
+  and `FundamentalMetricField` follow it. It carries no label or group: those belong to the product
+  catalog in `@intrinsic/contracts` once a surface needs them.
 
 `apps/api/src/stocks/selectable-series-catalog.test.ts` is the drift guard between the catalog and
 these registries.
@@ -234,6 +242,38 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
   read time** as the maximum of its required components (`blendSourceDataAsOf`), never stored.
 - A row-level currency conflict materializes **no** intrinsic values for that day.
 
+## Fundamental Metrics
+
+`docs/decisions/fundamental-metrics-v1.md` fixes the formulas and
+`docs/decisions/fundamental-metrics-storage-and-evaluation.md` how they are stored. Implemented in
+`packages/stock-data/src/`:
+
+- `fiscal-quarters.ts` — the one definition of fiscal-quarter identity (`(fiscalYear, period)`,
+  never calendar position), adjacency and exact windows: four-quarter TTM, eight-quarter YoY
+  chains, the aligned cross-family window ending at the newest quarter any family holds, opening
+  and ending states aligned to a flow window, and the latest independent state. Fundamental Metrics
+  anchor every window at the newest quarter they are evaluated for: a gap, or a family that lags or
+  stopped reporting, makes the window unavailable rather than falling back to an older one, and an
+  `FY` row is never a quarter. Intrinsic-value input assembly uses the same helpers but anchors its
+  cross-family windows at the latest quarter both families hold (`latestCommonFiscalQuarterRank`).
+- `fundamental-metrics.ts` — `evaluateFundamentalMetrics` selects the point-in-time quarterly
+  revisions for one trading day and runs the fifteen kernels. Sums are exact sums of the reported
+  decimals (`exact-decimal-sum.ts`), so a rule such as `require EPS_TTM > 0` is decided on the
+  true sign rather than on binary residue. A metric is unavailable when the statements it read do
+  not share one reported currency, or when its result is not finite or not storable in the
+  calculated-series range (`isRepresentableCalculatedSeriesValue`, `DECIMAL(20,8)`); absence is
+  the only "unavailable".
+- `statement-events.ts` — the event plan shared with intrinsic values: the first trading day plus
+  the first session on or after each revision's `availableFromDate`.
+  `materializeDailyFundamentals` evaluates all fifteen once per event and carries the snapshot,
+  absence included, forward to every later session until the next event.
+- `CanonicalStockDataService.rebuildDailyDerivedState` reads the retained revisions once and feeds
+  the same set to both statement-derived materializers, so a revision moves intrinsic values and
+  Fundamental Metrics on the same session in the same write. There is no fundamentals-specific
+  rebuild, cache key or table.
+- No provenance column: the materializer guarantees point-in-time eligibility by construction, and
+  the storage decision fixes exactly fifteen value columns.
+
 ## Point-in-time invariants
 
 - A value is only ever computed from information public by that trading day's cutoff.
@@ -251,25 +291,33 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 
 - Primary key `(securityId, date)`; **no secondary index** — the composite key already serves the
   only historical access pattern, `securityId + date range ascending`.
-- 27 nullable `DECIMAL(20,8)` value columns: 7 daily MAs, 7 weekly MAs, 3 daily RSI oscillators,
-  3 Relative Volume periods, 4 intrinsic models, 3 blends. Plus `weeklySourceWeekStart`, four
-  provenance timestamps and `intrinsicCurrency`.
+- 42 nullable `DECIMAL(20,8)` value columns: 7 daily MAs, 7 weekly MAs, 3 daily RSI oscillators,
+  3 Relative Volume periods, 15 Fundamental Metrics, 4 intrinsic models, 3 blends. Plus
+  `weeklySourceWeekStart`, four provenance timestamps and `intrinsicCurrency`.
 - No calculation-version column, ever.
 
 `packages/stock-data/src/prisma-store.ts` maps in three hand-written places —
 `DailyDerivedStateRow`, `dailyDerivedStateFromRow`, `dailyDerivedStateToRow` — plus the
 `INTRINSIC_MODEL_COLUMNS`, `INTRINSIC_MODEL_SOURCE_COLUMNS` and `INTRINSIC_BLEND_COLUMNS` maps.
-This duplication is the accepted cost of the wide-column model; it is guarded by completeness
-tests rather than by discipline. `saveDailyDerivedState` deletes and re-creates the affected days
+The Fundamental Metrics share their field names with their columns, so they are mapped by
+iterating `FUNDAMENTAL_METRIC_FIELDS`, with the row type keyed by `FundamentalMetricField` so a
+registered metric without a Prisma column is a compile error. A non-finite fundamental value is
+refused rather than written: Prisma persists `Infinity`/`NaN` in a `Decimal` column as `NULL`,
+which would silently turn a defect into "unavailable"; a finite value outside `DECIMAL(20,8)` is
+refused by PostgreSQL. The calculation produces neither — it reports such a metric unavailable
+for that observation — so these refusals only guard against a defect; an extreme ratio never
+fails a rebuild. This duplication is the accepted cost of the wide-column model; it is
+guarded by completeness tests rather than by discipline. `saveDailyDerivedState` deletes and re-creates the affected days
 inside one transaction under a per-security advisory lock: replace, never version.
 
 ## Revision and lazy rebuild
 
-`DERIVED_STATE_REVISION` (`packages/stock-data/src/derived-state.ts`, currently **6**) is a
+`DERIVED_STATE_REVISION` (`packages/stock-data/src/derived-state.ts`, currently **7**) is a
 methodology rebuild trigger, never a row-identity or history dimension. It is recorded only in the
-dataset-state/coverage variant (`daily-derived-state:r6`) and in the Redis manifest. r4 added the
+dataset-state/coverage variant (`daily-derived-state:r7`) and in the Redis manifest. r4 added the
 daily RSI family — one bump for all three periods, because an r3 row's NULL oscillator columns are
-indistinguishable from warm-up. r6 added the Relative Volume family for the same reason.
+indistinguishable from warm-up. r6 added the Relative Volume family and r7 the fifteen Fundamental
+Metrics, for the same reason.
 
 **A corrected historical volume needs no separate mechanism.** Changing `volume` at session `T`
 moves every later session whose baseline window contains `T` — the next 10, 20 or 50 sessions
@@ -298,6 +346,10 @@ deferred.
   its datasets together. Redis is disposable — a flush costs latency, never data.
 - A partial rebuild republishes **complete** affected years, because a yearly chunk is replaced
   wholesale.
+- The Fundamental Metrics ride in the same chunks as every other field: there is no
+  `fundamentals:*` key. Measured on a worst-case synthetic security (every series non-null on every
+  day for thirty years), they grow a year chunk from ~244 KB to ~343 KB and the thirty-year
+  daily-state payload from ~7.2 MB to ~10.2 MB; see the storage decision's budgets.
 
 ## API
 
@@ -449,6 +501,8 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
   web client fetches all series and filters client-side.
 - **Per-family or per-series revisions** replacing the single global `DERIVED_STATE_REVISION`.
 - **Persisted NOT_EVALUABLE reasons.**
-- **MACD, growth rates, quality metrics, volatility, ratios** — no such series exists. (The daily
-  RSI family is implemented; it is the first oscillator, not a template for storing multi-output
-  families like MACD, which still needs the explicit product decision described above.)
+- **MACD, volatility and valuation ratios (`P/E`, `P/S`, `P/FCF`, `EV/EBITDA`)** — no such series
+  exists. (The daily RSI family is implemented; it is the first oscillator, not a template for
+  storing multi-output families like MACD. The statement-derived growth, margin, return, leverage,
+  liquidity, coverage and turnover ratios are the Fundamental Metrics above; valuation ratios need
+  their own methodology decision.)

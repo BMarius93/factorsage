@@ -1,8 +1,11 @@
-import type {
-  DailyDerivedState,
-  DailyPrice,
-  LocalDate,
+import {
+  FUNDAMENTAL_METRIC_FIELDS,
+  type DailyDerivedState,
+  type DailyPrice,
+  type FundamentalMetricSnapshot,
+  type LocalDate,
 } from "@intrinsic/domain";
+import type { DailyFundamentalState } from "./fundamental-metrics-materializer.js";
 import type { DailyIntrinsicState } from "./intrinsic-value-materializer.js";
 import {
   calculateDailyOscillators,
@@ -66,8 +69,17 @@ import {
  *   corrected bar moves every later session whose baseline window contains it, and the existing
  *   rebuild — which recalculates from the security's earliest persisted bar and replaces the
  *   affected days — already spans exactly that. There is no separate RVOL correction path.
+ * - r7: adds the fifteen Fundamental Metrics V1 (`FUNDAMENTAL_METRICS`: growth, margins, ROIC,
+ *   ROE, ROA, leverage, liquidity, coverage and turnover), materialized from the same retained
+ *   point-in-time `FinancialStatement` revisions as the intrinsic values, on the same statement
+ *   events, in the same rebuild. An r6 row carries NULL for all fifteen columns, which is
+ *   indistinguishable from "unavailable", so r6 coverage and manifests must report nothing and the
+ *   canonical history is rebuilt and replaced as r7. One bump covers the whole catalog. The same
+ *   revision changes which statement represents a fiscal period reported with two period ends —
+ *   its latest revision, no longer the later period end — for the intrinsic values as well, so r6
+ *   intrinsic history is recalculated under that rule in the same rebuild.
  */
-export const DERIVED_STATE_REVISION = 6;
+export const DERIVED_STATE_REVISION = 7;
 
 export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
 
@@ -92,17 +104,26 @@ export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE
  * It is calculated here, once, when the state is prepared — never while a Strategy, a backtest or
  * a Monitor cycle is evaluated, all of which read the already materialized value.
  *
- * Intrinsic-value and blend fields are never calculated here. `intrinsicStates` carries already
- * materialized intrinsic projections, which are merged by exact trading date only. Merging cannot
- * affect prices, technicals or weekly eligibility, and an intrinsic state whose date has no
- * `DailyPrice` is ignored: every row still originates from one trading day of price history.
+ * Fundamental Metrics and intrinsic-value fields are never calculated here. `fundamentalStates`
+ * and `intrinsicStates` carry already materialized statement-derived projections, which are merged
+ * by exact trading date only. Merging cannot affect prices, technicals or weekly eligibility, and a
+ * state whose date has no `DailyPrice` is ignored: every row still originates from one trading day
+ * of price history. Only the registered fundamental fields are copied, so nothing else a caller
+ * attaches to a fundamental state can reach a persisted row.
  */
 export function buildDailyDerivedState(input: {
   prices: readonly DailyPrice[];
   weeklyBars?: readonly WeeklyPrice[];
+  fundamentalStates?: readonly DailyFundamentalState[];
   intrinsicStates?: readonly DailyIntrinsicState[];
 }): DailyDerivedState[] {
   const weeklyBars = input.weeklyBars ?? [];
+  const fundamentalsByDate = new Map<LocalDate, FundamentalMetricSnapshot>(
+    (input.fundamentalStates ?? []).map((state) => [
+      state.date,
+      registeredFundamentals(state),
+    ]),
+  );
   const intrinsicByDate = new Map<LocalDate, DailyIntrinsicState>(
     (input.intrinsicStates ?? []).map((state) => [state.date, state]),
   );
@@ -132,6 +153,7 @@ export function buildDailyDerivedState(input: {
       ...withWeekly,
       ...oscillatorsByDate.get(row.date),
       ...relativeVolumesByDate.get(row.date),
+      ...fundamentalsByDate.get(row.date),
     };
     const intrinsic = intrinsicByDate.get(row.date);
     if (!intrinsic) {
@@ -145,6 +167,20 @@ export function buildDailyDerivedState(input: {
       ),
     };
   });
+}
+
+/** The registered fundamental fields a state carries, absent ones omitted. */
+function registeredFundamentals(
+  state: DailyFundamentalState,
+): FundamentalMetricSnapshot {
+  const values: FundamentalMetricSnapshot = {};
+  for (const field of FUNDAMENTAL_METRIC_FIELDS) {
+    const value = state[field];
+    if (value !== undefined) {
+      values[field] = value;
+    }
+  }
+  return values;
 }
 
 /** Ascending `(securityId, date)` ordering with at most one row per trading day. */

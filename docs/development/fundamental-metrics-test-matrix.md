@@ -281,6 +281,18 @@ before 2026-08-01       -> prior state / unavailable
 
 No row before 2026-10-15 may contain a value that depends on revision B.
 
+Repeat it with revision B moving the quarter's period end — `2026-06-27` or `2026-07-03` instead of
+`2026-06-30`, same filing date, first observed 2026-10-15:
+
+- the loader dates B from its observation, never from the original filing (PostgreSQL-backed);
+- the history is exactly the one above, whichever way the period end moved: B represents the quarter
+  from 2026-10-15, and nothing before it changes, for Fundamental Metrics and intrinsic value alike;
+- a first sync that carries two period ends for one quarter dates both from their filing, whatever
+  the provider's order;
+- a period-end placeholder used as the filing date (AUD-03) that moves with the period end is not a
+  newer filing: the revision is dated from its observation, whichever way the period end moved;
+- between rows one observation delivered, the later period end represents the quarter.
+
 ## Restatement / observed-later matrix
 
 The existing fundamentals-loader limitation remains explicit: initial provider backfill may already

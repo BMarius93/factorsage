@@ -466,6 +466,34 @@ describe("daily intrinsic materialization", () => {
     ).toThrow("duplicate 2026-02-02");
   });
 
+  it("applies a revision that moves a period end only from its own availability", () => {
+    // FY2025 Q4 is revised with its period end moved (earlier or later) and new EPS, eligible
+    // from 2026-02-04.
+    for (const fiscalDate of ["2025-12-27", "2026-01-03"]) {
+      const original = completeYear(2025, BASE_AVAILABLE);
+      const moved = statement(
+        "INCOME",
+        quarter(2025, "Q4"),
+        { ...INCOME_QUARTER, epsDiluted: 5 },
+        "2026-02-04",
+        { fiscalDate, contentHash: `moved-to-${fiscalDate}` },
+      );
+
+      const before = materialize(TRADING_DATES, original);
+      const states = materialize(TRADING_DATES, [...original, moved]);
+
+      // Every session before the revision is exactly what it was without it.
+      expect(states.slice(0, 2)).toEqual(before.slice(0, 2));
+      // From its own availability the moved revision's EPS drives Graham.
+      expect(stateOn(states, "2026-02-04").intrinsicValues?.GRAHAM).not.toBe(
+        stateOn(before, "2026-02-04").intrinsicValues?.GRAHAM,
+      );
+      expect(stateOn(states, "2026-02-04").grahamSourceAsOf).toBe(
+        "2026-02-04T00:00:00.000Z",
+      );
+    }
+  });
+
   it("is deterministic under statement reordering", () => {
     const statements = [
       ...completeYear(2025, BASE_AVAILABLE),

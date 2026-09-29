@@ -4,13 +4,18 @@ import { PrismaClient, SecurityType, StockDataset } from "@intrinsic/database";
 import {
   DAILY_OSCILLATORS,
   DAILY_RELATIVE_VOLUMES,
+  FUNDAMENTAL_METRICS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
+  type DailyPrice,
   type DateRange,
   type FinancialStatement,
+  type FinancialStatementCadence,
+  type FinancialStatementDraft,
+  type FinancialStatementType,
 } from "@intrinsic/domain";
 import {
   FmpClient,
@@ -22,7 +27,7 @@ import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache, type StockManifest } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
-import { addDays } from "./dates.js";
+import { addDays, subtractYears } from "./dates.js";
 import {
   buildDailyDerivedState,
   DAILY_DERIVED_STATE_VARIANT,
@@ -39,8 +44,19 @@ import {
   createStockDataRedisClient,
   IoredisCacheClient,
 } from "./redis-client.js";
+import {
+  generateHistory,
+  referenceFundamentals,
+  type HistoryScenario,
+} from "./fundamental-metrics-oracle.test-helper.js";
+import { weekdays } from "./fundamental-metrics.test-helper.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
-import { CanonicalStockDataService, priceRetentionYears } from "./service.js";
+import {
+  CanonicalStockDataService,
+  fundamentalsDatasetOperations,
+  priceRetentionYears,
+  type ProviderRequestEvent,
+} from "./service.js";
 
 loadRootEnv();
 // PostgreSQL-backed cases below write through Prisma, so they use the dedicated test
@@ -1984,6 +2000,827 @@ describeInfrastructure("cross-process canonical hydration", () => {
     }
   });
 });
+
+describeInfrastructure(
+  "Fundamental Metrics on the canonical derived-state path",
+  () => {
+    const NOW = new Date("2026-08-24T12:00:00.000Z");
+    const TODAY = "2026-08-24";
+    const SYNCED_AT = NOW.toISOString();
+    const PRODUCT_YEARS = 30;
+
+    /** Records every provider call; answers statement requests only when told to. */
+    class CountingProvider implements FmpStockProviderPort {
+      readonly calls: string[] = [];
+      readonly statements = new Map<string, FinancialStatementDraft[]>();
+
+      async getProfile(symbol: string) {
+        this.calls.push(`profile:${symbol}`);
+        return null;
+      }
+
+      async getDailyPrices(
+        _symbol: string,
+        _securityId: string,
+        range: DateRange,
+      ) {
+        this.calls.push(`prices:${range.from}:${range.to}`);
+        return [];
+      }
+
+      async getFinancialStatements(
+        _symbol: string,
+        _securityId: string,
+        statementType: FinancialStatementType,
+        cadence: FinancialStatementCadence,
+        limit: number,
+      ) {
+        this.calls.push(`statements:${statementType}:${cadence}:${limit}`);
+        return this.statements.get(`${statementType}:${cadence}`) ?? [];
+      }
+    }
+
+    type Provisioned = {
+      prisma: PrismaClient;
+      redis: ReturnType<typeof createStockDataRedisClient>;
+      store: PrismaStockDataStore;
+      cache: RedisStockDataCache;
+      namespace: string;
+      securityId: string;
+      symbol: string;
+      provider: CountingProvider;
+      requests: ProviderRequestEvent[];
+      prices: DailyPrice[];
+      service: (
+        now?: Date,
+        options?: {
+          fundamentalsFreshnessMs?: number;
+          recentPriceFreshnessMs?: number;
+        },
+      ) => CanonicalStockDataService;
+      namespaceKeys: () => Promise<string[]>;
+      dispose: () => Promise<void>;
+    };
+
+    /**
+     * One security whose canonical source data is already durable — prices with coverage and tail
+     * freshness over the whole retention horizon, every retained statement revision, and the
+     * fundamentals and profile dataset states — and no derived state at all. Exactly what a
+     * derived-only rebuild starts from, with nothing left for a provider to supply.
+     */
+    async function provision(
+      firstTradingDay: string,
+      statements: (securityId: string) => FinancialStatementDraft[],
+    ): Promise<Provisioned> {
+      const suffix = randomUUID();
+      const namespace = `stock-data:v2:test:fundamentals:${suffix}`;
+      const symbol = `M${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+      const prisma = new PrismaClient();
+      const redis = createStockDataRedisClient(
+        redisUrl ?? "redis://localhost:6379",
+      );
+      const store = new PrismaStockDataStore(prisma);
+      const cache = new RedisStockDataCache(
+        new IoredisCacheClient(redis),
+        10,
+        namespace,
+      );
+      const provider = new CountingProvider();
+      const requests: ProviderRequestEvent[] = [];
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Fundamental Metrics Integration Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      const prices = weekdays(firstTradingDay, TODAY, [
+        "2021-07-05",
+        "2022-12-26",
+        "2023-07-04",
+        "2024-12-25",
+        "2025-01-01",
+        "2025-07-04",
+        "2026-01-01",
+      ]).map((date, index) => ({
+        securityId: security.id,
+        date,
+        open: 100,
+        high: 110,
+        low: 90,
+        close: 100 + (index % 17) * 0.5 + index * 0.02,
+        volume: 1_000 + (index % 7) * 100,
+      }));
+      const retentionStart = subtractYears(
+        TODAY,
+        priceRetentionYears(PRODUCT_YEARS),
+      );
+      await store.saveDailyPriceSync({
+        securityId: security.id,
+        prices,
+        successfulCoverage: [{ from: retentionStart, to: TODAY }],
+        syncedAt: SYNCED_AT,
+        tailDate: TODAY,
+        freshThrough: TODAY,
+      });
+      // Oldest filing first, so every restatement is a later filing of a known identity.
+      const drafts = [...statements(security.id)].sort((left, right) =>
+        left.filingDate.localeCompare(right.filingDate),
+      );
+      await store.saveFinancialStatements({
+        securityId: security.id,
+        statements: drafts,
+        syncedAt: SYNCED_AT,
+      });
+      for (const operation of fundamentalsDatasetOperations(PRODUCT_YEARS)) {
+        await store.upsertDatasetState({
+          securityId: security.id,
+          dataset: operation.dataset,
+          variant: operation.variant,
+          syncedAt: SYNCED_AT,
+        });
+      }
+      await store.upsertDatasetState({
+        securityId: security.id,
+        dataset: "SECURITY_PROFILE",
+        variant: "",
+        syncedAt: SYNCED_AT,
+      });
+
+      const namespaceKeys = async () => {
+        const keys: string[] = [];
+        let cursor = "0";
+        do {
+          const [next, batch] = await redis.scan(
+            cursor,
+            "MATCH",
+            `${namespace}:*`,
+            "COUNT",
+            500,
+          );
+          cursor = next;
+          keys.push(...batch);
+        } while (cursor !== "0");
+        return keys.sort();
+      };
+
+      return {
+        prisma,
+        redis,
+        store,
+        cache,
+        namespace,
+        securityId: security.id,
+        symbol,
+        provider,
+        requests,
+        prices,
+        service: (now = NOW, options = {}) =>
+          new CanonicalStockDataService(
+            store,
+            provider,
+            cache,
+            new RedlockLoadCoordinator(redis, {
+              lockDurationMs: 30_000,
+              lockWaitMs: 30_000,
+            }),
+            {
+              productHistoryYears: PRODUCT_YEARS,
+              now: () => now,
+              onProviderRequest: (event) => requests.push(event),
+              ...options,
+            },
+          ),
+        namespaceKeys,
+        dispose: async () => {
+          await cache.evict(security.id);
+          const leftovers = await namespaceKeys();
+          if (leftovers.length > 0) {
+            await redis.del(...leftovers);
+          }
+          await prisma.security.deleteMany({ where: { id: security.id } });
+          redis.disconnect();
+          await prisma.$disconnect();
+        },
+      };
+    }
+
+    function draftsFrom(
+      history: readonly FinancialStatement[],
+    ): FinancialStatementDraft[] {
+      return history.map(
+        ({
+          availableFromDate: _available,
+          observedAt: _observed,
+          contentHash: _hash,
+          ...draft
+        }) => draft,
+      );
+    }
+
+    /** Half a DECIMAL(20,8) quantum, plus the double's own rounding for large magnitudes. */
+    function expectStoredValue(
+      actual: number | undefined,
+      reference: number,
+      context: string,
+    ) {
+      expect(actual, context).toBeTypeOf("number");
+      expect(
+        Math.abs((actual as number) - reference),
+        `${context}: ${actual} vs ${reference}`,
+      ).toBeLessThanOrEqual(5e-9 + 1e-12 * Math.abs(reference));
+    }
+
+    function expectRowsMatchOracle(
+      rows: readonly DailyDerivedState[],
+      revisions: readonly FinancialStatement[],
+      securityId: string,
+    ): { available: Map<string, number>; unavailable: Map<string, number> } {
+      const available = new Map<string, number>();
+      const unavailable = new Map<string, number>();
+      for (const row of rows) {
+        const reference = referenceFundamentals(
+          revisions,
+          securityId,
+          row.date,
+        );
+        for (const metric of FUNDAMENTAL_METRICS) {
+          const expected = reference[metric.field];
+          const context = `${row.date} ${metric.field}`;
+          if (expected === undefined) {
+            expect(row, context).not.toHaveProperty(metric.field);
+            unavailable.set(
+              metric.field,
+              (unavailable.get(metric.field) ?? 0) + 1,
+            );
+          } else {
+            expectStoredValue(row[metric.field], expected, context);
+            available.set(metric.field, (available.get(metric.field) ?? 0) + 1);
+          }
+        }
+      }
+      return { available, unavailable };
+    }
+
+    it("materializes, persists and publishes all fifteen metrics with no provider request, and rebuilds them identically after a Redis flush", async () => {
+      const scenario: HistoryScenario = {
+        seed: 5,
+        fiscalYearEndMonth: 12,
+        firstFiscalYear: 2015,
+        fiscalYears: 12,
+      };
+      const fixture = await provision("2021-01-04", (securityId) =>
+        draftsFrom(generateHistory(scenario, securityId)),
+      );
+      try {
+        const range = { from: "2021-01-04", to: TODAY };
+        const served = await fixture
+          .service()
+          .getDailyDerivedState(fixture.symbol, range);
+
+        // 1. A derived-only rebuild: canonical source data was already durable.
+        expect(fixture.provider.calls).toEqual([]);
+        expect(fixture.requests).toEqual([]);
+
+        // 2. PostgreSQL holds the independent oracle's value for every metric on every trading
+        //    day, at storage precision, and absence exactly where the oracle has none.
+        const persisted = await fixture.store.getDailyDerivedState(
+          fixture.securityId,
+          range,
+        );
+        expect(persisted.map((row) => row.date)).toEqual(
+          fixture.prices.map((price) => price.date),
+        );
+        expect(served).toEqual(persisted);
+        const revisions = await fixture.store.getFinancialStatementRevisions({
+          securityId: fixture.securityId,
+        });
+        const { available, unavailable } = expectRowsMatchOracle(
+          persisted,
+          revisions,
+          fixture.securityId,
+        );
+        for (const metric of FUNDAMENTAL_METRICS) {
+          expect(available.get(metric.field) ?? 0, metric.id).toBeGreaterThan(
+            50,
+          );
+          expect(unavailable.get(metric.field) ?? 0, metric.id).toBeGreaterThan(
+            0,
+          );
+        }
+
+        // 3. Redis serves exactly what PostgreSQL holds, across every yearly boundary.
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+        for (const year of [2022, 2023, 2024, 2025, 2026]) {
+          const boundary = { from: `${year - 1}-12-20`, to: `${year}-01-12` };
+          await expect(
+            fixture.cache.readDailyDerivedState(fixture.securityId, boundary),
+          ).resolves.toEqual(
+            await fixture.store.getDailyDerivedState(
+              fixture.securityId,
+              boundary,
+            ),
+          );
+        }
+        const chunk = await fixture.redis.get(
+          `${fixture.namespace}:security:${fixture.securityId}:daily-state:2025`,
+        );
+        expect(chunk).toContain('"roicTtm"');
+        expect(chunk).not.toContain("null");
+
+        // 4. The metrics live inside the existing yearly daily-state chunks: no key family of
+        //    their own, and every key belongs to a family the cache already had.
+        const keys = await fixture.namespaceKeys();
+        expect(
+          keys.some((key) =>
+            /fundamental|roic|metric/i.test(
+              key.slice(fixture.namespace.length),
+            ),
+          ),
+        ).toBe(false);
+        const prefix = `${fixture.namespace}:security:${fixture.securityId}:`;
+        for (const key of keys) {
+          const known =
+            key === `${fixture.namespace}:resident-stocks` ||
+            key === `${fixture.namespace}:access-sequence` ||
+            key === `${fixture.namespace}:symbol:${fixture.symbol}:security` ||
+            (key.startsWith(prefix) &&
+              /^(manifest|keys|security|prices:1D:\d{4}|daily-state:\d{4}|financials:[a-z-]+:(quarter|annual):v1:\d{4})$/.test(
+                key.slice(prefix.length),
+              ));
+          expect(known, key).toBe(true);
+        }
+
+        // 5. A flush costs latency only: every key of the namespace is gone, and the next read
+        //    reconstructs the identical history from PostgreSQL with no provider request and no
+        //    recalculation.
+        await fixture.redis.del(...keys);
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toBeNull();
+        const derivedWrites = vi.spyOn(fixture.store, "saveDailyDerivedState");
+        const reconstructed = await fixture
+          .service()
+          .getDailyDerivedState(fixture.symbol, range);
+        expect(reconstructed).toEqual(persisted);
+        expect(derivedWrites).not.toHaveBeenCalled();
+        expect(fixture.provider.calls).toEqual([]);
+        expect(fixture.requests).toEqual([]);
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+
+        // 6. Complete-stock eviction removes the metrics with the rest of the stock.
+        await fixture.cache.evict(fixture.securityId);
+        await expect(
+          fixture.redis.smembers(
+            `${fixture.namespace}:security:${fixture.securityId}:keys`,
+          ),
+        ).resolves.toEqual([]);
+        await expect(
+          fixture.redis.exists(
+            `${fixture.namespace}:security:${fixture.securityId}:daily-state:2025`,
+          ),
+        ).resolves.toBe(0);
+
+        // 7. Re-running the whole canonical rebuild from the same durable source data reproduces
+        //    every persisted value exactly: the materialization is deterministic end to end.
+        await fixture.prisma.stockDatasetCoverage.deleteMany({
+          where: {
+            securityId: fixture.securityId,
+            dataset: StockDataset.DAILY_DERIVED_STATE,
+          },
+        });
+        await fixture.prisma.stockDatasetState.deleteMany({
+          where: {
+            securityId: fixture.securityId,
+            dataset: StockDataset.DAILY_DERIVED_STATE,
+          },
+        });
+        derivedWrites.mockClear();
+        const rebuilt = await fixture
+          .service()
+          .getDailyDerivedState(fixture.symbol, range);
+        expect(derivedWrites).toHaveBeenCalledTimes(1);
+        expect(rebuilt).toEqual(persisted);
+        await expect(
+          fixture.store.getDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+        expect(fixture.provider.calls).toEqual([]);
+        expect(fixture.requests).toEqual([]);
+      } finally {
+        await fixture.dispose();
+      }
+    }, 120_000);
+
+    it("persists a metric the column cannot hold as absence, and rebuilds the rest of the security", async () => {
+      // A JPY-scale reporter whose single-unit denominators produce ratios of 10^12 or more.
+      const scenario: HistoryScenario = {
+        seed: 303,
+        fiscalYearEndMonth: 3,
+        firstFiscalYear: 2015,
+        fiscalYears: 12,
+        currency: { base: "JPY" },
+        magnitude: 1e9,
+        tinyDenominators: 0.2,
+      };
+      let drafts: FinancialStatementDraft[] = [];
+      const fixture = await provision("2021-01-04", (securityId) => {
+        drafts = draftsFrom(generateHistory(scenario, securityId));
+        return drafts;
+      });
+      try {
+        const range = { from: "2021-01-04", to: TODAY };
+
+        // 1. The rebuild succeeds, and not one source statement was refused.
+        const served = await fixture
+          .service()
+          .getDailyDerivedState(fixture.symbol, range);
+        const revisions = await fixture.store.getFinancialStatementRevisions({
+          securityId: fixture.securityId,
+        });
+        expect(revisions).toHaveLength(drafts.length);
+        const persisted = await fixture.store.getDailyDerivedState(
+          fixture.securityId,
+          range,
+        );
+        expect(persisted.map((row) => row.date)).toEqual(
+          fixture.prices.map((price) => price.date),
+        );
+        expect(served).toEqual(persisted);
+
+        // 2. Every metric on every day is the oracle's, with its storable-range rule applied, and
+        //    the rule removes real observations here: find them.
+        expectRowsMatchOracle(persisted, revisions, fixture.securityId);
+        const unstorable = new Map<string, string[]>();
+        let othersPresent = 0;
+        for (const row of persisted) {
+          const strict = referenceFundamentals(
+            revisions,
+            fixture.securityId,
+            row.date,
+          );
+          const unbounded = referenceFundamentals(
+            revisions,
+            fixture.securityId,
+            row.date,
+            { ignoreStorableRange: true },
+          );
+          for (const metric of FUNDAMENTAL_METRICS) {
+            if (
+              strict[metric.field] === undefined &&
+              unbounded[metric.field] !== undefined
+            ) {
+              unstorable.set(metric.field, [
+                ...(unstorable.get(metric.field) ?? []),
+                row.date,
+              ]);
+              othersPresent += FUNDAMENTAL_METRICS.filter(
+                (other) =>
+                  other.field !== metric.field &&
+                  row[other.field] !== undefined,
+              ).length;
+            }
+          }
+        }
+        const unstorableDays = [...unstorable.values()].flat().length;
+        expect(unstorableDays).toBeGreaterThan(500);
+        expect(unstorable.size).toBeGreaterThan(5);
+        // The other metrics of those days are still there.
+        expect(othersPresent).toBeGreaterThan(unstorableDays);
+
+        // 3. PostgreSQL holds NULL for every one of them: no clamp, no sentinel, no zero.
+        for (const [field, dates] of unstorable) {
+          const [stored] = await fixture.prisma.$queryRawUnsafe<
+            { present: bigint }[]
+          >(
+            `SELECT count("${field}") AS present FROM "DailyDerivedState"
+             WHERE "securityId" = $1 AND "date" = ANY($2::date[])`,
+            fixture.securityId,
+            dates,
+          );
+          expect(Number(stored?.present), field).toBe(0);
+        }
+
+        // 4. Redis holds the same absence: the key is missing from the chunk, never null or zero,
+        //    and a flush reconstructs exactly the persisted rows.
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+        const years = new Set(
+          [...unstorable.values()].flat().map((date) => date.slice(0, 4)),
+        );
+        for (const year of years) {
+          const chunk = await fixture.redis.get(
+            `${fixture.namespace}:security:${fixture.securityId}:daily-state:${year}`,
+          );
+          expect(chunk, year).not.toBeNull();
+          expect(chunk, year).not.toContain("null");
+          const rows = JSON.parse(chunk!) as Record<string, unknown>[];
+          const byDate = new Map(rows.map((row) => [row.date, row]));
+          for (const [field, dates] of unstorable) {
+            for (const date of dates.filter((each) => each.startsWith(year))) {
+              expect(byDate.get(date), `${date} ${field}`).not.toHaveProperty(
+                field,
+              );
+            }
+          }
+        }
+        await fixture.redis.del(...(await fixture.namespaceKeys()));
+        const derivedWrites = vi.spyOn(fixture.store, "saveDailyDerivedState");
+        await expect(
+          fixture.service().getDailyDerivedState(fixture.symbol, range),
+        ).resolves.toEqual(persisted);
+        expect(derivedWrites).not.toHaveBeenCalled();
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+        expect(fixture.provider.calls).toEqual([]);
+        expect(fixture.requests).toEqual([]);
+      } finally {
+        await fixture.dispose();
+      }
+    }, 120_000);
+
+    /** Clean quarters FY2022 Q1..FY2026 Q2, each filed forty days after its period end. */
+    function cleanQuarters(securityId: string): FinancialStatementDraft[] {
+      const quarterEnds = ["03-31", "06-30", "09-30", "12-31"];
+      const drafts: FinancialStatementDraft[] = [];
+      for (let fiscalYear = 2022; fiscalYear <= 2026; fiscalYear += 1) {
+        quarterEnds.forEach((end, index) => {
+          if (fiscalYear === 2026 && index > 1) {
+            return;
+          }
+          const period = `Q${index + 1}` as FinancialStatementDraft["period"];
+          const fiscalDate = `${fiscalYear}-${end}`;
+          const filingDate = addDays(fiscalDate, 40);
+          const step = (fiscalYear - 2022) * 4 + index;
+          const base = {
+            securityId,
+            fiscalDate,
+            fiscalYear,
+            period,
+            reportedCurrency: "USD",
+            filingDate,
+          };
+          drafts.push(
+            {
+              ...base,
+              statementType: "INCOME",
+              values: {
+                revenue: 1_000 + step * 20,
+                grossProfit: 400 + step * 5,
+                operatingIncome: 150 + step * 3,
+                netIncome: 100 + step * 2,
+                epsDiluted: 1 + step / 100,
+                weightedAverageShsOutDil: 100,
+                ebitda: 220 + step * 3,
+                ebit: 160 + step * 3,
+                interestExpense: 12,
+              },
+            },
+            {
+              ...base,
+              statementType: "CASH_FLOW",
+              values: {
+                operatingCashFlow: 180 + step * 4,
+                capitalExpenditure: -60,
+                commonDividendsPaid: -20,
+              },
+            },
+            {
+              ...base,
+              statementType: "BALANCE_SHEET",
+              values: {
+                totalDebt: 800,
+                totalStockholdersEquity: 1_500 + step * 10,
+                cashAndShortTermInvestments: 300,
+                totalAssets: 4_000 + step * 20,
+                totalCurrentAssets: 1_200,
+                totalCurrentLiabilities: 900,
+                netDebt: 500,
+              },
+            },
+          );
+        });
+      }
+      return drafts;
+    }
+
+    it("rebuilds both statement families from a revision's availability and republishes the whole affected year", async () => {
+      const fixture = await provision("2024-01-02", cleanQuarters);
+      try {
+        const range = { from: "2024-01-02", to: TODAY };
+        await fixture.service().getDailyDerivedState(fixture.symbol, range);
+        const before = await fixture.store.getDailyDerivedState(
+          fixture.securityId,
+          range,
+        );
+        const original = (
+          await fixture.store.getFinancialStatementRevisions({
+            securityId: fixture.securityId,
+            statementType: "INCOME",
+            cadence: "QUARTERLY",
+          })
+        ).find((each) => each.fiscalYear === 2026 && each.period === "Q1");
+        expect(original?.availableFromDate).toBe("2026-05-11");
+
+        // FY2026 Q1 (period end 2026-03-31, public since 2026-05-11) is restated by a filing on
+        // 2026-08-10: gross profit and diluted EPS change, eligible from 2026-08-11.
+        fixture.provider.statements.set("INCOME:QUARTERLY", [
+          {
+            securityId: fixture.securityId,
+            statementType: "INCOME",
+            fiscalDate: "2026-03-31",
+            fiscalYear: 2026,
+            period: "Q1",
+            reportedCurrency: "USD",
+            filingDate: "2026-08-10",
+            values: {
+              ...(original!.values as Record<string, number>),
+              grossProfit: 900,
+              epsDiluted: 3.5,
+            },
+          },
+        ]);
+        const derivedWrites = vi.spyOn(fixture.store, "saveDailyDerivedState");
+        const refreshed = fixture.service(
+          new Date("2026-08-24T19:00:00.000Z"),
+          {
+            fundamentalsFreshnessMs: 6 * 60 * 60 * 1_000,
+            recentPriceFreshnessMs: 30 * 24 * 60 * 60 * 1_000,
+          },
+        );
+        await refreshed.getDailyDerivedState(fixture.symbol, range);
+
+        // Only the six bounded fundamentals refresh requests: no price or profile request.
+        expect([...fixture.provider.calls].sort()).toEqual(
+          [
+            "statements:BALANCE_SHEET:ANNUAL:3",
+            "statements:BALANCE_SHEET:QUARTERLY:12",
+            "statements:CASH_FLOW:ANNUAL:3",
+            "statements:CASH_FLOW:QUARTERLY:12",
+            "statements:INCOME:ANNUAL:3",
+            "statements:INCOME:QUARTERLY:12",
+          ].sort(),
+        );
+
+        // One unified derived write, starting at the availability boundary of the changed fiscal
+        // year's revisions (FY2026 Q1's original filing, public 2026-05-11) — never at its fiscal
+        // period end, 2026-03-31.
+        expect(derivedWrites).toHaveBeenCalledTimes(1);
+        const written = derivedWrites.mock.calls[0]![0].rows;
+        expect(written[0]?.date).toBe("2026-05-11");
+        expect(written.every((row) => row.date >= "2026-05-11")).toBe(true);
+
+        const after = await fixture.store.getDailyDerivedState(
+          fixture.securityId,
+          range,
+        );
+        const revisions = await fixture.store.getFinancialStatementRevisions({
+          securityId: fixture.securityId,
+        });
+        expect(
+          revisions.find(
+            (each) =>
+              each.statementType === "INCOME" &&
+              each.fiscalYear === 2026 &&
+              each.period === "Q1" &&
+              each.filingDate === "2026-08-10",
+          )?.availableFromDate,
+        ).toBe("2026-08-11");
+
+        // Every session before the revision's own availability is unchanged, value for value.
+        expect(after.filter((row) => row.date < "2026-08-11")).toEqual(
+          before.filter((row) => row.date < "2026-08-11"),
+        );
+        // From 2026-08-11 both statement-derived families moved, on the same session.
+        const onEve = after.find((row) => row.date === "2026-08-10")!;
+        const onDay = after.find((row) => row.date === "2026-08-11")!;
+        expect(onDay.grossMarginTtm).not.toBe(onEve.grossMarginTtm);
+        expect(onDay.epsGrowthTtmYoy).not.toBe(onEve.epsGrowthTtmYoy);
+        expect(onDay.intrinsicValues?.GRAHAM).not.toBe(
+          onEve.intrinsicValues?.GRAHAM,
+        );
+        // And every row still matches the independent oracle over the new revision set.
+        expectRowsMatchOracle(after, revisions, fixture.securityId);
+
+        // The mid-year rebuild republished the complete 2026 chunk, January included.
+        const year = { from: "2026-01-01", to: TODAY };
+        const persistedYear = await fixture.store.getDailyDerivedState(
+          fixture.securityId,
+          year,
+        );
+        expect(persistedYear[0]?.date).toBe("2026-01-02");
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, year),
+        ).resolves.toEqual(persistedYear);
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(after);
+      } finally {
+        await fixture.dispose();
+      }
+    }, 120_000);
+
+    it.each([
+      { direction: "earlier", fiscalDate: "2026-03-28" },
+      { direction: "later", fiscalDate: "2026-04-03" },
+    ])(
+      "never backdates a revision that moves a period end $direction, and applies it from its observation",
+      async ({ fiscalDate }) => {
+        const fixture = await provision("2024-01-02", cleanQuarters);
+        try {
+          const range = { from: "2024-01-02", to: TODAY };
+          await fixture.service().getDailyDerivedState(fixture.symbol, range);
+          const before = await fixture.store.getDailyDerivedState(
+            fixture.securityId,
+            range,
+          );
+          const original = (
+            await fixture.store.getFinancialStatementRevisions({
+              securityId: fixture.securityId,
+              statementType: "INCOME",
+              cadence: "QUARTERLY",
+            })
+          ).find((each) => each.fiscalYear === 2026 && each.period === "Q1");
+          expect(original).toMatchObject({
+            fiscalDate: "2026-03-31",
+            filingDate: "2026-05-10",
+            availableFromDate: "2026-05-11",
+          });
+
+          // On 2026-08-24 the provider reports FY2026 Q1 with its period end moved and the same
+          // filing date: a correction first observed now, not a filing public since 2026-05-11.
+          fixture.provider.statements.set("INCOME:QUARTERLY", [
+            {
+              securityId: fixture.securityId,
+              statementType: "INCOME",
+              fiscalDate,
+              fiscalYear: 2026,
+              period: "Q1",
+              reportedCurrency: "USD",
+              filingDate: "2026-05-10",
+              values: {
+                ...(original!.values as Record<string, number>),
+                grossProfit: 900,
+                epsDiluted: 3.5,
+              },
+            },
+          ]);
+          await fixture
+            .service(new Date("2026-08-24T19:00:00.000Z"), {
+              fundamentalsFreshnessMs: 6 * 60 * 60 * 1_000,
+              recentPriceFreshnessMs: 30 * 24 * 60 * 60 * 1_000,
+            })
+            .getDailyDerivedState(fixture.symbol, range);
+
+          const revisions = await fixture.store.getFinancialStatementRevisions({
+            securityId: fixture.securityId,
+          });
+          expect(
+            revisions.find(
+              (each) =>
+                each.statementType === "INCOME" &&
+                each.fiscalDate === fiscalDate,
+            )?.availableFromDate,
+          ).toBe("2026-08-24");
+
+          // No session before the observation changed, for either statement-derived family.
+          const after = await fixture.store.getDailyDerivedState(
+            fixture.securityId,
+            range,
+          );
+          expect(after.filter((row) => row.date < "2026-08-24")).toEqual(
+            before.filter((row) => row.date < "2026-08-24"),
+          );
+          // From the observation both use the moved revision, whichever way its period end moved.
+          const onEve = after.find((row) => row.date === "2026-08-21")!;
+          const onDay = after.find((row) => row.date === "2026-08-24")!;
+          expect(onDay.grossMarginTtm).not.toBe(onEve.grossMarginTtm);
+          expect(onDay.epsGrowthTtmYoy).not.toBe(onEve.epsGrowthTtmYoy);
+          expect(onDay.intrinsicValues?.GRAHAM).not.toBe(
+            onEve.intrinsicValues?.GRAHAM,
+          );
+          expectRowsMatchOracle(after, revisions, fixture.securityId);
+          await expect(
+            fixture.cache.readDailyDerivedState(fixture.securityId, range),
+          ).resolves.toEqual(after);
+        } finally {
+          await fixture.dispose();
+        }
+      },
+      120_000,
+    );
+  },
+);
 
 class IntegrationProvider implements FmpStockProviderPort {
   securityId = "";

@@ -1,5 +1,6 @@
 import {
   FINANCIAL_STATEMENT_TYPES,
+  FUNDAMENTAL_METRIC_FIELDS,
   TECHNICAL_SERIES_FIELDS,
   selectFinancialStatements,
   type FinancialStatementCadence,
@@ -13,7 +14,7 @@ import {
   SecurityProfile,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { StockDataCache, StockManifest } from "./cache.js";
 import {
   InMemoryLoadCoordinator,
@@ -46,6 +47,12 @@ import {
   VALUATION_FUNDAMENTALS_WARMUP_YEARS,
 } from "./service.js";
 import type { WeeklyPrice } from "./weekly.js";
+import {
+  GOLDEN_ENDING_BALANCE_SHEET,
+  GOLDEN_EXPECTED,
+  GOLDEN_INCOME,
+  goldenStatements,
+} from "./fundamental-metrics.test-helper.js";
 
 const NOW = "2026-08-24T12:00:00.000Z";
 /** The product horizon: the oldest day any surface may select, chart, query or backtest. */
@@ -3316,19 +3323,349 @@ describe("intrinsic values in the derived-state lifecycle", () => {
   });
 });
 
+describe("Fundamental Metrics in the derived-state lifecycle", () => {
+  const TRADING_DATES = [
+    "2026-08-17",
+    "2026-08-18",
+    "2026-08-19",
+    "2026-08-20",
+    "2026-08-21",
+    "2026-08-24",
+  ];
+
+  /** The golden fixture, all eligible since 2026-01-05, for the security under test. */
+  function golden(): FinancialStatement[] {
+    return goldenStatements({ available: "2026-01-05" }).map((each) => ({
+      ...each,
+      securityId: security.id,
+    }));
+  }
+
+  function hydratedStore(
+    statements: readonly FinancialStatement[],
+    tradingDates: readonly string[] = TRADING_DATES,
+  ) {
+    const store = new FakeStore();
+    store.prices = tradingDates.map((date, index) => price(date, 100 + index));
+    store.financialStatements = [...statements];
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    return store;
+  }
+
+  function persistedRow(store: FakeStore, date: string) {
+    const row = store.dailyState.find((each) => each.date === date);
+    if (!row) {
+      throw new Error(`No persisted derived state for ${date}`);
+    }
+    return row;
+  }
+
+  it("persists all fifteen metrics on the unified row beside technical and intrinsic state", async () => {
+    const store = hydratedStore(golden());
+    const provider = new FakeProvider();
+    await createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    ).getDailyPrices("AAPL", { from: "2026-08-17", to: "2026-08-24" });
+
+    for (const date of TRADING_DATES) {
+      const row = persistedRow(store, date);
+      for (const [field, expected] of Object.entries(GOLDEN_EXPECTED)) {
+        expect(row[field as keyof typeof row], `${date} ${field}`).toBeCloseTo(
+          expected,
+          10,
+        );
+      }
+      // The same revisions valued the company on the same row.
+      expect(row.intrinsicValues?.GRAHAM).toBeDefined();
+    }
+    expect(provider.ranges).toEqual([]);
+    expect(provider.financialRequests).toEqual([]);
+  });
+
+  it("reads the retained revisions once per rebuild and never per trading day", async () => {
+    const count = async (tradingDates: readonly string[]) => {
+      const store = hydratedStore(golden(), tradingDates);
+      const calls = new Map<string, number>();
+      for (const method of Object.getOwnPropertyNames(FakeStore.prototype)) {
+        if (method === "constructor") {
+          continue;
+        }
+        const original = (store as unknown as Record<string, unknown>)[method];
+        if (typeof original !== "function") {
+          continue;
+        }
+        (store as unknown as Record<string, unknown>)[method] = (
+          ...args: unknown[]
+        ) => {
+          calls.set(method, (calls.get(method) ?? 0) + 1);
+          return (original as (...values: unknown[]) => unknown).apply(
+            store,
+            args,
+          );
+        };
+      }
+      const revisions = vi.spyOn(store, "getFinancialStatementRevisions");
+      await createService(
+        store,
+        new FakeProvider(),
+        new MemoryCache(),
+        new InMemoryLoadCoordinator(),
+      ).getDailyPrices("AAPL", {
+        from: tradingDates[0]!,
+        to: tradingDates.at(-1)!,
+      });
+      const rebuildReads = revisions.mock.calls.filter(
+        ([input]) => input.statementType === undefined,
+      );
+      return {
+        rebuilds: store.derivedWrites.length,
+        rebuildReads: rebuildReads.length,
+        rebuildRead: rebuildReads[0]?.[0],
+        calls: Object.fromEntries(calls),
+        rows: store.dailyState.length,
+      };
+    };
+
+    const short = await count(TRADING_DATES);
+    const long = await count(
+      Array.from({ length: 232 }, (_unused, index) =>
+        addDays("2026-01-05", index),
+      ).filter((date) => {
+        const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+        return weekday !== 0 && weekday !== 6 && date <= "2026-08-24";
+      }),
+    );
+
+    // One statement-revision read serves both statement-derived families in each rebuild.
+    expect(short.rebuilds).toBe(1);
+    expect(short.rebuildReads).toBe(1);
+    expect(short.rebuildRead).toMatchObject({ securityId: security.id });
+    expect(short.rebuildRead?.cadence).toBeUndefined();
+    // Twenty times the trading days, exactly the same store traffic: nothing is read per day.
+    expect(long.rows).toBeGreaterThan(20 * short.rows);
+    expect(long.calls).toEqual(short.calls);
+  });
+
+  it("moves fundamentals and intrinsic values together from a refreshed revision's availability", async () => {
+    const store = hydratedStore(golden());
+    const cache = new MemoryCache();
+    const provider = new FakeProvider();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+    const before = TRADING_DATES.map((date) => ({
+      ...persistedRow(store, date),
+    }));
+    const writesBefore = store.derivedWrites.length;
+
+    // FY2026 Q1 (period end 2026-03-31) is first filed on 2026-08-18: eligible from 2026-08-19.
+    provider.financialRows.set("INCOME:QUARTERLY:12", [
+      {
+        securityId: security.id,
+        statementType: "INCOME",
+        fiscalDate: "2026-03-31",
+        fiscalYear: 2026,
+        period: "Q1",
+        reportedCurrency: "USD",
+        filingDate: "2026-08-18",
+        values: {
+          ...GOLDEN_INCOME["2025-Q4"]!,
+          revenue: 200,
+          grossProfit: 100,
+          epsDiluted: 1.2,
+        },
+      },
+    ]);
+    const manifest = cache.manifests.get(security.id);
+    await cache.setManifest({
+      ...manifest!,
+      lastFundamentalsRefreshAt: "2026-08-20T00:00:00.000Z",
+    });
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    // One unified rebuild, starting at the revision's availability — not at its fiscal period
+    // end, and not at the start of the history.
+    expect(store.derivedWrites.length).toBe(writesBefore + 1);
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual([
+      "2026-08-19",
+      "2026-08-20",
+      "2026-08-21",
+      "2026-08-24",
+    ]);
+    // Earlier sessions are untouched.
+    expect(persistedRow(store, "2026-08-17")).toEqual(before[0]);
+    expect(persistedRow(store, "2026-08-18")).toEqual(before[1]);
+    // From 2026-08-19 the income window is FY2025 Q2..FY2026 Q1: gross profit 52 + 70 + 90 + 100
+    // over revenue 130 + 140 + 150 + 200, and Graham moved on the same session.
+    const after = persistedRow(store, "2026-08-19");
+    expect(after.grossMarginTtm).toBeCloseTo((312 / 620) * 100, 10);
+    expect(after.intrinsicValues?.GRAHAM).not.toBeCloseTo(
+      before[2]!.intrinsicValues?.GRAHAM ?? 0,
+      6,
+    );
+    // The aligned ending balance sheet for FY2026 Q1 does not exist yet: ROE is unavailable
+    // rather than paired with the older FY2025 Q4 state.
+    expect(after).not.toHaveProperty("roeTtm");
+    expect(before[2]!.roeTtm).toBeCloseTo(14, 10);
+    // The latest-state metrics are unaffected: no newer balance sheet arrived.
+    expect(after.debtToEquity).toBe(
+      GOLDEN_ENDING_BALANCE_SHEET.totalDebt! /
+        GOLDEN_ENDING_BALANCE_SHEET.totalStockholdersEquity!,
+    );
+  });
+
+  it("drops an invalidated metric from its revision's session and restores it later, never stale", async () => {
+    const statements = [
+      ...golden(),
+      // FY2025 Q4's balance sheet restated with negative equity, eligible 2026-08-19...
+      {
+        ...golden().find(
+          (each) =>
+            each.statementType === "BALANCE_SHEET" &&
+            each.fiscalYear === 2025 &&
+            each.period === "Q4",
+        )!,
+        values: {
+          ...GOLDEN_ENDING_BALANCE_SHEET,
+          totalStockholdersEquity: -40,
+        },
+        filingDate: "2026-08-18",
+        availableFromDate: "2026-08-19",
+        contentHash: "negative-equity",
+      },
+      // ...and restated back on 2026-08-21.
+      {
+        ...golden().find(
+          (each) =>
+            each.statementType === "BALANCE_SHEET" &&
+            each.fiscalYear === 2025 &&
+            each.period === "Q4",
+        )!,
+        filingDate: "2026-08-20",
+        availableFromDate: "2026-08-21",
+        contentHash: "restored-equity",
+      },
+    ];
+    const store = hydratedStore(statements);
+    await createService(
+      store,
+      new FakeProvider(),
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    ).getDailyPrices("AAPL", { from: "2026-08-17", to: "2026-08-24" });
+
+    for (const date of [
+      "2026-08-17",
+      "2026-08-18",
+      "2026-08-21",
+      "2026-08-24",
+    ]) {
+      expect(persistedRow(store, date).debtToEquity, date).toBe(0.44);
+    }
+    for (const date of ["2026-08-19", "2026-08-20"]) {
+      const row = persistedRow(store, date);
+      // Latest equity is negative: Debt / Equity is unavailable, not a signed leverage ratio.
+      expect(row, date).not.toHaveProperty("debtToEquity");
+      // ROE averages the aligned states, (400 + -40) / 2 = 180, which is still positive:
+      // 63 / 180 * 100 = 35.
+      expect(row.roeTtm, date).toBeCloseTo(35, 10);
+      // Untouched metrics keep reading.
+      expect(row.grossMarginTtm, date).toBeCloseTo(1210 / 27, 10);
+    }
+  });
+
+  it("treats an r6 READY stock as stale and materializes the metrics without a provider request", async () => {
+    const store = hydratedStore(golden());
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    // Coverage and manifest left behind by the methodology before Fundamental Metrics.
+    store.coverage.set("DAILY_DERIVED_STATE:daily-derived-state:r6", [
+      CANONICAL_RANGE,
+    ]);
+    store.dailyState = TRADING_DATES.map((date) => ({
+      securityId: security.id,
+      date,
+      sma20d: 1,
+    }));
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: 6,
+    });
+
+    const rows = await createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    ).getDailyDerivedState("AAPL", { from: "2026-08-17", to: "2026-08-24" });
+
+    expect(cache.manifests.get(security.id)?.derivedStateRevision).toBe(7);
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual(TRADING_DATES);
+    expect(provider.ranges).toEqual([]);
+    expect(provider.financialRequests).toEqual([]);
+    for (const row of rows) {
+      for (const field of FUNDAMENTAL_METRIC_FIELDS) {
+        expect(row[field], `${row.date} ${field}`).toBeDefined();
+      }
+    }
+    // Every day carries the same carried-forward snapshot.
+    const snapshotOf = (row: DailyDerivedState) =>
+      Object.fromEntries(
+        FUNDAMENTAL_METRIC_FIELDS.map((field) => [field, row[field]]),
+      );
+    for (const row of rows) {
+      expect(snapshotOf(row)).toEqual(snapshotOf(rows[0]!));
+    }
+  });
+});
+
 describe("derived-state revision and valuation warm-up retention", () => {
   const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
 
-  it("materializes the Relative Volume family under revision 6", () => {
+  it("materializes the Fundamental Metrics under revision 7", () => {
     // r1 rows carry no intrinsic state, r2 rows no weekly moving-average values, r3 rows no daily
     // RSI oscillators, r4 rows were calculated over whichever load window the caller asked for and
     // from statement availability derived from a provider filing date that is sometimes the fiscal
-    // period end, and r5 rows carry no Relative Volume. None of them reads as current: their
-    // coverage and manifests must go stale and rebuild. The revision is deliberately one global
-    // number, so a single bump invalidates every series of every security at once — which is also
-    // what makes a corrected historical volume rebuild every later session it baselines.
-    expect(DERIVED_STATE_REVISION).toBe(6);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r6");
+    // period end, r5 rows carry no Relative Volume and r6 rows none of the fifteen Fundamental
+    // Metrics. None of them reads as current: their coverage and manifests must go stale and
+    // rebuild. The revision is deliberately one global number, so a single bump invalidates every
+    // series of every security at once — which is also what makes a corrected historical volume
+    // rebuild every later session it baselines.
+    expect(DERIVED_STATE_REVISION).toBe(7);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r7");
   });
 
   it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {

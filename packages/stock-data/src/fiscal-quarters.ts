@@ -78,23 +78,27 @@ export function fiscalQuarterOfRank(rank: number): FiscalQuarter {
 export type FiscalQuarterIndex = ReadonlyMap<number, FinancialStatement>;
 
 /**
- * Which of two statements for the same family and fiscal quarter represents that quarter.
+ * Which of two statements for the same family and fiscal period represents that period.
  *
  * They can only differ in `fiscalDate`: the canonical selector treats `fiscalDate` as part of a
- * logical identity, so a provider that moved a quarter's period-end date leaves two eligible rows
- * for one fiscal quarter. The later `fiscalDate` wins, then later availability, observation and
- * content hash — the same order the selector sorts by, so choosing the maximum is exactly what
- * keeping the last row of the selector's ascending output has always meant, but without depending
- * on the order a caller happens to pass.
+ * logical identity, so a provider that moved a period's end date leaves two eligible rows for one
+ * fiscal period. The loader dates such a row as a revision of the period it belongs to
+ * (`docs/decisions/fundamentals-loader.md`), so the latest revision represents the period, exactly
+ * as for a revision that kept its period end: later availability, then later observation. Only
+ * between rows one observation delivered together does the later period end decide, then the
+ * content hash, so the choice never depends on the order a caller passes.
+ *
+ * Shared by every statement-derived engine: the quarterly index here and the annual income index
+ * of the intrinsic-value models.
  */
-function representsQuarterOver(
+export function representsFiscalPeriodOver(
   candidate: FinancialStatement,
   existing: FinancialStatement,
 ): boolean {
   return (
-    (candidate.fiscalDate.localeCompare(existing.fiscalDate) ||
-      candidate.availableFromDate.localeCompare(existing.availableFromDate) ||
+    (candidate.availableFromDate.localeCompare(existing.availableFromDate) ||
       candidate.observedAt.localeCompare(existing.observedAt) ||
+      candidate.fiscalDate.localeCompare(existing.fiscalDate) ||
       candidate.contentHash.localeCompare(existing.contentHash)) > 0
   );
 }
@@ -117,7 +121,7 @@ export function indexFiscalQuarters(
       period: statement.period,
     });
     const existing = index.get(rank);
-    if (!existing || representsQuarterOver(statement, existing)) {
+    if (!existing || representsFiscalPeriodOver(statement, existing)) {
       index.set(rank, statement);
     }
   }

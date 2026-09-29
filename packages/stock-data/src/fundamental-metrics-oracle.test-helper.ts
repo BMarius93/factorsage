@@ -18,8 +18,10 @@ import type {
  * It evaluates each trading day from scratch and never carries anything forward, which is what
  * lets a comparison against the materializer prove the event plan and the carry-forward too.
  *
- * Fixtures fed to it must give each fiscal quarter a single `fiscalDate` across its revisions;
- * production's rule for two period ends of one quarter is pinned separately.
+ * A quarter reported with two period ends is one quarter here, keyed by fiscal year and period
+ * only: its latest revision represents it, the later period end deciding only between rows one
+ * observation delivered — the rule `docs/decisions/fundamental-metrics-v1.md` fixes, reached
+ * without the domain selector.
  *
  * Test support, not product code: not exported from `index.ts`, and the `.test-helper` suffix
  * keeps Vitest from collecting it as a suite.
@@ -122,7 +124,11 @@ function later(left: Q, right: Q): boolean {
   return left.year !== right.year ? left.year > right.year : left.q > right.q;
 }
 
-/** Newer revision of the same fiscal identity? */
+/**
+ * Newer revision of the same fiscal quarter? Quarters are keyed by fiscal year and period only, so
+ * a revision that moved the period end supersedes like any other; only between rows one
+ * observation delivered together does the later period end win.
+ */
 function supersedes(
   candidate: FinancialStatement,
   existing: FinancialStatement,
@@ -132,6 +138,9 @@ function supersedes(
   }
   if (candidate.observedAt !== existing.observedAt) {
     return candidate.observedAt > existing.observedAt;
+  }
+  if (candidate.fiscalDate !== existing.fiscalDate) {
+    return candidate.fiscalDate > existing.fiscalDate;
   }
   return candidate.contentHash > existing.contentHash;
 }
@@ -571,14 +580,20 @@ export type HistoryScenario = {
    */
   magnitude?: number;
   tinyDenominators?: number;
+  /**
+   * The probability that a restatement also moves its quarter's period end by three days, earlier
+   * or later — the same fiscal quarter reported with a second `fiscalDate`.
+   */
+  movedPeriodEnds?: number;
 };
 
 /**
  * A deliberately messy, fully deterministic statement history for one security: losses and
  * near-zero sums, two-decimal EPS, missing fields and quarters, families filed on different days,
  * restatements that flip signs or drop fields, annual rows no metric may read, and — when asked for
- * — currency changes and JPY-scale magnitudes with single-unit denominators. The default options
- * draw exactly the random stream they always did, so an existing scenario's history never moves.
+ * — currency changes, JPY-scale magnitudes with single-unit denominators and restatements that
+ * move a quarter's period end. The default options draw exactly the random stream they always
+ * did, so an existing scenario's history never moves.
  */
 export function generateHistory(
   scenario: HistoryScenario,
@@ -746,15 +761,23 @@ export function generateHistory(
               pick(0.3) ? -value : Math.round(value * (0.8 + next() * 0.4)),
             ]),
           );
+          const restatedAvailable = addDays(available, integer(30, 500));
+          const restatedCurrency =
+            // A restatement can change the reported currency too.
+            scenario.currency ? currencyOf(fiscalYear) : currency;
+          const restatedFiscalDate =
+            scenario.movedPeriodEnds !== undefined &&
+            pick(scenario.movedPeriodEnds)
+              ? addDays(fiscalDate, pick(0.5) ? -3 : 3)
+              : fiscalDate;
           emit(
             type,
             fiscalYear,
             period,
-            fiscalDate,
-            addDays(available, integer(30, 500)),
+            restatedFiscalDate,
+            restatedAvailable,
             restated,
-            // A restatement can change the reported currency too.
-            scenario.currency ? currencyOf(fiscalYear) : currency,
+            restatedCurrency,
           );
         }
       }
