@@ -2,8 +2,9 @@
 
 ## Status
 
-**Proposed methodology lock.** This branch is documentation-only. Merging this decision makes the
-methodology below authoritative for the implementation PRs that follow.
+**Proposed methodology lock.** Merging this decision makes the methodology below authoritative for
+the implementation built on it: the point-in-time calculation first, then its persistence in the
+unified derived state.
 
 This decision builds on, and does not reinterpret:
 

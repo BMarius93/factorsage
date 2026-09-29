@@ -544,7 +544,7 @@ describe("newest-window anchoring", () => {
     GOLDEN_AVAILABLE,
   );
 
-  it("makes FCF margin unavailable when Income has Q4 but Cash Flow stops at Q3", () => {
+  it("makes FCF margin unavailable when Income is a quarter ahead of Cash Flow", () => {
     // Income reaches FY2026 Q1, Cash Flow only FY2025 Q4. Both still share FY2025 Q1..Q4 in
     // full, but that is no longer the period the metric is evaluated for.
     const snapshot = evaluate([...GOLDEN, NEWER_INCOME]);
@@ -555,7 +555,7 @@ describe("newest-window anchoring", () => {
     expectValue(snapshot, "grossMarginTtm", (312 / 620) * 100);
   });
 
-  it("makes FCF margin unavailable when Cash Flow has Q4 but Income stops at Q3", () => {
+  it("makes FCF margin unavailable when Cash Flow is a quarter ahead of Income", () => {
     const snapshot = evaluate([...GOLDEN, NEWER_CASH_FLOW]);
 
     expectUnavailable(snapshot, "fcfMarginTtm");
