@@ -508,7 +508,7 @@ describe("TTM margins", () => {
   });
 });
 
-describe("cross-family flow-window alignment", () => {
+describe("newest-window anchoring", () => {
   const NEWER_INCOME = statement(
     "INCOME",
     quarter(2026, "Q1"),
@@ -531,47 +531,81 @@ describe("cross-family flow-window alignment", () => {
     GOLDEN_AVAILABLE,
   );
 
-  it("keeps FCF margin on the latest common window when Income is a quarter ahead", () => {
+  it("makes FCF margin unavailable when Income has Q4 but Cash Flow stops at Q3", () => {
+    // Income reaches FY2026 Q1, Cash Flow only FY2025 Q4. Both still share FY2025 Q1..Q4 in
+    // full, but that is no longer the period the metric is evaluated for.
     const snapshot = evaluate([...GOLDEN, NEWER_INCOME]);
 
-    // FCF margin still pairs FY2025 revenue (540) with FY2025 cash flow (100).
-    expectValue(snapshot, "fcfMarginTtm", 500 / 27);
-    // A mismatched pairing — FY2025 Q2..FY2026 Q1 revenue (620) with FY2025 cash flow — would
-    // read 16.129%.
-    expect(snapshot.fcfMarginTtm).not.toBeCloseTo(16.129, 2);
-    // Income-only metrics move to the newer window: (52+70+90+100) / 620.
+    expectUnavailable(snapshot, "fcfMarginTtm");
+    // Neither the stale FY2025 reading (18.52%) nor a mismatched pairing is produced; the
+    // Income-only metrics do move to the newer window: (52 + 70 + 90 + 100) / 620.
     expectValue(snapshot, "grossMarginTtm", (312 / 620) * 100);
   });
 
-  it("keeps FCF margin on the latest common window when Cash Flow is a quarter ahead", () => {
+  it("makes FCF margin unavailable when Cash Flow has Q4 but Income stops at Q3", () => {
     const snapshot = evaluate([...GOLDEN, NEWER_CASH_FLOW]);
 
-    expectValue(snapshot, "fcfMarginTtm", 500 / 27);
+    expectUnavailable(snapshot, "fcfMarginTtm");
     // FCF growth is Cash Flow only, so it moves to FY2024 Q2..FY2026 Q1:
     // previous (25-5)+(30-10)+(35-10)+(30-10) = 85, current (35-10)+(40-15)+(45-15)+(80-20) = 140.
     expectValue(snapshot, "fcfGrowthTtmYoy", (140 / 85 - 1) * 100);
+    // Income-only metrics keep the FY2025 window.
+    expectValue(snapshot, "grossMarginTtm", 1210 / 27);
   });
 
-  it("is unavailable until the two families share one complete window", () => {
-    // Income FY2025 Q2..FY2026 Q1, Cash Flow FY2025 Q1..Q4: the latest common quarter is FY2025
-    // Q4, and its window needs an Income FY2025 Q1 that does not exist.
-    const misaligned = [
-      ...GOLDEN.filter(
-        (each) =>
-          each.statementType !== "INCOME" ||
-          (each.fiscalYear === 2025 && each.period !== "Q1"),
+  it("restores FCF margin once both families reach the same newest quarter", () => {
+    const snapshot = evaluate([...GOLDEN, NEWER_INCOME, NEWER_CASH_FLOW]);
+
+    // FY2025 Q2..FY2026 Q1: revenue 130 + 140 + 150 + 200 = 620, FCF 25 + 25 + 30 + 60 = 140.
+    expectValue(snapshot, "fcfMarginTtm", (140 / 620) * 100);
+  });
+
+  it("never reports an old window after one family stopped reporting", () => {
+    // Cash Flow ends in FY2025 while Income carries on through FY2026.
+    const incomeYear = (["Q1", "Q2", "Q3", "Q4"] as const).map((period) =>
+      statement(
+        "INCOME",
+        quarter(2026, period),
+        GOLDEN_INCOME["2025-Q4"]!,
+        GOLDEN_AVAILABLE,
       ),
-      NEWER_INCOME,
-    ];
-    expectUnavailable(evaluate(misaligned), "fcfMarginTtm");
+    );
+    const snapshot = evaluate([...GOLDEN, ...incomeYear]);
 
-    // Once Cash Flow reaches FY2026 Q1 the common window FY2025 Q2..FY2026 Q1 exists:
-    // revenue 620, FCF (35-10)+(40-15)+(45-15)+(80-20) = 140.
-    const aligned = evaluate([...misaligned, NEWER_CASH_FLOW]);
-    expectValue(aligned, "fcfMarginTtm", (140 / 620) * 100);
+    expectUnavailable(snapshot, "fcfMarginTtm");
+    // Cash Flow's own metric still reads its own latest chain.
+    expectValue(snapshot, "fcfGrowthTtmYoy", 25);
   });
 
-  it("never falls back to an older window when one family has a gap", () => {
+  it("never falls back to an older complete window when the newest one has a gap", () => {
+    // Income FY2025 Q2 is missing; the FY2024 four-quarter window is still complete.
+    const snapshot = evaluate(
+      removeStatement(GOLDEN, "INCOME", quarter(2025, "Q2")),
+    );
+
+    for (const field of [
+      "revenueGrowthTtmYoy",
+      "epsGrowthTtmYoy",
+      "grossMarginTtm",
+      "operatingMarginTtm",
+      "netMarginTtm",
+      "fcfMarginTtm",
+      "roicTtm",
+      "roeTtm",
+      "roaTtm",
+      "netDebtToEbitdaTtm",
+      "interestCoverageTtm",
+      "assetTurnoverTtm",
+    ] as const) {
+      expectUnavailable(snapshot, field);
+    }
+    // The latest-state metrics and the Cash Flow chain do not read the Income window.
+    expectValue(snapshot, "debtToEquity", 0.44);
+    expectValue(snapshot, "currentRatio", 1.6);
+    expectValue(snapshot, "fcfGrowthTtmYoy", 25);
+  });
+
+  it("makes FCF margin unavailable when one family has a gap in the newest window", () => {
     const snapshot = evaluate(
       removeStatement(GOLDEN, "CASH_FLOW", quarter(2025, "Q2")),
     );
@@ -581,25 +615,32 @@ describe("cross-family flow-window alignment", () => {
     expectValue(snapshot, "grossMarginTtm", 1210 / 27);
   });
 
-  it("assembles every multi-family window over identical fiscal identities", () => {
-    const windows = assembleFundamentalWindows({
+  it("assembles the aligned window over identical fiscal identities, or not at all", () => {
+    const identities = (rows: readonly FinancialStatement[] | undefined) =>
+      rows?.map((row) => `${row.fiscalYear}-${row.period}`);
+    const aligned = assembleFundamentalWindows({
+      securityId: SECURITY_ID,
+      date: GOLDEN_DATE,
+      statements: [...GOLDEN, NEWER_INCOME, NEWER_CASH_FLOW],
+    });
+
+    expect(identities(aligned.incomeAndCashFlowTtm?.income)).toEqual([
+      "2025-Q2",
+      "2025-Q3",
+      "2025-Q4",
+      "2026-Q1",
+    ]);
+    expect(identities(aligned.incomeAndCashFlowTtm?.cashFlow)).toEqual(
+      identities(aligned.incomeAndCashFlowTtm?.income),
+    );
+
+    const lagging = assembleFundamentalWindows({
       securityId: SECURITY_ID,
       date: GOLDEN_DATE,
       statements: [...GOLDEN, NEWER_INCOME],
     });
-    const identities = (rows: readonly FinancialStatement[] | undefined) =>
-      rows?.map((row) => `${row.fiscalYear}-${row.period}`);
-
-    expect(identities(windows.incomeAndCashFlowTtm?.income)).toEqual(
-      identities(windows.incomeAndCashFlowTtm?.cashFlow),
-    );
-    expect(identities(windows.incomeAndCashFlowTtm?.income)).toEqual([
-      "2025-Q1",
-      "2025-Q2",
-      "2025-Q3",
-      "2025-Q4",
-    ]);
-    expect(identities(windows.incomeTtm?.statements)).toEqual([
+    expect(lagging.incomeAndCashFlowTtm).toBeUndefined();
+    expect(identities(lagging.incomeTtm?.statements)).toEqual([
       "2025-Q2",
       "2025-Q3",
       "2025-Q4",

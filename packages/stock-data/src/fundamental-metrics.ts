@@ -13,7 +13,7 @@ import {
 import { exactDecimalSum } from "./exact-decimal-sum.js";
 import {
   alignedOpeningAndEndingStates,
-  commonTrailingFiscalQuarterWindow,
+  alignedTrailingFiscalQuarterWindow,
   indexFiscalQuarters,
   latestFiscalQuarterStatement,
   trailingFiscalQuarterWindow,
@@ -68,8 +68,9 @@ export type FundamentalStatementWindows = {
   /** Eight consecutive Cash Flow quarters ending at the latest eligible one. */
   cashFlowYearOverYear?: YearOverYearWindows;
   /**
-   * One common four-quarter window across Income and Cash Flow, anchored at the latest quarter
-   * both families hold: the two families always cover the same fiscal identities.
+   * One aligned four-quarter window across Income and Cash Flow, ending at the newest quarter
+   * either family holds. Both families cover exactly the same fiscal identities; when one lags or
+   * has stopped reporting there is no window, never an older one they happen to share.
    */
   incomeAndCashFlowTtm?: {
     income: readonly FinancialStatement[];
@@ -108,11 +109,11 @@ export function assembleFundamentalWindows(
   const incomeTtm = trailingFiscalQuarterWindow(income, TTM_QUARTERS);
   const incomeYearOverYear = trailingYearOverYearWindows(income);
   const cashFlowYearOverYear = trailingYearOverYearWindows(cashFlow);
-  const common = commonTrailingFiscalQuarterWindow(
+  const aligned = alignedTrailingFiscalQuarterWindow(
     [income, cashFlow],
     TTM_QUARTERS,
   );
-  const [commonIncome, commonCashFlow] = common?.statements ?? [];
+  const [alignedIncome, alignedCashFlow] = aligned?.statements ?? [];
   const alignedBalanceSheets = incomeTtm
     ? alignedOpeningAndEndingStates(balanceSheet, {
         endRank: incomeTtm.endRank,
@@ -125,11 +126,11 @@ export function assembleFundamentalWindows(
     ...(incomeTtm ? { incomeTtm } : {}),
     ...(incomeYearOverYear ? { incomeYearOverYear } : {}),
     ...(cashFlowYearOverYear ? { cashFlowYearOverYear } : {}),
-    ...(commonIncome && commonCashFlow
+    ...(alignedIncome && alignedCashFlow
       ? {
           incomeAndCashFlowTtm: {
-            income: commonIncome,
-            cashFlow: commonCashFlow,
+            income: alignedIncome,
+            cashFlow: alignedCashFlow,
           },
         }
       : {}),

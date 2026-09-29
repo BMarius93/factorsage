@@ -21,8 +21,9 @@ import type {
  *   decides which quarter comes next.
  * - **Only standalone `Q1`-`Q4` rows are quarters.** An `FY` row is never indexed, so it can never
  *   fill a quarterly gap.
- * - **Windows are exact.** A missing identity makes the window unavailable. Nothing searches back
- *   for an older complete window, and nothing rescales a shorter span.
+ * - **Windows are exact and current.** A window ends at the newest quarter it is anchored on, and a
+ *   missing identity makes it unavailable. Nothing searches back for an older complete window —
+ *   that would report a stale period as the current one — and nothing rescales a shorter span.
  * - **Point-in-time selection happens before these helpers.** Callers pass statements already
  *   reduced to one eligible revision per fiscal identity (`selectFinancialStatements` with
  *   `asOf`); nothing here looks at `availableFromDate` to decide eligibility.
@@ -137,12 +138,13 @@ export function latestFiscalQuarterRank(
 }
 
 /**
- * Latest fiscal quarter held by every one of the families — the anchor of a common cross-family
- * flow window.
+ * Latest fiscal quarter held by every one of the families.
  *
  * Field presence deliberately plays no part in choosing the anchor: a newer quarter every family
  * holds becomes authoritative even if one of its fields is missing, which then makes the
- * calculation unavailable rather than silently reusing an older window.
+ * calculation unavailable rather than silently reusing an older window. The intrinsic-value models
+ * anchor their cross-family windows here; Fundamental Metrics use
+ * {@link alignedTrailingFiscalQuarterWindow}, which anchors at the newest quarter instead.
  */
 export function latestCommonFiscalQuarterRank(
   indexes: readonly FiscalQuarterIndex[],
@@ -161,6 +163,20 @@ export function latestCommonFiscalQuarterRank(
     }
   }
   return latest;
+}
+
+/** The newest fiscal quarter held by any of the families, or `undefined` when none holds one. */
+export function newestFiscalQuarterRank(
+  indexes: readonly FiscalQuarterIndex[],
+): number | undefined {
+  let newest: number | undefined;
+  for (const index of indexes) {
+    const rank = latestFiscalQuarterRank(index);
+    if (rank !== undefined && (newest === undefined || rank > newest)) {
+      newest = rank;
+    }
+  }
+  return newest;
 }
 
 /** `count` consecutive fiscal-quarter ranks ending at `endRank`, oldest first. */
@@ -248,18 +264,22 @@ export function trailingYearOverYearWindows(
 }
 
 /**
- * One common `count`-quarter window across several families, anchored at the latest fiscal quarter
- * every family holds. `statements[i]` is family `i`'s rows for the same fiscal identities, oldest
- * first. Families are never windowed independently: if any family lacks any quarter of the common
- * window, there is no window.
+ * One aligned `count`-quarter window across several families, ending at the newest fiscal quarter
+ * any of them holds. `statements[i]` is family `i`'s rows for exactly the same fiscal identities,
+ * oldest first.
+ *
+ * Every family must hold every quarter of that exact window. A family that lags the others — or has
+ * stopped reporting — makes the window unavailable; it never falls back to an older window the
+ * families happen to share, which would keep reporting a stale period as the current one. Families
+ * are never windowed independently either.
  */
-export function commonTrailingFiscalQuarterWindow(
+export function alignedTrailingFiscalQuarterWindow(
   indexes: readonly FiscalQuarterIndex[],
   count: number,
 ):
   | { endRank: number; statements: readonly (readonly FinancialStatement[])[] }
   | undefined {
-  const endRank = latestCommonFiscalQuarterRank(indexes);
+  const endRank = newestFiscalQuarterRank(indexes);
   if (endRank === undefined) {
     return undefined;
   }

@@ -5,7 +5,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   alignedOpeningAndEndingStates,
-  commonTrailingFiscalQuarterWindow,
+  alignedTrailingFiscalQuarterWindow,
   consecutiveFiscalQuarterRanks,
   fiscalQuarterOfRank,
   fiscalQuarterRank,
@@ -13,6 +13,7 @@ import {
   latestCommonFiscalQuarterRank,
   latestFiscalQuarterRank,
   latestFiscalQuarterStatement,
+  newestFiscalQuarterRank,
   statementsForFiscalQuarters,
   trailingFiscalQuarterWindow,
   trailingYearOverYearWindows,
@@ -268,50 +269,83 @@ describe("exact trailing windows", () => {
   });
 });
 
-describe("common cross-family windows", () => {
+describe("aligned cross-family windows", () => {
   const cashFlow = (each: Quarter) =>
     statement("CASH_FLOW", each, { operatingCashFlow: 10 }, "2026-01-05");
 
-  it("anchors every family at the latest quarter they all hold", () => {
-    const incomeRows = [...quartersOf(2025), quarter(2026, "Q1")].map((each) =>
-      income(each),
-    );
-    const cashFlowRows = quartersOf(2025).map(cashFlow);
-    const indexes = [
-      incomeIndex(incomeRows),
-      indexFiscalQuarters(cashFlowRows, "CASH_FLOW"),
+  function indexes(incomeQuarters: Quarter[], cashFlowQuarters: Quarter[]) {
+    return [
+      incomeIndex(incomeQuarters.map((each) => income(each))),
+      indexFiscalQuarters(cashFlowQuarters.map(cashFlow), "CASH_FLOW"),
     ];
+  }
 
-    expect(latestCommonFiscalQuarterRank(indexes)).toBe(
-      fiscalQuarterRank(quarter(2025, "Q4")),
-    );
-    const window = commonTrailingFiscalQuarterWindow(indexes, 4);
+  it("ends at the newest quarter and covers the same identities in every family", () => {
+    const both = [...quartersOf(2025), quarter(2026, "Q1")];
+    const window = alignedTrailingFiscalQuarterWindow(indexes(both, both), 4);
+
+    expect(window?.endRank).toBe(fiscalQuarterRank(quarter(2026, "Q1")));
     expect(window?.statements.map(identities)).toEqual([
-      ["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"],
-      ["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"],
+      ["2025-Q2", "2025-Q3", "2025-Q4", "2026-Q1"],
+      ["2025-Q2", "2025-Q3", "2025-Q4", "2026-Q1"],
     ]);
   });
 
-  it("is unavailable when any family lacks any quarter of the common window", () => {
-    const incomeRows = quartersOf(2025).map((each) => income(each));
-    const cashFlowRows = [
-      quarter(2025, "Q1"),
-      quarter(2025, "Q3"),
-      quarter(2025, "Q4"),
-    ].map(cashFlow);
+  it("is unavailable when Income has a newer quarter than Cash Flow", () => {
+    const families = indexes(
+      [...quartersOf(2025), quarter(2026, "Q1")],
+      quartersOf(2025),
+    );
 
+    // Both families share FY2025 Q1..Q4 in full, but that is no longer the current period.
+    expect(newestFiscalQuarterRank(families)).toBe(
+      fiscalQuarterRank(quarter(2026, "Q1")),
+    );
+    expect(latestCommonFiscalQuarterRank(families)).toBe(
+      fiscalQuarterRank(quarter(2025, "Q4")),
+    );
+    expect(alignedTrailingFiscalQuarterWindow(families, 4)).toBeUndefined();
+  });
+
+  it("is unavailable when Cash Flow has a newer quarter than Income", () => {
     expect(
-      commonTrailingFiscalQuarterWindow(
-        [
-          incomeIndex(incomeRows),
-          indexFiscalQuarters(cashFlowRows, "CASH_FLOW"),
-        ],
+      alignedTrailingFiscalQuarterWindow(
+        indexes(quartersOf(2025), [...quartersOf(2025), quarter(2026, "Q1")]),
         4,
       ),
     ).toBeUndefined();
   });
 
-  it("has no anchor without families or without a shared quarter", () => {
+  it("never falls back to an older shared window when one family stopped reporting", () => {
+    // Cash Flow ends in FY2020 while Income continues for five more years.
+    const incomeQuarters = [2020, 2021, 2022, 2023, 2024, 2025].flatMap(
+      quartersOf,
+    );
+    expect(
+      alignedTrailingFiscalQuarterWindow(
+        indexes(incomeQuarters, quartersOf(2020)),
+        4,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("is unavailable when any family lacks any quarter of the window", () => {
+    expect(
+      alignedTrailingFiscalQuarterWindow(
+        indexes(quartersOf(2025), [
+          quarter(2025, "Q1"),
+          quarter(2025, "Q3"),
+          quarter(2025, "Q4"),
+        ]),
+        4,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("has no anchor without families", () => {
+    expect(newestFiscalQuarterRank([])).toBeUndefined();
+    expect(alignedTrailingFiscalQuarterWindow([], 4)).toBeUndefined();
+    // The intrinsic-value models' own anchor stays the latest quarter every family holds.
     expect(latestCommonFiscalQuarterRank([])).toBeUndefined();
     expect(
       latestCommonFiscalQuarterRank([

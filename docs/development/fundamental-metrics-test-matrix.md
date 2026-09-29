@@ -106,9 +106,12 @@ Same structural cases, including valid negative net income with positive revenue
 
 Required cases:
 
-- common fiscal window across Income and Cash Flow;
-- Income latest-four and Cash Flow latest-four deliberately differ -> unavailable until a common
-  window exists;
+- one aligned fiscal window across Income and Cash Flow, ending at the newest quarter either holds;
+- Income has a newer quarter than Cash Flow -> unavailable, although an older window both share
+  exists;
+- Cash Flow has a newer quarter than Income -> unavailable;
+- one family stopped reporting while the other continues -> unavailable, never the last shared
+  window;
 - negative FCF -> valid negative margin;
 - ratio-of-sums, not mean of quarterly FCF margins;
 - missing OCF/CapEx/revenue in any required quarter -> unavailable.
@@ -214,6 +217,8 @@ The common quarter-window helper requires one reusable behavioral suite covering
 - FY rows mixed into input but ignored for quarterly windows;
 - eight-quarter current/previous TTM chain;
 - a ninth older quarter that must not alter the latest selected pair of windows;
+- a gap in the newest window while an older complete window exists -> unavailable, never the
+  older window;
 - a future revision that exists in storage but is not yet eligible as of `D`.
 
 ## PIT boundary matrix

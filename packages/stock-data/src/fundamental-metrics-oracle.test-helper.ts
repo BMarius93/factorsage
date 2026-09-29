@@ -298,22 +298,15 @@ export function referenceFundamentals(
   const cashFlowEight =
     cashFlowEnd && walkBack(books.CASH_FLOW, cashFlowEnd, 8);
 
-  // The latest quarter both Income and Cash Flow hold, then four back from there in each.
-  let commonEnd: Q | undefined;
-  for (const statement of books.INCOME.values()) {
-    const quarter: Q = {
-      year: statement.fiscalYear,
-      q: Number((statement.period as QuarterPeriod).slice(1)) as Q["q"],
-    };
-    if (
-      books.CASH_FLOW.has(label(quarter)) &&
-      (!commonEnd || later(quarter, commonEnd))
-    ) {
-      commonEnd = quarter;
-    }
+  // FCF margin evaluates the newest quarter either family holds, and needs both families to hold
+  // it and the three before it. An older window the two happen to share is never used.
+  let alignedEnd: Q | undefined = incomeEnd;
+  if (cashFlowEnd && (!alignedEnd || later(cashFlowEnd, alignedEnd))) {
+    alignedEnd = cashFlowEnd;
   }
-  const commonIncome = commonEnd && walkBack(books.INCOME, commonEnd, 4);
-  const commonCashFlow = commonEnd && walkBack(books.CASH_FLOW, commonEnd, 4);
+  const alignedIncome = alignedEnd && walkBack(books.INCOME, alignedEnd, 4);
+  const alignedCashFlow =
+    alignedEnd && walkBack(books.CASH_FLOW, alignedEnd, 4);
 
   // Aligned states: Q[0] and the quarter immediately before Q[-3], i.e. four steps back.
   let opening: FinancialStatement | undefined;
@@ -358,8 +351,8 @@ export function referenceFundamentals(
       : undefined,
     netMarginTtm: incomeCurrent ? share(netIncome, revenue) : undefined,
     fcfMarginTtm:
-      commonIncome && commonCashFlow
-        ? share(freeCashFlow(commonCashFlow), total(commonIncome, "revenue"))
+      alignedIncome && alignedCashFlow
+        ? share(freeCashFlow(alignedCashFlow), total(alignedIncome, "revenue"))
         : undefined,
     roicTtm: (() => {
       const operatingIncome =
