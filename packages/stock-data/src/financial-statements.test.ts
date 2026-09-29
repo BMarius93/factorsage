@@ -304,6 +304,69 @@ describe("financial statement persistence", () => {
     }
   });
 
+  it("reads statement revisions within both bounds of a fiscal-date range", async () => {
+    const prisma = new PrismaClient();
+    const suffix = randomUUID();
+    const symbol = `R${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    let securityId: string | undefined;
+    try {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Revision Range Read Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+      const store = new PrismaStockDataStore(prisma);
+      await store.saveFinancialStatements({
+        securityId,
+        statements: [2022, 2023, 2024, 2025, 2026].map((fiscalYear) =>
+          statement({
+            securityId,
+            fiscalYear,
+            fiscalDate: `${fiscalYear}-03-31`,
+            filingDate: `${fiscalYear}-04-20`,
+          }),
+        ),
+        syncedAt: "2026-04-21T16:00:00.000Z",
+      });
+
+      const fiscalYears = async (range: { from?: string; to?: string }) =>
+        (
+          await store.getFinancialStatementRevisions({
+            securityId: securityId!,
+            statementType: "INCOME",
+            cadence: "QUARTERLY",
+            ...range,
+          })
+        ).map((row) => row.fiscalYear);
+
+      // Both bounds at once: the derived rebuild boundary of a refresh is read this way, one
+      // changed fiscal year at a time, and must not reach back to the first filing ever stored.
+      await expect(
+        fiscalYears({ from: "2024-01-01", to: "2025-12-31" }),
+      ).resolves.toEqual([2024, 2025]);
+      await expect(fiscalYears({ from: "2025-01-01" })).resolves.toEqual([
+        2025, 2026,
+      ]);
+      await expect(fiscalYears({ to: "2022-12-31" })).resolves.toEqual([2022]);
+      await expect(fiscalYears({})).resolves.toEqual([
+        2022, 2023, 2024, 2025, 2026,
+      ]);
+    } finally {
+      if (securityId) {
+        await prisma.security.deleteMany({ where: { id: securityId } });
+      }
+      await prisma.$disconnect();
+    }
+  });
+
   it("computes contentHash independently of securityId", async () => {
     const prisma = new PrismaClient();
     const suffix = randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase();
