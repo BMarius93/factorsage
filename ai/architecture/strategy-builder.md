@@ -783,6 +783,12 @@ STRATEGY_OPERATOR_HELP: Record<
 Feature code must not hold help strings, for the same reason it must not hold labels: two surfaces
 explaining the same operator differently is the drift invariant 9 exists to prevent.
 
+The panel asks for a metric's help through `strategyMetricHelp(metric)` rather than indexing
+`STRATEGY_METRIC_HELP` by kind. For every kind but one the answer is that kind's entry; a Fundamental
+Metric leads with its own catalog summary and formula and a note on its unit (percentage points or a
+raw multiple) before the shared point-in-time explanation, because one entry for the kind would
+describe ROIC and Debt / Equity in the same words.
+
 Content the panel must carry, all of it already written in `ai/product/strategies.md`:
 
 - **Margin of Safety**, which is the metric that most needs it: what MOS means, the canonical
