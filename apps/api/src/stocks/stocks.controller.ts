@@ -1,8 +1,12 @@
 import {
   findSelectableSeries,
+  FUNDAMENTAL_METRIC_IDS,
+  isFundamentalMetricId,
   TECHNICAL_SERIES,
+  type DailyFundamentalMetricResponse,
   type DailyPriceResponse,
   type DailyTechnicalResponse,
+  type FundamentalMetricId,
   type IntrinsicValueBlendResponse,
   type IntrinsicValueResponse,
   type SecurityProfileResponse,
@@ -15,6 +19,7 @@ import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   DAILY_TECHNICAL_PROJECTION_FIELDS,
+  type DailyFundamentalMetricPoint,
   type DateRange,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
@@ -228,6 +233,41 @@ function technicalFields(
   });
 }
 
+/**
+ * Resolves the `metric` parameter to exactly one Fundamental Metric identity.
+ *
+ * Query strings are runtime input, so the type annotation proves nothing: the value is checked
+ * against the product catalog's identities by exact match — no trimming, no case folding, no label
+ * or storage-field spelling — before it is trusted as a `FundamentalMetricId`. A missing, empty,
+ * repeated or comma-separated parameter, or anything that is not a string at all, is rejected
+ * rather than narrowed to a guess. The storage field is never derived here: the identity crosses
+ * into the stock-data service, which resolves it through the domain registry.
+ */
+function fundamentalMetric(raw: unknown): FundamentalMetricId {
+  if (raw === undefined || raw === "") {
+    throw new BadRequestException("metric is required");
+  }
+  if (!isFundamentalMetricId(raw)) {
+    throw new BadRequestException(
+      `Unsupported fundamental metric. Supported: ${FUNDAMENTAL_METRIC_IDS.join(", ")}`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * One session of the requested metric onto the wire: the date, and the persisted value when there
+ * is one. An unavailable session keeps its row and loses only `value` — omitted, never `null` and
+ * never zero — so the chart can draw the interval as a gap.
+ */
+function fundamentalResponse(
+  point: DailyFundamentalMetricPoint,
+): DailyFundamentalMetricResponse {
+  return point.value === undefined
+    ? { date: point.date }
+    : { date: point.date, value: point.value };
+}
+
 function intrinsicResponse(
   point: Awaited<ReturnType<StockDataService["getIntrinsicValues"]>>[number],
 ): IntrinsicValueResponse {
@@ -361,6 +401,34 @@ export class StocksController {
       (await this.stocks.getDailyTechnicals(symbol, query)).map((technical) =>
         technicalResponse(technical, fields),
       ),
+    );
+  }
+
+  /**
+   * One Fundamental Metric's daily history for the Stock Details chart.
+   *
+   * Exactly one `metric`, named by its stable product identity (`ROIC_TTM`), and a bounded window
+   * clamped to the Stock Details horizon like every other read here. The response is the metric's
+   * persisted derived state on every trading day of the window — only that metric, never the whole
+   * row — so choosing ROIC TTM costs one field per session on the wire.
+   */
+  @RateLimit("stock-read")
+  @Get(":symbol/fundamentals/daily")
+  async getDailyFundamentalMetric(
+    @Param("symbol") symbol: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("metric") metricQuery?: unknown,
+  ): Promise<DailyFundamentalMetricResponse[]> {
+    const query = clampStockDetailsRange(
+      range(from, to, true),
+      this.horizonBounds(),
+    );
+    const metricId = fundamentalMetric(metricQuery);
+    return this.execute(async () =>
+      (
+        await this.stocks.getDailyFundamentalMetric(symbol, metricId, query)
+      ).map(fundamentalResponse),
     );
   }
 

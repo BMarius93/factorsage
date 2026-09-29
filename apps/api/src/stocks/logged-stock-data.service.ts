@@ -1,8 +1,10 @@
 import type {
   DailyDerivedState,
+  DailyFundamentalMetricPoint,
   DateRange,
   FinancialStatement,
   FinancialStatementQuery,
+  FundamentalMetricId,
   IntrinsicValueBlendPoint,
   IntrinsicValueBlendQuery,
   IntrinsicValuePoint,
@@ -79,6 +81,16 @@ export class LoggedStockDataService implements StockDataService {
   ): Promise<DailyTechnical[]> {
     return this.execute("getDailyTechnicals", symbol, () =>
       this.delegate.getDailyTechnicals(symbol, range),
+    );
+  }
+
+  getDailyFundamentalMetric(
+    symbol: string,
+    metricId: FundamentalMetricId,
+    range: DateRange,
+  ): Promise<DailyFundamentalMetricPoint[]> {
+    return this.execute("getDailyFundamentalMetric", symbol, () =>
+      this.delegate.getDailyFundamentalMetric(symbol, metricId, range),
     );
   }
 
