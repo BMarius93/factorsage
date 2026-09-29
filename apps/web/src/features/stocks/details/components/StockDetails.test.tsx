@@ -1329,6 +1329,28 @@ describe("StockDetails fundamentals", () => {
     expect(screen.queryByTestId("fundamental-status")).toBeNull();
   });
 
+  it("asks up to the newest bar on the chart, and never draws a session the price series lacks", async () => {
+    // The window ends on the 28th but the newest close on the page is the 27th. A row for the
+    // 28th — which a later freshness check could produce — must neither be asked for nor drawn:
+    // it would add a session to the shared time scale that has no price.
+    const details = detailsFixture();
+    details.prices = details.prices.filter((row) => row.date !== "2026-08-28");
+    fetchStockDetailsMock.mockResolvedValue(details);
+    fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "ROIC_TTM");
+
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    expect(fundamentalRequests()).toEqual([
+      ["AAPL", "ROIC_TTM", WINDOW.from, "2026-08-27"],
+    ]);
+    expect(chart().dataset.fundamentalPoints).toBe(
+      "2025-09-02:12,2026-03-02:18.25,2026-06-02:-,2026-07-30:21,2026-08-27:21",
+    );
+  });
+
   it("switches metrics without ever drawing the previous metric's values under the new name", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyFundamentalHistoryMock.mockResolvedValueOnce(ROIC_ROWS);

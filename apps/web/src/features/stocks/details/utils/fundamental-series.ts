@@ -24,35 +24,44 @@ import { CHART_COLORS } from "./chart-theme";
 export const FUNDAMENTAL_GROUPS = FUNDAMENTAL_METRIC_GROUPED;
 
 /**
- * The drawn line for one metric's loaded sessions.
+ * The drawn line for one metric, on the price chart's own session axis.
  *
- * Every session is taken as the backend stated it: a value where the derived state has one, and
- * whitespace — no value at all — where it does not. Nothing is carried forward here; the backend
- * already carried each statement event onto every later session, so a session without a value is
- * the metric being unavailable, not the metric being unchanged.
+ * The chart has one time axis, the close series' trading days, and the fundamental is drawn on it
+ * and nowhere else. A session the backend returned a value for reads that value; every other
+ * trading day between the metric's first and last value is whitespace — no value at all. Nothing is
+ * carried forward here: the backend already carried each statement event onto every later session,
+ * so a session without a value is the metric being unavailable, never the metric being unchanged.
  *
- * Unavailable sessions before the first value and after the last one are dropped rather than kept
- * as whitespace: nothing is drawn there either way, and the hover legend reads those sessions from
- * the full readings map instead.
+ * Two edges are deliberately not drawn:
+ *
+ * - trading days before the first value and after the last one — nothing is drawn there either
+ *   way, and the hover legend reads those sessions from the readings map instead;
+ * - a returned session the price chart does not carry, such as a newer bar a later freshness check
+ *   appended after the page loaded. Drawing it would add a bar to the shared time scale that the
+ *   price series does not have — a session the chart never shows prices for.
  */
 export function fundamentalLinePoints(
   rows: readonly DailyFundamentalMetricResponse[],
+  tradingDays: readonly string[],
 ): ChartLinePoint[] {
-  const first = rows.findIndex((row) => row.value !== undefined);
+  const values = new Map<string, number>();
+  for (const row of rows) {
+    if (row.value !== undefined) {
+      values.set(row.date, row.value);
+    }
+  }
+  const first = tradingDays.findIndex((date) => values.has(date));
   if (first === -1) {
     return [];
   }
-  let last = rows.length - 1;
-  while (rows[last]?.value === undefined) {
+  let last = tradingDays.length - 1;
+  while (!values.has(tradingDays[last] as string)) {
     last -= 1;
   }
-  return rows
-    .slice(first, last + 1)
-    .map((row) =>
-      row.value === undefined
-        ? { date: row.date }
-        : { date: row.date, value: row.value },
-    );
+  return tradingDays.slice(first, last + 1).map((date) => {
+    const value = values.get(date);
+    return value === undefined ? { date } : { date, value };
+  });
 }
 
 /**
@@ -62,18 +71,25 @@ export function fundamentalLinePoints(
 export function buildFundamentalSeries(
   metricId: FundamentalMetricId,
   rows: readonly DailyFundamentalMetricResponse[],
+  /** The chart's trading-day axis, ascending — the dates of the always-visible close series. */
+  tradingDays: readonly string[],
 ): ChartFundamentalSeries | undefined {
   const metric = findFundamentalMetric(metricId);
   if (!metric) {
     return undefined;
   }
+  const sessions = new Set(tradingDays);
   return {
     id: metric.id,
     label: metric.label,
     unit: metric.unit,
     color: CHART_COLORS.fundamental,
-    points: fundamentalLinePoints(rows),
-    readings: new Map(rows.map((row) => [row.date, row.value])),
+    points: fundamentalLinePoints(rows, tradingDays),
+    readings: new Map(
+      rows
+        .filter((row) => sessions.has(row.date))
+        .map((row) => [row.date, row.value] as const),
+    ),
   };
 }
 

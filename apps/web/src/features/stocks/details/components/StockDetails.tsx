@@ -249,28 +249,6 @@ function StockDetailsContent({
   const { selected, toggle, fundamental, chooseFundamental } =
     useIndicatorSelection(available);
 
-  // The chosen Fundamental Metric, and only it, over exactly the history the price chart holds:
-  // when older price history arrives the metric's gap is asked for too. Nothing is loaded until a
-  // metric is chosen, and nothing about it is calculated here — every session arrives as the
-  // backend materialized it.
-  const fundamentalHistory = useFundamentalHistory({
-    symbol,
-    metricId: fundamental,
-    from: loaded.loadedFrom,
-    to: window.to,
-  });
-  const fundamentalMetric =
-    fundamental === null ? undefined : findFundamentalMetric(fundamental);
-  const chartFundamental = useMemo(
-    () =>
-      fundamental !== null && fundamentalHistory.loaded
-        ? buildFundamentalSeries(fundamental, fundamentalHistory.rows)
-        : undefined,
-    [fundamental, fundamentalHistory.loaded, fundamentalHistory.rows],
-  );
-  const fundamentalDrawn =
-    chartFundamental !== undefined && chartFundamental.points.length > 0;
-
   const chartPoints = useMemo(
     () => closeSeries(loaded.history.prices),
     [loaded.history.prices],
@@ -297,6 +275,39 @@ function StockDetailsContent({
     () => buildOverlays(source, selected, tradingDays),
     [source, selected, tradingDays],
   );
+
+  // The chosen Fundamental Metric, and only it, over exactly the history the price chart holds:
+  // from the loaded-from watermark to the newest bar on the chart, so the metric never answers for
+  // a session the price series does not have, and when older price history arrives the metric's
+  // gap is asked for too. Nothing is loaded until a metric is chosen, and nothing about it is
+  // calculated here — every session arrives as the backend materialized it.
+  const fundamentalHistory = useFundamentalHistory({
+    symbol,
+    metricId: fundamental,
+    from: loaded.loadedFrom,
+    to: tradingDays.at(-1) ?? window.to,
+  });
+  const fundamentalMetric =
+    fundamental === null ? undefined : findFundamentalMetric(fundamental);
+  const chartFundamental = useMemo(
+    () =>
+      fundamental !== null && fundamentalHistory.loaded
+        ? buildFundamentalSeries(
+            fundamental,
+            fundamentalHistory.rows,
+            tradingDays,
+          )
+        : undefined,
+    [
+      fundamental,
+      fundamentalHistory.loaded,
+      fundamentalHistory.rows,
+      tradingDays,
+    ],
+  );
+  const fundamentalDrawn =
+    chartFundamental !== undefined && chartFundamental.points.length > 0;
+
   // The legend and the picker read the same assignment, so a swatch always matches its line.
   const overlayColors = useMemo(
     () => new Map(chartOverlays.map((overlay) => [overlay.id, overlay.color])),

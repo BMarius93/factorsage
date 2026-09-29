@@ -14,6 +14,7 @@ vi.mock("../api/stock-details-api", () => ({
 const fetchMock = vi.mocked(fetchDailyFundamentalHistory);
 
 type Props = {
+  symbol?: string;
   metricId: FundamentalMetricId | null;
   from: string;
   to: string;
@@ -42,7 +43,8 @@ function deferred<T>() {
 
 function renderHistory(initial: Props) {
   return renderHook(
-    (props: Props) => useFundamentalHistory({ symbol: "AAPL", ...props }),
+    (props: Props) =>
+      useFundamentalHistory({ ...props, symbol: props.symbol ?? "AAPL" }),
     { initialProps: initial },
   );
 }
@@ -234,6 +236,60 @@ describe("useFundamentalHistory", () => {
     fetchMock.mockReturnValueOnce(new Promise(() => {}));
     rerender({ metricId: "DEBT_TO_EQUITY", ...WINDOW });
     expect(result.current.status).toBe("loading");
+  });
+
+  it("never shows or extends one security's rows for another", async () => {
+    fetchMock.mockResolvedValueOnce(ROIC);
+    const { result, rerender } = renderHistory({
+      metricId: "ROIC_TTM",
+      ...WINDOW,
+    });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    const msft = deferred<DailyFundamentalMetricResponse[]>();
+    fetchMock.mockReturnValueOnce(msft.promise);
+    rerender({ symbol: "MSFT", metricId: "ROIC_TTM", ...WINDOW });
+
+    // Same metric, same window, another company: AAPL's readings are not MSFT's.
+    expect(result.current.rows).toEqual([]);
+    expect(result.current.loaded).toBe(false);
+    expect(result.current.status).toBe("loading");
+
+    await act(async () => msft.resolve([{ date: "2026-08-28", value: 31 }]));
+    expect(result.current.rows).toEqual([{ date: "2026-08-28", value: 31 }]);
+    // The whole window for the new security, never a gap merged into the old one's rows.
+    expect(fetchMock.mock.calls.map(([symbol]) => symbol)).toEqual([
+      "AAPL",
+      "MSFT",
+    ]);
+    expect(requests()).toEqual([
+      ["ROIC_TTM", WINDOW.from, WINDOW.to],
+      ["ROIC_TTM", WINDOW.from, WINDOW.to],
+    ]);
+  });
+
+  it("asks for the whole window again when its end moves, rather than extending rows that ended elsewhere", async () => {
+    fetchMock.mockResolvedValueOnce(ROIC);
+    const { result, rerender } = renderHistory({
+      metricId: "ROIC_TTM",
+      ...WINDOW,
+    });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    const later = deferred<DailyFundamentalMetricResponse[]>();
+    fetchMock.mockReturnValueOnce(later.promise);
+    rerender({ metricId: "ROIC_TTM", from: WINDOW.from, to: "2026-08-31" });
+    expect(result.current.rows).toEqual([]);
+    expect(result.current.status).toBe("loading");
+
+    await act(async () =>
+      later.resolve([...ROIC, { date: "2026-08-31", value: 19 }]),
+    );
+    expect(result.current.rows).toHaveLength(3);
+    expect(requests()).toEqual([
+      ["ROIC_TTM", WINDOW.from, WINDOW.to],
+      ["ROIC_TTM", WINDOW.from, "2026-08-31"],
+    ]);
   });
 
   it("drops everything when the metric is cleared, and aborts what was in flight", async () => {

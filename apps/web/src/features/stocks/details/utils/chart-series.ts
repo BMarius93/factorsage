@@ -72,13 +72,14 @@ export type ChartFundamentalSeries = {
   unit: FundamentalMetricUnit;
   color: string;
   /**
-   * The drawn line on the metric's own session axis: from its first session with a value to its
-   * last, with every unavailable session in between present as whitespace.
+   * The drawn line on the price chart's session axis: from its first session with a value to its
+   * last, with every session in between that has no value present as whitespace.
    */
   points: readonly ChartLinePoint[];
   /**
-   * Every loaded session to its stored value, or to `undefined` where the metric is unavailable.
-   * What the hover legend reads: a session outside this map was not loaded, and says nothing.
+   * Every loaded session of the chart to its stored value, or to `undefined` where the metric is
+   * unavailable. What the hover legend reads: a session outside this map was not loaded for the
+   * metric, and says nothing about it.
    */
   readings: ReadonlyMap<string, number | undefined>;
 };
