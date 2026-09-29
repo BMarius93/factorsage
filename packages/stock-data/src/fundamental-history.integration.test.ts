@@ -15,6 +15,7 @@ import {
   type Security,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort } from "@intrinsic/fmp";
+import { fundamentalMetricOperand, readOperand } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache } from "./cache.js";
@@ -781,6 +782,66 @@ describeInfrastructure(
       expect(counts.zero).toBeGreaterThan(0);
       expect(counts.negative).toBeGreaterThan(0);
       expect(counts.unavailable).toBeGreaterThan(0);
+    });
+
+    it("gives the chart exactly the reading a Strategy's evaluation frame has, on every session", async () => {
+      // One materialization, two readers: the Stock Details history and the frame a backtest and a
+      // Monitor evaluate. They must agree on every session, and change on the same one.
+      const frame = await service.getDailyEvaluationFrame(
+        security,
+        PERIOD,
+        FUNDAMENTAL_METRIC_IDS.map(fundamentalMetricOperand),
+      );
+      const boundaries = [
+        ["2024-02-14", "2024-02-15"],
+        ["2024-05-03", "2024-05-06"],
+        ["2024-05-10", "2024-05-13"],
+        ["2024-06-18", "2024-06-20"],
+        ["2024-08-07", "2024-08-08"],
+        ["2024-10-01", "2024-10-02"],
+        ["2024-11-08", "2024-11-11"],
+        ["2024-12-02", "2024-12-03"],
+      ] as const;
+      let compared = 0;
+      for (const metricId of FUNDAMENTAL_METRIC_IDS) {
+        const chart = new Map(
+          (await history(metricId)).map((point) => [point.date, point.value]),
+        );
+        const operand = fundamentalMetricOperand(metricId);
+        frame.dates.forEach((date, index) => {
+          if (!chart.has(date)) {
+            return;
+          }
+          const inFrame = readOperand(frame, operand, index);
+          const onChart = chart.get(date);
+          if (onChart === undefined) {
+            expect(inFrame, `${date} ${metricId}`).toBeNaN();
+          } else {
+            expect(inFrame, `${date} ${metricId}`).toBe(onChart);
+          }
+          compared += 1;
+        });
+        // Either side of every statement boundary: the chart and the frame change on the same
+        // session, or neither does.
+        for (const [before, after] of boundaries) {
+          const frameBefore = readOperand(
+            frame,
+            operand,
+            frame.dates.indexOf(before),
+          );
+          const frameAfter = readOperand(
+            frame,
+            operand,
+            frame.dates.indexOf(after),
+          );
+          const chartChanged = chart.get(before) !== chart.get(after);
+          const frameChanged = !Object.is(frameBefore, frameAfter);
+          expect(frameChanged, `${metricId} ${before}->${after}`).toBe(
+            chartChanged,
+          );
+        }
+      }
+      expect(compared).toBe(sessions.length * FUNDAMENTAL_METRIC_IDS.length);
     });
 
     it("serves an ordinary read from the derived state alone: no statement, rebuild or provider", async () => {
