@@ -22,11 +22,12 @@ type FakeSeries = {
  * A pane as the library models it: an ordered slot holding series. The mock keeps the library's
  * real rules rather than a fixed list — a series placed at an index past the last pane opens a
  * new pane at the bottom, a pane whose last series is removed disappears and the panes below it
- * move up, and `moveTo` reorders — because pane placement is exactly what these tests assert.
+ * move up, and the chart's `swapPanes` reorders — because pane placement is exactly what these
+ * tests assert. There is deliberately no `moveTo`: the real one checks its target against pane
+ * widgets that lag the model by a frame, so the component must never reach for it.
  */
 type FakePane = {
   setStretchFactor: Mock;
-  moveTo: Mock;
   paneIndex: () => number;
   series: FakeSeries[];
 };
@@ -69,6 +70,7 @@ type FakeChart = {
   subscribeVisibleLogicalRangeChange: Mock;
   unsubscribeVisibleLogicalRangeChange: Mock;
   panes: Mock;
+  swapPanes: Mock;
   subscribeCrosshairMove: Mock;
   unsubscribeCrosshairMove: Mock;
   remove: Mock;
@@ -106,11 +108,6 @@ vi.mock("lightweight-charts", () => {
       const newPane = (): FakePane => {
         const pane: FakePane = {
           setStretchFactor: vi.fn(),
-          moveTo: vi.fn((target: number) => {
-            const from = chart.panesList.indexOf(pane);
-            chart.panesList.splice(from, 1);
-            chart.panesList.splice(target, 0, pane);
-          }),
           paneIndex: () => chart.panesList.indexOf(pane),
           series: [],
         };
@@ -183,6 +180,16 @@ vi.mock("lightweight-charts", () => {
         subscribeVisibleLogicalRangeChange,
         unsubscribeVisibleLogicalRangeChange,
         panes: vi.fn(() => chart.panesList),
+        // Checked against the model's panes, as the real chart does, and a swap of two panes.
+        swapPanes: vi.fn((first: number, second: number) => {
+          const count = chart.panesList.length;
+          if (first < 0 || first >= count || second < 0 || second >= count) {
+            throw new Error("Invalid pane index");
+          }
+          const held = chart.panesList[first] as FakePane;
+          chart.panesList[first] = chart.panesList[second] as FakePane;
+          chart.panesList[second] = held;
+        }),
         subscribeCrosshairMove: vi.fn(),
         unsubscribeCrosshairMove: vi.fn(),
         remove: vi.fn(),
@@ -1949,7 +1956,10 @@ describe("StockPriceChart fundamental pane", () => {
     const fundamentalPane = liveFundamentalSeries(chart)[0]?.api.getPane();
     expect(chart.panesList.indexOf(fundamentalPane!)).toBe(2);
 
-    // The oscillator arrives second: its new pane opens at the bottom and is moved above.
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
+
+    // The oscillator arrives second: its new pane opens at the bottom and is swapped above.
     rerender(
       <StockPriceChart
         points={POINTS}
@@ -1969,11 +1979,15 @@ describe("StockPriceChart fundamental pane", () => {
     expect(chart.panesList).toHaveLength(4);
     expect(chart.panesList.indexOf(oscillatorPane!)).toBe(2);
     expect(chart.panesList.indexOf(fundamentalPane!)).toBe(3);
+    expect(chart.swapPanes).toHaveBeenCalledTimes(1);
+    expect(chart.swapPanes).toHaveBeenCalledWith(3, 2);
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,oscillator,fundamental",
+    );
     // The RSI never lands on the fundamental's scale, nor a fundamental on the RSI's.
     expect(oscillatorPane).not.toBe(fundamentalPane);
     expect(oscillatorPane?.setStretchFactor).toHaveBeenCalledWith(0.35);
     expect(fundamentalPane?.setStretchFactor).toHaveBeenCalledWith(0.6);
-    const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.dataset.oscillatorPane).toBe("true");
     expect(wrapper.dataset.fundamentalPane).toBe("true");
 
@@ -1993,13 +2007,16 @@ describe("StockPriceChart fundamental pane", () => {
     );
     expect(chart.panesList).toHaveLength(3);
     expect(chart.panesList.indexOf(fundamentalPane!)).toBe(2);
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
   });
 
   it("puts a fundamental chosen after an oscillator below the oscillator's pane", () => {
     const rsi = rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3);
-    const { rerender } = renderFundamental(undefined, [rsi]);
+    const { rerender, container } = renderFundamental(undefined, [rsi]);
     const chart = lastChart();
     const oscillatorPane = oscillatorSeriesIn(chart)[0]?.api.getPane();
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,oscillator");
 
     rerender(
       <StockPriceChart
@@ -2018,6 +2035,11 @@ describe("StockPriceChart fundamental pane", () => {
     expect(line?.paneIndex).toBe(3);
     expect(chart.panesList.indexOf(oscillatorPane!)).toBe(2);
     expect(chart.panesList.indexOf(line!.api.getPane())).toBe(3);
+    // Already in order: nothing is swapped.
+    expect(chart.swapPanes).not.toHaveBeenCalled();
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,oscillator,fundamental",
+    );
   });
 
   it("draws no pane for a metric with no value anywhere in the loaded history", () => {

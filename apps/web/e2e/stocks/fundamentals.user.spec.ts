@@ -657,9 +657,15 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
       "true",
     );
 
-    // The price chart keeps a useful height above the new pane, and nothing overflows.
+    // The price chart keeps a useful height above the new pane, and nothing overflows. The price
+    // pane is the chart's first row: the wrapper grows by the new pane, so it is not squeezed.
     const chartBox = await priceChart(page).boundingBox();
     expect(chartBox!.height).toBeGreaterThanOrEqual(420);
+    const pricePane = await priceChart(page)
+      .locator("tr")
+      .first()
+      .boundingBox();
+    expect(pricePane!.height).toBeGreaterThanOrEqual(250);
     expect(chartBox!.x + chartBox!.width).toBeLessThanOrEqual(MOBILE.width);
     const key = page.getByRole("list", { name: "Chart key" });
     await expect(key).toContainText("Net Debt / EBITDA TTM");
@@ -674,6 +680,113 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(MOBILE.width);
     expect(issues.consoleErrors).toEqual([]);
+    expect(issues.failedRequests).toEqual([]);
+  });
+
+  test("keeps volume, RSI and the fundamental in one pane order, whichever is chosen first", async ({
+    page,
+  }) => {
+    const issues = watchForIssues(page);
+    await openStock(page);
+    const wrapper = chartWrapper(page);
+    const rsi = panel(page).getByRole("checkbox", {
+      name: "RSI 14D",
+      exact: true,
+    });
+    await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
+
+    // Fundamental first. The RSI's pane is then created below it and has to be swapped above it
+    // in the same frame, before the library has drawn the pane it just created.
+    await chooseFundamental(page, "ROIC_TTM");
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,fundamental",
+    );
+    await rsi.check();
+    await expect(wrapper).toHaveAttribute("data-oscillator-pane", "true");
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,oscillator,fundamental",
+    );
+    // Another metric with the RSI on keeps the order; the RSI leaving lifts the fundamental up.
+    await chooseFundamental(page, "DEBT_TO_EQUITY");
+    await expect(wrapper).toHaveAttribute("data-fundamental-pane", "true");
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,oscillator,fundamental",
+    );
+    await rsi.uncheck();
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,fundamental",
+    );
+
+    // RSI first: the fundamental's pane is appended below it, already in order.
+    await fundamentalSelect(page).selectOption("");
+    await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
+    await rsi.check();
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,oscillator",
+    );
+    await chooseFundamental(page, "NET_DEBT_TO_EBITDA_TTM");
+    await expect(wrapper).toHaveAttribute("data-fundamental-pane", "true");
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,oscillator,fundamental",
+    );
+
+    // Both read on one crosshair: the RSI and the fundamental, each in its own terms.
+    await closeIndicators(page);
+    const seen = await sweepLegend(page, "Net Debt / EBITDA TTM", 6);
+    expect(new Set(seen.values())).toEqual(new Set(["-0.4x"]));
+    await expect(page.getByTestId("chart-legend")).toContainText("RSI 14D");
+
+    // Both panes created within one animation frame, fundamental first — before the library has
+    // rendered either. The metric's rows are still held, so choosing it again draws its pane in
+    // that same commit, and the RSI's pane follows in the next one; the swap that orders them must
+    // not depend on panes the library has not rendered yet.
+    await openIndicators(page);
+    await rsi.uncheck();
+    await fundamentalSelect(page).selectOption("");
+    await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => resolve(null)),
+          ),
+        ),
+    );
+    const fundamentalRequests = watchFundamentalRequests(page);
+    await page.evaluate(async () => {
+      const select = document.querySelector<HTMLSelectElement>(
+        '[data-testid="fundamental-select"]',
+      )!;
+      select.value = "NET_DEBT_TO_EBITDA_TTM";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const checkbox = [
+        ...document.querySelectorAll<HTMLInputElement>(
+          '[data-testid="indicators-panel"] input[type="checkbox"]',
+        ),
+      ].find((input) => input.labels?.[0]?.textContent?.trim() === "RSI 14D")!;
+      checkbox.click();
+    });
+    await expect(wrapper).toHaveAttribute(
+      "data-pane-order",
+      "price,volume,oscillator,fundamental",
+    );
+    await expect(wrapper).toHaveAttribute(
+      "data-fundamental",
+      "NET_DEBT_TO_EBITDA_TTM",
+    );
+    await expect(rsi).toBeChecked();
+    // Drawn from the rows already held: nothing was asked for again.
+    expect(fundamentalRequests).toEqual([]);
+
+    expect(issues.consoleErrors).toEqual([]);
+    expect(issues.pageErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);
   });
 

@@ -42,8 +42,8 @@ import styles from "./StockPriceChart.module.css";
  * creates the pane with the first series placed into it and removes it again with the last one.
  *
  * It sits directly below the volume pane. The Fundamental Metric pane, when there is one, sits below
- * it in turn, so a pane created later is moved into that order rather than left where the library
- * appended it (`arrangeLowerPanes`).
+ * it in turn, so an oscillator pane created after it is swapped into that order rather than left
+ * where the library appended it (`arrangeLowerPanes`).
  */
 const OSCILLATOR_PANE_INDEX = 2;
 
@@ -137,30 +137,62 @@ function formatOscillatorValue(value: number): string {
 /**
  * Keeps the lower panes in one order whatever order they were created in: volume, then the
  * oscillator pane, then the Fundamental Metric pane — and restates every lower pane's height, which
- * the library resets whenever a pane is added or removed.
+ * the library resets whenever a pane is added or removed. Returns the resulting order, top to
+ * bottom, for the chart's DOM contract.
  *
  * The library only ever appends a new pane at the bottom and drops a pane when its last series goes,
  * so the one case this corrects is an oscillator switched on while a fundamental is already drawn:
- * its pane arrives below the fundamental's and is moved up. Moving a pane moves its series, scale
- * and reference lines with it; nothing is recreated.
+ * its pane arrives below the fundamental's, and the two are swapped. A swap moves each pane's series,
+ * scale and reference lines with it; nothing is recreated, and the fundamental's pane ends up last
+ * because the oscillator's was.
+ *
+ * Swapped through the chart rather than with `IPaneApi.moveTo`: the chart checks the indices
+ * against its model, which already holds the pane created a moment ago, while `moveTo` checks its
+ * target against the rendered pane widgets, which only catch up on the next animation frame.
  */
 function arrangeLowerPanes(
   chart: IChartApi,
   oscillator: ISeriesApi<"Line"> | undefined,
   fundamental: ISeriesApi<"Line"> | undefined,
-): void {
+): string {
   const oscillatorPane = oscillator?.getPane();
-  if (oscillatorPane && oscillatorPane.paneIndex() !== OSCILLATOR_PANE_INDEX) {
-    oscillatorPane.moveTo(OSCILLATOR_PANE_INDEX);
+  const arrivedAt = oscillatorPane?.paneIndex();
+  if (arrivedAt !== undefined && arrivedAt > OSCILLATOR_PANE_INDEX) {
+    chart.swapPanes(arrivedAt, OSCILLATOR_PANE_INDEX);
   }
   const fundamentalPane = fundamental?.getPane();
-  const lastPane = chart.panes().length - 1;
-  if (fundamentalPane && fundamentalPane.paneIndex() !== lastPane) {
-    fundamentalPane.moveTo(lastPane);
-  }
   chart.panes()[VOLUME_PANE_INDEX]?.setStretchFactor(VOLUME_PANE_STRETCH);
   oscillatorPane?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
   fundamentalPane?.setStretchFactor(FUNDAMENTAL_PANE_STRETCH);
+  const oscillatorIndex = oscillatorPane?.paneIndex();
+  const fundamentalIndex = fundamentalPane?.paneIndex();
+  return chart
+    .panes()
+    .map((_, index) => {
+      if (index === 0) {
+        return "price";
+      }
+      if (index === VOLUME_PANE_INDEX) {
+        return "volume";
+      }
+      if (index === oscillatorIndex) {
+        return "oscillator";
+      }
+      return index === fundamentalIndex ? "fundamental" : "unknown";
+    })
+    .join(",");
+}
+
+/**
+ * The panes as the chart holds them, top to bottom — `price,volume,oscillator,fundamental` at most.
+ * Read back from the chart after every arrangement and published the way the viewport is, so a
+ * browser test asserts the order the library actually has rather than the order this component
+ * meant to give it.
+ */
+function publishPaneOrder(wrapper: HTMLElement | null, order: string): void {
+  if (wrapper) {
+    wrapper.dataset.paneOrder = order;
+  }
 }
 
 /** Volume is a share count, never money: `8_420_000` reads as `8.4M`. */
@@ -688,8 +720,8 @@ export function StockPriceChart({
     }
     // The pane every oscillator shares: the one an oscillator already occupies, or — for the
     // first — a new pane, which the library appends at the bottom and `arrangeLowerPanes` then
-    // moves up beneath the volume. Never a fixed index: with a fundamental drawn, the index below
-    // the volume belongs to the fundamental's pane until the oscillator's is moved there.
+    // swaps up beneath the volume. Never a fixed index: with a fundamental drawn, the index below
+    // the volume belongs to the fundamental's pane until the oscillator's is swapped there.
     const oscillatorPaneIndex = () => {
       for (const id of oscillatorIds) {
         const series = existing.get(id);
@@ -786,7 +818,10 @@ export function StockPriceChart({
     // Keep the price pane dominant and the lower panes in their one order. Adding or removing the
     // oscillator pane resets the stretch factors, so every lower pane is restated here rather than
     // being left at the library's default once an RSI is toggled.
-    arrangeLowerPanes(chart, owner, fundamentalSeriesRef.current[0]);
+    publishPaneOrder(
+      wrapperRef.current,
+      arrangeLowerPanes(chart, owner, fundamentalSeriesRef.current[0]),
+    );
     // Deliberately no fitContent here: enabling or disabling an overlay is not a request to
     // reframe the history the user has scrolled to.
   }, [overlays]);
@@ -866,7 +901,10 @@ export function StockPriceChart({
     const oscillator = [...oscillatorOverlaysRef.current]
       .map((id) => overlaySeriesRef.current.get(id))
       .find((series) => series !== undefined);
-    arrangeLowerPanes(chart, oscillator, fundamentalSeriesRef.current[0]);
+    publishPaneOrder(
+      wrapperRef.current,
+      arrangeLowerPanes(chart, oscillator, fundamentalSeriesRef.current[0]),
+    );
   }, [fundamental, fundamentalStretches]);
 
   const empty = points.length < 2;
