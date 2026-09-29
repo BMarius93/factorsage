@@ -1790,6 +1790,10 @@ describe("StockPriceChart fundamental pane", () => {
     ]);
     expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.6);
     expect(chart.panesList[1]?.setStretchFactor).toHaveBeenCalledWith(0.45);
+    // The readings keep clear of the pane's edges on the one scale every stretch shares.
+    expect(line?.api.scaleOptions).toEqual({
+      scaleMargins: { top: 0.2, bottom: 0.15 },
+    });
 
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.dataset).toMatchObject({

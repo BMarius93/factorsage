@@ -68,6 +68,9 @@ const OSCILLATOR_PANE_STRETCH = 0.35;
  */
 const FUNDAMENTAL_PANE_STRETCH = 0.6;
 
+/** Room above and below the fundamental's readings, as fractions of its pane. */
+const FUNDAMENTAL_SCALE_MARGINS = { top: 0.2, bottom: 0.15 } as const;
+
 /**
  * Relative height of the volume pane.
  *
@@ -853,6 +856,12 @@ export function StockPriceChart({
         paneIndex = series.getPane().paneIndex();
         fundamentalSeriesRef.current.push(series);
       }
+      // Every stretch shares the pane's one scale. Its margins keep the highest and lowest
+      // readings off the pane's edges, where a flat step would merge into the separator above
+      // or the time axis below.
+      fundamentalSeriesRef.current[0]
+        ?.priceScale()
+        .applyOptions({ scaleMargins: FUNDAMENTAL_SCALE_MARGINS });
     }
     const oscillator = [...oscillatorOverlaysRef.current]
       .map((id) => overlaySeriesRef.current.get(id))
