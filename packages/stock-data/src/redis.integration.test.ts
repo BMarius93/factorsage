@@ -2420,6 +2420,135 @@ describeInfrastructure(
       }
     }, 120_000);
 
+    it("persists a metric the column cannot hold as absence, and rebuilds the rest of the security", async () => {
+      // A JPY-scale reporter whose single-unit denominators produce ratios of 10^12 or more.
+      const scenario: HistoryScenario = {
+        seed: 303,
+        fiscalYearEndMonth: 3,
+        firstFiscalYear: 2015,
+        fiscalYears: 12,
+        currency: { base: "JPY" },
+        magnitude: 1e9,
+        tinyDenominators: 0.2,
+      };
+      let drafts: FinancialStatementDraft[] = [];
+      const fixture = await provision("2021-01-04", (securityId) => {
+        drafts = draftsFrom(generateHistory(scenario, securityId));
+        return drafts;
+      });
+      try {
+        const range = { from: "2021-01-04", to: TODAY };
+
+        // 1. The rebuild succeeds, and not one source statement was refused.
+        const served = await fixture
+          .service()
+          .getDailyDerivedState(fixture.symbol, range);
+        const revisions = await fixture.store.getFinancialStatementRevisions({
+          securityId: fixture.securityId,
+        });
+        expect(revisions).toHaveLength(drafts.length);
+        const persisted = await fixture.store.getDailyDerivedState(
+          fixture.securityId,
+          range,
+        );
+        expect(persisted.map((row) => row.date)).toEqual(
+          fixture.prices.map((price) => price.date),
+        );
+        expect(served).toEqual(persisted);
+
+        // 2. Every metric on every day is the oracle's, with its storable-range rule applied, and
+        //    the rule removes real observations here: find them.
+        expectRowsMatchOracle(persisted, revisions, fixture.securityId);
+        const unstorable = new Map<string, string[]>();
+        let othersPresent = 0;
+        for (const row of persisted) {
+          const strict = referenceFundamentals(
+            revisions,
+            fixture.securityId,
+            row.date,
+          );
+          const unbounded = referenceFundamentals(
+            revisions,
+            fixture.securityId,
+            row.date,
+            { ignoreStorableRange: true },
+          );
+          for (const metric of FUNDAMENTAL_METRICS) {
+            if (
+              strict[metric.field] === undefined &&
+              unbounded[metric.field] !== undefined
+            ) {
+              unstorable.set(metric.field, [
+                ...(unstorable.get(metric.field) ?? []),
+                row.date,
+              ]);
+              othersPresent += FUNDAMENTAL_METRICS.filter(
+                (other) =>
+                  other.field !== metric.field &&
+                  row[other.field] !== undefined,
+              ).length;
+            }
+          }
+        }
+        const unstorableDays = [...unstorable.values()].flat().length;
+        expect(unstorableDays).toBeGreaterThan(500);
+        expect(unstorable.size).toBeGreaterThan(5);
+        // The other metrics of those days are still there.
+        expect(othersPresent).toBeGreaterThan(unstorableDays);
+
+        // 3. PostgreSQL holds NULL for every one of them: no clamp, no sentinel, no zero.
+        for (const [field, dates] of unstorable) {
+          const [stored] = await fixture.prisma.$queryRawUnsafe<
+            { present: bigint }[]
+          >(
+            `SELECT count("${field}") AS present FROM "DailyDerivedState"
+             WHERE "securityId" = $1 AND "date" = ANY($2::date[])`,
+            fixture.securityId,
+            dates,
+          );
+          expect(Number(stored?.present), field).toBe(0);
+        }
+
+        // 4. Redis holds the same absence: the key is missing from the chunk, never null or zero,
+        //    and a flush reconstructs exactly the persisted rows.
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+        const years = new Set(
+          [...unstorable.values()].flat().map((date) => date.slice(0, 4)),
+        );
+        for (const year of years) {
+          const chunk = await fixture.redis.get(
+            `${fixture.namespace}:security:${fixture.securityId}:daily-state:${year}`,
+          );
+          expect(chunk, year).not.toBeNull();
+          expect(chunk, year).not.toContain("null");
+          const rows = JSON.parse(chunk!) as Record<string, unknown>[];
+          const byDate = new Map(rows.map((row) => [row.date, row]));
+          for (const [field, dates] of unstorable) {
+            for (const date of dates.filter((each) => each.startsWith(year))) {
+              expect(byDate.get(date), `${date} ${field}`).not.toHaveProperty(
+                field,
+              );
+            }
+          }
+        }
+        await fixture.redis.del(...(await fixture.namespaceKeys()));
+        const derivedWrites = vi.spyOn(fixture.store, "saveDailyDerivedState");
+        await expect(
+          fixture.service().getDailyDerivedState(fixture.symbol, range),
+        ).resolves.toEqual(persisted);
+        expect(derivedWrites).not.toHaveBeenCalled();
+        await expect(
+          fixture.cache.readDailyDerivedState(fixture.securityId, range),
+        ).resolves.toEqual(persisted);
+        expect(fixture.provider.calls).toEqual([]);
+        expect(fixture.requests).toEqual([]);
+      } finally {
+        await fixture.dispose();
+      }
+    }, 120_000);
+
     /** Clean quarters FY2022 Q1..FY2026 Q2, each filed forty days after its period end. */
     function cleanQuarters(securityId: string): FinancialStatementDraft[] {
       const quarterEnds = ["03-31", "06-30", "09-30", "12-31"];
