@@ -2049,8 +2049,63 @@ describe("StockPriceChart fundamental pane", () => {
     expect(chart.panesList).toHaveLength(2);
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.dataset.fundamentalPane).toBeUndefined();
+    expect(wrapper.dataset.fundamentalSpace).toBeUndefined();
     expect(wrapper.dataset.fundamental).toBe("ROIC_TTM");
     expect(wrapper.dataset.fundamentalRuns).toBe("0");
+  });
+
+  it("keeps the pane's room while a chosen metric loads, and draws nothing in it", () => {
+    const { rerender, container } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        fundamentalPending
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.fundamentalSpace).toBe("true");
+    expect(wrapper.dataset.fundamentalPane).toBeUndefined();
+    expect(liveFundamentalSeries(chart)).toEqual([]);
+    expect(chart.panesList).toHaveLength(2);
+
+    // Arrived and drawn: the room is the pane's.
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        fundamental={ROIC}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(wrapper.dataset.fundamentalSpace).toBe("true");
+    expect(wrapper.dataset.fundamentalPane).toBe("true");
+
+    // None: no pane and no room.
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(wrapper.dataset.fundamentalSpace).toBeUndefined();
   });
 
   it("does not redraw the fundamental when an unrelated overlay is toggled", () => {

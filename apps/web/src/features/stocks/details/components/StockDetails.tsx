@@ -371,6 +371,9 @@ function StockDetailsContent({
             relativeVolume={chartRelativeVolume}
             overlays={chartOverlays}
             {...(chartFundamental ? { fundamental: chartFundamental } : {})}
+            fundamentalPending={
+              fundamental !== null && fundamentalHistory.status === "loading"
+            }
             currency={security.currency}
             loading={loaded.status === "loading"}
             // The two moments a range is allowed to reframe the chart: when it is picked, and

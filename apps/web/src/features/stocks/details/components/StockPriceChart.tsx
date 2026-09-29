@@ -228,6 +228,12 @@ export type StockPriceChartProps = {
    * `undefined` for none. A metric with no value anywhere in the loaded history draws no pane.
    */
   readonly fundamental?: ChartFundamentalSeries;
+  /**
+   * A metric is chosen and its history is still on its way. The chart keeps the fundamental pane's
+   * room while it waits, so switching from one metric to the next does not shrink the page and grow
+   * it again a moment later; nothing is drawn in that room until the metric's own values arrive.
+   */
+  readonly fundamentalPending?: boolean;
   readonly currency: string;
   /** Dims the chart while a fuller history range is being loaded. */
   readonly loading?: boolean;
@@ -309,6 +315,7 @@ export function StockPriceChart({
   relativeVolume,
   overlays,
   fundamental,
+  fundamentalPending = false,
   currency,
   loading = false,
   fitKey,
@@ -959,6 +966,11 @@ export function StockPriceChart({
       data-fundamental={fundamental?.id}
       data-fundamental-unit={fundamental?.unit}
       data-fundamental-pane={hasFundamentalPane ? "true" : undefined}
+      // The room the wrapper keeps for that pane: while it is drawn, and while a chosen metric's
+      // history is loading, so the page does not jump between two metrics.
+      data-fundamental-space={
+        hasFundamentalPane || fundamentalPending ? "true" : undefined
+      }
       data-fundamental-runs={
         fundamental ? fundamentalStretches.length : undefined
       }

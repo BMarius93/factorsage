@@ -96,6 +96,7 @@ vi.mock("./StockPriceChart", () => ({
       data-fundamental-points={(props.fundamental?.points ?? [])
         .map((point) => `${point.date}:${point.value ?? "-"}`)
         .join(",")}
+      data-fundamental-pending={props.fundamentalPending ? "true" : "false"}
       data-loading={props.loading ? "true" : "false"}
       data-fit-key={props.fitKey}
       data-frame-from={props.frameFrom}
@@ -1363,9 +1364,11 @@ describe("StockDetails fundamentals", () => {
     fetchDailyFundamentalHistoryMock.mockReturnValueOnce(debt.promise);
     await user.selectOptions(select, "DEBT_TO_EQUITY");
 
-    // Waiting: ROIC is gone from the chart and the key, and the wait is said as a wait.
+    // Waiting: ROIC is gone from the chart and the key, and the wait is said as a wait. The
+    // chart keeps the pane's room meanwhile, so the page does not shrink and regrow.
     expect(chart().dataset.fundamental).toBe("");
     expect(chart().dataset.fundamentalPoints).toBe("");
+    expect(chart().dataset.fundamentalPending).toBe("true");
     expect(screen.getByTestId("fundamental-status").textContent).toBe(
       "Loading Debt / Equity…",
     );
@@ -1384,6 +1387,7 @@ describe("StockDetails fundamentals", () => {
     expect(chart().dataset.fundamentalPoints).toBe(
       "2026-08-27:0.75,2026-08-28:1",
     );
+    expect(chart().dataset.fundamentalPending).toBe("false");
     expect(fundamentalRequests().map((request) => request[1])).toEqual([
       "ROIC_TTM",
       "DEBT_TO_EQUITY",
@@ -1432,9 +1436,10 @@ describe("StockDetails fundamentals", () => {
     expect(screen.getByTestId("fundamental-status").textContent).toBe(
       "EPS Growth TTM YoY is unavailable for every session in the loaded history.",
     );
-    // Selected, and nothing drawn: no line, no pane, no zero.
+    // Selected, and nothing drawn: no line, no pane, no zero — and no room kept for one.
     expect(chart().dataset.fundamental).toBe("EPS_GROWTH_TTM_YOY");
     expect(chart().dataset.fundamentalPoints).toBe("");
+    expect(chart().dataset.fundamentalPending).toBe("false");
   });
 
   it("reports a failed load as a failure, and asks for the same window again", async () => {

@@ -16,12 +16,13 @@
 }
 
 /* The Fundamental Metric pane sits below everything else and adds its own height the same way,
-   on top of the oscillator pane's when both are drawn. */
-.wrapper[data-fundamental-pane="true"] {
+   on top of the oscillator pane's when both are drawn. The room is kept while a chosen metric is
+   loading too, so moving from one metric to the next does not shrink the page and regrow it. */
+.wrapper[data-fundamental-space="true"] {
   height: 460px;
 }
 
-.wrapper[data-oscillator-pane="true"][data-fundamental-pane="true"] {
+.wrapper[data-oscillator-pane="true"][data-fundamental-space="true"] {
   height: 560px;
 }
 
@@ -34,11 +35,11 @@
     height: 560px;
   }
 
-  .wrapper[data-fundamental-pane="true"] {
+  .wrapper[data-fundamental-space="true"] {
     height: 580px;
   }
 
-  .wrapper[data-oscillator-pane="true"][data-fundamental-pane="true"] {
+  .wrapper[data-oscillator-pane="true"][data-fundamental-space="true"] {
     height: 700px;
   }
 }
