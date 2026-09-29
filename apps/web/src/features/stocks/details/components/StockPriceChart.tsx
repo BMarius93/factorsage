@@ -205,6 +205,27 @@ function publishPaneOrder(wrapper: HTMLElement | null, order: string): void {
   }
 }
 
+/**
+ * Whether the fundamental's pane is in the chart — its line, or the placeholder holding its place —
+ * published as `data-fundamental-space`, which gives the wrapper the room for it. Written by the
+ * effect that adds and removes that pane, never from the render: after a failed or empty answer the
+ * render would shrink the wrapper a frame before the effect took the placeholder out, squeezing the
+ * price pane for that frame. From here the wrapper and the panes change together.
+ */
+function publishFundamentalSpace(
+  wrapper: HTMLElement | null,
+  present: boolean,
+): void {
+  if (!wrapper) {
+    return;
+  }
+  if (present) {
+    wrapper.dataset.fundamentalSpace = "true";
+  } else {
+    delete wrapper.dataset.fundamentalSpace;
+  }
+}
+
 /** Volume is a share count, never money: `8_420_000` reads as `8.4M`. */
 function formatVolumeValue(value: number): string {
   return formatCompactNumber(value);
@@ -955,6 +976,11 @@ export function StockPriceChart({
         ),
       }),
     );
+    publishFundamentalSpace(
+      wrapperRef.current,
+      fundamentalSeriesRef.current.length > 0 ||
+        fundamentalPlaceholderRef.current !== null,
+    );
   }, [fundamental, fundamentalStretches, fundamentalPending]);
 
   const empty = points.length < 2;
@@ -1009,11 +1035,9 @@ export function StockPriceChart({
       data-fundamental={fundamental?.id}
       data-fundamental-unit={fundamental?.unit}
       data-fundamental-pane={hasFundamentalPane ? "true" : undefined}
-      // The room the wrapper keeps for that pane: while its line is drawn, and while the empty pane
-      // holds its place for a chosen metric that is still loading.
-      data-fundamental-space={
-        hasFundamentalPane || fundamentalPending ? "true" : undefined
-      }
+      // `data-fundamental-space`, the room for that pane while its line or its placeholder is in
+      // the chart, is written by the effect that adds and removes the pane: see
+      // `publishFundamentalSpace`.
       data-fundamental-runs={
         fundamental ? fundamentalStretches.length : undefined
       }
