@@ -3384,3 +3384,99 @@ describe("monitor evaluation cycle", () => {
     });
   });
 });
+
+/**
+ * A Fundamental Condition through the real cycle, repository and Signal rows.
+ *
+ * The Monitor reads the metric from the persisted derived state it carries onto its provisional
+ * observation — the value a backtest reads for the same completed session — and decides it with the
+ * ordinary Condition lifecycle. An unavailable reading is NOT_EVALUABLE: it neither opens a Signal
+ * nor ends one, because a missing statement history is not evidence that the condition stopped.
+ */
+describe("a Fundamental Condition in a Monitor", () => {
+  beforeEach(() => {
+    cycleSequence = 0;
+  });
+
+  function roicAbove15(): StrategyDefinition {
+    return {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "buy-1",
+          percentage: 100,
+          signal: {
+            conditions: [
+              {
+                id: "roic-above-15",
+                metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+                operator: "IS_ABOVE",
+                value: { kind: "PERCENT", value: 15 },
+              },
+            ],
+          },
+        },
+      ],
+      sellLevels: [],
+    };
+  }
+
+  it("opens on the persisted reading, and an unavailable one neither opens nor ends it", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`FUN${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: roicAbove15(),
+      securities: [security],
+    });
+    const loader = new FixtureLoader([security]);
+    const history = flatHistory(security.id, 100);
+    loader.prices.set(security.id, history);
+    const newestClosed = history[history.length - 1]!.date;
+    const persist = (roicTtm: number | undefined) =>
+      loader.derived.set(security.id, [
+        {
+          securityId: security.id,
+          date: newestClosed,
+          ...(roicTtm === undefined ? {} : { roicTtm }),
+        },
+      ]);
+    const cycle = cycleOf(loader);
+    loader.currentPrice = 100;
+
+    // Unavailable: no Signal, and the cycle asked for exactly the metric's column and the close.
+    persist(undefined);
+    await cycle.run(nextCycle());
+    expect(loader.lastRequestedOperands.get(security.id)).toEqual([
+      "fundamental:ROIC_TTM",
+      "price",
+    ]);
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+
+    // 12 is not above 15.
+    persist(12);
+    await cycle.run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+
+    // 18 is: one Signal opens.
+    persist(18);
+    await cycle.run(nextCycle());
+    let signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // A reading gone missing is not a condition that ended.
+    persist(undefined);
+    await cycle.run(nextCycle());
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // A real reading below the threshold does end it.
+    persist(12);
+    await cycle.run(nextCycle());
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).not.toBeNull();
+  });
+});
