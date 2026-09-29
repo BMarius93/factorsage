@@ -978,6 +978,23 @@ describe("Stock Details API", () => {
       ).expect(200);
       expect(weekend.body).toEqual([{ date: FUNDAMENTALS_ALL, value: 2.22 }]);
 
+      // Across a weekend and a day the derived state has no row for (Friday 08-21 here), nothing is
+      // invented: the rows are exactly the stored sessions, and no value is spread onto calendar
+      // days.
+      const acrossTheWeekend = await fundamentals(
+        `from=2026-08-20&to=2026-08-28&metric=ROIC_TTM`,
+      ).expect(200);
+      expect(
+        acrossTheWeekend.body.map((row: { date: string }) => row.date),
+      ).toEqual([
+        "2026-08-20",
+        "2026-08-24",
+        "2026-08-25",
+        "2026-08-26",
+        "2026-08-27",
+        "2026-08-28",
+      ]);
+
       const technicalWeek = await request(app.getHttpServer())
         .get(
           `/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-28`,
