@@ -22,11 +22,12 @@ import { weekdays } from "./fundamental-metrics.test-helper.js";
  * Each fixture is generated from a seed: several fiscal calendars, losses and near-zero sums,
  * decimal EPS, missing fields and missing quarters, families filed on different days, weekend and
  * holiday availability, restatements that invalidate and restore metrics, annual rows that must
- * never be read, and a change of reporting currency with statements in other or no currencies. The
- * oracle (`fundamental-metrics-oracle.test-helper.ts`) recomputes every metric for every trading day
- * from scratch in exact rational arithmetic; it shares no code with production. Agreement on every
- * day therefore proves the formulas, the point-in-time selection, the window assembly, the event
- * plan and the carry-forward at once.
+ * never be read, a change of reporting currency with statements in other or no currencies, and a
+ * JPY-scale reporter whose ratios can exceed what the calculated-series column stores. The oracle
+ * (`fundamental-metrics-oracle.test-helper.ts`) recomputes every metric for every trading day from
+ * scratch in exact rational arithmetic; it shares no code with production. Agreement on every day
+ * therefore proves the formulas, the point-in-time selection, the window assembly, the event plan
+ * and the carry-forward at once.
  */
 
 const SECURITY_ID = "security-oracle";
@@ -72,6 +73,16 @@ const SCENARIOS: HistoryScenario[] = [
       noise: 0.03,
     },
   },
+  // A JPY-scale reporter whose single-unit denominators give ratios DECIMAL(20,8) cannot store.
+  {
+    seed: 303,
+    fiscalYearEndMonth: 3,
+    firstFiscalYear: 2008,
+    fiscalYears: 11,
+    currency: { base: "JPY" },
+    magnitude: 1e9,
+    tinyDenominators: 0.2,
+  },
 ];
 
 describe.each(SCENARIOS)(
@@ -113,8 +124,8 @@ describe.each(SCENARIOS)(
       }
     });
 
-    it("applies the currency rule exactly where the history calls for it", () => {
-      let removedByCurrency = 0;
+    it("applies the currency and storable-range rules exactly where the history calls for them", () => {
+      const removedBy = { currency: 0, range: 0 };
       for (const date of axis) {
         const strict = referenceFundamentals(statements, SECURITY_ID, date);
         const anyCurrency = referenceFundamentals(
@@ -123,20 +134,30 @@ describe.each(SCENARIOS)(
           date,
           { ignoreCurrency: true },
         );
+        const anyRange = referenceFundamentals(statements, SECURITY_ID, date, {
+          ignoreStorableRange: true,
+        });
         for (const metric of FUNDAMENTAL_METRICS) {
-          if (
-            strict[metric.field] === undefined &&
-            anyCurrency[metric.field] !== undefined
-          ) {
-            removedByCurrency += 1;
+          if (strict[metric.field] === undefined) {
+            if (anyCurrency[metric.field] !== undefined) {
+              removedBy.currency += 1;
+            }
+            if (anyRange[metric.field] !== undefined) {
+              removedBy.range += 1;
+            }
           }
         }
       }
 
       if (scenario.currency?.switchTo || scenario.currency?.noise) {
-        expect(removedByCurrency).toBeGreaterThan(100);
+        expect(removedBy.currency).toBeGreaterThan(100);
       } else {
-        expect(removedByCurrency).toBe(0);
+        expect(removedBy.currency).toBe(0);
+      }
+      if (scenario.tinyDenominators) {
+        expect(removedBy.range).toBeGreaterThan(100);
+      } else {
+        expect(removedBy.range).toBe(0);
       }
     });
 

@@ -221,6 +221,14 @@ For the metric families that combine statements:
 - a revision that changes a statement's currency invalidates from its PIT-effective session, and
   every earlier session is unchanged.
 
+## Storable-range matrix
+
+- a ratio just inside `DECIMAL(20,8)` (`|value| < 10^12`) is present;
+- a ratio at or beyond `10^12`, of either sign, is unavailable — the other fourteen metrics remain;
+- the same boundary for percentage-point metrics;
+- through persistence: the rebuild succeeds, PostgreSQL holds `NULL`, Redis holds absence and a
+  flush reconstructs absence, never zero; no source statement is refused.
+
 ## Shared fiscal-window tests
 
 The common quarter-window helper requires one reusable behavioral suite covering:

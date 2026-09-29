@@ -273,12 +273,19 @@ describe("EPS Growth TTM YoY", () => {
   it("decides a zero EPS sum exactly, not on binary rounding residue", () => {
     // 0.1 + 0.2 - 0.3 + 0 is exactly zero, but 5.55e-17 in naive double arithmetic, which would
     // read as a positive denominator and a growth rate near 5e18 %.
-    const snapshot = evaluate(
+    const previous = evaluate(
       previousIncome(GOLDEN, "epsDiluted", [0.1, 0.2, -0.3, 0]),
     );
+    expectUnavailable(previous, "epsGrowthTtmYoy");
+    expectValue(previous, "revenueGrowthTtmYoy", 400 / 23);
 
-    expectUnavailable(snapshot, "epsGrowthTtmYoy");
-    expectValue(snapshot, "revenueGrowthTtmYoy", 400 / 23);
+    // A growth rate near 5e18 % is out of storage range anyway, so the current window decides it
+    // too: its residue would read as a positive EPS TTM and a storable growth of about -100 %.
+    const current = evaluate(
+      currentIncome(GOLDEN, "epsDiluted", [0.1, 0.2, -0.3, 0]),
+    );
+    expectUnavailable(current, "epsGrowthTtmYoy");
+    expectValue(current, "revenueGrowthTtmYoy", 400 / 23);
   });
 
   it("is unavailable when the current EPS TTM is zero or negative", () => {
@@ -433,6 +440,12 @@ describe("TTM margins", () => {
     );
 
     expect(snapshot.grossMarginTtm).toBe(0);
+
+    // Exactly zero, not the 5.55e-17 residue of naive double arithmetic.
+    const decimal = evaluate(
+      currentIncome(GOLDEN, "grossProfit", [0.1, 0.2, -0.3, 0]),
+    );
+    expect(decimal.grossMarginTtm).toBe(0);
   });
 
   it("are unavailable when TTM revenue is zero or negative", () => {
@@ -800,6 +813,58 @@ describe("one reported currency per metric", () => {
 
     expectUnavailable(snapshot, "grossMarginTtm");
     expectUnavailable(snapshot, "revenueGrowthTtmYoy");
+  });
+});
+
+describe("storable range", () => {
+  it("keeps a ratio just inside the DECIMAL(20,8) range", () => {
+    // EBIT 999,999,999,996 + 1 + 1 + 1 over interest expense 1 + 0 + 0 + 0.
+    let statements = currentIncome(GOLDEN, "ebit", [999_999_999_996, 1, 1, 1]);
+    statements = currentIncome(statements, "interestExpense", [1, 0, 0, 0]);
+    const snapshot = evaluate(statements);
+
+    expectValue(snapshot, "interestCoverageTtm", 999_999_999_999);
+    expect(Object.keys(snapshot)).toHaveLength(15);
+  });
+
+  it("makes a ratio outside the range unavailable and keeps the other fourteen", () => {
+    for (const ebit of [
+      [999_999_999_997, 1, 1, 1],
+      [-999_999_999_997, -1, -1, -1],
+    ]) {
+      let statements = currentIncome(GOLDEN, "ebit", ebit);
+      statements = currentIncome(statements, "interestExpense", [1, 0, 0, 0]);
+      const snapshot = evaluate(statements);
+
+      // |EBIT / interest| = 10^12 needs a thirteenth integer digit: unavailable, not clamped.
+      expectUnavailable(snapshot, "interestCoverageTtm");
+      expect(Object.keys(snapshot)).toHaveLength(14);
+      expectValue(snapshot, "grossMarginTtm", 1210 / 27);
+      expectValue(snapshot, "roeTtm", 14);
+    }
+  });
+
+  it("applies the same range to percentage-point metrics", () => {
+    // Previous revenue 1 + 0 + 0 + 0 against a current 10^10: (10^10 / 1 - 1) * 100 is
+    // 999,999,999,900 — inside. One more current revenue unit per quarter pushes it past 10^12.
+    const inside = evaluate(
+      currentIncome(
+        previousIncome(GOLDEN, "revenue", [1, 0, 0, 0]),
+        "revenue",
+        [2_500_000_000, 2_500_000_000, 2_500_000_000, 2_500_000_000],
+      ),
+    );
+    expectValue(inside, "revenueGrowthTtmYoy", (1e10 / 1 - 1) * 100);
+
+    const outside = evaluate(
+      currentIncome(
+        previousIncome(GOLDEN, "revenue", [1, 0, 0, 0]),
+        "revenue",
+        [2_600_000_000, 2_600_000_000, 2_600_000_000, 2_600_000_000],
+      ),
+    );
+    expectUnavailable(outside, "revenueGrowthTtmYoy");
+    expectValue(outside, "operatingMarginTtm", (98 / 10_400_000_000) * 100);
   });
 });
 
@@ -1470,6 +1535,20 @@ describe("determinism and purity", () => {
     expectUnavailable(assets, "roaTtm");
     expectUnavailable(assets, "assetTurnoverTtm");
     expectValue(assets, "roeTtm", 14);
+  });
+
+  it("returns a zero reading as plain zero, never negative zero", () => {
+    // -0 / 500 and -0 / 130 are negative zero in double arithmetic; the stored decimal has no sign.
+    const snapshot = evaluate(
+      balanceSheet(GOLDEN, 2025, "Q4", (values) => ({
+        ...values,
+        totalDebt: -0,
+        netDebt: -0,
+      })),
+    );
+
+    expect(Object.is(snapshot.debtToEquity, 0)).toBe(true);
+    expect(Object.is(snapshot.netDebtToEbitdaTtm, 0)).toBe(true);
   });
 
   it("returns an extreme but finite ratio unclamped", () => {

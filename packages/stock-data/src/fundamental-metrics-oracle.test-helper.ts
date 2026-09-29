@@ -289,6 +289,15 @@ export type ReferenceSnapshot = Record<string, number | undefined>;
 /** One metric's exact value and the statements it was built from, or nothing when unavailable. */
 type Candidate = { value: Rational | undefined; sources: FinancialStatement[] };
 
+/** `DECIMAL(20,8)` holds magnitudes strictly below 10^12. */
+const STORABLE_LIMIT = new Rational(10n ** 12n);
+
+function storable(value: Rational): boolean {
+  const magnitude =
+    value.num < 0n ? new Rational(-value.num, value.den) : value;
+  return magnitude.sub(STORABLE_LIMIT).num < 0n;
+}
+
 /** Every contributing statement reports the same non-empty currency. */
 function oneCurrency(sources: readonly FinancialStatement[]): boolean {
   const currencies = new Set(sources.map((source) => source.reportedCurrency));
@@ -307,11 +316,12 @@ function stepsBack(quarter: Q, steps: number): Q {
 }
 
 /**
- * A switch for measuring how much the currency rule removes; the comparison itself always runs
- * with it on.
+ * Switches for measuring how much each availability rule removes; the comparison itself always
+ * runs with every rule on.
  */
 export type ReferenceRules = {
   ignoreCurrency?: boolean;
+  ignoreStorableRange?: boolean;
 };
 
 /** The fifteen metrics for `date`, evaluated from scratch. */
@@ -505,7 +515,8 @@ export function referenceFundamentals(
       const available =
         candidate !== undefined &&
         value !== undefined &&
-        (rules.ignoreCurrency || oneCurrency(candidate.sources));
+        (rules.ignoreCurrency || oneCurrency(candidate.sources)) &&
+        (rules.ignoreStorableRange || storable(value));
       return [name, available ? value.toNumber() : undefined];
     }),
   );
@@ -551,14 +562,23 @@ export type HistoryScenario = {
     switchTo?: string;
     noise?: number;
   };
+  /**
+   * Monetary scale factor (per-share and share-count fields are untouched), and the probability
+   * that a denominator collapses to a single currency unit — a whole fiscal year of revenue,
+   * EBITDA or interest expense summing to one unit, or one balance sheet's equity, current
+   * liabilities or assets. Together they produce ratios beyond what the calculated-series column
+   * can store.
+   */
+  magnitude?: number;
+  tinyDenominators?: number;
 };
 
 /**
  * A deliberately messy, fully deterministic statement history for one security: losses and
  * near-zero sums, two-decimal EPS, missing fields and quarters, families filed on different days,
  * restatements that flip signs or drop fields, annual rows no metric may read, and — when asked for
- * — currency changes. The default options draw exactly the random stream they always did, so an
- * existing scenario's history never moves.
+ * — currency changes and JPY-scale magnitudes with single-unit denominators. The default options
+ * draw exactly the random stream they always did, so an existing scenario's history never moves.
  */
 export function generateHistory(
   scenario: HistoryScenario,
@@ -587,6 +607,8 @@ export function generateHistory(
     }
     return reporting;
   };
+  const magnitude = scenario.magnitude ?? 1;
+  const monetary = (value: number) => Math.round(value * magnitude);
 
   const emit = (
     statementType: FinancialStatementType,
@@ -623,6 +645,11 @@ export function generateHistory(
     fiscalYear < scenario.firstFiscalYear + scenario.fiscalYears;
     fiscalYear += 1
   ) {
+    // A fiscal year whose flow denominator sums to one currency unit: 1, 0, 0, 0.
+    const collapsedFlow =
+      scenario.tinyDenominators !== undefined && pick(scenario.tinyDenominators)
+        ? (["interestExpense", "revenue", "ebitda"] as const)[integer(0, 2)]
+        : undefined;
     for (let index = 0; index < 4; index += 1) {
       const period = (["Q1", "Q2", "Q3", "Q4"] as const)[index]!;
       // Q4 ends in the fiscal year-end month of the label year; each earlier quarter three months
@@ -644,37 +671,56 @@ export function generateHistory(
         ? -integer(1, scale * 0.2)
         : integer(0, scale * 0.15);
       const shares = integer(90, 110);
-      const income = {
-        revenue: pick(0.01) ? -integer(1, 50) : revenue,
-        grossProfit: integer(-scale * 0.1, scale * 0.6),
-        operatingIncome: integer(-scale * 0.2, scale * 0.3),
-        netIncome,
+      const income: Record<string, number> = {
+        revenue: monetary(pick(0.01) ? -integer(1, 50) : revenue),
+        grossProfit: monetary(integer(-scale * 0.1, scale * 0.6)),
+        operatingIncome: monetary(integer(-scale * 0.2, scale * 0.3)),
+        netIncome: monetary(netIncome),
         // Two-decimal EPS, so sums of reported decimals are exercised, including exact zeros.
         epsDiluted: Math.round((netIncome / shares) * 100) / 100,
         weightedAverageShsOutDil: shares,
-        ebitda: integer(-scale * 0.1, scale * 0.4),
-        ebit: integer(-scale * 0.2, scale * 0.3),
-        interestExpense: pick(0.1) ? 0 : integer(1, scale * 0.05),
-        incomeTaxExpense: integer(0, scale * 0.1),
+        ebitda: monetary(integer(-scale * 0.1, scale * 0.4)),
+        ebit: monetary(integer(-scale * 0.2, scale * 0.3)),
+        interestExpense: monetary(pick(0.1) ? 0 : integer(1, scale * 0.05)),
+        incomeTaxExpense: monetary(integer(0, scale * 0.1)),
       };
-      const cashFlow = {
-        operatingCashFlow: integer(-scale * 0.05, scale * 0.4),
-        capitalExpenditure: pick(0.1) ? 0 : -integer(1, scale * 0.15),
-        freeCashFlow: integer(-scale, scale),
+      const cashFlow: Record<string, number> = {
+        operatingCashFlow: monetary(integer(-scale * 0.05, scale * 0.4)),
+        capitalExpenditure: monetary(pick(0.1) ? 0 : -integer(1, scale * 0.15)),
+        freeCashFlow: monetary(integer(-scale, scale)),
       };
-      const balanceSheet = {
-        totalDebt: pick(0.1) ? 0 : integer(0, scale * 2),
-        totalStockholdersEquity: pick(0.08)
-          ? -integer(1, scale)
-          : integer(1, scale * 3),
-        totalEquity: integer(1, scale * 3),
-        cashAndShortTermInvestments: integer(0, scale * 1.5),
-        cashAndCashEquivalents: integer(0, scale),
-        totalAssets: integer(scale, scale * 6),
-        totalCurrentAssets: integer(0, scale * 2),
-        totalCurrentLiabilities: pick(0.05) ? 0 : integer(1, scale * 1.5),
-        netDebt: integer(-scale, scale * 2),
+      const balanceSheet: Record<string, number> = {
+        totalDebt: monetary(pick(0.1) ? 0 : integer(0, scale * 2)),
+        totalStockholdersEquity: monetary(
+          pick(0.08) ? -integer(1, scale) : integer(1, scale * 3),
+        ),
+        totalEquity: monetary(integer(1, scale * 3)),
+        cashAndShortTermInvestments: monetary(integer(0, scale * 1.5)),
+        cashAndCashEquivalents: monetary(integer(0, scale)),
+        totalAssets: monetary(integer(scale, scale * 6)),
+        totalCurrentAssets: monetary(integer(0, scale * 2)),
+        totalCurrentLiabilities: monetary(
+          pick(0.05) ? 0 : integer(1, scale * 1.5),
+        ),
+        netDebt: monetary(integer(-scale, scale * 2)),
       };
+      if (collapsedFlow !== undefined) {
+        income[collapsedFlow] = index === 0 ? 1 : 0;
+      }
+      if (
+        scenario.tinyDenominators !== undefined &&
+        pick(scenario.tinyDenominators)
+      ) {
+        // One balance sheet whose denominator is a single currency unit.
+        const name = (
+          [
+            "totalStockholdersEquity",
+            "totalCurrentLiabilities",
+            "totalAssets",
+          ] as const
+        )[integer(0, 2)]!;
+        balanceSheet[name] = 1;
+      }
 
       // Families are usually filed together; sometimes one lags by a week or more, and very
       // occasionally a quarter of one family is never reported at all.

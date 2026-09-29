@@ -1,5 +1,6 @@
 import {
   FUNDAMENTAL_METRICS,
+  isRepresentableCalculatedSeriesValue,
   selectFinancialStatements,
   type BalanceSheetField,
   type CashFlowField,
@@ -34,9 +35,10 @@ import {
  * statements arrive in, and nothing the caller passed is mutated.
  *
  * Unavailability is absence. A metric is omitted from the snapshot when a required quarter
- * identity, a required field or a denominator rule fails, or when the statements it consumed do
- * not share one reported currency, and a result that is not a finite number is rejected rather
- * than returned. Missing is never zero, and a provider-reported zero stays a real zero.
+ * identity, a required field or a denominator rule fails; when the statements it consumed do not
+ * share one reported currency; or when its result is not finite or not storable in the
+ * calculated-series column range. Missing is never zero, and a provider-reported zero stays a
+ * real zero.
  *
  * Every sum is the exact sum of the reported decimals (`exactDecimalSum`), so a rule such as
  * `require EPS_TTM > 0` is decided on the true sign of the sum, never on binary rounding residue.
@@ -606,14 +608,17 @@ function sharesOneReportedCurrency(
  * eligible revision that invalidates a metric yields its absence here rather than a stale value.
  * Carry-forward between statement events belongs to the daily materializer.
  *
- * Two rules apply to every metric alike, after its formula:
+ * Three rules apply to every metric alike, after its formula:
  *
  * - **One currency.** Every statement that contributed must report the same non-empty currency;
  *   mixing currencies, or a statement without one, makes the metric unavailable. No conversion.
  * - **Finite.** A non-finite result is rejected, never stored as infinity or `NaN`.
+ * - **Storable.** A finite result the calculated-series column cannot hold
+ *   (`isRepresentableCalculatedSeriesValue`) is unavailable for this observation — never clamped,
+ *   never saturated, and never allowed to fail the rebuild of the other fourteen metrics.
  *
- * An extreme but finite ratio is returned unclamped, and a signed zero as plain zero: the sign of
- * zero carries no financial meaning and the persisted decimal has none.
+ * An extreme ratio inside the range is returned unclamped, and a signed zero as plain zero: the
+ * sign of zero carries no financial meaning and the persisted decimal has none.
  */
 export function evaluateFundamentalMetrics(
   request: FundamentalMetricEvaluationRequest,
@@ -625,7 +630,7 @@ export function evaluateFundamentalMetrics(
     if (
       result === undefined ||
       !sharesOneReportedCurrency(result.sources) ||
-      !Number.isFinite(result.value)
+      !isRepresentableCalculatedSeriesValue(result.value)
     ) {
       continue;
     }

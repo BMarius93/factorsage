@@ -499,7 +499,7 @@ describe("invalidation and restoration", () => {
   });
 });
 
-describe("currency events", () => {
+describe("currency and storable-range events", () => {
   it("invalidates from a currency-changing revision's session, leaving history untouched", () => {
     // FY2026 Q2's income statement is restated in EUR on Tuesday 2026-10-06 and back in USD on
     // Monday 2026-11-02.
@@ -539,6 +539,42 @@ describe("currency events", () => {
       } else {
         expect(state.grossMarginTtm, state.date).toBeCloseTo(
           (309 / 620) * 100,
+          10,
+        );
+      }
+    }
+  });
+
+  it("drops only an out-of-range metric from its event, and restores it later", () => {
+    // Restated FY2026 Q2 income: interest expense collapses to one unit against an EBIT of 10^12
+    // over the window, so coverage cannot be stored from 2026-09-15 until the 2026-10-15
+    // restatement.
+    const collapsed = fy2026Q2(
+      "INCOME",
+      "2026-09-15",
+      { ...FY2026_Q2.INCOME, ebit: 1e12 - 111, interestExpense: -9 },
+      { filingDate: "2026-09-14", contentHash: "collapsed-interest" },
+    );
+    const restored = fy2026Q2("INCOME", "2026-10-15", FY2026_Q2.INCOME, {
+      filingDate: "2026-10-14",
+      contentHash: "restored-interest",
+    });
+    const states = materialize([
+      ...OPENING,
+      ...NEW_QUARTER,
+      collapsed,
+      restored,
+    ]);
+
+    // Window FY2025 Q3..FY2026 Q2: interest 3 + 3 + 4 + -9 = 1 and EBIT
+    // 30 + 47 + 34 + (10^12 - 111) = 10^12, which needs a thirteenth integer digit.
+    for (const state of states) {
+      if (state.date >= "2026-09-15" && state.date < "2026-10-15") {
+        expect(state, state.date).not.toHaveProperty("interestCoverageTtm");
+        expect(Object.keys(state), state.date).toHaveLength(1 + 14);
+      } else if (state.date >= "2026-08-03") {
+        expect(state.interestCoverageTtm, state.date).toBeCloseTo(
+          (30 + 47 + 34 + 36) / (3 + 3 + 4 + 4),
           10,
         );
       }

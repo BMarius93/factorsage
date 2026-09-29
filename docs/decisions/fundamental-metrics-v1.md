@@ -463,6 +463,13 @@ The calculation kernel must reject non-finite results. It must not silently clam
 financial ratios. Database precision/scale is the existing calculated-series precision; storage
 quantization is a persistence concern and UI rounding is presentation only.
 
+**Out of storage range is unavailable, not a failure.** A finite result whose magnitude the
+calculated-series column cannot hold — `DECIMAL(20,8)`, so `|value| >= 10^12` — is unavailable for
+that observation. It is never clamped, saturated, stored as a sentinel maximum, converted to zero
+or allowed to fail the rebuild: the other fourteen metrics, the security's other derived series and
+its source statements are unaffected. The range is stated once in code
+(`CALCULATED_SERIES_DECIMAL`) and pinned against the live columns.
+
 ## Materialization events and carry-forward
 
 Fundamental metrics are event-driven calculations materialized onto the canonical daily trading

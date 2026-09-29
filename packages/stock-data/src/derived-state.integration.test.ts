@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
 import {
+  CALCULATED_SERIES_DECIMAL,
   DAILY_OSCILLATORS,
   DAILY_RELATIVE_VOLUMES,
+  isRepresentableCalculatedSeriesValue,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
@@ -227,6 +229,50 @@ describe("daily derived state persistence", () => {
     }
     for (const entry of DAILY_RELATIVE_VOLUMES) {
       expect(columnNames).toContain(entry.field);
+    }
+  });
+
+  it("stores every calculated series in exactly the range the calculations guard", async () => {
+    // A calculation refuses a value its column cannot hold (`isRepresentableCalculatedSeriesValue`)
+    // instead of letting PostgreSQL fail the rebuild. That guard is only right while it states the
+    // same range as the live columns, so both the declared type and its boundary are asserted here.
+    const columns = await prisma.$queryRaw<
+      {
+        column_name: string;
+        numeric_precision: number;
+        numeric_scale: number;
+      }[]
+    >`
+      SELECT column_name, numeric_precision, numeric_scale
+      FROM information_schema.columns
+      WHERE table_name = 'DailyDerivedState' AND data_type = 'numeric'
+    `;
+
+    expect(columns.length).toBeGreaterThan(0);
+    for (const column of columns) {
+      expect(
+        { precision: column.numeric_precision, scale: column.numeric_scale },
+        column.column_name,
+      ).toEqual(CALCULATED_SERIES_DECIMAL);
+    }
+
+    // The boundary as PostgreSQL applies it to that type, given the decimal text Prisma sends for a
+    // number: the largest double below 10^12 is stored, 10^12 itself is refused.
+    const { precision, scale } = CALCULATED_SERIES_DECIMAL;
+    const store = (value: number) =>
+      prisma.$queryRawUnsafe<{ stored: string }[]>(
+        `SELECT CAST($1::text AS NUMERIC(${precision}, ${scale}))::text AS stored`,
+        String(value),
+      );
+    const largestBelow = 1e12 - 2 ** -13;
+    for (const value of [largestBelow, -largestBelow]) {
+      expect(isRepresentableCalculatedSeriesValue(value)).toBe(true);
+      const [row] = await store(value);
+      expect(Math.abs(Number(row?.stored))).toBeLessThan(1e12);
+    }
+    for (const value of [1e12, -1e12]) {
+      expect(isRepresentableCalculatedSeriesValue(value)).toBe(false);
+      await expect(store(value)).rejects.toThrow(/overflow/i);
     }
   });
 
