@@ -159,9 +159,10 @@ export const RATE_LIMIT_POLICIES = {
    * provider and materialize years of derived state.
    *
    * Sized from the chart rather than from a guess: extending history one window costs four
-   * requests (prices, technicals, intrinsic values, blends), the hook never has two loads
-   * outstanding, and each load is a full server round trip. Three per second is roughly forty-five
-   * window extensions a minute, which no sequential loader reaches — while still bounding a script
+   * requests (prices, technicals, intrinsic values, blends), plus the chosen Fundamental Metric's
+   * gap once they land; the hook never has two loads outstanding, and each load is a full server
+   * round trip. Three per second is roughly forty-five window extensions a minute (thirty-six with a
+   * Fundamental Metric chosen), which no sequential loader reaches — while still bounding a script
    * walking the catalog.
    *
    * The provider itself is protected separately and does not rely on this: every FMP call in the
