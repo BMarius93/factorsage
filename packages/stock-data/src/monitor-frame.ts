@@ -302,12 +302,15 @@ export type MonitorEvaluationFrame = {
  *    methodologies across the exact pair a Trigger compares, and a seed difference of a fraction of
  *    a cent would then read as a genuine crossing. Computing both ends the same way makes that
  *    impossible by construction rather than unlikely.
- * 2. **Weekly and intrinsic values are carried forward from the last closed derived row.** Neither
- *    can change intraday: `aggregateCompletedWeeks` excludes the in-progress ISO week, so no new
- *    week can complete today, and an intrinsic value changes only when a newly eligible
- *    `FinancialStatement` revision takes effect — which the canonical materializer applies when the
- *    day closes. Carrying forward is the canonical rule for both, and it is also what stops an
- *    expensive valuation from being rerun merely because the live price moved.
+ * 2. **Weekly values, intrinsic values and Fundamental Metrics are carried forward from the last
+ *    closed derived row.** None can change intraday: `aggregateCompletedWeeks` excludes the
+ *    in-progress ISO week, so no new week can complete today, and an intrinsic value or a
+ *    Fundamental Metric changes only when a newly eligible `FinancialStatement` revision takes
+ *    effect — which the canonical materializer applies when the day closes. On the first session a
+ *    statement becomes eligible the provisional row therefore still carries the previous session's
+ *    values, and the Monitor agrees with a backtest from the next observation on. Carrying forward is
+ *    the canonical rule for all three, and it is also what stops an expensive valuation from being
+ *    rerun merely because the live price moved.
  * 3. **Margin of Safety falls out.** `projectEvaluationFrame` computes it from the derived row's
  *    gated intrinsic value and the row's own close, so the provisional close recomputes only the
  *    price-dependent half. There is no second Margin-of-Safety implementation here.
@@ -424,7 +427,7 @@ export function projectMonitorEvaluationFrame(input: {
     const carried =
       persistedByDate.get(price.date) ??
       // Only the provisional row has no persisted counterpart. It inherits the newest closed row's
-      // weekly and intrinsic state, which is what "carried forward" already means for both.
+      // weekly, intrinsic and fundamental state, which is what "carried forward" already means.
       (price.date === observationRow.date ? newestPersisted : undefined);
     const recomputed = dailyByDate.get(price.date);
     return {

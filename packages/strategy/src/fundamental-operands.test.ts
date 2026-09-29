@@ -38,10 +38,25 @@ describe("the fundamental metric operand family", () => {
     expect(fundamentalMetricOperand("DEBT_TO_EQUITY")).toBe(
       "fundamental:DEBT_TO_EQUITY",
     );
-    // The same identity always gives the same key, so two runs request identical projections.
-    for (const id of FUNDAMENTAL_METRIC_IDS) {
-      expect(fundamentalMetricOperand(id)).toBe(fundamentalMetricOperand(id));
-    }
+    // Every key, written out: a pure function of the identity, so two runs request identical
+    // projections, and a change of encoding is a deliberate edit here.
+    expect(FUNDAMENTAL_METRIC_IDS.map(fundamentalMetricOperand)).toEqual([
+      "fundamental:REVENUE_GROWTH_TTM_YOY",
+      "fundamental:EPS_GROWTH_TTM_YOY",
+      "fundamental:FCF_GROWTH_TTM_YOY",
+      "fundamental:GROSS_MARGIN_TTM",
+      "fundamental:OPERATING_MARGIN_TTM",
+      "fundamental:NET_MARGIN_TTM",
+      "fundamental:FCF_MARGIN_TTM",
+      "fundamental:ROIC_TTM",
+      "fundamental:ROE_TTM",
+      "fundamental:ROA_TTM",
+      "fundamental:DEBT_TO_EQUITY",
+      "fundamental:CURRENT_RATIO",
+      "fundamental:NET_DEBT_TO_EBITDA_TTM",
+      "fundamental:INTEREST_COVERAGE_TTM",
+      "fundamental:ASSET_TURNOVER_TTM",
+    ]);
   });
 
   it("gives fifteen metrics fifteen distinct keys", () => {

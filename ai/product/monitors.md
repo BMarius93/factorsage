@@ -390,8 +390,11 @@ trading-day axis) are identical. The differences are the observation, not the la
   from each series' definition, so the seed's influence is below `1e-6` of the value; a backtest
   reads the full-history materialized columns. A strict comparison decided inside that tolerance
   could differ by design; nothing else can.
-- **Weekly series and intrinsic values are carried forward** from the newest closed derived row —
-  neither can change intraday — where a backtest reads each day's own row.
+- **Weekly series, intrinsic values and Fundamental Metrics are carried forward** from the newest
+  closed derived row — none can change intraday — where a backtest reads each day's own row. A
+  statement takes effect on the first session on or after it became public, when that session's
+  derived state is materialized, so on that first session a Monitor still evaluates the previous
+  session's fundamentals until the close; from the next observation on both agree.
 - **Position-dependent metrics** (`Gain`, `Loss`) are **excluded** from Monitor evaluation and live
   for a backtest: a Monitor skips the whole level that uses one, where a backtest decides it against
   simulated position state.

@@ -35,6 +35,7 @@ import {
 import {
   collectOperands,
   fundamentalMetricOperand,
+  marginOfSafetyOperand,
   PRICE_OPERAND,
   relativeVolumeOperand,
   seriesOperand,
@@ -233,6 +234,78 @@ describe("a Fundamental BUY Condition in a backtest", () => {
         .filter((trade) => trade.action === "BUY")
         .map((trade) => trade.date),
     ).toEqual([dates[3]]);
+  });
+});
+
+describe("a Fundamental Condition beside valuation and buy eligibility", () => {
+  it("combines with a Margin of Safety Condition, each read from its own column", async () => {
+    const signal: StrategySignal = {
+      conditions: [
+        {
+          id: "mos-dcf-above-25",
+          metric: { kind: "MARGIN_OF_SAFETY", sourceId: "DCF_FCFF" },
+          operator: "IS_ABOVE",
+          value: { kind: "PERCENT", value: 25 },
+        },
+        fundamental("ROIC_TTM", "IS_ABOVE", percent(15)),
+      ],
+    };
+    // 0: cheap but ROIC short. 1: ROIC fine but not cheap. 2: MOS unavailable. 3: both hold.
+    const MOS = marginOfSafetyOperand("DCF_FCFF");
+    const { dates, frame } = oneSecurity({
+      [MOS]: [30, 10, null, 30],
+      [ROIC]: [12, 18, 18, 18],
+    });
+    const definition = definitionOf({
+      buyLevels: [buyLevel("b1", 100, signal)],
+    });
+    expect(collectOperands(definition)).toEqual(
+      [MOS, ROIC, PRICE_OPERAND].sort(),
+    );
+    const result = await run(definition, frame);
+    expect(
+      strategyTrades(result)
+        .filter((trade) => trade.action === "BUY")
+        .map((trade) => trade.date),
+    ).toEqual([dates[3]]);
+  });
+
+  it("buys only inside the member's buy window, and sells on a Fundamental outside it", async () => {
+    // ROIC qualifies from the first session, but the window opens on the third; Debt / Equity
+    // turns high on the fifth, after the window closed on the fourth.
+    const { dates, frame } = oneSecurity({
+      [ROIC]: [18, 18, 18, 18, 18, 18],
+      [DEBT_TO_EQUITY]: [0.5, 0.5, 0.5, 0.5, 2.5, 2.5],
+    });
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, ROIC_ABOVE_15)],
+          sellLevels: [
+            sellLevel("s1", 50, {
+              conditions: [
+                fundamental("DEBT_TO_EQUITY", "IS_ABOVE", multiple(2)),
+              ],
+            }),
+          ],
+        }),
+        securities: [
+          securityInput(frame, {
+            mode: "CUSTOM",
+            ranges: [{ startDate: dates[2]!, endDate: dates[3]! }],
+          }),
+        ],
+        initialCapital: 100_000,
+        maximumPositions: 1,
+      }),
+    );
+    // A buy window gates BUY only; nothing constrains the SELL.
+    expect(
+      strategyTrades(result).map((trade) => [trade.date, trade.action]),
+    ).toEqual([
+      [dates[2], "BUY"],
+      [dates[4], "SELL"],
+    ]);
   });
 });
 

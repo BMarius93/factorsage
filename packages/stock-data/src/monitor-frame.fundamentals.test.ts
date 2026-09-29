@@ -211,6 +211,66 @@ describe("Fundamental Metrics in a Monitor frame", () => {
     ]);
   });
 
+  it("lag a statement event by the one session it takes to materialize, then agree", () => {
+    // The canonical history: ROIC 12 through the third session, 18 from the fourth, the first
+    // session on or after the new statement's availability.
+    const dates = weekdays(6);
+    const eventDay = dates[3]!;
+    const canonical: DailyDerivedState[] = dates.map((date, index) => ({
+      securityId: SECURITY.id,
+      date,
+      roicTtm: index < 3 ? 12 : 18,
+    }));
+    const prices = dates.map((date, index) => price(date, 100 + index));
+    const backtest = projectEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: canonical,
+      operands: OPERANDS,
+      periodStart: dates[0]!,
+    }).frame;
+    const monitorOn = (observationDate: string, closedThrough: number) =>
+      projectMonitorEvaluationFrame({
+        security: SECURITY,
+        prices: prices.slice(0, closedThrough + 1),
+        derived: canonical.slice(0, closedThrough + 1),
+        operands: OPERANDS,
+        observation: { price: 110 },
+        observationDate,
+      })!;
+    const decide = (frame: EvaluationFrame, index: number) =>
+      evaluateMarketCondition(ROIC_ABOVE_15, frame, index);
+
+    // Intraday on the event's first session: that session has not closed, so nothing has
+    // materialized it, and the provisional row carries the previous completed session's 12.
+    const intraday = monitorOn(eventDay, 2);
+    expect(intraday.observationDate).toBe(eventDay);
+    expect(readOperand(intraday.frame, ROIC, intraday.observationIndex)).toBe(
+      12,
+    );
+    expect(decide(intraday.frame, intraday.observationIndex)).toBe(
+      Evaluability.FALSE,
+    );
+    // The backtest's row for that session already carries the new statement.
+    expect(decide(backtest, indexOf(backtest, eventDay))).toBe(
+      Evaluability.TRUE,
+    );
+
+    // Once the session closes and is materialized, the Monitor agrees: re-observing it, and on the
+    // next session's provisional observation.
+    const afterClose = monitorOn(eventDay, 3);
+    expect(decide(afterClose.frame, afterClose.observationIndex)).toBe(
+      Evaluability.TRUE,
+    );
+    const nextSession = monitorOn(dates[4]!, 3);
+    expect(
+      readOperand(nextSession.frame, ROIC, nextSession.observationIndex),
+    ).toBe(18);
+    expect(decide(nextSession.frame, nextSession.observationIndex)).toBe(
+      decide(backtest, indexOf(backtest, dates[4]!)),
+    );
+  });
+
   it("keep an unavailable metric unavailable on the provisional observation", () => {
     const { frame, observationIndex } = projectMonitorEvaluationFrame({
       security: SECURITY,

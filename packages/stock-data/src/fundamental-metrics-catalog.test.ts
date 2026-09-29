@@ -15,7 +15,7 @@ import {
   operandFundamentalMetricId,
   readOperand,
 } from "@intrinsic/strategy";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 
 /**
@@ -33,21 +33,13 @@ import { projectEvaluationFrame } from "./evaluation-frame.js";
  * projector can decode and read, so the three sets — domain, product, projectable — are one.
  */
 
-/** Compile-time half of the guard: the two identity and unit vocabularies are the same set. */
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-const IDENTITIES_MATCH: Same<
-  ProductFundamentalMetricId,
-  DomainFundamentalMetricId
-> = true;
-const UNITS_MATCH: Same<
-  ProductFundamentalMetricUnit,
-  DomainFundamentalMetricUnit
-> = true;
-
 describe("the Fundamental Metrics product catalog and the domain registry", () => {
   it("agree at compile time on every identity and unit", () => {
-    expect(IDENTITIES_MATCH).toBe(true);
-    expect(UNITS_MATCH).toBe(true);
+    // Type assertions: a no-op when the suite runs, enforced by `tsc`, which checks this package's
+    // test files too (`pnpm typecheck`, `pnpm build`). An identity or unit on one side only fails to
+    // compile before any runtime assertion below gets the chance to fail.
+    expectTypeOf<ProductFundamentalMetricId>().toEqualTypeOf<DomainFundamentalMetricId>();
+    expectTypeOf<ProductFundamentalMetricUnit>().toEqualTypeOf<DomainFundamentalMetricUnit>();
   });
 
   it("name exactly the same fifteen identities, in the same order", () => {
