@@ -1,3 +1,4 @@
+import type { FundamentalMetricUnit } from "@intrinsic/contracts";
 import { formatDay } from "../../../../lib/dates";
 
 /**
@@ -44,6 +45,48 @@ export function formatSignedPercent(fraction: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(fraction);
+}
+
+/**
+ * A Fundamental Metric reading in its own unit, decided by the unit and nothing else:
+ * `PERCENT` 15.42 → `"15.42%"`, `MULTIPLE` 0.75 → `"0.75x"`.
+ *
+ * The number is already in the unit the catalog states — percentage points or a raw ratio — so
+ * nothing is scaled: 15.42 is 15.42%, never 1,542% and never 0.1542%. Display rounding keeps two
+ * decimals, drops trailing zeros, and gives a multiple at least one decimal so `1` reads `1.0x`
+ * and a multiple is never mistaken for a count. Rounding never hides a reading: 0.75 stays
+ * `0.75x` rather than `0.8x`, and a non-zero value too small for two decimals keeps two
+ * significant digits (`0.004%`) instead of reading as zero. Negative readings keep their sign;
+ * there is never exponent notation.
+ */
+export function formatFundamentalValue(
+  value: number,
+  unit: FundamentalMetricUnit,
+): string {
+  switch (unit) {
+    case "PERCENT":
+      return `${formatReading(value, 0)}%`;
+    case "MULTIPLE":
+      return `${formatReading(value, 1)}x`;
+  }
+}
+
+/** Below this magnitude two decimals would print a non-zero reading as zero. */
+const SMALLEST_TWO_DECIMAL_READING = 0.005;
+
+function formatReading(value: number, minimumFractionDigits: 0 | 1): string {
+  // `-0` would print as "-0"; a signed zero is not a different reading.
+  const reading = value === 0 ? 0 : value;
+  if (reading !== 0 && Math.abs(reading) < SMALLEST_TWO_DECIMAL_READING) {
+    // Always has fraction digits of its own, so the unit's minimum is already met.
+    return numberFormat("reading-small", {
+      maximumSignificantDigits: 2,
+    }).format(reading);
+  }
+  return numberFormat(`reading:${minimumFractionDigits}`, {
+    minimumFractionDigits,
+    maximumFractionDigits: 2,
+  }).format(reading);
 }
 
 /** Large counts such as share volume: `41_237_500` → `"41.2M"`. */

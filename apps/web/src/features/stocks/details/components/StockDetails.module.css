@@ -63,3 +63,10 @@
     break-inside: avoid;
   }
 }
+
+/* The chosen fundamental's own state under the chart key: still loading, or nothing to draw. */
+.fundamentalStatus {
+  margin: 8px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}

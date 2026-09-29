@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { createChart } from "lightweight-charts";
+import { StrictMode } from "react";
 import { describe, expect, it, vi, type Mock } from "vitest";
+import type { ChartFundamentalSeries } from "../utils/chart-series";
 import { CHART_COLORS, overlayColorAt } from "../utils/chart-theme";
 import { StockPriceChart } from "./StockPriceChart";
 
@@ -12,9 +14,22 @@ type FakeSeries = {
   /** The series' own price scale; the volume histogram applies its scale margins through it. */
   priceScale: Mock;
   scaleOptions: Record<string, unknown>;
+  /** The pane the series currently lives in, which moves with it. */
+  getPane: () => FakePane;
 };
 
-type FakePane = { setStretchFactor: Mock };
+/**
+ * A pane as the library models it: an ordered slot holding series. The mock keeps the library's
+ * real rules rather than a fixed list — a series placed at an index past the last pane opens a
+ * new pane at the bottom, a pane whose last series is removed disappears and the panes below it
+ * move up, and `moveTo` reorders — because pane placement is exactly what these tests assert.
+ */
+type FakePane = {
+  setStretchFactor: Mock;
+  moveTo: Mock;
+  paneIndex: () => number;
+  series: FakeSeries[];
+};
 
 /**
  * The mocked time scale keeps real state for the visible range, because the viewport behaviour
@@ -64,76 +79,116 @@ type FakeChart = {
 vi.mock("lightweight-charts", () => {
   const createChartMock = vi.fn(
     (_container: unknown, options: Record<string, unknown>) => {
-    const fitContent = vi.fn();
-    const subscribeVisibleLogicalRangeChange = vi.fn();
-    const unsubscribeVisibleLogicalRangeChange = vi.fn();
-    const scale: FakeTimeScale = {
-      logical: null,
-      points: 0,
-      fitContent,
-      // The real library resolves a range against the points on the scale and answers `null` when
-      // there are none, which is what tells a caller there is nothing to position yet. A mock that
-      // always answered would hide the chart's first render, before any data is drawn.
-      getVisibleLogicalRange: vi.fn(() =>
-        scale.logical ?? (scale.points === 0 ? null : { from: 0, to: scale.points }),
-      ),
-      setVisibleLogicalRange: vi.fn((range: { from: number; to: number }) => {
-        scale.logical = range;
-      }),
-      getVisibleRange: vi.fn(() => null),
-      setVisibleRange: vi.fn(),
-      applyOptions: vi.fn(),
-      subscribeVisibleLogicalRangeChange,
-      unsubscribeVisibleLogicalRangeChange,
-    };
-    const chart: FakeChart = {
-      options,
-      addedSeries: [],
-      // Price, volume, oscillator: the volume pane is always present, so there are three.
-      panesList: [
-        { setStretchFactor: vi.fn() },
-        { setStretchFactor: vi.fn() },
-        { setStretchFactor: vi.fn() },
-      ],
-      addSeries: vi.fn(
-        (
-          definition: unknown,
-          options: Record<string, unknown>,
-          paneIndex?: number,
-        ) => {
-          const api: FakeSeries = {
-            setData: vi.fn((rows: unknown[]) => {
-              scale.points = Math.max(scale.points, rows.length);
-            }),
-            applyOptions: vi.fn(),
-            // Returns the options so a line stays identifiable: the reference-line assertions
-            // track which specific lines are still attached to which series.
-            createPriceLine: vi.fn((options: { price: number }) => ({ options })),
-            removePriceLine: vi.fn(),
-            scaleOptions: {},
-            priceScale: vi.fn(() => ({
-              applyOptions: vi.fn((next: Record<string, unknown>) => {
-                Object.assign(api.scaleOptions, next);
+      const fitContent = vi.fn();
+      const subscribeVisibleLogicalRangeChange = vi.fn();
+      const unsubscribeVisibleLogicalRangeChange = vi.fn();
+      const scale: FakeTimeScale = {
+        logical: null,
+        points: 0,
+        fitContent,
+        // The real library resolves a range against the points on the scale and answers `null` when
+        // there are none, which is what tells a caller there is nothing to position yet. A mock that
+        // always answered would hide the chart's first render, before any data is drawn.
+        getVisibleLogicalRange: vi.fn(
+          () =>
+            scale.logical ??
+            (scale.points === 0 ? null : { from: 0, to: scale.points }),
+        ),
+        setVisibleLogicalRange: vi.fn((range: { from: number; to: number }) => {
+          scale.logical = range;
+        }),
+        getVisibleRange: vi.fn(() => null),
+        setVisibleRange: vi.fn(),
+        applyOptions: vi.fn(),
+        subscribeVisibleLogicalRangeChange,
+        unsubscribeVisibleLogicalRangeChange,
+      };
+      const newPane = (): FakePane => {
+        const pane: FakePane = {
+          setStretchFactor: vi.fn(),
+          moveTo: vi.fn((target: number) => {
+            const from = chart.panesList.indexOf(pane);
+            chart.panesList.splice(from, 1);
+            chart.panesList.splice(target, 0, pane);
+          }),
+          paneIndex: () => chart.panesList.indexOf(pane),
+          series: [],
+        };
+        return pane;
+      };
+      const chart: FakeChart = {
+        options,
+        addedSeries: [],
+        // The chart starts with its price pane; every other pane is opened by the series placed in it.
+        panesList: [],
+        addSeries: vi.fn(
+          (
+            definition: unknown,
+            options: Record<string, unknown>,
+            paneIndex?: number,
+          ) => {
+            const requested = paneIndex ?? 0;
+            const pane =
+              requested < chart.panesList.length
+                ? (chart.panesList[requested] as FakePane)
+                : (() => {
+                    const created = newPane();
+                    chart.panesList.push(created);
+                    return created;
+                  })();
+            const api: FakeSeries = {
+              setData: vi.fn((rows: unknown[]) => {
+                scale.points = Math.max(scale.points, rows.length);
               }),
-            })),
-          };
-          chart.addedSeries.push({ definition, options, paneIndex, api });
-          return api;
-        },
-      ),
-      removeSeries: vi.fn(),
-      applyOptions: vi.fn(),
-      timeScale: vi.fn(() => scale),
-      scale,
-      fitContent,
-      subscribeVisibleLogicalRangeChange,
-      unsubscribeVisibleLogicalRangeChange,
-      panes: vi.fn(() => chart.panesList),
-      subscribeCrosshairMove: vi.fn(),
-      unsubscribeCrosshairMove: vi.fn(),
-      remove: vi.fn(),
-    };
-    return chart;
+              applyOptions: vi.fn(),
+              // Returns the options so a line stays identifiable: the reference-line assertions
+              // track which specific lines are still attached to which series.
+              createPriceLine: vi.fn((options: { price: number }) => ({
+                options,
+              })),
+              removePriceLine: vi.fn(),
+              scaleOptions: {},
+              priceScale: vi.fn(() => ({
+                applyOptions: vi.fn((next: Record<string, unknown>) => {
+                  Object.assign(api.scaleOptions, next);
+                }),
+              })),
+              getPane: () =>
+                chart.panesList.find((candidate) =>
+                  candidate.series.includes(api),
+                ) as FakePane,
+            };
+            pane.series.push(api);
+            chart.addedSeries.push({ definition, options, paneIndex, api });
+            return api;
+          },
+        ),
+        removeSeries: vi.fn((api: FakeSeries) => {
+          const pane = chart.panesList.find((candidate) =>
+            candidate.series.includes(api),
+          );
+          if (!pane) {
+            // The real library asserts here: removing a series the chart does not hold is a bug.
+            throw new Error("Series not found");
+          }
+          pane.series.splice(pane.series.indexOf(api), 1);
+          if (pane.series.length === 0 && chart.panesList.length > 1) {
+            chart.panesList.splice(chart.panesList.indexOf(pane), 1);
+          }
+        }),
+        applyOptions: vi.fn(),
+        timeScale: vi.fn(() => scale),
+        scale,
+        fitContent,
+        subscribeVisibleLogicalRangeChange,
+        unsubscribeVisibleLogicalRangeChange,
+        panes: vi.fn(() => chart.panesList),
+        subscribeCrosshairMove: vi.fn(),
+        unsubscribeCrosshairMove: vi.fn(),
+        remove: vi.fn(),
+      };
+      chart.panesList.push(newPane());
+      return chart;
     },
   );
   return {
@@ -142,6 +197,7 @@ vi.mock("lightweight-charts", () => {
     HistogramSeries: "HistogramSeries",
     LineSeries: "LineSeries",
     LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
+    LineType: { Simple: 0, WithSteps: 1, Curved: 2 },
   };
 });
 
@@ -1628,3 +1684,406 @@ describe("StockPriceChart oscillator pane", () => {
     expect(legend.textContent).not.toContain("RSI 14D$");
   });
 });
+
+/**
+ * A chosen fundamental as the page hands it to the chart: `points` is the drawn line (whitespace for
+ * an unavailable session inside it) and `readings` every loaded session.
+ */
+function fundamentalSeries(
+  overrides: Partial<ChartFundamentalSeries> & {
+    points: ChartFundamentalSeries["points"];
+  },
+): ChartFundamentalSeries {
+  return {
+    id: "ROIC_TTM",
+    label: "ROIC TTM",
+    unit: "PERCENT",
+    color: CHART_COLORS.fundamental,
+    readings: new Map(
+      overrides.points.map((point) => [point.date, point.value] as const),
+    ),
+    ...overrides,
+  };
+}
+
+/** Five sessions: 12, a step to 18.25, one unavailable session, then 21. */
+const ROIC = fundamentalSeries({
+  points: [
+    { date: "2026-08-24", value: 12 },
+    { date: "2026-08-25", value: 18.25 },
+    { date: "2026-08-26", value: 18.25 },
+    { date: "2026-08-27" },
+    { date: "2026-08-28", value: 21 },
+  ],
+});
+
+const DEBT_TO_EQUITY = fundamentalSeries({
+  id: "DEBT_TO_EQUITY",
+  label: "Debt / Equity",
+  unit: "MULTIPLE",
+  points: [
+    { date: "2026-08-27", value: 0.75 },
+    { date: "2026-08-28", value: 1 },
+  ],
+});
+
+function renderFundamental(
+  fundamental: ChartFundamentalSeries | undefined,
+  overlays: Parameters<typeof StockPriceChart>[0]["overlays"] = [],
+) {
+  return render(
+    <StockPriceChart
+      points={POINTS}
+      overlays={overlays}
+      {...(fundamental ? { fundamental } : {})}
+      volume={VOLUME}
+      relativeVolume={NO_RELATIVE_VOLUME}
+      currency="USD"
+      fitKey="1Y"
+      {...FRAME}
+      ariaLabel="AAPL chart"
+    />,
+  );
+}
+
+/** Series added with the fundamental's colour, still attached to the chart. */
+function liveFundamentalSeries(chart: FakeChart) {
+  const removed = new Set(chart.removeSeries.mock.calls.map((call) => call[0]));
+  return chart.addedSeries.filter(
+    (entry) =>
+      entry.options.color === CHART_COLORS.fundamental &&
+      !removed.has(entry.api),
+  );
+}
+
+function formatterOf(options: Record<string, unknown>) {
+  return (options.priceFormat as { formatter: (value: number) => string })
+    .formatter;
+}
+
+describe("StockPriceChart fundamental pane", () => {
+  it("draws the chosen metric as a step line in its own pane below the price and volume", () => {
+    const { container } = renderFundamental(
+      fundamentalSeries({
+        points: [
+          { date: "2026-08-27", value: 12 },
+          { date: "2026-08-28", value: 18.25 },
+        ],
+      }),
+    );
+    const chart = lastChart();
+
+    const [line, ...others] = liveFundamentalSeries(chart);
+    expect(others).toEqual([]);
+    expect(line?.definition).toBe("LineSeries");
+    // Never on the price scale or the volume scale: a new pane at the bottom.
+    expect(line?.paneIndex).toBe(2);
+    expect(line?.api.getPane()).toBe(chart.panesList[2]);
+    expect(chart.panesList).toHaveLength(3);
+    // A step, never a slanted line between statement events.
+    expect(line?.options.lineType).toBe(1);
+    // No last-value label: after an invalidation it would print an older reading as current.
+    expect(line?.options.lastValueVisible).toBe(false);
+    expect(line?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-27", value: 12 },
+      { time: "2026-08-28", value: 18.25 },
+    ]);
+    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(chart.panesList[1]?.setStretchFactor).toHaveBeenCalledWith(0.45);
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset).toMatchObject({
+      fundamental: "ROIC_TTM",
+      fundamentalUnit: "PERCENT",
+      fundamentalPane: "true",
+      fundamentalRuns: "1",
+      fundamentalGaps: "0",
+      fundamentalSteps: "2026-08-27=12;2026-08-28=18.25",
+    });
+  });
+
+  it("leaves an unavailable interval empty by drawing each available stretch on its own", () => {
+    const { container } = renderFundamental(ROIC);
+    const chart = lastChart();
+
+    const lines = liveFundamentalSeries(chart);
+    expect(lines).toHaveLength(2);
+    // One pane for both stretches, and neither stretch reaches into the gap.
+    expect(lines[1]?.paneIndex).toBe(2);
+    expect(lines[0]?.api.getPane()).toBe(lines[1]?.api.getPane());
+    expect(lines[0]?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-24", value: 12 },
+      { time: "2026-08-25", value: 18.25 },
+      { time: "2026-08-26", value: 18.25 },
+    ]);
+    expect(lines[1]?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-28", value: 21 },
+    ]);
+    // Nothing is carried or invented for 08-27: no point, no whitespace, no bridging colour.
+    const written = lines.flatMap(
+      (line) =>
+        line.api.setData.mock.calls[0]?.[0] as Array<Record<string, unknown>>,
+    );
+    expect(written.map((point) => point.time)).not.toContain("2026-08-27");
+    expect(written.some((point) => "color" in point)).toBe(false);
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.fundamentalRuns).toBe("2");
+    expect(wrapper.dataset.fundamentalGaps).toBe("1");
+    expect(wrapper.dataset.fundamentalSteps).toBe(
+      "2026-08-24=12;2026-08-25=18.25;2026-08-27=;2026-08-28=21",
+    );
+  });
+
+  it("draws a real zero and negative readings as values", () => {
+    renderFundamental(
+      fundamentalSeries({
+        points: [
+          { date: "2026-08-26", value: 0 },
+          { date: "2026-08-27", value: -5 },
+          { date: "2026-08-28", value: -0.4 },
+        ],
+      }),
+    );
+    const [line] = liveFundamentalSeries(lastChart());
+    expect(line?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-26", value: 0 },
+      { time: "2026-08-27", value: -5 },
+      { time: "2026-08-28", value: -0.4 },
+    ]);
+  });
+
+  it("formats the pane's axis and crosshair label in the metric's unit, never as money", () => {
+    renderFundamental(ROIC);
+    const [percent] = liveFundamentalSeries(lastChart());
+    expect(formatterOf(percent!.options)(18.25)).toBe("18.25%");
+    expect(formatterOf(percent!.options)(18.25)).not.toContain("$");
+
+    renderFundamental(DEBT_TO_EQUITY);
+    const [multiple] = liveFundamentalSeries(lastChart());
+    expect(formatterOf(multiple!.options)(0.75)).toBe("0.75x");
+    expect(formatterOf(multiple!.options)(1)).toBe("1.0x");
+  });
+
+  it("names the metric in the hover legend, with its reading or with Unavailable", () => {
+    renderFundamental(ROIC);
+    const chart = lastChart();
+    const onCrosshairMove = chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+      param: unknown,
+    ) => void;
+    const legend = screen.getByTestId("chart-legend");
+    const hover = (time: string) =>
+      onCrosshairMove({
+        time,
+        seriesData: new Map([[chart.addedSeries[0]?.api, { value: 232 }]]),
+      });
+
+    hover("2026-08-25");
+    expect(legend.textContent).toContain("ROIC TTM18.25%");
+
+    // Inside the unavailable interval: words, never a number and never the previous 18.25%.
+    hover("2026-08-27");
+    expect(legend.textContent).toContain("ROIC TTMUnavailable");
+    expect(legend.textContent).not.toContain("18.25%");
+
+    // A session the metric was never loaded for says nothing about it at all.
+    hover("2026-08-21");
+    expect(legend.textContent).not.toContain("ROIC TTM");
+  });
+
+  it("replaces the previous metric's lines, pane and scale when another is chosen", () => {
+    const { rerender } = renderFundamental(ROIC);
+    const chart = lastChart();
+    const show = (fundamental: ChartFundamentalSeries | undefined) =>
+      rerender(
+        <StockPriceChart
+          points={POINTS}
+          overlays={[]}
+          {...(fundamental ? { fundamental } : {})}
+          volume={VOLUME}
+          relativeVolume={NO_RELATIVE_VOLUME}
+          currency="USD"
+          fitKey="1Y"
+          {...FRAME}
+          ariaLabel="AAPL chart"
+        />,
+      );
+    const roicLines = liveFundamentalSeries(chart);
+
+    show(DEBT_TO_EQUITY);
+    for (const line of roicLines) {
+      expect(chart.removeSeries).toHaveBeenCalledWith(line.api);
+    }
+    const debtLines = liveFundamentalSeries(chart);
+    expect(debtLines).toHaveLength(1);
+    expect(formatterOf(debtLines[0]!.options)(0.75)).toBe("0.75x");
+    expect(debtLines[0]?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-27", value: 0.75 },
+      { time: "2026-08-28", value: 1 },
+    ]);
+    // Still exactly price, volume and one fundamental pane.
+    expect(chart.panesList).toHaveLength(3);
+
+    // Repeated switching never accumulates lines or panes.
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      show(ROIC);
+      show(DEBT_TO_EQUITY);
+    }
+    expect(liveFundamentalSeries(chart)).toHaveLength(1);
+    expect(chart.panesList).toHaveLength(3);
+
+    // None removes the pane altogether.
+    show(undefined);
+    expect(liveFundamentalSeries(chart)).toHaveLength(0);
+    expect(chart.panesList).toHaveLength(2);
+  });
+
+  it("keeps the lower panes in order, volume then oscillator then fundamental, whichever came first", () => {
+    const rsi = rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3);
+    const { rerender, container } = renderFundamental(ROIC);
+    const chart = lastChart();
+    const fundamentalPane = liveFundamentalSeries(chart)[0]?.api.getPane();
+    expect(chart.panesList.indexOf(fundamentalPane!)).toBe(2);
+
+    // The oscillator arrives second: its new pane opens at the bottom and is moved above.
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[rsi]}
+        fundamental={ROIC}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const oscillator = oscillatorSeriesIn(chart).at(-1);
+    expect(oscillator?.paneIndex).toBe(3);
+    const oscillatorPane = oscillator?.api.getPane();
+    expect(chart.panesList).toHaveLength(4);
+    expect(chart.panesList.indexOf(oscillatorPane!)).toBe(2);
+    expect(chart.panesList.indexOf(fundamentalPane!)).toBe(3);
+    // The RSI never lands on the fundamental's scale, nor a fundamental on the RSI's.
+    expect(oscillatorPane).not.toBe(fundamentalPane);
+    expect(oscillatorPane?.setStretchFactor).toHaveBeenCalledWith(0.35);
+    expect(fundamentalPane?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.oscillatorPane).toBe("true");
+    expect(wrapper.dataset.fundamentalPane).toBe("true");
+
+    // The oscillator leaves again: its pane goes and the fundamental's moves up beneath volume.
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        fundamental={ROIC}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(chart.panesList).toHaveLength(3);
+    expect(chart.panesList.indexOf(fundamentalPane!)).toBe(2);
+  });
+
+  it("puts a fundamental chosen after an oscillator below the oscillator's pane", () => {
+    const rsi = rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3);
+    const { rerender } = renderFundamental(undefined, [rsi]);
+    const chart = lastChart();
+    const oscillatorPane = oscillatorSeriesIn(chart)[0]?.api.getPane();
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[rsi]}
+        fundamental={DEBT_TO_EQUITY}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const [line] = liveFundamentalSeries(chart);
+    expect(line?.paneIndex).toBe(3);
+    expect(chart.panesList.indexOf(oscillatorPane!)).toBe(2);
+    expect(chart.panesList.indexOf(line!.api.getPane())).toBe(3);
+  });
+
+  it("draws no pane for a metric with no value anywhere in the loaded history", () => {
+    const { container } = renderFundamental(fundamentalSeries({ points: [] }));
+    const chart = lastChart();
+    expect(liveFundamentalSeries(chart)).toEqual([]);
+    expect(chart.panesList).toHaveLength(2);
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.fundamentalPane).toBeUndefined();
+    expect(wrapper.dataset.fundamental).toBe("ROIC_TTM");
+    expect(wrapper.dataset.fundamentalRuns).toBe("0");
+  });
+
+  it("does not redraw the fundamental when an unrelated overlay is toggled", () => {
+    const { rerender } = renderFundamental(ROIC);
+    const chart = lastChart();
+    const before = liveFundamentalSeries(chart);
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[priceOverlay(0)]}
+        fundamental={ROIC}
+        volume={VOLUME}
+        relativeVolume={NO_RELATIVE_VOLUME}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const after = liveFundamentalSeries(chart);
+    expect(after.map((entry) => entry.api)).toEqual(
+      before.map((entry) => entry.api),
+    );
+    for (const entry of before) {
+      expect(chart.removeSeries).not.toHaveBeenCalledWith(entry.api);
+    }
+  });
+
+  it("survives a development remount without touching a disposed chart", () => {
+    // Strict mode mounts, disposes and remounts: the second chart must be built from nothing, and
+    // no series belonging to the first may be removed from it — the library throws on that.
+    expect(() =>
+      render(
+        <StrictMode>
+          <StockPriceChart
+            points={POINTS}
+            overlays={[rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3)]}
+            fundamental={ROIC}
+            volume={VOLUME}
+            relativeVolume={NO_RELATIVE_VOLUME}
+            currency="USD"
+            fitKey="1Y"
+            {...FRAME}
+            ariaLabel="AAPL chart"
+          />
+        </StrictMode>,
+      ),
+    ).not.toThrow();
+    const chart = lastChart();
+    expect(liveFundamentalSeries(chart)).toHaveLength(2);
+    expect(chart.panesList).toHaveLength(4);
+  });
+});
+
+/** Every series added into an oscillator pane, identified by its unitless formatter. */
+function oscillatorSeriesIn(chart: FakeChart) {
+  return chart.addedSeries.filter(
+    (entry) =>
+      entry.options.autoscaleInfoProvider !== undefined &&
+      entry.definition === "LineSeries",
+  );
+}

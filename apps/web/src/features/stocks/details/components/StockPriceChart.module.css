@@ -15,6 +15,16 @@
   height: 440px;
 }
 
+/* The Fundamental Metric pane sits below everything else and adds its own height the same way,
+   on top of the oscillator pane's when both are drawn. */
+.wrapper[data-fundamental-pane="true"] {
+  height: 460px;
+}
+
+.wrapper[data-oscillator-pane="true"][data-fundamental-pane="true"] {
+  height: 560px;
+}
+
 @media (min-width: 880px) {
   .wrapper {
     height: 440px;
@@ -22,6 +32,14 @@
 
   .wrapper[data-oscillator-pane="true"] {
     height: 560px;
+  }
+
+  .wrapper[data-fundamental-pane="true"] {
+    height: 580px;
+  }
+
+  .wrapper[data-oscillator-pane="true"][data-fundamental-pane="true"] {
+    height: 700px;
   }
 }
 

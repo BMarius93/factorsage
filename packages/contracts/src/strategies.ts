@@ -30,6 +30,7 @@ import type { ContentOwnershipResponse } from "./builtins.js";
 import {
   findFundamentalMetric,
   FUNDAMENTAL_METRIC_CATALOG,
+  FUNDAMENTAL_METRICS_LABEL,
   isFundamentalMetricId,
   type FundamentalMetricCatalogEntry,
   type FundamentalMetricId,
@@ -400,7 +401,7 @@ export const STRATEGY_METRIC_CATEGORY_LABELS = {
   OSCILLATORS: "Oscillators",
   VOLUME: "Volume",
   VALUATION: "Valuation",
-  FUNDAMENTALS: "Fundamentals",
+  FUNDAMENTALS: FUNDAMENTAL_METRICS_LABEL,
   POSITION: "Position",
   INSIDER_ACTIVITY: "Insider activity",
   CONGRESSIONAL_TRADING: "Congressional trading",

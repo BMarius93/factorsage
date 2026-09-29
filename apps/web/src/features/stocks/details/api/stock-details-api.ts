@@ -1,6 +1,8 @@
 import type {
+  DailyFundamentalMetricResponse,
   DailyPriceResponse,
   DailyTechnicalResponse,
+  FundamentalMetricId,
   IntrinsicValueBlendIdResponse,
   IntrinsicValueBlendResponse,
   IntrinsicValueModelResponse,
@@ -60,6 +62,26 @@ export function fetchDailyTechnicalHistory(
     query: { from: window.from, to: window.to },
     ...options,
   });
+}
+
+/**
+ * One Fundamental Metric's daily history over a bounded window: exactly the metric named, by its
+ * stable identity, and never the rest of the derived row. The server resolves how the metric is
+ * stored; this client only ever speaks the identity.
+ */
+export function fetchDailyFundamentalHistory(
+  symbol: string,
+  window: StockHistoryWindow,
+  metric: FundamentalMetricId,
+  options: RequestOptions = {},
+): Promise<DailyFundamentalMetricResponse[]> {
+  return apiGet<DailyFundamentalMetricResponse[]>(
+    stockPath(symbol, "/fundamentals/daily"),
+    {
+      query: { from: window.from, to: window.to, metric },
+      ...options,
+    },
+  );
 }
 
 export function fetchIntrinsicValueBlendHistory(

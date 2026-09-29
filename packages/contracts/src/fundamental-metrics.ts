@@ -28,6 +28,12 @@
  * they are Valuation, not Fundamentals, and are not here.
  */
 
+/**
+ * The family's one product label, wherever the fifteen metrics are offered together: the Strategy
+ * Builder's metric category and the Stock Details chart's series section both read it.
+ */
+export const FUNDAMENTAL_METRICS_LABEL = "Fundamentals";
+
 /** The methodology's groups, in the order it introduces them. */
 export const FUNDAMENTAL_METRIC_GROUPS = [
   "GROWTH",
@@ -245,6 +251,31 @@ export type FundamentalMetricId =
 /** Every fundamental metric identity, in canonical order. */
 export const FUNDAMENTAL_METRIC_IDS: readonly FundamentalMetricId[] =
   FUNDAMENTAL_METRIC_CATALOG.map((entry) => entry.id);
+
+/** One catalog entry with its identity typed as a catalog identity. */
+export type FundamentalMetric = (typeof FUNDAMENTAL_METRIC_CATALOG)[number];
+
+/**
+ * The catalog grouped for a surface that shows the groups: canonical group order, and catalog order
+ * inside each group.
+ *
+ * Built from the flat catalog, so a grouped view can never drift from it and never holds a metric
+ * twice or leaves one out. The groups follow `FUNDAMENTAL_METRIC_GROUPS`, the order the methodology
+ * introduces them, so the two Leverage metrics sit together even though the flat order interleaves
+ * Current Ratio between them. A group no metric belongs to is omitted rather than rendered empty.
+ */
+export const FUNDAMENTAL_METRIC_GROUPED: readonly {
+  readonly id: FundamentalMetricGroupId;
+  readonly label: string;
+  readonly metrics: readonly FundamentalMetric[];
+}[] = FUNDAMENTAL_METRIC_GROUPS.flatMap((group) => {
+  const metrics = FUNDAMENTAL_METRIC_CATALOG.filter(
+    (entry) => entry.group === group,
+  );
+  return metrics.length === 0
+    ? []
+    : [{ id: group, label: FUNDAMENTAL_METRIC_GROUP_LABELS[group], metrics }];
+});
 
 /**
  * Whether a value is one of the catalog's identities, by exact match.

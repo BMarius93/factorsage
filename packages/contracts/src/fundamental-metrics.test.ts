@@ -3,11 +3,14 @@ import {
   findFundamentalMetric,
   FUNDAMENTAL_METRIC_CATALOG,
   FUNDAMENTAL_METRIC_GROUP_LABELS,
+  FUNDAMENTAL_METRIC_GROUPED,
   FUNDAMENTAL_METRIC_GROUPS,
   FUNDAMENTAL_METRIC_IDS,
   FUNDAMENTAL_METRIC_UNITS,
+  FUNDAMENTAL_METRICS_LABEL,
   isFundamentalMetricId,
 } from "./fundamental-metrics.js";
+import { STRATEGY_METRIC_CATEGORY_LABELS } from "./strategies.js";
 
 /**
  * The one deliberate catalog snapshot.
@@ -175,5 +178,64 @@ describe("the Fundamental Metrics product catalog", () => {
     for (const candidate of [undefined, null, 7, {}, ["ROIC_TTM"]]) {
       expect(isFundamentalMetricId(candidate)).toBe(false);
     }
+  });
+
+  it("groups every metric exactly once, in group order and catalog order", () => {
+    // The shape a grouped surface renders, written out by hand: the two Leverage metrics sit
+    // together although the flat catalog lists Current Ratio between them.
+    expect(
+      FUNDAMENTAL_METRIC_GROUPED.map((group) => [
+        group.label,
+        group.metrics.map((metric) => metric.id),
+      ]),
+    ).toEqual([
+      [
+        "Growth",
+        ["REVENUE_GROWTH_TTM_YOY", "EPS_GROWTH_TTM_YOY", "FCF_GROWTH_TTM_YOY"],
+      ],
+      [
+        "Profitability",
+        [
+          "GROSS_MARGIN_TTM",
+          "OPERATING_MARGIN_TTM",
+          "NET_MARGIN_TTM",
+          "FCF_MARGIN_TTM",
+        ],
+      ],
+      ["Quality", ["ROIC_TTM", "ROE_TTM", "ROA_TTM"]],
+      ["Leverage", ["DEBT_TO_EQUITY", "NET_DEBT_TO_EBITDA_TTM"]],
+      ["Liquidity", ["CURRENT_RATIO"]],
+      ["Solvency", ["INTEREST_COVERAGE_TTM"]],
+      ["Efficiency", ["ASSET_TURNOVER_TTM"]],
+    ]);
+
+    // Derived, not restated: the same entries as the flat catalog, each once.
+    const grouped = FUNDAMENTAL_METRIC_GROUPED.flatMap(
+      (group) => group.metrics,
+    );
+    expect(grouped).toHaveLength(FUNDAMENTAL_METRIC_CATALOG.length);
+    expect(new Set(grouped.map((metric) => metric.id))).toEqual(
+      new Set(FUNDAMENTAL_METRIC_IDS),
+    );
+    for (const group of FUNDAMENTAL_METRIC_GROUPED) {
+      expect(group.label).toBe(FUNDAMENTAL_METRIC_GROUP_LABELS[group.id]);
+      expect(group.metrics.every((metric) => metric.group === group.id)).toBe(
+        true,
+      );
+      const positions = group.metrics.map((metric) =>
+        FUNDAMENTAL_METRIC_IDS.indexOf(metric.id),
+      );
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    }
+    expect(FUNDAMENTAL_METRIC_GROUPED.map((group) => group.id)).toEqual(
+      FUNDAMENTAL_METRIC_GROUPS,
+    );
+  });
+
+  it("names the family once, for every surface that offers it", () => {
+    expect(FUNDAMENTAL_METRICS_LABEL).toBe("Fundamentals");
+    expect(STRATEGY_METRIC_CATEGORY_LABELS.FUNDAMENTALS).toBe(
+      FUNDAMENTAL_METRICS_LABEL,
+    );
   });
 });
