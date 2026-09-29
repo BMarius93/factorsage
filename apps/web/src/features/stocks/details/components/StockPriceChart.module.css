@@ -15,6 +15,18 @@
   height: 440px;
 }
 
+/* The Fundamental Metric pane sits below everything else and adds its own height the same way,
+   on top of the oscillator pane's when both are drawn. While a chosen metric is still loading an
+   empty pane holds its place, and the room is kept for it, so neither the page nor the price pane
+   changes size on the way from one metric to the next. */
+.wrapper[data-fundamental-space="true"] {
+  height: 460px;
+}
+
+.wrapper[data-oscillator-pane="true"][data-fundamental-space="true"] {
+  height: 560px;
+}
+
 @media (min-width: 880px) {
   .wrapper {
     height: 440px;
@@ -22,6 +34,14 @@
 
   .wrapper[data-oscillator-pane="true"] {
     height: 560px;
+  }
+
+  .wrapper[data-fundamental-space="true"] {
+    height: 580px;
+  }
+
+  .wrapper[data-oscillator-pane="true"][data-fundamental-space="true"] {
+    height: 700px;
   }
 }
 

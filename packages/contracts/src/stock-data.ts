@@ -1,3 +1,5 @@
+import type { FundamentalMetricId } from "./fundamental-metrics.js";
+
 /**
  * Inclusive historical date-range query in `YYYY-MM-DD` form.
  * API parsing/validation must reject malformed or inverted ranges.
@@ -136,6 +138,37 @@ export type RelativeVolumeFieldResponse = keyof RelativeVolumeValuesResponse;
 export type TechnicalSeriesFieldResponse =
   | MovingAverageFieldResponse
   | OscillatorFieldResponse;
+
+/**
+ * One trading day of one Fundamental Metric's history:
+ * `GET /stocks/:symbol/fundamentals/daily?metric=<FundamentalMetricId>`.
+ *
+ * `value` is the metric's persisted daily derived state on that session — the same number a
+ * Strategy Condition and a backtest read for it. It is materialized point-in-time from the
+ * statements public by the session, changes only on the first session after a new or revised
+ * statement became public, and is carried forward unchanged between those events.
+ *
+ * Every trading day of the requested range has a row, oldest first. `value` is **omitted** on a
+ * session the metric is unavailable on — before it is first calculable, or after a later
+ * statement revision invalidated it — and is never `null`, never zero and never an earlier value
+ * carried through the unavailable interval. A zero or a negative `value` is a real reading.
+ *
+ * The unit is the metric's (`FUNDAMENTAL_METRIC_CATALOG`): a `PERCENT` metric is in percentage
+ * points, so `15.42` means 15.42% and never 0.1542%; a `MULTIPLE` metric is a raw ratio, so a Debt /
+ * Equity of `0.75` is 0.75x. Values carry full stored precision; rounding is presentation.
+ *
+ * Sessions are completed end-of-day trading sessions. Nothing here is a realtime reading, and no
+ * value is ever synthesized from a quote or from a statement at read time.
+ */
+export type DailyFundamentalMetricResponse = {
+  date: string;
+  value?: number;
+};
+
+/** Inclusive `YYYY-MM-DD` window plus exactly one Fundamental Metric identity. */
+export type FundamentalMetricHistoryQuery = Required<StockDateRangeQuery> & {
+  metric: FundamentalMetricId;
+};
 
 export type IntrinsicValueModelResponse =
   | "DCF_FCFF"

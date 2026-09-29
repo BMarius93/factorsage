@@ -1,11 +1,16 @@
 import {
+  FUNDAMENTAL_METRIC_CATALOG,
+  FUNDAMENTAL_METRIC_GROUP_LABELS,
+  FUNDAMENTAL_METRIC_IDS,
   SELECTABLE_SERIES_CATALOG,
+  SELECTABLE_SERIES_GROUPED,
+  type FundamentalMetricId,
   type SelectableSeriesId,
 } from "@intrinsic/contracts";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { overlayColorAt } from "../utils/chart-theme";
 import { IndicatorsMenu } from "./IndicatorsMenu";
 
@@ -16,15 +21,25 @@ const ALL_IDS = new Set(
 function Harness({
   available = ALL_IDS,
   initial = ["BALANCED"] as SelectableSeriesId[],
+  initialFundamental = null,
+  onChooseFundamental,
 }: {
   available?: ReadonlySet<SelectableSeriesId>;
   initial?: SelectableSeriesId[];
+  initialFundamental?: FundamentalMetricId | null;
+  onChooseFundamental?: (id: FundamentalMetricId | null) => void;
 }) {
   const [selected, setSelected] = useState(new Set(initial));
+  const [fundamental, setFundamental] = useState(initialFundamental);
   return (
     <IndicatorsMenu
       selected={selected}
       available={available}
+      fundamental={fundamental}
+      onChooseFundamental={(id) => {
+        onChooseFundamental?.(id);
+        setFundamental(id);
+      }}
       onToggle={(id) =>
         setSelected((current) => {
           const next = new Set(current);
@@ -147,5 +162,155 @@ describe("IndicatorsMenu", () => {
     expect(
       within(screen.getByRole("button", { name: /Indicators/ })).getByText("4"),
     ).toBeDefined();
+  });
+
+  it("offers the Fundamentals section once, after every overlay group", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+
+    const legends = [...panel().querySelectorAll("legend")].map(
+      (legend) => legend.textContent,
+    );
+    expect(legends).toEqual([
+      ...SELECTABLE_SERIES_GROUPED.map((group) => group.label),
+      "Fundamentals",
+    ]);
+    // A single-select, so it adds no checkbox: the overlay count is the catalog's alone.
+    expect(within(panel()).getAllByRole("checkbox")).toHaveLength(
+      SELECTABLE_SERIES_CATALOG.length,
+    );
+    expect(
+      within(panel()).getAllByRole("combobox", { name: "Fundamental metric" }),
+    ).toHaveLength(1);
+  });
+
+  it("lists every metric exactly once, grouped and ordered by the catalog", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    const select = within(panel()).getByRole("combobox", {
+      name: "Fundamental metric",
+    }) as HTMLSelectElement;
+
+    // "None" first and chosen: nothing is loaded until a metric is.
+    expect(select.value).toBe("");
+    expect(select.options[0]?.textContent).toBe("None");
+
+    const groups = [...select.querySelectorAll("optgroup")].map((group) => [
+      group.label,
+      [...group.querySelectorAll("option")].map((option) => option.value),
+    ]);
+    expect(groups).toEqual([
+      [
+        "Growth",
+        ["REVENUE_GROWTH_TTM_YOY", "EPS_GROWTH_TTM_YOY", "FCF_GROWTH_TTM_YOY"],
+      ],
+      [
+        "Profitability",
+        [
+          "GROSS_MARGIN_TTM",
+          "OPERATING_MARGIN_TTM",
+          "NET_MARGIN_TTM",
+          "FCF_MARGIN_TTM",
+        ],
+      ],
+      ["Quality", ["ROIC_TTM", "ROE_TTM", "ROA_TTM"]],
+      ["Leverage", ["DEBT_TO_EQUITY", "NET_DEBT_TO_EBITDA_TTM"]],
+      ["Liquidity", ["CURRENT_RATIO"]],
+      ["Solvency", ["INTEREST_COVERAGE_TTM"]],
+      ["Efficiency", ["ASSET_TURNOVER_TTM"]],
+    ]);
+    const offered = [...select.options]
+      .map((option) => option.value)
+      .filter(Boolean);
+    expect(offered).toHaveLength(FUNDAMENTAL_METRIC_IDS.length);
+    expect(new Set(offered)).toEqual(new Set(FUNDAMENTAL_METRIC_IDS));
+  });
+
+  it("chooses each catalog metric by its own identity, label and group", async () => {
+    // Exhaustive over the catalog: a metric added to it reaches this select, under its one label and
+    // its own group, and choosing it hands exactly its identity to the page — never a label and never
+    // anything that names how it is stored.
+    const user = userEvent.setup();
+    const chosen = vi.fn();
+    render(<Harness onChooseFundamental={chosen} />);
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    const select = within(panel()).getByRole("combobox", {
+      name: "Fundamental metric",
+    }) as HTMLSelectElement;
+
+    for (const entry of FUNDAMENTAL_METRIC_CATALOG) {
+      const options = [...select.options].filter(
+        (option) => option.value === entry.id,
+      );
+      expect(options, entry.id).toHaveLength(1);
+      const option = options[0] as HTMLOptionElement;
+      expect(option.textContent).toBe(entry.label);
+      expect((option.parentElement as HTMLOptGroupElement).label).toBe(
+        FUNDAMENTAL_METRIC_GROUP_LABELS[entry.group],
+      );
+
+      await user.selectOptions(select, entry.id);
+      expect(chosen).toHaveBeenLastCalledWith(entry.id);
+      expect(select.value).toBe(entry.id);
+    }
+    expect(chosen).toHaveBeenCalledTimes(FUNDAMENTAL_METRIC_CATALOG.length);
+  });
+
+  it("holds one metric at a time, counts it, and clears it with None", async () => {
+    const user = userEvent.setup();
+    const chosen = vi.fn();
+    render(<Harness onChooseFundamental={chosen} />);
+    const trigger = screen.getByRole("button", { name: /Indicators/ });
+    await user.click(trigger);
+    const select = within(panel()).getByRole("combobox", {
+      name: "Fundamental metric",
+    });
+
+    await user.selectOptions(select, "ROIC_TTM");
+    // Balanced plus the fundamental.
+    expect(within(trigger).getByText("2")).toBeDefined();
+    await user.selectOptions(select, "DEBT_TO_EQUITY");
+    expect(chosen).toHaveBeenLastCalledWith("DEBT_TO_EQUITY");
+    expect(within(trigger).getByText("2")).toBeDefined();
+
+    await user.selectOptions(select, "");
+    expect(chosen).toHaveBeenLastCalledWith(null);
+    expect(within(trigger).getByText("1")).toBeDefined();
+  });
+
+  it("explains the chosen metric in its own catalog words, and nothing before one is chosen", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    expect(within(panel()).queryByTestId("fundamental-help")).toBeNull();
+
+    await user.selectOptions(
+      within(panel()).getByRole("combobox", { name: "Fundamental metric" }),
+      "ROIC_TTM",
+    );
+    const roic = FUNDAMENTAL_METRIC_CATALOG.find(
+      (entry) => entry.id === "ROIC_TTM",
+    );
+    const help = within(panel()).getByTestId("fundamental-help");
+    expect(help.textContent).toContain(roic?.summary);
+    expect(help.textContent).toContain(roic?.formula);
+  });
+
+  it("reaches the fundamental select from the keyboard, after the overlays", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={[]} />);
+    await user.tab();
+    await user.keyboard("{Enter}");
+    const select = within(panel()).getByRole("combobox", {
+      name: "Fundamental metric",
+    });
+    // One tab stop per overlay checkbox, then the select.
+    for (let step = 0; step < SELECTABLE_SERIES_CATALOG.length + 1; step += 1) {
+      await user.tab();
+    }
+    expect(document.activeElement).toBe(select);
+    expect(select.getAttribute("aria-describedby")).toBeTruthy();
   });
 });

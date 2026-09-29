@@ -1,8 +1,10 @@
 import type {
   DailyDerivedState,
+  DailyFundamentalMetricPoint,
   DateRange,
   FinancialStatement,
   FinancialStatementQuery,
+  FundamentalMetricId,
   IntrinsicValueBlendPoint,
   IntrinsicValueBlendQuery,
   IntrinsicValuePoint,
@@ -82,6 +84,21 @@ export class LoggedStockDataService implements StockDataService {
     );
   }
 
+  getDailyFundamentalMetric(
+    symbol: string,
+    metricId: FundamentalMetricId,
+    range: DateRange,
+  ): Promise<DailyFundamentalMetricPoint[]> {
+    return this.execute(
+      "getDailyFundamentalMetric",
+      symbol,
+      () => this.delegate.getDailyFundamentalMetric(symbol, metricId, range),
+      // Already validated against the catalog by the controller, so it is an identity, never raw
+      // input.
+      { metricId },
+    );
+  }
+
   getFinancialStatements(
     symbol: string,
     query: FinancialStatementQuery,
@@ -113,6 +130,7 @@ export class LoggedStockDataService implements StockDataService {
     operation: string,
     symbol: string,
     action: () => Promise<T>,
+    context: Readonly<Record<string, string>> = {},
   ): Promise<T> {
     const startedAt = Date.now();
     try {
@@ -122,6 +140,7 @@ export class LoggedStockDataService implements StockDataService {
         event: "stock.data.operation.failed",
         operation,
         symbol: symbol.trim().toUpperCase(),
+        ...context,
         durationMs: Date.now() - startedAt,
         err,
       };

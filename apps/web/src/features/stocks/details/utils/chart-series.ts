@@ -1,6 +1,7 @@
 import type {
   DailyPriceResponse,
   DailyTechnicalResponse,
+  FundamentalMetricUnit,
   IntrinsicValueBlendIdResponse,
   IntrinsicValueBlendResponse,
   IntrinsicValueModelResponse,
@@ -52,6 +53,35 @@ export type ChartOverlaySeries = {
    * are present as whitespace so the gap stays a gap; see `ChartLinePoint`.
    */
   points: readonly ChartLinePoint[];
+};
+
+/**
+ * The one Fundamental Metric drawn in its own pane below the price chart.
+ *
+ * Not a `ChartOverlaySeries`: it has its own unit rather than money or a unitless 0-100 scale, it
+ * is drawn as a step line because it changes only on statement events, and its unavailable
+ * intervals are broken by drawing each available stretch as its own line rather than by colouring
+ * a bridge away — a step line would otherwise still join the value before a gap to the value
+ * after it with a vertical edge.
+ */
+export type ChartFundamentalSeries = {
+  /** The metric's stable catalog identity. */
+  id: string;
+  /** The catalog's one product label. */
+  label: string;
+  unit: FundamentalMetricUnit;
+  color: string;
+  /**
+   * The drawn line on the price chart's session axis: from its first session with a value to its
+   * last, with every session in between that has no value present as whitespace.
+   */
+  points: readonly ChartLinePoint[];
+  /**
+   * Every loaded session of the chart to its stored value, or to `undefined` where the metric is
+   * unavailable. What the hover legend reads: a session outside this map was not loaded for the
+   * metric, and says nothing about it.
+   */
+  readings: ReadonlyMap<string, number | undefined>;
 };
 
 export function closeSeries(

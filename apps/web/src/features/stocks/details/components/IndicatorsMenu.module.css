@@ -169,3 +169,28 @@
   font-size: 11px;
   font-weight: var(--weight-emphasis);
 }
+
+.groupHint {
+  margin: 4px 0 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* The chosen metric's own catalog summary and formula, so the pane is never an unexplained line. */
+.fundamentalHelp {
+  margin-top: 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fundamentalSummary,
+.fundamentalFormula {
+  margin: 0;
+}
+
+.fundamentalFormula {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+}

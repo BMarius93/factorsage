@@ -2,6 +2,7 @@ import type {
   FinancialStatement,
   FinancialStatementQuery,
 } from "./financial-statements.js";
+import type { FundamentalMetricId } from "./fundamental-metrics.js";
 
 /** Calendar date in canonical `YYYY-MM-DD` form. No timezone is attached. */
 export type LocalDate = string;
@@ -677,6 +678,25 @@ export type StockDetails = {
   intrinsicValueBlends: IntrinsicValueBlendPoint[];
 };
 
+/**
+ * One trading day of one Fundamental Metric, read straight off the unified daily derived state.
+ *
+ * `value` is exactly the persisted `DailyDerivedState` field of the metric for this session:
+ * materialized point-in-time from the statements public by then and carried forward between
+ * statement events, absence included. It is omitted when the metric is unavailable on the day —
+ * never zero, never an earlier value carried through an invalidation. Every trading day of the
+ * requested range has a point, so a caller can tell "unavailable on this session" from "not a
+ * trading day" without a calendar of its own. `PERCENT` metrics are percentage points and
+ * `MULTIPLE` metrics raw ratios, exactly as stored (`FUNDAMENTAL_METRICS`).
+ *
+ * Nothing about the point is calculated when it is read: no statement, no TTM window and no
+ * formula is involved.
+ */
+export type DailyFundamentalMetricPoint = {
+  date: LocalDate;
+  value?: number;
+};
+
 /** `asOf` means only information eligible at or before this historical date. */
 export type IntrinsicValueQuery = DateRange & {
   models?: readonly IntrinsicValueModel[];
@@ -716,6 +736,16 @@ export interface StockDataService {
     symbol: string,
     range: DateRange,
   ): Promise<DailyTechnical[]>;
+  /**
+   * One Fundamental Metric's daily history, projected from the same persisted derived state every
+   * other consumer reads. Only the requested metric is projected; its storage field is resolved
+   * through the domain registry, never from the identity's spelling.
+   */
+  getDailyFundamentalMetric(
+    symbol: string,
+    metricId: FundamentalMetricId,
+    range: DateRange,
+  ): Promise<DailyFundamentalMetricPoint[]>;
   getFinancialStatements(
     symbol: string,
     query: FinancialStatementQuery,

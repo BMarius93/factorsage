@@ -1,4 +1,5 @@
 import {
+  FUNDAMENTAL_METRICS_LABEL,
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
 } from "@intrinsic/contracts";
@@ -24,7 +25,11 @@ const QA_SYMBOL = "QATEST1";
  * is product state owned by `@intrinsic/contracts` and pinned by its own snapshot test. Restating
  * it here would make this suite a second catalog that silently goes stale.
  */
-const GROUPS = SELECTABLE_SERIES_GROUPED.map((group) => group.label);
+const GROUPS = [
+  ...SELECTABLE_SERIES_GROUPED.map((group) => group.label),
+  // The Fundamental Metrics follow the overlay groups as one single-select section.
+  FUNDAMENTAL_METRICS_LABEL,
+];
 const CATALOG_SIZE = SELECTABLE_SERIES_CATALOG.length;
 
 const DESKTOP = { width: 1440, height: 900 };

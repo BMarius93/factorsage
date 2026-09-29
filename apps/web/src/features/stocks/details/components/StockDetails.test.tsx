@@ -4,11 +4,19 @@ import {
   type SecurityResponse,
   type StockDetailsResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../../lib/api/client";
 import {
+  fetchDailyFundamentalHistory,
   fetchDailyPriceHistory,
   fetchDailyTechnicalHistory,
   fetchIntrinsicValueBlendHistory,
@@ -32,6 +40,7 @@ vi.mock("../api/stock-details-api", () => ({
   fetchDailyTechnicalHistory: vi.fn(),
   fetchIntrinsicValueBlendHistory: vi.fn(),
   fetchIntrinsicValueHistory: vi.fn(),
+  fetchDailyFundamentalHistory: vi.fn(),
 }));
 
 // The chart library boundary is tested separately; here a probe records the data our feature
@@ -79,6 +88,15 @@ vi.mock("./StockPriceChart", () => ({
             `${date}:${readings.rvol10 ?? "-"}/${readings.rvol20 ?? "-"}/${readings.rvol50 ?? "-"}`,
         )
         .join(",")}
+      // The chosen fundamental exactly as handed to the chart: identity, label, unit, and every
+      // drawn point, with `-` for a session drawn as a gap.
+      data-fundamental={props.fundamental?.id ?? ""}
+      data-fundamental-label={props.fundamental?.label ?? ""}
+      data-fundamental-unit={props.fundamental?.unit ?? ""}
+      data-fundamental-points={(props.fundamental?.points ?? [])
+        .map((point) => `${point.date}:${point.value ?? "-"}`)
+        .join(",")}
+      data-fundamental-pending={props.fundamentalPending ? "true" : "false"}
       data-loading={props.loading ? "true" : "false"}
       data-fit-key={props.fitKey}
       data-frame-from={props.frameFrom}
@@ -109,6 +127,9 @@ const fetchIntrinsicValueBlendHistoryMock = vi.mocked(
   fetchIntrinsicValueBlendHistory,
 );
 const fetchIntrinsicValueHistoryMock = vi.mocked(fetchIntrinsicValueHistory);
+const fetchDailyFundamentalHistoryMock = vi.mocked(
+  fetchDailyFundamentalHistory,
+);
 
 const SECURITY: SecurityResponse = {
   id: "sec-1",
@@ -229,6 +250,7 @@ beforeEach(() => {
   fetchDailyTechnicalHistoryMock.mockReset();
   fetchIntrinsicValueBlendHistoryMock.mockReset();
   fetchIntrinsicValueHistoryMock.mockReset();
+  fetchDailyFundamentalHistoryMock.mockReset();
   fetchDailyTechnicalHistoryMock.mockResolvedValue([]);
   fetchIntrinsicValueBlendHistoryMock.mockResolvedValue([]);
   fetchIntrinsicValueHistoryMock.mockResolvedValue([]);
@@ -854,6 +876,8 @@ describe("StockDetails", () => {
       "Oscillators",
       "Intrinsic Value — Blends",
       "Intrinsic Value — Models",
+      // The Fundamental Metrics follow the overlays as one single-select section.
+      "Fundamentals",
     ]);
 
     const options = within(panel).getAllByRole("checkbox");
@@ -1234,5 +1258,300 @@ describe("StockDetails recording a recently viewed security", () => {
     expect(screen.getByText("$232.00")).toBeDefined();
     await waitFor(() => expect(recentCalls(fetchMock).length).toBeGreaterThan(0));
     expect(screen.getByTestId("price-chart")).toBeDefined();
+  });
+});
+
+describe("StockDetails fundamentals", () => {
+  const WINDOW = { from: "2025-08-28", to: "2026-08-28" };
+
+  /** A ROIC history as the API returns it: a step, one unavailable session, a restoration. */
+  const ROIC_ROWS = [
+    { date: "2025-09-02", value: 12 },
+    { date: "2026-03-02", value: 18.25 },
+    { date: "2026-06-02" },
+    { date: "2026-07-30", value: 21 },
+    { date: "2026-08-27", value: 21 },
+    { date: "2026-08-28", value: 21 },
+  ];
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((onResolve) => {
+      resolve = onResolve;
+    });
+    return { promise, resolve };
+  }
+
+  async function openPage(user: ReturnType<typeof setupUser>) {
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    return screen.getByRole("combobox", { name: "Fundamental metric" });
+  }
+
+  function fundamentalRequests() {
+    return fetchDailyFundamentalHistoryMock.mock.calls.map(
+      ([symbol, window, metric]) => [symbol, metric, window.from, window.to],
+    );
+  }
+
+  it("loads nothing about fundamentals until a metric is chosen", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+    await openPage(user);
+
+    expect(fetchDailyFundamentalHistoryMock).not.toHaveBeenCalled();
+    expect(chart().dataset.fundamental).toBe("");
+    expect(screen.queryByTestId("fundamental-status")).toBeNull();
+  });
+
+  it("asks for the chosen metric alone, by identity, over the loaded window, and draws what came back", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "ROIC_TTM");
+
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    expect(fundamentalRequests()).toEqual([
+      ["AAPL", "ROIC_TTM", WINDOW.from, WINDOW.to],
+    ]);
+    expect(chart().dataset.fundamentalLabel).toBe("ROIC TTM");
+    expect(chart().dataset.fundamentalUnit).toBe("PERCENT");
+    // The stored values, the unavailable session as a gap, nothing carried and nothing rescaled.
+    expect(chart().dataset.fundamentalPoints).toBe(
+      "2025-09-02:12,2026-03-02:18.25,2026-06-02:-,2026-07-30:21,2026-08-27:21,2026-08-28:21",
+    );
+    // The key names it once it is drawn, and nothing reports it as loading or empty.
+    expect(
+      screen.getByRole("list", { name: "Chart key" }).textContent,
+    ).toContain("ROIC TTM");
+    expect(screen.queryByTestId("fundamental-status")).toBeNull();
+  });
+
+  it("asks up to the newest bar on the chart, and never draws a session the price series lacks", async () => {
+    // The window ends on the 28th but the newest close on the page is the 27th. A row for the
+    // 28th — which a later freshness check could produce — must neither be asked for nor drawn:
+    // it would add a session to the shared time scale that has no price.
+    const details = detailsFixture();
+    details.prices = details.prices.filter((row) => row.date !== "2026-08-28");
+    fetchStockDetailsMock.mockResolvedValue(details);
+    fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "ROIC_TTM");
+
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    expect(fundamentalRequests()).toEqual([
+      ["AAPL", "ROIC_TTM", WINDOW.from, "2026-08-27"],
+    ]);
+    expect(chart().dataset.fundamentalPoints).toBe(
+      "2025-09-02:12,2026-03-02:18.25,2026-06-02:-,2026-07-30:21,2026-08-27:21",
+    );
+  });
+
+  it("switches metrics without ever drawing the previous metric's values under the new name", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyFundamentalHistoryMock.mockResolvedValueOnce(ROIC_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "ROIC_TTM");
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+
+    const debt = deferred<{ date: string; value?: number }[]>();
+    fetchDailyFundamentalHistoryMock.mockReturnValueOnce(debt.promise);
+    await user.selectOptions(select, "DEBT_TO_EQUITY");
+
+    // Waiting: ROIC is gone from the chart and the key, and the wait is said as a wait. The
+    // chart keeps the pane's room meanwhile, so the page does not shrink and regrow.
+    expect(chart().dataset.fundamental).toBe("");
+    expect(chart().dataset.fundamentalPoints).toBe("");
+    expect(chart().dataset.fundamentalPending).toBe("true");
+    expect(screen.getByTestId("fundamental-status").textContent).toBe(
+      "Loading Debt / Equity…",
+    );
+    expect(
+      screen.getByRole("list", { name: "Chart key" }).textContent,
+    ).not.toContain("ROIC TTM");
+
+    await act(async () =>
+      debt.resolve([
+        { date: "2026-08-27", value: 0.75 },
+        { date: "2026-08-28", value: 1 },
+      ]),
+    );
+    expect(chart().dataset.fundamental).toBe("DEBT_TO_EQUITY");
+    expect(chart().dataset.fundamentalUnit).toBe("MULTIPLE");
+    expect(chart().dataset.fundamentalPoints).toBe(
+      "2026-08-27:0.75,2026-08-28:1",
+    );
+    expect(chart().dataset.fundamentalPending).toBe("false");
+    expect(fundamentalRequests().map((request) => request[1])).toEqual([
+      "ROIC_TTM",
+      "DEBT_TO_EQUITY",
+    ]);
+
+    // None clears the chart and asks for nothing.
+    await user.selectOptions(select, "");
+    expect(chart().dataset.fundamental).toBe("");
+    expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets the newest choice win when an older answer arrives after it", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const roic = deferred<{ date: string; value?: number }[]>();
+    const growth = deferred<{ date: string; value?: number }[]>();
+    fetchDailyFundamentalHistoryMock
+      .mockReturnValueOnce(roic.promise)
+      .mockReturnValueOnce(growth.promise);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "ROIC_TTM");
+    await user.selectOptions(select, "REVENUE_GROWTH_TTM_YOY");
+    await act(async () => growth.resolve([{ date: "2026-08-28", value: 8.5 }]));
+    await act(async () => roic.resolve(ROIC_ROWS));
+
+    expect(chart().dataset.fundamental).toBe("REVENUE_GROWTH_TTM_YOY");
+    expect(chart().dataset.fundamentalPoints).toBe("2026-08-28:8.5");
+  });
+
+  it("says a metric with no value is unavailable only once its history has arrived", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const rows = deferred<{ date: string; value?: number }[]>();
+    fetchDailyFundamentalHistoryMock.mockReturnValueOnce(rows.promise);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "EPS_GROWTH_TTM_YOY");
+    const status = screen.getByTestId("fundamental-status");
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toBe("Loading EPS Growth TTM YoY…");
+
+    await act(async () =>
+      rows.resolve([{ date: "2026-08-27" }, { date: "2026-08-28" }]),
+    );
+    expect(screen.getByTestId("fundamental-status").textContent).toBe(
+      "EPS Growth TTM YoY is unavailable for every session in the loaded history.",
+    );
+    // Selected, and nothing drawn: no line, no pane, no zero — and no room kept for one.
+    expect(chart().dataset.fundamental).toBe("EPS_GROWTH_TTM_YOY");
+    expect(chart().dataset.fundamentalPoints).toBe("");
+    expect(chart().dataset.fundamentalPending).toBe("false");
+  });
+
+  it("reports a failed load as a failure, and asks for the same window again", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyFundamentalHistoryMock.mockRejectedValueOnce(
+      new ApiError(503, "Stock data is temporarily unavailable"),
+    );
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "ROIC_TTM");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("ROIC TTM could not be loaded.");
+    // A failure is not the metric being unavailable.
+    expect(screen.queryByText(/is unavailable for every session/)).toBeNull();
+
+    fetchDailyFundamentalHistoryMock.mockResolvedValueOnce(ROIC_ROWS);
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    expect(fundamentalRequests()).toEqual([
+      ["AAPL", "ROIC_TTM", WINDOW.from, WINDOW.to],
+      ["AAPL", "ROIC_TTM", WINDOW.from, WINDOW.to],
+    ]);
+  });
+
+  it("follows older price history with the metric's gap alone", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2024-09-03", 120)]);
+    fetchDailyFundamentalHistoryMock
+      .mockResolvedValueOnce(ROIC_ROWS)
+      .mockResolvedValueOnce([{ date: "2024-09-03", value: 9.5 }]);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "ROIC_TTM");
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+
+    await waitFor(() =>
+      expect(chart().dataset.fundamentalPoints).toMatch(/^2024-09-03:9\.5,/),
+    );
+    expect(fundamentalRequests()).toEqual([
+      ["AAPL", "ROIC_TTM", WINDOW.from, WINDOW.to],
+      // Exactly the interval the price chart just gained, and not the year it already held.
+      ["AAPL", "ROIC_TTM", "2024-08-28", "2025-08-27"],
+    ]);
+  });
+
+  it("holds no extra room while an older gap of a metric already on screen loads", async () => {
+    // EPS Growth has nothing to draw, so the chart holds no pane for it. Panning asks for its
+    // older gap; that wait is not a reason to grow the chart and shrink it back again.
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2024-09-03", 120)]);
+    const gap = deferred<{ date: string; value?: number }[]>();
+    fetchDailyFundamentalHistoryMock
+      .mockResolvedValueOnce([{ date: "2026-08-27" }, { date: "2026-08-28" }])
+      .mockReturnValueOnce(gap.promise);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "EPS_GROWTH_TTM_YOY");
+    await waitFor(() =>
+      expect(screen.getByTestId("fundamental-status").textContent).toContain(
+        "is unavailable for every session",
+      ),
+    );
+    expect(chart().dataset.fundamentalPending).toBe("false");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await waitFor(() => expect(fundamentalRequests()).toHaveLength(2));
+    // The gap is in flight, and the chart was not told to hold a place for it.
+    expect(chart().dataset.fundamentalPending).toBe("false");
+
+    await act(async () => gap.resolve([{ date: "2024-09-03" }]));
+    expect(chart().dataset.fundamentalPending).toBe("false");
+  });
+
+  it("does not ask for the metric again when unrelated chart state changes", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "ROIC_TTM");
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+
+    // An overlay toggled on and off, and a range inside the loaded year.
+    const dialog = screen.getByRole("dialog", { name: "Indicators" });
+    await user.click(within(dialog).getByRole("checkbox", { name: "SMA 50D" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "SMA 50D" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("radio", { name: "6M" }));
+    await user.click(screen.getByRole("radio", { name: "1M" }));
+
+    expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(1);
+    expect(chart().dataset.fundamental).toBe("ROIC_TTM");
+  });
+
+  it("does not keep the choice across a new page view", async () => {
+    // Chart selections are presentation state held by the page, like the overlays: a reload starts
+    // from the catalog's defaults, with no fundamental chosen.
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "ROIC_TTM");
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    cleanup();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    expect(chart().dataset.fundamental).toBe("");
+    expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(1);
   });
 });

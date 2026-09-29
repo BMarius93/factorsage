@@ -15,11 +15,14 @@ import {
   DAILY_OSCILLATORS,
   DAILY_RELATIVE_VOLUMES,
   FINANCIAL_STATEMENT_TYPES,
+  FUNDAMENTAL_METRIC_IDS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   DAILY_TECHNICAL_PROJECTION_FIELDS,
   WEEKLY_MOVING_AVERAGES,
+  fundamentalMetricDefinition,
   type DailyDerivedState,
+  type DailyFundamentalMetricPoint,
   type DailyPrice,
   type DailyTechnical,
   type DateRange,
@@ -27,6 +30,8 @@ import {
   type FinancialStatementCadence,
   type FinancialStatementQuery,
   type FinancialStatementType,
+  type FundamentalMetricField,
+  type FundamentalMetricId,
   type IntrinsicValueBlendPoint,
   type IntrinsicValueBlendQuery,
   type IntrinsicValuePoint,
@@ -1024,6 +1029,32 @@ export class CanonicalStockDataService implements StockDataService {
   async getDailyTechnicals(symbol: string, range: DateRange) {
     return (await this.getDailyDerivedState(symbol, range)).map(
       toDailyTechnical,
+    );
+  }
+
+  /**
+   * One Fundamental Metric's daily history: its persisted `DailyDerivedState` field on every
+   * trading day of the range, and nothing else.
+   *
+   * The derived state is read through exactly the path every Stock Details projection uses — the
+   * canonical hydration and freshness checks, then the cached projection repaired from PostgreSQL —
+   * so the value on a session is the value a backtest's evaluation frame reads for that session.
+   * The identity is resolved to its storage field through the domain registry before anything is
+   * loaded: an unknown identity is refused without touching a security, and no caller-supplied
+   * string ever becomes a property name.
+   *
+   * Nothing is calculated here. No statement is read, no TTM window is assembled and no ratio is
+   * formed; a session the metric is unavailable on keeps its point without a value, so absence
+   * reaches the caller as absence.
+   */
+  async getDailyFundamentalMetric(
+    symbol: string,
+    metricId: FundamentalMetricId,
+    range: DateRange,
+  ): Promise<DailyFundamentalMetricPoint[]> {
+    const field = fundamentalMetricField(metricId);
+    return (await this.getDailyDerivedState(symbol, range)).map((row) =>
+      toFundamentalMetricPoint(row, field),
     );
   }
 
@@ -2429,6 +2460,46 @@ function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
     }),
   );
   return { securityId: row.securityId, date: row.date, ...values };
+}
+
+/**
+ * The storage field of a Fundamental Metric identity, or a validation error for anything the
+ * registry does not define.
+ *
+ * The identity is matched against the registry's own list before the lookup, so a stray string —
+ * a label, a storage field, `__proto__` — is refused as bad input instead of reaching a property
+ * read or surfacing as an internal error. The input is deliberately not echoed back.
+ */
+function fundamentalMetricField(metricId: string): FundamentalMetricField {
+  if (!isRegisteredFundamentalMetric(metricId)) {
+    throw new StockDataValidationError("Unsupported fundamental metric");
+  }
+  return fundamentalMetricDefinition(metricId).field;
+}
+
+/** An exact match against the registry's identities: no case folding, no labels, no fields. */
+function isRegisteredFundamentalMetric(
+  value: string,
+): value is FundamentalMetricId {
+  return (FUNDAMENTAL_METRIC_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * One session of one Fundamental Metric: the persisted field as it stands, or no value at all.
+ *
+ * Read, never recalculated, and never repaired: a finite stored number — zero and negatives
+ * included — is the reading, and anything else is the session's absence. The derived state never
+ * holds a non-finite fundamental (the store refuses one), so the finiteness check only keeps the
+ * wire contract honest: a JSON `null` could otherwise stand where the contract promises omission.
+ */
+function toFundamentalMetricPoint(
+  row: DailyDerivedState,
+  field: FundamentalMetricField,
+): DailyFundamentalMetricPoint {
+  const value = row[field];
+  return typeof value === "number" && Number.isFinite(value)
+    ? { date: row.date, value }
+    : { date: row.date };
 }
 
 /**

@@ -1,9 +1,19 @@
 import {
+  FUNDAMENTAL_METRIC_CATALOG,
+  FUNDAMENTAL_METRIC_IDS as PRODUCT_FUNDAMENTAL_METRIC_IDS,
+} from "@intrinsic/contracts";
+import {
   DAILY_OSCILLATORS,
+  FUNDAMENTAL_METRIC_IDS,
+  FUNDAMENTAL_METRICS,
   INTRINSIC_VALUE_BLENDS,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
 } from "@intrinsic/domain";
+import {
+  QA_FUNDAMENTAL_HISTORY_WEEKS,
+  QA_FUNDAMENTAL_STRETCHES,
+} from "@intrinsic/testing";
 import {
   aggregateCompletedWeeks,
   buildDailyDerivedState,
@@ -12,6 +22,7 @@ import {
 import { priceRetentionYears, subtractYears } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
+  qaFundamentalFields,
   qaIntrinsicFixture,
   qaIntrinsicWindows,
   qaTradingDays,
@@ -170,5 +181,75 @@ describe("QA stock-data seed", () => {
 
   it("keeps every seeded valuation in one currency", () => {
     expect(qaIntrinsicFixture(SOURCE_AS_OF).currency).toBe("USD");
+  });
+
+  describe("Fundamental Metrics", () => {
+    /** The stored row of the first session of a seeded week. */
+    const weekRow = (week: number) =>
+      ({ ...rows[week * 5], ...qaFundamentalFields(week * 5) }) as Record<
+        string,
+        unknown
+      >;
+
+    it("covers exactly the fifteen catalog metrics, in catalog order", () => {
+      expect(Object.keys(QA_FUNDAMENTAL_STRETCHES)).toEqual([
+        ...FUNDAMENTAL_METRIC_IDS,
+      ]);
+      expect(Object.keys(QA_FUNDAMENTAL_STRETCHES)).toEqual([
+        ...PRODUCT_FUNDAMENTAL_METRIC_IDS,
+      ]);
+      expect(QA_FUNDAMENTAL_HISTORY_WEEKS * 5).toBe(prices.length);
+    });
+
+    it("stores the browser suites' readings in each metric's own column, and nothing where unavailable", () => {
+      // Written out by hand for the stretches the browser suites assert against.
+      expect(weekRow(39)).not.toHaveProperty("roicTtm");
+      expect(weekRow(40).roicTtm).toBe(12.5);
+      expect(weekRow(119).roicTtm).toBe(12.5);
+      expect(weekRow(120).roicTtm).toBe(18.25);
+      expect(weekRow(134).roicTtm).toBe(18.25);
+      // A gap is absence, not zero and not the 18.25 before it.
+      expect(weekRow(135)).not.toHaveProperty("roicTtm");
+      expect(weekRow(139)).not.toHaveProperty("roicTtm");
+      expect(weekRow(140).roicTtm).toBe(21);
+      expect(weekRow(129).debtToEquity).toBe(0.75);
+      expect(weekRow(130).debtToEquity).toBe(1);
+      expect(weekRow(159).netDebtToEbitdaTtm).toBe(-0.4);
+      expect(weekRow(125).revenueGrowthTtmYoy).toBe(0);
+      expect(weekRow(159).revenueGrowthTtmYoy).toBe(-3.25);
+      for (let week = 0; week < QA_FUNDAMENTAL_HISTORY_WEEKS; week += 1) {
+        expect(weekRow(week)).not.toHaveProperty("epsGrowthTtmYoy");
+      }
+    });
+
+    it("keeps the default one-year window's transitions inside it", () => {
+      // The browser suite opens on about a year and asserts ROIC's step, gap and restoration
+      // without loading older history.
+      const lastYearWeeks = QA_FUNDAMENTAL_HISTORY_WEEKS - 52;
+      for (const stretch of QA_FUNDAMENTAL_STRETCHES.ROIC_TTM.slice(1)) {
+        expect(stretch.fromWeek).toBeGreaterThan(lastYearWeeks);
+      }
+    });
+
+    it("writes percentages as percentage points, and only into registered columns", () => {
+      // A fixture percentage written as a fraction (0.1825 for 18.25%) would still draw; this is
+      // what keeps the fixture honest about percentage points.
+      for (const entry of FUNDAMENTAL_METRIC_CATALOG) {
+        const values = (
+          QA_FUNDAMENTAL_STRETCHES[
+            entry.id as keyof typeof QA_FUNDAMENTAL_STRETCHES
+          ] as readonly { value: number | null }[]
+        ).flatMap((stretch) => (stretch.value === null ? [] : [stretch.value]));
+        for (const value of values) {
+          if (entry.unit === "PERCENT" && value !== 0) {
+            expect(Math.abs(value), entry.id).toBeGreaterThanOrEqual(1);
+          }
+        }
+      }
+      const fields = new Set(FUNDAMENTAL_METRICS.map((metric) => metric.field));
+      for (const key of Object.keys(qaFundamentalFields(159 * 5))) {
+        expect(fields.has(key as never), key).toBe(true);
+      }
+    });
   });
 });

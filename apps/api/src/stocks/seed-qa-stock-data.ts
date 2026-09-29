@@ -1,13 +1,19 @@
 import { getStockDataConfig } from "@intrinsic/config";
 import type { PrismaClient } from "@intrinsic/database";
 import {
+  FUNDAMENTAL_METRICS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_MODELS,
   type DailyPrice,
+  type FundamentalMetricSnapshot,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
 } from "@intrinsic/domain";
+import {
+  qaFundamentalValue,
+  type QaFundamentalMetricId,
+} from "@intrinsic/testing";
 import {
   addDays,
   aggregateCompletedWeeks,
@@ -34,9 +40,9 @@ import { assertQaSecuritySeedingAllowed } from "./seed-qa-securities";
  *
  * It is a test fixture, not product behaviour: nothing here recalculates or reinterprets a
  * financial formula. Technicals and weekly carry-forward come from `buildDailyDerivedState`, the
- * same function the loader uses. Only the intrinsic-value numbers are fixture constants, because
- * seeding point-in-time filings for a company that does not exist would be a second, far larger
- * fixture without making the browser assertions any stronger.
+ * same function the loader uses. Only the intrinsic-value and Fundamental Metric numbers are
+ * fixture constants, because seeding point-in-time filings for a company that does not exist would
+ * be a second, far larger fixture without making the browser assertions any stronger.
  */
 
 /** Trading weeks of history. Long enough for 100W, deliberately short of 200W. */
@@ -157,6 +163,26 @@ export function qaIntrinsicFixture(sourceDataAsOf: string): {
   };
 }
 
+/**
+ * The fictional security's stored Fundamental Metrics on its `index`-th trading day.
+ *
+ * The readings are `QA_FUNDAMENTAL_STRETCHES` in `@intrinsic/testing`, the table the Stock Details
+ * browser suites derive their expectations from; the seeded weeks are complete Monday-Friday weeks,
+ * so a session's week is its index divided by five. A metric unavailable that week is simply absent
+ * from the row, exactly as the materializer leaves it — never zero.
+ */
+export function qaFundamentalFields(index: number): FundamentalMetricSnapshot {
+  const week = Math.floor(index / 5);
+  const fields: FundamentalMetricSnapshot = {};
+  for (const metric of FUNDAMENTAL_METRICS) {
+    const value = qaFundamentalValue(metric.id as QaFundamentalMetricId, week);
+    if (value !== undefined) {
+      fields[metric.field] = value;
+    }
+  }
+  return fields;
+}
+
 /** Closing price of the `index`-th trading day. Pure function of the index: reruns are identical. */
 function closeAt(index: number): number {
   return PRICE_SEED + (index % 41) * 0.6 + index * 0.05;
@@ -271,8 +297,18 @@ export async function seedQaStockData(
   const { valuationStart, notCalculable } = qaIntrinsicWindows(prices);
   const sourceDataAsOf = `${valuationStart}T20:00:00.000Z`;
   const intrinsic = qaIntrinsicFixture(sourceDataAsOf);
-  const rows = buildDailyDerivedState({ prices, weeklyBars }).map((row) =>
-    notCalculable(row.date)
+  const sessionIndex = new Map(
+    prices.map((price, index) => [price.date, index]),
+  );
+  const rows = buildDailyDerivedState({ prices, weeklyBars }).map((derived) => {
+    const index = sessionIndex.get(derived.date);
+    if (index === undefined) {
+      throw new Error(
+        `QA seed derived a row for ${derived.date}, which has no bar`,
+      );
+    }
+    const row = { ...derived, ...qaFundamentalFields(index) };
+    return notCalculable(row.date)
       ? row
       : {
           ...row,
@@ -284,8 +320,8 @@ export async function seedQaStockData(
           residualIncomeSourceAsOf: sourceDataAsOf,
           grahamSourceAsOf: sourceDataAsOf,
           intrinsicCurrency: intrinsic.currency,
-        },
-  );
+        };
+  });
 
   await store.saveDailyDerivedState({
     securityId,

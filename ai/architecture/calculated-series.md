@@ -274,7 +274,13 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
   Fundamental Metrics on the same session in the same write. There is no fundamentals-specific
   rebuild, cache key or table.
 - No provenance column: the materializer guarantees point-in-time eligibility by construction, and
-  the storage decision fixes exactly fifteen value columns.
+  the storage decision fixes exactly fifteen value columns. Consequently a chart tooltip can name a
+  metric's session and value but not its TTM end or its statement's availability date; exposing
+  those would need persisted provenance, which is deferred.
+- Stock Details reads them through `getDailyFundamentalMetric` (API below) and draws one at a time
+  (Web below). The Strategy evaluation frame and the chart read the same rows, and
+  `packages/stock-data/src/fundamental-history.integration.test.ts` proves they agree on every
+  session.
 
 ## Point-in-time invariants
 
@@ -357,13 +363,14 @@ deferred.
 
 `apps/api/src/stocks/stocks.controller.ts`:
 
-| Route                                        | Projection                                                        |
-| -------------------------------------------- | ----------------------------------------------------------------- |
-| `GET /stocks/:symbol`                        | composite Stock Details for a bounded window                      |
-| `GET /stocks/:symbol/prices`                 | `DailyPriceResponse[]`                                            |
-| `GET /stocks/:symbol/technicals/daily`       | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows |
-| `GET /stocks/:symbol/intrinsic-values`       | long-form points; `models=`, `asOf=`                              |
-| `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=`                            |
+| Route                                        | Projection                                                            |
+| -------------------------------------------- | --------------------------------------------------------------------- |
+| `GET /stocks/:symbol`                        | composite Stock Details for a bounded window                          |
+| `GET /stocks/:symbol/prices`                 | `DailyPriceResponse[]`                                                |
+| `GET /stocks/:symbol/technicals/daily`       | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows     |
+| `GET /stocks/:symbol/fundamentals/daily`     | `DailyFundamentalMetricResponse[]`, one Fundamental Metric; `metric=` |
+| `GET /stocks/:symbol/intrinsic-values`       | long-form points; `models=`, `asOf=`                                  |
+| `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=`                                |
 
 - `technicalResponse` projects `DAILY_TECHNICAL_PROJECTION_FIELDS` — every moving average, every
   daily oscillator and every Relative Volume period — so a registered series cannot go missing from
@@ -372,6 +379,12 @@ deferred.
 - `technicalFields` resolves `series=` against the catalog via `findSelectableSeries` and rejects
   anything that is not a moving-average or oscillator entry (`TECHNICAL_SERIES` is the addressable
   set the validation error names). Filtering happens **after** retrieval, on the full daily row.
+- `/fundamentals/daily` takes exactly one `metric`, a `FundamentalMetricId` matched exactly against
+  the product catalog (a label, a storage field, a repeated or comma-separated value is a `400`), and
+  a required bounded window. `StockDataService.getDailyFundamentalMetric` reads the same derived rows
+  every other projection reads and projects `{ date, value? }` from the one field
+  `fundamentalMetricDefinition(id)` names — never the row, and never a field spelled from the
+  identity. Every trading day in the window has a row; an unavailable session has no `value`.
 - Unavailable values are **omitted**, never `null` and never zero.
 - Controllers project canonical stock-data values; they never calculate.
 
@@ -427,6 +440,34 @@ deferred.
   interval, a different and false statement about the company.
 - `utils/valuation.ts` — the summary derives identities, ordering and labels from
   `INTRINSIC_VALUE_BLEND_OPTIONS` / `INTRINSIC_VALUE_MODEL_OPTIONS`.
+- **Fundamental Metrics are one more section of the same control, drawn in their own pane.**
+  `IndicatorsMenu` renders `FUNDAMENTAL_METRIC_GROUPED` (the contracts catalog grouped by its own
+  groups) as one select; selection is `useIndicatorSelection`'s `fundamental`, presentation state
+  like the overlays. `hooks/use-fundamental-history.ts` asks for nothing until a metric is chosen,
+  then for that metric from the page's loaded-from watermark to the newest price bar on the chart,
+  and for the gap alone when older history arrives; held rows answer for one security, one metric
+  and one window end, every change aborts the request in flight, and only the newest may land.
+  `utils/fundamental-series.ts` turns the rows into the drawn line on the close series' session
+  axis — from the first to the last session with a value, every price session in between without
+  one as whitespace, a returned session the price series lacks never drawn, nothing carried — and
+  splits it into stretches. `StockPriceChart` draws each stretch as its own `LineType.WithSteps`
+  series in one pane below the volume and oscillator panes, formats its axis, crosshair label and
+  legend by the metric's unit (`formatFundamentalValue`: `15.42%`, `0.75x`, `1.0x`), shows no
+  last-value label, holds the pane's place with an empty preserved pane (`addPane(true)`) while a
+  chosen metric's first window loads — so neither the page nor the price pane changes size between
+  metrics, and the line itself always opens a fresh pane with a fresh scale — and publishes
+  `data-fundamental`, `-unit`, `-pane`, `-space`, `-runs`, `-gaps` and `-steps` (every transition
+  as `date=value`) plus `data-pane-order` (each pane named by what it holds) for browser tests.
+  One step series per stretch is what keeps a gap empty: a step line's segment into a point is
+  vertical, so the per-point transparent colour the overlays use would still join the values either
+  side of a gap with a vertical edge.
+- **Pane order is restored with `chart.swapPanes`, never `IPaneApi.moveTo`.** The library appends
+  a new pane at the bottom, so an RSI switched on under a drawn fundamental arrives below it and
+  `arrangeLowerPanes` swaps the two. `swapPanes` checks its indices against the chart model, which
+  already holds the new pane; `moveTo` checks its target against the rendered pane widgets, which
+  only sync on the next animation frame — with both panes created inside one frame it threw
+  `Invalid pane index` and took the whole page to its error boundary (pinned by the browser test
+  that creates both panes in one frame).
 - Price-scaled catalog series are drawn as **overlays on the price chart**. Oscillators are
   **never** drawn over the price scale: `StockPriceChart` routes them into one shared native
   Lightweight Charts pane (`paneIndex 1` of the same chart instance), so every selected RSI period
@@ -500,7 +541,9 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
   the measured field-name overhead, and is the cheaper intervention if the series count approaches
   the top of the accepted range. Not built.
 - **A generic `/series` projection endpoint** taking arbitrary catalog IDs. Not built; today the
-  web client fetches all series and filters client-side.
+  web client fetches all technical series and filters client-side. Fundamental Metrics are the
+  exception by design: fifteen metrics nobody draws at once would multiply every history read, so
+  their endpoint serves one named metric.
 - **Per-family or per-series revisions** replacing the single global `DERIVED_STATE_REVISION`.
 - **Persisted NOT_EVALUABLE reasons.**
 - **MACD, volatility and valuation ratios (`P/E`, `P/S`, `P/FCF`, `EV/EBITDA`)** — no such series

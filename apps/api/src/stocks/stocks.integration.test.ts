@@ -5,6 +5,7 @@ import {
   StockDataset,
 } from "@intrinsic/database";
 import {
+  FUNDAMENTAL_METRIC_IDS,
   STOCK_DETAILS_MAX_HISTORY_YEARS,
   TECHNICAL_SERIES,
 } from "@intrinsic/contracts";
@@ -82,6 +83,41 @@ const runtimeRetentionStart = subtractYears(
 const OLDEST_PRICE_DATE = daysBeforeToday(800);
 const OLDER_PRICE_DATE = daysBeforeToday(200);
 const LATEST_PRICE_DATE = daysBeforeToday(14);
+
+/**
+ * Four consecutive trading days (Monday-Thursday) of stored Fundamental Metrics: every metric with
+ * its own distinctive value, then zero and negative readings, then nothing available, then two
+ * metrics available again.
+ */
+const FUNDAMENTALS_ALL = "2026-07-06";
+const FUNDAMENTALS_SIGNS = "2026-07-07";
+const FUNDAMENTALS_NONE = "2026-07-08";
+const FUNDAMENTALS_RESTORED = "2026-07-09";
+
+/**
+ * What each identity must read on `FUNDAMENTALS_ALL`, written out by hand.
+ *
+ * Deliberately not derived from `fundamentalMetricDefinition(id).field`: this table is the oracle
+ * for that mapping, so computing it from the mapping would let the two be wrong together — ROIC
+ * reading the ROE column would still "match".
+ */
+const DISTINCT_VALUE_BY_IDENTITY: Record<string, number> = {
+  REVENUE_GROWTH_TTM_YOY: 11.11,
+  EPS_GROWTH_TTM_YOY: 22.22,
+  FCF_GROWTH_TTM_YOY: 33.33,
+  GROSS_MARGIN_TTM: 44.44,
+  OPERATING_MARGIN_TTM: 55.55,
+  NET_MARGIN_TTM: 66.66,
+  FCF_MARGIN_TTM: 77.77,
+  ROIC_TTM: 88.88,
+  ROE_TTM: 99.99,
+  ROA_TTM: 10.1,
+  DEBT_TO_EQUITY: 1.11,
+  CURRENT_RATIO: 2.22,
+  NET_DEBT_TO_EBITDA_TTM: 3.33,
+  INTEREST_COVERAGE_TTM: 4.44,
+  ASSET_TURNOVER_TTM: 5.55,
+};
 
 class FakeFmpProvider implements FmpStockProviderPort {
   allowedSymbol = "";
@@ -289,6 +325,50 @@ describe("Stock Details API", () => {
           ema20w: 112.5,
           rsi7d: 62.1,
         })),
+        // Fundamental Metrics, stored as the materializer leaves them. Every value is a
+        // hand-written literal distinct from every other, so a read of the wrong column cannot
+        // pass; the expectations below restate them rather than deriving them from a registry.
+        {
+          securityId: security.id,
+          date: new Date(`${FUNDAMENTALS_ALL}T00:00:00.000Z`),
+          revenueGrowthTtmYoy: 11.11,
+          epsGrowthTtmYoy: 22.22,
+          fcfGrowthTtmYoy: 33.33,
+          grossMarginTtm: 44.44,
+          operatingMarginTtm: 55.55,
+          netMarginTtm: 66.66,
+          fcfMarginTtm: 77.77,
+          roicTtm: 88.88,
+          roeTtm: 99.99,
+          roaTtm: 10.1,
+          debtToEquity: 1.11,
+          currentRatio: 2.22,
+          netDebtToEbitdaTtm: 3.33,
+          interestCoverageTtm: 4.44,
+          assetTurnoverTtm: 5.55,
+        },
+        // A real zero, negative readings in both units, and every other metric unavailable.
+        {
+          securityId: security.id,
+          date: new Date(`${FUNDAMENTALS_SIGNS}T00:00:00.000Z`),
+          roicTtm: 0,
+          roeTtm: -5,
+          debtToEquity: 0.75,
+          netDebtToEbitdaTtm: -0.4,
+        },
+        // A trading day on which no Fundamental Metric is available: the row exists for its
+        // technicals, and every fundamental column is NULL.
+        {
+          securityId: security.id,
+          date: new Date(`${FUNDAMENTALS_NONE}T00:00:00.000Z`),
+          sma20d: 118.5,
+        },
+        {
+          securityId: security.id,
+          date: new Date(`${FUNDAMENTALS_RESTORED}T00:00:00.000Z`),
+          roicTtm: 15.42,
+          debtToEquity: 1,
+        },
         // Friday closes the week starting 2026-08-24, so its own weekly values become eligible
         // on that day and every catalog technical series is representable on one row.
         {
@@ -793,6 +873,210 @@ describe("Stock Details API", () => {
       "2026-08-27",
       "2026-08-28",
     ]);
+  });
+
+  describe("fundamental metric history", () => {
+    const fundamentals = (query: string) =>
+      request(app.getHttpServer()).get(
+        `/stocks/${baseSymbol}/fundamentals/daily?${query}`,
+      );
+
+    it("reads every one of the fifteen metrics from exactly its own stored column", async () => {
+      // The oracle covers exactly the identities the API accepts: a sixteenth metric added to the
+      // catalog without a literal here fails, rather than being skipped.
+      expect(Object.keys(DISTINCT_VALUE_BY_IDENTITY)).toEqual([
+        ...FUNDAMENTAL_METRIC_IDS,
+      ]);
+      const providerCallsBefore = provider.dailyCalls.length;
+      for (const [metric, expected] of Object.entries(
+        DISTINCT_VALUE_BY_IDENTITY,
+      )) {
+        const response = await fundamentals(
+          `from=${FUNDAMENTALS_ALL}&to=${FUNDAMENTALS_ALL}&metric=${metric}`,
+        ).expect(200);
+        expect(response.body, metric).toEqual([
+          { date: FUNDAMENTALS_ALL, value: expected },
+        ]);
+      }
+      // Stored history is answered from storage alone: not one provider call in fifteen reads.
+      expect(provider.dailyCalls).toHaveLength(providerCallsBefore);
+    });
+
+    it("returns the requested metric alone, never the rest of the derived row", async () => {
+      const response = await fundamentals(
+        `from=${FUNDAMENTALS_ALL}&to=${FUNDAMENTALS_RESTORED}&metric=ROIC_TTM`,
+      ).expect(200);
+
+      for (const row of response.body as Record<string, unknown>[]) {
+        expect(
+          Object.keys(row).every((key) => key === "date" || key === "value"),
+        ).toBe(true);
+      }
+      // Fourteen other metrics share the first row; none of their numbers, and none of their
+      // storage names, reaches the wire.
+      const wire = JSON.stringify(response.body);
+      for (const [metric, value] of Object.entries(
+        DISTINCT_VALUE_BY_IDENTITY,
+      )) {
+        if (metric !== "ROIC_TTM") {
+          expect(wire, metric).not.toContain(String(value));
+        }
+      }
+      for (const storageName of [
+        "roicTtm",
+        "roeTtm",
+        "debtToEquity",
+        "securityId",
+      ]) {
+        expect(wire).not.toContain(storageName);
+      }
+    });
+
+    it("keeps a real zero, negative readings and unavailability distinct on every session", async () => {
+      const providerCallsBefore = provider.dailyCalls.length;
+      const window = `from=${FUNDAMENTALS_ALL}&to=${FUNDAMENTALS_RESTORED}`;
+      const roic = await fundamentals(`${window}&metric=ROIC_TTM`).expect(200);
+      expect(roic.body).toEqual([
+        { date: FUNDAMENTALS_ALL, value: 88.88 },
+        // Zero is a reading, not absence.
+        { date: FUNDAMENTALS_SIGNS, value: 0 },
+        // Unavailable: the session keeps its row and has no value — no null, no zero, and not
+        // the 0 of the day before carried through.
+        { date: FUNDAMENTALS_NONE },
+        { date: FUNDAMENTALS_RESTORED, value: 15.42 },
+      ]);
+      expect(Object.hasOwn(roic.body[2], "value")).toBe(false);
+      expect(JSON.stringify(roic.body)).not.toContain("null");
+
+      const roe = await fundamentals(`${window}&metric=ROE_TTM`).expect(200);
+      expect(roe.body).toEqual([
+        { date: FUNDAMENTALS_ALL, value: 99.99 },
+        { date: FUNDAMENTALS_SIGNS, value: -5 },
+        { date: FUNDAMENTALS_NONE },
+        { date: FUNDAMENTALS_RESTORED },
+      ]);
+
+      // A negative multiple — net cash — is a reading too, and the multiples keep their raw form.
+      const netDebt = await fundamentals(
+        `${window}&metric=NET_DEBT_TO_EBITDA_TTM`,
+      ).expect(200);
+      expect(netDebt.body.map((row: { value?: number }) => row.value)).toEqual([
+        3.33,
+        -0.4,
+        undefined,
+        undefined,
+      ]);
+      const debtToEquity = await fundamentals(
+        `${window}&metric=DEBT_TO_EQUITY`,
+      ).expect(200);
+      expect(
+        debtToEquity.body.map((row: { value?: number }) => row.value),
+      ).toEqual([1.11, 0.75, undefined, 1]);
+      // An unavailable session is not a reason to ask the provider for anything.
+      expect(provider.dailyCalls).toHaveLength(providerCallsBefore);
+    });
+
+    it("answers one row per trading day the derived state holds, and none for the weekend", async () => {
+      // Saturday 07-04 and Sunday 07-05 have no session; the technical rows at the end of August
+      // carry no fundamental and still answer as sessions without a value.
+      const weekend = await fundamentals(
+        `from=2026-07-04&to=${FUNDAMENTALS_ALL}&metric=CURRENT_RATIO`,
+      ).expect(200);
+      expect(weekend.body).toEqual([{ date: FUNDAMENTALS_ALL, value: 2.22 }]);
+
+      // Across a weekend and a day the derived state has no row for (Friday 08-21 here), nothing is
+      // invented: the rows are exactly the stored sessions, and no value is spread onto calendar
+      // days.
+      const acrossTheWeekend = await fundamentals(
+        `from=2026-08-20&to=2026-08-28&metric=ROIC_TTM`,
+      ).expect(200);
+      expect(
+        acrossTheWeekend.body.map((row: { date: string }) => row.date),
+      ).toEqual([
+        "2026-08-20",
+        "2026-08-24",
+        "2026-08-25",
+        "2026-08-26",
+        "2026-08-27",
+        "2026-08-28",
+      ]);
+
+      const technicalWeek = await request(app.getHttpServer())
+        .get(
+          `/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-28`,
+        )
+        .expect(200);
+      const fundamentalWeek = await fundamentals(
+        `from=2026-08-24&to=2026-08-28&metric=ROIC_TTM`,
+      ).expect(200);
+      expect(fundamentalWeek.body).toEqual(
+        technicalWeek.body.map((row: { date: string }) => ({ date: row.date })),
+      );
+    });
+
+    it("rejects anything that is not exactly one catalog identity", async () => {
+      const window = `from=${FUNDAMENTALS_ALL}&to=${FUNDAMENTALS_ALL}`;
+      for (const metric of [
+        "ROIC",
+        "roic_ttm",
+        "roicTtm",
+        "ROIC%20TTM",
+        "%20ROIC_TTM",
+        "ROIC_TTM%20",
+        "P_E",
+        "UNKNOWN",
+        "123",
+        "__proto__",
+        "constructor",
+        "toString",
+        "hasOwnProperty",
+        "ROIC_TTM,DEBT_TO_EQUITY",
+        "fundamental:ROIC_TTM",
+      ]) {
+        const response = await fundamentals(
+          `${window}&metric=${metric}`,
+        ).expect(400);
+        expect(response.body.message, metric).toContain(
+          "Unsupported fundamental metric",
+        );
+        // The error names the accepted identities, never a storage field.
+        expect(response.body.message).toContain("ROIC_TTM");
+        expect(response.body.message).not.toContain("roicTtm");
+      }
+
+      // Missing, empty and repeated are refused as well — one request names one metric.
+      for (const query of [
+        window,
+        `${window}&metric=`,
+        `${window}&field=roicTtm`,
+        `${window}&metric=ROIC_TTM&metric=ROE_TTM`,
+        `${window}&metric[]=ROIC_TTM`,
+      ]) {
+        await fundamentals(query).expect(400);
+      }
+    });
+
+    it("validates the window like every other history read", async () => {
+      await fundamentals("metric=ROIC_TTM").expect(400);
+      await fundamentals(`from=${FUNDAMENTALS_ALL}&metric=ROIC_TTM`).expect(
+        400,
+      );
+      await fundamentals(
+        `from=${FUNDAMENTALS_RESTORED}&to=${FUNDAMENTALS_ALL}&metric=ROIC_TTM`,
+      ).expect(400);
+      await fundamentals(
+        `from=not-a-date&to=${FUNDAMENTALS_ALL}&metric=ROIC_TTM`,
+      ).expect(400);
+    });
+
+    it("answers a stable not-found for an unsupported symbol", async () => {
+      const response = await request(app.getHttpServer())
+        .get(
+          `/stocks/${unknownSymbol}/fundamentals/daily?from=${FUNDAMENTALS_ALL}&to=${FUNDAMENTALS_ALL}&metric=ROIC_TTM`,
+        )
+        .expect(404);
+      expect(response.body.message).toBe("Stock symbol was not found");
+    });
   });
 
   it("materializes the requested window once and widens only for older history", async () => {

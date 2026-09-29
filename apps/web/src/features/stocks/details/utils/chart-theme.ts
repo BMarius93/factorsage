@@ -34,6 +34,13 @@ export const CHART_COLORS = {
    * the bridge, and only that one segment.
    */
   overlayGap: "rgba(0, 0, 0, 0)",
+  /**
+   * The Fundamental Metric step line, alone in its own pane. The dark contrast neutral
+   * (`--color-surface-contrast`) rather than a palette hue: there is only ever one fundamental on
+   * the chart, it never shares a scale with an overlay, and a fixed colour keeps it from changing
+   * whenever an unrelated overlay is toggled.
+   */
+  fundamental: "#1f2937",
 } as const;
 
 /**

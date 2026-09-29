@@ -29,6 +29,12 @@
       "import": "./dist/return-path-corpus.js",
       "require": "./dist/return-path-corpus.js",
       "default": "./dist/return-path-corpus.js"
+    },
+    "./qa-fundamentals": {
+      "types": "./dist/qa-fundamentals.d.ts",
+      "import": "./dist/qa-fundamentals.js",
+      "require": "./dist/qa-fundamentals.js",
+      "default": "./dist/qa-fundamentals.js"
     }
   },
   "scripts": {

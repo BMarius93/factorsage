@@ -1,8 +1,9 @@
 "use client";
 
-import type {
-  SelectableSeriesId,
-  StockDetailsResponse,
+import {
+  findFundamentalMetric,
+  type SelectableSeriesId,
+  type StockDetailsResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,6 +15,10 @@ import { useSignInPrompt } from "../../../auth/hooks/use-sign-in-prompt";
 import { AddToListDialog } from "../../../lists/components/AddToListDialog";
 import { useRecordSecurityView } from "../../recent/hooks/use-recent-securities";
 import type { StockHistoryWindow } from "../api/stock-details-api";
+import {
+  useFundamentalHistory,
+  type FundamentalHistoryStatus,
+} from "../hooks/use-fundamental-history";
 import { useIndicatorSelection } from "../hooks/use-indicator-selection";
 import { useStockDetails } from "../hooks/use-stock-details";
 import { useStockHistory } from "../hooks/use-stock-history";
@@ -22,6 +27,7 @@ import {
   relativeVolumeByDate,
   volumeSeries,
 } from "../utils/chart-series";
+import { buildFundamentalSeries } from "../utils/fundamental-series";
 import { historyRequestStart } from "../utils/history-window";
 import {
   availableSeriesIds,
@@ -240,7 +246,8 @@ function StockDetailsContent({
   // older history arrives stops being reported as unavailable. It never narrows: the chosen set
   // survives, because a widening load can only add.
   const available = useMemo(() => availableSeriesIds(source), [source]);
-  const { selected, toggle } = useIndicatorSelection(available);
+  const { selected, toggle, fundamental, chooseFundamental } =
+    useIndicatorSelection(available);
 
   const chartPoints = useMemo(
     () => closeSeries(loaded.history.prices),
@@ -268,10 +275,51 @@ function StockDetailsContent({
     () => buildOverlays(source, selected, tradingDays),
     [source, selected, tradingDays],
   );
+
+  // The chosen Fundamental Metric, and only it, over exactly the history the price chart holds:
+  // from the loaded-from watermark to the newest bar on the chart, so the metric never answers for
+  // a session the price series does not have, and when older price history arrives the metric's
+  // gap is asked for too. Nothing is loaded until a metric is chosen, and nothing about it is
+  // calculated here — every session arrives as the backend materialized it.
+  const fundamentalHistory = useFundamentalHistory({
+    symbol,
+    metricId: fundamental,
+    from: loaded.loadedFrom,
+    to: tradingDays.at(-1) ?? window.to,
+  });
+  const fundamentalMetric =
+    fundamental === null ? undefined : findFundamentalMetric(fundamental);
+  const chartFundamental = useMemo(
+    () =>
+      fundamental !== null && fundamentalHistory.loaded
+        ? buildFundamentalSeries(
+            fundamental,
+            fundamentalHistory.rows,
+            tradingDays,
+          )
+        : undefined,
+    [
+      fundamental,
+      fundamentalHistory.loaded,
+      fundamentalHistory.rows,
+      tradingDays,
+    ],
+  );
+  const fundamentalDrawn =
+    chartFundamental !== undefined && chartFundamental.points.length > 0;
+
   // The legend and the picker read the same assignment, so a swatch always matches its line.
   const overlayColors = useMemo(
     () => new Map(chartOverlays.map((overlay) => [overlay.id, overlay.color])),
     [chartOverlays],
+  );
+  // The persistent key names what is drawn: the overlays, then the fundamental once its line is.
+  const keyEntries = useMemo(
+    () =>
+      chartFundamental && fundamentalDrawn
+        ? [...chartOverlays, chartFundamental]
+        : chartOverlays,
+    [chartOverlays, chartFundamental, fundamentalDrawn],
   );
   const colorOf = (id: SelectableSeriesId) => overlayColors.get(id);
 
@@ -311,6 +359,8 @@ function StockDetailsContent({
                 available={available}
                 onToggle={toggle}
                 colorOf={colorOf}
+                fundamental={fundamental}
+                onChooseFundamental={chooseFundamental}
               />
             </div>
           }
@@ -320,6 +370,14 @@ function StockDetailsContent({
             volume={chartVolume}
             relativeVolume={chartRelativeVolume}
             overlays={chartOverlays}
+            {...(chartFundamental ? { fundamental: chartFundamental } : {})}
+            // Only while the chosen metric has nothing yet: an older gap of a metric already on
+            // screen, drawn or not, holds no extra room.
+            fundamentalPending={
+              fundamental !== null &&
+              fundamentalHistory.status === "loading" &&
+              !fundamentalHistory.loaded
+            }
             currency={security.currency}
             loading={loaded.status === "loading"}
             // The two moments a range is allowed to reframe the chart: when it is picked, and
@@ -335,7 +393,16 @@ function StockDetailsContent({
             onReachHistoryEdge={onReachHistoryEdge}
             ariaLabel={`${security.symbol} daily closing price chart, ${range} range`}
           />
-          <ChartKey overlays={chartOverlays} />
+          <ChartKey overlays={keyEntries} />
+          {fundamentalMetric ? (
+            <FundamentalStatus
+              label={fundamentalMetric.label}
+              status={fundamentalHistory.status}
+              loaded={fundamentalHistory.loaded}
+              drawn={fundamentalDrawn}
+              onRetry={fundamentalHistory.retry}
+            />
+          ) : null}
 
           {loaded.status === "error" ? (
             <p className={styles.chartError} role="alert">
@@ -392,4 +459,62 @@ function StockDetailsContent({
       ) : null}
     </PageContainer>
   );
+}
+
+/**
+ * What the Fundamental Metric pane cannot say for itself: that the chosen metric is still on its
+ * way, that it could not be loaded, or that it has no value anywhere in the loaded history.
+ *
+ * Loading is never reported as "no values", and a failed request is never reported as the metric
+ * being unavailable — the first is a wait and the second a fact about the company, and neither is
+ * the other. Once the line is drawn there is nothing to add: the pane shows its own gaps.
+ */
+function FundamentalStatus({
+  label,
+  status,
+  loaded,
+  drawn,
+  onRetry,
+}: {
+  readonly label: string;
+  readonly status: FundamentalHistoryStatus;
+  readonly loaded: boolean;
+  readonly drawn: boolean;
+  readonly onRetry: () => void;
+}) {
+  if (status === "error") {
+    return (
+      <p className={styles.chartError} role="alert">
+        {loaded ? `Older ${label} history` : label} could not be loaded.{" "}
+        <button type="button" className={styles.inlineRetry} onClick={onRetry}>
+          Try again
+        </button>
+      </p>
+    );
+  }
+  if (!loaded || status === "loading") {
+    // A drawn line extending into older history needs no announcement, exactly as the price
+    // chart's own older windows arrive quietly; anything else is waiting, not empty.
+    return drawn ? null : (
+      <p
+        className={styles.fundamentalStatus}
+        role="status"
+        data-testid="fundamental-status"
+      >
+        Loading {label}…
+      </p>
+    );
+  }
+  if (!drawn) {
+    return (
+      <p
+        className={styles.fundamentalStatus}
+        role="status"
+        data-testid="fundamental-status"
+      >
+        {label} is unavailable for every session in the loaded history.
+      </p>
+    );
+  }
+  return null;
 }

@@ -1,9 +1,11 @@
 import {
   FINANCIAL_STATEMENT_TYPES,
   FUNDAMENTAL_METRIC_FIELDS,
+  FUNDAMENTAL_METRIC_IDS,
   TECHNICAL_SERIES_FIELDS,
   selectFinancialStatements,
   type FinancialStatementCadence,
+  type FundamentalMetricId,
   FinancialStatement,
   FinancialStatementDraft,
   FinancialStatementQuery,
@@ -44,6 +46,7 @@ import {
   DERIVED_SERIES_WARMUP_DAYS,
   priceRetentionYears,
   StockDataNotFoundError,
+  StockDataValidationError,
   VALUATION_FUNDAMENTALS_WARMUP_YEARS,
 } from "./service.js";
 import type { WeeklyPrice } from "./weekly.js";
@@ -2901,6 +2904,151 @@ describe("daily materialized intrinsic projections", () => {
       "2025-02-04",
       "2025-02-05",
     ]);
+  });
+});
+
+describe("daily Fundamental Metric projection", () => {
+  /** A resident, fresh security: every dataset covered and synced at `NOW`. */
+  function withDailyState(rows: DailyDerivedState[]) {
+    const store = new FakeStore();
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    store.dailyState = rows;
+    const provider = new FakeProvider();
+    return {
+      store,
+      provider,
+      loader: createService(
+        store,
+        provider,
+        new MemoryCache(),
+        new InMemoryLoadCoordinator(),
+      ),
+    };
+  }
+
+  /**
+   * One stored row holding a distinct, hand-written value in every fundamental column, and the
+   * reading each identity must return from it — restated by hand rather than looked up through the
+   * registry, because this is the test of that lookup.
+   */
+  const DISTINCT_ROW: DailyDerivedState = {
+    securityId: security.id,
+    date: "2026-07-06",
+    revenueGrowthTtmYoy: 11.11,
+    epsGrowthTtmYoy: 22.22,
+    fcfGrowthTtmYoy: 33.33,
+    grossMarginTtm: 44.44,
+    operatingMarginTtm: 55.55,
+    netMarginTtm: 66.66,
+    fcfMarginTtm: 77.77,
+    roicTtm: 88.88,
+    roeTtm: 99.99,
+    roaTtm: 10.1,
+    debtToEquity: 1.11,
+    currentRatio: 2.22,
+    netDebtToEbitdaTtm: 3.33,
+    interestCoverageTtm: 4.44,
+    assetTurnoverTtm: 5.55,
+    sma20d: 123.45,
+  };
+  const EXPECTED_BY_IDENTITY = {
+    REVENUE_GROWTH_TTM_YOY: 11.11,
+    EPS_GROWTH_TTM_YOY: 22.22,
+    FCF_GROWTH_TTM_YOY: 33.33,
+    GROSS_MARGIN_TTM: 44.44,
+    OPERATING_MARGIN_TTM: 55.55,
+    NET_MARGIN_TTM: 66.66,
+    FCF_MARGIN_TTM: 77.77,
+    ROIC_TTM: 88.88,
+    ROE_TTM: 99.99,
+    ROA_TTM: 10.1,
+    DEBT_TO_EQUITY: 1.11,
+    CURRENT_RATIO: 2.22,
+    NET_DEBT_TO_EBITDA_TTM: 3.33,
+    INTEREST_COVERAGE_TTM: 4.44,
+    ASSET_TURNOVER_TTM: 5.55,
+  } as const;
+
+  it("reads each identity from exactly its own column, for all fifteen", async () => {
+    const { loader } = withDailyState([DISTINCT_ROW]);
+    expect(Object.keys(EXPECTED_BY_IDENTITY)).toEqual([
+      ...FUNDAMENTAL_METRIC_IDS,
+    ]);
+    for (const [metricId, expected] of Object.entries(EXPECTED_BY_IDENTITY)) {
+      const points = await loader.getDailyFundamentalMetric(
+        "AAPL",
+        metricId as FundamentalMetricId,
+        { from: "2026-07-06", to: "2026-07-06" },
+      );
+      expect(points, metricId).toEqual([
+        { date: "2026-07-06", value: expected },
+      ]);
+    }
+  });
+
+  it("keeps every session, a real zero, a negative reading and absence as they are stored", async () => {
+    const { loader, provider } = withDailyState([
+      { securityId: security.id, date: "2026-07-06", roicTtm: 12 },
+      { securityId: security.id, date: "2026-07-07", roicTtm: 0 },
+      { securityId: security.id, date: "2026-07-08", roicTtm: -5.25 },
+      // Invalidated by a later statement revision: unavailable, never the -5.25 before it.
+      { securityId: security.id, date: "2026-07-09", sma20d: 100 },
+      { securityId: security.id, date: "2026-07-10", roicTtm: 18 },
+    ]);
+
+    const points = await loader.getDailyFundamentalMetric("AAPL", "ROIC_TTM", {
+      from: "2026-07-06",
+      to: "2026-07-10",
+    });
+
+    expect(points).toEqual([
+      { date: "2026-07-06", value: 12 },
+      { date: "2026-07-07", value: 0 },
+      { date: "2026-07-08", value: -5.25 },
+      { date: "2026-07-09" },
+      { date: "2026-07-10", value: 18 },
+    ]);
+    expect(Object.hasOwn(points[3] as object, "value")).toBe(false);
+    // Only the requested metric: no technical, no other fundamental, no internal identity.
+    for (const point of points) {
+      expect(
+        Object.keys(point).every((key) => key === "date" || key === "value"),
+      ).toBe(true);
+    }
+    expect(provider.ranges).toEqual([]);
+    expect(provider.financialRequests).toEqual([]);
+  });
+
+  it("refuses an identity the registry does not define before loading anything", async () => {
+    const { loader, store } = withDailyState([DISTINCT_ROW]);
+    const lookup = vi.spyOn(store, "findSecurityByProviderSymbol");
+    for (const metricId of [
+      "roicTtm",
+      "roic_ttm",
+      "ROIC",
+      "ROIC TTM",
+      "__proto__",
+      "constructor",
+      "",
+    ]) {
+      await expect(
+        loader.getDailyFundamentalMetric(
+          "AAPL",
+          metricId as FundamentalMetricId,
+          { from: "2026-07-06", to: "2026-07-06" },
+        ),
+        metricId,
+      ).rejects.toThrow(StockDataValidationError);
+    }
+    expect(lookup).not.toHaveBeenCalled();
   });
 });
 

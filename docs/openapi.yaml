@@ -759,6 +759,50 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/StockDataUnavailable" }
 
+  /stocks/{symbol}/fundamentals/daily:
+    get:
+      tags: [Stocks]
+      operationId: getDailyFundamentalMetric
+      summary: One Fundamental Metric's daily history, from the persisted derived state.
+      description: |
+        The chosen metric's value on every trading day of the clamped range, read from the same
+        point-in-time daily derived state a Strategy Condition and a backtest read — never
+        recalculated from statements, and never taken from a provider's ratio endpoint. A value
+        changes only on the first trading session after a new or revised statement became public
+        and is carried forward unchanged between those events.
+
+        Only the named metric is returned. A session on which the metric is unavailable keeps its
+        row with `value` **omitted**: never `null`, never zero, and never an earlier value carried
+        through the interval. Sessions are completed end-of-day trading sessions; nothing here is a
+        realtime reading.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/FromRequired" }
+        - { $ref: "#/components/parameters/ToRequired" }
+        - name: metric
+          in: query
+          required: true
+          description: |
+            Exactly one Fundamental Metric, by its stable identity. Matched exactly: a label
+            (`ROIC TTM`), a lowercase or storage spelling (`roic_ttm`, `roicTtm`), a repeated or
+            comma-separated value, or anything outside the list is rejected with `400`.
+          schema: { $ref: "#/components/schemas/FundamentalMetricId" }
+          example: ROIC_TTM
+      responses:
+        "200":
+          description: One row per trading day in the clamped range, oldest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DailyFundamentalMetric" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
   /stocks/{symbol}/intrinsic-values:
     get:
       tags: [Stocks]
@@ -3530,6 +3574,56 @@ components:
         rvol20: { type: number, minimum: 0 }
         rvol50: { type: number, minimum: 0 }
 
+    FundamentalMetricId:
+      type: string
+      description: |
+        The stable identity of one of the fifteen Fundamental Metrics. It is the metric's whole
+        identity: never a label and never a storage field.
+
+        Measured in percentage points (`15.42` is 15.42%): `REVENUE_GROWTH_TTM_YOY`,
+        `EPS_GROWTH_TTM_YOY`, `FCF_GROWTH_TTM_YOY`, `GROSS_MARGIN_TTM`, `OPERATING_MARGIN_TTM`,
+        `NET_MARGIN_TTM`, `FCF_MARGIN_TTM`, `ROIC_TTM`, `ROE_TTM`, `ROA_TTM`.
+
+        Raw multiples (`0.75` is 0.75x): `DEBT_TO_EQUITY`, `CURRENT_RATIO`,
+        `NET_DEBT_TO_EBITDA_TTM`, `INTEREST_COVERAGE_TTM`, `ASSET_TURNOVER_TTM`.
+      enum:
+        [
+          REVENUE_GROWTH_TTM_YOY,
+          EPS_GROWTH_TTM_YOY,
+          FCF_GROWTH_TTM_YOY,
+          GROSS_MARGIN_TTM,
+          OPERATING_MARGIN_TTM,
+          NET_MARGIN_TTM,
+          FCF_MARGIN_TTM,
+          ROIC_TTM,
+          ROE_TTM,
+          ROA_TTM,
+          DEBT_TO_EQUITY,
+          CURRENT_RATIO,
+          NET_DEBT_TO_EBITDA_TTM,
+          INTEREST_COVERAGE_TTM,
+          ASSET_TURNOVER_TTM,
+        ]
+
+    DailyFundamentalMetric:
+      type: object
+      description: |
+        One trading session of one Fundamental Metric, as persisted in the point-in-time daily
+        derived state.
+
+        `value` is in the metric's own unit. A percentage metric is in **percentage points**:
+        `15.42` is 15.42%, never 0.1542 and never 0.1542%. A multiple is a raw ratio: a Debt /
+        Equity of `0.75` is 0.75x. Zero and negative values are real readings — a loss-making margin,
+        net cash in Net Debt / EBITDA — and are returned as such.
+
+        `value` is **omitted** on a session the metric is unavailable on: before its statements
+        first support it, or after a later statement revision made it unavailable. It is never
+        `null`, never zero and never an earlier value standing in for the unavailable interval.
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        value: { type: number }
+
     IntrinsicValueModel:
       type: string
       enum: [DCF_FCFF, RESIDUAL_INCOME, DDM, GRAHAM]
@@ -3957,26 +4051,7 @@ components:
             `FUNDAMENTAL_METRIC_UNSUPPORTED`.
           properties:
             kind: { type: string, const: FUNDAMENTAL }
-            metricId:
-              type: string
-              enum:
-                [
-                  REVENUE_GROWTH_TTM_YOY,
-                  EPS_GROWTH_TTM_YOY,
-                  FCF_GROWTH_TTM_YOY,
-                  GROSS_MARGIN_TTM,
-                  OPERATING_MARGIN_TTM,
-                  NET_MARGIN_TTM,
-                  FCF_MARGIN_TTM,
-                  ROIC_TTM,
-                  ROE_TTM,
-                  ROA_TTM,
-                  DEBT_TO_EQUITY,
-                  CURRENT_RATIO,
-                  NET_DEBT_TO_EBITDA_TTM,
-                  INTEREST_COVERAGE_TTM,
-                  ASSET_TURNOVER_TTM,
-                ]
+            metricId: { $ref: "#/components/schemas/FundamentalMetricId" }
         - type: object
           description: |
             Position-dependent, so it is only meaningful where simulated position state exists;
