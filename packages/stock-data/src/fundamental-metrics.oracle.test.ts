@@ -22,8 +22,9 @@ import { weekdays } from "./fundamental-metrics.test-helper.js";
  * Each fixture is generated from a seed: several fiscal calendars, losses and near-zero sums,
  * decimal EPS, missing fields and missing quarters, families filed on different days, weekend and
  * holiday availability, restatements that invalidate and restore metrics, annual rows that must
- * never be read, a change of reporting currency with statements in other or no currencies, and a
- * JPY-scale reporter whose ratios can exceed what the calculated-series column stores. The oracle
+ * never be read, a change of reporting currency with statements in other or no currencies, a
+ * JPY-scale reporter whose ratios can exceed what the calculated-series column stores, and
+ * restatements that move a quarter's period end. The oracle
  * (`fundamental-metrics-oracle.test-helper.ts`) recomputes every metric for every trading day from
  * scratch in exact rational arithmetic; it shares no code with production. Agreement on every day
  * therefore proves the formulas, the point-in-time selection, the window assembly, the event plan
@@ -82,6 +83,14 @@ const SCENARIOS: HistoryScenario[] = [
     currency: { base: "JPY" },
     magnitude: 1e9,
     tinyDenominators: 0.2,
+  },
+  // Restatements that move a quarter's period end, earlier or later.
+  {
+    seed: 404,
+    fiscalYearEndMonth: 9,
+    firstFiscalYear: 2009,
+    fiscalYears: 11,
+    movedPeriodEnds: 1,
   },
 ];
 
@@ -158,6 +167,37 @@ describe.each(SCENARIOS)(
         expect(removedBy.range).toBeGreaterThan(100);
       } else {
         expect(removedBy.range).toBe(0);
+      }
+    });
+
+    it("moves period ends in both directions exactly where the history asks for it", () => {
+      // A later revision of a quarter that reports another period end, earlier or later than the
+      // quarter's first one: the case in which the latest revision, not the later period end,
+      // must represent the quarter.
+      const first = new Map<string, string>();
+      const moved = { earlier: 0, later: 0 };
+      for (const statement of [...statements].sort((left, right) =>
+        left.availableFromDate.localeCompare(right.availableFromDate),
+      )) {
+        if (statement.period === "FY") {
+          continue;
+        }
+        const key = `${statement.statementType}:${statement.fiscalYear}:${statement.period}`;
+        const original = first.get(key);
+        if (original === undefined) {
+          first.set(key, statement.fiscalDate);
+        } else if (statement.fiscalDate < original) {
+          moved.earlier += 1;
+        } else if (statement.fiscalDate > original) {
+          moved.later += 1;
+        }
+      }
+
+      if (scenario.movedPeriodEnds) {
+        expect(moved.earlier).toBeGreaterThan(5);
+        expect(moved.later).toBeGreaterThan(5);
+      } else {
+        expect(moved).toEqual({ earlier: 0, later: 0 });
       }
     });
 

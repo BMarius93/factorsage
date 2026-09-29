@@ -18,6 +18,7 @@ import {
   indexFiscalQuarters,
   latestCommonFiscalQuarterRank,
   latestFiscalQuarterRank,
+  representsFiscalPeriodOver,
   statementsForFiscalQuarters,
   TTM_QUARTERS,
   type FiscalQuarterIndex,
@@ -86,12 +87,20 @@ function trailingWindow(anchorRank: number): number[] {
   return consecutiveFiscalQuarterRanks(anchorRank, TTM_QUARTERS);
 }
 
+/**
+ * Annual income rows keyed by fiscal year. Two rows for one fiscal year (a moved year end) are
+ * decided exactly like two rows for one fiscal quarter: the latest revision represents the year.
+ */
 function indexAnnualIncome(
   statements: readonly FinancialStatement[],
 ): Map<number, FinancialStatement> {
   const index = new Map<number, FinancialStatement>();
   for (const statement of statements) {
-    if (statement.statementType === "INCOME" && statement.period === "FY") {
+    if (statement.statementType !== "INCOME" || statement.period !== "FY") {
+      continue;
+    }
+    const existing = index.get(statement.fiscalYear);
+    if (!existing || representsFiscalPeriodOver(statement, existing)) {
       index.set(statement.fiscalYear, statement);
     }
   }

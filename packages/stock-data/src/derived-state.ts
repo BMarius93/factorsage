@@ -74,7 +74,10 @@ import {
  *   point-in-time `FinancialStatement` revisions as the intrinsic values, on the same statement
  *   events, in the same rebuild. An r6 row carries NULL for all fifteen columns, which is
  *   indistinguishable from "unavailable", so r6 coverage and manifests must report nothing and the
- *   canonical history is rebuilt and replaced as r7. One bump covers the whole catalog.
+ *   canonical history is rebuilt and replaced as r7. One bump covers the whole catalog. The same
+ *   revision changes which statement represents a fiscal period reported with two period ends —
+ *   its latest revision, no longer the later period end — for the intrinsic values as well, so r6
+ *   intrinsic history is recalculated under that rule in the same rebuild.
  */
 export const DERIVED_STATE_REVISION = 7;
 

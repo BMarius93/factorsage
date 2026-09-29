@@ -340,6 +340,36 @@ availableFromDate = max(filingDate + 1 day, observedAt calendar date)
 
 This prevents a newly observed correction from being backdated into historical backtests.
 
+**A moved period end is a revision of its fiscal period.** Rules 2 and 3 also apply per fiscal
+period — `securityId + statementType + fiscalYear + period` — not only per logical identity. A
+snapshot whose `fiscalDate` differs from one an earlier sync already stored for the same fiscal
+period is a new logical identity, but it is still a revision of a period that was already public:
+
+```text
+a real filing (filingDate > fiscalDate) made public after every filing stored for the period:
+  availableFromDate = its public date
+otherwise:
+  availableFromDate = max(its public date, observedAt calendar date)
+```
+
+A public date is `statementPublicAvailabilityDate`: the filing date plus one day, or the statutory
+deadline when the provider gave the period end as the filing date (AUD-03). Such a placeholder
+moves with the period end, so it never counts as a newer filing, and neither does a real filing
+made public before a stored placeholder's deadline.
+
+Only earlier syncs count. Snapshots that arrive together were observed together, so their order in
+a provider response never decides which one was public first, and a fiscal period seen for the first
+time keeps the initial rule for every period end it arrives with.
+
+Without this, a provider that moved a quarter's period end — `2025-12-31` reported months later as
+`2025-12-27` or `2026-01-02`, same filing date, new values — produced a row dated public from the
+original filing: every historical session after that filing would change on the next rebuild, a
+look-ahead. Selection is consistent with it: where two eligible rows report one fiscal period,
+the latest revision represents it (`availableFromDate`, then `observedAt`; the later period end
+only between rows one observation delivered, then `contentHash`), exactly as for a revision that
+kept its period end. The logical identity, `fiscalDate` included, still keys deduplication and the
+canonical selector.
+
 Known V1 limitation: the initial FMP standardized backfill can already contain historical restatements. Without a historical raw filing ledger we cannot reconstruct values that FMP no longer exposes. This PR must not claim stronger historical-vintage guarantees than the upstream data supports. From first ingestion onward, revisions observed by the product are preserved PIT-correctly.
 
 ## Read selection semantics
@@ -571,7 +601,7 @@ Use `debug` for individual provider request/limit details and cache year rewrite
 8. Initial snapshot is eligible only from `filingDate + 1 day`.
 9. Same hash is idempotent and does not create another revision.
 10. New filing-date revision is preserved alongside the old revision.
-11. Same-filing-date changed content is not backdated before `observedAt`.
+11. Same-filing-date changed content — including a moved period end, a new `fiscalDate` for a stored fiscal period — is not backdated before `observedAt`.
 12. `asOf` before a revision returns the older eligible snapshot.
 13. `asOf` after a revision returns the newer snapshot.
 14. No-asOf reads return the latest persisted revision.

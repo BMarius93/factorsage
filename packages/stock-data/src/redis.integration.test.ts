@@ -2420,72 +2420,73 @@ describeInfrastructure(
       }
     }, 120_000);
 
-    it("rebuilds both statement families from a revision's availability and republishes the whole affected year", async () => {
-      /** Clean quarters FY2022 Q1..FY2026 Q2, each filed forty days after its period end. */
+    /** Clean quarters FY2022 Q1..FY2026 Q2, each filed forty days after its period end. */
+    function cleanQuarters(securityId: string): FinancialStatementDraft[] {
       const quarterEnds = ["03-31", "06-30", "09-30", "12-31"];
-      const clean = (securityId: string): FinancialStatementDraft[] => {
-        const drafts: FinancialStatementDraft[] = [];
-        for (let fiscalYear = 2022; fiscalYear <= 2026; fiscalYear += 1) {
-          quarterEnds.forEach((end, index) => {
-            if (fiscalYear === 2026 && index > 1) {
-              return;
-            }
-            const period = `Q${index + 1}` as FinancialStatementDraft["period"];
-            const fiscalDate = `${fiscalYear}-${end}`;
-            const filingDate = addDays(fiscalDate, 40);
-            const step = (fiscalYear - 2022) * 4 + index;
-            const base = {
-              securityId,
-              fiscalDate,
-              fiscalYear,
-              period,
-              reportedCurrency: "USD",
-              filingDate,
-            };
-            drafts.push(
-              {
-                ...base,
-                statementType: "INCOME",
-                values: {
-                  revenue: 1_000 + step * 20,
-                  grossProfit: 400 + step * 5,
-                  operatingIncome: 150 + step * 3,
-                  netIncome: 100 + step * 2,
-                  epsDiluted: 1 + step / 100,
-                  weightedAverageShsOutDil: 100,
-                  ebitda: 220 + step * 3,
-                  ebit: 160 + step * 3,
-                  interestExpense: 12,
-                },
+      const drafts: FinancialStatementDraft[] = [];
+      for (let fiscalYear = 2022; fiscalYear <= 2026; fiscalYear += 1) {
+        quarterEnds.forEach((end, index) => {
+          if (fiscalYear === 2026 && index > 1) {
+            return;
+          }
+          const period = `Q${index + 1}` as FinancialStatementDraft["period"];
+          const fiscalDate = `${fiscalYear}-${end}`;
+          const filingDate = addDays(fiscalDate, 40);
+          const step = (fiscalYear - 2022) * 4 + index;
+          const base = {
+            securityId,
+            fiscalDate,
+            fiscalYear,
+            period,
+            reportedCurrency: "USD",
+            filingDate,
+          };
+          drafts.push(
+            {
+              ...base,
+              statementType: "INCOME",
+              values: {
+                revenue: 1_000 + step * 20,
+                grossProfit: 400 + step * 5,
+                operatingIncome: 150 + step * 3,
+                netIncome: 100 + step * 2,
+                epsDiluted: 1 + step / 100,
+                weightedAverageShsOutDil: 100,
+                ebitda: 220 + step * 3,
+                ebit: 160 + step * 3,
+                interestExpense: 12,
               },
-              {
-                ...base,
-                statementType: "CASH_FLOW",
-                values: {
-                  operatingCashFlow: 180 + step * 4,
-                  capitalExpenditure: -60,
-                  commonDividendsPaid: -20,
-                },
+            },
+            {
+              ...base,
+              statementType: "CASH_FLOW",
+              values: {
+                operatingCashFlow: 180 + step * 4,
+                capitalExpenditure: -60,
+                commonDividendsPaid: -20,
               },
-              {
-                ...base,
-                statementType: "BALANCE_SHEET",
-                values: {
-                  totalDebt: 800,
-                  totalStockholdersEquity: 1_500 + step * 10,
-                  cashAndShortTermInvestments: 300,
-                  totalAssets: 4_000 + step * 20,
-                  totalCurrentAssets: 1_200,
-                  totalCurrentLiabilities: 900,
-                  netDebt: 500,
-                },
+            },
+            {
+              ...base,
+              statementType: "BALANCE_SHEET",
+              values: {
+                totalDebt: 800,
+                totalStockholdersEquity: 1_500 + step * 10,
+                cashAndShortTermInvestments: 300,
+                totalAssets: 4_000 + step * 20,
+                totalCurrentAssets: 1_200,
+                totalCurrentLiabilities: 900,
+                netDebt: 500,
               },
-            );
-          });
-        }
-        return drafts;
-      };
-      const fixture = await provision("2024-01-02", clean);
+            },
+          );
+        });
+      }
+      return drafts;
+    }
+
+    it("rebuilds both statement families from a revision's availability and republishes the whole affected year", async () => {
+      const fixture = await provision("2024-01-02", cleanQuarters);
       try {
         const range = { from: "2024-01-02", to: TODAY };
         await fixture.service().getDailyDerivedState(fixture.symbol, range);
@@ -2599,6 +2600,96 @@ describeInfrastructure(
         await fixture.dispose();
       }
     }, 120_000);
+
+    it.each([
+      { direction: "earlier", fiscalDate: "2026-03-28" },
+      { direction: "later", fiscalDate: "2026-04-03" },
+    ])(
+      "never backdates a revision that moves a period end $direction, and applies it from its observation",
+      async ({ fiscalDate }) => {
+        const fixture = await provision("2024-01-02", cleanQuarters);
+        try {
+          const range = { from: "2024-01-02", to: TODAY };
+          await fixture.service().getDailyDerivedState(fixture.symbol, range);
+          const before = await fixture.store.getDailyDerivedState(
+            fixture.securityId,
+            range,
+          );
+          const original = (
+            await fixture.store.getFinancialStatementRevisions({
+              securityId: fixture.securityId,
+              statementType: "INCOME",
+              cadence: "QUARTERLY",
+            })
+          ).find((each) => each.fiscalYear === 2026 && each.period === "Q1");
+          expect(original).toMatchObject({
+            fiscalDate: "2026-03-31",
+            filingDate: "2026-05-10",
+            availableFromDate: "2026-05-11",
+          });
+
+          // On 2026-08-24 the provider reports FY2026 Q1 with its period end moved and the same
+          // filing date: a correction first observed now, not a filing public since 2026-05-11.
+          fixture.provider.statements.set("INCOME:QUARTERLY", [
+            {
+              securityId: fixture.securityId,
+              statementType: "INCOME",
+              fiscalDate,
+              fiscalYear: 2026,
+              period: "Q1",
+              reportedCurrency: "USD",
+              filingDate: "2026-05-10",
+              values: {
+                ...(original!.values as Record<string, number>),
+                grossProfit: 900,
+                epsDiluted: 3.5,
+              },
+            },
+          ]);
+          await fixture
+            .service(new Date("2026-08-24T19:00:00.000Z"), {
+              fundamentalsFreshnessMs: 6 * 60 * 60 * 1_000,
+              recentPriceFreshnessMs: 30 * 24 * 60 * 60 * 1_000,
+            })
+            .getDailyDerivedState(fixture.symbol, range);
+
+          const revisions = await fixture.store.getFinancialStatementRevisions({
+            securityId: fixture.securityId,
+          });
+          expect(
+            revisions.find(
+              (each) =>
+                each.statementType === "INCOME" &&
+                each.fiscalDate === fiscalDate,
+            )?.availableFromDate,
+          ).toBe("2026-08-24");
+
+          // No session before the observation changed, for either statement-derived family.
+          const after = await fixture.store.getDailyDerivedState(
+            fixture.securityId,
+            range,
+          );
+          expect(after.filter((row) => row.date < "2026-08-24")).toEqual(
+            before.filter((row) => row.date < "2026-08-24"),
+          );
+          // From the observation both use the moved revision, whichever way its period end moved.
+          const onEve = after.find((row) => row.date === "2026-08-21")!;
+          const onDay = after.find((row) => row.date === "2026-08-24")!;
+          expect(onDay.grossMarginTtm).not.toBe(onEve.grossMarginTtm);
+          expect(onDay.epsGrowthTtmYoy).not.toBe(onEve.epsGrowthTtmYoy);
+          expect(onDay.intrinsicValues?.GRAHAM).not.toBe(
+            onEve.intrinsicValues?.GRAHAM,
+          );
+          expectRowsMatchOracle(after, revisions, fixture.securityId);
+          await expect(
+            fixture.cache.readDailyDerivedState(fixture.securityId, range),
+          ).resolves.toEqual(after);
+        } finally {
+          await fixture.dispose();
+        }
+      },
+      120_000,
+    );
   },
 );
 

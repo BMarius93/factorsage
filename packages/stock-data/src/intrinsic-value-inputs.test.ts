@@ -697,3 +697,55 @@ describe("point-in-time valuation input assembly", () => {
     });
   });
 });
+
+describe("a fiscal period reported with two period ends", () => {
+  it("uses a revision that moves a quarter's period end from its own availability", () => {
+    // FY2025 Q4 (period end 2025-12-31, public 2026-01-21) is revised later with its period end
+    // moved — earlier or later — and becomes eligible on 2026-05-04.
+    for (const fiscalDate of ["2025-12-27", "2026-01-03"]) {
+      const moved = income(
+        quarter(2025, "Q4"),
+        { ...INCOME_QUARTER, netIncome: 50 },
+        {
+          fiscalDate,
+          availableFromDate: "2026-05-04",
+          contentHash: `moved-to-${fiscalDate}`,
+        },
+      );
+      const statements = [...completeStatements(), moved];
+
+      expect(assemble(statements, "2026-05-01").RESIDUAL_INCOME).toMatchObject({
+        status: "READY",
+        input: { netIncomeTtm: 80 },
+      });
+      // 20 + 20 + 20 + 50 from the revision's own availability, whichever way the end moved.
+      expect(assemble(statements, "2026-05-04").RESIDUAL_INCOME).toMatchObject({
+        status: "READY",
+        input: { netIncomeTtm: 110 },
+      });
+    }
+  });
+
+  it("uses a revision that moves a fiscal year's end from its own availability", () => {
+    // FY2025 is revised with its year end moved and a revenue of exactly 100 * 1.1^5.
+    for (const fiscalDate of ["2025-12-27", "2026-01-03"]) {
+      const moved = annualIncome(
+        2025,
+        { revenue: 161.051, netIncome: 50 },
+        {
+          fiscalDate,
+          availableFromDate: "2026-05-04",
+          contentHash: `moved-to-${fiscalDate}`,
+        },
+      );
+      const statements = [...completeStatements(), moved];
+
+      expect(
+        readyInput(assemble(statements, "2026-05-01").GRAHAM).growthUsed,
+      ).toBeCloseTo(0.05, 12);
+      expect(
+        readyInput(assemble(statements, "2026-05-04").GRAHAM).growthUsed,
+      ).toBeCloseTo(0.1, 12);
+    }
+  });
+});

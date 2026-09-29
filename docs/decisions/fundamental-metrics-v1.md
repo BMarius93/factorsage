@@ -107,6 +107,15 @@ For a metric effective on trading day `D`:
     without a currency. V1 performs no FX conversion, uses no current FX data and treats no two
     currency codes as equivalent. A single-statement ratio (Debt / Equity, Current Ratio) needs that
     statement to carry a currency.
+13. **One fiscal quarter, one representing revision.** A provider can report a quarter with a
+    moved period end, which the canonical selector keeps as a second logical identity. The quarter
+    is represented by its latest eligible revision — later `availableFromDate`, then later
+    `observedAt`; the later `fiscalDate` decides only between rows one observation delivered, then
+    `contentHash` — whichever way the period end moved. The loader dates such a revision from its
+    own filing only when it carries a real filing date made public after every filing stored for
+    the quarter (a period-end placeholder never counts), otherwise from when it was first observed
+    (`fundamentals-loader.md`, "Revisions and restatements"), so it never changes a session before
+    it became known. Intrinsic value applies the same rule to its quarterly windows and annual rows.
 
 The materializer maps an eligible statement event to the first canonical trading date on or after
 its `availableFromDate`. A weekend or exchange holiday therefore produces no synthetic daily row;

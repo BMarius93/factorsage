@@ -19,6 +19,7 @@ import type {
 } from "@intrinsic/domain";
 import {
   FUNDAMENTAL_METRIC_FIELDS,
+  hasProviderFilingDate,
   selectFinancialStatements,
   statementPublicAvailabilityDate,
 } from "@intrinsic/domain";
@@ -342,6 +343,25 @@ function financialStatementIdentityKey(statement: {
     statement.securityId,
     statement.statementType,
     statement.fiscalDate,
+    statement.fiscalYear,
+    statement.period,
+  ].join(":");
+}
+
+/**
+ * The fiscal period a statement reports on, whatever period end it gives: the unit a filing is
+ * public for. Two snapshots that differ only in `fiscalDate` are two logical identities, but the
+ * second is still a revision of the period the first one already made public.
+ */
+function financialStatementPeriodKey(statement: {
+  securityId: string;
+  statementType: string;
+  fiscalYear: number;
+  period: string;
+}): string {
+  return [
+    statement.securityId,
+    statement.statementType,
     statement.fiscalYear,
     statement.period,
   ].join(":");
@@ -1114,6 +1134,12 @@ export class PrismaStockDataStore implements StockDataStore {
         ),
       );
       const latestKnownFilingDateByIdentity = new Map<string, Date>();
+      // When the latest filing an earlier sync stored for each fiscal period became public,
+      // whatever period end it came with — a period-end placeholder counting at its statutory
+      // deadline, exactly as it was dated (AUD-03). Only earlier syncs count: snapshots arriving
+      // together are observed together, so their order in the provider response never decides
+      // which one was public first.
+      const storedPublicDateByPeriod = new Map<string, string>();
       for (const row of existingRows) {
         const identity = financialStatementIdentityKey({
           securityId: row.securityId,
@@ -1125,6 +1151,16 @@ export class PrismaStockDataStore implements StockDataStore {
         const known = latestKnownFilingDateByIdentity.get(identity);
         if (!known || row.filingDate.valueOf() > known.valueOf()) {
           latestKnownFilingDateByIdentity.set(identity, row.filingDate);
+        }
+        const period = financialStatementPeriodKey(row);
+        const publicDate = statementPublicAvailabilityDate({
+          fiscalDate: fromDatabaseDate(row.fiscalDate),
+          filingDate: fromDatabaseDate(row.filingDate),
+          period: row.period,
+        });
+        const stored = storedPublicDateByPeriod.get(period);
+        if (!stored || publicDate > stored) {
+          storedPublicDateByPeriod.set(period, publicDate);
         }
       }
       const rowsToInsert: Array<{
@@ -1177,20 +1213,31 @@ export class PrismaStockDataStore implements StockDataStore {
         });
         const latestKnownFilingDate =
           latestKnownFilingDateByIdentity.get(identity);
-        const canUseInitialAvailability =
-          !latestKnownFilingDate ||
-          filingDate.valueOf() > latestKnownFilingDate.valueOf();
         // The one point-in-time rule, owned by the domain: a real filing date plus a day, or the
         // statutory deadline when the provider gave the period end instead of a filing date
         // (AUD-03). A restatement that carries no newer filing date cannot be claimed to have been
         // public before it was observed.
-        const publicFrom = toDatabaseDate(
-          statementPublicAvailabilityDate({
-            fiscalDate: statement.fiscalDate,
-            filingDate: statement.filingDate,
-            period: statement.period,
-          }),
+        const publicDate = statementPublicAvailabilityDate({
+          fiscalDate: statement.fiscalDate,
+          filingDate: statement.filingDate,
+          period: statement.period,
+        });
+        const storedPeriodPublicDate = storedPublicDateByPeriod.get(
+          financialStatementPeriodKey(statement),
         );
+        // A snapshot is public from its own filing only when that filing is newer than everything
+        // already known for its identity and, for a fiscal period an earlier sync already stored,
+        // is a real filing that became public after every stored one. A moved period end (a new
+        // `fiscalDate` for a stored fiscal period) is otherwise a revision first observed now: a
+        // period-end placeholder moves with the period end and proves no newer filing, and a new
+        // identity is never public since its period's original filing.
+        const canUseInitialAvailability =
+          (!latestKnownFilingDate ||
+            filingDate.valueOf() > latestKnownFilingDate.valueOf()) &&
+          (!storedPeriodPublicDate ||
+            (hasProviderFilingDate(statement) &&
+              publicDate > storedPeriodPublicDate));
+        const publicFrom = toDatabaseDate(publicDate);
         const availableFromDate = canUseInitialAvailability
           ? publicFrom
           : new Date(

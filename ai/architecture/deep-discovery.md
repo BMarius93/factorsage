@@ -342,7 +342,8 @@ statement or derived series, which artifacts change and which are immutable?
   (`docs/decisions/complete-price-coverage.md`).
 - **Statements.** Append-only revisions keyed by content hash; a changed value for an existing
   fiscal identity without a later filing date is a new revision whose `availableFromDate` is when
-  *we* first observed it, never backdated (`docs/decisions/fundamentals-loader.md`). Historical
+  _we_ first observed it, never backdated — including a moved period end, a new `fiscalDate` for a
+  fiscal period already stored (`docs/decisions/fundamentals-loader.md`). Historical
   intrinsic values therefore keep their point-in-time truth; only days from the observation
   onward change. The initial backfill may already embed upstream restatements (known V1 limit).
 - **Derived series** are recomputable projections of the above and are rebuilt from the earliest

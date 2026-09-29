@@ -117,26 +117,78 @@ describe("indexing one family's quarters", () => {
 
     expect([...index.keys()]).toEqual([fiscalQuarterRank(quarter(2025, "Q1"))]);
   });
+});
 
-  it("represents a quarter by its later period end, whatever the input order", () => {
+describe("a quarter reported with two period ends", () => {
+  /** The row that represents FY2025 Q4, for both input orders. */
+  function representative(
+    first: FinancialStatement,
+    second: FinancialStatement,
+  ): string[] {
+    return [
+      [first, second],
+      [second, first],
+    ].map(
+      (rows) =>
+        incomeIndex(rows).get(fiscalQuarterRank(quarter(2025, "Q4")))
+          ?.contentHash ?? "none",
+    );
+  }
+
+  it("is represented by the later revision when the period end moved earlier", () => {
+    // The original reports 2025-12-31; a revision observed later moves it to 2025-12-27. The later
+    // period end must not keep the stale original in place forever.
+    const original = income(quarter(2025, "Q4"), "2026-02-16", {
+      fiscalDate: "2025-12-31",
+      contentHash: "original",
+    });
+    const moved = income(quarter(2025, "Q4"), "2026-08-24", {
+      fiscalDate: "2025-12-27",
+      contentHash: "moved",
+    });
+
+    expect(representative(original, moved)).toEqual(["moved", "moved"]);
+  });
+
+  it("is represented by the later revision when the period end moved later", () => {
+    const original = income(quarter(2025, "Q4"), "2026-02-16", {
+      fiscalDate: "2025-12-27",
+      contentHash: "original",
+    });
+    const moved = income(quarter(2025, "Q4"), "2026-08-24", {
+      fiscalDate: "2025-12-31",
+      contentHash: "moved",
+    });
+
+    expect(representative(original, moved)).toEqual(["moved", "moved"]);
+  });
+
+  it("is represented by the later observation when both became eligible together", () => {
+    const original = income(quarter(2025, "Q4"), "2026-02-16", {
+      fiscalDate: "2025-12-31",
+      observedAt: "2026-02-16T21:00:00.000Z",
+      contentHash: "original",
+    });
+    const moved = income(quarter(2025, "Q4"), "2026-02-16", {
+      fiscalDate: "2025-12-27",
+      observedAt: "2026-03-02T21:00:00.000Z",
+      contentHash: "moved",
+    });
+
+    expect(representative(original, moved)).toEqual(["moved", "moved"]);
+  });
+
+  it("is represented by the later period end only between rows one observation delivered", () => {
     const early = income(quarter(2025, "Q4"), undefined, {
       fiscalDate: "2025-12-27",
-      contentHash: "early",
+      contentHash: "z-early",
     });
     const late = income(quarter(2025, "Q4"), undefined, {
       fiscalDate: "2025-12-31",
-      contentHash: "late",
+      contentHash: "a-late",
     });
 
-    for (const rows of [
-      [early, late],
-      [late, early],
-    ]) {
-      expect(
-        incomeIndex(rows).get(fiscalQuarterRank(quarter(2025, "Q4")))
-          ?.contentHash,
-      ).toBe("late");
-    }
+    expect(representative(early, late)).toEqual(["a-late", "a-late"]);
   });
 });
 
