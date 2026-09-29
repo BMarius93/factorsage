@@ -1,0 +1,12 @@
+{
+  "symbol": "TRV",
+  "securityId": "3cb1ce33-712f-4f5c-8bf3-b0684982c00b",
+  "retentionFrom": "1989-09-28",
+  "revisions": 552,
+  "retainedRevisions": 552,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

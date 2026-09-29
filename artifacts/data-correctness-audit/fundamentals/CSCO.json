@@ -1,0 +1,12 @@
+{
+  "symbol": "CSCO",
+  "securityId": "9336c0bb-948e-4ed0-9523-0e357d8a6d7a",
+  "retentionFrom": "1990-02-16",
+  "revisions": 555,
+  "retainedRevisions": 549,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

@@ -1,0 +1,12 @@
+{
+  "symbol": "MRNA",
+  "securityId": "6ad3be0e-a56a-4724-8d1d-a7fd5a371f70",
+  "retentionFrom": "2018-12-07",
+  "revisions": 142,
+  "retainedRevisions": 117,
+  "derivedRows": 1960,
+  "rowsOutsideCoverage": 0,
+  "compared": 29400,
+  "failed": 0,
+  "mismatches": []
+}

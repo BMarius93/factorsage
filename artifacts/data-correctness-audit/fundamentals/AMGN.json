@@ -1,0 +1,12 @@
+{
+  "symbol": "AMGN",
+  "securityId": "5e13af4e-6e81-47e4-94a6-8683bdc3e2f0",
+  "retentionFrom": "1989-09-28",
+  "revisions": 552,
+  "retainedRevisions": 552,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

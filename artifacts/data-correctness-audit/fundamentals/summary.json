@@ -1,0 +1,1256 @@
+{
+  "comparisons": {
+    "compared": 4887105,
+    "passed": 4887105,
+    "failed": 0,
+    "skipped": 25,
+    "tolerancePasses": 3631690
+  },
+  "byCategory": {
+    "fundamentals": {
+      "compared": 3891150,
+      "failed": 0,
+      "skipped": 25
+    }
+  },
+  "perMetric": {
+    "REVENUE_GROWTH_TTM_YOY": {
+      "compared": 259410,
+      "available": 254219,
+      "unavailable": 5191,
+      "failed": 0,
+      "maxAbsDifference": 4.998707225922772e-9
+    },
+    "EPS_GROWTH_TTM_YOY": {
+      "compared": 259410,
+      "available": 236181,
+      "unavailable": 23229,
+      "failed": 0,
+      "maxAbsDifference": 4.986596024991741e-9
+    },
+    "FCF_GROWTH_TTM_YOY": {
+      "compared": 259410,
+      "available": 221992,
+      "unavailable": 37418,
+      "failed": 0,
+      "maxAbsDifference": 4.994786806378215e-9
+    },
+    "GROSS_MARGIN_TTM": {
+      "compared": 259410,
+      "available": 256498,
+      "unavailable": 2912,
+      "failed": 0,
+      "maxAbsDifference": 4.999506586500502e-9
+    },
+    "OPERATING_MARGIN_TTM": {
+      "compared": 259410,
+      "available": 256498,
+      "unavailable": 2912,
+      "failed": 0,
+      "maxAbsDifference": 4.997509961413016e-9
+    },
+    "NET_MARGIN_TTM": {
+      "compared": 259410,
+      "available": 256498,
+      "unavailable": 2912,
+      "failed": 0,
+      "maxAbsDifference": 4.999833436158951e-9
+    },
+    "FCF_MARGIN_TTM": {
+      "compared": 259410,
+      "available": 256115,
+      "unavailable": 3295,
+      "failed": 0,
+      "maxAbsDifference": 4.998408797973752e-9
+    },
+    "ROIC_TTM": {
+      "compared": 259410,
+      "available": 246356,
+      "unavailable": 13054,
+      "failed": 0,
+      "maxAbsDifference": 4.99675678611311e-9
+    },
+    "ROE_TTM": {
+      "compared": 259410,
+      "available": 249684,
+      "unavailable": 9726,
+      "failed": 0,
+      "maxAbsDifference": 4.998371494480125e-9
+    },
+    "ROA_TTM": {
+      "compared": 259410,
+      "available": 255597,
+      "unavailable": 3813,
+      "failed": 0,
+      "maxAbsDifference": 4.998240044074009e-9
+    },
+    "DEBT_TO_EQUITY": {
+      "compared": 259410,
+      "available": 252198,
+      "unavailable": 7212,
+      "failed": 0,
+      "maxAbsDifference": 4.994402391655939e-9
+    },
+    "CURRENT_RATIO": {
+      "compared": 259410,
+      "available": 256595,
+      "unavailable": 2815,
+      "failed": 0,
+      "maxAbsDifference": 5.000000413701855e-9
+    },
+    "NET_DEBT_TO_EBITDA_TTM": {
+      "compared": 259410,
+      "available": 251241,
+      "unavailable": 8169,
+      "failed": 0,
+      "maxAbsDifference": 4.999554714668619e-9
+    },
+    "INTEREST_COVERAGE_TTM": {
+      "compared": 259410,
+      "available": 173517,
+      "unavailable": 85893,
+      "failed": 0,
+      "maxAbsDifference": 5.000003966415534e-9
+    },
+    "ASSET_TURNOVER_TTM": {
+      "compared": 259410,
+      "available": 255597,
+      "unavailable": 3813,
+      "failed": 0,
+      "maxAbsDifference": 4.998858771365633e-9
+    }
+  },
+  "perSecurity": {
+    "AAPL": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 554,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "ADBE": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 563,
+      "retainedRevisions": 563,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "AMGN": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 552,
+      "retainedRevisions": 552,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "AMZN": {
+      "compared": 110805,
+      "failed": 0,
+      "revisions": 449,
+      "retainedRevisions": 438,
+      "rows": 7387,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "1997-05-15"
+    },
+    "AXP": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 552,
+      "retainedRevisions": 552,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "BA": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "CAT": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "CRM": {
+      "compared": 84015,
+      "failed": 0,
+      "revisions": 351,
+      "retainedRevisions": 333,
+      "rows": 5601,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "2004-06-23"
+    },
+    "CSCO": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 549,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1990-02-16"
+    },
+    "CVX": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 500,
+      "retainedRevisions": 500,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "DIS": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 554,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "GOOGL": {
+      "compared": 83415,
+      "failed": 0,
+      "revisions": 367,
+      "retainedRevisions": 337,
+      "rows": 5561,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "2004-08-19"
+    },
+    "GS": {
+      "compared": 103380,
+      "failed": 0,
+      "revisions": 410,
+      "retainedRevisions": 408,
+      "rows": 6892,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "1999-05-04"
+    },
+    "HD": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 554,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "HON": {
+      "compared": 96555,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 381,
+      "rows": 6437,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "2001-02-21"
+    },
+    "IBM": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 552,
+      "retainedRevisions": 552,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "JNJ": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 557,
+      "retainedRevisions": 557,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "JPM": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 552,
+      "retainedRevisions": 552,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "KO": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "MCD": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "MMM": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 554,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "MRK": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 554,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "MRNA": {
+      "compared": 29400,
+      "failed": 0,
+      "revisions": 142,
+      "retainedRevisions": 117,
+      "rows": 1960,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "2018-12-07"
+    },
+    "MSFT": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "NKE": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 551,
+      "retainedRevisions": 551,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "NVDA": {
+      "compared": 104430,
+      "failed": 0,
+      "revisions": 414,
+      "retainedRevisions": 414,
+      "rows": 6962,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "1999-01-22"
+    },
+    "PG": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 552,
+      "retainedRevisions": 552,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "SHW": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "TRV": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 552,
+      "retainedRevisions": 552,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "UNH": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "V": {
+      "compared": 69900,
+      "failed": 0,
+      "revisions": 308,
+      "retainedRevisions": 276,
+      "rows": 4660,
+      "rowsOutsideCoverage": 0,
+      "retentionFrom": "2008-03-19"
+    },
+    "WMT": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 555,
+      "retainedRevisions": 555,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    },
+    "XOM": {
+      "compared": 128370,
+      "failed": 0,
+      "revisions": 554,
+      "retainedRevisions": 554,
+      "rows": 8558,
+      "rowsOutsideCoverage": 13,
+      "retentionFrom": "1989-09-28"
+    }
+  },
+  "notCurrent": [],
+  "pitViolations": 0,
+  "unavailableReasons": {
+    "NON_POSITIVE_DENOMINATOR": 129159,
+    "NON_POSITIVE_TTM": 32591,
+    "MISSING_QUARTER": 36968,
+    "MISSING_BALANCE_SHEET": 3604,
+    "NO_QUARTERLY_STATEMENT": 8320,
+    "NO_BALANCE_SHEET": 1722
+  },
+  "generated": [
+    {
+      "history": "calendar-usd-clean",
+      "seed": 20260929,
+      "tradingDays": 8902,
+      "firstTradingDay": "1992-01-02",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 659,
+      "foreignRevisions": 95,
+      "comparisons": 133530,
+      "available": 125337,
+      "unavailable": 8193,
+      "mismatches": 0,
+      "oracleEvaluations": 276,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 8827,
+          "unavailable": 75,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 7800,
+          "unavailable": 1102,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 7219,
+          "unavailable": 1683,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 8827,
+          "unavailable": 75,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 8827,
+          "unavailable": 75,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 8576,
+          "unavailable": 326,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 7776,
+          "unavailable": 1126,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 8299,
+          "unavailable": 603,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 8049,
+          "unavailable": 853,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 7921,
+          "unavailable": 981,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 8845,
+          "unavailable": 57,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 8602,
+          "unavailable": 300,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 8771,
+          "unavailable": 131,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 8827,
+          "unavailable": 75,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 8171,
+          "unavailable": 731,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "NON_POSITIVE_DENOMINATOR": 1515,
+        "MISSING_QUARTER": 1778,
+        "MISSING_BALANCE_SHEET": 1888,
+        "NON_POSITIVE_TTM": 947,
+        "CURRENCY_MISMATCH": 936,
+        "MISSING_FIELD": 1129
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "september-52-53-week",
+      "seed": 20260930,
+      "tradingDays": 7871,
+      "firstTradingDay": "1996-01-02",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 703,
+      "foreignRevisions": 101,
+      "comparisons": 118065,
+      "available": 88552,
+      "unavailable": 29513,
+      "mismatches": 0,
+      "oracleEvaluations": 333,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 6431,
+          "unavailable": 1440,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 3984,
+          "unavailable": 3887,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 3909,
+          "unavailable": 3962,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 6806,
+          "unavailable": 1065,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 6052,
+          "unavailable": 1819,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 6989,
+          "unavailable": 882,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 4666,
+          "unavailable": 3205,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 4924,
+          "unavailable": 2947,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 5661,
+          "unavailable": 2210,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 5828,
+          "unavailable": 2043,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 7415,
+          "unavailable": 456,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 7032,
+          "unavailable": 839,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 6616,
+          "unavailable": 1255,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 6411,
+          "unavailable": 1460,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 5828,
+          "unavailable": 2043,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "NON_POSITIVE_DENOMINATOR": 2980,
+        "MISSING_QUARTER": 4579,
+        "NON_POSITIVE_TTM": 1908,
+        "CURRENCY_MISMATCH": 4194,
+        "MISSING_BALANCE_SHEET": 3584,
+        "MISSING_CURRENCY": 8809,
+        "MISSING_FIELD": 2237,
+        "OUT_OF_STORAGE_RANGE": 1222
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "january-retailer-jpy",
+      "seed": 20260931,
+      "tradingDays": 8381,
+      "firstTradingDay": "1994-01-03",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 690,
+      "foreignRevisions": 99,
+      "comparisons": 125715,
+      "available": 64455,
+      "unavailable": 61260,
+      "mismatches": 0,
+      "oracleEvaluations": 334,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 2418,
+          "unavailable": 5963,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 1935,
+          "unavailable": 6446,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 2274,
+          "unavailable": 6107,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 4905,
+          "unavailable": 3476,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 5017,
+          "unavailable": 3364,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 5176,
+          "unavailable": 3205,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 2746,
+          "unavailable": 5635,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 3458,
+          "unavailable": 4923,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 3560,
+          "unavailable": 4821,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 3685,
+          "unavailable": 4696,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 7565,
+          "unavailable": 816,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 7855,
+          "unavailable": 526,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 4795,
+          "unavailable": 3586,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 5215,
+          "unavailable": 3166,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 3851,
+          "unavailable": 4530,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "MISSING_BALANCE_SHEET": 4728,
+        "NON_POSITIVE_DENOMINATOR": 1652,
+        "MISSING_QUARTER": 10018,
+        "MISSING_FIELD": 3274,
+        "CURRENCY_MISMATCH": 15991,
+        "MISSING_CURRENCY": 24197,
+        "NON_POSITIVE_TTM": 1104,
+        "OUT_OF_STORAGE_RANGE": 296
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "june-dense-revisions",
+      "seed": 20260932,
+      "tradingDays": 7730,
+      "firstTradingDay": "1996-07-01",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 919,
+      "foreignRevisions": 132,
+      "comparisons": 115950,
+      "available": 80413,
+      "unavailable": 35537,
+      "mismatches": 0,
+      "oracleEvaluations": 490,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 5059,
+          "unavailable": 2671,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 3235,
+          "unavailable": 4495,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 2519,
+          "unavailable": 5211,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 5768,
+          "unavailable": 1962,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 6226,
+          "unavailable": 1504,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 6182,
+          "unavailable": 1548,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 3374,
+          "unavailable": 4356,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 5074,
+          "unavailable": 2656,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 5184,
+          "unavailable": 2546,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 5347,
+          "unavailable": 2383,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 7349,
+          "unavailable": 381,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 7214,
+          "unavailable": 516,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 5875,
+          "unavailable": 1855,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 6422,
+          "unavailable": 1308,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 5585,
+          "unavailable": 2145,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "MISSING_QUARTER": 13892,
+        "MISSING_CURRENCY": 5145,
+        "MISSING_FIELD": 3587,
+        "CURRENCY_MISMATCH": 7700,
+        "MISSING_BALANCE_SHEET": 1672,
+        "NON_POSITIVE_TTM": 1139,
+        "NON_POSITIVE_DENOMINATOR": 2402
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "march-label-ahead-distressed",
+      "seed": 20260933,
+      "tradingDays": 8886,
+      "firstTradingDay": "1992-01-02",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 751,
+      "foreignRevisions": 108,
+      "comparisons": 133290,
+      "available": 85222,
+      "unavailable": 48068,
+      "mismatches": 0,
+      "oracleEvaluations": 363,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 5478,
+          "unavailable": 3408,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 1369,
+          "unavailable": 7517,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 877,
+          "unavailable": 8009,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 6994,
+          "unavailable": 1892,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 7014,
+          "unavailable": 1872,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 7256,
+          "unavailable": 1630,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 4541,
+          "unavailable": 4345,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 5223,
+          "unavailable": 3663,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 5517,
+          "unavailable": 3369,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 5582,
+          "unavailable": 3304,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 8280,
+          "unavailable": 606,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 8147,
+          "unavailable": 739,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 6406,
+          "unavailable": 2480,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 6924,
+          "unavailable": 1962,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 5614,
+          "unavailable": 3272,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "NON_POSITIVE_DENOMINATOR": 4629,
+        "MISSING_FIELD": 7293,
+        "CURRENCY_MISMATCH": 12367,
+        "NON_POSITIVE_TTM": 4898,
+        "MISSING_QUARTER": 2118,
+        "MISSING_BALANCE_SHEET": 7852,
+        "MISSING_CURRENCY": 8555,
+        "OUT_OF_STORAGE_RANGE": 356
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "calendar-hostile",
+      "seed": 20260934,
+      "tradingDays": 7864,
+      "firstTradingDay": "1996-01-02",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 783,
+      "foreignRevisions": 112,
+      "comparisons": 117960,
+      "available": 48834,
+      "unavailable": 69126,
+      "mismatches": 0,
+      "oracleEvaluations": 397,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 2165,
+          "unavailable": 5699,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 403,
+          "unavailable": 7461,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 768,
+          "unavailable": 7096,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 4158,
+          "unavailable": 3706,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 4146,
+          "unavailable": 3718,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 3909,
+          "unavailable": 3955,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 1230,
+          "unavailable": 6634,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 3155,
+          "unavailable": 4709,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 2799,
+          "unavailable": 5065,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 2841,
+          "unavailable": 5023,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 6601,
+          "unavailable": 1263,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 6455,
+          "unavailable": 1409,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 3458,
+          "unavailable": 4406,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 3671,
+          "unavailable": 4193,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 3075,
+          "unavailable": 4789,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "MISSING_FIELD": 3604,
+        "NON_POSITIVE_TTM": 2613,
+        "MISSING_BALANCE_SHEET": 7580,
+        "NON_POSITIVE_DENOMINATOR": 3934,
+        "CURRENCY_MISMATCH": 13566,
+        "MISSING_QUARTER": 23238,
+        "MISSING_CURRENCY": 13739,
+        "OUT_OF_STORAGE_RANGE": 852
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "october-sparse",
+      "seed": 20260935,
+      "tradingDays": 7873,
+      "firstTradingDay": "1996-01-02",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 539,
+      "foreignRevisions": 77,
+      "comparisons": 118095,
+      "available": 71669,
+      "unavailable": 46426,
+      "mismatches": 0,
+      "oracleEvaluations": 254,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 3016,
+          "unavailable": 4857,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 2486,
+          "unavailable": 5387,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 2773,
+          "unavailable": 5100,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 5371,
+          "unavailable": 2502,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 5371,
+          "unavailable": 2502,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 5184,
+          "unavailable": 2689,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 2605,
+          "unavailable": 5268,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 5267,
+          "unavailable": 2606,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 5083,
+          "unavailable": 2790,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 4826,
+          "unavailable": 3047,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 7208,
+          "unavailable": 665,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 7549,
+          "unavailable": 324,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 5172,
+          "unavailable": 2701,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 5203,
+          "unavailable": 2670,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 4555,
+          "unavailable": 3318,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "MISSING_FIELD": 5643,
+        "MISSING_QUARTER": 27878,
+        "MISSING_BALANCE_SHEET": 1992,
+        "NON_POSITIVE_TTM": 828,
+        "NON_POSITIVE_DENOMINATOR": 1709,
+        "CURRENCY_MISMATCH": 3202,
+        "MISSING_CURRENCY": 4406,
+        "OUT_OF_STORAGE_RANGE": 768
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    },
+    {
+      "history": "calendar-currency-churn",
+      "seed": 20260936,
+      "tradingDays": 8890,
+      "firstTradingDay": "1992-01-02",
+      "lastTradingDay": "2026-09-25",
+      "statementRevisions": 850,
+      "foreignRevisions": 122,
+      "comparisons": 133350,
+      "available": 61290,
+      "unavailable": 72060,
+      "mismatches": 0,
+      "oracleEvaluations": 429,
+      "byMetric": {
+        "REVENUE_GROWTH_TTM_YOY": {
+          "available": 2432,
+          "unavailable": 6458,
+          "mismatches": 0
+        },
+        "EPS_GROWTH_TTM_YOY": {
+          "available": 2121,
+          "unavailable": 6769,
+          "mismatches": 0
+        },
+        "FCF_GROWTH_TTM_YOY": {
+          "available": 2916,
+          "unavailable": 5974,
+          "mismatches": 0
+        },
+        "GROSS_MARGIN_TTM": {
+          "available": 4465,
+          "unavailable": 4425,
+          "mismatches": 0
+        },
+        "OPERATING_MARGIN_TTM": {
+          "available": 4601,
+          "unavailable": 4289,
+          "mismatches": 0
+        },
+        "NET_MARGIN_TTM": {
+          "available": 4726,
+          "unavailable": 4164,
+          "mismatches": 0
+        },
+        "FCF_MARGIN_TTM": {
+          "available": 2513,
+          "unavailable": 6377,
+          "mismatches": 0
+        },
+        "ROIC_TTM": {
+          "available": 2903,
+          "unavailable": 5987,
+          "mismatches": 0
+        },
+        "ROE_TTM": {
+          "available": 2988,
+          "unavailable": 5902,
+          "mismatches": 0
+        },
+        "ROA_TTM": {
+          "available": 3052,
+          "unavailable": 5838,
+          "mismatches": 0
+        },
+        "DEBT_TO_EQUITY": {
+          "available": 8201,
+          "unavailable": 689,
+          "mismatches": 0
+        },
+        "CURRENT_RATIO": {
+          "available": 8285,
+          "unavailable": 605,
+          "mismatches": 0
+        },
+        "NET_DEBT_TO_EBITDA_TTM": {
+          "available": 4507,
+          "unavailable": 4383,
+          "mismatches": 0
+        },
+        "INTEREST_COVERAGE_TTM": {
+          "available": 4528,
+          "unavailable": 4362,
+          "mismatches": 0
+        },
+        "ASSET_TURNOVER_TTM": {
+          "available": 3052,
+          "unavailable": 5838,
+          "mismatches": 0
+        }
+      },
+      "unavailableReasons": {
+        "CURRENCY_MISMATCH": 15099,
+        "MISSING_QUARTER": 3106,
+        "MISSING_BALANCE_SHEET": 4340,
+        "MISSING_CURRENCY": 46458,
+        "NON_POSITIVE_TTM": 299,
+        "NON_POSITIVE_DENOMINATOR": 1081,
+        "MISSING_FIELD": 1583,
+        "OUT_OF_STORAGE_RANGE": 94
+      },
+      "axisDefects": [],
+      "sampleMismatches": []
+    }
+  ],
+  "differences": []
+}

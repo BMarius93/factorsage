@@ -1,0 +1,12 @@
+{
+  "symbol": "GOOGL",
+  "securityId": "e9a06aca-5f90-4b10-9bc3-6ebb6738c822",
+  "retentionFrom": "2004-08-19",
+  "revisions": 367,
+  "retainedRevisions": 337,
+  "derivedRows": 5561,
+  "rowsOutsideCoverage": 0,
+  "compared": 83415,
+  "failed": 0,
+  "mismatches": []
+}

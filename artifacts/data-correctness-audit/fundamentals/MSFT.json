@@ -1,0 +1,12 @@
+{
+  "symbol": "MSFT",
+  "securityId": "a01fd887-0f6f-4ce9-bfda-d2bd7edb3167",
+  "retentionFrom": "1989-09-28",
+  "revisions": 555,
+  "retainedRevisions": 555,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

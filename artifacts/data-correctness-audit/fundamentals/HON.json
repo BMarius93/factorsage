@@ -1,0 +1,12 @@
+{
+  "symbol": "HON",
+  "securityId": "37fc61c7-f69b-4f99-8de9-520496018525",
+  "retentionFrom": "2001-02-21",
+  "revisions": 554,
+  "retainedRevisions": 381,
+  "derivedRows": 6437,
+  "rowsOutsideCoverage": 0,
+  "compared": 96555,
+  "failed": 0,
+  "mismatches": []
+}
