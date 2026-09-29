@@ -444,18 +444,28 @@ deferred.
   `IndicatorsMenu` renders `FUNDAMENTAL_METRIC_GROUPED` (the contracts catalog grouped by its own
   groups) as one select; selection is `useIndicatorSelection`'s `fundamental`, presentation state
   like the overlays. `hooks/use-fundamental-history.ts` asks for nothing until a metric is chosen,
-  then for that metric over the page's loaded window, and for the gap alone when older history
-  arrives; every change aborts the request in flight and only the newest may land.
-  `utils/fundamental-series.ts` turns the rows into the drawn line — from the first to the last
-  session with a value, interior unavailable sessions as whitespace, nothing carried — and splits it
-  into stretches. `StockPriceChart` draws each stretch as its own `LineType.WithSteps` series in one
-  pane below the volume and oscillator panes (`arrangeLowerPanes` keeps that order whichever pane
-  came first, since the library appends new panes at the bottom), formats its axis, crosshair label
-  and legend by the metric's unit (`formatFundamentalValue`: `15.42%`, `0.75x`, `1.0x`), shows no
-  last-value label, and publishes `data-fundamental`, `-unit`, `-pane`, `-runs`, `-gaps` and
-  `-steps` (every transition as `date=value`) for browser tests. One step series per stretch is what
-  keeps a gap empty: a step line's segment into a point is vertical, so the per-point transparent
-  colour the overlays use would still join the values either side of a gap with a vertical edge.
+  then for that metric from the page's loaded-from watermark to the newest price bar on the chart,
+  and for the gap alone when older history arrives; held rows answer for one security, one metric
+  and one window end, every change aborts the request in flight, and only the newest may land.
+  `utils/fundamental-series.ts` turns the rows into the drawn line on the close series' session
+  axis — from the first to the last session with a value, every price session in between without
+  one as whitespace, a returned session the price series lacks never drawn, nothing carried — and
+  splits it into stretches. `StockPriceChart` draws each stretch as its own `LineType.WithSteps`
+  series in one pane below the volume and oscillator panes, formats its axis, crosshair label and
+  legend by the metric's unit (`formatFundamentalValue`: `15.42%`, `0.75x`, `1.0x`), shows no
+  last-value label, keeps the pane's room while a chosen metric loads, and publishes
+  `data-fundamental`, `-unit`, `-pane`, `-space`, `-runs`, `-gaps` and `-steps` (every transition
+  as `date=value`) plus `data-pane-order` (read back from the chart) for browser tests. One step
+  series per stretch is what keeps a gap empty: a step line's segment into a point is vertical, so
+  the per-point transparent colour the overlays use would still join the values either side of a
+  gap with a vertical edge.
+- **Pane order is restored with `chart.swapPanes`, never `IPaneApi.moveTo`.** The library appends
+  a new pane at the bottom, so an RSI switched on under a drawn fundamental arrives below it and
+  `arrangeLowerPanes` swaps the two. `swapPanes` checks its indices against the chart model, which
+  already holds the new pane; `moveTo` checks its target against the rendered pane widgets, which
+  only sync on the next animation frame — with both panes created inside one frame it threw
+  `Invalid pane index` and took the whole page to its error boundary (pinned by the browser test
+  that creates both panes in one frame).
 - Price-scaled catalog series are drawn as **overlays on the price chart**. Oscillators are
   **never** drawn over the price scale: `StockPriceChart` routes them into one shared native
   Lightweight Charts pane (`paneIndex 1` of the same chart instance), so every selected RSI period

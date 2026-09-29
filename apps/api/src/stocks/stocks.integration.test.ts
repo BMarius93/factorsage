@@ -887,6 +887,7 @@ describe("Stock Details API", () => {
       expect(Object.keys(DISTINCT_VALUE_BY_IDENTITY)).toEqual([
         ...FUNDAMENTAL_METRIC_IDS,
       ]);
+      const providerCallsBefore = provider.dailyCalls.length;
       for (const [metric, expected] of Object.entries(
         DISTINCT_VALUE_BY_IDENTITY,
       )) {
@@ -897,6 +898,8 @@ describe("Stock Details API", () => {
           { date: FUNDAMENTALS_ALL, value: expected },
         ]);
       }
+      // Stored history is answered from storage alone: not one provider call in fifteen reads.
+      expect(provider.dailyCalls).toHaveLength(providerCallsBefore);
     });
 
     it("returns the requested metric alone, never the rest of the derived row", async () => {
@@ -930,6 +933,7 @@ describe("Stock Details API", () => {
     });
 
     it("keeps a real zero, negative readings and unavailability distinct on every session", async () => {
+      const providerCallsBefore = provider.dailyCalls.length;
       const window = `from=${FUNDAMENTALS_ALL}&to=${FUNDAMENTALS_RESTORED}`;
       const roic = await fundamentals(`${window}&metric=ROIC_TTM`).expect(200);
       expect(roic.body).toEqual([
@@ -968,6 +972,8 @@ describe("Stock Details API", () => {
       expect(
         debtToEquity.body.map((row: { value?: number }) => row.value),
       ).toEqual([1.11, 0.75, undefined, 1]);
+      // An unavailable session is not a reason to ask the provider for anything.
+      expect(provider.dailyCalls).toHaveLength(providerCallsBefore);
     });
 
     it("answers one row per trading day the derived state holds, and none for the weekend", async () => {
@@ -1070,10 +1076,6 @@ describe("Stock Details API", () => {
         )
         .expect(404);
       expect(response.body.message).toBe("Stock symbol was not found");
-    });
-
-    it("never reaches the provider for stored history", () => {
-      expect(provider.dailyCalls).toEqual([]);
     });
   });
 

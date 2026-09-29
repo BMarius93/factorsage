@@ -96,8 +96,11 @@ export type FundamentalMetricCatalogEntry = {
 /**
  * Every Fundamental Metric, in the methodology's canonical order: exactly fifteen.
  *
- * This order is the product's: the Strategy Builder lists the metrics in it, and so will every later
- * surface. Groups are metadata of each entry rather than a second ordering.
+ * This order is the product's for every flat list of the metrics — the Strategy Builder lists them in
+ * it. A surface that shows the groups, such as the Stock Details Fundamentals picker, reads
+ * `FUNDAMENTAL_METRIC_GROUPED` instead: the same entries in group order with this order inside each
+ * group, which places Current Ratio after the two Leverage metrics rather than between them. Groups
+ * are metadata of each entry rather than a second ordering.
  */
 export const FUNDAMENTAL_METRIC_CATALOG = [
   {

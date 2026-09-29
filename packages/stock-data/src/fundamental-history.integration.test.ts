@@ -940,8 +940,14 @@ describeInfrastructure(
     });
 
     it("rebuilds through the canonical path when the stored derived state is of an older revision", async () => {
-      // The previous test left 99.5 on 2024-03-01. Declaring the stored state an r6 build makes the
-      // current revision see no coverage at all, exactly as a methodology bump does.
+      // A stored value the statements disagree with, which only a rebuild replaces. Declaring the
+      // stored state an r6 build then makes the current revision see no coverage at all, exactly
+      // as a methodology bump does.
+      await prisma.$executeRaw`
+        UPDATE "DailyDerivedState"
+        SET "roicTtm" = 99.5
+        WHERE "securityId" = ${security.id} AND "date" = ${new Date("2024-03-01T00:00:00.000Z")}
+      `;
       const stale = `daily-derived-state:r${DERIVED_STATE_REVISION - 1}`;
       await prisma.$executeRaw`
         UPDATE "StockDatasetCoverage" SET "variant" = ${stale}

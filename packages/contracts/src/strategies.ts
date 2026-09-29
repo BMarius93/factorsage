@@ -1012,8 +1012,9 @@ function instancesOf(kind: StrategyMetricKind): readonly StrategyMetric[] {
     return RELATIVE_VOLUME_PERIODS.map((period) => ({ kind, period }));
   }
   if (kind === "FUNDAMENTAL") {
-    // One option per catalog entry, in the catalog's canonical order — the one list every surface
-    // offers — and never a second ordering here.
+    // One option per catalog entry, in the catalog's flat canonical order — the order every flat
+    // list of the metrics uses — and never a second ordering here. (A surface that shows the
+    // groups reads the catalog's grouped view instead, with this order inside each group.)
     return FUNDAMENTAL_METRIC_CATALOG.map((entry) => ({
       kind,
       metricId: entry.id,

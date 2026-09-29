@@ -2207,6 +2207,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
       "answers the same bytes after the stock's Redis state is lost, with no provider call",
       async () => {
         const symbol = symbols.fundamentals;
+        // Opened first, so the test stands on its own: a cold stock is hydrated here, and a warm
+        // one costs nothing.
+        await http()
+          .get(`/stocks/${symbol}?from=2025-08-24&to=${TODAY}`)
+          .expect(200);
         const securityId = await securityIdOf(symbol);
         const before = await Promise.all(
           ["ROIC_TTM", "REVENUE_GROWTH_TTM_YOY", "NET_DEBT_TO_EBITDA_TTM"].map(

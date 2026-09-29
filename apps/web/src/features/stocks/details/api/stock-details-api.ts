@@ -2,6 +2,7 @@ import type {
   DailyFundamentalMetricResponse,
   DailyPriceResponse,
   DailyTechnicalResponse,
+  FundamentalMetricHistoryQuery,
   FundamentalMetricId,
   IntrinsicValueBlendIdResponse,
   IntrinsicValueBlendResponse,
@@ -75,12 +76,15 @@ export function fetchDailyFundamentalHistory(
   metric: FundamentalMetricId,
   options: RequestOptions = {},
 ): Promise<DailyFundamentalMetricResponse[]> {
+  // Typed by the contract, so the three parameters the API accepts are the three sent.
+  const query: FundamentalMetricHistoryQuery = {
+    from: window.from,
+    to: window.to,
+    metric,
+  };
   return apiGet<DailyFundamentalMetricResponse[]>(
     stockPath(symbol, "/fundamentals/daily"),
-    {
-      query: { from: window.from, to: window.to, metric },
-      ...options,
-    },
+    { query, ...options },
   );
 }
 

@@ -89,8 +89,13 @@ export class LoggedStockDataService implements StockDataService {
     metricId: FundamentalMetricId,
     range: DateRange,
   ): Promise<DailyFundamentalMetricPoint[]> {
-    return this.execute("getDailyFundamentalMetric", symbol, () =>
-      this.delegate.getDailyFundamentalMetric(symbol, metricId, range),
+    return this.execute(
+      "getDailyFundamentalMetric",
+      symbol,
+      () => this.delegate.getDailyFundamentalMetric(symbol, metricId, range),
+      // Already validated against the catalog by the controller, so it is an identity, never raw
+      // input.
+      { metricId },
     );
   }
 
@@ -125,6 +130,7 @@ export class LoggedStockDataService implements StockDataService {
     operation: string,
     symbol: string,
     action: () => Promise<T>,
+    context: Readonly<Record<string, string>> = {},
   ): Promise<T> {
     const startedAt = Date.now();
     try {
@@ -134,6 +140,7 @@ export class LoggedStockDataService implements StockDataService {
         event: "stock.data.operation.failed",
         operation,
         symbol: symbol.trim().toUpperCase(),
+        ...context,
         durationMs: Date.now() - startedAt,
         err,
       };

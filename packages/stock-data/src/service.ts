@@ -2471,10 +2471,17 @@ function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
  * read or surfacing as an internal error. The input is deliberately not echoed back.
  */
 function fundamentalMetricField(metricId: string): FundamentalMetricField {
-  if (!(FUNDAMENTAL_METRIC_IDS as readonly string[]).includes(metricId)) {
+  if (!isRegisteredFundamentalMetric(metricId)) {
     throw new StockDataValidationError("Unsupported fundamental metric");
   }
-  return fundamentalMetricDefinition(metricId as FundamentalMetricId).field;
+  return fundamentalMetricDefinition(metricId).field;
+}
+
+/** An exact match against the registry's identities: no case folding, no labels, no fields. */
+function isRegisteredFundamentalMetric(
+  value: string,
+): value is FundamentalMetricId {
+  return (FUNDAMENTAL_METRIC_IDS as readonly string[]).includes(value);
 }
 
 /**

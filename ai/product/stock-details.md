@@ -148,6 +148,11 @@ and the fifteen Fundamental Metrics, grouped Growth, Profitability, Quality, Lev
 Solvency and Efficiency. Identities, labels, groups, order, units and the explanation shown under
 the select (the metric's summary and formula) all come from `FUNDAMENTAL_METRIC_CATALOG` in
 `@intrinsic/contracts`, the catalog the Strategy Builder reads; the page keeps no list of its own.
+Because this picker shows the groups, it reads the catalog's grouped view
+(`FUNDAMENTAL_METRIC_GROUPED`): groups in the methodology's group order, and the catalog's order
+inside each group. The one visible difference from the Strategy Builder's flat list is that Current
+Ratio follows both Leverage metrics instead of sitting between Debt / Equity and Net Debt / EBITDA
+TTM.
 
 - **One metric at a time**, drawn in its own pane below the price, volume and oscillator panes. A
   fundamental never shares the price scale — ROIC 15% has no place on an axis of dollars — and the
