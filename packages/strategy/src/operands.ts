@@ -1,6 +1,8 @@
 import {
   findSelectableSeries,
+  isFundamentalMetricId,
   RELATIVE_VOLUME_PERIODS,
+  type FundamentalMetricId,
   type RelativeVolumePeriod,
   type SelectableSeries,
   type SelectableSeriesId,
@@ -76,6 +78,41 @@ export function operandRelativeVolumePeriod(
   return (RELATIVE_VOLUME_PERIODS as readonly number[]).includes(period)
     ? (period as RelativeVolumePeriod)
     : null;
+}
+
+const FUNDAMENTAL_PREFIX = "fundamental:";
+
+/**
+ * One Fundamental Metric, read straight off the materialized daily derived state.
+ *
+ * Its own key family, like Relative Volume: a fundamental metric is not a catalog series and never a
+ * comparison Value. It is keyed by the product catalog's stable identity — `fundamental:ROIC_TTM` —
+ * never by its label and never by the storage field it happens to be materialized into, which only
+ * the projector resolves, through the domain registry.
+ */
+export function fundamentalMetricOperand(
+  metricId: FundamentalMetricId,
+): OperandKey {
+  return `${FUNDAMENTAL_PREFIX}${metricId}`;
+}
+
+/**
+ * The fundamental metric a key addresses, or null when it addresses something else.
+ *
+ * The inverse of {@link fundamentalMetricOperand}, and it lives here for the same reason the builder
+ * does: the encoding is this module's, and a caller that needs the metric must ask rather than slice
+ * the string itself. A key in this family naming an identity the catalog does not define decodes to
+ * null too, so it can never be projected as a metric that happens to be absent — the projector
+ * refuses a key nothing decodes.
+ */
+export function operandFundamentalMetricId(
+  key: OperandKey,
+): FundamentalMetricId | null {
+  if (!key.startsWith(FUNDAMENTAL_PREFIX)) {
+    return null;
+  }
+  const metricId = key.slice(FUNDAMENTAL_PREFIX.length);
+  return isFundamentalMetricId(metricId) ? metricId : null;
 }
 
 /**

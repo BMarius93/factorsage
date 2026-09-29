@@ -25,6 +25,7 @@ import {
 import {
   collectOperands,
   ExecutionCalendar,
+  operandFundamentalMetricId,
   PRICE_OPERAND,
 } from "@intrinsic/strategy";
 import {
@@ -1235,7 +1236,7 @@ async function checkFundamentalsCoverage(
       "fundamentals-coverage",
       "Fundamentals coverage",
       [],
-      "no Strategy reads an intrinsic-value operand",
+      "no Strategy reads a statement-derived operand",
     );
   }
 
@@ -1257,8 +1258,8 @@ async function checkFundamentalsCoverage(
   // of them missing is a failure, because then the valuation Strategies test nothing.
   if (covered === 0) {
     problems.push(
-      `${requiring.length} Strategy fixture(s) read intrinsic-value operands and no security in ` +
-        "the matrix carries a single financial statement, so every valuation predicate would be NOT_EVALUABLE.",
+      `${requiring.length} Strategy fixture(s) read statement-derived operands and no security in ` +
+        "the matrix carries a single financial statement, so every statement-derived predicate would be NOT_EVALUABLE.",
     );
   }
 
@@ -1269,7 +1270,7 @@ async function checkFundamentalsCoverage(
             .slice(0, 8)
             .join(
               ", ",
-            )}${missing.length > 8 ? ", …" : ""}); their valuation predicates stay NOT_EVALUABLE.`,
+            )}${missing.length > 8 ? ", …" : ""}); their statement-derived predicates stay NOT_EVALUABLE.`,
         ]
       : [];
 
@@ -1297,6 +1298,12 @@ async function checkFundamentalsCoverage(
 function operandNeedsFundamentals(operand: string): boolean {
   if (operand === PRICE_OPERAND) {
     return false;
+  }
+  // A Fundamental Metric is materialized from the same statements an intrinsic value is, so a
+  // Strategy reading one needs them just as much. Decoded through the operand module's own inverse
+  // rather than by prefix, so the family's encoding stays in one place.
+  if (operandFundamentalMetricId(operand) !== null) {
+    return true;
   }
   if (operand.startsWith("margin-of-safety:")) {
     return true;

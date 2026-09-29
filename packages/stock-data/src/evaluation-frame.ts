@@ -3,6 +3,7 @@ import {
   type SelectableSeriesId,
 } from "@intrinsic/contracts";
 import {
+  fundamentalMetricDefinition,
   relativeVolumeDefinition,
   type DailyDerivedState,
   type DailyPrice,
@@ -14,6 +15,7 @@ import {
   buildAlternativeDataColumn,
   createEvaluationFrame,
   operandAlternativeDataMetric,
+  operandFundamentalMetricId,
   operandRelativeVolumePeriod,
   PRICE_OPERAND,
   type AlternativeDataFacts,
@@ -190,6 +192,17 @@ function columnReaderFor(key: OperandKey): ColumnReader {
     // a backtest day loop and a Monitor cycle both cost one array lookup here and neither touches
     // the raw volume history.
     const field = relativeVolumeDefinition(relativeVolumePeriod).field;
+    return (_price, derived) => numberOrNaN(derived?.[field]);
+  }
+  const fundamentalMetricId = operandFundamentalMetricId(key);
+  if (fundamentalMetricId !== null) {
+    // Read, never calculated. The metric was materialized from its point-in-time statements when
+    // the derived state was prepared, so projecting it is one field lookup per trading day: no
+    // statement, no TTM window, no formula, no currency check and no provider or cache access
+    // reaches this reader or the day loop that consumes its column. The field comes from the domain
+    // registry, never from the identity's spelling. Percentage points stay percentage points, a
+    // real zero stays zero, a negative ratio stays negative, and an absent field is `NaN`.
+    const field = fundamentalMetricDefinition(fundamentalMetricId).field;
     return (_price, derived) => numberOrNaN(derived?.[field]);
   }
   if (key.startsWith(MARGIN_OF_SAFETY_PREFIX)) {

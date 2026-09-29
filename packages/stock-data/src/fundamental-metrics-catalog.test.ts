@@ -10,7 +10,13 @@ import {
   type FundamentalMetricId as DomainFundamentalMetricId,
   type FundamentalMetricUnit as DomainFundamentalMetricUnit,
 } from "@intrinsic/domain";
+import {
+  fundamentalMetricOperand,
+  operandFundamentalMetricId,
+  readOperand,
+} from "@intrinsic/strategy";
 import { describe, expect, it } from "vitest";
+import { projectEvaluationFrame } from "./evaluation-frame.js";
 
 /**
  * Drift guard between the Fundamental Metrics product catalog and the registry of what is
@@ -22,6 +28,9 @@ import { describe, expect, it } from "vitest";
  * allowed to depend on both, and fails the moment one side gains, loses, renames, reorders or
  * re-units a metric without the other: a metric the Builder offers but nothing materializes would
  * read as permanently unavailable, and one materialized but never offered would be unreachable.
+ *
+ * The third leg is the evaluation frame: every product identity must also be a Strategy operand the
+ * projector can decode and read, so the three sets — domain, product, projectable — are one.
  */
 
 /** Compile-time half of the guard: the two identity and unit vocabularies are the same set. */
@@ -89,5 +98,58 @@ describe("the Fundamental Metrics product catalog and the domain registry", () =
         }
       }
     }
+  });
+
+  it("make every product metric a projectable Strategy operand, and nothing else", () => {
+    const projectable = PRODUCT_FUNDAMENTAL_METRIC_IDS.filter((id) => {
+      const key = fundamentalMetricOperand(id);
+      if (operandFundamentalMetricId(key) !== id) {
+        return false;
+      }
+      const definition = FUNDAMENTAL_METRICS.find((metric) => metric.id === id);
+      if (!definition) {
+        return false;
+      }
+      // A recognizable reading in exactly the domain field for this identity: projecting must find
+      // it, and must not throw for want of a reader.
+      const { frame } = projectEvaluationFrame({
+        security: {
+          id: "security-drift",
+          symbol: "DRIFT",
+          name: "Drift Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: "STOCK",
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+        prices: [
+          {
+            securityId: "security-drift",
+            date: "2024-01-02",
+            open: 1,
+            high: 1,
+            low: 1,
+            close: 1,
+            volume: 1,
+          },
+        ],
+        derived: [
+          {
+            securityId: "security-drift",
+            date: "2024-01-02",
+            [definition.field]: 4242.42,
+          },
+        ],
+        operands: [key],
+        periodStart: "2024-01-02",
+      });
+      return frame.columns.size === 1 && readOperand(frame, key, 0) === 4242.42;
+    });
+
+    // 15 materialized == 15 offered == 15 projectable, compared as identities rather than counts.
+    expect(projectable).toEqual([...DOMAIN_FUNDAMENTAL_METRIC_IDS]);
+    expect(projectable).toEqual([...PRODUCT_FUNDAMENTAL_METRIC_IDS]);
+    expect(projectable).toHaveLength(15);
   });
 });
