@@ -368,6 +368,19 @@ export async function runBacktestSection(input: {
   const cases = readMatrixCases(sweep).filter(
     (entry) => !input.only || input.only.includes(entry.caseId),
   );
+  // The reference backtester reads the metric kinds of the core dimension (`oracle/strategy-model.ts`).
+  // The audit (A) and Fundamentals (F) dimensions also name Relative Volume, disclosure activity and
+  // Fundamental Metrics, so such a sweep is refused by name rather than aborted on its first case.
+  const dimensions = [
+    ...new Set(cases.map((entry) => entry.caseId.charAt(0))),
+  ].filter((letter) => letter !== "S");
+  if (dimensions.length > 0) {
+    throw new Error(
+      `the reference backtester models the core (S) strategy dimension only; this sweep holds ` +
+        `${dimensions.join(", ")} cases. A Fundamentals (F) sweep's fundamental:* columns are ` +
+        `audited by --sections=fundamentals --fundamental-frames.`,
+    );
+  }
   const overall = new ComparisonLedger(0);
   const totals: BacktestSectionTotals = {
     // The directory name only; this summary is committed evidence and an absolute path on the

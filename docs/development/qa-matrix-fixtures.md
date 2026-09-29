@@ -276,6 +276,13 @@ fifteen identities appears at least once, so a sweep projects every `fundamental
 `qa-matrix-fundamental-fixtures.test.ts` fails if a metric is ever left out, comparing against the
 audit's own statement of the fifteen rather than the product catalog.
 
+How the dimension is audited: `pnpm audit:data-correctness -- --sections=fundamentals
+--fundamental-frames` projects exactly these fixtures' operands through the production projector,
+one calendar-year window at a time, and traces every `fundamental:*` column to the stored value it
+must equal (`docs/data-correctness-audit/README.md`). The `backtests` section's reference backtester
+models the core dimension's metric kinds only, so it refuses an `F` sweep, as it does an `A` sweep,
+by name.
+
 | Id  | Name                                   | Shape                                                                                               | What it is for                                                                                            |
 | --- | -------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | F01 | `QA-MATRIX-F01-roic-quality`           | BUY 100% · ROIC TTM > 15% · FINAL EXIT on ROIC TTM < 8%                                             | The simplest percentage-point Fundamental, entered and left on one metric.                                |

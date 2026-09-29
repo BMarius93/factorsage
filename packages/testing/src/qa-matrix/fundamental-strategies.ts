@@ -48,7 +48,10 @@ import {
  *
  * Every one of the fifteen identities appears at least once, so a sweep projects all fifteen
  * `fundamental:*` columns; `qa-matrix-fundamental-fixtures.test.ts` fails if a metric is ever left
- * out.
+ * out. The data-correctness audit's `--fundamental-frames` leg projects exactly these fixtures'
+ * operands through the production projector and traces every column to the stored value it must
+ * equal. The `backtests` section's reference backtester models the core dimension's metric kinds
+ * only, and refuses a Fundamentals sweep by name rather than auditing part of it.
  *
  * Every Metric / operator / Value combination below is one `ai/product/strategies.md` permits;
  * `validateStrategy` is what proves it, not this comment.
