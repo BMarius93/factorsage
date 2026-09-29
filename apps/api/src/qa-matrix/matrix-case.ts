@@ -35,13 +35,15 @@ export type QaMatrixCase = {
 };
 
 /**
- * `S04-L09-C06`, or `A04-L09-C06` for the audit strategy dimension.
+ * `S04-L09-C06`, `A04-L09-C06` for the audit strategy dimension, or `F04-L09-C06` for the
+ * Fundamentals dimension.
  *
- * The strategy letter is captured rather than assumed: the two dimensions share the Lists and the
+ * The strategy letter is captured rather than assumed: the dimensions share the Lists and the
  * configurations, so the letter is the only thing that distinguishes `A02-L09-C06` from
- * `S02-L09-C06`, and a parser that normalized it away would silently reproduce the wrong case.
+ * `S02-L09-C06` or `F02-L09-C06`, and a parser that normalized it away would silently reproduce the
+ * wrong case.
  */
-const CASE_ID_PATTERN = /^([SA])(\d{2})-L(\d{2})-C(\d{2})$/;
+const CASE_ID_PATTERN = /^([SAF])(\d{2})-L(\d{2})-C(\d{2})$/;
 
 /** `S04-L09-C06` — the label without the reserved prefix. */
 export function qaMatrixCaseId(
@@ -53,7 +55,7 @@ export function qaMatrixCaseId(
 }
 
 /**
- * Parses `S03-L07-C04` or `A03-L07-C04`, with or without the `QA-MATRIX-` prefix.
+ * Parses `S03-L07-C04`, `A03-L07-C04` or `F03-L07-C04`, with or without the `QA-MATRIX-` prefix.
  *
  * Deliberately strict about the two-digit shape: `S3-L7-C4` would be a different string for the
  * same cell, and a reproduction command that is only sometimes the same string is not a
@@ -130,7 +132,7 @@ export function selectQaMatrixCases(
     if (!parsed) {
       throw new QaMatrixCaseSelectionError(
         `\`${raw}\` is not a matrix case identity. Expected Sxx-Lxx-Cxx (or Axx-Lxx-Cxx for the ` +
-          "audit strategy dimension), for example S03-L07-C04.",
+          "audit strategy dimension, Fxx-Lxx-Cxx for the Fundamentals one), for example S03-L07-C04.",
       );
     }
     const caseId = qaMatrixCaseId(

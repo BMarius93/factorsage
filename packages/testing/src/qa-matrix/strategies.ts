@@ -1,4 +1,5 @@
 import {
+  findFundamentalMetric,
   STRATEGY_SCHEMA_VERSION,
   type BuyLevelPercentage,
   type ConditionOperator,
@@ -48,6 +49,10 @@ export const QA_MATRIX_STRATEGY_BEHAVIOURS = [
   "WEEKLY_MOVING_AVERAGE",
   "RSI",
   "MARGIN_OF_SAFETY",
+  // A Fundamental Metric Condition, by the unit its value is in: percentage points or a raw
+  // multiple. Two tags rather than fifteen — the unit is what changes how a threshold is read.
+  "FUNDAMENTAL_PERCENT",
+  "FUNDAMENTAL_MULTIPLE",
   "GAIN",
   "LOSS",
   "MULTIPLE_BUY_LEVELS",
@@ -85,6 +90,8 @@ export const STRUCTURAL_STRATEGY_BEHAVIOURS = [
   "WEEKLY_MOVING_AVERAGE",
   "RSI",
   "MARGIN_OF_SAFETY",
+  "FUNDAMENTAL_PERCENT",
+  "FUNDAMENTAL_MULTIPLE",
   "GAIN",
   "LOSS",
   "MULTIPLE_BUY_LEVELS",
@@ -734,6 +741,19 @@ export function deriveStrategyBehaviours(
       }
       if (metric.kind === "MARGIN_OF_SAFETY") {
         add("MARGIN_OF_SAFETY");
+      }
+      if (metric.kind === "FUNDAMENTAL") {
+        // By the catalog's unit, never by the identity's spelling. An identity the catalog does not
+        // define is a tagging error here rather than a metric silently left untagged.
+        const unit = findFundamentalMetric(metric.metricId)?.unit;
+        if (!unit) {
+          throw new Error(
+            `QA-matrix tooling does not recognise fundamental metric ${String(metric.metricId)}`,
+          );
+        }
+        add(
+          unit === "PERCENT" ? "FUNDAMENTAL_PERCENT" : "FUNDAMENTAL_MULTIPLE",
+        );
       }
       if (metric.kind === "GAIN") {
         add("GAIN");

@@ -11,10 +11,11 @@ configurations. This documents the machine that runs them.
                 identified as  QA-MATRIX-Sxx-Lxx-Cxx
 ```
 
-There are **two** strategy dimensions and one is chosen per sweep: the historical core set
-(`S01` … `S10`, the default) and the audit variant (`A01` … `A10`, Relative Volume and alternative
-data), documented in `qa-matrix-fixtures.md`. Either is 1,000 runs against the same Lists and
-configurations; `--strategies audit` selects the second.
+There are **three** strategy dimensions and one is chosen per sweep: the historical core set
+(`S01` … `S10`, the default), the audit variant (`A01` … `A10`, Relative Volume and alternative
+data) and the Fundamentals variant (`F01` … `F10`, the fifteen Fundamental Metrics), documented in
+`qa-matrix-fixtures.md`. Each is 1,000 runs against the same Lists and configurations;
+`--strategies audit` or `--strategies fundamentals` selects the others.
 
 | Command                    | What it does                                                          |
 | -------------------------- | --------------------------------------------------------------------- |
@@ -471,6 +472,7 @@ pnpm qa:matrix:preflight                    # must be green
 pnpm qa:matrix:run                          # all 1,000
 
 pnpm qa:matrix:run --strategies audit       # the RVOL / insider / congress dimension, 1,000 runs
+pnpm qa:matrix:run --strategies fundamentals  # the Fundamental Metrics dimension, 1,000 runs
 pnpm qa:matrix:run --case S03-L07-C04       # reproduce exactly one
 pnpm qa:matrix:run --golden --archive       # the golden set, with forensic capture
 pnpm qa:matrix:run --concurrency 2          # override the machine-derived default
@@ -480,7 +482,7 @@ QA_MATRIX_AS_OF_DATE=2026-09-09 pnpm qa:matrix:run    # pin the clock for a repr
 | Flag                | Effect                                                              |
 | ------------------- | ------------------------------------------------------------------- |
 | `--case <ids>`      | run only these, comma-separated; unknown ids are an error           |
-| `--strategies <set>` | `core` (default, `S01` … `S10`) or `audit` (`A01` … `A10`, the Relative Volume and alternative-data variant) |
+| `--strategies <set>` | `core` (default, `S01` … `S10`), `audit` (`A01` … `A10`, the Relative Volume and alternative-data variant) or `fundamentals` (`F01` … `F10`, the Fundamental Metrics variant) |
 | `--golden`          | run only the golden combinations                                     |
 | `--archive`         | capture forensic archives and verify invariants 36–38 from them      |
 | `--archive-all`     | capture an archive for **every** case (≈650 MB), for the data-correctness audit's reference backtester |

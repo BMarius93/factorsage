@@ -7,7 +7,7 @@ import { PrismaClient } from "@intrinsic/database";
 import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
 import {
   QA_MATRIX_EXPECTED_LISTS,
-  QA_MATRIX_EXPECTED_STRATEGIES,
+  QA_MATRIX_FUNDAMENTAL_STRATEGIES,
   QA_MATRIX_NAME_PREFIX,
   QA_MATRIX_SECURITIES,
   QA_MATRIX_STRATEGIES,
@@ -27,6 +27,15 @@ import {
 
 // Before any Prisma client is constructed.
 useTestDatabase();
+
+/**
+ * What one seed persists here: ten strategies per dimension the seeder can resolve. The core and
+ * Fundamentals sets always; the audit set only with an actor catalog, which this database lacks.
+ */
+const SEEDED_STRATEGIES = [
+  ...QA_MATRIX_STRATEGIES,
+  ...QA_MATRIX_FUNDAMENTAL_STRATEGIES,
+];
 
 /**
  * The QA-MATRIX seed against real PostgreSQL.
@@ -174,7 +183,7 @@ describe("QA-MATRIX fixture seeding", () => {
     }
   });
 
-  it("seeds exactly ten matrix strategies and ten matrix lists", async () => {
+  it("seeds exactly ten matrix strategies per seeded dimension and ten matrix lists", async () => {
     const strategies = await prisma.strategy.findMany({
       where: { userId: ownerId, name: { startsWith: QA_MATRIX_NAME_PREFIX } },
       select: { name: true },
@@ -184,10 +193,12 @@ describe("QA-MATRIX fixture seeding", () => {
       select: { name: true },
     });
 
-    expect(strategies).toHaveLength(QA_MATRIX_EXPECTED_STRATEGIES);
+    // The core set and the Fundamentals set; the audit set needs an actor catalog this database
+    // does not carry, so the seeder skips it here.
+    expect(strategies).toHaveLength(SEEDED_STRATEGIES.length);
     expect(lists).toHaveLength(QA_MATRIX_EXPECTED_LISTS);
     expect(strategies.map((row) => row.name).sort()).toEqual(
-      QA_MATRIX_STRATEGIES.map((fixture) => fixture.name).sort(),
+      SEEDED_STRATEGIES.map((fixture) => fixture.name).sort(),
     );
     expect(lists.map((row) => row.name).sort()).toEqual(
       QA_MATRIX_LISTS.map((fixture) => fixture.name).sort(),
@@ -214,7 +225,7 @@ describe("QA-MATRIX fixture seeding", () => {
   });
 
   it("round-trips every strategy definition through persistence unchanged", async () => {
-    for (const fixture of QA_MATRIX_STRATEGIES) {
+    for (const fixture of SEEDED_STRATEGIES) {
       const row = await prisma.strategy.findFirstOrThrow({
         where: { userId: ownerId, name: fixture.name },
         select: strategySelect,
@@ -526,7 +537,7 @@ describe("QA-MATRIX fixture seeding", () => {
       await prisma.strategy.count({
         where: { userId: ownerId, name: { startsWith: QA_MATRIX_NAME_PREFIX } },
       }),
-    ).toBe(QA_MATRIX_EXPECTED_STRATEGIES);
+    ).toBe(SEEDED_STRATEGIES.length);
   });
 
   it("leaves the QA account's own non-matrix strategies and lists alone", async () => {
@@ -617,6 +628,6 @@ describe("QA-MATRIX fixture seeding", () => {
       await prisma.strategy.count({
         where: { userId: ownerId, name: { startsWith: QA_MATRIX_NAME_PREFIX } },
       }),
-    ).toBe(QA_MATRIX_EXPECTED_STRATEGIES);
+    ).toBe(SEEDED_STRATEGIES.length);
   });
 });
