@@ -5,11 +5,11 @@ import {
   STRATEGY_LEVEL_HELP,
   STRATEGY_LEVEL_LABELS,
   STRATEGY_METRIC_CATEGORY_LABELS,
-  STRATEGY_METRIC_HELP,
   STRATEGY_OPERATOR_HELP,
   conditionOperatorLabel,
   describeMetricConfiguration,
   strategyMetricCategory,
+  strategyMetricHelp,
   strategyMetricLabel,
   strategySeriesHelp,
   strategyValueLabel,
@@ -43,7 +43,9 @@ function panelContent(
     const configuration = describeMetricConfiguration(subject.metric, names);
     return {
       title: strategyMetricLabel(subject.metric),
-      help: STRATEGY_METRIC_HELP[subject.metric.kind],
+      // The metric's own help, not its kind's: a Fundamental Metric leads with its own summary and
+      // formula, from the same accessor every surface reads.
+      help: strategyMetricHelp(subject.metric),
       category:
         STRATEGY_METRIC_CATEGORY_LABELS[strategyMetricCategory(subject.metric)],
       ...(configuration === null ? {} : { configuration }),

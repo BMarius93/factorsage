@@ -28,6 +28,14 @@ import {
 } from "./alternative-data.js";
 import type { ContentOwnershipResponse } from "./builtins.js";
 import {
+  findFundamentalMetric,
+  FUNDAMENTAL_METRIC_CATALOG,
+  isFundamentalMetricId,
+  type FundamentalMetricCatalogEntry,
+  type FundamentalMetricId,
+  type FundamentalMetricUnit,
+} from "./fundamental-metrics.js";
+import {
   comparableMovingAverages,
   findSelectableSeries,
   INTRINSIC_VALUE_SERIES,
@@ -127,6 +135,10 @@ export function relativeVolumeLabel(period: RelativeVolumePeriod): string {
  * overlay, never comparable with another series, and never a Strategy `Value` — Stock Details
  * reports it as a reading beside the volume bars. Its periods are the domain registry's, so the
  * three supported windows are stated once for the whole product.
+ *
+ * A **Fundamental Metric** is one kind for all fifteen, parameterized by the stable identity of the
+ * product catalog (`fundamental-metrics.ts`). The identity is the whole of it: no label, group or
+ * storage field is ever stored in the document, and there is no configuration to edit.
  */
 export type StrategyMetric =
   | { kind: "PRICE" }
@@ -134,6 +146,7 @@ export type StrategyMetric =
   | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId }
   | { kind: "RELATIVE_VOLUME"; period: RelativeVolumePeriod }
   | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }
+  | { kind: "FUNDAMENTAL"; metricId: FundamentalMetricId }
   | { kind: "GAIN" }
   | { kind: "LOSS" }
   /**
@@ -154,6 +167,7 @@ export const STRATEGY_METRIC_KINDS = [
   "OSCILLATOR",
   "RELATIVE_VOLUME",
   "MARGIN_OF_SAFETY",
+  "FUNDAMENTAL",
   "GAIN",
   "LOSS",
   "INSIDER_ACTIVITY",
@@ -164,8 +178,9 @@ export const STRATEGY_METRIC_KINDS = [
  * The right-hand side of a Condition or Trigger, in product vocabulary.
  *
  * `SERIES` compares against another canonical series; `NUMBER` is a plain user-entered threshold
- * (RSI); `PERCENT` is a user-entered percentage (Margin of Safety, Gain, Loss); `MULTIPLE` is a
- * user-entered multiple of a baseline (Relative Volume). The distinction between them is a unit,
+ * (RSI); `PERCENT` is a user-entered percentage in percentage points (Margin of Safety, Gain, Loss,
+ * the percentage Fundamental Metrics); `MULTIPLE` is a user-entered raw multiple (Relative Volume,
+ * the ratio Fundamental Metrics). The distinction between them is a unit,
  * which is what lets one renderer print `30`, `25%` and `2x` without a per-metric formatting rule
  * in feature code.
  */
@@ -353,6 +368,10 @@ export function emptyStrategyDefinition(): StrategyDefinition {
  * A row is authored as Category -> Metric -> Configuration -> Condition -> Value. The category is
  * never stored: it is a property of the metric's kind (`strategyMetricCategory`), so a row can never
  * hold a category and a metric that disagree.
+ *
+ * `FUNDAMENTALS` follows `VALUATION`, keeping the two statement-derived families side by side while
+ * staying a separate category: a fundamental measures the business alone, where a valuation compares
+ * a statement-derived value with the market price (`docs/decisions/fundamental-metrics-v1.md`).
  */
 export const STRATEGY_METRIC_CATEGORIES = [
   "PRICE",
@@ -360,6 +379,7 @@ export const STRATEGY_METRIC_CATEGORIES = [
   "OSCILLATORS",
   "VOLUME",
   "VALUATION",
+  "FUNDAMENTALS",
   "POSITION",
   "INSIDER_ACTIVITY",
   "CONGRESSIONAL_TRADING",
@@ -380,6 +400,7 @@ export const STRATEGY_METRIC_CATEGORY_LABELS = {
   OSCILLATORS: "Oscillators",
   VOLUME: "Volume",
   VALUATION: "Valuation",
+  FUNDAMENTALS: "Fundamentals",
   POSITION: "Position",
   INSIDER_ACTIVITY: "Insider activity",
   CONGRESSIONAL_TRADING: "Congressional trading",
@@ -389,7 +410,9 @@ export const STRATEGY_METRIC_CATEGORY_LABELS = {
  * The permitted Values for one Metric.
  *
  * `min`/`max` are omitted where the metric has no bound on that side: Margin of Safety has no
- * lower bound and Gain has no upper one, and an invented bound would reject a legitimate rule.
+ * lower bound and Gain has no upper one, and an invented bound would reject a legitimate rule. The
+ * same holds for a multiple: Relative Volume and a leverage ratio of non-negative quantities have a
+ * floor of zero, while Net Debt / EBITDA and Interest Coverage are signed and have none.
  */
 export type StrategyValueSpec =
   | { kind: "SERIES"; seriesIds: readonly SelectableSeriesId[] }
@@ -409,7 +432,7 @@ export type StrategyValueSpec =
       integer?: true;
     }
   | { kind: "PERCENT"; min?: number; max?: number }
-  | { kind: "MULTIPLE"; min: number; max?: number; step: number }
+  | { kind: "MULTIPLE"; min?: number; max?: number; step: number }
   /** A currency amount. Non-negative, unbounded above: there is no largest real purchase. */
   | { kind: "MONEY"; min: number; max?: number; step: number };
 
@@ -466,6 +489,15 @@ export type StrategyMetricDefinition = StrategyMetricDefinitionBase &
          * `Insider buyers` and `Insider purchase value` share a kind and take different Values.
          */
         valueSource: "ALTERNATIVE_DATA_MEASURE";
+        value?: never;
+      }
+    | {
+        /**
+         * Values resolve from the selected Fundamental Metric's own catalog entry: its unit decides
+         * `PERCENT` or `MULTIPLE`, and its mathematics any floor. The unit belongs to the metric, not
+         * the kind, so `ROIC TTM` and `Debt / Equity` share a kind and take different Values.
+         */
+        valueSource: "FUNDAMENTAL_METRIC";
         value?: never;
       }
     | { valueSource?: undefined; value: StrategyValueSpec }
@@ -573,6 +605,25 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
     value: { kind: "PERCENT", max: 100 },
     allowedIn: ALL_LEVEL_KINDS,
   },
+  /**
+   * The fifteen Fundamental Metrics, one kind instantiated once per catalog entry by `instancesOf`.
+   *
+   * It carries no `label`: like the catalog-backed kinds, each instance is named by its own catalog
+   * entry. Its Condition operators are the strict comparison pair — `is close to` is a ±2% tolerance
+   * that belongs to the price-scaled metrics — and `triggerOperators` is empty because
+   * `docs/decisions/fundamental-metrics-v1.md` makes fundamentals Condition metrics only: a value that
+   * changes only when a statement is published is a state, and a Monitor's own not-matched -> matched
+   * transition already raises a Signal on the session a Condition first holds. The Value comes from the
+   * metric's unit — see `FUNDAMENTAL_METRIC` above.
+   */
+  FUNDAMENTAL: {
+    kind: "FUNDAMENTAL",
+    category: "FUNDAMENTALS",
+    conditionOperators: COMPARISON_OPERATORS,
+    triggerOperators: [],
+    valueSource: "FUNDAMENTAL_METRIC",
+    allowedIn: ALL_LEVEL_KINDS,
+  },
   GAIN: {
     kind: "GAIN",
     label: "Gain",
@@ -660,6 +711,27 @@ function alternativeDataValueSpec(
 }
 
 /**
+ * The permitted Values for one Fundamental Metric: its unit's Value kind, floored where the metric's
+ * own mathematics has a floor, and otherwise any finite number.
+ *
+ * A percentage is in percentage points exactly as the metric is stored — a rule set at 15% compares
+ * with 15 — so there is no scaling anywhere between this spec and the evaluator. A multiple's `step`
+ * is the Builder input's increment, the same presentation choice Relative Volume makes; validation
+ * requires no step, so `Debt / Equity is below 0.75` is as valid as `0.8`.
+ */
+function fundamentalMetricValueSpec(
+  entry: FundamentalMetricCatalogEntry,
+): StrategyValueSpec {
+  const floor = entry.minimum === undefined ? {} : { min: entry.minimum };
+  switch (entry.unit) {
+    case "PERCENT":
+      return { kind: "PERCENT", ...floor };
+    case "MULTIPLE":
+      return { kind: "MULTIPLE", ...floor, step: 0.1 };
+  }
+}
+
+/**
  * The catalog id a Metric is parameterized with, or `undefined` for the metrics that take none.
  *
  * One accessor so no caller switches on `seriesId` versus `sourceId` itself.
@@ -691,15 +763,31 @@ export function strategyMetricSeriesId(
  * filters are edited after the metric is chosen, so the identity — and the select option it
  * addresses — must be the same before and after: `Insider sellers` stays `Insider sellers` whether
  * it looks back 20 sessions or 180. `describeMetricConfiguration` is what renders the rest.
+ *
+ * Exhaustive over the metric kinds, with no fallback: a kind parameterized by something new must say
+ * what identifies it here, or fail to compile. A fallback of `kind` plus a catalog id is exactly how
+ * three Relative Volume periods — and would be how fifteen Fundamental Metrics — collapsed into one
+ * option.
  */
 export function strategyMetricKey(metric: StrategyMetric): string {
-  const alternative = asAlternativeDataMetric(metric);
-  if (alternative) {
-    return `${alternative.kind}:${alternative.measure}`;
+  switch (metric.kind) {
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+      return `${metric.kind}:${metric.measure}`;
+    case "RELATIVE_VOLUME":
+      return `${metric.kind}:${metric.period}`;
+    case "FUNDAMENTAL":
+      return `${metric.kind}:${metric.metricId}`;
+    case "MOVING_AVERAGE":
+    case "OSCILLATOR":
+      return `${metric.kind}:${metric.seriesId}`;
+    case "MARGIN_OF_SAFETY":
+      return `${metric.kind}:${metric.sourceId}`;
+    case "PRICE":
+    case "GAIN":
+    case "LOSS":
+      return `${metric.kind}:`;
   }
-  return metric.kind === "RELATIVE_VOLUME"
-    ? `${metric.kind}:${metric.period}`
-    : `${metric.kind}:${strategyMetricSeriesId(metric) ?? ""}`;
 }
 
 /**
@@ -753,6 +841,17 @@ export function valueSpecFor(metric: StrategyMetric): StrategyValueSpec {
       kind: "SERIES",
       seriesIds: seriesId ? catalogIds(comparableMovingAverages(seriesId)) : [],
     };
+  }
+  if (definition.valueSource === "FUNDAMENTAL_METRIC") {
+    const entry =
+      metric.kind === "FUNDAMENTAL"
+        ? findFundamentalMetric(metric.metricId)
+        : undefined;
+    return entry
+      ? fundamentalMetricValueSpec(entry)
+      : // Unreachable for a validated metric: an identity the catalog does not define is refused
+        // before any Value is judged. A renderer of a drifted document still gets a spec, not a throw.
+        { kind: "PERCENT" };
   }
   return definition.value;
 }
@@ -822,8 +921,9 @@ export function defaultValueFor(
     case "PERCENT":
       return { kind: "PERCENT", value: clampToSpec(0, spec.min, spec.max) };
     case "MULTIPLE":
-      // The neutral point of the unit itself: `1x` is a session trading exactly its own baseline.
-      // Derived from what the value means, not a product-mandated preset threshold.
+      // The neutral point of the unit itself: `1x` is a quantity exactly equal to what it is measured
+      // against — a session trading its own baseline, debt equal to equity, current assets equal to
+      // current liabilities. Derived from what the value means, not a product-mandated preset.
       return { kind: "MULTIPLE", value: clampToSpec(1, spec.min, spec.max) };
     case "MONEY":
       // The floor of the unit's own domain. A money threshold has no neutral point to derive — any
@@ -879,6 +979,9 @@ function instantiateMetric(
       throw new Error(
         `${kind} is not parameterized by a series id`,
       );
+    case "FUNDAMENTAL":
+      // Parameterized by a Fundamental Metric identity, never by a catalog series id.
+      throw new Error("FUNDAMENTAL is not parameterized by a series id");
     case "PRICE":
       return { kind: "PRICE" };
     case "GAIN":
@@ -906,6 +1009,14 @@ function instancesOf(kind: StrategyMetricKind): readonly StrategyMetric[] {
   }
   if (kind === "RELATIVE_VOLUME") {
     return RELATIVE_VOLUME_PERIODS.map((period) => ({ kind, period }));
+  }
+  if (kind === "FUNDAMENTAL") {
+    // One option per catalog entry, in the catalog's canonical order — the one list every surface
+    // offers — and never a second ordering here.
+    return FUNDAMENTAL_METRIC_CATALOG.map((entry) => ({
+      kind,
+      metricId: entry.id,
+    }));
   }
   const definition = STRATEGY_METRIC_DEFINITIONS[kind];
   return definition.parameterSeriesIds
@@ -1116,13 +1227,18 @@ function seriesLabel(id: SelectableSeriesId): string {
  * the lookback would be a label a Configure change silently invalidates, which is how the selector
  * once read `20D` while the rule said `180D`. {@link describeMetricConfiguration} renders the
  * configuration, and every surface shows the two together.
+ *
+ * A Fundamental Metric is named by its catalog label alone — `ROIC TTM`, `Debt / Equity` — and never
+ * by anything derived from its identity's spelling or its storage field.
+ *
+ * Exhaustive over the metric kinds: a new kind must name itself here or fail to compile, rather than
+ * fall through to a label that is only its kind.
  */
 export function strategyMetricLabel(metric: StrategyMetric): string {
-  const alternative = asAlternativeDataMetric(metric);
-  if (alternative) {
-    return alternativeDataMeasureDefinition(alternative).label;
-  }
   switch (metric.kind) {
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+      return alternativeDataMeasureDefinition(metric).label;
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
       return seriesLabel(metric.seriesId);
@@ -1134,9 +1250,36 @@ export function strategyMetricLabel(metric: StrategyMetric): string {
       return `${metricBaseLabel("MARGIN_OF_SAFETY")} · ${seriesLabel(
         metric.sourceId,
       )}`;
-    default:
+    case "FUNDAMENTAL":
+      // The raw identity for a drifted document, exactly as `seriesLabel` does: validation rejects it,
+      // and a preview that threw would hide the rule that needs fixing.
+      return findFundamentalMetric(metric.metricId)?.label ?? metric.metricId;
+    case "PRICE":
+    case "GAIN":
+    case "LOSS":
       return metricBaseLabel(metric.kind);
   }
+}
+
+/**
+ * A multiple's number, at least one decimal and never rounded.
+ *
+ * At least one decimal so `2` and `2.0` cannot read as two different thresholds; never rounded because
+ * the text is the rule's canonical description — the preview, a trade reason and the Dashboard print
+ * it — and a threshold of 0.75 printed `0.8x` would describe a different rule from the one evaluated.
+ * Plain positional digits, never exponent notation: a tiny threshold reads `0.0000001x`, not `1e-7x`.
+ */
+function multipleText(value: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+  if (Number.isInteger(value)) {
+    return value.toFixed(1);
+  }
+  const shortest = String(value);
+  return shortest.includes("e")
+    ? value.toFixed(20).replace(/0+$/, "")
+    : shortest;
 }
 
 export function strategyValueLabel(value: StrategyValue): string {
@@ -1148,9 +1291,8 @@ export function strategyValueLabel(value: StrategyValue): string {
     case "PERCENT":
       return `${value.value}%`;
     case "MULTIPLE":
-      // A multiple always reads with its unit, and always with one decimal, so `2` and `2.0`
-      // cannot appear as two different-looking thresholds: `2x`, `1.5x`, `0.5x`.
-      return `${Number.isFinite(value.value) ? value.value.toFixed(1) : String(value.value)}x`;
+      // A multiple always reads with its unit: `2.0x`, `1.5x`, `0.75x`.
+      return `${multipleText(value.value)}x`;
     case "MONEY":
       // Grouped, with no decimals: these are disclosure-scale amounts where a cent is noise, and a
       // reader comparing `$1,000,000` with `$250,000` needs the separators far more than the change.
@@ -1611,6 +1753,23 @@ export const STRATEGY_METRIC_HELP: Record<
     notEvaluableWhen:
       "The point-in-time intrinsic value for the date is zero or negative. The ratio is undefined at zero and sign-inverted below it, so it is reported as not evaluable rather than as a large margin of safety.",
   },
+  /**
+   * The help all fifteen Fundamental Metrics share. `strategyMetricHelp` puts each metric's own
+   * summary and formula, from its catalog entry, in front of it, so nothing here names one metric.
+   */
+  FUNDAMENTAL: {
+    summary:
+      "A measure of the business itself, calculated from the company's reported quarterly financial statements.",
+    detail:
+      "Every value is point-in-time: on each trading day it uses only the statements that were public by then, and it changes only on the first session after a new or revised statement became public. It is a condition only; a monitor already raises a signal on the session a condition first holds, so there is no crossing form.",
+    notes: [
+      "TTM is the latest four consecutive reported fiscal quarters, summed. A growth rate compares them with the four quarters immediately before, and an annual report never fills a missing quarter.",
+      "An average balance-sheet figure is the mean of the balance sheet just before those four quarters and the one at their end.",
+      "A negative reading is a real reading, such as a loss-making margin, and is compared like any other.",
+    ],
+    notEvaluableWhen:
+      "The statements the metric needs cannot support a value on that date: a missing quarter or line item, a denominator that is not positive, statements in different currencies, a growth rate whose current or previous four-quarter total is not positive — a loss, or a turn between loss and profit — or Asset Turnover without positive revenue. It is then unavailable, never zero, and a condition on it never matches.",
+  },
   GAIN: {
     summary:
       "How far the price is above the position's average cost, as a percentage.",
@@ -1682,6 +1841,39 @@ export const STRATEGY_METRIC_HELP: Record<
       "The full lookback window is not inside the disclosure history this product holds for the stock.",
   },
 };
+
+/** How a Fundamental Metric's unit reads, as the note its explanation carries. */
+const FUNDAMENTAL_UNIT_NOTES = {
+  PERCENT:
+    "Measured in percentage points: a rule set at 15% compares with 15, exactly as a reading of 15.42% is 15.42, and never with 0.15.",
+  MULTIPLE:
+    "A raw multiple, not a percentage: a rule set at 1.5x compares with 1.5, one and a half times.",
+} as const satisfies Record<FundamentalMetricUnit, string>;
+
+/**
+ * The canonical help for one Metric instance.
+ *
+ * The entry of the metric's kind, except that a Fundamental Metric leads with its own summary and
+ * formula from the product catalog and a note on its unit — one help entry for the kind would
+ * otherwise describe ROIC and Debt / Equity in the same words. Every surface reads this, so the
+ * explanation of a metric is never assembled in feature code.
+ */
+export function strategyMetricHelp(metric: StrategyMetric): StrategyHelpEntry {
+  const shared = STRATEGY_METRIC_HELP[metric.kind];
+  if (metric.kind !== "FUNDAMENTAL") {
+    return shared;
+  }
+  const entry = findFundamentalMetric(metric.metricId);
+  if (!entry) {
+    return shared;
+  }
+  return {
+    ...shared,
+    summary: entry.summary,
+    formula: entry.formula,
+    notes: [FUNDAMENTAL_UNIT_NOTES[entry.unit], ...(shared.notes ?? [])],
+  };
+}
 
 export const STRATEGY_OPERATOR_HELP: Record<
   ConditionOperator | TriggerOperator,
@@ -1841,6 +2033,8 @@ export const STRATEGY_VALIDATION_CODES = [
   "METRIC_SERIES_UNSUPPORTED",
   /** A metric parameterized by something other than a catalog id named an unsupported parameter. */
   "METRIC_PERIOD_UNSUPPORTED",
+  /** A Fundamental Metric named an identity the product catalog does not define. */
+  "FUNDAMENTAL_METRIC_UNSUPPORTED",
   /** The metric exists, but not in the part of a Signal the document used it in. */
   "METRIC_NOT_ALLOWED_IN_PART",
   "OPERATOR_NOT_SUPPORTED",
@@ -1933,6 +2127,8 @@ const METRIC_KEYS: Record<StrategyMetricKind, readonly string[]> = {
   OSCILLATOR: ["kind", "seriesId"],
   RELATIVE_VOLUME: ["kind", "period"],
   MARGIN_OF_SAFETY: ["kind", "sourceId"],
+  // The identity and nothing else: a label, group, unit or storage field smuggled beside it is refused.
+  FUNDAMENTAL: ["kind", "metricId"],
   GAIN: ["kind"],
   LOSS: ["kind"],
   INSIDER_ACTIVITY: ["kind", "measure", "lookback", "roles"],
@@ -2334,6 +2530,21 @@ function parseMetric(
       }
       return { kind: "RELATIVE_VOLUME", period: period as RelativeVolumePeriod };
     }
+    case "FUNDAMENTAL": {
+      // The identity must be one the product catalog defines, matched exactly. Stored and submitted
+      // documents are runtime data, so the type alone proves nothing: a lower-cased identity, a label
+      // or a storage field is refused rather than normalized into the metric it resembles.
+      const metricId = raw.metricId;
+      if (!isFundamentalMetricId(metricId)) {
+        issues.add(
+          "FUNDAMENTAL_METRIC_UNSUPPORTED",
+          path,
+          `\`${String(metricId)}\` is not a fundamental metric this product offers.`,
+        );
+        return undefined;
+      }
+      return { kind: "FUNDAMENTAL", metricId };
+    }
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
       return parseAlternativeDataMetric(kind, raw, path, issues);
@@ -2517,7 +2728,7 @@ export function checkStrategyValue(
       };
     }
     return Number.isFinite(value.value) &&
-      value.value >= spec.min &&
+      (spec.min === undefined || value.value >= spec.min) &&
       (spec.max === undefined || value.value <= spec.max)
       ? { compatible: true }
       : {
@@ -2557,30 +2768,52 @@ function checkValueAgainstMetric(
   }
 }
 
+/**
+ * Whatever identifies a metric beside its kind, for duplicate detection.
+ *
+ * The whole configured metric for the alternative-data kinds, because two rows differing only in
+ * measure, scope or lookback are different conditions. Keying them by kind alone would make
+ * `Insider buyers is above 1 (20D)` and `Insider buyers is above 1 (60D)` look like one rule written
+ * twice, and the second would be rejected as a duplicate.
+ *
+ * Relative Volume is in the same situation with its period, and a Fundamental Metric with its
+ * identity: neither is parameterized by a catalog id, so a catalog-id key would make every period —
+ * or all fifteen metrics — key alike. `RVOL 10 is above 2 AND RVOL 20 is above 2` and
+ * `ROIC TTM is above 15% AND ROE TTM is above 15%` are two conditions each and must stay authorable;
+ * two rows sharing a period or a metric are still one rule written twice.
+ *
+ * Exhaustive, with no fallback, so a kind parameterized by something new cannot collide silently.
+ */
+function predicateMetricKey(metric: StrategyMetric): string {
+  switch (metric.kind) {
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+      return alternativeDataMetricSignature(metric);
+    case "RELATIVE_VOLUME":
+      return String(metric.period);
+    case "FUNDAMENTAL":
+      return metric.metricId;
+    case "MOVING_AVERAGE":
+    case "OSCILLATOR":
+      return metric.seriesId;
+    case "MARGIN_OF_SAFETY":
+      return metric.sourceId;
+    case "PRICE":
+    case "GAIN":
+    case "LOSS":
+      return "";
+  }
+}
+
 /** Semantic identity of one Condition: same Metric, same operator, same Value. */
 function predicateIdentity(
   metric: StrategyMetric,
   operator: string,
   value: StrategyValue,
 ): string {
-  const alternative = asAlternativeDataMetric(metric);
-  // The whole configured metric, because two alternative-data rows differing only in measure, scope
-  // or lookback are different conditions. Keying them by kind alone would make
-  // `Insider buyers is above 1 (20D)` and `Insider buyers is above 1 (60D)` look like one rule
-  // written twice, and the second would be rejected as a duplicate.
-  //
-  // Relative Volume is in the same situation with its period: it is parameterized by a period
-  // rather than by a catalog id, so `strategyMetricSeriesId` has nothing to give and every period
-  // would key alike. `RVOL 10 is above 2 AND RVOL 20 is above 2` is two different conditions and
-  // must stay authorable; two rows sharing a period are still one rule written twice.
-  const metricKey = alternative
-    ? alternativeDataMetricSignature(alternative)
-    : metric.kind === "RELATIVE_VOLUME"
-      ? String(metric.period)
-      : (strategyMetricSeriesId(metric) ?? "");
   const valueKey =
     value.kind === "SERIES" ? value.seriesId : String(value.value);
-  return `${metric.kind}:${metricKey}|${operator}|${value.kind}:${valueKey}`;
+  return `${metric.kind}:${predicateMetricKey(metric)}|${operator}|${value.kind}:${valueKey}`;
 }
 
 /**
@@ -3159,6 +3392,8 @@ function buildMetric(metric: StrategyMetric): StrategyMetric {
       return { kind: "MARGIN_OF_SAFETY", sourceId: metric.sourceId };
     case "RELATIVE_VOLUME":
       return { kind: "RELATIVE_VOLUME", period: metric.period };
+    case "FUNDAMENTAL":
+      return { kind: "FUNDAMENTAL", metricId: metric.metricId };
     case "PRICE":
       return { kind: "PRICE" };
     case "GAIN":
@@ -3388,7 +3623,6 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
       ? [input.kind, input.seriesId]
       : [input.kind, input.value];
   const metric = (input: StrategyMetric): unknown => {
-    const alternative = asAlternativeDataMetric(input);
     // A third element is **appended only for the kinds that are parameterized by something other
     // than a catalog id**, so every metric whose whole identity is `kind` plus a catalog id — the
     // moving averages, the oscillators, Margin of Safety, Price, Gain and Loss — serializes to
@@ -3401,15 +3635,34 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
     // Relative Volume carries its period for the same reason: the period *is* the metric's
     // identity, and leaving it out made `RVOL 10 is above 2` and `RVOL 20 is above 2` serialize
     // identically — one definition hash and one Monitor latch for two different rules. Adding it
-    // moves the stored hash of every existing RVOL strategy and resets the Monitor state of its
-    // RVOL levels exactly once; that is the intended correction, because the state those rows
+    // moved the stored hash of every existing RVOL strategy and reset the Monitor state of its
+    // RVOL levels exactly once; that was the intended correction, because the state those rows
     // latched was never keyed to the logic it belonged to.
-    if (input.kind === "RELATIVE_VOLUME") {
-      return [input.kind, null, input.period];
+    //
+    // A Fundamental Metric carries its catalog identity there from its first day, so `ROIC TTM` and
+    // `ROE TTM` can never share a definition hash or a Monitor latch — and, the kind being new, no
+    // stored hash moves.
+    //
+    // Exhaustive, with no fallback: a kind parameterized by something new must choose its
+    // serialization here or fail to compile, rather than silently collapse into `[kind, null]`.
+    switch (input.kind) {
+      case "RELATIVE_VOLUME":
+        return [input.kind, null, input.period];
+      case "FUNDAMENTAL":
+        return [input.kind, null, input.metricId];
+      case "INSIDER_ACTIVITY":
+      case "CONGRESS_ACTIVITY":
+        return [input.kind, null, alternativeDataMetricSignature(input)];
+      case "MOVING_AVERAGE":
+      case "OSCILLATOR":
+        return [input.kind, input.seriesId];
+      case "MARGIN_OF_SAFETY":
+        return [input.kind, input.sourceId];
+      case "PRICE":
+      case "GAIN":
+      case "LOSS":
+        return [input.kind, null];
     }
-    return alternative
-      ? [input.kind, null, alternativeDataMetricSignature(alternative)]
-      : [input.kind, strategyMetricSeriesId(input) ?? null];
   };
   const predicate = (input: StrategyCondition | StrategyTrigger): unknown => [
     metric(input.metric),

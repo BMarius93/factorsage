@@ -6,6 +6,7 @@ import {
   CONGRESS_CHAMBER_FILTERS,
   CONGRESS_MEASURES,
   CONGRESS_OWNERS,
+  FUNDAMENTAL_METRIC_IDS,
   INSIDER_MEASURES,
   INSIDER_ROLES,
   RELATIVE_VOLUME_PERIODS,
@@ -309,6 +310,14 @@ describe("OpenAPI Strategy schemas describe the canonical Strategy model", () =>
     expect(property(byKind.get("RELATIVE_VOLUME")!, "period").enum).toEqual(
       RELATIVE_VOLUME_PERIODS,
     );
+    // The fifteen identities of the product catalog, in its order: no label, no storage field.
+    expect(property(byKind.get("FUNDAMENTAL")!, "metricId").enum).toEqual(
+      FUNDAMENTAL_METRIC_IDS,
+    );
+    expect(Object.keys(byKind.get("FUNDAMENTAL")!.properties ?? {})).toEqual([
+      "kind",
+      "metricId",
+    ]);
     const insider = byKind.get("INSIDER_ACTIVITY")!;
     const congress = byKind.get("CONGRESS_ACTIVITY")!;
     expect(property(insider, "measure").enum).toEqual(INSIDER_MEASURES);
@@ -355,6 +364,20 @@ describe("OpenAPI Strategy schemas describe the canonical Strategy model", () =>
     }
   });
 
+  it("describes a signed multiple the model accepts: net cash is a legitimate threshold", () => {
+    // `MULTIPLE` is not documented as non-negative any more, because two ratio metrics are signed
+    // by their methodology. The model accepts the threshold, so the document must describe it.
+    const sent = documentWith("BUY", "CONDITION", {
+      kind: "FUNDAMENTAL",
+      metricId: "NET_DEBT_TO_EBITDA_TTM",
+    }) as {
+      buyLevels: { signal: { conditions: { value: { value: number } }[] } }[];
+    };
+    sent.buyLevels[0]!.signal.conditions[0]!.value.value = -0.5;
+    expect(validateStrategyDefinition(sent)).toEqual([]);
+    expect(describes(schema("StrategyDefinition"), sent)).toBe(true);
+  });
+
   it("documents exactly the canonical operators, with no inclusive comparison", () => {
     const condition = property(schema("StrategyCondition"), "operator");
     const trigger = property(schema("StrategyTrigger"), "operator");
@@ -395,9 +418,12 @@ describe("OpenAPI Strategy schemas describe the canonical Strategy model", () =>
         value: defaultValueFor(metricValue),
       },
     });
-    // "Condition only": Relative Volume and the alternative-data metrics have no trigger form.
+    // "Condition only": Relative Volume, the fundamental metrics and the alternative-data metrics
+    // have no trigger form.
     for (const conditionOnly of [
       { kind: "RELATIVE_VOLUME", period: 20 },
+      { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+      { kind: "FUNDAMENTAL", metricId: "DEBT_TO_EQUITY" },
       { kind: "INSIDER_ACTIVITY", measure: "BUYERS", lookback: 20 },
       {
         kind: "CONGRESS_ACTIVITY",
@@ -426,6 +452,36 @@ describe("OpenAPI Strategy schemas describe the canonical Strategy model", () =>
         }),
       ),
     ).toContain("OPERATOR_NOT_SUPPORTED");
+    // A fundamental metric compares strictly: `IS_CLOSE_TO` is refused.
+    expect(
+      codesFor(
+        withBuySignal({
+          conditions: [
+            {
+              id: "c1",
+              metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+              operator: "IS_CLOSE_TO",
+              value: { kind: "PERCENT", value: 15 },
+            },
+          ],
+        }),
+      ),
+    ).toContain("OPERATOR_NOT_SUPPORTED");
+    // A fundamental identity outside the catalog, spelled close to a real one.
+    expect(
+      codesFor(
+        withBuySignal({
+          conditions: [
+            {
+              id: "c1",
+              metric: { kind: "FUNDAMENTAL", metricId: "roic_ttm" },
+              operator: "IS_ABOVE",
+              value: { kind: "PERCENT", value: 15 },
+            },
+          ],
+        }),
+      ),
+    ).toContain("FUNDAMENTAL_METRIC_UNSUPPORTED");
     // An identifier outside the catalog.
     expect(
       codesFor(

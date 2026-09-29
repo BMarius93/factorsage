@@ -559,7 +559,10 @@ out ends the session. `e2e/strategies` covers the Strategy Builder journey on de
 edit, reload, rename, delete, the not-found surface for a deleted strategy, and the
 duplicate-condition rejection reached through the issue count — and on a 390px phone, asserting one
 column with no horizontal scrolling, the save surface clear of the bottom navigation, contextual
-help beside the edited row, and the canonical Margin of Safety explanation.
+help beside the edited row, and the canonical Margin of Safety explanation;
+`e2e/strategies/fundamentals.user.spec.ts` authors Fundamental Conditions (a percentage and a
+multiple), proves they save as stable identities and reopen exactly, and that a Trigger row never
+offers the Fundamentals category.
 `e2e/lists` covers the full stock-list journey; `e2e/stocks` covers the
 Stock Details `Indicators` catalog — every group and entry (counts derive from
 `@intrinsic/contracts`, never a copy), the default `Balanced` selection,

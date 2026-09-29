@@ -1,4 +1,9 @@
-import type { DailyPrice, Security, SecurityId } from "@intrinsic/domain";
+import type {
+  DailyDerivedState,
+  DailyPrice,
+  Security,
+  SecurityId,
+} from "@intrinsic/domain";
 import {
   monitorWindowObservations,
   projectMonitorEvaluationFrame,
@@ -36,6 +41,11 @@ import type { MonitorDataLoader } from "./monitor-cycle.js";
  */
 export class FixtureLoader implements MonitorDataLoader {
   prices = new Map<SecurityId, DailyPrice[]>();
+  /**
+   * Persisted derived rows per security — the state a Monitor carries onto its provisional
+   * observation, such as a Fundamental Metric. Empty unless a case sets it, exactly as before.
+   */
+  derived = new Map<SecurityId, DailyDerivedState[]>();
   currentPrice: number | null = null;
   currentDataError: Error | null = null;
   quotedAt: string | undefined = undefined;
@@ -104,7 +114,7 @@ export class FixtureLoader implements MonitorDataLoader {
     return projectMonitorEvaluationFrame({
       security: input.security,
       prices,
-      derived: [],
+      derived: this.derived.get(input.security.id) ?? [],
       operands: input.operands,
       observation: input.observation,
       observationDate: input.observationDate,

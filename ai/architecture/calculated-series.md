@@ -112,7 +112,9 @@ flowchart TD
   Metrics V1, each `{id, field, unit}`: stable identity (`ROIC_TTM`), `DailyDerivedState` field
   (`roicTtm`) and unit (`PERCENT` in percentage points, or `MULTIPLE`). `FUNDAMENTAL_METRIC_FIELDS`
   and `FundamentalMetricField` follow it. It carries no label or group: those belong to the product
-  catalog in `@intrinsic/contracts` once a surface needs them.
+  catalog, `FUNDAMENTAL_METRIC_CATALOG` in `@intrinsic/contracts` (label, group, canonical order,
+  threshold floor, help), and `packages/stock-data/src/fundamental-metrics-catalog.test.ts` is the
+  drift guard between the two.
 
 `apps/api/src/stocks/selectable-series-catalog.test.ts` is the drift guard between the catalog and
 these registries.

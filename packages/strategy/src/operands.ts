@@ -1,6 +1,8 @@
 import {
   findSelectableSeries,
+  isFundamentalMetricId,
   RELATIVE_VOLUME_PERIODS,
+  type FundamentalMetricId,
   type RelativeVolumePeriod,
   type SelectableSeries,
   type SelectableSeriesId,
@@ -78,6 +80,41 @@ export function operandRelativeVolumePeriod(
     : null;
 }
 
+const FUNDAMENTAL_PREFIX = "fundamental:";
+
+/**
+ * One Fundamental Metric, read straight off the materialized daily derived state.
+ *
+ * Its own key family, like Relative Volume: a fundamental metric is not a catalog series and never a
+ * comparison Value. It is keyed by the product catalog's stable identity — `fundamental:ROIC_TTM` —
+ * never by its label and never by the storage field it happens to be materialized into, which only
+ * the projector resolves, through the domain registry.
+ */
+export function fundamentalMetricOperand(
+  metricId: FundamentalMetricId,
+): OperandKey {
+  return `${FUNDAMENTAL_PREFIX}${metricId}`;
+}
+
+/**
+ * The fundamental metric a key addresses, or null when it addresses something else.
+ *
+ * The inverse of {@link fundamentalMetricOperand}, and it lives here for the same reason the builder
+ * does: the encoding is this module's, and a caller that needs the metric must ask rather than slice
+ * the string itself. A key in this family naming an identity the catalog does not define decodes to
+ * null too, so it can never be projected as a metric that happens to be absent — the projector
+ * refuses a key nothing decodes.
+ */
+export function operandFundamentalMetricId(
+  key: OperandKey,
+): FundamentalMetricId | null {
+  if (!key.startsWith(FUNDAMENTAL_PREFIX)) {
+    return null;
+  }
+  const metricId = key.slice(FUNDAMENTAL_PREFIX.length);
+  return isFundamentalMetricId(metricId) ? metricId : null;
+}
+
 /**
  * Margin of Safety against one explicitly selected intrinsic-value source.
  *
@@ -95,14 +132,15 @@ export function isPositionDependentMetric(metric: StrategyMetric): boolean {
   return metric.kind === "GAIN" || metric.kind === "LOSS";
 }
 
-/** The frame column a Metric reads, or null when the metric is position-dependent. */
+/**
+ * The frame column a Metric reads, or null when the metric is position-dependent.
+ *
+ * Exhaustive over the metric kinds, with no fallback: a new kind must name its column here or fail
+ * to compile. A `default` returning null would make it read as position-dependent — excluded from
+ * the market gate and, through `evaluateMarketCondition`, permanently NOT_EVALUABLE — which is the
+ * silent failure a new family must never have.
+ */
 export function metricOperand(metric: StrategyMetric): OperandKey | null {
-  // The alternative-data kinds are addressed by their whole configuration, which `alternative-data.ts`
-  // owns; asking it first keeps that encoding in one module instead of repeating the signature here.
-  const alternative = alternativeDataMetricOperand(metric);
-  if (alternative) {
-    return alternative;
-  }
   switch (metric.kind) {
     case "PRICE":
       return PRICE_OPERAND;
@@ -113,11 +151,15 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
       return relativeVolumeOperand(metric.period);
     case "MARGIN_OF_SAFETY":
       return marginOfSafetyOperand(metric.sourceId);
+    case "FUNDAMENTAL":
+      return fundamentalMetricOperand(metric.metricId);
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+      // Addressed by their whole configuration, which `alternative-data.ts` owns, so the signature is
+      // encoded in one module rather than repeated here.
+      return alternativeDataMetricOperand(metric);
     case "GAIN":
     case "LOSS":
-      return null;
-    default:
-      // Unreachable: every remaining kind is an alternative-data one, answered above.
       return null;
   }
 }

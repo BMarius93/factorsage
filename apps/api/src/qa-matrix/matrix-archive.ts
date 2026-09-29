@@ -11,6 +11,7 @@ import type {
 import { IS_CLOSE_TO_TOLERANCE } from "@intrinsic/contracts";
 import {
   alternativeDataOperand,
+  fundamentalMetricOperand,
   relativeVolumeOperand,
 } from "@intrinsic/strategy";
 import type { InvariantResult } from "./matrix-invariants";
@@ -94,6 +95,11 @@ function metricSeries(
       return column(frame, relativeVolumeOperand(metric.period));
     case "MARGIN_OF_SAFETY":
       return column(frame, `margin-of-safety:${metric.sourceId}`);
+    case "FUNDAMENTAL":
+      // Read, never re-derived, for the reason the alternative-data metrics are: this invariant asks
+      // whether the evaluator was entitled to its trade given the frame it consumed. Through the
+      // canonical builder, because a hand-encoded key is how a column goes silently missing.
+      return column(frame, fundamentalMetricOperand(metric.metricId));
     case "GAIN":
     case "LOSS":
       // Position-dependent: not decidable from a frame, and forbidden in a BUY Signal anyway.
