@@ -576,6 +576,31 @@ export type DailyDerivedState = {
   rvol10?: number;
   rvol20?: number;
   rvol50?: number;
+  /**
+   * The fifteen Fundamental Metrics V1 (`FUNDAMENTAL_METRICS`), one field per registered metric.
+   *
+   * Each is evaluated from the point-in-time `FinancialStatement` revisions eligible on this
+   * trading day, only on a statement event, and carried forward unchanged until the next event —
+   * absence included, so a metric a newer revision invalidated is absent from that session on and
+   * never a stale earlier value. `PERCENT` metrics are percentage points (`15.42` is 15.42%);
+   * `MULTIPLE` metrics are raw ratios. An absent field means the metric is unavailable on this day:
+   * never zero, never infinity, never back-filled before its first eligible session.
+   */
+  revenueGrowthTtmYoy?: number;
+  epsGrowthTtmYoy?: number;
+  fcfGrowthTtmYoy?: number;
+  grossMarginTtm?: number;
+  operatingMarginTtm?: number;
+  netMarginTtm?: number;
+  fcfMarginTtm?: number;
+  roicTtm?: number;
+  roeTtm?: number;
+  roaTtm?: number;
+  debtToEquity?: number;
+  currentRatio?: number;
+  netDebtToEbitdaTtm?: number;
+  interestCoverageTtm?: number;
+  assetTurnoverTtm?: number;
   /** Per-model intrinsic value per share, present only for models eligible on this trading day. */
   intrinsicValues?: Partial<Record<IntrinsicValueModel, number>>;
   /** Per-blend intrinsic value per share, present only for blends computable on this trading day. */

@@ -94,6 +94,28 @@ re-open it, not something to absorb silently.
 | Redis resident set at configured `maxResidentStocks` | ≤ 2 GB | 32.78 MB (7 stocks) |
 | Series-adding migrations | ≤ ~1 per sprint, sustained | well below |
 
+### Measured after Fundamental Metrics V1 (r7)
+
+Migration `20260929090000_add_fundamental_metrics_derived_state` took the row to 42 value columns.
+Measured on a synthetic worst case — one security, 7,826 trading days (thirty years), every series
+including all fifteen fundamentals non-null on every day — through the real rebuild, PostgreSQL and
+Redis (`fundamental-metrics-v1` implementation branch, 2026-09-29):
+
+| Measurement | Without the fifteen fields | With them |
+| --- | --- | --- |
+| `avg(pg_column_size(row))` | 342 B | 457 B |
+| Redis `daily-state:2025` chunk (261 rows) | 244 KB | 343 KB |
+| Redis `daily-state` payload, thirty years | 7.16 MB | 10.16 MB |
+| All registered keys of the security (payload) | ~8.5 MB | 11.5 MB |
+| Same, Redis `MEMORY USAGE` | — | 13.2 MB |
+
+The row stays far inside its 1 KB budget. The per-security Redis footprint of a fully populated
+thirty-year history now sits at the 12 MB budget by payload and above it by Redis memory. Real
+securities carry absent values (warm-up, unavailable models and metrics), so their footprint is
+lower, but this is the trigger the budgets exist for: re-examine the row-oriented chunk — the
+column-oriented Redis layout noted above is the cheaper intervention — before adding the valuation
+ratios.
+
 ## Triggers for reconsidering JSONB
 
 Re-open this decision when **any** of the following becomes true:

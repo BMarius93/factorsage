@@ -270,3 +270,13 @@ No price migration accompanies it. `DailyPrice.volume` already exists as a non-n
 already populated from the same FMP historical EOD payload the OHLC values come from, so Relative
 Volume needed a derived-state change and nothing else — no new column on the price table, and no new
 provider request.
+
+Migration `20260929090000_add_fundamental_metrics_derived_state` adds the fifteen Fundamental
+Metrics V1 columns (`revenueGrowthTtmYoy` … `assetTurnoverTtm`, one per entry of
+`FUNDAMENTAL_METRICS`) to `DailyDerivedState` — nullable `DECIMAL(20,8)`, additive, leaving every
+existing row `NULL`. Percent metrics are stored in percentage points, the others as raw multiples.
+Nothing is back-filled in SQL: the canonical rebuild materializes them from the retained
+point-in-time `FinancialStatement` revisions onto the `DailyPrice` trading days, and
+`DERIVED_STATE_REVISION` moves to **7** in the same change so r6 coverage rows and Redis manifests
+report nothing for the current variant and each security's history is recalculated and replaced on
+its next access. No table, key family or row identity changes: the row stays `(securityId, date)`.

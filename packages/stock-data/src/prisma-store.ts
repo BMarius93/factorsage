@@ -9,6 +9,8 @@ import type {
   FinancialStatementQuery,
   FinancialStatementType,
   FinancialStatement as DomainFinancialStatement,
+  FundamentalMetricField,
+  FundamentalMetricSnapshot,
   IntrinsicValueBlendId,
   IntrinsicValueModel,
   Security,
@@ -16,6 +18,7 @@ import type {
   SecurityWithLogo,
 } from "@intrinsic/domain";
 import {
+  FUNDAMENTAL_METRIC_FIELDS,
   selectFinancialStatements,
   statementPublicAvailabilityDate,
 } from "@intrinsic/domain";
@@ -109,7 +112,48 @@ type DailyDerivedStateRow = {
   ddmSourceAsOf: Date | null;
   grahamSourceAsOf: Date | null;
   intrinsicCurrency: string | null;
-};
+} & Record<FundamentalMetricField, DecimalLike | null>;
+
+/**
+ * Fundamental Metrics share their field names with their columns, so they are mapped by iterating
+ * the domain registry rather than by fifteen hand-written lines. The registry-keyed row type above
+ * makes a registered metric without a Prisma column a compile error, and NULL stays absence in
+ * both directions — never zero.
+ */
+function fundamentalMetricsFromRow(
+  row: DailyDerivedStateRow,
+): FundamentalMetricSnapshot {
+  const values: FundamentalMetricSnapshot = {};
+  for (const field of FUNDAMENTAL_METRIC_FIELDS) {
+    const value = row[field];
+    if (value !== null) {
+      values[field] = value.toNumber();
+    }
+  }
+  return values;
+}
+
+/**
+ * A non-finite value is refused rather than written: Prisma persists `Infinity` and `NaN` in a
+ * `Decimal` column as NULL, which would silently turn an upstream defect into "unavailable". The
+ * formulas never produce one, so reaching here with one is a bug to surface, not a reading. A
+ * finite value outside `DECIMAL(20,8)` is refused by PostgreSQL itself.
+ */
+function fundamentalMetricsToRow(
+  row: DailyDerivedState,
+): Record<FundamentalMetricField, number | null> {
+  return Object.fromEntries(
+    FUNDAMENTAL_METRIC_FIELDS.map((field) => {
+      const value = row[field];
+      if (value !== undefined && !Number.isFinite(value)) {
+        throw new Error(
+          `Refusing to persist a non-finite ${field} (${value}) for ${row.date}`,
+        );
+      }
+      return [field, value ?? null];
+    }),
+  ) as Record<FundamentalMetricField, number | null>;
+}
 
 function dailyDerivedStateFromRow(
   securityId: string,
@@ -173,6 +217,7 @@ function dailyDerivedStateFromRow(
     ...(row.rvol10 === null ? {} : { rvol10: row.rvol10.toNumber() }),
     ...(row.rvol20 === null ? {} : { rvol20: row.rvol20.toNumber() }),
     ...(row.rvol50 === null ? {} : { rvol50: row.rvol50.toNumber() }),
+    ...fundamentalMetricsFromRow(row),
     ...(Object.keys(intrinsicValues).length === 0 ? {} : { intrinsicValues }),
     ...(Object.keys(intrinsicValueBlends).length === 0
       ? {}
@@ -214,6 +259,7 @@ function dailyDerivedStateToRow(
     rvol10: row.rvol10 ?? null,
     rvol20: row.rvol20 ?? null,
     rvol50: row.rvol50 ?? null,
+    ...fundamentalMetricsToRow(row),
     dcfFcff: row.intrinsicValues?.DCF_FCFF ?? null,
     residualIncome: row.intrinsicValues?.RESIDUAL_INCOME ?? null,
     ddm: row.intrinsicValues?.DDM ?? null,

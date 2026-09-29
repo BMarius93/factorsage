@@ -649,6 +649,27 @@ model DailyDerivedState {
   rvol10                   Decimal?  @db.Decimal(20, 8)
   rvol20                   Decimal?  @db.Decimal(20, 8)
   rvol50                   Decimal?  @db.Decimal(20, 8)
+  /// Fundamental Metrics V1 (`docs/decisions/fundamental-metrics-v1.md`), one column per metric
+  /// in `FUNDAMENTAL_METRICS`. Evaluated from the point-in-time `FinancialStatement` revisions
+  /// eligible on each trading day, only on statement events, and carried forward until the next
+  /// event. Percent metrics are percentage points (15.42 means 15.42%); the others are raw
+  /// multiples. NULL means unavailable on that day — never zero, never a stale value carried
+  /// through a later invalidating revision.
+  revenueGrowthTtmYoy      Decimal?  @db.Decimal(20, 8)
+  epsGrowthTtmYoy          Decimal?  @db.Decimal(20, 8)
+  fcfGrowthTtmYoy          Decimal?  @db.Decimal(20, 8)
+  grossMarginTtm           Decimal?  @db.Decimal(20, 8)
+  operatingMarginTtm       Decimal?  @db.Decimal(20, 8)
+  netMarginTtm             Decimal?  @db.Decimal(20, 8)
+  fcfMarginTtm             Decimal?  @db.Decimal(20, 8)
+  roicTtm                  Decimal?  @db.Decimal(20, 8)
+  roeTtm                   Decimal?  @db.Decimal(20, 8)
+  roaTtm                   Decimal?  @db.Decimal(20, 8)
+  debtToEquity             Decimal?  @db.Decimal(20, 8)
+  currentRatio             Decimal?  @db.Decimal(20, 8)
+  netDebtToEbitdaTtm       Decimal?  @db.Decimal(20, 8)
+  interestCoverageTtm      Decimal?  @db.Decimal(20, 8)
+  assetTurnoverTtm         Decimal?  @db.Decimal(20, 8)
   dcfFcff                  Decimal?  @db.Decimal(20, 8)
   residualIncome           Decimal?  @db.Decimal(20, 8)
   ddm                      Decimal?  @db.Decimal(20, 8)

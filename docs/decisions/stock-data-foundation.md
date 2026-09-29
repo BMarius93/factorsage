@@ -114,6 +114,8 @@ Examples of daily-materialized derived values include:
 - weekly SMA/EMA values carried forward from the latest completed weekly period;
 - intrinsic-value model results carried forward from the latest eligible fundamentals-driven calculation;
 - intrinsic-value blend results carried forward from the latest eligible component values;
+- the fifteen Fundamental Metrics V1 (`fundamental-metrics-v1.md`), carried forward from the
+  latest point-in-time statement event;
 - future ratios/features explicitly added to the backtest daily state.
 
 Do not fabricate a value before it first becomes eligible. If an indicator lacks warm-up history or an intrinsic-value model is unavailable/not applicable, the daily value remains absent until a valid value exists.
