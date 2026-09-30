@@ -34,6 +34,9 @@ Quick answers (each points at the entry and the owner document):
   and shared; evaluation and Signal state are per Monitor (10).
 - *Which behaviours are deliberate product decisions still open?* `product/monitors.md`,
   "Open product decisions" (11–13).
+- *Is the stored close purely split-adjusted?* No. It also carries the provider's spin-off
+  adjustments, which share counts do not follow, so Margin of Safety is biased before them. A
+  split after first load would also leave a split-sized step in the stored close (15).
 
 ---
 
@@ -629,6 +632,71 @@ Asked after 1–13, each traced far enough to be sure, none producing new inform
   is the ticker, so two catalog rows cannot share a ticker in practice.
 
 Stopping here: three consecutive investigations confirmed already-understood behaviour.
+
+---
+
+## 15. Corporate actions versus share-derived values
+
+Added 2026-09-30 by the Valuation Ratios V1 methodology gate
+(`../../docs/valuation-ratios-gate/INVESTIGATION.md`), after 1–14.
+
+**Question.** Is the stored close on the same basis as the statements' share counts and per-share
+figures, on every session?
+
+**Current behaviour.**
+
+- **Share splits: yes, today.** The provider restates historical share counts and EPS by each later
+  split, and its split-adjusted close divides by the same factor. All 89 splits in the product
+  horizon are invisible in both the stored close and the stored latest-quarter share count.
+- **Price-only adjustments: no.** The provider's "split-adjusted" close also absorbs spin-offs and
+  distributions, and share counts rightly do not follow them.
+  - Six securities carry them in the horizon: MMM (Solventum, 2024), HON (2018 spin-offs,
+    Solstice in 2025, and in 2026 a 1-for-2 reverse split fused with the Aerospace spin-off), WDC
+    (Sandisk, 2025), AXP (Ameriprise, 2005), MRK (Organon, 2021) and IBM (Kyndryl, 2021).
+  - On every earlier session the stored close times the stored share count falls short of the
+    true equity value, by 4.4 % to 52.8 %. That is 10.6 % of the sessions of the securities with
+    statements.
+  - The measure is the ratio of stored insider transaction prices, which are as-traded, to the
+    stored close. For WDC, which has no insider prices, it is the provider's split history.
+  - Nothing stored marks those sessions for every security. The provider's split history omits
+    MMM 2024 and HON 2025, misstates the size of HON 2018 and AXP 2005, and labels most of its
+    spin-off entries `stock-split`. Its "unadjusted" series is derived from that history.
+- **A split after first load: no.** The loader re-reads only the recent price tail (§6), while the
+  provider re-bases the whole history.
+  - The stored close therefore gains a split-sized step at the tail's start. That alone breaks
+    every price-derived series that crosses it.
+  - The history before the tail stays consistent with its old-basis statements.
+  - The split-restated statements become revisions dated from their observation. So the sessions
+    from the tail's start until that observation pair new-basis prices with old-basis share
+    counts, in every later rebuild.
+
+**Invariants.** A value built from a statement share count or per-share figure and compared with,
+or multiplied by, the close is right only where no price-only adjustment and no unobserved split
+separates the two. In the product today that value is Margin of Safety: DCF (FCFF) and Residual
+Income divide by the latest diluted share count, Graham uses diluted EPS, and DDM uses dividends
+per share.
+
+**Evidence.** The investigation's questions 1, 4 and 5 give the insider-price measurements, the
+restated and as-filed share counts, and the session counts. `refreshPriceWithinLease` and
+`service.test.ts` › "refreshes only a stale recent tail and rewrites only affected years" pin the
+tail re-read. Stored Margin of Safety examples:
+
+| Session        | Stored MOS | MOS on the as-traded price |
+| -------------- | ---------- | -------------------------- |
+| HON 2025-06-30 | −63.8 %    | −231 %                     |
+| WDC 2025-02-21 | −51.1 %    | −99.9 %                    |
+
+**Finding.**
+
+- A **correctness issue** in Margin of Safety on the securities with price-only adjustments. It is
+  pre-existing, and it overstates the margin on every session before the adjustment.
+- A **correctness issue in waiting** for every price-derived series: the next split among the
+  stored securities leaves a split-sized step in the stored close.
+- **Product decision required**: whether to build the corporate-action basis that
+  `../../docs/decisions/valuation-ratios-v1.md` recommends, which fixes both.
+
+**Action.** Recorded here and in that decision. Valuation Ratios V1 is blocked on it. Margin of
+Safety is not changed.
 
 ---
 
