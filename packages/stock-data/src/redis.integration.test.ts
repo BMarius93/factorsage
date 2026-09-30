@@ -25,7 +25,11 @@ import {
 } from "@intrinsic/fmp";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { RedisStockDataCache, type StockManifest } from "./cache.js";
+import {
+  dailyStateChunkKey,
+  RedisStockDataCache,
+  type StockManifest,
+} from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
 import { addDays, subtractYears } from "./dates.js";
 import {
@@ -33,6 +37,10 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
+import {
+  DAILY_STATE_ENCODING_VERSION,
+  decodeDailyStateChunk,
+} from "./daily-state-chunk.js";
 import { aggregateCompletedWeeks } from "./weekly.js";
 import {
   DAILY_PRICE_VARIANT,
@@ -206,7 +214,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(
         keys.filter((key) => /intrinsic|valuation|blend/i.test(key)),
       ).toEqual([]);
-      expect(keys.some((key) => key.includes(":daily-state:2026"))).toBe(true);
+      expect(keys).toContain(dailyStateChunkKey(namespace, securityId, 2026));
     } finally {
       await cacheA.evict(securityId);
     }
@@ -1958,10 +1966,18 @@ describeInfrastructure("cross-process canonical hydration", () => {
 
       // The serialized chunk carries absence as absence, not as an explicit null or a zero.
       const chunk = await redis.get(
-        `${namespace}:security:${security.id}:daily-state:2026`,
+        dailyStateChunkKey(namespace, security.id, 2026),
       );
       expect(chunk).not.toBeNull();
-      const serialized = JSON.parse(chunk ?? "[]") as Record<string, unknown>[];
+      const decoded = decodeDailyStateChunk(chunk ?? "", {
+        securityId: security.id,
+        year: 2026,
+      });
+      const serialized = (decoded.ok ? decoded.rows : []) as Record<
+        string,
+        unknown
+      >[];
+      expect(serialized).toEqual(persisted);
       expect(serialized).toHaveLength(3);
       expect(Object.keys(serialized[1]?.intrinsicValues ?? {})).toEqual([
         "DCF_FCFF",
@@ -2330,10 +2346,17 @@ describeInfrastructure(
           );
         }
         const chunk = await fixture.redis.get(
-          `${fixture.namespace}:security:${fixture.securityId}:daily-state:2025`,
+          dailyStateChunkKey(fixture.namespace, fixture.securityId, 2025),
         );
         expect(chunk).toContain('"roicTtm"');
         expect(chunk).not.toContain("null");
+        const chunk2025 = decodeDailyStateChunk(chunk ?? "", {
+          securityId: fixture.securityId,
+          year: 2025,
+        });
+        expect(chunk2025.ok && chunk2025.rows).toEqual(
+          persisted.filter((row) => row.date.startsWith("2025-")),
+        );
 
         // 4. The metrics live inside the existing yearly daily-state chunks: no key family of
         //    their own, and every key belongs to a family the cache already had.
@@ -2352,9 +2375,9 @@ describeInfrastructure(
             key === `${fixture.namespace}:access-sequence` ||
             key === `${fixture.namespace}:symbol:${fixture.symbol}:security` ||
             (key.startsWith(prefix) &&
-              /^(manifest|keys|security|prices:1D:\d{4}|daily-state:\d{4}|financials:[a-z-]+:(quarter|annual):v1:\d{4})$/.test(
-                key.slice(prefix.length),
-              ));
+              new RegExp(
+                `^(manifest|keys|security|prices:1D:\\d{4}|daily-state:v${DAILY_STATE_ENCODING_VERSION}:\\d{4}|financials:[a-z-]+:(quarter|annual):v1:\\d{4})$`,
+              ).test(key.slice(prefix.length)));
           expect(known, key).toBe(true);
         }
 
@@ -2386,7 +2409,7 @@ describeInfrastructure(
         ).resolves.toEqual([]);
         await expect(
           fixture.redis.exists(
-            `${fixture.namespace}:security:${fixture.securityId}:daily-state:2025`,
+            dailyStateChunkKey(fixture.namespace, fixture.securityId, 2025),
           ),
         ).resolves.toBe(0);
 
@@ -2519,11 +2542,23 @@ describeInfrastructure(
         );
         for (const year of years) {
           const chunk = await fixture.redis.get(
-            `${fixture.namespace}:security:${fixture.securityId}:daily-state:${year}`,
+            dailyStateChunkKey(
+              fixture.namespace,
+              fixture.securityId,
+              Number(year),
+            ),
           );
           expect(chunk, year).not.toBeNull();
           expect(chunk, year).not.toContain("null");
-          const rows = JSON.parse(chunk!) as Record<string, unknown>[];
+          const decoded = decodeDailyStateChunk(chunk!, {
+            securityId: fixture.securityId,
+            year: Number(year),
+          });
+          expect(decoded.ok, year).toBe(true);
+          const rows = (decoded.ok ? decoded.rows : []) as Record<
+            string,
+            unknown
+          >[];
           const byDate = new Map(rows.map((row) => [row.date, row]));
           for (const [field, dates] of unstorable) {
             for (const date of dates.filter((each) => each.startsWith(year))) {
@@ -2897,7 +2932,7 @@ function hydrationKeys(namespace: string, securityId: string, symbol: string) {
     registry: `${prefix}:keys`,
     security: `${namespace}:symbol:${symbol}:security`,
     price: `${prefix}:prices:1D:2021`,
-    dailyState: `${prefix}:daily-state:2021`,
+    dailyState: dailyStateChunkKey(namespace, securityId, 2021),
     financial: `${prefix}:financials:income:quarter:v1:2021`,
   };
 }
@@ -2965,6 +3000,7 @@ function readyManifest(securityId: string): StockManifest {
     priceDatasetVersion: PRICE_DATASET_VERSION,
     financialStatementVersion: 1,
     derivedStateRevision: DERIVED_STATE_REVISION,
+    dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
   };
 }
 

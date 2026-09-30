@@ -1,6 +1,7 @@
 import type { DailyPrice, Security } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { DERIVED_STATE_REVISION } from "./derived-state.js";
+import { DAILY_STATE_ENCODING_VERSION } from "./daily-state-chunk.js";
 import { PRICE_DATASET_VERSION } from "./ports.js";
 import { priceRetentionYears } from "./service.js";
 import {
@@ -190,6 +191,7 @@ function readyManifest(securityId: string): StockManifest {
     priceDatasetVersion: PRICE_DATASET_VERSION,
     financialStatementVersion: 1,
     derivedStateRevision: DERIVED_STATE_REVISION,
+    dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
   };
 }
 

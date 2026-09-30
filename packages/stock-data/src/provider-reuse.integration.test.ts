@@ -18,7 +18,7 @@ import { RedisBenchmarkDataCache } from "./benchmark-cache.js";
 import { BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT } from "./benchmark-ports.js";
 import { PrismaBenchmarkDataStore } from "./benchmark-prisma-store.js";
 import { CanonicalBenchmarkDataService } from "./benchmark-service.js";
-import { RedisStockDataCache } from "./cache.js";
+import { dailyStateChunkKey, RedisStockDataCache } from "./cache.js";
 import { InMemoryLoadCoordinator } from "./coordination.js";
 import { DAILY_PRICE_VARIANT } from "./ports.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
@@ -593,9 +593,7 @@ describeReuse("provider reuse across repeated reads", () => {
           ),
         ).toBe(1);
         expect(
-          await redis.exists(
-            `${namespace}:security:${security.id}:daily-state:${year}`,
-          ),
+          await redis.exists(dailyStateChunkKey(namespace, security.id, year)),
         ).toBe(1);
       }
 

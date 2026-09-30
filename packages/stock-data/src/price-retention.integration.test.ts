@@ -19,6 +19,7 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
+import { DAILY_STATE_ENCODING_VERSION } from "./daily-state-chunk.js";
 import { referenceMovingAverage } from "./moving-average-oracle.test-helper.js";
 import {
   DAILY_PRICE_FRESHNESS_VARIANT,
@@ -617,6 +618,7 @@ describeRetention(
             priceRetentionYears: RETENTION_YEARS,
             priceDatasetVersion: PRICE_DATASET_VERSION,
             derivedStateRevision: DERIVED_STATE_REVISION,
+            dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
             coverageStart: RETENTION_START,
             coverageEnd: TODAY,
           });
@@ -742,6 +744,7 @@ describeRetention(
             priceDatasetVersion: PRICE_DATASET_VERSION,
             financialStatementVersion: 1,
             derivedStateRevision: DERIVED_STATE_REVISION,
+            dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
           };
           const manifestKey = `${namespace}:security:${security.id}:manifest`;
           await redis.set(manifestKey, JSON.stringify(legacyManifest));

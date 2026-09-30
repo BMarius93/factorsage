@@ -18,6 +18,8 @@ import {
   PrismaStockDataStore,
   RedisFmpRequestGate,
   RedisStockDataCache,
+  STOCK_DATA_CACHE_NAMESPACE,
+  DEFAULT_HYDRATION_TTL_MS,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
   monitorWindowObservations,
@@ -101,6 +103,14 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     new RedisStockDataCache(
       new IoredisCacheClient(redis),
       stockDataConfig.maxResidentStocks,
+      STOCK_DATA_CACHE_NAMESPACE,
+      DEFAULT_HYDRATION_TTL_MS,
+      {
+        // Repaired from PostgreSQL either way; this is what makes the repair visible.
+        onUnreadableChunk: (chunk) => {
+          logger.warn({ event: "stock-data.cache.chunk-unreadable", ...chunk });
+        },
+      },
     ),
     new RedlockLoadCoordinator(redis, {
       lockDurationMs: stockDataConfig.loadLockDurationMs,
