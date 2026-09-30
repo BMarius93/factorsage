@@ -1,10 +1,15 @@
-import type { DailyPrice, Security } from "@intrinsic/domain";
+import type {
+  DailyDerivedState,
+  DailyPrice,
+  Security,
+} from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { DERIVED_STATE_REVISION } from "./derived-state.js";
 import { DAILY_STATE_ENCODING_VERSION } from "./daily-state-chunk.js";
 import { PRICE_DATASET_VERSION } from "./ports.js";
 import { priceRetentionYears } from "./service.js";
 import {
+  dailyStateChunkKey,
   RedisStockDataCache,
   type RedisCacheClient,
   type StockManifest,
@@ -15,11 +20,14 @@ class FakeRedis implements RedisCacheClient {
   readonly sets = new Map<string, Set<string>>();
   readonly sortedSets = new Map<string, Map<string, number>>();
 
+  readonly mgets: string[][] = [];
+
   async get(key: string) {
     return this.values.get(key) ?? null;
   }
 
   async mget(...keys: string[]) {
+    this.mgets.push(keys);
     return keys.map((key) => this.values.get(key) ?? null);
   }
 
@@ -362,5 +370,173 @@ describe("canonical yearly stock cache", () => {
       [...redis.values.keys()].some((key) => key.includes(security.id)),
     ).toBe(false);
     await expect(cacheB.hasResidentStock(microsoft.id)).resolves.toBe(true);
+  });
+});
+
+describe("columnar daily-state chunks in the yearly cache", () => {
+  const namespace = "stock-data:v2:test";
+
+  function derived(
+    date: string,
+    sma20d: number,
+    roicTtm?: number,
+  ): DailyDerivedState {
+    return {
+      securityId: security.id,
+      date,
+      sma20d,
+      ...(roicTtm === undefined ? {} : { roicTtm }),
+    };
+  }
+
+  // A December-to-January boundary with a leap day and a gap of absence across the new year.
+  const rows = [
+    derived("2023-12-28", 1, 7),
+    derived("2023-12-29", 2),
+    derived("2024-01-02", 3),
+    derived("2024-01-03", 4, 7.5),
+    derived("2024-02-29", 5, 7.5),
+    derived("2024-12-31", 6, 0),
+    derived("2025-01-02", 7, 0),
+  ];
+
+  async function residentCache(
+    observer: ConstructorParameters<typeof RedisStockDataCache>[4] = {},
+  ) {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(
+      redis,
+      2,
+      namespace,
+      undefined,
+      observer,
+    );
+    await cache.writeDailyDerivedStateYears(
+      security.id,
+      rows,
+      [2023, 2024, 2025],
+    );
+    await cache.setManifest(readyManifest(security.id));
+    return { redis, cache };
+  }
+
+  it("publishes one versioned chunk per year and reads a range across year boundaries in one MGET", async () => {
+    const { redis, cache } = await residentCache();
+    for (const year of [2023, 2024, 2025]) {
+      expect(
+        redis.values.get(dailyStateChunkKey(namespace, security.id, year)),
+      ).toMatch(/^\{"version":2,/);
+    }
+    expect(dailyStateChunkKey(namespace, security.id, 2024)).toBe(
+      "stock-data:v2:test:security:security-aapl:daily-state:v2:2024",
+    );
+    redis.mgets.length = 0;
+    await expect(
+      cache.readDailyDerivedState(security.id, {
+        from: "2023-12-29",
+        to: "2025-01-02",
+      }),
+    ).resolves.toEqual(rows.slice(1));
+    expect(redis.mgets).toEqual([
+      [2023, 2024, 2025].map((year) =>
+        dailyStateChunkKey(namespace, security.id, year),
+      ),
+    ]);
+    await expect(
+      cache.readDailyDerivedState(security.id, {
+        from: "2024-01-01",
+        to: "2024-02-29",
+      }),
+    ).resolves.toEqual(rows.slice(2, 5));
+    await expect(
+      cache.readDailyDerivedState(security.id, {
+        from: "2024-03-01",
+        to: "2024-12-30",
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it("reads nothing under a manifest that does not declare the current encoding", async () => {
+    const { redis, cache } = await residentCache();
+    const range = { from: "2023-12-28", to: "2025-01-02" };
+    await expect(
+      cache.readDailyDerivedState(security.id, range),
+    ).resolves.toHaveLength(7);
+    // The manifest an older deployment left behind: READY, and silent about the encoding.
+    const manifestKey = `${namespace}:security:${security.id}:manifest`;
+    for (const stale of [1, undefined]) {
+      const manifest: Partial<StockManifest> = {
+        ...readyManifest(security.id),
+        dailyStateEncodingVersion: stale,
+      };
+      if (stale === undefined) {
+        delete manifest.dailyStateEncodingVersion;
+      }
+      redis.values.set(manifestKey, JSON.stringify(manifest));
+      await expect(
+        cache.readDailyDerivedState(security.id, range),
+      ).resolves.toBeNull();
+    }
+  });
+
+  it("treats a missing year as a miss, never as a shorter history", async () => {
+    const { redis, cache } = await residentCache();
+    await redis.del(dailyStateChunkKey(namespace, security.id, 2024));
+    await expect(
+      cache.readDailyDerivedState(security.id, {
+        from: "2023-12-28",
+        to: "2025-01-02",
+      }),
+    ).resolves.toBeNull();
+    // A range that does not touch the lost year is still served.
+    await expect(
+      cache.readDailyDerivedState(security.id, {
+        from: "2025-01-01",
+        to: "2025-01-02",
+      }),
+    ).resolves.toEqual([rows[6]]);
+  });
+
+  it.each([
+    ["corrupt bytes", () => '{"version":2,"securityId"'],
+    ["a version-1 row array", () => JSON.stringify(rows.slice(2, 6))],
+    [
+      "an unknown future version",
+      (payload: string) => payload.replace('{"version":2,', '{"version":3,'),
+    ],
+  ])(
+    "reports %s in one year as unreadable and reads a miss",
+    async (_name, damage) => {
+      const unreadable: { year: number; key: string; reason: string }[] = [];
+      const { redis, cache } = await residentCache({
+        onUnreadableChunk: (chunk) => unreadable.push(chunk),
+      });
+      const key = dailyStateChunkKey(namespace, security.id, 2024);
+      redis.values.set(key, damage(redis.values.get(key) as string));
+      await expect(
+        cache.readDailyDerivedState(security.id, {
+          from: "2023-12-28",
+          to: "2025-01-02",
+        }),
+      ).resolves.toBeNull();
+      expect(unreadable).toEqual([
+        expect.objectContaining({ securityId: security.id, year: 2024, key }),
+      ]);
+    },
+  );
+
+  it("evicts the columnar chunks with the rest of the stock", async () => {
+    const { redis, cache } = await residentCache();
+    await cache.touch(security.id);
+    await cache.evict(security.id);
+    expect(
+      [...redis.values.keys()].filter((key) => key.includes(security.id)),
+    ).toEqual([]);
+    await expect(
+      cache.readDailyDerivedState(security.id, {
+        from: "2024-01-01",
+        to: "2024-12-31",
+      }),
+    ).resolves.toBeNull();
   });
 });
