@@ -1,0 +1,2404 @@
+{
+  "generatedAt": "2026-09-30T07:44:48.413Z",
+  "machineSpecific": "Timings and Redis memory were measured on the machine below. Byte counts and ratios reproduce anywhere; absolute timings do not.",
+  "environment": {
+    "gitCommit": "207938fb4853c9b60a5098330ff50685073df144",
+    "node": "v22.23.2",
+    "platform": "darwin arm64",
+    "cpu": "Apple M1",
+    "cpuCount": 8,
+    "memoryBytes": 8589934592,
+    "redis": "7.4.11",
+    "allocator": "jemalloc-5.3.0",
+    "database": "intrinsic_value_matrix",
+    "asOf": "2026-09-28"
+  },
+  "encodingVersion": 2,
+  "derivedStateRevision": 7,
+  "providerCalls": [],
+  "postgresDerivedRows": {
+    "before": {
+      "rows": 259735,
+      "digest": "-427822372605555393985"
+    },
+    "after": {
+      "rows": 259735,
+      "digest": "-427822372605555393985"
+    }
+  },
+  "securities": [
+    {
+      "symbol": "AAPL",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2187.9,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 896981,
+          "memory": 1030264
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1382531,
+          "memory": 1508552
+        },
+        "security": {
+          "keys": 1,
+          "payload": 369,
+          "memory": 504
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1576406,
+          "memory": 1679096
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10424653,
+          "memory": 11818184
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1576406,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 14415576,
+        "after": 4276488
+      },
+      "valuation": {
+        "legacyIncrement": 393216,
+        "columnarIncrement": 484816
+      }
+    },
+    {
+      "symbol": "ADBE",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2043.5,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 895089,
+          "memory": 1022072
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1363589,
+          "memory": 1451208
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1636914,
+          "memory": 1728248
+        },
+        "security": {
+          "keys": 1,
+          "payload": 371,
+          "memory": 504
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10902288,
+          "memory": 11818184
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1636914,
+          "memory": 1728248
+        }
+      },
+      "memory": {
+        "before": 14350040,
+        "after": 4260104
+      },
+      "valuation": {
+        "legacyIncrement": 1310720,
+        "columnarIncrement": 493008
+      }
+    },
+    {
+      "symbol": "AMGN",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2066.3,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 877670,
+          "memory": 1013896
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1353557,
+          "memory": 1400008
+        },
+        "security": {
+          "keys": 1,
+          "payload": 377,
+          "memory": 504
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1589481,
+          "memory": 1679096
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10828542,
+          "memory": 11998408
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1589481,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 14470888,
+        "after": 4151576
+      },
+      "valuation": {
+        "legacyIncrement": 868352,
+        "columnarIncrement": 525776
+      }
+    },
+    {
+      "symbol": "AMZN",
+      "rows": 7387,
+      "chunks": 30,
+      "keys": 243,
+      "hydrationMs": 1596.9,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 180,
+          "payload": 709585,
+          "memory": 817144
+        },
+        "daily-state": {
+          "keys": 30,
+          "payload": 1323569,
+          "memory": 1442736
+        },
+        "prices": {
+          "keys": 30,
+          "payload": 1158037,
+          "memory": 1221072
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "security": {
+          "keys": 1,
+          "payload": 378,
+          "memory": 504
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 43296
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 30,
+          "payload": 7937648,
+          "memory": 8548816
+        },
+        "columnar": {
+          "keys": 30,
+          "payload": 1323569,
+          "memory": 1442736
+        }
+      },
+      "memory": {
+        "before": 10631496,
+        "after": 3525416
+      },
+      "valuation": {
+        "legacyIncrement": 1269760,
+        "columnarIncrement": 351776
+      }
+    },
+    {
+      "symbol": "AXP",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2041.4,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 889303,
+          "memory": 1032832
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1347174,
+          "memory": 1400008
+        },
+        "security": {
+          "keys": 1,
+          "payload": 398,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1582646,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11227367,
+          "memory": 12932296
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1582646,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 15423776,
+        "after": 4162384
+      },
+      "valuation": {
+        "legacyIncrement": 196608,
+        "columnarIncrement": 525776
+      }
+    },
+    {
+      "symbol": "BA",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 1964,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 902418,
+          "memory": 1026168
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1361970,
+          "memory": 1418440
+        },
+        "security": {
+          "keys": 1,
+          "payload": 376,
+          "memory": 504
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1623628,
+          "memory": 1728248
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10218294,
+          "memory": 11424968
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1623628,
+          "memory": 1728248
+        }
+      },
+      "memory": {
+        "before": 13928152,
+        "after": 4231432
+      },
+      "valuation": {
+        "legacyIncrement": 786432,
+        "columnarIncrement": 484816
+      }
+    },
+    {
+      "symbol": "CAT",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2008.4,
+      "parityMismatches": 0,
+      "families": {
+        "prices": {
+          "keys": 35,
+          "payload": 1350495,
+          "memory": 1400008
+        },
+        "financials": {
+          "keys": 228,
+          "payload": 895781,
+          "memory": 1026168
+        },
+        "security": {
+          "keys": 1,
+          "payload": 380,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1584601,
+          "memory": 1679096
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10673011,
+          "memory": 12014792
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1584601,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 14499608,
+        "after": 4163912
+      },
+      "valuation": {
+        "legacyIncrement": 466944,
+        "columnarIncrement": 509392
+      }
+    },
+    {
+      "symbol": "CRM",
+      "rows": 5601,
+      "chunks": 23,
+      "keys": 187,
+      "hydrationMs": 1243.7,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 138,
+          "payload": 535509,
+          "memory": 615176
+        },
+        "daily-state": {
+          "keys": 23,
+          "payload": 1020929,
+          "memory": 1085208
+        },
+        "prices": {
+          "keys": 23,
+          "payload": 877095,
+          "memory": 916904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "security": {
+          "keys": 1,
+          "payload": 377,
+          "memory": 504
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 34800
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 23,
+          "payload": 6087678,
+          "memory": 6770088
+        },
+        "columnar": {
+          "keys": 23,
+          "payload": 1020929,
+          "memory": 1085208
+        }
+      },
+      "memory": {
+        "before": 8338136,
+        "after": 2653256
+      },
+      "valuation": {
+        "legacyIncrement": 598016,
+        "columnarIncrement": 335504
+      }
+    },
+    {
+      "symbol": "CSCO",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 295,
+      "hydrationMs": 2007.9,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 222,
+          "payload": 891454,
+          "memory": 1010640
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1343309,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 381,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1554106,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 56336
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10710296,
+          "memory": 12014792
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1554106,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14485056,
+        "after": 4141168
+      },
+      "valuation": {
+        "legacyIncrement": 720896,
+        "columnarIncrement": 511440
+      }
+    },
+    {
+      "symbol": "CVX",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2072.7,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 818107,
+          "memory": 939560
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1356974,
+          "memory": 1402056
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1588887,
+          "memory": 1668856
+        },
+        "security": {
+          "keys": 1,
+          "payload": 374,
+          "memory": 504
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10309254,
+          "memory": 11707592
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1588887,
+          "memory": 1668856
+        }
+      },
+      "memory": {
+        "before": 14107784,
+        "after": 4069048
+      },
+      "valuation": {
+        "legacyIncrement": 446464,
+        "columnarIncrement": 536016
+      }
+    },
+    {
+      "symbol": "DIS",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2229.6,
+      "parityMismatches": 0,
+      "families": {
+        "prices": {
+          "keys": 35,
+          "payload": 1353527,
+          "memory": 1402056
+        },
+        "financials": {
+          "keys": 228,
+          "payload": 889272,
+          "memory": 1012600
+        },
+        "security": {
+          "keys": 1,
+          "payload": 387,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1577669,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10612245,
+          "memory": 11752648
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1577669,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14225944,
+        "after": 4144200
+      },
+      "valuation": {
+        "legacyIncrement": 983040,
+        "columnarIncrement": 525776
+      }
+    },
+    {
+      "symbol": "GOOGL",
+      "rows": 5561,
+      "chunks": 23,
+      "keys": 187,
+      "hydrationMs": 1320,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 138,
+          "payload": 556734,
+          "memory": 629512
+        },
+        "daily-state": {
+          "keys": 23,
+          "payload": 1013714,
+          "memory": 1079064
+        },
+        "prices": {
+          "keys": 23,
+          "payload": 881989,
+          "memory": 921000
+        },
+        "security": {
+          "keys": 1,
+          "payload": 395,
+          "memory": 568
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 34800
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 23,
+          "payload": 6732770,
+          "memory": 7142824
+        },
+        "columnar": {
+          "keys": 23,
+          "payload": 1013714,
+          "memory": 1079064
+        }
+      },
+      "memory": {
+        "before": 8729368,
+        "after": 2665608
+      },
+      "valuation": {
+        "legacyIncrement": 1159168,
+        "columnarIncrement": 333456
+      }
+    },
+    {
+      "symbol": "GS",
+      "rows": 6892,
+      "chunks": 28,
+      "keys": 227,
+      "hydrationMs": 1554,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 168,
+          "payload": 670911,
+          "memory": 763096
+        },
+        "daily-state": {
+          "keys": 28,
+          "payload": 1297824,
+          "memory": 1344096
+        },
+        "security": {
+          "keys": 1,
+          "payload": 402,
+          "memory": 568
+        },
+        "prices": {
+          "keys": 28,
+          "payload": 1102458,
+          "memory": 1130656
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 40576
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 28,
+          "payload": 8025630,
+          "memory": 8876192
+        },
+        "columnar": {
+          "keys": 28,
+          "payload": 1297824,
+          "memory": 1344096
+        }
+      },
+      "memory": {
+        "before": 10811752,
+        "after": 3279656
+      },
+      "valuation": {
+        "legacyIncrement": 516096,
+        "columnarIncrement": 417344
+      }
+    },
+    {
+      "symbol": "HD",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2122.8,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 892971,
+          "memory": 1026432
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1351617,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 381,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1586576,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10845951,
+          "memory": 12391624
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1586576,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14878752,
+        "after": 4158032
+      },
+      "valuation": {
+        "legacyIncrement": 278528,
+        "columnarIncrement": 525776
+      }
+    },
+    {
+      "symbol": "HON",
+      "rows": 6437,
+      "chunks": 26,
+      "keys": 211,
+      "hydrationMs": 1451.9,
+      "parityMismatches": 0,
+      "families": {
+        "daily-state": {
+          "keys": 26,
+          "payload": 1197762,
+          "memory": 1261840
+        },
+        "financials": {
+          "keys": 156,
+          "payload": 622014,
+          "memory": 705464
+        },
+        "prices": {
+          "keys": 26,
+          "payload": 1013695,
+          "memory": 1060720
+        },
+        "security": {
+          "keys": 1,
+          "payload": 380,
+          "memory": 568
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 37856
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 26,
+          "payload": 8191126,
+          "memory": 9260912
+        },
+        "columnar": {
+          "keys": 26,
+          "payload": 1197762,
+          "memory": 1261840
+        }
+      },
+      "memory": {
+        "before": 11066184,
+        "after": 3067112
+      },
+      "valuation": {
+        "legacyIncrement": 344064,
+        "columnarIncrement": 380512
+      }
+    },
+    {
+      "symbol": "IBM",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 1964.7,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 910447,
+          "memory": 1060480
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1359763,
+          "memory": 1402056
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1613970,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "security": {
+          "keys": 1,
+          "payload": 413,
+          "memory": 568
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11035346,
+          "memory": 12416200
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1613970,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14937376,
+        "after": 4192080
+      },
+      "valuation": {
+        "legacyIncrement": 761856,
+        "columnarIncrement": 533968
+      }
+    },
+    {
+      "symbol": "JNJ",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2043.2,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 906964,
+          "memory": 1026960
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1352141,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 384,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1595172,
+          "memory": 1679096
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11192201,
+          "memory": 12801224
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1595172,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 15288880,
+        "after": 4166752
+      },
+      "valuation": {
+        "legacyIncrement": 327680,
+        "columnarIncrement": 525776
+      }
+    },
+    {
+      "symbol": "JPM",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2104.2,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 903184,
+          "memory": 1032832
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1353359,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 386,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1582254,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10608768,
+          "memory": 11850952
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1582254,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14344480,
+        "after": 4164432
+      },
+      "valuation": {
+        "legacyIncrement": 720896,
+        "columnarIncrement": 533968
+      }
+    },
+    {
+      "symbol": "KO",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2097.6,
+      "parityMismatches": 0,
+      "families": {
+        "prices": {
+          "keys": 35,
+          "payload": 1344635,
+          "memory": 1402056
+        },
+        "financials": {
+          "keys": 228,
+          "payload": 902079,
+          "memory": 1022072
+        },
+        "security": {
+          "keys": 1,
+          "payload": 392,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1568722,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11183513,
+          "memory": 12735688
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1568722,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 15218456,
+        "after": 4153672
+      },
+      "valuation": {
+        "legacyIncrement": 524288,
+        "columnarIncrement": 533968
+      }
+    },
+    {
+      "symbol": "MCD",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2041.8,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 888496,
+          "memory": 1020536
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1352641,
+          "memory": 1402056
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1584543,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "security": {
+          "keys": 1,
+          "payload": 379,
+          "memory": 568
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10448562,
+          "memory": 11916488
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1584543,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14397720,
+        "after": 4152136
+      },
+      "valuation": {
+        "legacyIncrement": 262144,
+        "columnarIncrement": 533968
+      }
+    },
+    {
+      "symbol": "MMM",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2077.4,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 896806,
+          "memory": 1020280
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1355655,
+          "memory": 1402056
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1594389,
+          "memory": 1679096
+        },
+        "security": {
+          "keys": 1,
+          "payload": 363,
+          "memory": 504
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11139836,
+          "memory": 12637384
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1594389,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 15118296,
+        "after": 4160008
+      },
+      "valuation": {
+        "legacyIncrement": 425984,
+        "columnarIncrement": 525776
+      }
+    },
+    {
+      "symbol": "MRK",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2147.5,
+      "parityMismatches": 0,
+      "families": {
+        "prices": {
+          "keys": 35,
+          "payload": 1347475,
+          "memory": 1402056
+        },
+        "financials": {
+          "keys": 228,
+          "payload": 898964,
+          "memory": 1032568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1575887,
+          "memory": 1670904
+        },
+        "security": {
+          "keys": 1,
+          "payload": 384,
+          "memory": 568
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11151132,
+          "memory": 12735688
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1575887,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 15228952,
+        "after": 4164168
+      },
+      "valuation": {
+        "legacyIncrement": 458752,
+        "columnarIncrement": 533968
+      }
+    },
+    {
+      "symbol": "MRNA",
+      "rows": 1960,
+      "chunks": 9,
+      "keys": 75,
+      "hydrationMs": 420,
+      "parityMismatches": 0,
+      "families": {
+        "prices": {
+          "keys": 9,
+          "payload": 309969,
+          "memory": 323416
+        },
+        "financials": {
+          "keys": 54,
+          "payload": 188307,
+          "memory": 220200
+        },
+        "security": {
+          "keys": 1,
+          "payload": 365,
+          "memory": 504
+        },
+        "daily-state": {
+          "keys": 9,
+          "payload": 349957,
+          "memory": 380136
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 14224
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 9,
+          "payload": 1766411,
+          "memory": 1920856
+        },
+        "columnar": {
+          "keys": 9,
+          "payload": 349957,
+          "memory": 380136
+        }
+      },
+      "memory": {
+        "before": 2479864,
+        "after": 939144
+      },
+      "valuation": {
+        "legacyIncrement": 214528,
+        "columnarIncrement": 98928
+      }
+    },
+    {
+      "symbol": "MSFT",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 1978.7,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 899828,
+          "memory": 1027704
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1353586,
+          "memory": 1418440
+        },
+        "security": {
+          "keys": 1,
+          "payload": 385,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1577590,
+          "memory": 1679096
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11052582,
+          "memory": 12408008
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1577590,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 14912792,
+        "after": 4183880
+      },
+      "valuation": {
+        "legacyIncrement": 589824,
+        "columnarIncrement": 509392
+      }
+    },
+    {
+      "symbol": "NKE",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2142.6,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 879982,
+          "memory": 1005952
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1321189,
+          "memory": 1400008
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1549644,
+          "memory": 1670904
+        },
+        "security": {
+          "keys": 1,
+          "payload": 388,
+          "memory": 568
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11077352,
+          "memory": 12342472
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1549644,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14807072,
+        "after": 4135504
+      },
+      "valuation": {
+        "legacyIncrement": 786432,
+        "columnarIncrement": 460240
+      }
+    },
+    {
+      "symbol": "NVDA",
+      "rows": 6962,
+      "chunks": 28,
+      "keys": 227,
+      "hydrationMs": 1558.2,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 168,
+          "payload": 662783,
+          "memory": 759488
+        },
+        "prices": {
+          "keys": 28,
+          "payload": 1137887,
+          "memory": 1282208
+        },
+        "daily-state": {
+          "keys": 28,
+          "payload": 1288030,
+          "memory": 1356384
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "security": {
+          "keys": 1,
+          "payload": 371,
+          "memory": 504
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 40576
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 28,
+          "payload": 8374421,
+          "memory": 9539744
+        },
+        "columnar": {
+          "keys": 28,
+          "payload": 1288030,
+          "memory": 1356384
+        }
+      },
+      "memory": {
+        "before": 11623184,
+        "after": 3439824
+      },
+      "valuation": {
+        "legacyIncrement": 540672,
+        "columnarIncrement": 425536
+      }
+    },
+    {
+      "symbol": "PG",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2004.8,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 897695,
+          "memory": 1014400
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1350942,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 403,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1586834,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11199637,
+          "memory": 12866760
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1586834,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 15341856,
+        "after": 4146000
+      },
+      "valuation": {
+        "legacyIncrement": 393216,
+        "columnarIncrement": 536016
+      }
+    },
+    {
+      "symbol": "SHW",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2133.4,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 879084,
+          "memory": 1005688
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1337657,
+          "memory": 1400008
+        },
+        "security": {
+          "keys": 1,
+          "payload": 393,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1567614,
+          "memory": 1679096
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11201708,
+          "memory": 12473544
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1567614,
+          "memory": 1679096
+        }
+      },
+      "memory": {
+        "before": 14937880,
+        "after": 4143432
+      },
+      "valuation": {
+        "legacyIncrement": 786432,
+        "columnarIncrement": 460240
+      }
+    },
+    {
+      "symbol": "TRV",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2134.1,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 875188,
+          "memory": 1012608
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1338396,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 407,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1583668,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10399365,
+          "memory": 11605192
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1583668,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14078496,
+        "after": 4144208
+      },
+      "valuation": {
+        "legacyIncrement": 802816,
+        "columnarIncrement": 517584
+      }
+    },
+    {
+      "symbol": "UNH",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2181.9,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 893494,
+          "memory": 1016696
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1344769,
+          "memory": 1400008
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1576304,
+          "memory": 1687288
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "security": {
+          "keys": 1,
+          "payload": 396,
+          "memory": 568
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11022060,
+          "memory": 12391624
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1576304,
+          "memory": 1687288
+        }
+      },
+      "memory": {
+        "before": 14866968,
+        "after": 4162632
+      },
+      "valuation": {
+        "legacyIncrement": 606208,
+        "columnarIncrement": 468432
+      }
+    },
+    {
+      "symbol": "V",
+      "rows": 4660,
+      "chunks": 19,
+      "keys": 155,
+      "hydrationMs": 1131.8,
+      "parityMismatches": 0,
+      "families": {
+        "prices": {
+          "keys": 19,
+          "payload": 742531,
+          "memory": 764744
+        },
+        "financials": {
+          "keys": 114,
+          "payload": 452375,
+          "memory": 516808
+        },
+        "security": {
+          "keys": 1,
+          "payload": 381,
+          "memory": 568
+        },
+        "daily-state": {
+          "keys": 19,
+          "payload": 866020,
+          "memory": 916600
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 29360
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 19,
+          "payload": 5984157,
+          "memory": 6835016
+        },
+        "columnar": {
+          "keys": 19,
+          "payload": 866020,
+          "memory": 916600
+        }
+      },
+      "memory": {
+        "before": 8147160,
+        "after": 2228744
+      },
+      "valuation": {
+        "legacyIncrement": 212992,
+        "columnarIncrement": 265936
+      }
+    },
+    {
+      "symbol": "WMT",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2086.2,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 903545,
+          "memory": 1033592
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1342253,
+          "memory": 1400008
+        },
+        "security": {
+          "keys": 1,
+          "payload": 373,
+          "memory": 504
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1556001,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 11132215,
+          "memory": 12981448
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1556001,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 15473624,
+        "after": 4163080
+      },
+      "valuation": {
+        "legacyIncrement": 131072,
+        "columnarIncrement": 509392
+      }
+    },
+    {
+      "symbol": "XOM",
+      "rows": 8558,
+      "chunks": 35,
+      "keys": 301,
+      "hydrationMs": 2043.4,
+      "parityMismatches": 0,
+      "families": {
+        "financials": {
+          "keys": 228,
+          "payload": 898439,
+          "memory": 1037176
+        },
+        "prices": {
+          "keys": 35,
+          "payload": 1350200,
+          "memory": 1402056
+        },
+        "security": {
+          "keys": 1,
+          "payload": 378,
+          "memory": 504
+        },
+        "daily-state": {
+          "keys": 35,
+          "payload": 1576785,
+          "memory": 1670904
+        },
+        "manifest": {
+          "keys": 1,
+          "payload": 500,
+          "memory": 664
+        },
+        "registry": {
+          "keys": 1,
+          "payload": 0,
+          "memory": 57408
+        }
+      },
+      "dailyState": {
+        "legacy": {
+          "keys": 35,
+          "payload": 10989991,
+          "memory": 12473544
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 1576785,
+          "memory": 1670904
+        }
+      },
+      "memory": {
+        "before": 14971352,
+        "after": 4168712
+      },
+      "valuation": {
+        "legacyIncrement": 589824,
+        "columnarIncrement": 533968
+      }
+    }
+  ],
+  "realWorld": {
+    "securities": 33,
+    "rows": 259410,
+    "parityMismatches": 0,
+    "memoryPerSecurity": {
+      "before": {
+        "mean": 13349604,
+        "median": 14470888,
+        "p95": 15423776,
+        "max": 15473624,
+        "min": 2479864
+      },
+      "after": {
+        "mean": 3816903,
+        "median": 4152136,
+        "p95": 4260104,
+        "max": 4276488,
+        "min": 939144
+      }
+    },
+    "dailyStatePayloadTotal": {
+      "before": 324686010,
+      "after": 47948096
+    },
+    "dailyStateMemoryTotal": {
+      "before": 365404152,
+      "after": 50825032
+    },
+    "largest": {
+      "before": "WMT",
+      "after": "AAPL"
+    },
+    "keysPerSecurity": {
+      "mean": 274,
+      "median": 301,
+      "p95": 301,
+      "max": 301,
+      "min": 75
+    },
+    "at100": {
+      "before": 1447088800,
+      "after": 415213600
+    },
+    "at100Max": {
+      "before": 1547362400,
+      "after": 427648800
+    }
+  },
+  "synthetic": {
+    "rows": 8871,
+    "realistic": {
+      "legacy": {
+        "keys": 35,
+        "payload": 12386464,
+        "memory": 13407432
+      },
+      "columnar": {
+        "keys": 35,
+        "payload": 2025964,
+        "memory": 2238200
+      },
+      "valuation": {
+        "legacy": {
+          "keys": 35,
+          "payload": 13204598,
+          "memory": 13423256
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 2446758,
+          "memory": 2785944
+        }
+      },
+      "decodeFullHistory": {
+        "legacy": {
+          "medianMs": 38.887,
+          "maxMs": 44.167,
+          "minMs": 33.773
+        },
+        "columnar": {
+          "medianMs": 35.515,
+          "maxMs": 67.205,
+          "minMs": 31.366
+        }
+      },
+      "encodeFullHistory": {
+        "legacy": {
+          "medianMs": 41.336,
+          "maxMs": 42.481,
+          "minMs": 39.932
+        },
+        "columnar": {
+          "medianMs": 30.647,
+          "maxMs": 30.776,
+          "minMs": 30.056
+        }
+      }
+    },
+    "ceiling": {
+      "legacy": {
+        "keys": 35,
+        "payload": 12386685,
+        "memory": 13407432
+      },
+      "columnar": {
+        "keys": 35,
+        "payload": 5767804,
+        "memory": 6674168
+      },
+      "valuation": {
+        "legacy": {
+          "keys": 35,
+          "payload": 13204819,
+          "memory": 13423256
+        },
+        "columnar": {
+          "keys": 35,
+          "payload": 6188598,
+          "memory": 6705816
+        }
+      },
+      "decodeFullHistory": {
+        "legacy": {
+          "medianMs": 39.171,
+          "maxMs": 47.32,
+          "minMs": 33.311
+        },
+        "columnar": {
+          "medianMs": 47.542,
+          "maxMs": 146.931,
+          "minMs": 44.457
+        }
+      },
+      "encodeFullHistory": {
+        "legacy": {
+          "medianMs": 43.423,
+          "maxMs": 49.879,
+          "minMs": 42.192
+        },
+        "columnar": {
+          "medianMs": 56.776,
+          "maxMs": 59.026,
+          "minMs": 56.335
+        }
+      }
+    }
+  },
+  "capacity": {
+    "budgetBytes": 2000000000,
+    "residentLimit": 100,
+    "otherFamiliesAtTheirLargest": 2627672,
+    "before": {
+      "perSecurity": 16035104,
+      "at100": 1603510400,
+      "residentsWithinBudget": 124
+    },
+    "afterRealisticWorstCase": {
+      "perSecurity": 4865872,
+      "at100": 486587200,
+      "residentsWithinBudget": 411
+    },
+    "afterCeiling": {
+      "perSecurity": 9301840,
+      "at100": 930184000,
+      "residentsWithinBudget": 215
+    },
+    "realMaximumBefore": 15473624,
+    "realMaximumAfter": 4276488
+  },
+  "valuationSimulation": {
+    "columns": [
+      "peRatio",
+      "psRatio",
+      "pfcfRatio",
+      "evToEbitda"
+    ],
+    "note": "Benchmark-only: four daily-changing numeric columns appended to real and synthetic chunks.",
+    "realIncrementPerSecurity": {
+      "legacy": {
+        "mean": 590119,
+        "median": 540672,
+        "p95": 1269760,
+        "max": 1310720,
+        "min": 131072
+      },
+      "columnar": {
+        "mean": 468128,
+        "median": 509392,
+        "p95": 536016,
+        "max": 536016,
+        "min": 98928
+      }
+    }
+  },
+  "timing": {
+    "security": "WMT",
+    "rowsPerYear": 250,
+    "years": 35,
+    "encodeYear": {
+      "legacy": {
+        "medianMs": 1.123,
+        "maxMs": 2.294,
+        "minMs": 1.073
+      },
+      "columnar": {
+        "medianMs": 0.736,
+        "maxMs": 1.857,
+        "minMs": 0.732
+      }
+    },
+    "decodeYear": {
+      "legacy": {
+        "medianMs": 0.823,
+        "maxMs": 1.701,
+        "minMs": 0.808
+      },
+      "columnar": {
+        "medianMs": 0.724,
+        "maxMs": 1.75,
+        "minMs": 0.72
+      }
+    },
+    "encodeFullHistory": {
+      "legacy": {
+        "medianMs": 41.027,
+        "maxMs": 45.863,
+        "minMs": 36.564
+      },
+      "columnar": {
+        "medianMs": 28.096,
+        "maxMs": 28.781,
+        "minMs": 27.426
+      }
+    },
+    "decodeFullHistory": {
+      "legacy": {
+        "medianMs": 39.13,
+        "maxMs": 46.631,
+        "minMs": 30.973
+      },
+      "columnar": {
+        "medianMs": 34.155,
+        "maxMs": 37.872,
+        "minMs": 29.396
+      }
+    },
+    "warmFullHistoryRead": {
+      "legacy": {
+        "medianMs": 160.437,
+        "maxMs": 199.137,
+        "minMs": 111.48
+      },
+      "columnar": {
+        "medianMs": 44.306,
+        "maxMs": 51.312,
+        "minMs": 40.563
+      }
+    },
+    "warmFullHistoryCacheRead": {
+      "medianMs": 47.434,
+      "maxMs": 71.109,
+      "minMs": 44.668
+    },
+    "payloadBytes": {
+      "legacyYear": 335572,
+      "columnarYear": 46864,
+      "legacyFullHistory": 11132215,
+      "columnarFullHistory": 1556001
+    },
+    "allocation": {
+      "gcDuringThirtyFullHistoryDecodesDiscarded": {
+        "legacy": {
+          "collections": 30,
+          "gcMs": 37.097
+        },
+        "columnar": {
+          "collections": 91,
+          "gcMs": 146.302
+        }
+      },
+      "gcDuringThirtyFullHistoryDecodesKept": {
+        "legacy": {
+          "collections": 47,
+          "gcMs": 236.237
+        },
+        "columnar": {
+          "collections": 89,
+          "gcMs": 116.672
+        },
+        "rowsHeldByEachRead": {
+          "legacy": 8558,
+          "columnar": 8558
+        }
+      },
+      "retainedBytesPerFullHistoryRead": {
+        "legacy": 12110746,
+        "columnar": 7183834,
+        "parsedColumnarChunksOnly": 3458394
+      }
+    }
+  },
+  "reads": {
+    "stockDetailsFundamental": {
+      "symbol": "AAPL",
+      "metric": "ROIC_TTM",
+      "sessions": 7545,
+      "withValue": 5950,
+      "responseBytes": 286019,
+      "medianMs": 43.305,
+      "maxMs": 86.993,
+      "minMs": 41.497,
+      "commandsPerRead": {
+        "GET": 6,
+        "MGET": 1,
+        "EVAL touch-ready": 1
+      }
+    },
+    "backtestFrames": {
+      "symbol": "AAPL",
+      "0 Fundamentals": {
+        "windows": 31,
+        "frameRows": 7738,
+        "medianMs": 132.439,
+        "maxMs": 190.102,
+        "minMs": 129.643,
+        "commandsPerRun": {
+          "GET": 124,
+          "MGET": 62,
+          "EVAL touch-ready": 62
+        }
+      },
+      "1 Fundamental": {
+        "windows": 31,
+        "frameRows": 7738,
+        "medianMs": 133.522,
+        "maxMs": 149.799,
+        "minMs": 131.709,
+        "commandsPerRun": {
+          "GET": 124,
+          "MGET": 62,
+          "EVAL touch-ready": 62
+        }
+      },
+      "5 Fundamentals": {
+        "windows": 31,
+        "frameRows": 7738,
+        "medianMs": 120.944,
+        "maxMs": 121.762,
+        "minMs": 118.263,
+        "commandsPerRun": {
+          "GET": 124,
+          "MGET": 62,
+          "EVAL touch-ready": 62
+        }
+      },
+      "15 Fundamentals": {
+        "windows": 31,
+        "frameRows": 7738,
+        "medianMs": 126.204,
+        "maxMs": 128.749,
+        "minMs": 125.364,
+        "commandsPerRun": {
+          "GET": 124,
+          "MGET": 62,
+          "EVAL touch-ready": 62
+        }
+      },
+      "mixed": {
+        "windows": 31,
+        "frameRows": 7738,
+        "medianMs": 125.055,
+        "maxMs": 141.319,
+        "minMs": 124.862,
+        "commandsPerRun": {
+          "GET": 124,
+          "MGET": 62,
+          "EVAL touch-ready": 62
+        }
+      }
+    },
+    "coldRepublish": {
+      "symbol": "AAPL",
+      "medianMs": 1997.944,
+      "maxMs": 1997.944,
+      "minMs": 1997.944,
+      "commands": {
+        "GET": 3,
+        "EVAL begin-hydration": 1,
+        "EVAL set-registered": 299,
+        "EVAL publish-ready": 1
+      }
+    }
+  }
+}

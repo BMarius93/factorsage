@@ -1,6 +1,6 @@
 # Data-correctness audit — summary
 
-Generated 2026-09-29T23:21:47.017Z at `c07671b5` (audit/fundamental-metrics-v1), 4 min. Database `intrinsic_value_matrix`, data as of 2026-09-22.
+Generated 2026-09-30T07:48:03.836Z at `207938fb` (perf/redis-columnar-daily-state), 3 min. Database `intrinsic_value_matrix`, data as of 2026-09-22.
 
 **FAIL** — 90,922,695 comparisons: 90,922,694 passed (12,249,390 of them within a stated tolerance), 1 failed, 25 skipped.
 

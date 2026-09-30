@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-09-29T23:21:47.017Z",
+  "generatedAt": "2026-09-30T07:48:03.836Z",
   "git": {
-    "commit": "c07671b5",
-    "branch": "audit/fundamental-metrics-v1"
+    "commit": "207938fb",
+    "branch": "perf/redis-columnar-daily-state"
   },
-  "durationMs": 255864,
+  "durationMs": 178833,
   "context": {
     "database": "intrinsic_value_matrix",
     "asOf": "2026-09-22",
@@ -1123,8 +1123,8 @@
         "securities": 33,
         "chunks": 1061,
         "yearBoundaries": 1028,
-        "slowestMaterializeMs": 151,
-        "slowestHydrationMs": 4365
+        "slowestMaterializeMs": 88,
+        "slowestHydrationMs": 3731
       },
       "notes": [
         "Full retained history of every audited security: each year's published daily-state chunk against the stored rows (every Fundamental, absence as an omitted key), the production materializer re-run on the rebuild's own inputs against the stored text, and a republish after eviction compared byte for byte."
