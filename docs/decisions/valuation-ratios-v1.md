@@ -121,10 +121,10 @@ if the close and the share count carry the same adjustments.
    Every session where `A` or `G` is unmeasured is unavailable. Margin of Safety adopts the same
    basis in the same change.
 
-6. **A separate methodology question: recast statements.** The provider restates recent quarters
-   to continuing operations after a spin-off but not older ones. A TTM revenue or EBITDA window can
-   therefore mix bases next to an as-filed net income. The follow-up decides whether such a window
-   is used or made unavailable.
+6. **A separate methodology question: recast statements.** Around a spin-off the provider recasts
+   some quarters to continuing operations and leaves others as filed, not necessarily the older
+   ones, while net income stays the whole company's. A TTM revenue or EBITDA window can therefore
+   mix bases. The follow-up decides whether such a window is used or made unavailable.
 
 ## Settled by the evidence, for the follow-up
 

@@ -41,8 +41,8 @@ insider transaction prices. Everything below is the corrected version.
   - 87 of the 89 are invisible in the latest-quarter share count.
   - The provider's share restatements equal its split factors: AAPL ×28, NVDA ×10, AMZN ×20,
     WMT ×3 and CRWD ×4.
-  - Insider prices confirm the price side: AAPL's trade at 4.00× the stored close before its
-    2020 split, and GOOGL's at 20.0× before its 2022 split.
+  - Insider prices confirm the price side: AAPL insider trades before its 2020 split are at 4.00×
+    the stored close, and GOOGL's before its 2022 split at 20.0×.
 - **Also found.**
   - B3: a few quarters' share counts sit on a different basis than their neighbours (593
     sessions).
@@ -54,12 +54,12 @@ insider transaction prices. Everything below is the corrected version.
 
 ## Scope
 
-| Data                                    | What was read                                                                                                                                                                                                                                                |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Development database `intrinsic_value`  | 62 securities with statements, 23,853 statement revisions, 6,391 quarterly income identities, and 332,294 price sessions from 1996-09-30 (the 30-year product horizon on 2026-09-30).                                                                        |
-| QA matrix copy `intrinsic_value_matrix` | The 33-security subset: 16,797 revisions and 234,085 sessions. Every finding below holds there too.                                                                                                                                                          |
-| Insider transactions                    | The 63,377 stored open-market Form 4 trades (codes `S` and `P`) of the 33 matrix securities, from 2000-08-31. A transaction price is the as-traded price on its date, so its ratio to that session's stored close measures the adjustment the close carries. |
-| Provider (investigation only)           | 152 read-only requests with the local key: the split history of all 62 securities (`stable/splits`), adjusted and "unadjusted" closes in 13 windows, and as-reported quarterly income statements. Nothing was persisted in the repository.                   |
+| Data                                    | What was read                                                                                                                                                                                                                                                                                |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Development database `intrinsic_value`  | 62 securities with statements, 23,853 statement revisions, 6,391 quarterly income identities, and 332,294 price sessions from 1996-09-30 (the 30-year product horizon on 2026-09-30).                                                                                                        |
+| QA matrix copy `intrinsic_value_matrix` | The 33-security subset: 16,797 revisions and 234,085 sessions. Each finding holds there for the securities it contains.                                                                                                                                                                      |
+| Insider transactions                    | The 63,377 priced open-market Form 4 trades (codes `S` and `P`) that fall on a stored session, for the 33 matrix securities, from 2000-08-31. A transaction price is the as-traded price on its date, so its ratio to that session's stored close measures the adjustment the close carries. |
+| Provider (investigation only)           | 152 read-only requests with the local key: the split history of all 62 securities (`stable/splits`), adjusted and "unadjusted" closes in 13 windows, and as-reported quarterly income statements. Nothing was persisted in the repository.                                                   |
 
 Every stored statement revision was first observed between 2026-08-31 and 2026-09-28. Only 25
 fiscal identities have more than one revision, in five securities, and none of the income-statement
@@ -125,18 +125,17 @@ quarter became available, wherever only share splits followed.
 ### 2. Is `epsDiluted` on the same basis?
 
 **Yes, on the same restatement, with a precision loss.** Most values are stored to the cent, which
-hides a lot when restatement makes EPS small:
-
-- AAPL's Q3 FY2012 diluted EPS was 9.32 as filed; divided by 28 that is 0.3329, stored as 0.33;
-- CSCO's early-1990s quarters are stored at 0.01, where net income ÷ shares is about 0.0007.
-
-Some values keep sub-cent precision (1,116 of 6,391, in 56 securities), so the rounding is not
-uniform. The provider also has EPS defects of its own:
+loses precision when restatement makes EPS small. AAPL's Q3 FY2012 diluted EPS was 9.32 as filed;
+divided by 28 that is 0.3329, and it is stored as 0.33. Some values keep sub-cent precision (1,116 of
+6,391, in 56 securities), so the rounding is not uniform. The provider also has EPS defects of its
+own:
 
 - a fourth quarter carrying the fiscal year's EPS: CVX Q4 2010 is stored at 9.48, where net
   income ÷ shares gives 2.64;
 - a figure that disagrees with its own net income: JNJ Q3 2019 is stored at 1.81, against 0.66;
-- a half-restated EPS: GOOG and GOOGL Q4 2006 and Q4 2007 are about twice net income ÷ shares.
+- a half-restated EPS: GOOG and GOOGL Q4 2006 and Q4 2007 are about twice net income ÷ shares;
+- a value no rounding explains: CSCO's FY1990 quarters are stored at 0.01, where net income ÷
+  shares is 0.0007 to 0.0010.
 
 ### 3. Does `epsDiluted × weightedAverageShsOutDil` reconcile with net income?
 
@@ -154,7 +153,7 @@ uniform. The provider also has EPS defects of its own:
 - Of the 191 quarters beyond 20 %, only 21 are cent rounding: their EPS is within half a cent of
   net income ÷ shares.
 - The other 170 are provider disagreements between EPS and net income, concentrated in DIS (42),
-  ROP (27), JPM (14) and CSCO (12).
+  ROP (26), JPM (14) and CSCO (11).
 - The diluted share count is present on all 6,391 quarterly income statements, and four of them
   are not positive.
 
@@ -184,16 +183,16 @@ they were splits, and the share counts do not follow them, because a spin-off ch
 count. The ratio of insider transaction prices to the stored close measures each adjustment
 directly:
 
-| Security | Sessions (before the next event) | Event and provider split-history entry                                                    | Insider price ÷ stored close (median, n) | Share counts                             | `close × shares` against the true equity value |
-| -------- | -------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
-| MMM      | to 2024-03-28 (6,920)            | Solventum spin-off, 2024-04-01: **no entry**                                              | 1.1967 (317); 1.0022 after (158)         | not restated (554 M → 556 M, as filed)   | **−16.4 %**                                    |
-| HON      | to 2018-10-26 (4,450)            | Garrett and Resideo spin-offs, 2018-10-29: entry 1011:1000 (`stock-split`), **too small** | 1.0602 (267)                             | restated ×0.5 by the 2026 reverse split  | **−52.8 %**                                    |
-| HON      | 2018-10-29 → 2025-10-29 (1,760)  | Solstice spin-off, 2025-10-30: **no entry**                                               | 1.0107 (31)                              | restated ×0.5                            | **−50.5 %**                                    |
-| HON      | 2025-10-30 → 2026-06-26 (164)    | 1-for-2 reverse split and Aerospace spin-off, 2026-06-29: entry 1907:2000 (`spin-off`)    | 0.9561 (8)                               | restated ×0.5 (EPS as filed 1.29 → 2.58) | **−47.7 %**                                    |
-| WDC      | to 2025-02-21 (7,145)            | Sandisk spin-off, 2025-02-24: entry 1323:1000 (`stock-split`)                             | none stored; entry gives 1.323           | not restated (357 M as filed)            | **−24.4 %**                                    |
-| AXP      | to 2005-09-30 (2,267)            | Ameriprise spin-off, 2005-10-03: entry 10000:8753 (`stock-split`), **too large**          | 1.1327 (148); 0.9984 after (410)         | continuous (1,254 M → 1,258 M)           | **−11.7 %**                                    |
-| MRK      | to 2021-06-02 (6,210)            | Organon spin-off, 2021-06-03: entry 131:125 (`stock-split`)                               | 1.0478 (238); 1.0008 after (123)         | continuous (2,541 M → 2,540 M)           | **−4.6 %**                                     |
-| IBM      | to 2021-11-03 (6,318)            | Kyndryl spin-off, 2021-11-04: entry 523:500 (`stock-split`)                               | 1.0456 (2,164); 0.9951 after (15)        | not restated (25 quarters as filed)      | **−4.4 %**                                     |
+| Security | Sessions (before the next event) | Event and provider split-history entry                                                                                        | Insider price ÷ stored close (median, n) | Share counts                             | `close × shares` against the true equity value |
+| -------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| MMM      | to 2024-03-28 (6,920)            | Solventum spin-off, 2024-04-01: **no entry**                                                                                  | 1.1967 (317); 1.0022 after (158)         | not restated (554 M → 556 M, as filed)   | **−16.4 %**                                    |
+| HON      | to 2018-10-26 (4,450)            | Garrett (2018-10-01) and Resideo (2018-10-29) spin-offs: one entry, 1011:1000 (`stock-split`) dated 2018-10-28, **too small** | 1.0602 (267)                             | restated ×0.5 by the 2026 reverse split  | **−52.8 %**                                    |
+| HON      | 2018-10-29 → 2025-10-29 (1,760)  | Solstice spin-off, 2025-10-30: **no entry**                                                                                   | 1.0107 (31)                              | restated ×0.5                            | **−50.5 %**                                    |
+| HON      | 2025-10-30 → 2026-06-26 (164)    | 1-for-2 reverse split and Aerospace spin-off, 2026-06-29: entry 1907:2000 (`spin-off`)                                        | 0.9561 (8)                               | restated ×0.5 (EPS as filed 1.29 → 2.58) | **−47.7 %**                                    |
+| WDC      | to 2025-02-21 (7,145)            | Sandisk spin-off, 2025-02-24: entry 1323:1000 (`stock-split`)                                                                 | none stored; entry gives 1.323           | not restated (357 M as filed)            | **−24.4 %**                                    |
+| AXP      | to 2005-09-30 (2,267)            | Ameriprise spin-off, 2005-10-03: entry 10000:8753 (`stock-split`), **too large**                                              | 1.1327 (148); 0.9984 after (410)         | continuous (1,254 M → 1,258 M)           | **−11.7 %**                                    |
+| MRK      | to 2021-06-02 (6,210)            | Organon spin-off, 2021-06-03: entry 131:125 (`stock-split`)                                                                   | 1.0478 (238); 1.0008 after (123)         | continuous (2,541 M → 2,540 M)           | **−4.6 %**                                     |
+| IBM      | to 2021-11-03 (6,318)            | Kyndryl spin-off, 2021-11-04: entry 523:500 (`stock-split`)                                                                   | 1.0456 (2,164); 0.9951 after (15)        | not restated (25 quarters as filed)      | **−4.4 %**                                     |
 
 - **One provider entry is not in the stored close.** DIS's 2007-06-13 entry (2000:1973, 1.4 %)
   does not appear in it: insider trades before it sit at 0.999× the stored close (n = 13, a thin
@@ -201,6 +200,9 @@ directly:
 - **GOOG and GOOGL's 2014 class C distributions** (1001:500 and 999:500) are share-changing 2:1
   events. The provider's entry carries a 0.1 % price-only residual, below the 1 % threshold used
   for counting.
+- **HON's rows split at the provider's entry date.** Garrett was distributed on 2018-10-01, so
+  the 19 sessions before 2018-10-29 carry about 1 % less adjustment than the first HON row
+  states.
 - **The stored values carry the bias, not only the feed.** For every event above, the stored close
   on the session before it matches the provider's adjusted close to the cent.
 - **The size of the problem, at 1 % or more.** Development: 35,234 of 332,294 sessions (10.6 %).
@@ -277,16 +279,20 @@ What this means for the ratios:
 
 ## Statements recast around a spin-off
 
-The provider restates recent quarters to continuing operations after a spin-off, but not older
-ones, so the quarters in one TTM window can describe different companies.
+Around a spin-off the provider recasts some quarters to continuing operations and leaves others as
+filed, and the recast ones are not necessarily the most recent. So the quarters in one TTM window
+can describe different companies.
 
-- **WDC.** Revenue is stored as 3,032 M for Q2 FY2024 and 4,285 M for Q2 FY2025 (as filed,
-  including flash). In between, Q3 FY2024 to Q1 FY2025 are stored as 1,752 M, 2,004 M and 2,212 M
-  (hard drives only).
+- **WDC.** Revenue is stored as 3,032 M for Q2 FY2024 and as 4,285 M for Q2 FY2025, the last
+  quarter before the spin-off, both as filed and including flash. In between, Q3 FY2024 to
+  Q1 FY2025 are recast to hard drives only: 1,752 M, 2,004 M and 2,212 M, with discontinued
+  operations of 135 M, 285 M and 340 M.
 - **IBM.** Q4 2020 is stored at 20,368 M as filed, and Q1–Q3 2021 at 13,187 M, 14,218 M and
   13,251 M, which exclude Kyndryl.
-- **Net income is not recast**, so revenue- and EBITDA-based multiples would mix bases around a
-  spin-off even on a correct equity value. That is a methodology question for the follow-up.
+- **Net income stays the whole company's total.** Stored net income is continuing plus
+  discontinued operations (WDC Q3 FY2024: 127 M = −8 M + 135 M). So revenue- and EBITDA-based
+  multiples would mix bases around a spin-off even on a correct equity value. That is a
+  methodology question for the follow-up.
 
 ## Consequence for an existing feature: Margin of Safety
 
@@ -332,8 +338,20 @@ where fs."statementType" = 'INCOME' and fs.period <> 'FY'
 order by s.symbol, fs."fiscalYear", fs.period, fs."availableFromDate" desc, fs."observedAt" desc;
 ```
 
-The adjustment carried by the stored close, measured by insider trades (substitute the security
-and period):
+The adjustment carried by the stored close, measured by insider trades. Substitute the security and
+the period. The figures above use these windows:
+
+- MMM: 2019-01-01 → 2024-03-28 and 2024-04-01 → today;
+- HON: 2010-01-01 → 2018-10-26, then the table's periods;
+- IBM: 2010-01-01 → 2021-11-03;
+- MRK: 2009-01-01 → 2021-06-02;
+- AXP: 2003-01-01 → 2005-09-30 and 2005-10-03 → 2012-12-31;
+- DIS: 2003-01-01 → 2007-06-12;
+- AAPL: 2015-01-01 → 2020-08-28;
+- JNJ from 2010, KO from 2013, and GOOGL: 2014-04-03 → 2022-07-15.
+
+The medians barely move with the window. HON's trades from 2000 to 2018-10-26 give 1.0607
+(n = 370), and IBM's from 2000 to 2021-11-03 give 1.0454 (n = 2,883).
 
 ```sql
 select percentile_cont(0.5) within group (order by i.price / p.close) as median, count(*)
