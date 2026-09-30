@@ -1,0 +1,12 @@
+{
+  "symbol": "CRM",
+  "securityId": "4af63f12-4914-4111-bf15-5bceb001a72c",
+  "retentionFrom": "2004-06-23",
+  "revisions": 351,
+  "retainedRevisions": 333,
+  "derivedRows": 5601,
+  "rowsOutsideCoverage": 0,
+  "compared": 84015,
+  "failed": 0,
+  "mismatches": []
+}

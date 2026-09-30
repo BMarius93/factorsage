@@ -1,0 +1,75 @@
+{
+  "asOf": "2026-09-28",
+  "frames": 1023,
+  "providerCalls": [],
+  "comparisons": {
+    "compared": 3511275,
+    "passed": 3511275,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byKey": {
+    "fundamental:ASSET_TURNOVER_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:CURRENT_RATIO": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:DEBT_TO_EQUITY": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:EPS_GROWTH_TTM_YOY": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:FCF_GROWTH_TTM_YOY": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:FCF_MARGIN_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:GROSS_MARGIN_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:INTEREST_COVERAGE_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:NET_DEBT_TO_EBITDA_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:NET_MARGIN_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:OPERATING_MARGIN_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:REVENUE_GROWTH_TTM_YOY": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:ROA_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:ROE_TTM": {
+      "compared": 234085,
+      "failed": 0
+    },
+    "fundamental:ROIC_TTM": {
+      "compared": 234085,
+      "failed": 0
+    }
+  },
+  "differences": []
+}

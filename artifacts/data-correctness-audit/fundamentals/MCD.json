@@ -1,0 +1,12 @@
+{
+  "symbol": "MCD",
+  "securityId": "3c265786-1b04-4b7b-81a0-3e4837b004ef",
+  "retentionFrom": "1989-09-28",
+  "revisions": 555,
+  "retainedRevisions": 555,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

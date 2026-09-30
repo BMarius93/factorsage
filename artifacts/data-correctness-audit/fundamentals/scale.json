@@ -1,0 +1,43 @@
+{
+  "asOf": "2026-09-28",
+  "securities": 33,
+  "chunks": 1061,
+  "yearBoundaries": 1028,
+  "slowestMaterializeMs": 151,
+  "slowestHydrationMs": 4365,
+  "comparisons": {
+    "compared": 7784455,
+    "passed": 7784455,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byCategory": {
+    "fundamental-scale:chunk": {
+      "compared": 1061,
+      "failed": 0,
+      "skipped": 0
+    },
+    "fundamental-scale:recompute": {
+      "compared": 3891150,
+      "failed": 0,
+      "skipped": 0
+    },
+    "fundamental-scale:redis": {
+      "compared": 3891150,
+      "failed": 0,
+      "skipped": 0
+    },
+    "fundamental-scale:republish": {
+      "compared": 1061,
+      "failed": 0,
+      "skipped": 0
+    },
+    "fundamental-scale:rows": {
+      "compared": 33,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "differences": []
+}

@@ -1,0 +1,12 @@
+{
+  "symbol": "XOM",
+  "securityId": "593de32d-daa3-4ede-a824-6d2fa04ad7bd",
+  "retentionFrom": "1989-09-28",
+  "revisions": 554,
+  "retainedRevisions": 554,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

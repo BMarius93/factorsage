@@ -230,7 +230,16 @@ describe("QA-MATRIX fixture definitions", () => {
       const covered = new Set(
         QA_MATRIX_STRATEGIES.flatMap((fixture) => fixture.behaviours),
       );
-      for (const behaviour of QA_MATRIX_STRATEGY_BEHAVIOURS) {
+      // The Fundamental unit tags postdate the baseline and belong to the `F01` … `F10` dimension,
+      // which `qa-matrix-fundamental-fixtures.test.ts` holds to them; the core set is not edited to
+      // reach them.
+      const laterFamilies = new Set<string>([
+        "FUNDAMENTAL_PERCENT",
+        "FUNDAMENTAL_MULTIPLE",
+      ]);
+      for (const behaviour of QA_MATRIX_STRATEGY_BEHAVIOURS.filter(
+        (tag) => !laterFamilies.has(tag),
+      )) {
         expect(
           covered.has(behaviour),
           `no strategy exercises ${behaviour}`,

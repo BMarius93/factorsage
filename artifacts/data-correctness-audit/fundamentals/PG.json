@@ -1,0 +1,12 @@
+{
+  "symbol": "PG",
+  "securityId": "88b9c4bf-6b39-4967-adf0-a960b5bb35db",
+  "retentionFrom": "1989-09-28",
+  "revisions": 552,
+  "retainedRevisions": 552,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

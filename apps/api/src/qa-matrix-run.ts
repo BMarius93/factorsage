@@ -7,6 +7,7 @@ import {
   currentAsOfDate,
   qaMatrixAuditStrategies,
   qaMatrixFixtures,
+  QA_MATRIX_FUNDAMENTAL_STRATEGIES,
   QA_MATRIX_STRATEGY_SETS,
   resolveAllTestPersonas,
   resolveTestPersona,
@@ -89,6 +90,8 @@ import { MatrixWorkerPool } from "./qa-matrix/matrix-worker-pool";
  * pnpm qa:matrix:run --case S03-L07-C04     # exactly one, reproducing a failure
  * pnpm qa:matrix:run --golden --archive     # the golden set with forensic archives
  * pnpm qa:matrix:run --archive-all          # every case archived (data-correctness audit)
+ * pnpm qa:matrix:run --strategies audit     # A01…A10: Relative Volume and alternative data
+ * pnpm qa:matrix:run --strategies fundamentals  # F01…F10: the Fundamental Metrics
  * pnpm qa:matrix:run --concurrency 2        # override the machine-derived default
  * ```
  *
@@ -147,8 +150,9 @@ function parseFlags(argv: readonly string[]): Flags {
         break;
       case "--strategies": {
         // `core` is `S01` … `S10`, the historical baseline; `audit` is `A01` … `A10`, the Relative
-        // Volume and alternative-data variant. Both are 1,000 runs against the same Lists and
-        // configurations, and neither changes the other's fixtures.
+        // Volume and alternative-data variant; `fundamentals` is `F01` … `F10`, the Fundamental
+        // Metrics variant. Each is 1,000 runs against the same Lists and configurations, and none
+        // changes another's fixtures.
         const value = next().trim().toUpperCase();
         if (!(QA_MATRIX_STRATEGY_SETS as readonly string[]).includes(value)) {
           throw new Error(
@@ -183,8 +187,8 @@ function parseFlags(argv: readonly string[]): Flags {
         break;
       default:
         throw new Error(
-          `Unknown option \`${arg}\`. Supported: --case, --concurrency, --archive, --archive-all, --golden, ` +
-            "--no-determinism, --no-cleanup, --no-warmup, --timeout.",
+          `Unknown option \`${arg}\`. Supported: --case, --strategies, --concurrency, --archive, --archive-all, ` +
+            "--golden, --no-determinism, --no-cleanup, --no-warmup, --timeout.",
         );
     }
   }
@@ -347,7 +351,11 @@ async function main(): Promise<void> {
     const fixtures = qaMatrixFixtures(
       asOfDate,
       calendarDates,
-      auditScopes ? qaMatrixAuditStrategies(auditScopes) : undefined,
+      auditScopes
+        ? qaMatrixAuditStrategies(auditScopes)
+        : flags.strategySet === "FUNDAMENTALS"
+          ? QA_MATRIX_FUNDAMENTAL_STRATEGIES
+          : undefined,
     );
 
     // ---- Preflight. Nothing is submitted if it is not green. -------------------------------

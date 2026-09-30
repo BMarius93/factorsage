@@ -1,0 +1,12 @@
+{
+  "symbol": "NVDA",
+  "securityId": "26afda3e-f5e1-43fc-8002-cc0cad58f42a",
+  "retentionFrom": "1999-01-22",
+  "revisions": 414,
+  "retainedRevisions": 414,
+  "derivedRows": 6962,
+  "rowsOutsideCoverage": 0,
+  "compared": 104430,
+  "failed": 0,
+  "mismatches": []
+}

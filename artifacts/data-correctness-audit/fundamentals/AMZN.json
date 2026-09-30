@@ -1,0 +1,12 @@
+{
+  "symbol": "AMZN",
+  "securityId": "5dda07a0-4cab-413c-9186-a6b5bf3ddd32",
+  "retentionFrom": "1997-05-15",
+  "revisions": 449,
+  "retainedRevisions": 438,
+  "derivedRows": 7387,
+  "rowsOutsideCoverage": 0,
+  "compared": 110805,
+  "failed": 0,
+  "mismatches": []
+}

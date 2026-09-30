@@ -1,0 +1,12 @@
+{
+  "symbol": "NKE",
+  "securityId": "6aef7d90-b0f8-491d-bd22-367504908aa0",
+  "retentionFrom": "1989-09-28",
+  "revisions": 551,
+  "retainedRevisions": 551,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

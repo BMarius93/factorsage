@@ -1,8 +1,8 @@
 # Data-correctness audit — summary
 
-Generated 2026-09-26T01:26:08.206Z at `eef25d95` (audit/backtest-rvol-alternative-data), 0 min. Database `intrinsic_value_matrix`, data as of 2026-09-22.
+Generated 2026-09-29T23:21:47.017Z at `c07671b5` (audit/fundamental-metrics-v1), 4 min. Database `intrinsic_value_matrix`, data as of 2026-09-22.
 
-**FAIL** — 74,739,860 comparisons: 74,739,859 passed (8,617,700 of them within a stated tolerance), 1 failed, 0 skipped.
+**FAIL** — 90,922,695 comparisons: 90,922,694 passed (12,249,390 of them within a stated tolerance), 1 failed, 25 skipped.
 
 | Section | Status | Comparisons | Pass | Fail | Skipped | Tolerance passes | Independent oracle | End to end |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
@@ -20,9 +20,15 @@ Generated 2026-09-26T01:26:08.206Z at `eef25d95` (audit/backtest-rvol-alternativ
 | ui | PASS | 1,318 | 1,318 | 0 | 0 | 0 | yes | yes |
 | relative-volume | PASS | 703,305 | 703,305 | 0 | 0 | 702,657 | yes | no |
 | alternative-data | PASS | 4,221,571 | 4,221,571 | 0 | 0 | 220,789 | yes | no |
+| fundamental-frame-provenance | PASS | 3,511,275 | 3,511,275 | 0 | 0 | 0 | no | no |
+| fundamental-scale | PASS | 7,784,455 | 7,784,455 | 0 | 0 | 0 | no | no |
+| fundamentals | PASS | 4,887,105 | 4,887,105 | 0 | 25 | 3,631,690 | yes | no |
 
 Section detail is in each section's `summary.json`; failing items are listed under `failures/` and in each summary's `differences`.
 
 - **intrinsic**: 2391 statements carry a provider filing date on or before their fiscal period end; their availability is derived from the statutory deadline instead (AUD-03).
 - **look-ahead**: The provider leaves 2,391 statements undated; availability comes from the statutory deadline instead. See FINAL_DATA_CORRECTNESS_AUDIT.md AUD-03.
 - **alternative-data**: 12 row(s) the provider dated as filed on or before the transaction they report. A provider anomaly: availability is still publication + 1 day on every one of them, which is the only rule the product states. 11 stored transaction value(s) one unit in the last place below the exact product, from float64 multiplication before Decimal(24,4) quantization. Maximum absolute error $0.0001.
+- **fundamental-frame-provenance**: Every fundamental:* column of the Fundamentals dimension's operand set, projected per calendar-year window by the production projector over the audited database, compared exactly with the stored DailyDerivedState value it must be a projection of.
+- **fundamental-scale**: Full retained history of every audited security: each year's published daily-state chunk against the stored rows (every Fundamental, absence as an omitted key), the production materializer re-run on the rebuild's own inputs against the stored text, and a republish after eviction compared byte for byte.
+- **fundamentals**: 8 seeded synthetic histories were also run through the production materializer against the oracle on every trading day; their comparisons are included in the totals.

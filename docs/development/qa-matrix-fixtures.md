@@ -251,6 +251,56 @@ into the development database through the ordinary loader; `pnpm qa:matrix:provi
 the actor catalog is empty — a lightweight test database — the seeder reports that the audit set was
 skipped rather than substituting a different scope, and `--strategies audit` refuses to run.
 
+## The Fundamentals variant — the third strategy dimension
+
+The fifteen Fundamental Metrics (`docs/decisions/fundamental-metrics-v1.md`) arrived after both sets
+above, so they get their own dimension for the same reason the audit set exists, selected the same
+way:
+
+```bash
+pnpm qa:matrix:run --strategies fundamentals   # F01 … F10, 1,000 runs — same Lists, same configurations
+```
+
+It is seeded beside the other two under its own reserved namespace (`QA-MATRIX-F…`), pruned
+independently, and its case identities read `QA-MATRIX-F04-L09-C06`. Definitions live in
+`packages/testing/src/qa-matrix/fundamental-strategies.ts`; unlike the audit set they name no database
+id, so they are always seeded.
+
+**The coverage model is the family's rules, not its fifteen instances multiplied.** Every Fundamental
+Metric reaches a run through one operand family (`fundamental:<id>`), one projector and one evaluator
+path, so a fifteen-by-thousand cube would add hours without adding a path. What varies between the
+metrics is what the ten fixtures vary — unit (percentage points against a raw multiple), sign and
+zero thresholds, availability (a growth rate across a loss, a cross-family margin, a solvency ratio
+without interest expense), combination with other families, and level — and every one of the
+fifteen identities appears at least once, so a sweep projects every `fundamental:*` column.
+`qa-matrix-fundamental-fixtures.test.ts` fails if a metric is ever left out, comparing against the
+audit's own statement of the fifteen rather than the product catalog.
+
+How the dimension is audited: `pnpm audit:data-correctness -- --sections=fundamentals
+--fundamental-frames` projects exactly these fixtures' operands through the production projector,
+one calendar-year window at a time, and traces every `fundamental:*` column to the stored value it
+must equal (`docs/data-correctness-audit/README.md`). The `backtests` section's reference backtester
+models the core dimension's metric kinds only, so it refuses an `F` sweep, as it does an `A` sweep,
+by name.
+
+| Id  | Name                                   | Shape                                                                                               | What it is for                                                                                            |
+| --- | -------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| F01 | `QA-MATRIX-F01-roic-quality`           | BUY 100% · ROIC TTM > 15% · FINAL EXIT on ROIC TTM < 8%                                             | The simplest percentage-point Fundamental, entered and left on one metric.                                |
+| F02 | `QA-MATRIX-F02-balance-sheet-strength` | BUY 100% · Debt / Equity < 1.0x ∧ Current Ratio > 1.2x · SELL 50% on Debt / Equity > 2.0x           | Raw multiples from the latest balance sheet; an unavailable Debt / Equity must never pass `< 1.0x`.       |
+| F03 | `QA-MATRIX-F03-growth-ladder`          | BUY 50% (Revenue ∧ EPS Growth > 10%) / BUY 100% (FCF Growth > 15%) · FINAL EXIT Revenue Growth < 0% | Eight-quarter chains in two families, growth unavailable across a loss, and a zero threshold.             |
+| F04 | `QA-MATRIX-F04-margin-stack`           | BUY 100% · Gross > 40% ∧ Operating > 15% ∧ Net > 10% ∧ FCF Margin > 10%                             | Four Fundamentals ANDed, the last needing Income and Cash Flow aligned on one newest quarter.             |
+| F05 | `QA-MATRIX-F05-returns-with-stop`      | BUY 75% · ROE > 15% ∧ ROA > 5% · SELL 25% on ROE < 10% · FINAL EXIT on Loss > 20%                   | Averaged-state returns beside a position-dependent exit.                                                  |
+| F06 | `QA-MATRIX-F06-net-cash-solvency`      | BUY 100% · Net Debt / EBITDA < 0x · FINAL EXIT on Interest Coverage < 3x OR Net Debt / EBITDA > 3x  | A negative threshold on a signed multiple, and a two-rule FINAL EXIT made of Fundamentals.                |
+| F07 | `QA-MATRIX-F07-turnover-in-uptrend`    | BUY 100% · Asset Turnover > 0.8x ∧ Price > SMA 200D ∧ RSI 14D < 70 · SELL 50% on Price < SMA 50D    | A Fundamental ANDed with a moving average and an oscillator.                                              |
+| F08 | `QA-MATRIX-F08-value-with-quality`     | BUY 100% · MOS (Balanced) > 10% ∧ ROIC > 10% ∧ Debt / Equity < 1.5x · FINAL EXIT MOS < -20%         | Intrinsic value and Fundamentals, materialized from the same revisions on the same sessions.              |
+| F09 | `QA-MATRIX-F09-margin-breakout`        | BUY 50% · Operating Margin > 20% ∧ RVOL 20 > 1.2x, Trigger Price crosses above SMA 50D · SELL 75%   | A Fundamental Condition gating a technical Trigger — a Fundamental is never itself the Trigger.           |
+| F10 | `QA-MATRIX-F10-unavailable-probe`      | BUY 100% · EPS Growth > 25% ∧ FCF Growth > 25% ∧ Interest Coverage > 50x ∧ Current Ratio > 3x       | The deliberate **NOT_EVALUABLE probe**: must trade rarely, and never because an absence was read as zero. |
+
+`deriveStrategyBehaviours` recognises a Fundamental Condition by its catalog unit —
+`FUNDAMENTAL_PERCENT` or `FUNDAMENTAL_MULTIPLE` — and refuses an identity the catalog does not define
+rather than leaving it untagged. The core set predates the family and is not edited to reach those
+two tags; the Fundamentals set is held to them.
+
 ## The 10 Stock Lists
 
 All membership uses **real catalog identities** — `Security` is the identity authority, and a

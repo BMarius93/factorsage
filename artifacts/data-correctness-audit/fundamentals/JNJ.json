@@ -1,0 +1,12 @@
+{
+  "symbol": "JNJ",
+  "securityId": "ccd37557-2b54-4a3a-8790-f25e25611c8c",
+  "retentionFrom": "1989-09-28",
+  "revisions": 557,
+  "retainedRevisions": 557,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

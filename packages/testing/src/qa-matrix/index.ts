@@ -18,13 +18,27 @@ import {
  *
  * `CORE` is `S01` … `S10`, the historical Backtest V1 baseline, and is the default everywhere.
  * `AUDIT` is `A01` … `A10` (`audit-strategies.ts`), the Relative Volume and alternative-data
- * variant. Both run against the same ten Lists and ten configurations, so either is 1,000 runs; the
- * set is named in the run label's `Sxx` / `Axx` element, so no two sweeps' case identities collide.
+ * variant. `FUNDAMENTALS` is `F01` … `F10` (`fundamental-strategies.ts`), the Fundamental Metrics
+ * variant. All run against the same ten Lists and ten configurations, so each is 1,000 runs; the
+ * set is named in the run label's `Sxx` / `Axx` / `Fxx` element, so no two sweeps' case identities
+ * collide.
  */
-export const QA_MATRIX_STRATEGY_SETS = ["CORE", "AUDIT"] as const;
+export const QA_MATRIX_STRATEGY_SETS = [
+  "CORE",
+  "AUDIT",
+  "FUNDAMENTALS",
+] as const;
 export type QaMatrixStrategySet = (typeof QA_MATRIX_STRATEGY_SETS)[number];
 
+/** The letter a strategy dimension's fixture ids, run labels and reserved names start with. */
+export const QA_MATRIX_STRATEGY_SET_LETTERS = {
+  CORE: "S",
+  AUDIT: "A",
+  FUNDAMENTALS: "F",
+} as const satisfies Record<QaMatrixStrategySet, string>;
+
 export * from "./audit-strategies.js";
+export * from "./fundamental-strategies.js";
 export * from "./captured-execution-calendar.js";
 export * from "./clock.js";
 export * from "./configs.js";
@@ -161,11 +175,12 @@ export function isQaMatrixRun(run: {
   readonly stockListName: string;
 }): boolean {
   return (
-    (run.strategyName.startsWith(`${QA_MATRIX_NAME_PREFIX}S`) ||
-      // The audit variant shares the reserved namespace and the same retention rule; without it a
-      // sweep of `A01` … `A10` would leave its runs behind for the next one to trip over.
-      run.strategyName.startsWith(`${QA_MATRIX_NAME_PREFIX}A`)) &&
-    run.stockListName.startsWith(`${QA_MATRIX_NAME_PREFIX}L`)
+    // Every strategy dimension shares the reserved namespace and the same retention rule; without
+    // one of them a sweep of `A01` … `A10` or `F01` … `F10` would leave its runs behind for the next
+    // one to trip over.
+    Object.values(QA_MATRIX_STRATEGY_SET_LETTERS).some((letter) =>
+      run.strategyName.startsWith(`${QA_MATRIX_NAME_PREFIX}${letter}`),
+    ) && run.stockListName.startsWith(`${QA_MATRIX_NAME_PREFIX}L`)
   );
 }
 

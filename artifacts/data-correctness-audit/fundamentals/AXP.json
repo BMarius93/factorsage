@@ -1,0 +1,12 @@
+{
+  "symbol": "AXP",
+  "securityId": "ee3b70d0-a882-4f7f-8334-908a308d9411",
+  "retentionFrom": "1989-09-28",
+  "revisions": 552,
+  "retainedRevisions": 552,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

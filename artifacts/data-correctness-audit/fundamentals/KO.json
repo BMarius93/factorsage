@@ -1,0 +1,12 @@
+{
+  "symbol": "KO",
+  "securityId": "695ee397-1f04-4034-89ba-897908a061b1",
+  "retentionFrom": "1989-09-28",
+  "revisions": 555,
+  "retainedRevisions": 555,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

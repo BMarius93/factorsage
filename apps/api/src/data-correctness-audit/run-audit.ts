@@ -17,6 +17,8 @@ import {
   type BacktestExpectation,
 } from "./backtests/run-backtest-audit";
 import { runAlternativeDataSection } from "./alternative-data/run-alternative-data-audit";
+import { auditFundamentalFrames } from "./fundamentals/frame-leg";
+import { runFundamentalsSection } from "./fundamentals/run-fundamentals-audit";
 import { runIntrinsicSection } from "./intrinsic/run-intrinsic-audit";
 import { runRelativeVolumeSection } from "./relative-volume/run-relative-volume-audit";
 import { runFilingDateImpact } from "./lookahead/filing-date-impact";
@@ -45,6 +47,7 @@ const ALL_SECTIONS = [
   "relative-volume",
   "alternative-data",
   "intrinsic",
+  "fundamentals",
   "strategies",
   "lists",
   "backtests",
@@ -360,6 +363,113 @@ async function main(): Promise<void> {
       );
     }
 
+    let fundamentalReferences:
+      Awaited<ReturnType<typeof runFundamentalsSection>>["references"] | null =
+      null;
+    // Only this section builds the stored references. A core sweep names no Fundamental, and a frame
+    // that carries one with no reference fails in frame provenance rather than passing unchecked.
+    if (sections.has("fundamentals")) {
+      log("\n== fundamental metrics");
+      const result = await runFundamentalsSection({
+        prisma,
+        writer,
+        securities,
+        log,
+      });
+      fundamentalReferences = result.references;
+      writer.writeJson("fundamentals/summary.json", {
+        comparisons: result.ledger.totals(),
+        byCategory: result.ledger.byCategory(),
+        perMetric: result.perMetric,
+        perSecurity: result.perSecurity,
+        notCurrent: result.notCurrent,
+        pitViolations: result.pitViolations,
+        unavailableReasons: result.unavailableReasons,
+        generated: result.generated.map(({ sampleMismatches, ...report }) => ({
+          ...report,
+          sampleMismatches: sampleMismatches.slice(0, 5),
+        })),
+        differences: result.ledger.differences,
+      });
+      if (args.includes("--fundamental-frames")) {
+        // The Fundamentals dimension's frames, projected by the production projector over this
+        // database and traced to the stored rows. Takes a few minutes; opt in.
+        log("\n== fundamental frames (frame provenance, production projector)");
+        const asOf = (
+          await prisma.$queryRawUnsafe<{ asOf: string }[]>(
+            `select max("toDate")::text as "asOf" from "StockDatasetCoverage" where dataset = 'DAILY_DERIVED_STATE'`,
+          )
+        )[0]!.asOf;
+        const frames = await auditFundamentalFrames({
+          prisma,
+          redisUrl: environment.redisUrl,
+          securities,
+          references: result.references,
+          asOf,
+          horizonStart,
+          log,
+        });
+        writer.writeJson("fundamentals/frame-provenance.json", {
+          asOf,
+          frames: frames.frames,
+          providerCalls: frames.providerCalls,
+          comparisons: frames.provenance.ledger.totals(),
+          byKey: frames.provenance.byKey,
+          differences: frames.provenance.ledger.differences,
+        });
+        results.push(
+          section(
+            "fundamental-frame-provenance",
+            frames.provenance.ledger.totals(),
+            {
+              independentOracle: false,
+              endToEnd: false,
+              detail: { frames: frames.frames, byKey: frames.provenance.byKey },
+              failures: frames.providerCalls.length,
+              notes: [
+                "Every fundamental:* column of the Fundamentals dimension's operand set, projected per calendar-year window by the production projector over the audited database, compared exactly with the stored DailyDerivedState value it must be a projection of.",
+              ],
+            },
+          ),
+        );
+        const { ledger: scaleLedger, ...scale } = frames.scale;
+        writer.writeJson("fundamentals/scale.json", {
+          asOf,
+          ...scale,
+          comparisons: scaleLedger.totals(),
+          byCategory: scaleLedger.byCategory(),
+          differences: scaleLedger.differences,
+        });
+        results.push(
+          section("fundamental-scale", scaleLedger.totals(), {
+            independentOracle: false,
+            endToEnd: false,
+            detail: scale,
+            failures: frames.providerCalls.length,
+            notes: [
+              "Full retained history of every audited security: each year's published daily-state chunk against the stored rows (every Fundamental, absence as an omitted key), the production materializer re-run on the rebuild's own inputs against the stored text, and a republish after eviction compared byte for byte.",
+            ],
+          }),
+        );
+      }
+      results.push(
+        section("fundamentals", result.ledger.totals(), {
+          independentOracle: true,
+          endToEnd: false,
+          detail: {
+            perMetric: result.perMetric,
+            notCurrent: result.notCurrent,
+            pitViolations: result.pitViolations,
+            generatedHistories: result.generated.length,
+          },
+          failures: result.pitViolations + result.notCurrent.length,
+          notes: [
+            `${result.generated.length} seeded synthetic histories were also run through the production materializer against the oracle on every trading day; their comparisons are included in the totals.`,
+          ],
+        }),
+      );
+    }
+
     if (sections.has("strategies")) {
       log("\n== strategy evaluation (differential)");
       const result = runStrategyDifferential(writer);
@@ -391,6 +501,7 @@ async function main(): Promise<void> {
       const provenance = new FrameProvenance(
         technicalReferences!,
         intrinsicReferences!,
+        fundamentalReferences ?? new Map(),
       );
       const only = flag(args, "case")?.split(",");
       const { totals, audits } = await runBacktestSection({

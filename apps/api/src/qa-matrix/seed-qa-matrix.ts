@@ -13,6 +13,7 @@ import {
   QA_MATRIX_ACTOR_GROUP_MEMBERS,
   QA_MATRIX_ACTOR_GROUP_NAME,
   QA_MATRIX_AUDIT_ACTOR,
+  QA_MATRIX_FUNDAMENTAL_STRATEGIES,
   QA_MATRIX_NAME_PREFIX,
   QA_MATRIX_SECURITIES,
   QA_MATRIX_STRATEGIES,
@@ -67,6 +68,8 @@ export const MISSING_QA_MATRIX_OWNER_MESSAGE =
 const STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}S`;
 /** The audit variant's own namespace, pruned independently so neither set can delete the other. */
 const AUDIT_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}A`;
+/** The Fundamentals variant's own namespace, for the same reason. */
+const FUNDAMENTAL_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}F`;
 const LIST_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}L`;
 
 /**
@@ -101,6 +104,8 @@ export type QaMatrixSeedResult = {
   readonly auditStrategiesSeeded: boolean;
   readonly auditStrategiesCreated: number;
   readonly auditStrategiesUpdated: number;
+  readonly fundamentalStrategiesCreated: number;
+  readonly fundamentalStrategiesUpdated: number;
   readonly listsCreated: number;
   readonly listsUpdated: number;
   readonly staleRemoved: number;
@@ -663,6 +668,13 @@ export async function seedQaMatrixFixtures(
         AUDIT_STRATEGY_NAME_PREFIX,
       )
     : { created: 0, updated: 0, removed: 0 };
+  // The Fundamentals variant names no database id, so it is always seeded beside the other two.
+  const fundamentalStrategies = await seedMatrixStrategies(
+    prisma,
+    ownerUserId,
+    QA_MATRIX_FUNDAMENTAL_STRATEGIES,
+    FUNDAMENTAL_STRATEGY_NAME_PREFIX,
+  );
   const lists = await seedMatrixLists(
     prisma,
     ownerUserId,
@@ -684,10 +696,15 @@ export async function seedQaMatrixFixtures(
     auditStrategiesSeeded: scopes !== null,
     auditStrategiesCreated: auditStrategies.created,
     auditStrategiesUpdated: auditStrategies.updated,
+    fundamentalStrategiesCreated: fundamentalStrategies.created,
+    fundamentalStrategiesUpdated: fundamentalStrategies.updated,
     listsCreated: lists.created,
     listsUpdated: lists.updated,
     staleRemoved:
-      strategies.removed + auditStrategies.removed + lists.removed,
+      strategies.removed +
+      auditStrategies.removed +
+      fundamentalStrategies.removed +
+      lists.removed,
   };
 }
 
@@ -704,6 +721,7 @@ export function describeQaMatrixSeed(
     result.auditStrategiesSeeded
       ? `audit strategies (${result.auditStrategiesCreated} created, ${result.auditStrategiesUpdated} updated)`
       : "audit strategies skipped (actor catalog has no congressional members)",
+    `fundamentals strategies (${result.fundamentalStrategiesCreated} created, ${result.fundamentalStrategiesUpdated} updated)`,
     `${fixtures.lists.length} lists (${result.listsCreated} created, ${result.listsUpdated} updated)`,
     `${QA_MATRIX_SECURITIES.length} securities (${result.securitiesCreated} created)`,
     `${result.staleRemoved} stale fixture(s) removed`,

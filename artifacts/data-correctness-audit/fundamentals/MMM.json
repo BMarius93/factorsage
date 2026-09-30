@@ -1,0 +1,12 @@
+{
+  "symbol": "MMM",
+  "securityId": "2d0a92e1-8671-4998-82c2-22c0c42a987e",
+  "retentionFrom": "1989-09-28",
+  "revisions": 554,
+  "retainedRevisions": 554,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

@@ -1,0 +1,12 @@
+{
+  "symbol": "V",
+  "securityId": "e819f6b8-16c8-4788-bdf7-1a1543b9cc47",
+  "retentionFrom": "2008-03-19",
+  "revisions": 308,
+  "retainedRevisions": 276,
+  "derivedRows": 4660,
+  "rowsOutsideCoverage": 0,
+  "compared": 69900,
+  "failed": 0,
+  "mismatches": []
+}

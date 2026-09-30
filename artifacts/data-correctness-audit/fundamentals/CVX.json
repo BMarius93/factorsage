@@ -1,0 +1,12 @@
+{
+  "symbol": "CVX",
+  "securityId": "2dc7c7fa-ebe8-4919-a365-31127cce0804",
+  "retentionFrom": "1989-09-28",
+  "revisions": 500,
+  "retainedRevisions": 500,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

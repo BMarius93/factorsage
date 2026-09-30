@@ -499,6 +499,26 @@ determinism differences
 Recording a metric's non-null count is mandatory: an always-null broken implementation can otherwise
 produce zero numeric mismatches.
 
+The audit was run on 2026-09-29 and 2026-09-30 and is recorded in
+`docs/fundamental-metrics-audit/REPORT.md`. Its apparatus stays in the repository. These parts run in
+the ordinary gate (`pnpm test`):
+
+- `apps/api/src/data-correctness-audit/oracle/fundamentals.ts` — the clean-room reference, written
+  from this methodology alone and held by ESLint to import nothing from the product;
+- `apps/api/src/data-correctness-audit/fundamentals/` — the seeded generated-history differential,
+  the named-edge matrix, the Strategy and identity audits, the PostgreSQL + Redis PIT/rebuild,
+  persistence and read-cost audits, and the single-source-of-truth anchor
+  (`packages/testing/src/fundamental-audit.ts`) that PostgreSQL, Redis, the Strategy and Monitor
+  frames, the Stock Details API, the worker's backtest path
+  (`apps/worker/src/backtest/backtest-fundamentals-audit.integration.test.ts`) and the chart
+  (`apps/web/src/features/stocks/details/utils/fundamental-series.audit.test.ts`) are all held to.
+
+These need the provisioned QA-matrix database and run on demand:
+
+- the data-correctness audit's `fundamentals` section and its `--fundamental-frames` flag, over the
+  real securities of that database (`docs/data-correctness-audit/README.md`);
+- the QA matrix's `F01` … `F10` dimension (`pnpm qa:matrix:run --strategies fundamentals`).
+
 ## Performance / budget checks
 
 Feature correctness comes first, but the final implementation must measure rather than guess:

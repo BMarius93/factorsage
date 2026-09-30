@@ -1,0 +1,12 @@
+{
+  "symbol": "CAT",
+  "securityId": "d1a89fe2-9ff4-4f1b-bb07-ddcf7aee2deb",
+  "retentionFrom": "1989-09-28",
+  "revisions": 555,
+  "retainedRevisions": 555,
+  "derivedRows": 8558,
+  "rowsOutsideCoverage": 13,
+  "compared": 128370,
+  "failed": 0,
+  "mismatches": []
+}

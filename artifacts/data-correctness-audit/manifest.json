@@ -1,21 +1,21 @@
 {
-  "generatedAt": "2026-09-26T01:26:08.206Z",
+  "generatedAt": "2026-09-29T23:21:47.017Z",
   "git": {
-    "commit": "eef25d95",
-    "branch": "audit/backtest-rvol-alternative-data"
+    "commit": "c07671b5",
+    "branch": "audit/fundamental-metrics-v1"
   },
-  "durationMs": 21522,
+  "durationMs": 255864,
   "context": {
     "database": "intrinsic_value_matrix",
     "asOf": "2026-09-22",
     "securities": 33
   },
   "totals": {
-    "comparisons": 74739860,
-    "passed": 74739859,
+    "comparisons": 90922695,
+    "passed": 90922694,
     "failed": 1,
-    "skipped": 0,
-    "tolerancePasses": 8617700
+    "skipped": 25,
+    "tolerancePasses": 12249390
   },
   "status": "FAIL",
   "sections": [
@@ -1028,6 +1028,232 @@
       "notes": [
         "12 row(s) the provider dated as filed on or before the transaction they report. A provider anomaly: availability is still publication + 1 day on every one of them, which is the only rule the product states.",
         "11 stored transaction value(s) one unit in the last place below the exact product, from float64 multiplication before Decimal(24,4) quantization. Maximum absolute error $0.0001."
+      ]
+    },
+    {
+      "section": "fundamental-frame-provenance",
+      "status": "PASS",
+      "comparisons": 3511275,
+      "passed": 3511275,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": false,
+      "endToEnd": false,
+      "detail": {
+        "frames": 1023,
+        "byKey": {
+          "fundamental:ASSET_TURNOVER_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:CURRENT_RATIO": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:DEBT_TO_EQUITY": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:EPS_GROWTH_TTM_YOY": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:FCF_GROWTH_TTM_YOY": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:FCF_MARGIN_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:GROSS_MARGIN_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:INTEREST_COVERAGE_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:NET_DEBT_TO_EBITDA_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:NET_MARGIN_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:OPERATING_MARGIN_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:REVENUE_GROWTH_TTM_YOY": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:ROA_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:ROE_TTM": {
+            "compared": 234085,
+            "failed": 0
+          },
+          "fundamental:ROIC_TTM": {
+            "compared": 234085,
+            "failed": 0
+          }
+        }
+      },
+      "notes": [
+        "Every fundamental:* column of the Fundamentals dimension's operand set, projected per calendar-year window by the production projector over the audited database, compared exactly with the stored DailyDerivedState value it must be a projection of."
+      ]
+    },
+    {
+      "section": "fundamental-scale",
+      "status": "PASS",
+      "comparisons": 7784455,
+      "passed": 7784455,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": false,
+      "endToEnd": false,
+      "detail": {
+        "securities": 33,
+        "chunks": 1061,
+        "yearBoundaries": 1028,
+        "slowestMaterializeMs": 151,
+        "slowestHydrationMs": 4365
+      },
+      "notes": [
+        "Full retained history of every audited security: each year's published daily-state chunk against the stored rows (every Fundamental, absence as an omitted key), the production materializer re-run on the rebuild's own inputs against the stored text, and a republish after eviction compared byte for byte."
+      ]
+    },
+    {
+      "section": "fundamentals",
+      "status": "PASS",
+      "comparisons": 4887105,
+      "passed": 4887105,
+      "failed": 0,
+      "skipped": 25,
+      "tolerancePasses": 3631690,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "perMetric": {
+          "REVENUE_GROWTH_TTM_YOY": {
+            "compared": 259410,
+            "available": 254219,
+            "unavailable": 5191,
+            "failed": 0,
+            "maxAbsDifference": 4.998707225922772e-9
+          },
+          "EPS_GROWTH_TTM_YOY": {
+            "compared": 259410,
+            "available": 236181,
+            "unavailable": 23229,
+            "failed": 0,
+            "maxAbsDifference": 4.986596024991741e-9
+          },
+          "FCF_GROWTH_TTM_YOY": {
+            "compared": 259410,
+            "available": 221992,
+            "unavailable": 37418,
+            "failed": 0,
+            "maxAbsDifference": 4.994786806378215e-9
+          },
+          "GROSS_MARGIN_TTM": {
+            "compared": 259410,
+            "available": 256498,
+            "unavailable": 2912,
+            "failed": 0,
+            "maxAbsDifference": 4.999506586500502e-9
+          },
+          "OPERATING_MARGIN_TTM": {
+            "compared": 259410,
+            "available": 256498,
+            "unavailable": 2912,
+            "failed": 0,
+            "maxAbsDifference": 4.997509961413016e-9
+          },
+          "NET_MARGIN_TTM": {
+            "compared": 259410,
+            "available": 256498,
+            "unavailable": 2912,
+            "failed": 0,
+            "maxAbsDifference": 4.999833436158951e-9
+          },
+          "FCF_MARGIN_TTM": {
+            "compared": 259410,
+            "available": 256115,
+            "unavailable": 3295,
+            "failed": 0,
+            "maxAbsDifference": 4.998408797973752e-9
+          },
+          "ROIC_TTM": {
+            "compared": 259410,
+            "available": 246356,
+            "unavailable": 13054,
+            "failed": 0,
+            "maxAbsDifference": 4.99675678611311e-9
+          },
+          "ROE_TTM": {
+            "compared": 259410,
+            "available": 249684,
+            "unavailable": 9726,
+            "failed": 0,
+            "maxAbsDifference": 4.998371494480125e-9
+          },
+          "ROA_TTM": {
+            "compared": 259410,
+            "available": 255597,
+            "unavailable": 3813,
+            "failed": 0,
+            "maxAbsDifference": 4.998240044074009e-9
+          },
+          "DEBT_TO_EQUITY": {
+            "compared": 259410,
+            "available": 252198,
+            "unavailable": 7212,
+            "failed": 0,
+            "maxAbsDifference": 4.994402391655939e-9
+          },
+          "CURRENT_RATIO": {
+            "compared": 259410,
+            "available": 256595,
+            "unavailable": 2815,
+            "failed": 0,
+            "maxAbsDifference": 5.000000413701855e-9
+          },
+          "NET_DEBT_TO_EBITDA_TTM": {
+            "compared": 259410,
+            "available": 251241,
+            "unavailable": 8169,
+            "failed": 0,
+            "maxAbsDifference": 4.999554714668619e-9
+          },
+          "INTEREST_COVERAGE_TTM": {
+            "compared": 259410,
+            "available": 173517,
+            "unavailable": 85893,
+            "failed": 0,
+            "maxAbsDifference": 5.000003966415534e-9
+          },
+          "ASSET_TURNOVER_TTM": {
+            "compared": 259410,
+            "available": 255597,
+            "unavailable": 3813,
+            "failed": 0,
+            "maxAbsDifference": 4.998858771365633e-9
+          }
+        },
+        "notCurrent": [],
+        "pitViolations": 0,
+        "generatedHistories": 8
+      },
+      "notes": [
+        "8 seeded synthetic histories were also run through the production materializer against the oracle on every trading day; their comparisons are included in the totals."
       ]
     }
   ]

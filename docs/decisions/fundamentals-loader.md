@@ -361,6 +361,11 @@ Only earlier syncs count. Snapshots that arrive together were observed together,
 a provider response never decides which one was public first, and a fiscal period seen for the first
 time keeps the initial rule for every period end it arrives with.
 
+The same holds for two filings of one logical identity in one response — an original and its
+amendment: a sync's rows are judged oldest filing first, so the original is public from its own
+filing whether the provider lists it before or after the amendment. Rows that share one filing date
+keep the provider's order, and the later ones remain corrections first observed now (rule 3).
+
 Without this, a provider that moved a quarter's period end — `2025-12-31` reported months later as
 `2025-12-27` or `2026-01-02`, same filing date, new values — produced a row dated public from the
 original filing: every historical session after that filing would change on the next rebuild, a
