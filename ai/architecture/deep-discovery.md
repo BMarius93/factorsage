@@ -702,9 +702,14 @@ Safety is not changed.
 design: two price bases, a basis-event ledger, re-base detection and atomic replacement. Its
 status is **Blocked** on an external as-traded reference. Its evidence
 (`../../docs/historical-price-basis/INVESTIGATION.md`) confirms the six securities by
-insider-range containment and finds no seventh among the 62. It also establishes that today's
-Margin of Safety is correct at the live edge and biased only on historical sessions before a
-folded distribution.
+insider-range containment and finds no seventh among the 62.
+
+It adds two findings:
+
+- At the live edge the price basis is right (`Φ = 1`), but statement content can lag a
+  distribution. HON's Balanced Margin of Safety reads +14.3 % on 2026-09-24 because one stored
+  quarter includes the separation.
+- The provider scales volume by the same factor as price, so RVOL is affected too.
 
 ---
 
