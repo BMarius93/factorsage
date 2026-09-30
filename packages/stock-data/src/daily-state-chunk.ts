@@ -429,7 +429,10 @@ function materializeRows(
     row.date = axis[first + offset];
     let nested: Record<string, unknown> | undefined;
     let nestedField: string | undefined;
-    for (const [position, column] of COLUMNS.entries()) {
+    // An index loop, not `entries()`: this runs once per column on every row of every read, and an
+    // `[index, column]` pair per step was most of the garbage a thirty-year decode produced.
+    for (let position = 0; position < COLUMNS.length; position += 1) {
+      const column = COLUMNS[position] as DailyStateColumn;
       const value = (values[position] as Cell[])[offset];
       if (value === undefined) {
         continue;
@@ -462,16 +465,21 @@ function shapeChanged(values: readonly Cell[][], offset: number): boolean {
 }
 
 /**
- * A row holding exactly the fields present at `offset`, in canonical order, with placeholder
- * values of each field's own kind — so writing the real values never changes a field's
- * representation. A nested family appears once, where its first present member is.
+ * A row holding exactly the fields present at `offset`, in canonical order. A nested family
+ * appears once, where its first present member is.
+ *
+ * Every placeholder is `null`, never a number of the field's kind. A numeric placeholder makes V8
+ * store the field as an unboxed double, so every clone allocates a box of its own per numeric
+ * field; a tagged field instead lets each row hold the very number the parser produced, which a
+ * run shares across all of its sessions. Measured on a thirty-year history, that is the difference
+ * between more garbage than `JSON.parse` of the old rows and less.
  */
 function rowTemplate(
   securityId: string,
   values: readonly Cell[][],
   offset: number,
 ): Record<string, unknown> {
-  const entries: [string, unknown][] = [
+  const entries: [string, null | string][] = [
     ["securityId", securityId],
     ["date", ""],
   ];
@@ -480,10 +488,8 @@ function rowTemplate(
     if ((values[position] as Cell[])[offset] === undefined) {
       continue;
     }
-    if (column.key === undefined) {
-      entries.push([column.field, column.kind === "number" ? Number.NaN : ""]);
-    } else if (nestedField !== column.field) {
-      nestedField = column.field;
+    if (column.key === undefined || nestedField !== column.field) {
+      nestedField = column.key === undefined ? undefined : column.field;
       entries.push([column.field, null]);
     }
   }
