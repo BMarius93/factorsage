@@ -76,8 +76,10 @@ models and blends, the derived state, or adding a new series or family — read 
 4. `workflows/validation.md` for the test gate, and `product/stock-details.md` with
    `../docs/decisions/selectable-series-catalog.md` for the consuming product surface.
 
-Do not propose JSONB, EAV, a Redis redesign or a generic series endpoint as the current direction:
-the first document records why they are deferred or rejected.
+Do not propose JSONB, EAV, a new Redis namespace or per-series keys, or a generic series endpoint
+as the current direction: the first document records why they are deferred or rejected. The yearly
+Redis chunk itself is already column-oriented; its layout, measurements and versioning are in the
+same document.
 
 `DERIVED_STATE_REVISION` governs only the derived state. Historical _price_ coverage has its own
 revision, `PRICE_DATASET_VERSION`, documented in `../docs/decisions/complete-price-coverage.md`;

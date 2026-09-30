@@ -97,7 +97,7 @@ window N: 2010-01-01 -> 2010-08-15
 ```
 
 Calendar years rather than rolling chunks, because the canonical projections are already stored and
-cached per calendar year (`prices:1D:<year>`, `daily-state:<year>`), so a year-aligned window reads
+cached per calendar year (`prices:1D:<year>`, `daily-state:v2:<year>`), so a year-aligned window reads
 whole chunks instead of straddling two. `planExecutionWindows` derives them from the pinned
 execution calendar; a year the calendar has no trading day in produces no window.
 

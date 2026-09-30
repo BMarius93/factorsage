@@ -2,6 +2,7 @@ export * from "./backtest-data-revisions.js";
 export const STOCK_DATA_PACKAGE_NAME = "@intrinsic/stock-data" as const;
 
 export * from "./cache.js";
+export * from "./daily-state-chunk.js";
 export * from "./coordination.js";
 export * from "./dates.js";
 export * from "./derived-state.js";

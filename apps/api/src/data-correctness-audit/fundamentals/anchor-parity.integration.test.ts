@@ -16,6 +16,8 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
+  dailyStateChunkKey,
+  decodeDailyStateChunk,
   fundamentalsDatasetOperations,
   monitorWindowObservations,
   priceRetentionYears,
@@ -432,17 +434,26 @@ describeInfrastructure(
         keys.some((key) => /fundamental/i.test(key.slice(namespace.length))),
       ).toBe(false);
       const chunkKeys = keys.filter((key) => key.includes(":daily-state:"));
-      for (const year of ["2023", "2024", "2025"]) {
-        const key = chunkKeys.find((candidate) =>
-          candidate.endsWith(`:daily-state:${year}`),
+      /** One chunk, through the one canonical decoder: a chunk that does not decode fails here. */
+      const chunkRows = async (year: number) => {
+        const key = dailyStateChunkKey(namespace, security.id, year);
+        expect(chunkKeys, String(year)).toContain(key);
+        const payload = (await redis.get(key)) ?? "";
+        // Absence is a count in the chunk, never a JSON null or a zero.
+        expect(payload, String(year)).not.toContain("null");
+        const decoded = decodeDailyStateChunk(payload, {
+          securityId: security.id,
+          year,
+        });
+        expect(decoded.ok ? "readable" : decoded.reason, String(year)).toBe(
+          "readable",
         );
-        expect(key, year).toBeDefined();
-        const chunk = JSON.parse((await redis.get(key!)) ?? "[]") as Record<
-          string,
-          unknown
-        >[];
+        return (decoded.ok ? decoded.rows : []) as Record<string, unknown>[];
+      };
+      for (const year of [2023, 2024, 2025]) {
+        const chunk = await chunkRows(year);
         expect(chunk.map((row) => row.date)).toEqual(
-          sessions.filter((session) => session.startsWith(year)),
+          sessions.filter((session) => session.startsWith(String(year))),
         );
         // Absence is an omitted key, never a JSON null.
         for (const row of chunk) {
@@ -455,10 +466,12 @@ describeInfrastructure(
         }
       }
       // Years the load window reaches without price history hold empty chunks, never rows.
-      for (const key of chunkKeys.filter(
-        (candidate) => !/:daily-state:202[345]$/.test(candidate),
+      const chunkYears = chunkKeys.map((key) => Number(key.slice(-4)));
+      expect(chunkYears.length).toBeGreaterThan(3);
+      for (const year of chunkYears.filter(
+        (candidate) => candidate < 2023 || candidate > 2025,
       )) {
-        expect(JSON.parse((await redis.get(key)) ?? "[]"), key).toEqual([]);
+        expect(await chunkRows(year), String(year)).toEqual([]);
       }
     });
 

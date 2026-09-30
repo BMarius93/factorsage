@@ -40,6 +40,7 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
+import { DAILY_STATE_ENCODING_VERSION } from "./daily-state-chunk.js";
 import { addDays } from "./dates.js";
 import {
   CanonicalStockDataService,
@@ -996,6 +997,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
       priceDatasetVersion: PRICE_DATASET_VERSION,
     } as StockManifest);
     const loader = createService(
@@ -1391,6 +1393,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     const loader = createService(
       store,
@@ -1698,6 +1701,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     provider.rowsByRange.set("2026-08-14:2026-08-24", [
       price("2026-08-20", 200),
@@ -1777,6 +1781,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     // The refresh only rebuilds derived rows from August forward.
     provider.rowsByRange.set("2026-08-14:2026-08-24", [
@@ -1830,6 +1835,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     provider.failure = new Error("provider failed");
     const loader = createService(
@@ -1886,6 +1892,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     setFundamentalsStates(store, NOW);
     const loader = createService(
@@ -1937,6 +1944,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     provider.rowsByRange.set("2026-08-14:2026-08-24", [
       price("2026-08-20", 200),
@@ -1985,6 +1993,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     provider.financialFailures.set(
       "INCOME:QUARTERLY:12",
@@ -2042,6 +2051,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     provider.financialFailures.set(
       "INCOME:QUARTERLY:12",
@@ -2122,6 +2132,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
 
     let releaseSlow = () => {};
@@ -2192,6 +2203,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     provider.financialRows.set("INCOME:QUARTERLY:12", [
       {
@@ -2312,6 +2324,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     const loader = createService(
       store,
@@ -2382,6 +2395,7 @@ describe("canonical full-stock hydration", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     };
     provider.beforeReturn = async () => cache.setManifest(successor);
     let ownershipChecks = 0;
@@ -3771,6 +3785,7 @@ describe("Fundamental Metrics in the derived-state lifecycle", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: 6,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
 
     const rows = await createService(
@@ -3855,6 +3870,7 @@ describe("derived-state revision and valuation warm-up retention", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: 1,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     const loader = createService(
       store,
@@ -4393,6 +4409,7 @@ describe("complete price coverage", () => {
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     cache.prices.set(security.id, rows);
     return { store, cache };
@@ -4881,6 +4898,7 @@ describe("a backtest executes exactly the period it snapshotted", () => {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
     return { store, provider, cache };
   }

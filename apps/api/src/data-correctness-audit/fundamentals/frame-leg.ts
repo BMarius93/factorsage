@@ -8,6 +8,8 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
+  dailyStateChunkKey,
+  decodeDailyStateChunk,
   materializeDailyFundamentals,
   subtractYears,
 } from "@intrinsic/stock-data";
@@ -48,9 +50,9 @@ export type FundamentalScaleReport = {
  * The same hydrations carry the full-scale checks (audit section 36), per security and over its
  * whole retained history:
  *
- * - every year of the derived coverage has its published `daily-state` chunk, holding exactly the
- *   stored rows of that year, each Fundamental `Object.is` the stored decimal and omitted where it
- *   is `NULL` — year boundaries included;
+ * - every year of the derived coverage has its published `daily-state` chunk, readable by the
+ *   canonical decoder and holding exactly the stored rows of that year, each Fundamental
+ *   `Object.is` the stored decimal and omitted where it is `NULL` — year boundaries included;
  * - the production materializer, run again here on the rebuild's own inputs (the retained revisions
  *   and the stored sessions), reproduces the stored text of every Fundamental on every covered
  *   session: the persisted state is a deterministic function of the statements;
@@ -139,7 +141,7 @@ export async function auditFundamentalFrames(input: {
     slowestHydrationMs: 0,
   };
   const chunkKey = (securityId: string, year: number) =>
-    `${namespace}:security:${securityId}:daily-state:${year}`;
+    dailyStateChunkKey(namespace, securityId, year);
   let frames = 0;
 
   function digest(payload: string | null): string | null {
@@ -181,18 +183,26 @@ export async function auditFundamentalFrames(input: {
     const cached = new Map<string, Record<string, unknown>>();
     years.forEach((year, index) => {
       const payload = payloads[index] ?? null;
+      // Read through the one canonical decoder, exactly as the cache reads it: a chunk it cannot
+      // decode is a failure here, never a chunk this audit parses its own way.
+      const decoded =
+        payload === null
+          ? null
+          : decodeDailyStateChunk(payload, { securityId: security.id, year });
       scale.ledger.check(
         "fundamental-scale:chunk",
         `${security.symbol}/${year}`,
         "published",
-        payload === null ? "missing" : "published",
+        decoded === null
+          ? "missing"
+          : decoded.ok
+            ? "published"
+            : `unreadable: ${decoded.reason}`,
         "exact-text",
       );
-      scale.chunks += payload === null ? 0 : 1;
-      for (const row of payload === null
-        ? []
-        : (JSON.parse(payload) as Record<string, unknown>[])) {
-        cached.set(row.date as string, row);
+      scale.chunks += decoded?.ok ? 1 : 0;
+      for (const row of decoded?.ok ? decoded.rows : []) {
+        cached.set(row.date, row as unknown as Record<string, unknown>);
       }
     });
     const covered = reference.dates.flatMap((date, index) =>

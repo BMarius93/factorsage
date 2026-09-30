@@ -55,6 +55,7 @@ import {
   type StockDataCache,
   type StockManifest,
 } from "./cache.js";
+import { DAILY_STATE_ENCODING_VERSION } from "./daily-state-chunk.js";
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
 import {
   projectEvaluationFrame,
@@ -2027,6 +2028,7 @@ export class CanonicalStockDataService implements StockDataService {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     };
   }
 
@@ -2048,6 +2050,7 @@ export class CanonicalStockDataService implements StockDataService {
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     };
   }
 
@@ -2068,7 +2071,34 @@ export class CanonicalStockDataService implements StockDataService {
       manifest.priceRetentionYears === this.priceRetentionYears &&
       manifest.priceDatasetVersion === PRICE_DATASET_VERSION &&
       manifest.financialStatementVersion === FINANCIAL_STATEMENT_VERSION &&
-      manifest.derivedStateRevision === DERIVED_STATE_REVISION
+      manifest.derivedStateRevision === DERIVED_STATE_REVISION &&
+      // The Redis encoding of the derived state, not its methodology: a manifest published over
+      // chunks of another encoding costs one rebuild of the projection from PostgreSQL. Nothing is
+      // recalculated, and the provider is asked only for a tail PostgreSQL has not covered yet —
+      // exactly what any hydration of the same range would ask for.
+      manifest.dailyStateEncodingVersion === DAILY_STATE_ENCODING_VERSION
+    );
+  }
+
+  /**
+   * Whether a manifest is current in every respect except, possibly, the encoding its `daily-state`
+   * chunks were written in.
+   *
+   * Such a manifest cannot be read from — `covers` still refuses it — but its coverage still
+   * describes exactly what this service would materialize, because an encoding moves bytes and never
+   * a value. Keeping that coverage is what makes the rebuild that rewrites the chunks republish the
+   * whole resident range, rather than narrowing the stock to the window of whichever read found the
+   * old encoding first.
+   */
+  private isCurrentExceptEncoding(
+    manifest: StockManifest | null,
+  ): manifest is StockManifest {
+    return (
+      manifest !== null &&
+      this.isCurrent({
+        ...manifest,
+        dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+      })
     );
   }
 
@@ -2183,7 +2213,7 @@ export class CanonicalStockDataService implements StockDataService {
     required: Required<DateRange>,
     resident: StockManifest | null,
   ): Required<DateRange> {
-    const residentStart = this.isCurrent(resident)
+    const residentStart = this.isCurrentExceptEncoding(resident)
       ? resident.coverageStart
       : undefined;
     return {

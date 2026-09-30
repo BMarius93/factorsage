@@ -1,0 +1,2041 @@
+{
+ "description": "Redis footprint and read timings of the row-oriented (version-1) daily-state layout, measured with main's own CanonicalStockDataService and RedisStockDataCache at 81f53560 before any change: every matrix security hydrated over its full retained history into a throwaway namespace, provider refused. Machine-specific timings.",
+ "measuredAt": "2026-09-30",
+ "gitCommit": "81f53560285518349cd7dc83488a186a035ca7f0",
+ "environment": {
+  "machine": "Apple M1, 8 cores, 8 GB",
+  "node": "v22.23.2",
+  "redis": "7.4.11",
+  "database": "intrinsic_value_matrix",
+  "asOf": "2026-09-28"
+ },
+ "providerCalls": 0,
+ "perSecurityMemory": {
+  "mean": 13344437.545454545,
+  "median": 14465464,
+  "max": 15468200,
+  "min": 2478567,
+  "maxSymbol": "WMT"
+ },
+ "legacyPayloadComposition": {
+  "structure": 11667189,
+  "families": {
+   "identity": {
+    "names": 5188200,
+    "values": 12970500,
+    "present": 518820
+   },
+   "weeklyStart": {
+    "names": 6225600,
+    "values": 3112800,
+    "present": 259400
+   },
+   "rsi": {
+    "names": 6739667,
+    "values": 8467411,
+    "present": 777669
+   },
+   "rvol": {
+    "names": 6988410,
+    "values": 7678908,
+    "present": 776490
+   },
+   "fundamentals": {
+    "names": 59868813,
+    "values": 38332427,
+    "present": 3678786
+   },
+   "intrinsicModels": {
+    "names": 14641419,
+    "values": 10642392,
+    "present": 253649
+   },
+   "intrinsicBlends": {
+    "names": 12208823,
+    "values": 7272707,
+    "present": 213287
+   },
+   "provenance": {
+    "names": 18636727,
+    "values": 23467444,
+    "present": 902594
+   },
+   "currency": {
+    "names": 5072980,
+    "values": 1268245,
+    "present": 253649
+   },
+   "dailyMa": {
+    "names": 16938108,
+    "values": 15933338,
+    "present": 1797256
+   },
+   "weeklyMa": {
+    "names": 16140638,
+    "values": 15223264,
+    "present": 1715708
+   }
+  }
+ },
+ "runsPerYearByColumn": {
+  "sma20d": {
+   "years": 995,
+   "median": 251,
+   "max": 254
+  },
+  "sma50d": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "sma100d": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "sma200d": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "ema20d": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "ema50d": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "ema200d": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "weeklySourceWeekStart": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "sma20w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "sma50w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "sma100w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "sma200w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "ema20w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "ema50w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "ema200w": {
+   "years": 995,
+   "median": 53,
+   "max": 54
+  },
+  "rsi7d": {
+   "years": 995,
+   "median": 250,
+   "max": 253
+  },
+  "rsi14d": {
+   "years": 995,
+   "median": 250,
+   "max": 253
+  },
+  "rsi21d": {
+   "years": 995,
+   "median": 250,
+   "max": 253
+  },
+  "rvol10": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "rvol20": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "rvol50": {
+   "years": 995,
+   "median": 252,
+   "max": 254
+  },
+  "revenueGrowthTtmYoy": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "epsGrowthTtmYoy": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "fcfGrowthTtmYoy": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "grossMarginTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "operatingMarginTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "netMarginTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "fcfMarginTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "roicTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "roeTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "roaTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "debtToEquity": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "currentRatio": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "netDebtToEbitdaTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "interestCoverageTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "assetTurnoverTtm": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "intrinsicValues.DCF_FCFF": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "intrinsicValues.RESIDUAL_INCOME": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "intrinsicValues.DDM": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "intrinsicValues.GRAHAM": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "intrinsicValueBlends.BALANCED": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "intrinsicValueBlends.CONSERVATIVE": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "intrinsicValueBlends.DIVIDEND": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "dcfFcffSourceAsOf": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "residualIncomeSourceAsOf": {
+   "years": 995,
+   "median": 5,
+   "max": 8
+  },
+  "ddmSourceAsOf": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "grahamSourceAsOf": {
+   "years": 995,
+   "median": 5,
+   "max": 6
+  },
+  "intrinsicCurrency": {
+   "years": 995,
+   "median": 1,
+   "max": 3
+  }
+ },
+ "stockDetailsFundamental30y": {
+  "sessions": 7545,
+  "withValue": 5950,
+  "payloadBytes": 286019,
+  "medianMs": 105.27062500000466,
+  "maxMs": 187.57745900000737
+ },
+ "backtestFrameWindows31": {
+  "0 fundamentals": {
+   "medianMs": 274.0794590000005,
+   "maxMs": 285.1051659999939,
+   "frameRows": 7738
+  },
+  "1 fundamental": {
+   "medianMs": 252.43470900002285,
+   "maxMs": 273.00179100001696,
+   "frameRows": 7738
+  },
+  "5 fundamentals": {
+   "medianMs": 349.8526659999916,
+   "maxMs": 356.3652920000022,
+   "frameRows": 7738
+  },
+  "15 fundamentals": {
+   "medianMs": 428.1082910000114,
+   "maxMs": 614.3158750000002,
+   "frameRows": 7738
+  },
+  "mixed": {
+   "medianMs": 471.97637499999837,
+   "maxMs": 534.1789999999746,
+   "frameRows": 7738
+  }
+ },
+ "securities": [
+  {
+   "symbol": "AAPL",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3882.8069579999997,
+   "dailyStatePayloadBytes": 10424653,
+   "warmFullReadMs": {
+    "median": 193.29433300000073,
+    "max": 217.21079100000043,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "daily-state": {
+      "keys": 35,
+      "payload": 10424653,
+      "memory": 11818184
+     },
+     "financials": {
+      "keys": 228,
+      "payload": 896981,
+      "memory": 1027832
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1382531,
+      "memory": 1508552
+     },
+     "security": {
+      "keys": 1,
+      "payload": 369,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 50320
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12705004,
+     "memory": 14406056
+    }
+   }
+  },
+  {
+   "symbol": "ADBE",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3751.012207999999,
+   "dailyStatePayloadBytes": 10902288,
+   "warmFullReadMs": {
+    "median": 178.87929199999962,
+    "max": 216.32699999999932,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 895089,
+      "memory": 1019640
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1363589,
+      "memory": 1451208
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10902288,
+      "memory": 11818184
+     },
+     "security": {
+      "keys": 1,
+      "payload": 371,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13161807,
+     "memory": 14344616
+    }
+   }
+  },
+  {
+   "symbol": "AMGN",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 6121.897542000001,
+   "dailyStatePayloadBytes": 10828542,
+   "warmFullReadMs": {
+    "median": 136.57091700000092,
+    "max": 161.7520000000004,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 877670,
+      "memory": 1011464
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1353557,
+      "memory": 1400008
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10828542,
+      "memory": 11998408
+     },
+     "security": {
+      "keys": 1,
+      "payload": 377,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13060616,
+     "memory": 14465464
+    }
+   }
+  },
+  {
+   "symbol": "AMZN",
+   "chunks": 30,
+   "rows": 7387,
+   "hydrationMs": 3059.976666999999,
+   "dailyStatePayloadBytes": 7937648,
+   "warmFullReadMs": {
+    "median": 117.73683399999936,
+    "max": 135.31883400000152,
+    "rows": 7387
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 180,
+      "payload": 709585,
+      "memory": 815224
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "prices": {
+      "keys": 30,
+      "payload": 1158037,
+      "memory": 1221072
+     },
+     "security": {
+      "keys": 1,
+      "payload": 378,
+      "memory": 504
+     },
+     "daily-state": {
+      "keys": 30,
+      "payload": 7937648,
+      "memory": 8548816
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 40896
+     }
+    },
+    "total": {
+     "keys": 243,
+     "payload": 9806118,
+     "memory": 10627176
+    }
+   }
+  },
+  {
+   "symbol": "AXP",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3254.3980420000007,
+   "dailyStatePayloadBytes": 11227367,
+   "warmFullReadMs": {
+    "median": 154.69370800000252,
+    "max": 187.57437500000015,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "prices": {
+      "keys": 35,
+      "payload": 1347174,
+      "memory": 1400008
+     },
+     "financials": {
+      "keys": 228,
+      "payload": 889303,
+      "memory": 1030400
+     },
+     "security": {
+      "keys": 1,
+      "payload": 398,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11227367,
+      "memory": 12932296
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13464712,
+     "memory": 15418352
+    }
+   }
+  },
+  {
+   "symbol": "BA",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2774.5604160000003,
+   "dailyStatePayloadBytes": 10218294,
+   "warmFullReadMs": {
+    "median": 125.94291599999997,
+    "max": 156.95616700000028,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 902418,
+      "memory": 1023736
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1361970,
+      "memory": 1418440
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10218294,
+      "memory": 11424968
+     },
+     "security": {
+      "keys": 1,
+      "payload": 376,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12483528,
+     "memory": 13922728
+    }
+   }
+  },
+  {
+   "symbol": "CAT",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2949.730249999997,
+   "dailyStatePayloadBytes": 10673011,
+   "warmFullReadMs": {
+    "median": 136.56883299999754,
+    "max": 174.69666600000346,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 895781,
+      "memory": 1023736
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1350495,
+      "memory": 1400008
+     },
+     "security": {
+      "keys": 1,
+      "payload": 380,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10673011,
+      "memory": 12014792
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12920137,
+     "memory": 14494184
+    }
+   }
+  },
+  {
+   "symbol": "CRM",
+   "chunks": 23,
+   "rows": 5601,
+   "hydrationMs": 1764.8948339999988,
+   "dailyStatePayloadBytes": 6087678,
+   "warmFullReadMs": {
+    "median": 84.39349999999831,
+    "max": 94.5558749999982,
+    "rows": 5601
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 138,
+      "payload": 535509,
+      "memory": 613704
+     },
+     "prices": {
+      "keys": 23,
+      "payload": 877095,
+      "memory": 916904
+     },
+     "daily-state": {
+      "keys": 23,
+      "payload": 6087678,
+      "memory": 6770088
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "security": {
+      "keys": 1,
+      "payload": 377,
+      "memory": 504
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 32960
+     }
+    },
+    "total": {
+     "keys": 187,
+     "payload": 7501129,
+     "memory": 8334824
+    }
+   }
+  },
+  {
+   "symbol": "CSCO",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2930.7747910000035,
+   "dailyStatePayloadBytes": 10710296,
+   "warmFullReadMs": {
+    "median": 114.02300000000105,
+    "max": 180.04933399999572,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 222,
+      "payload": 891454,
+      "memory": 1008272
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1343309,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 381,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10710296,
+      "memory": 12014792
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 53408
+     }
+    },
+    "total": {
+     "keys": 295,
+     "payload": 12945910,
+     "memory": 14479760
+    }
+   }
+  },
+  {
+   "symbol": "CVX",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2862.136958999996,
+   "dailyStatePayloadBytes": 10309254,
+   "warmFullReadMs": {
+    "median": 131.5687919999982,
+    "max": 136.43091699999786,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 818107,
+      "memory": 937128
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1356974,
+      "memory": 1402056
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10309254,
+      "memory": 11707592
+     },
+     "security": {
+      "keys": 1,
+      "payload": 374,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12485179,
+     "memory": 14102360
+    }
+   }
+  },
+  {
+   "symbol": "DIS",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2768.0408339999994,
+   "dailyStatePayloadBytes": 10612245,
+   "warmFullReadMs": {
+    "median": 124.61262500000157,
+    "max": 150.9387910000005,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 889272,
+      "memory": 1010168
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1353527,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 387,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10612245,
+      "memory": 11752648
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12855901,
+     "memory": 14220520
+    }
+   }
+  },
+  {
+   "symbol": "GOOGL",
+   "chunks": 23,
+   "rows": 5561,
+   "hydrationMs": 1586.8647500000006,
+   "dailyStatePayloadBytes": 6732770,
+   "warmFullReadMs": {
+    "median": 82.80312499999854,
+    "max": 92.38324999999895,
+    "rows": 5561
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 138,
+      "payload": 556734,
+      "memory": 628040
+     },
+     "prices": {
+      "keys": 23,
+      "payload": 881989,
+      "memory": 921000
+     },
+     "daily-state": {
+      "keys": 23,
+      "payload": 6732770,
+      "memory": 7142824
+     },
+     "security": {
+      "keys": 1,
+      "payload": 395,
+      "memory": 568
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 32960
+     }
+    },
+    "total": {
+     "keys": 187,
+     "payload": 8172358,
+     "memory": 8726056
+    }
+   }
+  },
+  {
+   "symbol": "GS",
+   "chunks": 28,
+   "rows": 6892,
+   "hydrationMs": 2125.8806669999976,
+   "dailyStatePayloadBytes": 8025630,
+   "warmFullReadMs": {
+    "median": 185.9250000000029,
+    "max": 255.68079099999886,
+    "rows": 6892
+   },
+   "memory": {
+    "families": {
+     "daily-state": {
+      "keys": 28,
+      "payload": 8025630,
+      "memory": 8876192
+     },
+     "financials": {
+      "keys": 168,
+      "payload": 670911,
+      "memory": 761304
+     },
+     "prices": {
+      "keys": 28,
+      "payload": 1102458,
+      "memory": 1130656
+     },
+     "security": {
+      "keys": 1,
+      "payload": 402,
+      "memory": 568
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 38336
+     }
+    },
+    "total": {
+     "keys": 227,
+     "payload": 9799871,
+     "memory": 10807720
+    }
+   }
+  },
+  {
+   "symbol": "HD",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3074.2842500000042,
+   "dailyStatePayloadBytes": 10845951,
+   "warmFullReadMs": {
+    "median": 157.439750000005,
+    "max": 236.3702919999996,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "prices": {
+      "keys": 35,
+      "payload": 1351617,
+      "memory": 1402056
+     },
+     "financials": {
+      "keys": 228,
+      "payload": 892971,
+      "memory": 1024000
+     },
+     "security": {
+      "keys": 1,
+      "payload": 381,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10845951,
+      "memory": 12391624
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13091390,
+     "memory": 14873328
+    }
+   }
+  },
+  {
+   "symbol": "HON",
+   "chunks": 26,
+   "rows": 6437,
+   "hydrationMs": 1956.9809999999998,
+   "dailyStatePayloadBytes": 8191126,
+   "warmFullReadMs": {
+    "median": 101.51666700000351,
+    "max": 126.96258300000045,
+    "rows": 6437
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 156,
+      "payload": 622014,
+      "memory": 703800
+     },
+     "daily-state": {
+      "keys": 26,
+      "payload": 8191126,
+      "memory": 9260912
+     },
+     "prices": {
+      "keys": 26,
+      "payload": 1013695,
+      "memory": 1060720
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "security": {
+      "keys": 1,
+      "payload": 380,
+      "memory": 568
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 35776
+     }
+    },
+    "total": {
+     "keys": 211,
+     "payload": 9827685,
+     "memory": 11062440
+    }
+   }
+  },
+  {
+   "symbol": "IBM",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2846.570749999999,
+   "dailyStatePayloadBytes": 11035346,
+   "warmFullReadMs": {
+    "median": 150.872832999994,
+    "max": 188.4778340000048,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 910447,
+      "memory": 1058048
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1359763,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 413,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11035346,
+      "memory": 12416200
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13306439,
+     "memory": 14931952
+    }
+   }
+  },
+  {
+   "symbol": "JNJ",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 5159.906000000003,
+   "dailyStatePayloadBytes": 11192201,
+   "warmFullReadMs": {
+    "median": 226.10412499999802,
+    "max": 267.6636670000007,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 906964,
+      "memory": 1024528
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1352141,
+      "memory": 1402056
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11192201,
+      "memory": 12801224
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "security": {
+      "keys": 1,
+      "payload": 384,
+      "memory": 568
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 50320
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13452160,
+     "memory": 15279360
+    }
+   }
+  },
+  {
+   "symbol": "JPM",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2984.7756249999948,
+   "dailyStatePayloadBytes": 10608768,
+   "warmFullReadMs": {
+    "median": 131.8741250000021,
+    "max": 152.622749999995,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 903184,
+      "memory": 1030400
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1353359,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 386,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10608768,
+      "memory": 11850952
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12866167,
+     "memory": 14339056
+    }
+   }
+  },
+  {
+   "symbol": "KO",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2937.976542000004,
+   "dailyStatePayloadBytes": 11183513,
+   "warmFullReadMs": {
+    "median": 135.81945900000574,
+    "max": 141.95374999998603,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 902079,
+      "memory": 1019640
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1344635,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 392,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11183513,
+      "memory": 12735688
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13431089,
+     "memory": 15213032
+    }
+   }
+  },
+  {
+   "symbol": "MCD",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2904.2322910000075,
+   "dailyStatePayloadBytes": 10448562,
+   "warmFullReadMs": {
+    "median": 140.18137500000012,
+    "max": 259.7592500000028,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 888496,
+      "memory": 1018104
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1352641,
+      "memory": 1402056
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10448562,
+      "memory": 11916488
+     },
+     "security": {
+      "keys": 1,
+      "payload": 379,
+      "memory": 568
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12690548,
+     "memory": 14392296
+    }
+   }
+  },
+  {
+   "symbol": "MMM",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2633.035374999992,
+   "dailyStatePayloadBytes": 11139836,
+   "warmFullReadMs": {
+    "median": 133.10258399999293,
+    "max": 159.50066700000025,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 896806,
+      "memory": 1017848
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1355655,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 363,
+      "memory": 504
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11139836,
+      "memory": 12637384
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13393130,
+     "memory": 15112872
+    }
+   }
+  },
+  {
+   "symbol": "MRK",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2751.268333,
+   "dailyStatePayloadBytes": 11151132,
+   "warmFullReadMs": {
+    "median": 135.50408300000709,
+    "max": 163.6273749999964,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 898964,
+      "memory": 1030136
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1347475,
+      "memory": 1402056
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11151132,
+      "memory": 12735688
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "security": {
+      "keys": 1,
+      "payload": 384,
+      "memory": 568
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13398425,
+     "memory": 15223528
+    }
+   }
+  },
+  {
+   "symbol": "MRNA",
+   "chunks": 9,
+   "rows": 1960,
+   "hydrationMs": 513.8633750000008,
+   "dailyStatePayloadBytes": 1766411,
+   "warmFullReadMs": {
+    "median": 24.639083000001847,
+    "max": 28.68162500001199,
+    "rows": 1960
+   },
+   "memory": {
+    "families": {
+     "prices": {
+      "keys": 9,
+      "payload": 309969,
+      "memory": 323416
+     },
+     "financials": {
+      "keys": 54,
+      "payload": 188307,
+      "memory": 219624
+     },
+     "security": {
+      "keys": 1,
+      "payload": 365,
+      "memory": 504
+     },
+     "daily-state": {
+      "keys": 9,
+      "payload": 1766411,
+      "memory": 1920856
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 13503
+     }
+    },
+    "total": {
+     "keys": 75,
+     "payload": 2265522,
+     "memory": 2478567
+    }
+   }
+  },
+  {
+   "symbol": "MSFT",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2599.3953750000073,
+   "dailyStatePayloadBytes": 11052582,
+   "warmFullReadMs": {
+    "median": 132.34216699999524,
+    "max": 151.00754200000665,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 899828,
+      "memory": 1025272
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1353586,
+      "memory": 1418440
+     },
+     "security": {
+      "keys": 1,
+      "payload": 385,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11052582,
+      "memory": 12408008
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13306851,
+     "memory": 14907368
+    }
+   }
+  },
+  {
+   "symbol": "NKE",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2680.905457999994,
+   "dailyStatePayloadBytes": 11077352,
+   "warmFullReadMs": {
+    "median": 134.55862500000512,
+    "max": 183.73604099999648,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "prices": {
+      "keys": 35,
+      "payload": 1321189,
+      "memory": 1400008
+     },
+     "financials": {
+      "keys": 228,
+      "payload": 879982,
+      "memory": 1003520
+     },
+     "security": {
+      "keys": 1,
+      "payload": 388,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11077352,
+      "memory": 12342472
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13279381,
+     "memory": 14801648
+    }
+   }
+  },
+  {
+   "symbol": "NVDA",
+   "chunks": 28,
+   "rows": 6962,
+   "hydrationMs": 1948.159667,
+   "dailyStatePayloadBytes": 8374421,
+   "warmFullReadMs": {
+    "median": 116.21395800000755,
+    "max": 148.49462500000664,
+    "rows": 6962
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 168,
+      "payload": 662783,
+      "memory": 757696
+     },
+     "prices": {
+      "keys": 28,
+      "payload": 1137887,
+      "memory": 1282208
+     },
+     "daily-state": {
+      "keys": 28,
+      "payload": 8374421,
+      "memory": 9539744
+     },
+     "security": {
+      "keys": 1,
+      "payload": 371,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 38336
+     }
+    },
+    "total": {
+     "keys": 227,
+     "payload": 10175932,
+     "memory": 11619152
+    }
+   }
+  },
+  {
+   "symbol": "PG",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2921.1565830000036,
+   "dailyStatePayloadBytes": 11199637,
+   "warmFullReadMs": {
+    "median": 142.7275410000002,
+    "max": 205.08191700000316,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 897695,
+      "memory": 1011968
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1350942,
+      "memory": 1402056
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11199637,
+      "memory": 12866760
+     },
+     "security": {
+      "keys": 1,
+      "payload": 403,
+      "memory": 568
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13449147,
+     "memory": 15336432
+    }
+   }
+  },
+  {
+   "symbol": "SHW",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2731.5980830000044,
+   "dailyStatePayloadBytes": 11201708,
+   "warmFullReadMs": {
+    "median": 134.44174999999814,
+    "max": 172.24108399999386,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 879084,
+      "memory": 1003256
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1337657,
+      "memory": 1400008
+     },
+     "security": {
+      "keys": 1,
+      "payload": 393,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11201708,
+      "memory": 12473544
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13419312,
+     "memory": 14932456
+    }
+   }
+  },
+  {
+   "symbol": "TRV",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3392.8764170000068,
+   "dailyStatePayloadBytes": 10399365,
+   "warmFullReadMs": {
+    "median": 221.1560829999944,
+    "max": 257.83029199999874,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 875188,
+      "memory": 1010176
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1338396,
+      "memory": 1402056
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10399365,
+      "memory": 11605192
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "security": {
+      "keys": 1,
+      "payload": 407,
+      "memory": 568
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 12613826,
+     "memory": 14073072
+    }
+   }
+  },
+  {
+   "symbol": "UNH",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3053.38612499999,
+   "dailyStatePayloadBytes": 11022060,
+   "warmFullReadMs": {
+    "median": 152.98799999999756,
+    "max": 177.8863330000022,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 893494,
+      "memory": 1014264
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1344769,
+      "memory": 1400008
+     },
+     "security": {
+      "keys": 1,
+      "payload": 396,
+      "memory": 568
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11022060,
+      "memory": 12391624
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13261189,
+     "memory": 14861544
+    }
+   }
+  },
+  {
+   "symbol": "V",
+   "chunks": 19,
+   "rows": 4660,
+   "hydrationMs": 2448.301250000004,
+   "dailyStatePayloadBytes": 5984157,
+   "warmFullReadMs": {
+    "median": 122.8483750000014,
+    "max": 227.17695799999638,
+    "rows": 4660
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 114,
+      "payload": 452375,
+      "memory": 515592
+     },
+     "prices": {
+      "keys": 19,
+      "payload": 742531,
+      "memory": 764744
+     },
+     "security": {
+      "keys": 1,
+      "payload": 381,
+      "memory": 552
+     },
+     "daily-state": {
+      "keys": 19,
+      "payload": 5984157,
+      "memory": 6835016
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 27824
+     }
+    },
+    "total": {
+     "keys": 155,
+     "payload": 7179914,
+     "memory": 8144392
+    }
+   }
+  },
+  {
+   "symbol": "WMT",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 3341.3720420000027,
+   "dailyStatePayloadBytes": 11132215,
+   "warmFullReadMs": {
+    "median": 133.60091699998884,
+    "max": 181.01916700000584,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 903545,
+      "memory": 1031160
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1342253,
+      "memory": 1400008
+     },
+     "security": {
+      "keys": 1,
+      "payload": 373,
+      "memory": 504
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 11132215,
+      "memory": 12981448
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13378856,
+     "memory": 15468200
+    }
+   }
+  },
+  {
+   "symbol": "XOM",
+   "chunks": 35,
+   "rows": 8558,
+   "hydrationMs": 2585.099749999994,
+   "dailyStatePayloadBytes": 10989991,
+   "warmFullReadMs": {
+    "median": 139.62879200000316,
+    "max": 148.759750000012,
+    "rows": 8558
+   },
+   "memory": {
+    "families": {
+     "financials": {
+      "keys": 228,
+      "payload": 898439,
+      "memory": 1034744
+     },
+     "prices": {
+      "keys": 35,
+      "payload": 1350200,
+      "memory": 1402056
+     },
+     "security": {
+      "keys": 1,
+      "payload": 378,
+      "memory": 504
+     },
+     "manifest": {
+      "keys": 1,
+      "payload": 470,
+      "memory": 664
+     },
+     "daily-state": {
+      "keys": 35,
+      "payload": 10989991,
+      "memory": 12473544
+     },
+     "registry": {
+      "keys": 1,
+      "payload": 0,
+      "memory": 54416
+     }
+    },
+    "total": {
+     "keys": 301,
+     "payload": 13239478,
+     "memory": 14965928
+    }
+   }
+  }
+ ]
+}

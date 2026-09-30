@@ -12,8 +12,19 @@ import {
   FINANCIAL_STATEMENT_TYPES,
   selectFinancialStatements,
 } from "@intrinsic/domain";
+import {
+  DAILY_STATE_ENCODING_VERSION,
+  decodeDailyStateChunk,
+  encodeDailyStateChunk,
+} from "./daily-state-chunk.js";
 
 export const FINANCIAL_STATEMENT_VERSION = 1;
+
+/** The key namespace every stock-data cache key lives under (`AGENTS.md` invariant 16). */
+export const STOCK_DATA_CACHE_NAMESPACE = "stock-data:v2";
+
+/** How long a HYDRATING generation holds its keys before an abandoned one expires. */
+export const DEFAULT_HYDRATION_TTL_MS = 15 * 60 * 1_000;
 
 export type StockManifest = {
   securityId: string;
@@ -56,6 +67,31 @@ export type StockManifest = {
    * derived state so it is rebuilt; it never selects between coexisting stored methodologies.
    */
   derivedStateRevision: number;
+  /**
+   * `DAILY_STATE_ENCODING_VERSION` the security's `daily-state` chunks were written in. Only bytes
+   * move with it, never a value: a manifest from another encoding (including one written before
+   * the field existed) is simply not current, so the security's projection is rebuilt from
+   * PostgreSQL before any of its chunks are read.
+   */
+  dailyStateEncodingVersion: number;
+};
+
+/**
+ * What a cache reports without taking a logging dependency; the composition roots point it at their
+ * structured logger, as they do with `onProviderRequest`.
+ */
+export type StockDataCacheObserver = {
+  /**
+   * A `daily-state` chunk was present but could not be decoded. The read is reported as a miss, so
+   * the security is rebuilt from PostgreSQL rather than served from the chunk; this is what makes
+   * that repair visible. `reason` names the check that failed.
+   */
+  onUnreadableChunk?: (chunk: {
+    securityId: string;
+    year: number;
+    key: string;
+    reason: string;
+  }) => void;
 };
 
 export interface RedisCacheClient {
@@ -141,8 +177,9 @@ export class RedisStockDataCache implements StockDataCache {
   constructor(
     private readonly redis: RedisCacheClient,
     private readonly maxResidentStocks: number,
-    private readonly namespace = "stock-data:v2",
+    private readonly namespace = STOCK_DATA_CACHE_NAMESPACE,
     private readonly hydrationTtlMs = DEFAULT_HYDRATION_TTL_MS,
+    private readonly observer: StockDataCacheObserver = {},
   ) {
     if (!Number.isInteger(maxResidentStocks) || maxResidentStocks <= 0) {
       throw new Error("maxResidentStocks must be a positive integer");
@@ -279,38 +316,82 @@ export class RedisStockDataCache implements StockDataCache {
     );
   }
 
+  /**
+   * One `MGET` of the range's yearly chunks, each decoded by the one canonical decoder
+   * (`daily-state-chunk.ts`), only the rows inside the range materialized.
+   *
+   * Any year missing, or present but unreadable, makes the whole read a miss: a partial history is
+   * never returned. The chunks are only read under a READY manifest that declares their encoding,
+   * so a manifest published over version-1 chunks reads as a miss too, and the caller rebuilds the
+   * projection from PostgreSQL. Each chunk's dates are validated strictly ascending within its own
+   * year, and the years are read in order, so the concatenation is already in date order.
+   */
   async readDailyDerivedState(
     securityId: string,
     range: Required<DateRange>,
   ): Promise<DailyDerivedState[] | null> {
-    if ((await this.getManifest(securityId))?.status !== "READY") {
+    const manifest = await this.getManifest(securityId);
+    if (
+      manifest?.status !== "READY" ||
+      manifest.dailyStateEncodingVersion !== DAILY_STATE_ENCODING_VERSION
+    ) {
       return null;
     }
-    const result = await this.readYearly<DailyDerivedState>(
-      range,
-      (year) => this.dailyStateYearKey(securityId, year),
-      (row) => row.date,
-    );
-    if (result) {
-      await this.touch(securityId);
+    const years = yearsInRange(range);
+    const keys = years.map((year) => this.dailyStateYearKey(securityId, year));
+    const payloads = await this.redis.mget(...keys);
+    const rows: DailyDerivedState[] = [];
+    for (const [index, year] of years.entries()) {
+      const payload = payloads[index];
+      if (payload === null || payload === undefined) {
+        return null;
+      }
+      const decoded = decodeDailyStateChunk(
+        payload,
+        { securityId, year },
+        range,
+      );
+      if (!decoded.ok) {
+        this.observer.onUnreadableChunk?.({
+          securityId,
+          year,
+          key: keys[index] as string,
+          reason: decoded.reason,
+        });
+        return null;
+      }
+      for (const row of decoded.rows) {
+        rows.push(row);
+      }
     }
-    return result;
+    await this.touch(securityId);
+    return rows;
   }
 
+  /**
+   * Publishes each requested year as one chunk in the current encoding, replacing that year whole.
+   * A year with no rows is still published, empty, so reading it is a hit rather than a miss.
+   */
   async writeDailyDerivedStateYears(
     securityId: string,
     rows: readonly DailyDerivedState[],
     years: readonly number[],
     hydrating?: StockManifest,
   ): Promise<void> {
-    await this.writeYearly(
-      securityId,
-      rows,
-      years,
-      (row) => row.date,
-      (year) => this.dailyStateYearKey(securityId, year),
-      hydrating,
+    const byYear = new Map<number, DailyDerivedState[]>(
+      years.map((year) => [year, []]),
     );
+    for (const row of rows) {
+      byYear.get(Number(row.date.slice(0, 4)))?.push(row);
+    }
+    for (const [year, yearRows] of byYear) {
+      await this.setRegistered(
+        securityId,
+        this.dailyStateYearKey(securityId, year),
+        encodeDailyStateChunk(securityId, year, yearRows),
+        hydrating,
+      );
+    }
   }
 
   async readFinancialStatements(
@@ -505,12 +586,8 @@ export class RedisStockDataCache implements StockDataCache {
     return `${this.namespace}:security:${securityId}:prices:1D:${year}`;
   }
 
-  /**
-   * One chunk family holds the whole daily derived state for a year. Keys are registered so
-   * complete-stock LRU eviction removes every cached dataset for the security together.
-   */
   private dailyStateYearKey(securityId: string, year: number): string {
-    return `${this.namespace}:security:${securityId}:daily-state:${year}`;
+    return dailyStateChunkKey(this.namespace, securityId, year);
   }
 
   private financialYearKey(
@@ -631,7 +708,21 @@ export function yearsInRange(range: Required<DateRange>): number[] {
   return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
 
-const DEFAULT_HYDRATION_TTL_MS = 15 * 60 * 1_000;
+/**
+ * The key of one security's `daily-state` chunk for one year.
+ *
+ * One chunk family holds the whole daily derived state for a year — never a key per indicator,
+ * model, blend or metric. The encoding version is part of the key, as the statement version is part
+ * of a statement key, so chunks of two encodings never share one. Keys are registered so
+ * complete-stock LRU eviction removes every cached dataset for the security together.
+ */
+export function dailyStateChunkKey(
+  namespace: string,
+  securityId: string,
+  year: number,
+): string {
+  return `${namespace}:security:${securityId}:daily-state:v${DAILY_STATE_ENCODING_VERSION}:${year}`;
+}
 
 const BEGIN_HYDRATION = `
 -- begin-hydration

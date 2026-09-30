@@ -1,0 +1,384 @@
+{
+ "description": "The same scratch harnesses run against main's build (81f53560, a detached worktree) and this branch's final build (production code at 687c8a06), on the frozen matrix copy with the clock pinned to its data (2026-09-28), the provider refused and every process under packages/testing/egress-guard.cjs (0 connections blocked). Timings are machine-specific (Apple M1, 8 GB, Node 22.23.2, Redis 7.4.11).",
+ "consumerReads": {
+  "securities": 33,
+  "operandsPerFrame": 50,
+  "compared": {
+   "frames": 1023,
+   "details": 660,
+   "monitor": 99
+  },
+  "total": 1782,
+  "differences": [],
+  "what": "frames: every calendar-year window of the 30-year period through readDailyEvaluationFrame with 50 operands (price, 14 moving averages, 3 RSI, 3 RVOL, 15 Fundamentals, 4 models and 3 blends as series, 7 Margin of Safety), digested as raw Float64 bits; details: getDailyDerivedState, getDailyTechnicals, getDailyFundamentalMetric for each of the 15, getIntrinsicValues, getIntrinsicValueBlends and a one-year getStockDetails; monitor: readMonitorEvaluationFrame on three observation dates per security",
+  "providerCalls": {
+   "main": 0,
+   "branch": 0
+  }
+ },
+ "backtests": {
+  "what": "The real worker BacktestProcessor, in-process, re-executing stored QA-matrix run snapshots restamped with the current methodology; F cases reuse the same List and configuration with the Fundamentals fixture. Compared as the whole BacktestResult: trades, daily equity, positions and summary.",
+  "identical": 17,
+  "of": 17,
+  "cases": {
+   "S01-L02-C04": {
+    "identical": true,
+    "resultDigest": "aaceab43b6cf0789a21b51854af0e97133d7e83286e98e81a9b7700bcc865daf",
+    "trades": 6,
+    "equityRows": 252,
+    "totalMs": {
+     "main": 2154,
+     "branch": 1089
+    },
+    "frameLoadMs": {
+     "main": 66,
+     "branch": 24
+    },
+    "windows": 2
+   },
+   "S02-L01-C02": {
+    "identical": true,
+    "resultDigest": "1326ec0aa9e06621a9caf06a751edd7dde56233ee4f92f3b4e40fcdc78dca289",
+    "trades": 10,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 1757,
+     "branch": 1165
+    },
+    "frameLoadMs": {
+     "main": 119,
+     "branch": 67
+    },
+    "windows": 11
+   },
+   "S04-L05-C05": {
+    "identical": true,
+    "resultDigest": "57751e10181bb16a4844a9fac8af3035d28e3f027ff966ec41b5029a095f2673",
+    "trades": 151,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 6860,
+     "branch": 4863
+    },
+    "frameLoadMs": {
+     "main": 689,
+     "branch": 273
+    },
+    "windows": 11
+   },
+   "S05-L10-C03": {
+    "identical": true,
+    "resultDigest": "971d717a1ca622f8944fa41ed775e83f58f6e0b31b575b4f87870684495d38b2",
+    "trades": 0,
+    "equityRows": 752,
+    "totalMs": {
+     "main": 1358,
+     "branch": 1198
+    },
+    "frameLoadMs": {
+     "main": 200,
+     "branch": 113
+    },
+    "windows": 4
+   },
+   "S07-L06-C01": {
+    "identical": true,
+    "resultDigest": "39e20770542ddf97a0c311eaa4b44ad146cf1c234d2d06f2babc02ecc53c9ab6",
+    "trades": 27,
+    "equityRows": 7542,
+    "totalMs": {
+     "main": 10243,
+     "branch": 7170
+    },
+    "frameLoadMs": {
+     "main": 1281,
+     "branch": 550
+    },
+    "windows": 31
+   },
+   "S10-L08-C09": {
+    "identical": true,
+    "resultDigest": "462859fe0fba077b6762cf74dea97a5ef440ac8106f1bce1c310f6912dc82191",
+    "trades": 258,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 17048,
+     "branch": 12602
+    },
+    "frameLoadMs": {
+     "main": 2340,
+     "branch": 953
+    },
+    "windows": 11
+   },
+   "S09-L05-C01": {
+    "identical": true,
+    "resultDigest": "737c6d2ea9fe4f5890b257b65d934ac19f71e4d55a6618f3a04bb391e9432fa0",
+    "trades": 40,
+    "equityRows": 7542,
+    "totalMs": {
+     "main": 16077,
+     "branch": 12038
+    },
+    "frameLoadMs": {
+     "main": 1709,
+     "branch": 775
+    },
+    "windows": 31
+   },
+   "S09-L08-C05": {
+    "identical": true,
+    "resultDigest": "f580fb5668c9195686215db9499b421d7e188ca010b59ef6cfaa80a9cd6e3828",
+    "trades": 305,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 2584,
+     "branch": 995
+    },
+    "frameLoadMs": {
+     "main": 2314,
+     "branch": 763
+    },
+    "windows": 11
+   },
+   "F01-L02-C04": {
+    "identical": true,
+    "resultDigest": "777b9b856161bffddf2103b4d65b6335eb116f1da93ce9ec8a7a344e3332257d",
+    "trades": 4,
+    "equityRows": 252,
+    "totalMs": {
+     "main": 52,
+     "branch": 26
+    },
+    "frameLoadMs": {
+     "main": 26,
+     "branch": 11
+    },
+    "windows": 2
+   },
+   "F02-L01-C02": {
+    "identical": true,
+    "resultDigest": "4f8b09fc0b2bcd63cc49eb570c31aab1f7ea0170d864ff930e51f6e7cca5eec0",
+    "trades": 3,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 216,
+     "branch": 96
+    },
+    "frameLoadMs": {
+     "main": 155,
+     "branch": 49
+    },
+    "windows": 11
+   },
+   "F04-L05-C05": {
+    "identical": true,
+    "resultDigest": "c43f7c549f3b78aac99a504123ac6cc2a2b5910290eae2dd800880a3f29f4f8a",
+    "trades": 102,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 794,
+     "branch": 310
+    },
+    "frameLoadMs": {
+     "main": 674,
+     "branch": 217
+    },
+    "windows": 11
+   },
+   "F05-L10-C03": {
+    "identical": true,
+    "resultDigest": "29cdf2502a5f047adf46cfd71a3927655eb92df4225881bcffc66df651d828c6",
+    "trades": 4,
+    "equityRows": 752,
+    "totalMs": {
+     "main": 172,
+     "branch": 75
+    },
+    "frameLoadMs": {
+     "main": 144,
+     "branch": 52
+    },
+    "windows": 4
+   },
+   "F07-L06-C01": {
+    "identical": true,
+    "resultDigest": "1a62ff8a3ea76aa29690f7203097bbe0af76ec7064194588caad5f6991f2100b",
+    "trades": 18,
+    "equityRows": 7542,
+    "totalMs": {
+     "main": 1490,
+     "branch": 707
+    },
+    "frameLoadMs": {
+     "main": 1245,
+     "branch": 460
+    },
+    "windows": 31
+   },
+   "F10-L08-C09": {
+    "identical": true,
+    "resultDigest": "d30618db99a290cddaa2b5a83f39806a56d5911f8a945d9ecfd74f35059cba9d",
+    "trades": 2,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 2761,
+     "branch": 1100
+    },
+    "frameLoadMs": {
+     "main": 2572,
+     "branch": 962
+    },
+    "windows": 11
+   },
+   "F08-L05-C01": {
+    "identical": true,
+    "resultDigest": "5557638214c71c04e39c8aaf81ab5ac67a3f72101dddfe0de23ce2d7170402d1",
+    "trades": 26,
+    "equityRows": 7542,
+    "totalMs": {
+     "main": 3397,
+     "branch": 917
+    },
+    "frameLoadMs": {
+     "main": 3099,
+     "branch": 697
+    },
+    "windows": 31
+   },
+   "F09-L08-C05": {
+    "identical": true,
+    "resultDigest": "052177b15ebf9a2ef83f39367729e0742b525f7373c0c5097177f9171d9b5774",
+    "trades": 38,
+    "equityRows": 2513,
+    "totalMs": {
+     "main": 2842,
+     "branch": 1215
+    },
+    "frameLoadMs": {
+     "main": 2599,
+     "branch": 1002
+    },
+    "windows": 11
+   },
+   "F09-L03-C10": {
+    "identical": true,
+    "resultDigest": "ba0dceb57c108e9c2ad83bbd3c6b72c9ae60fc213469a827a6943fdc6bd87322",
+    "trades": 10,
+    "equityRows": 7542,
+    "totalMs": {
+     "main": 4863,
+     "branch": 3710
+    },
+    "frameLoadMs": {
+     "main": 728,
+     "branch": 276
+    },
+    "windows": 31
+   }
+  },
+  "totalMs": {
+   "main": 74668,
+   "branch": 49276
+  },
+  "frameLoadMs": {
+   "main": 19960,
+   "branch": 7244
+  },
+  "providerCalls": {
+   "main": 0,
+   "branch": 0
+  }
+ },
+ "deployTransition": {
+  "what": "WMT hydrated by main's code into a namespace (version-1 layout), then read from that same namespace by this branch's code",
+  "main": {
+   "before": {
+    "keys": 0,
+    "dailyStateKeys": [],
+    "manifestEncoding": null,
+    "manifestStatus": null
+   },
+   "firstRead": {
+    "commands": {
+     "EVAL begin-hydration": 1,
+     "EVAL publish-ready": 1,
+     "EVAL set-registered": 300,
+     "EVAL touch-ready": 1,
+     "GET": 6,
+     "MGET": 1
+    },
+    "rows": 7545,
+    "digest": "f859cf5534b4934f30d898dc903b988a49092bccc7892cc2305a23c368810c6d",
+    "equalsPostgres": true
+   },
+   "after": {
+    "keys": 300,
+    "dailyStateKeys": 35,
+    "legacyKeys": 35,
+    "v2Keys": 0,
+    "manifestEncoding": null,
+    "registry": 300
+   },
+   "warmStockDetails": {
+    "EVAL touch-ready": 1,
+    "GET": 6,
+    "MGET": 1
+   },
+   "warmBacktestWindows": {
+    "EVAL touch-ready": 62,
+    "GET": 124,
+    "MGET": 62
+   },
+   "providerCalls": []
+  },
+  "branch": {
+   "before": {
+    "keys": 300,
+    "dailyStateKeys": [
+     "stock-data:v2:transition:1790754668:security:59f08bd1-c4d4-40f7-9893-7ecedc0ca6a4:daily-state:1992",
+     "stock-data:v2:transition:1790754668:security:59f08bd1-c4d4-40f7-9893-7ecedc0ca6a4:daily-state:1993"
+    ],
+    "manifestEncoding": null,
+    "manifestStatus": "READY"
+   },
+   "firstRead": {
+    "commands": {
+     "EVAL begin-hydration": 1,
+     "EVAL publish-ready": 1,
+     "EVAL set-registered": 300,
+     "EVAL touch-ready": 1,
+     "GET": 7,
+     "MGET": 1
+    },
+    "rows": 7545,
+    "digest": "f859cf5534b4934f30d898dc903b988a49092bccc7892cc2305a23c368810c6d",
+    "equalsPostgres": true
+   },
+   "after": {
+    "keys": 300,
+    "dailyStateKeys": 35,
+    "legacyKeys": 0,
+    "v2Keys": 35,
+    "manifestEncoding": 2,
+    "registry": 300
+   },
+   "warmStockDetails": {
+    "EVAL touch-ready": 1,
+    "GET": 6,
+    "MGET": 1
+   },
+   "warmBacktestWindows": {
+    "EVAL touch-ready": 62,
+    "GET": 124,
+    "MGET": 62
+   },
+   "providerCalls": []
+  }
+ },
+ "postgresDerivedRows": {
+  "before": "259735|-427822372605555393985",
+  "after": "259735|-427822372605555393985",
+  "query": "select count(*), sum(hashtextextended(t::text, 0)::numeric) from \"DailyDerivedState\" t"
+ }
+}

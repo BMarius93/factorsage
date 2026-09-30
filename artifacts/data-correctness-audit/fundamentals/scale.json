@@ -3,8 +3,8 @@
   "securities": 33,
   "chunks": 1061,
   "yearBoundaries": 1028,
-  "slowestMaterializeMs": 151,
-  "slowestHydrationMs": 4365,
+  "slowestMaterializeMs": 88,
+  "slowestHydrationMs": 3731,
   "comparisons": {
     "compared": 7784455,
     "passed": 7784455,

@@ -39,6 +39,7 @@ import { createLogger } from "@intrinsic/observability";
 import {
   CanonicalStockDataService,
   DAILY_DERIVED_STATE_VARIANT,
+  DAILY_STATE_ENCODING_VERSION,
   DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
   DERIVED_STATE_REVISION,
@@ -48,6 +49,8 @@ import {
   RedisStockDataCache,
   addDays,
   createStockDataRedisClient,
+  dailyStateChunkKey,
+  decodeDailyStateChunk,
   fundamentalsDatasetVariant,
   priceRetentionYears,
   subtractYears,
@@ -513,12 +516,22 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     return `${namespace}:security:${securityId}:${family}:${year}`;
   }
 
+  /** One yearly chunk, decoded by the one canonical decoder; an unreadable chunk fails the test. */
   async function readRedisDailyStateYear(
     securityId: string,
     year: number,
   ): Promise<Array<Record<string, unknown>> | null> {
-    const payload = await redis.get(chunkKey(securityId, "daily-state", year));
-    return payload === null ? null : JSON.parse(payload);
+    const payload = await redis.get(
+      dailyStateChunkKey(namespace, securityId, year),
+    );
+    if (payload === null) {
+      return null;
+    }
+    const decoded = decodeDailyStateChunk(payload, { securityId, year });
+    if (!decoded.ok) {
+      throw new Error(`daily-state ${year} is unreadable: ${decoded.reason}`);
+    }
+    return decoded.rows as Array<Record<string, unknown>>;
   }
 
   async function readRedisManifest(securityId: string): Promise<StockManifest | null> {
@@ -1099,13 +1112,16 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           productHistoryYears: HISTORY_YEARS,
           priceRetentionYears: priceRetentionYears(HISTORY_YEARS),
           derivedStateRevision: DERIVED_STATE_REVISION,
+          dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
           canonicalHistoryStart: "2025-01-02",
           canonicalHistoryEnd: TODAY,
         });
         const keys = await readRedisStockKeys(securityId);
         for (let year = 2022; year <= 2026; year += 1) {
           expect(keys).toContain(chunkKey(securityId, "prices:1D", year));
-          expect(keys).toContain(chunkKey(securityId, "daily-state", year));
+          expect(keys).toContain(
+            dailyStateChunkKey(namespace, securityId, year),
+          );
         }
         // Retained fundamentals years (warm-up included) live under the existing family.
         expect(keys).toContain(chunkKey(securityId, "financials:income:quarter:v1", 2015));
@@ -1476,6 +1492,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         priceDatasetVersion: 1,
         financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
         derivedStateRevision: DERIVED_STATE_REVISION,
+        dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
       };
       await redis.set(manifestKey, JSON.stringify(legacyManifest));
       await redis.sadd(registryKey, manifestKey);
@@ -2054,7 +2071,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           .expect(200);
         const dbBefore = await readDbStockSnapshot(securityId);
 
-        await redis.del(chunkKey(securityId, "daily-state", 2025));
+        await redis.del(dailyStateChunkKey(namespace, securityId, 2025));
         const before = provider.callCounts();
         const healed = await http()
           .get(`/stocks/${symbol}/technicals/daily?from=2025-06-01&to=2025-06-30`)
@@ -2254,7 +2271,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const symbol = symbols.lifecycle;
         const securityId = await securityIdOf(symbol);
         const fixture = provider.fixtures.get(symbol)!;
-        const chunk2025Before = await redis.get(chunkKey(securityId, "daily-state", 2025));
+        const chunk2025Before = await redis.get(
+          dailyStateChunkKey(namespace, securityId, 2025),
+        );
         const statementsBefore = await prisma.financialStatement.count({
           where: { securityId },
         });
@@ -2300,9 +2319,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(intrinsicAfter?.dcfFcff).toBe(intrinsicBefore?.dcfFcff);
         expect(intrinsicAfter?.blendBalanced).toBe(intrinsicBefore?.blendBalanced);
         // Unrelated historical years remain byte-identical in Redis.
-        expect(await redis.get(chunkKey(securityId, "daily-state", 2025))).toBe(
-          chunk2025Before,
-        );
+        expect(
+          await redis.get(dailyStateChunkKey(namespace, securityId, 2025)),
+        ).toBe(chunk2025Before);
         await expectApiDbRedisConsistent(symbol, securityId, {
           from: "2026-08-01",
           to: TODAY,
@@ -2325,7 +2344,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const statementsBefore = await prisma.financialStatement.count({
           where: { securityId },
         });
-        const chunk2025Before = await redis.get(chunkKey(securityId, "daily-state", 2025));
+        const chunk2025Before = await redis.get(
+          dailyStateChunkKey(namespace, securityId, 2025),
+        );
 
         // A restated Q2-2026 income statement is filed Friday 2026-08-21, becomes
         // available Saturday 2026-08-22, and is PIT-effective Monday 2026-08-24.
@@ -2397,9 +2418,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         );
 
         // Only the affected Redis year was republished from PostgreSQL.
-        expect(await redis.get(chunkKey(securityId, "daily-state", 2025))).toBe(
-          chunk2025Before,
-        );
+        expect(
+          await redis.get(dailyStateChunkKey(namespace, securityId, 2025)),
+        ).toBe(chunk2025Before);
         const chunk2026 = (await readRedisDailyStateYear(securityId, 2026)) as Array<{
           date: string;
           intrinsicValues?: Record<string, number>;

@@ -1,0 +1,112 @@
+{
+ "description": "Controlled mutants of the final code (687c8a06), each an edit to one production file, run against daily-state-chunk.test.ts, cache.test.ts and the Redis/PostgreSQL suites, then restored byte for byte (sha256 checked).",
+ "killed": 21,
+ "of": 21,
+ "mutants": [
+  {
+   "mutant": "1 ROIC and ROE columns swapped (names truthful to neither)",
+   "verdict": "KILLED",
+   "tests": "Tests  6 failed | 114 passed (120)"
+  },
+  {
+   "mutant": "2 one Fundamental column dropped",
+   "verdict": "KILLED",
+   "tests": "Tests  55 failed | 65 passed (120)"
+  },
+  {
+   "mutant": "3 a missing value decoded as zero",
+   "verdict": "KILLED",
+   "tests": "Tests  57 failed | 63 passed | 19 skipped (139)"
+  },
+  {
+   "mutant": "4 a negative multiple dropped on encode",
+   "verdict": "KILLED",
+   "tests": "Tests  56 failed | 64 passed | 19 skipped (139)"
+  },
+  {
+   "mutant": "5 intrinsic provenance column shifted one row",
+   "verdict": "KILLED",
+   "tests": "Tests  54 failed | 66 passed | 19 skipped (139)"
+  },
+  {
+   "mutant": "6 dates sorted differently from values",
+   "verdict": "KILLED",
+   "tests": "Tests  1 failed | 138 passed (139)"
+  },
+  {
+   "mutant": "7 one year missing silently",
+   "verdict": "KILLED",
+   "tests": "Tests  2 failed | 137 passed (139)"
+  },
+  {
+   "mutant": "8a duplicate year-boundary row published",
+   "verdict": "KILLED",
+   "tests": "Tests  7 failed | 113 passed | 19 skipped (139)"
+  },
+  {
+   "mutant": "8b boundary session dropped at a range end",
+   "verdict": "KILLED",
+   "tests": "Tests  4 failed | 116 passed | 19 skipped (139)"
+  },
+  {
+   "mutant": "9 version-1 row array read as rows",
+   "verdict": "KILLED",
+   "tests": "Tests  3 failed | 136 passed (139)"
+  },
+  {
+   "mutant": "10 unknown encoding version accepted",
+   "verdict": "KILLED",
+   "tests": "Tests  2 failed | 137 passed (139)"
+  },
+  {
+   "mutant": "11 corrupt length mismatch accepted",
+   "verdict": "KILLED",
+   "tests": "Tests  1 failed | 138 passed (139)"
+  },
+  {
+   "mutant": "12 Redis republish changes values (float32 precision)",
+   "verdict": "KILLED",
+   "tests": "Tests  57 failed | 63 passed | 19 skipped (139)"
+  },
+  {
+   "mutant": "13 cache reconstruction reaches the provider",
+   "verdict": "KILLED",
+   "tests": "Tests  1 failed | 13 passed (19)"
+  },
+  {
+   "mutant": "14 LRU leaves orphan chunks (chunk not registered)",
+   "verdict": "KILLED",
+   "tests": "Tests  7 failed | 132 passed (139)"
+  },
+  {
+   "mutant": "15 explicit eviction leaves the columnar chunks behind",
+   "verdict": "KILLED",
+   "tests": "Tests  3 failed | 46 passed (49)"
+  },
+  {
+   "mutant": "16 concurrent cold readers publish different bytes",
+   "verdict": "KILLED",
+   "tests": "Tests  13 failed | 126 passed (139)"
+  },
+  {
+   "mutant": "17 one technical indicator column omitted",
+   "verdict": "KILLED",
+   "tests": "Tests  55 failed | 65 passed (120)"
+  },
+  {
+   "mutant": "18 RVOL periods swapped",
+   "verdict": "KILLED",
+   "tests": "Tests  3 failed | 117 passed (120)"
+  },
+  {
+   "mutant": "19 intrinsic model values swapped (DDM and Graham)",
+   "verdict": "KILLED",
+   "tests": "Tests  4 failed | 116 passed (120)"
+  },
+  {
+   "mutant": "20 encoding depends on property insertion order",
+   "verdict": "KILLED",
+   "tests": "Tests  59 failed | 61 passed (120)"
+  }
+ ]
+}

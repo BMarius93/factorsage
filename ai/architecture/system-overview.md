@@ -43,8 +43,9 @@ identity row cached per symbol (`stock-data:v2:symbol:<SYMBOL>:security`) has no
 through by profile hydration and by the catalog sync; nothing else refreshes it before eviction. The Monitor's trading-calendar schedule is process memory with a TTL, by design.
 
 Derived backtest-facing data is materialized per trading day into one `DailyDerivedState` row per
-security per trading day, cached as `security:<securityId>:daily-state:<year>` chunks. Calculation
-versions are not stored: a methodology change rebuilds the current state.
+security per trading day, cached as column-oriented `security:<securityId>:daily-state:v2:<year>`
+chunks (one per security and year; see `calculated-series.md`). Calculation versions are not
+stored: a methodology change rebuilds the current state.
 
 `@intrinsic/stock-data` owns canonical stock hydration: Redis READY check -> PostgreSQL coverage
 for the range this read needs -> missing FMP deltas -> derived calculation -> PostgreSQL ->

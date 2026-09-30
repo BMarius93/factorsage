@@ -41,6 +41,8 @@ import {
   RedisFmpRequestGate,
   RedisStockDataCache,
   createStockDataRedisClient,
+  dailyStateChunkKey,
+  decodeDailyStateChunk,
 } from "@intrinsic/stock-data";
 import {
   assertLiveFmpCredentials,
@@ -421,16 +423,15 @@ describeLive("live FMP stock API smoke", () => {
       expect(latestDb).not.toBeNull();
       const year = latestDb!.date.getUTCFullYear();
       const chunk = await redis.get(
-        `${namespace}:security:${securityId}:daily-state:${year}`,
+        dailyStateChunkKey(namespace, securityId, year),
       );
       expect(chunk).not.toBeNull();
-      const cachedLatest = (
-        JSON.parse(chunk as string) as Array<{
-          date: string;
-          sma20d?: number;
-          intrinsicValues?: Record<string, number>;
-        }>
-      ).at(-1);
+      const decoded = decodeDailyStateChunk(chunk as string, {
+        securityId,
+        year,
+      });
+      expect(decoded.ok).toBe(true);
+      const cachedLatest = (decoded.ok ? decoded.rows : []).at(-1);
       expect(cachedLatest?.date).toBe(latestDb!.date.toISOString().slice(0, 10));
       expect(cachedLatest?.sma20d).toBe(
         latestDb!.sma20d === null ? undefined : Number(latestDb!.sma20d),

@@ -2,9 +2,11 @@
 
 ## Status
 
-**Proposed methodology lock.** Merging this decision makes the methodology below authoritative for
-the implementation built on it: the point-in-time calculation first, then its persistence in the
-unified derived state.
+**Accepted.** Implemented by PR #66 (calculation) and PR #67 (persistence), consumed by PR #70
+(Strategy, Backtest and Monitor) and PR #71 (Stock Details), and independently audited in PR #72:
+every compared metric-day matched a clean-room oracle (`docs/fundamental-metrics-audit/REPORT.md`).
+The methodology below is authoritative for the implementation built on it: the point-in-time
+calculation first, then its persistence in the unified derived state.
 
 This decision builds on, and does not reinterpret:
 

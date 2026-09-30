@@ -14,7 +14,9 @@ import {
   CanonicalAlternativeDataService,
   CanonicalSecurityCatalogService,
   CanonicalStockDataService,
+  DEFAULT_HYDRATION_TTL_MS,
   PrismaAlternativeDataStore,
+  STOCK_DATA_CACHE_NAMESPACE,
   createStockDataRedisClient,
   IoredisCacheClient,
   PrismaStockDataStore,
@@ -115,11 +117,25 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     },
     {
       provide: STOCK_DATA_CACHE,
-      inject: [STOCK_DATA_REDIS],
-      useFactory: (redis: StockDataRedisClient): StockDataCache =>
+      inject: [STOCK_DATA_REDIS, STOCK_DATA_LOGGER],
+      useFactory: (
+        redis: StockDataRedisClient,
+        logger: StructuredLogger,
+      ): StockDataCache =>
         new RedisStockDataCache(
           new IoredisCacheClient(redis),
           getStockDataConfig().maxResidentStocks,
+          STOCK_DATA_CACHE_NAMESPACE,
+          DEFAULT_HYDRATION_TTL_MS,
+          {
+            // Repaired from PostgreSQL either way; this is what makes the repair visible.
+            onUnreadableChunk: (chunk) => {
+              logger.warn({
+                event: "stock-data.cache.chunk-unreadable",
+                ...chunk,
+              });
+            },
+          },
         ),
     },
     {

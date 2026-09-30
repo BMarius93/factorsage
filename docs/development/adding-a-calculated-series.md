@@ -32,6 +32,10 @@ drift. If you are an AI agent, or a human working quickly:
      real PostgreSQL column (checked against `information_schema`) and survives a round trip.
    - `packages/stock-data/src/redis.integration.test.ts` — every registered field survives Redis
      and is rebuilt identically after eviction.
+   - `packages/stock-data/src/daily-state-chunk.test.ts` — every field of `DailyDerivedState` has a
+     column in the Redis chunk. Its fixture is typed `Required<DailyDerivedState>`, so a new field
+     fails to compile until the fixture carries it, and then fails the round trip until the chunk
+     has a column for it. `EXPECTED_FIELDS` there is the chunk's field-dictionary snapshot.
    - `apps/api/src/stocks/stocks.integration.test.ts` — every catalog moving-average id is
      addressable through `series=` and projects its own field.
    - `packages/contracts/src/selectable-series.test.ts` — the one deliberate catalog snapshot.
@@ -103,13 +107,19 @@ registry-driven, so they need no edit.
    `DailyDerivedStateRow`, `dailyDerivedStateFromRow`, `dailyDerivedStateToRow`. Omitting the row
    type is a compile error; omitting either mapper is not, which is what the round-trip test is
    for.
-10. **Revision** — `packages/stock-data/src/derived-state.ts`: bump `DERIVED_STATE_REVISION` and
+10. **Redis chunk** — nothing to wire: `packages/stock-data/src/daily-state-chunk.ts` builds its
+    columns from the registries. Add the field to `fullRow`, `FULL_ROW_CELLS` and `EXPECTED_FIELDS`
+    in `daily-state-chunk.test.ts`; the fixture does not compile until you do. Do not bump
+    `DAILY_STATE_ENCODING_VERSION` for a new column: a chunk with the old field dictionary is
+    refused and republished from PostgreSQL, and the revision bump below rebuilds every manifest
+    anyway.
+11. **Revision** — `packages/stock-data/src/derived-state.ts`: bump `DERIVED_STATE_REVISION` and
     extend its revision-history comment. This changes the dataset variant, so existing coverage and
     cache manifests report nothing for the current variant and the canonical history is rebuilt and
     replaced. Skipping this leaves old rows serving `NULL` for the new series indefinitely.
-11. **Product decision doc** — `docs/decisions/selectable-series-catalog.md`: add to the catalog
+12. **Product decision doc** — `docs/decisions/selectable-series-catalog.md`: add to the catalog
     table.
-12. **Run the completeness tests**, then the full gate.
+13. **Run the completeness tests**, then the full gate.
 
 The calculator, the API projection, the Indicators picker, the chart overlay, the legend and the
 colour assignment all follow the registry and the catalog. They need no edit.
@@ -135,24 +145,30 @@ oscillators are the worked example of this checklist: `kind: "OSCILLATOR"`, `DAI
    `TECHNICAL_SERIES_FIELDS` if the family is served by the technical projection.
 4. **`buildDailyDerivedState`** — `packages/stock-data/src/derived-state.ts`: merge the new family
    into the daily row. Keep merging by exact trading date; never invent a row.
-5. **API projection and validation** — `apps/api/src/stocks/stocks.controller.ts`:
+5. **Redis chunk columns** — `packages/stock-data/src/daily-state-chunk.ts`: add the family to
+   `COLUMNS` from its registry, at the position `dailyDerivedStateFromRow` writes its fields, so a
+   decoded row keeps PostgreSQL's key order. A field outside any registry gets its own
+   `numberColumn`/`textColumn`; a nested family follows `intrinsicValues`. A value with provenance
+   gets its provenance as a separate column on the same date axis. `DAILY_STATE_ENCODING_VERSION`
+   changes only when the chunk format itself changes, never for a new column.
+6. **API projection and validation** — `apps/api/src/stocks/stocks.controller.ts`:
    `technicalResponse` projects `TECHNICAL_SERIES_FIELDS` and `technicalFields` accepts exactly the
    catalog's `TECHNICAL_SERIES` kinds. A family served by these lists needs no controller edit
    beyond what the registries provide; a family with its own endpoint semantics (PIT rules,
    provenance) gets its own projection instead.
-6. **Web dispatch** — `apps/web/src/features/stocks/details/utils/series-catalog.ts`: add the case
+7. **Web dispatch** — `apps/web/src/features/stocks/details/utils/series-catalog.ts`: add the case
    to the `seriesPoints` switch. It is exhaustive over the union, so TypeScript points at it. A
    family that is not price-scaled also needs `buildOverlays` to route it (see the
    `OSCILLATOR_PANE` placement) and a pane decision in `StockPriceChart`.
-7. **Multi-output families (MACD)** — a scalar column per output, one catalog entry each, or an
+8. **Multi-output families (MACD)** — a scalar column per output, one catalog entry each, or an
    explicit product decision on how the picker groups them. `ChartPoint` is `{date, value}`: a
    composite value is not representable today.
-8. **Provenance and units** — a fundamentals-driven series needs a provenance column, must be
+9. **Provenance and units** — a fundamentals-driven series needs a provenance column, must be
    excluded from the shared `intrinsicCurrency` rule if it is unitless, and needs its evaluation
    events planned the way `planIntrinsicEvaluationDates` does.
-9. **QA fixture** — `apps/api/src/stocks/seed-qa-stock-data.ts` and its test, if the browser
+10. **QA fixture** — `apps/api/src/stocks/seed-qa-stock-data.ts` and its test, if the browser
    journey should cover the new family.
-10. **Coverage** — component test, Playwright expectations, and the docs below.
+11. **Coverage** — component test, Playwright expectations, and the docs below.
 
 ## Validation
 
@@ -175,4 +191,6 @@ Live FMP suites stay opt-in and are not part of this workflow.
 - `docs/decisions/selectable-series-catalog.md` — the catalog table.
 - `docs/decisions/stock-data-foundation.md` — if the persisted derived families changed.
 - `ai/architecture/database.md` — the migration note.
+- `docs/decisions/retain-wide-column-calculated-series-storage.md` — for a new family, re-measure
+  the Redis budgets with `pnpm bench:daily-state-cache` and record them.
 - This guide — whenever a step here turns out to be wrong or incomplete.

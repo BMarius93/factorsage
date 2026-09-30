@@ -115,6 +115,10 @@ stock-data:v2:access-sequence
 Range reads issue one multi-key read for the intersecting years, concatenate ascending rows, and
 slice exact boundary dates. Exact HTTP/date-range response keys do not exist.
 
+(Since 2026-09-30 the derived-state chunk is `daily-state:v2:<year>`, column-oriented and decoded by
+`decodeDailyStateChunk`; see `retain-wide-column-calculated-series-storage.md`, "Redis chunk
+layout". The key set and the one multi-key read are unchanged.)
+
 The manifest contains status, configured horizon years, attempted coverage bounds, actual first
 and last available price dates when present, hydration/freshness instants, source-dataset versions
 — `priceDatasetVersion` is the price-dataset revision `PRICE_DATASET_VERSION`, and a manifest from

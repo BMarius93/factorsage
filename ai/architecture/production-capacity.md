@@ -8,6 +8,12 @@ does it cost, where does it stop being cheap, and what should an operator watch.
 **Every number here was measured on one developer machine.** Treat them as ratios and shapes, not
 as production values. Re-run the benchmark in the target environment before relying on an absolute.
 
+**The Redis byte figures predate the column-oriented `daily-state` chunk** (2026-09-30), which cut
+the derived state's share of them by about 86 % with the same keys and commands. Read the Redis
+byte columns below as upper bounds; `pnpm bench:daily-state-cache` measures the current chunk, and
+`../../docs/decisions/retain-wide-column-calculated-series-storage.md` ("Redis chunk layout") holds
+its numbers.
+
 ## Environment and methodology
 
 | Item | Value |
