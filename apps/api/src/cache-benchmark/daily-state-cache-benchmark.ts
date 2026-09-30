@@ -830,8 +830,12 @@ async function main(): Promise<void> {
           0,
         ),
       };
+      const keptRows = { legacy: 0, columnar: 0 };
       timing.allocation = {
-        gcDuringFullHistoryDecodes: {
+        // Thirty full-history reads each way: once dropping every result at once (pure decode
+        // garbage), once holding each read's rows until the next replaces them, as a caller that
+        // uses its rows does.
+        gcDuringThirtyFullHistoryDecodesDiscarded: {
           legacy: await gcDuring(() => {
             for (let repeat = 0; repeat < 30; repeat += 1)
               legacyRead(legacyPayloads, coverage);
@@ -841,6 +845,27 @@ async function main(): Promise<void> {
               columnarRead(timingSecurity.id, columnarPayloads, coverage);
             }
           }),
+        },
+        gcDuringThirtyFullHistoryDecodesKept: {
+          legacy: await gcDuring(() => {
+            let kept: DailyDerivedState[] = [];
+            for (let repeat = 0; repeat < 30; repeat += 1) {
+              kept = legacyRead(legacyPayloads, coverage);
+            }
+            keptRows.legacy = kept.length;
+          }),
+          columnar: await gcDuring(() => {
+            let kept: DailyDerivedState[] = [];
+            for (let repeat = 0; repeat < 30; repeat += 1) {
+              kept = columnarRead(
+                timingSecurity.id,
+                columnarPayloads,
+                coverage,
+              );
+            }
+            keptRows.columnar = kept.length;
+          }),
+          rowsHeldByEachRead: keptRows,
         },
         retainedBytesPerFullHistoryRead: {
           legacy: retainedBytes(() => legacyRead(legacyPayloads, coverage)),
