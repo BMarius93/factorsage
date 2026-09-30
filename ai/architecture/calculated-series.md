@@ -566,5 +566,7 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
 - **MACD, volatility and valuation ratios (`P/E`, `P/S`, `P/FCF`, `EV/EBITDA`)** — no such series
   exists. (The daily RSI family is implemented; it is the first oscillator, not a template for
   storing multi-output families like MACD. The statement-derived growth, margin, return, leverage,
-  liquidity, coverage and turnover ratios are the Fundamental Metrics above; valuation ratios need
-  their own methodology decision.)
+  liquidity, coverage and turnover ratios are the Fundamental Metrics above.) Valuation ratios are
+  **blocked** by `../../docs/decisions/valuation-ratios-v1.md`: the stored close also carries the
+  provider's price-only adjustments, which statement share counts do not follow, so no stored
+  equity value is on one basis until a corporate-action basis exists.
