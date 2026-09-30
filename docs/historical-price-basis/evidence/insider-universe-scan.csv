@@ -1,0 +1,63 @@
+symbol,trades_on_stored_sessions,contained_at_fmp_implied_factor,contained_pct,flagged_segments,note
+AAL,127,112,88.19,1,pre-merger AMR identity 2013
+AAPL,3287,3255,99.03,1,n=9 after 2020 split
+ABNB,1395,1394,99.93,0,
+ADBE,1433,1430,99.79,0,
+ALAB,773,772,99.87,0,
+AMD,1415,1408,99.51,0,
+AMGN,635,635,100.0,0,
+AMZN,4875,4873,99.96,0,
+ARM,39,39,100.0,0,
+AXON,1278,1238,96.87,8,"sparse, noisy rows; no persistent step"
+AXP,900,843,93.67,3,provider ratio 1.1425 too large; measured 1.1326
+BA,446,446,100.0,0,
+BRK-A,1111,177,15.93,4,insider feed: class B trades filed under BRK-A
+CAT,496,473,95.36,2,"0.5-0.7% timing noise, 2003-2004"
+CAVA,90,89,98.89,0,
+CRCL,158,155,98.1,0,
+CRM,7146,7136,99.86,0,
+CRWD,3677,3660,99.54,0,
+CRWV,2416,2373,98.22,0,
+CSCO,1516,1514,99.87,0,
+CVX,841,836,99.41,0,
+DDOG,3720,3714,99.84,0,
+DIS,281,278,98.93,1,supports: provider 2007 entry not carried
+FANG,525,514,97.9,0,
+FIG,124,121,97.58,0,
+FTNT,1213,1200,98.93,0,
+GOOG,6722,6138,91.31,2,class C/A mixing
+GOOGL,6744,5973,88.57,3,class C/A mixing
+GS,1695,1677,98.94,1,insider feed: non-common rows 2019
+HD,573,569,99.3,0,
+HON,379,7,1.85,15,"price-only adjustments missing or mis-sized (2018, 2025)"
+HOOD,528,520,98.48,0,
+IBM,2798,2797,99.96,0,
+JNJ,255,253,99.22,0,
+JPM,522,509,97.51,0,
+KO,511,505,98.83,0,
+MBLY,8,8,100.0,0,
+MCD,747,746,99.87,0,
+META,8455,8451,99.95,0,
+MMM,3287,143,4.35,16,price-only adjustment missing from provider list (Solventum 2024)
+MPWR,5059,5041,99.64,0,
+MRK,422,351,83.18,4,insider feed: non-MRK rows 2003-2008 (prices ~15-17 against a ~40-45 range)
+MRNA,2494,2483,99.56,0,
+MSFT,6182,6170,99.81,0,
+MSTR,6143,6079,98.96,1,"n=6, volatility"
+NKE,789,782,99.11,0,
+NVDA,2687,2684,99.89,0,
+ODFL,203,200,98.52,0,
+PANW,2254,2245,99.6,0,
+PG,948,942,99.37,0,
+PLTR,899,897,99.78,0,
+RDDT,1242,1236,99.52,0,
+RIVN,88,87,98.86,0,
+ROP,1064,1061,99.72,0,
+SHW,766,766,100.0,0,
+TRV,1020,1020,100.0,0,
+UBER,239,237,99.16,0,
+UNH,522,522,100.0,0,
+V,318,315,99.06,0,
+WDC,1303,1300,99.77,0,
+WMT,1542,1538,99.74,0,
+XOM,1093,1093,100.0,0,
