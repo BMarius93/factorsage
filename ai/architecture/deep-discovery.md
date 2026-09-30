@@ -698,6 +698,14 @@ tail re-read. Stored Margin of Safety examples:
 **Action.** Recorded here and in that decision. Valuation Ratios V1 is blocked on it. Margin of
 Safety is not changed.
 
+**Follow-up (2026-09-30).** `../../docs/decisions/historical-price-basis-v1.md` is the proposed
+design: two price bases, a basis-event ledger, re-base detection and atomic replacement. Its
+status is **Blocked** on an external as-traded reference. Its evidence
+(`../../docs/historical-price-basis/INVESTIGATION.md`) confirms the six securities by
+insider-range containment and finds no seventh among the 62. It also establishes that today's
+Margin of Safety is correct at the live edge and biased only on historical sessions before a
+folded distribution.
+
 ---
 
 ## Things that looked suspicious but are correct

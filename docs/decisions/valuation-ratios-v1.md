@@ -48,7 +48,8 @@ if the close and the share count carry the same adjustments.
    - Further findings are recorded in the investigation: B2, a split after a security is first
      loaded; B3, single-quarter share anomalies; and statements recast around spin-offs.
 3. **Valuation ratios resume on a corporate-action basis** (see below). That prerequisite is its
-   own decision and its own change.
+   own decision and its own change: `historical-price-basis-v1.md`, currently blocked on an
+   external as-traded reference.
 4. **Margin of Safety has the same defect today.** It is recorded here and in
    `ai/architecture/deep-discovery.md` §15, and it is not changed.
 

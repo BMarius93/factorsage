@@ -85,6 +85,15 @@ same document.
 revision, `PRICE_DATASET_VERSION`, documented in `../docs/decisions/complete-price-coverage.md`;
 bumping one does not invalidate the other.
 
+Read `../docs/decisions/historical-price-basis-v1.md` (status: Blocked) before any of these:
+
+- work that compares a price with a share count or a per-share figure: Margin of Safety, a price
+  against an intrinsic value, valuation ratios;
+- work on how the loader re-reads prices after a split or spin-off.
+
+It defines the research, as-traded and split-adjusted closes, and it explains why the stored
+close alone is right for charts, indicators and backtests but not for share-derived comparisons.
+
 For the Dashboard's market-overview cards, the market-reference index series or anything that
 touches which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the
 `isActive` / `isBacktestSelectable` split, the `ETF_PROXY` / `INDEX` series semantics, why `SP500`
