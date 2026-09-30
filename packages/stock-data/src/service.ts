@@ -2073,8 +2073,9 @@ export class CanonicalStockDataService implements StockDataService {
       manifest.financialStatementVersion === FINANCIAL_STATEMENT_VERSION &&
       manifest.derivedStateRevision === DERIVED_STATE_REVISION &&
       // The Redis encoding of the derived state, not its methodology: a manifest published over
-      // chunks of another encoding costs one rebuild of the projection from PostgreSQL, never a
-      // recalculation and never a provider request.
+      // chunks of another encoding costs one rebuild of the projection from PostgreSQL. Nothing is
+      // recalculated, and the provider is asked only for a tail PostgreSQL has not covered yet —
+      // exactly what any hydration of the same range would ask for.
       manifest.dailyStateEncodingVersion === DAILY_STATE_ENCODING_VERSION
     );
   }

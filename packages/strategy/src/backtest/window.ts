@@ -33,7 +33,7 @@ export type BacktestExecutionWindow = {
  *
  * Calendar years, deliberately, rather than rolling 365-day chunks: the canonical price and derived
  * projections are already stored and cached per calendar year (`prices:1D:<year>`,
- * `daily-state:<year>`), so a year-aligned window reads whole chunks instead of straddling two.
+ * `daily-state:v2:<year>`), so a year-aligned window reads whole chunks instead of straddling two.
  *
  * A year the calendar has no trading day in produces no window — there would be nothing to load and
  * nothing to simulate — which also makes `dates` non-empty by construction.

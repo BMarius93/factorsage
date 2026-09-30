@@ -411,17 +411,19 @@ function materializeRows(
   values: readonly Cell[][],
 ): DailyDerivedState[] {
   const rows = new Array<DailyDerivedState>(end - first);
-  const templates = new Map<number, Record<string, unknown>>();
+  const templates = new Map<string, Record<string, unknown>>();
+  let template: Record<string, unknown> | undefined;
   for (let offset = 0; offset < end - first; offset += 1) {
-    // Which columns hold a value: one bit per column, 48 bits, exact in a double.
-    let shape = 0;
-    for (const column of values) {
-      shape = shape * 2 + (column[offset] === undefined ? 0 : 1);
-    }
-    let template = templates.get(shape);
-    if (template === undefined) {
-      template = rowTemplate(securityId, values, offset);
-      templates.set(shape, template);
+    if (template === undefined || shapeChanged(values, offset)) {
+      // Which columns hold a value, one character per column: exact for any number of columns.
+      const shape = values
+        .map((column) => (column[offset] === undefined ? "0" : "1"))
+        .join("");
+      template = templates.get(shape);
+      if (template === undefined) {
+        template = rowTemplate(securityId, values, offset);
+        templates.set(shape, template);
+      }
     }
     const row: Record<string, unknown> = { ...template };
     row.date = axis[first + offset];
@@ -447,6 +449,16 @@ function materializeRows(
     rows[offset] = row as DailyDerivedState;
   }
   return rows;
+}
+
+/** Whether the session at `offset` holds values in different columns from the one before it. */
+function shapeChanged(values: readonly Cell[][], offset: number): boolean {
+  for (const column of values) {
+    if ((column[offset] === undefined) !== (column[offset - 1] === undefined)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

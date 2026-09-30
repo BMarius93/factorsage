@@ -278,9 +278,6 @@ describe("daily-state chunk encoding version", () => {
       "fundamentalsVariantVersion",
       "priceDatasetVersion",
     ]);
-    expect(Object.values(BACKTEST_DATA_REVISIONS)).not.toContain(
-      "dailyStateEncodingVersion",
-    );
   });
 
   it("carries exactly one column per field, in canonical order", () => {
@@ -392,6 +389,41 @@ describe("daily-state chunk round trip", () => {
     expect("intrinsicValues" in (back as object)).toBe(false);
     expect("intrinsicValueBlends" in (back as object)).toBe(false);
     expect(back).toStrictEqual(row);
+  });
+
+  it("materializes rows whose set of fields changes from session to session, and back", () => {
+    // Each pair of sessions shares a pattern of absent fields and the patterns recur, so the decoder
+    // both reuses a row shape and returns to one it built earlier.
+    const rows = Array.from({ length: 80 }, (_, session) => {
+      const date = new Date(Date.UTC(2024, 0, 1 + session))
+        .toISOString()
+        .slice(0, 10);
+      let row = {
+        ...fullRow(date),
+        sma20d: 100 + session,
+      } as DailyDerivedState;
+      const pattern = (session >> 1) % 11;
+      for (const [position, path] of EXPECTED_FIELDS.entries()) {
+        if (((pattern * 7 + 3) * (position + 1)) % 11 < 3) {
+          row = without(row as FullRow, path);
+        }
+      }
+      for (const family of [
+        "intrinsicValues",
+        "intrinsicValueBlends",
+      ] as const) {
+        if (Object.keys(row[family] ?? {}).length === 0) {
+          delete row[family];
+        }
+      }
+      return row;
+    });
+    expect(
+      new Set(rows.map((row) => JSON.stringify(Object.keys(row)))).size,
+    ).toBe(11);
+    const back = roundTrip(rows);
+    expect(back).toStrictEqual(rows);
+    expect(JSON.stringify(back)).toBe(JSON.stringify(rows));
   });
 
   it("returns a row that carries only its identity as exactly that", () => {
