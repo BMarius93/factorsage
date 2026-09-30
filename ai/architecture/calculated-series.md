@@ -32,7 +32,7 @@ flowchart LR
   EV --> BD
   BD --> ST["dailyDerivedStateToRow<br/>prisma-store.ts"]
   ST --> PG[("DailyDerivedState<br/>one row per securityId+date")]
-  PG --> RD[("Redis yearly chunks<br/>security:&lt;id&gt;:daily-state:&lt;year&gt;")]
+  PG --> RD[("Redis yearly chunks, column-oriented<br/>security:&lt;id&gt;:daily-state:v2:&lt;year&gt;")]
   PG --> API["StocksController<br/>projections"]
   RD --> API
   API --> WEB["Stock Details<br/>picker · chart · legend"]
@@ -340,24 +340,41 @@ Bumping it makes previous-variant coverage and manifests report nothing, so
 lazy. That limitation is accepted and recorded in the storage decision; per-family revisions are
 deferred.
 
-## Redis (v2)
+## Redis (v2 namespace, column-oriented chunks)
 
-`packages/stock-data/src/cache.ts`:
+`packages/stock-data/src/cache.ts` stores the chunks; `packages/stock-data/src/daily-state-chunk.ts`
+is the one codec that spells them. The decision, its measurements and the alternatives are in the
+storage decision's "Redis chunk layout" section.
 
-- Key family `stock-data:v2:security:<securityId>:daily-state:<year>` — **one chunk family for the
-  whole derived state**; never a key per indicator, model or blend.
-- Each chunk is a JSON array of **row-oriented** `DailyDerivedState` objects, so field names repeat
-  per row (measured: ~56 % of a serialized row is names and syntax).
-- The manifest carries `derivedStateRevision`; `isReady` rejects a manifest whose revision differs
-  from the current one, forcing rehydration.
+- Key family `stock-data:v2:security:<securityId>:daily-state:v2:<year>` (`dailyStateChunkKey`) —
+  **one chunk per security and calendar year for the whole derived state**; never a key per
+  indicator, model, blend or metric. The `v2` segment is the chunk encoding, like the `v1` in a
+  statement key.
+- Each chunk is **column-oriented**: a header (`version`, `securityId`, `year`), the field
+  dictionary, one ascending date axis, and one run-length column per field. A cell is a value for
+  one session, `[value, count]` for a repeated value, or `[count]` for sessions without one —
+  absence is a count, never `null` and never zero. Columns come from the registries in the key order
+  `dailyDerivedStateFromRow` writes, so a decoded row serializes byte for byte like PostgreSQL's.
+  The carried-forward families (Fundamentals, intrinsic values, provenance, weekly averages)
+  collapse to a handful of runs a year, which is where the ~86 % saving comes from; the daily
+  families stay one value per session.
+- `decodeDailyStateChunk` validates the whole chunk — version, security, year, dictionary, a
+  strictly ascending date axis inside the year, and every column covering every date exactly once
+  with cells of its own kind — and materializes only the requested window. Anything unreadable is a
+  **miss**, reported through the cache's `onUnreadableChunk` observer
+  (`stock-data.cache.chunk-unreadable`, warn); a partial history is never returned.
+- The manifest carries `derivedStateRevision` (methodology) and `dailyStateEncodingVersion`
+  (bytes); `isCurrent` requires both, so a manifest over an older revision or encoding forces
+  rehydration. Only the revision reaches PostgreSQL coverage or a backtest snapshot. A manifest
+  that differs only in its encoding keeps its resident range when rebuilt.
 - Complete-stock LRU: every key belonging to a security is registered so eviction removes all of
   its datasets together. Redis is disposable — a flush costs latency, never data.
 - A partial rebuild republishes **complete** affected years, because a yearly chunk is replaced
   wholesale.
 - The Fundamental Metrics ride in the same chunks as every other field: there is no
-  `fundamentals:*` key. Measured on a worst-case synthetic security (every series non-null on every
-  day for thirty years), they grow a year chunk from ~244 KB to ~343 KB and the thirty-year
-  daily-state payload from ~7.2 MB to ~10.2 MB; see the storage decision's budgets.
+  `fundamentals:*` key. With every series non-null on every weekday of the full retention, a
+  security's `daily-state` is 2.13 MiB (12.79 MiB in the retired row-oriented layout); see the
+  storage decision's budgets.
 
 ## API
 
@@ -537,9 +554,9 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
 
 - **JSONB** value/provenance maps — deferred, with triggers and budgets in
   `../../docs/decisions/retain-wide-column-calculated-series-storage.md`.
-- **Redis v3 / column-oriented chunks** — a dates array plus per-series aligned arrays would cut
-  the measured field-name overhead, and is the cheaper intervention if the series count approaches
-  the top of the accepted range. Not built.
+- **Redis v3**, or per-series keys. The yearly chunk is already column-oriented (see Redis above);
+  compressing it, or projecting frames straight from its columns without materializing rows, are
+  measured but unbuilt options recorded in the storage decision.
 - **A generic `/series` projection endpoint** taking arbitrary catalog IDs. Not built; today the
   web client fetches all technical series and filters client-side. Fundamental Metrics are the
   exception by design: fifteen metrics nobody draws at once would multiply every history read, so

@@ -348,6 +348,10 @@ Cached derived state uses one yearly chunk family per security:
 security:<securityId>:daily-state:<year>
 ```
 
+(Since 2026-09-30 the key carries the chunk's encoding version, `daily-state:v2:<year>`, and each
+chunk is column-oriented; the family is still one chunk per security and year. See
+`retain-wide-column-calculated-series-storage.md`, "Redis chunk layout".)
+
 Do not introduce a Redis key per indicator, model, or blend. Every key belonging to a stock must be
 registered so complete-stock LRU eviction removes all of its cached datasets together.
 

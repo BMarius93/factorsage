@@ -2,9 +2,15 @@
 
 ## Status
 
-**Proposed architecture lock.** This document defines how `fundamental-metrics-v1.md` fits the
-architecture that exists today. It is intentionally conservative: Fundamental Metrics extend the
-canonical stock-data/derived-state path rather than creating a parallel subsystem.
+**Accepted.** Implemented by PR #66 (calculation), PR #67 (persistence: migration
+`20260929090000_add_fundamental_metrics_derived_state`, `DERIVED_STATE_REVISION` 7), PR #70
+(Strategy, Backtest and Monitor) and PR #71 (Stock Details), and independently audited in PR #72
+(`docs/fundamental-metrics-audit/REPORT.md`). The Redis layout trigger that audit left open was
+resolved by the column-oriented `daily-state` chunk (see "PostgreSQL authority and Redis behavior").
+
+This document defines how `fundamental-metrics-v1.md` fits the architecture that exists today. It is
+intentionally conservative: Fundamental Metrics extend the canonical stock-data/derived-state path
+rather than creating a parallel subsystem.
 
 ## Decision summary
 
@@ -280,9 +286,13 @@ statement revision.
 
 PostgreSQL remains authoritative for `DailyDerivedState`.
 
-Redis continues to cache the same row-oriented derived state in the existing yearly
-`daily-state:<year>` chunks under the current generation/manifest/LRU mechanism. The fifteen fields
-are serialized into those chunks exactly like SMA, RSI, RVOL and intrinsic values.
+Redis continues to cache the same derived state in the existing yearly `daily-state` chunks under
+the current generation/manifest/LRU mechanism. The fifteen fields are carried in those chunks exactly
+like SMA, RSI, RVOL and intrinsic values: one column each in the column-oriented chunk (daily-state
+encoding 2, key `daily-state:v2:<year>`), whose decision, measurements and invalidation rules are in
+`retain-wide-column-calculated-series-storage.md`. That chunk replaced the row-oriented one before
+the valuation ratios, as the storage decision's per-security budget required; nothing about the
+fifteen fields' values or absence changed.
 
 Do not introduce keys such as:
 
