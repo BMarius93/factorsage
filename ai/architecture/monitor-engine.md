@@ -490,7 +490,9 @@ both reported as a not-evaluable observation for the cycle and never as a Signal
 - **One basis per frame.** Prices come from the Redis projection and the derived tail from
   PostgreSQL; `readMonitorEvaluationFrame` reads the security's price-basis generation before and
   after them, and a replacement committed in between makes the cycle's frame for that security
-  absent. A reconstruction's history read is bracketed the same way.
+  absent. A reconstruction's history read is bracketed the same way, and meeting a replacement
+  there is a `warn` (`monitor.reconstruction.history-rebased`), not a failure. The cycle's
+  preparation verifies a security the loader has never verified, so the read itself never does.
 
 ## The trading-session boundary
 

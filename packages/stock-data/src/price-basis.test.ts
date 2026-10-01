@@ -229,14 +229,15 @@ describe("comparePriceHistories", () => {
     expect(result.events[0]!.priceRatio).toBeCloseTo(3, 9);
   });
 
-  it("leaves the interval open when the provider re-based before publishing a session after it", () => {
+  it("ends the interval at the detection when the provider re-based before publishing a session after it", () => {
     const fresh = history.map((row) => ({ ...row, close: row.close / 2 }));
     const result = compare(history, fresh);
     expect(result.events[0]).toMatchObject({
       kind: "MEASURED",
       effectiveFrom: history[199]!.date,
+      effectiveTo: DETECTED_AT.slice(0, 10),
     });
-    expect(result.events[0]!.effectiveTo).toBeUndefined();
+    expect(result.events[0]!.effectiveDate).toBeUndefined();
   });
 
   it("treats a short block of corrected rows as corrections, never as events", () => {
@@ -352,6 +353,136 @@ describe("comparePriceHistories", () => {
         { from: history[0]!.date, to: history[149]!.date, sessions: 150 },
       ],
     });
+  });
+});
+
+describe("comparePriceHistories on rounded histories", () => {
+  /** A deterministic random walk: the true price of one security, session by session. */
+  function walk(
+    count: number,
+    start: number,
+    drift: number,
+    seed: number,
+  ): number[] {
+    let state = seed;
+    const random = () => {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return state / 2_147_483_648;
+    };
+    const prices: number[] = [];
+    let price = start;
+    for (let index = 0; index < count; index += 1) {
+      price *= 1 + drift + (random() - 0.5) * 0.04;
+      prices.push(price);
+    }
+    return prices;
+  }
+
+  /** How the provider prints a close: cents at or above $1, four decimals below. */
+  const printed = (value: number) =>
+    value >= 1
+      ? Math.round(value * 100) / 100
+      : Math.round(value * 10_000) / 10_000;
+
+  // The provider rounds each re-based row on its own, so no two sessions give exactly one ratio.
+  for (const [label, factor, start, drift] of [
+    ["2:1 split", 2, 20, 0.0004],
+    ["3:2 split", 1.5, 20, 0.0004],
+    ["4:1 split", 4, 20, 0.0004],
+    ["10:1 split", 10, 50, 0.0004],
+    ["1.046 spin-off", 1.046, 50, 0.0002],
+    ["1:10 reverse split", 0.1, 8, -0.0008],
+  ] as const) {
+    it(`measures one event for a ${label} after the newest stored session`, () => {
+      for (let seed = 1; seed <= 40; seed += 1) {
+        const truth = walk(1_500, start, drift, seed);
+        const days = sessions("2020-01-06", truth.length + 1, () => 0).map(
+          (row) => row.date,
+        );
+        const stored = truth.map((price, index) => ({
+          date: days[index]!,
+          close: printed(price * factor),
+        }));
+        const fresh = [
+          ...truth.map((price, index) => ({
+            date: days[index]!,
+            close: printed(price),
+          })),
+          { date: days.at(-1)!, close: printed(truth.at(-1)!) },
+        ];
+        const result = compare(stored, fresh);
+        const message = `${label}, seed ${seed}`;
+        expect(result.events, message).toHaveLength(1);
+        expect(result.events[0], message).toMatchObject({
+          kind: "MEASURED",
+          effectiveDate: days.at(-1),
+        });
+        const ratio = result.events[0]!.priceRatio!;
+        expect(Math.abs(ratio / factor - 1), message).toBeLessThan(0.001);
+        expect(isPlainShareRatio(ratio), message).toBe(
+          isPlainShareRatio(factor),
+        );
+        // Every stored session keeps a value for a revision observed before the event.
+        const kept = days.slice(0, -1).filter((session) => {
+          const basis = basisFactorAt({
+            session,
+            observedAt: `${days[0]}T12:00:00.000Z`,
+            events: result.events,
+          });
+          return (
+            basis.kind === "FACTOR" &&
+            Math.abs(basis.factor / factor - 1) < 0.001
+          );
+        });
+        expect(kept, message).toHaveLength(truth.length);
+      }
+    });
+  }
+
+  it("dates a split inside a history mixed before verification, whatever the rounding", () => {
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const truth = walk(1_200, 30, 0.0003, seed);
+      const days = sessions("2020-01-06", truth.length, () => 0).map(
+        (row) => row.date,
+      );
+      // Rows stored before the split's ex-date on the old basis, from it on as traded.
+      const exIndex = 1_000;
+      const stored = truth.map((price, index) => ({
+        date: days[index]!,
+        close: printed(index < exIndex ? price * 2 : price),
+      }));
+      const fresh = truth.map((price, index) => ({
+        date: days[index]!,
+        close: printed(price),
+      }));
+      const result = compare(stored, fresh);
+      expect(result.events, `seed ${seed}`).toHaveLength(1);
+      expect(result.events[0], `seed ${seed}`).toMatchObject({
+        kind: "MEASURED",
+        effectiveDate: days[exIndex],
+      });
+      expect(result.events[0]!.priceRatio).toBeCloseTo(2, 2);
+    }
+  });
+
+  it("treats corrected rows with ratios of their own as corrections", () => {
+    const history = sessions("2026-01-05", 400, (index) =>
+      printed(100 + (index % 7)),
+    );
+    const adjacent = history.map((row, index) =>
+      index === 200
+        ? { ...row, close: printed(row.close * 1.02) }
+        : index === 201
+          ? { ...row, close: printed(row.close * 0.97) }
+          : row,
+    );
+    expect(compare(history, adjacent).events).toEqual([]);
+    const newest = history.map((row, index) =>
+      index >= 397
+        ? { ...row, close: printed(row.close * (1 + (index - 396) / 200)) }
+        : row,
+    );
+    expect(compare(history, newest).events).toEqual([]);
   });
 });
 
@@ -487,6 +618,44 @@ describe("basisFactorAt", () => {
         session: "2026-09-01",
         observedAt: "2026-09-30T00:00:00.000Z",
         events: [undated],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "UNDATED_REBASE" });
+    // The interval's last session is on the new basis.
+    expect(
+      basisFactorAt({
+        session: "2026-10-06",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [undated],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "AFTER_REBASE" });
+    expect(
+      basisFactorAt({
+        session: "2026-10-06",
+        observedAt: "2026-10-08T00:00:00.000Z",
+        events: [undated],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 1 });
+  });
+
+  it("stops withholding after an interval the detection ended", () => {
+    // Re-based before the provider published a session after the newest stored one.
+    const ahead = event({
+      effectiveFrom: "2026-10-01",
+      effectiveTo: "2026-10-07",
+      priceRatio: 1.046,
+    });
+    expect(
+      basisFactorAt({
+        session: "2027-06-01",
+        observedAt: "2027-05-01T00:00:00.000Z",
+        events: [ahead],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 1 });
+    expect(
+      basisFactorAt({
+        session: "2026-10-02",
+        observedAt: "2027-05-01T00:00:00.000Z",
+        events: [ahead],
       }),
     ).toEqual({ kind: "WITHHELD", reason: "UNDATED_REBASE" });
   });

@@ -362,6 +362,47 @@ function copiers(securityIds: readonly string[]): readonly Copier[] {
       },
     },
     {
+      // The price basis travels with the prices it describes: without it every matrix hydration
+      // would verify the copied history against the provider, and a rebuild would lose the measured
+      // re-bases its intrinsic values are put on the research scale by.
+      table: "SecurityPriceBasis",
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.securityPriceBasis.findMany({
+              where,
+              orderBy: { securityId: "asc" },
+              skip,
+              take,
+            }),
+          () => target.securityPriceBasis.deleteMany({ where }),
+          (rows) => target.securityPriceBasis.createMany({ data: [...rows] }),
+        );
+      },
+    },
+    {
+      table: "PriceBasisEvent",
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.priceBasisEvent.findMany({
+              where,
+              orderBy: { id: "asc" },
+              skip,
+              take,
+            }),
+          () => target.priceBasisEvent.deleteMany({ where }),
+          (rows) =>
+            target.priceBasisEvent.createMany({
+              data: rows.map((row) => ({
+                ...row,
+                evidence: row.evidence as Prisma.InputJsonValue,
+              })),
+            }),
+        );
+      },
+    },
+    {
       table: "Benchmark",
       copy(source, target) {
         return reconcileIdentityRows({

@@ -272,8 +272,9 @@ export interface StockDataStore {
   /** Every measured re-base of the security, in the order they were recorded. */
   getPriceBasisEvents(securityId: string): Promise<PriceBasisEvent[]>;
   /**
-   * Records the first verification of a history that needed no replacement: generation 1 and
-   * `verifiedAt`. A security already verified keeps its row; the existing one is returned.
+   * Records the first verification of a history that needed no replacement: generation 0, the
+   * generation of a history never replaced, and `verifiedAt`. A security already verified keeps its
+   * row; the existing one is returned.
    */
   createPriceBasis(input: {
     securityId: string;
@@ -285,13 +286,14 @@ export interface StockDataStore {
    * rows rebuilt from them, the measured re-bases, and the next generation. PostgreSQL therefore
    * never holds an old early history beside a new late one, or new prices beside old indicators.
    *
-   * `expectedGeneration` is the generation the caller compared against (`null` before the first
-   * verification); a different one means another writer replaced the history first, and nothing is
-   * written. Derived and weekly coverage are re-established for exactly the rebuilt range.
+   * `expectedGeneration` is the generation the caller compared against (0 for a history never
+   * replaced, verified or not); a different one means another writer replaced the history first,
+   * and nothing is written. Derived and weekly coverage are re-established for exactly the rebuilt
+   * range.
    */
   replaceDailyPriceHistory(input: {
     securityId: string;
-    expectedGeneration: number | null;
+    expectedGeneration: number;
     prices: readonly DailyPrice[];
     derivedRows: readonly DailyDerivedState[];
     weeklyPrices: readonly WeeklyPrice[];

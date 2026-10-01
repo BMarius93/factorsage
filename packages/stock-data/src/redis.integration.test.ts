@@ -1337,6 +1337,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
       provider.rows.set("1992-08-24:2014-12-31", [
         integrationPrice(security.id, "2010-01-04", 30),
       ]);
+      // The earliest stored sessions, as the provider still returns them: unchanged.
+      provider.rows.set("2022-01-03:2022-02-02", [
+        integrationPrice(security.id, "2022-01-03", 150),
+      ]);
       const storeA = new PrismaStockDataStore(prismaA);
       const storeB = new PrismaStockDataStore(prismaB);
       const derivedWritesA = vi.spyOn(storeA, "saveDailyDerivedState");
@@ -1393,8 +1397,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
 
       expect(provider.ranges).toEqual([
         { from: "1992-08-24", to: "2014-12-31" },
-        // The earliest stored row, re-read once before the delta is saved beside it.
-        { from: "2022-01-03", to: "2022-01-03" },
+        // The earliest stored sessions, re-read once before the delta is saved beside them.
+        { from: "2022-01-03", to: "2022-02-02" },
       ]);
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);

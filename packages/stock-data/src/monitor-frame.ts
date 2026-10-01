@@ -379,7 +379,7 @@ export function projectMonitorEvaluationFrame(input: {
     return null;
   }
 
-  // The ex-date hold for the live quote (`historical-price-basis-v1.md`, §7, rule 4). A quote that
+  // The ex-date hold for the live quote (`historical-price-basis-v1.md`, §7, rule 3). A quote that
   // moved by a split-sized amount from the last closed session may be a post-split price beside a
   // history the provider has not re-based yet; appended, it would read as a −75 % day against every
   // indicator and could raise a permanent Signal. The security is not evaluable this cycle; once the

@@ -37,10 +37,11 @@ import {
   assertOneRowPerTradingDay,
   DAILY_DERIVED_STATE_VARIANT,
 } from "./derived-state.js";
-import type {
-  PriceBasisEvent,
-  PriceBasisEventEvidence,
-  SecurityPriceBasisState,
+import {
+  PriceBasisConflictError,
+  type PriceBasisEvent,
+  type PriceBasisEventEvidence,
+  type SecurityPriceBasisState,
 } from "./price-basis.js";
 import {
   DAILY_PRICE_FRESHNESS_VARIANT,
@@ -1126,7 +1127,7 @@ export class PrismaStockDataStore implements StockDataStore {
       where: { securityId: input.securityId },
       create: {
         securityId: input.securityId,
-        generation: 1,
+        generation: 0,
         verifiedAt: new Date(input.verifiedAt),
       },
       // An existing row is never rewritten: `verifiedAt` and the generation only move forward.
@@ -1144,9 +1145,11 @@ export class PrismaStockDataStore implements StockDataStore {
       const current = await transaction.securityPriceBasis.findUnique({
         where: { securityId: input.securityId },
       });
-      if ((current?.generation ?? null) !== input.expectedGeneration) {
-        throw new Error(
-          "Stock price basis changed while its history was being replaced",
+      if ((current?.generation ?? 0) !== input.expectedGeneration) {
+        throw new PriceBasisConflictError(
+          input.securityId,
+          input.expectedGeneration,
+          current?.generation ?? 0,
         );
       }
       const generation = (current?.generation ?? 0) + 1;

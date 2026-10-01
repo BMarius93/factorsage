@@ -496,9 +496,13 @@ describeRetention(
               from: RETENTION_START,
               to: addDays(PRODUCT_START, -1),
             },
-            // The earliest stored row, re-read once before the prefix is saved beside it
-            // (`historical-price-basis-v1.md`, §7): one session, never the covered history.
-            { symbol: security.symbol, from: firstStored, to: firstStored },
+            // The earliest stored sessions, re-read once before the prefix is saved beside them
+            // (`historical-price-basis-v1.md`, §7): one short window, never the covered history.
+            {
+              symbol: security.symbol,
+              from: firstStored,
+              to: addDays(firstStored, 30),
+            },
           ]);
           // Nothing inside the interval the installation already had, beyond that one session.
           expect(calls[0]!.to < PRODUCT_START).toBe(true);
@@ -783,7 +787,7 @@ describeRetention(
           });
 
           // The prefix was hydrated despite the manifest claiming readiness, after one re-read of
-          // the earliest stored row (`historical-price-basis-v1.md`, §7)...
+          // the earliest stored sessions (`historical-price-basis-v1.md`, §7)...
           expect(
             provider.priceRanges.filter(
               (call) => call.symbol === security.symbol,
@@ -794,7 +798,11 @@ describeRetention(
               from: RETENTION_START,
               to: addDays(PRODUCT_START, -1),
             },
-            { symbol: security.symbol, from: firstStored, to: firstStored },
+            {
+              symbol: security.symbol,
+              from: firstStored,
+              to: addDays(firstStored, 30),
+            },
           ]);
           const rows = await persistedPrices(security.id);
           expect(isoDate(rows[0]!.date) < PRODUCT_START).toBe(true);

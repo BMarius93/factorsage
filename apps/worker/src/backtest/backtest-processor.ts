@@ -105,7 +105,7 @@ export interface BacktestFrameLoader {
     operands: readonly OperandKey[],
     options?: {
       resolveGroupMembers?: (groupId: string) => Promise<readonly string[]>;
-      priceBasisGeneration?: number | null;
+      priceBasisGeneration?: number;
     },
   ): Promise<EvaluationFrame>;
 }
@@ -168,7 +168,7 @@ type PreparedSecurity = {
    * (`docs/decisions/historical-price-basis-v1.md`, §9). Held in this attempt's memory only: a
    * retried attempt re-simulates from the first day and prepares again.
    */
-  priceBasisGeneration?: number | null;
+  priceBasisGeneration?: number;
   setup: BacktestSecuritySetup;
 };
 
@@ -287,8 +287,10 @@ class BacktestRunFailure extends Error {
      * strings would tell them nothing and are not theirs to see.
      */
     readonly developerDetail?: Record<string, unknown>,
+    /** The error this failure explains, kept for the logs. */
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "BacktestRunFailure";
   }
 }
@@ -1154,6 +1156,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
               actualGeneration: err.actualGeneration,
               year: window.year,
             },
+            { cause: err },
           );
         }
         throw err;

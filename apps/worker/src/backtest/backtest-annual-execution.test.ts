@@ -256,7 +256,7 @@ class RecordingFrameLoader implements BacktestFrameLoader {
   readonly prepared: Required<DateRange>[] = [];
   readonly windows: Required<DateRange>[] = [];
   /** The generation each window read was pinned to. */
-  readonly pins: (number | null | undefined)[] = [];
+  readonly pins: (number | undefined)[] = [];
 
   constructor(
     private readonly failWindowStartingIn?: string,
@@ -286,7 +286,7 @@ class RecordingFrameLoader implements BacktestFrameLoader {
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
-    options?: { priceBasisGeneration?: number | null },
+    options?: { priceBasisGeneration?: number },
   ): Promise<EvaluationFrame> {
     this.windows.push(range);
     this.pins.push(options?.priceBasisGeneration);
@@ -303,7 +303,7 @@ class RecordingFrameLoader implements BacktestFrameLoader {
       throw new PriceBasisChangedError(
         security.id,
         security.symbol,
-        options?.priceBasisGeneration ?? null,
+        options?.priceBasisGeneration ?? 0,
         4,
       );
     }

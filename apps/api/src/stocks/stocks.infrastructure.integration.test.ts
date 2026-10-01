@@ -1272,15 +1272,15 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
           .expect(200);
 
-        // The prefix, then the one-session look at the earliest stored row that every load beside a
+        // The prefix, then the short look at the earliest stored sessions that every load beside a
         // stored history makes before it saves (`historical-price-basis-v1.md`, §7, rule 2).
         expect(priceRangesFor()).toHaveLength(3);
-        const [, delta, earliestRow] = priceRangesFor();
+        const [, delta, earliestRows] = priceRangesFor();
         // Only the prefix: the interval already covered is not requested from the provider again.
         expect(delta!.to! < coverageStart!).toBe(true);
         expect(delta!.from! >= WIDENING_START).toBe(true);
-        expect(earliestRow!.from).toBe(earliestRow!.to);
-        expect(earliestRow!.from! >= coverageStart!).toBe(true);
+        expect(earliestRows!.to).toBe(addDays(earliestRows!.from!, 30));
+        expect(earliestRows!.from! >= coverageStart!).toBe(true);
 
         // The older rows are genuinely there, ascending, and the widening never narrowed the tail.
         const prices = widened.body as Array<{ date: string }>;
@@ -2299,20 +2299,20 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           .get(`/stocks/${symbol}/prices?from=2026-08-01&to=${TODAY}`)
           .expect(200);
 
-        // The tail, then the one-session look at the earliest stored row that a load changing a
+        // The tail, then the short look at the earliest stored sessions that a load changing a
         // stored row makes before it saves (`historical-price-basis-v1.md`, §7, rule 2).
         expect(provider.dailyPriceCalls.length).toBe(priceCallsBefore + 2);
-        const [tail, earliestRow] =
+        const [tail, earliestRows] =
           provider.dailyPriceCalls.slice(priceCallsBefore);
         expect(tail).toEqual({
           symbol,
           from: addDays(TODAY, -10),
           to: TODAY,
         });
-        expect(earliestRow).toEqual({
+        expect(earliestRows).toEqual({
           symbol,
-          from: earliestRow!.from,
-          to: earliestRow!.from,
+          from: earliestRows!.from,
+          to: addDays(earliestRows!.from!, 30),
         });
         expect(provider.statementCalls.length).toBe(statementCallsBefore);
         expect(

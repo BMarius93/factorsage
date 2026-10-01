@@ -346,6 +346,8 @@ export type PriceBasisObservation = {
     | "VERIFIED"
     /** The stored history was replaced: by a first verification or after a re-base. */
     | "REPLACED"
+    /** A replacement failed and changed nothing; the error is rethrown to the read that caused it. */
+    | "REPLACEMENT_FAILED"
     /** A replacement would have dropped too many stored sessions; the old history was kept. */
     | "REPLACEMENT_REFUSED"
     /** Rows after a split-sized move were not saved yet (the ex-date hold). */
@@ -357,21 +359,28 @@ export type PriceBasisObservation = {
   unexplainedEvents?: number;
   heldFrom?: LocalDate;
   storedOnlySessions?: number;
+  /** How long a replacement took, completed or failed. */
+  durationMs?: number;
+  /** Why a replacement failed. */
+  err?: unknown;
   detail?: string;
 };
 
 /**
  * The composition roots' one way to log `PriceBasisObservation`s, so the event name and level are
- * the same in the API and in every worker: `stock-data.price-basis`, at `warn` when a re-base could
- * not be handled and `info` otherwise.
+ * the same in the API and in every worker: `stock-data.price-basis`, at `error` when a replacement
+ * failed, `warn` when a re-base could not be handled and `info` otherwise.
  */
 export function logPriceBasisEvent(logger: {
   info(entry: Record<string, unknown>): void;
   warn(entry: Record<string, unknown>): void;
+  error(entry: Record<string, unknown>): void;
 }): (observation: PriceBasisObservation) => void {
   return (observation) => {
     const entry = { event: "stock-data.price-basis", ...observation };
-    if (
+    if (observation.outcome === "REPLACEMENT_FAILED") {
+      logger.error(entry);
+    } else if (
       observation.outcome === "REPLACEMENT_REFUSED" ||
       observation.outcome === "EARLIEST_ROW_UNCONFIRMED"
     ) {
@@ -437,16 +446,16 @@ export type EvaluationFrameOptions = {
    * a read whose security has been re-based since is refused with `PriceBasisChangedError`, so one
    * backtest never reads two bases (`historical-price-basis-v1.md`, §9).
    */
-  priceBasisGeneration?: number | null;
+  priceBasisGeneration?: number;
 };
 
 /** What `prepareDailyEvaluationData` reports: the period's coverage and its price basis. */
 export type PreparedDailyEvaluationData = DailyPriceBounds & {
   /**
-   * The price-basis generation the period was prepared under, or `null` for a security the loader
-   * has not verified yet. Every later window read of the run must match it.
+   * The price-basis generation the period was prepared under: 0 until the stored history is first
+   * replaced. Every later window read of the run must match it.
    */
-  priceBasisGeneration: number | null;
+  priceBasisGeneration: number;
 };
 
 /**
@@ -454,15 +463,21 @@ export type PreparedDailyEvaluationData = DailyPriceBounds & {
  * and one of its window reads. The run cannot continue on one basis, so it fails and may be run
  * again (`historical-price-basis-v1.md`, §9).
  */
+/**
+ * Calendar days read from the start of the stored history by the earliest-row check: enough
+ * sessions that a provider no longer returning the first few still leaves one in common.
+ */
+const EARLIEST_ROWS_WINDOW_CALENDAR_DAYS = 30;
+
 export class PriceBasisChangedError extends Error {
   constructor(
     readonly securityId: string,
     readonly symbol: string,
-    readonly expectedGeneration: number | null,
-    readonly actualGeneration: number | null,
+    readonly expectedGeneration: number,
+    readonly actualGeneration: number,
   ) {
     super(
-      `The price history of ${symbol} was re-based during the read (generation ${String(expectedGeneration)} -> ${String(actualGeneration)})`,
+      `The price history of ${symbol} was re-based during the read (generation ${expectedGeneration} -> ${actualGeneration})`,
     );
     this.name = "PriceBasisChangedError";
   }
@@ -590,15 +605,27 @@ export class CanonicalStockDataService implements StockDataService {
   async ensureStockFresh(
     security: Security,
     required: Required<DateRange>,
+    options: {
+      /**
+       * Also run the cycle, under the stock's lease, when the stored history has never been verified
+       * (`historical-price-basis-v1.md`, §7, rule 1). Set by the preparation phases, so the read
+       * that follows is on a verified history and reaches no provider for it.
+       */
+      verifyPriceBasis?: boolean;
+    } = {},
   ): Promise<void> {
     let manifest = await this.cache.getManifest(security.id);
     if (!this.covers(manifest, required)) {
       await this.ensureStockHydrated(security, required);
       manifest = await this.cache.getManifest(security.id);
     }
+    const unverified = async () =>
+      options.verifyPriceBasis === true &&
+      (await this.store.getPriceBasis(security.id)) === null;
     if (
       !this.isPriceFreshnessStale(manifest) &&
-      !this.isFundamentalsFreshnessStale(manifest)
+      !this.isFundamentalsFreshnessStale(manifest) &&
+      !(await unverified())
     ) {
       return;
     }
@@ -615,7 +642,7 @@ export class CanonicalStockDataService implements StockDataService {
       const refreshPrices = this.isPriceFreshnessStale(lockedManifest);
       const refreshFundamentals =
         this.isFundamentalsFreshnessStale(lockedManifest);
-      if (!refreshPrices && !refreshFundamentals) {
+      if (!refreshPrices && !refreshFundamentals && !(await unverified())) {
         return;
       }
 
@@ -662,6 +689,7 @@ export class CanonicalStockDataService implements StockDataService {
           target,
           hydrating,
           lease,
+          verification.state === "REFUSED_NOW",
         );
         prices = refreshed.prices;
         lastPriceRefreshAt = refreshed.lastPriceRefreshAt;
@@ -920,6 +948,13 @@ export class CanonicalStockDataService implements StockDataService {
     const load = this.loadTarget(security, context);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
+    // A security this loader has never verified is verified here, in the phase that may reach the
+    // provider, and not by a repair inside the run.
+    let basis = await this.store.getPriceBasis(security.id);
+    if (basis === null) {
+      await this.ensureStockFresh(security, load, { verifyPriceBasis: true });
+      basis = await this.store.getPriceBasis(security.id);
+    }
     // The alternative-data domains the strategy names are ingested here, in the same phase and for
     // the same reason price history is: once per security per run, so every later window read is a
     // pure projection that reaches no provider.
@@ -931,10 +966,7 @@ export class CanonicalStockDataService implements StockDataService {
     if (!bounds) {
       return null;
     }
-    return {
-      ...bounds,
-      priceBasisGeneration: await this.priceBasisGeneration(security.id),
-    };
+    return { ...bounds, priceBasisGeneration: basis?.generation ?? 0 };
   }
 
   /**
@@ -1022,7 +1054,7 @@ export class CanonicalStockDataService implements StockDataService {
     const window = this.monitorWindowRange(observations, asOf);
     const load = this.loadTarget(security, window);
     await this.ensureStockHydrated(security, load);
-    await this.ensureStockFresh(security, load);
+    await this.ensureStockFresh(security, load, { verifyPriceBasis: true });
     // Ingested here, in the cycle's own preparation phase, so the read below reaches no provider and
     // several Monitors sharing a symbol share one ingest.
     await this.ensureAlternativeDataIngested(security, operands);
@@ -1414,15 +1446,15 @@ export class CanonicalStockDataService implements StockDataService {
     let priceChange: { earliestChangedDate?: string } = {};
     if (missing.length > 0) {
       // Rows loaded beside a stored history are saved only once its earliest row confirms the
-      // provider has not re-based it since (§7, rule 3). A widening after a re-base would otherwise
+      // provider has not re-based it since (§7, rule 2). A widening after a re-base would otherwise
       // put a new-basis prefix beside old-basis rows. A history verified in this very cycle needs
-      // no second look.
+      // no second look; one whose whole read was refused in it gets the look but no second whole
+      // read, and nothing is saved when the look finds it re-based.
       const newestStored = await this.newestStoredPrice(security.id, target);
       const loadedDates = loaded.map((row) => row.date).sort();
       const rebased =
         newestStored !== undefined &&
-        verification.basis !== null &&
-        !verification.verifiedNow &&
+        verification.state !== "VERIFIED_NOW" &&
         loadedDates.length > 0 &&
         changesStoredRows(
           await this.store.getDailyPrices(security.id, {
@@ -1432,15 +1464,16 @@ export class CanonicalStockDataService implements StockDataService {
           loaded,
         ) &&
         !(await this.earliestStoredRowUnchanged(security));
-      const replacement = rebased
-        ? await this.replacePriceHistoryWithinLease(
-            security,
-            target,
-            lease,
-            verification.basis,
-            "PRICE_REBASE",
-          )
-        : undefined;
+      const replacement =
+        rebased && verification.state === "VERIFIED_EARLIER"
+          ? await this.replacePriceHistoryWithinLease(
+              security,
+              target,
+              lease,
+              verification.basis,
+              "PRICE_REBASE",
+            )
+          : undefined;
       if (replacement?.outcome === "UNCHANGED") {
         this.onPriceBasisEvent({
           securityId: security.id,
@@ -1448,7 +1481,11 @@ export class CanonicalStockDataService implements StockDataService {
           outcome: "EARLIEST_ROW_UNCONFIRMED",
         });
       }
-      if (replacement === undefined || replacement.outcome === "UNCHANGED") {
+      const blocked =
+        (rebased && verification.state === "REFUSED_NOW") ||
+        replacement?.outcome === "REFUSED" ||
+        replacement?.outcome === "REPLACED";
+      if (!blocked) {
         const hold = this.applyExDateHold(security, newestStored, loaded);
         const successfulCoverage =
           hold.heldFrom === undefined
@@ -1935,12 +1972,20 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<{
     basis: SecurityPriceBasisState | null;
     replacedPrices: DailyPrice[] | null;
-    /** Whether this call compared or created it, so nothing in the same cycle checks again. */
-    verifiedNow: boolean;
+    /**
+     * `VERIFIED_NOW` when this call compared or created the basis, so nothing in the same cycle
+     * checks again; `REFUSED_NOW` when its whole read was refused, so nothing is saved beside the
+     * history this cycle unchecked and no second whole read is made; `VERIFIED_EARLIER` otherwise.
+     */
+    state: "VERIFIED_NOW" | "REFUSED_NOW" | "VERIFIED_EARLIER";
   }> {
     const existing = await this.store.getPriceBasis(security.id);
     if (existing) {
-      return { basis: existing, replacedPrices: null, verifiedNow: false };
+      return {
+        basis: existing,
+        replacedPrices: null,
+        state: "VERIFIED_EARLIER",
+      };
     }
     if ((await this.store.getEarliestDailyPriceDate(security.id)) === null) {
       lease.assertOwned();
@@ -1950,7 +1995,7 @@ export class CanonicalStockDataService implements StockDataService {
           verifiedAt: this.nowInstant(),
         }),
         replacedPrices: null,
-        verifiedNow: true,
+        state: "VERIFIED_NOW",
       };
     }
     const result = await this.replacePriceHistoryWithinLease(
@@ -1964,11 +2009,11 @@ export class CanonicalStockDataService implements StockDataService {
       return {
         basis: result.basis,
         replacedPrices: result.prices,
-        verifiedNow: true,
+        state: "VERIFIED_NOW",
       };
     }
     if (result.outcome === "REFUSED") {
-      return { basis: null, replacedPrices: null, verifiedNow: true };
+      return { basis: null, replacedPrices: null, state: "REFUSED_NOW" };
     }
     lease.assertOwned();
     const basis = await this.store.createPriceBasis({
@@ -1982,14 +2027,15 @@ export class CanonicalStockDataService implements StockDataService {
       generation: basis.generation,
       detail: `${result.comparedSessions} sessions compared`,
     });
-    return { basis, replacedPrices: null, verifiedNow: true };
+    return { basis, replacedPrices: null, state: "VERIFIED_NOW" };
   }
 
-  /** The security's price-basis generation, or `null` while it is unverified. */
-  private async priceBasisGeneration(
-    securityId: string,
-  ): Promise<number | null> {
-    return (await this.store.getPriceBasis(securityId))?.generation ?? null;
+  /**
+   * The security's price-basis generation: 0 until its stored history is first replaced, whether it
+   * has been verified or not, since a verification that replaces nothing changes no row (§9).
+   */
+  private async priceBasisGeneration(securityId: string): Promise<number> {
+    return (await this.store.getPriceBasis(securityId))?.generation ?? 0;
   }
 
   /** The newest stored price row up to the target's end, if any. */
@@ -2012,12 +2058,14 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   /**
-   * Whether the earliest stored row still reads as it was stored (§7, rule 2).
+   * Whether the earliest stored rows still read as they were stored (§7, rule 2).
    *
-   * A re-base rescales every row before its ex-date, so the earliest one changes whenever any
+   * A re-base rescales every row before its ex-date, so the earliest ones change whenever any
    * re-base happened, however long ago. Asked before rows are saved beside the stored history.
-   * An answer without that session is not evidence of a re-base, which rescales rows and never
-   * removes them.
+   * The earliest stored session the provider still returns is compared, from a short window at the
+   * start of the stored history, so a provider that has dropped the very first row cannot blind the
+   * check. A window with no session in common confirms nothing, and the caller compares the whole
+   * history instead.
    */
   private async earliestStoredRowUnchanged(
     security: Security,
@@ -2026,28 +2074,29 @@ export class CanonicalStockDataService implements StockDataService {
     if (earliest === null) {
       return true;
     }
-    const [stored] = await this.store.getDailyPrices(security.id, {
+    const window = {
       from: earliest,
-      to: earliest,
-    });
+      to: addDays(earliest, EARLIEST_ROWS_WINDOW_CALENDAR_DAYS),
+    };
+    const stored = await this.store.getDailyPrices(security.id, window);
     this.onProviderRequest({
       symbol: security.symbol,
       securityId: security.id,
       dataset: "DAILY_PRICE",
       reason: "PRICE_BASIS_EARLIEST_ROW",
-      from: earliest,
-      to: earliest,
+      from: window.from,
+      to: window.to,
     });
-    const fresh = (
-      await this.provider.getDailyPrices(security.symbol, security.id, {
-        from: earliest,
-        to: earliest,
-      })
-    ).find((row) => row.date === earliest);
-    if (!stored || !fresh) {
-      return true;
+    const fresh = new Map(
+      (
+        await this.provider.getDailyPrices(security.symbol, security.id, window)
+      ).map((row) => [row.date, row.close]),
+    );
+    const compared = stored.find((row) => fresh.has(row.date));
+    if (!compared) {
+      return false;
     }
-    return !closesDiffer(stored.close, fresh.close);
+    return !closesDiffer(compared.close, fresh.get(compared.date) as number);
   }
 
   /**
@@ -2073,6 +2122,45 @@ export class CanonicalStockDataService implements StockDataService {
         prices: DailyPrice[];
       }
   > {
+    const started = performance.now();
+    try {
+      return await this.replacePriceHistoryTimed(
+        security,
+        target,
+        lease,
+        basis,
+        reason,
+        started,
+      );
+    } catch (err) {
+      this.onPriceBasisEvent({
+        securityId: security.id,
+        symbol: security.symbol,
+        outcome: "REPLACEMENT_FAILED",
+        durationMs: Math.round(performance.now() - started),
+        err,
+        detail: reason,
+      });
+      throw err;
+    }
+  }
+
+  private async replacePriceHistoryTimed(
+    security: Security,
+    target: Required<DateRange>,
+    lease: LoadLease,
+    basis: SecurityPriceBasisState | null,
+    reason: "PRICE_BASIS_VERIFICATION" | "PRICE_REBASE",
+    started: number,
+  ): Promise<
+    | { outcome: "UNCHANGED"; comparedSessions: number }
+    | { outcome: "REFUSED" }
+    | {
+        outcome: "REPLACED";
+        basis: SecurityPriceBasisState;
+        prices: DailyPrice[];
+      }
+  > {
     const earliest = await this.store.getEarliestDailyPriceDate(security.id);
     const readRange = {
       from: earliest === null ? target.from : minDate(earliest, target.from),
@@ -2086,11 +2174,14 @@ export class CanonicalStockDataService implements StockDataService {
       from: readRange.from,
       to: readRange.to,
     });
-    const fresh = await this.provider.getDailyPrices(
-      security.symbol,
-      security.id,
-      readRange,
-    );
+    // Ascending, whatever order the provider answered in: the hold and the split below read it so.
+    const fresh = (
+      await this.provider.getDailyPrices(
+        security.symbol,
+        security.id,
+        readRange,
+      )
+    ).sort((left, right) => left.date.localeCompare(right.date));
     const stored = await this.store.getDailyPrices(security.id, readRange);
     const detectedAt = this.nowInstant();
     const comparison = comparePriceHistories({
@@ -2122,7 +2213,7 @@ export class CanonicalStockDataService implements StockDataService {
       };
     }
 
-    // Rows after the newest stored session follow the same hold as any read (§7, rule 4).
+    // Rows after the newest stored session follow the same hold as any read (§7, rule 3).
     const newestStored = stored.at(-1)?.date;
     const firstNew =
       newestStored === undefined
@@ -2148,7 +2239,7 @@ export class CanonicalStockDataService implements StockDataService {
     lease.assertOwned();
     const replaced = await this.store.replaceDailyPriceHistory({
       securityId: security.id,
-      expectedGeneration: basis?.generation ?? null,
+      expectedGeneration: basis?.generation ?? 0,
       prices,
       derivedRows: derived.rows.filter((row) => row.date >= target.from),
       weeklyPrices: derived.weeklyBars,
@@ -2180,6 +2271,7 @@ export class CanonicalStockDataService implements StockDataService {
       ).length,
       storedOnlySessions: comparison.storedOnly.length,
       ...(heldFrom === undefined ? {} : { heldFrom }),
+      durationMs: Math.round(performance.now() - started),
       detail: reason,
     });
     return {
@@ -2193,7 +2285,7 @@ export class CanonicalStockDataService implements StockDataService {
 
   /**
    * Rows a read would save beside the stored history, minus any held after a split-sized move
-   * (§7, rule 4), and the date the hold starts.
+   * (§7, rule 3), and the date the hold starts.
    */
   private applyExDateHold(
     security: Security,
@@ -2225,6 +2317,8 @@ export class CanonicalStockDataService implements StockDataService {
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
+    /** The cycle's first verification read the whole history and refused it. */
+    wholeReadRefused: boolean,
   ): Promise<{
     prices: DailyPrice[];
     lastPriceRefreshAt: string;
@@ -2265,9 +2359,9 @@ export class CanonicalStockDataService implements StockDataService {
     const syncedAt = this.nowInstant();
 
     // Nothing is saved beside the stored history until its earliest row confirms the provider has
-    // not re-based it (`historical-price-basis-v1.md`, §7). A tail read after a re-base returns
-    // rescaled rows that would otherwise overwrite the recent stored ones and leave the rest on the
-    // old basis.
+    // not re-based it (`historical-price-basis-v1.md`, §7, rule 2). A tail read after a re-base
+    // returns rescaled rows that would otherwise overwrite the recent stored ones and leave the rest
+    // on the old basis.
     const storedTail = await this.store.getDailyPrices(
       security.id,
       refreshRange,
@@ -2276,13 +2370,17 @@ export class CanonicalStockDataService implements StockDataService {
       changesStoredRows(storedTail, loaded) &&
       !(await this.earliestStoredRowUnchanged(security))
     ) {
-      const replacement = await this.replacePriceHistoryWithinLease(
-        security,
-        target,
-        lease,
-        await this.store.getPriceBasis(security.id),
-        "PRICE_REBASE",
-      );
+      // The whole history was already read and refused in this cycle: a second whole read would be
+      // refused the same way, so nothing is saved and the next cycle retries.
+      const replacement = wholeReadRefused
+        ? ({ outcome: "REFUSED" } as const)
+        : await this.replacePriceHistoryWithinLease(
+            security,
+            target,
+            lease,
+            await this.store.getPriceBasis(security.id),
+            "PRICE_REBASE",
+          );
       if (replacement.outcome === "REPLACED") {
         lease.assertOwned();
         await this.cache.writeDailyPriceYears(
@@ -3254,12 +3352,28 @@ function changesStoredRows(
     const existing = storedByDate.get(row.date);
     return (
       existing === undefined ||
-      existing.open !== row.open ||
-      existing.high !== row.high ||
-      existing.low !== row.low ||
-      existing.close !== row.close ||
+      !sameStoredValue(existing.open, row.open) ||
+      !sameStoredValue(existing.high, row.high) ||
+      !sameStoredValue(existing.low, row.low) ||
+      !sameStoredValue(existing.close, row.close) ||
       existing.volume !== row.volume ||
-      existing.vwap !== row.vwap
+      !sameStoredValue(existing.vwap, row.vwap)
     );
   });
+}
+
+/**
+ * Whether a provider value reads back as the stored one. Prices are stored to eight decimals, so a
+ * value carrying more digits never compares equal to what was saved from it.
+ */
+function sameStoredValue(
+  stored: number | undefined,
+  loaded: number | undefined,
+): boolean {
+  return (
+    stored === loaded ||
+    (stored !== undefined &&
+      loaded !== undefined &&
+      Math.abs(stored - loaded) <= 5e-9 * (1 + Math.abs(loaded)))
+  );
 }

@@ -9,7 +9,10 @@ import { RedisStockDataCache } from "./cache.js";
 import { InMemoryLoadCoordinator } from "./coordination.js";
 import { DAILY_DERIVED_STATE_VARIANT } from "./derived-state.js";
 import { DAILY_PRICE_VARIANT } from "./ports.js";
-import type { PriceBasisEvent } from "./price-basis.js";
+import {
+  PriceBasisConflictError,
+  type PriceBasisEvent,
+} from "./price-basis.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
 import {
   createStockDataRedisClient,
@@ -169,7 +172,7 @@ describeWithRedis("re-base-safe price loading on PostgreSQL and Redis", () => {
     it("writes prices, derived rows, the event and the next generation together", async () => {
       const replaced = await store.replaceDailyPriceHistory({
         securityId,
-        expectedGeneration: null,
+        expectedGeneration: 0,
         prices: dates.map((date) =>
           bar(securityId, date, date < "2026-06-15" ? 100 : 101),
         ),
@@ -215,7 +218,7 @@ describeWithRedis("re-base-safe price loading on PostgreSQL and Redis", () => {
         store.replaceDailyPriceHistory({
           securityId,
           // Stale: the previous case already moved the generation to 1.
-          expectedGeneration: null,
+          expectedGeneration: 0,
           prices: dates.map((date) => bar(securityId, date, 7)),
           derivedRows: [],
           weeklyPrices: [],
@@ -226,7 +229,7 @@ describeWithRedis("re-base-safe price loading on PostgreSQL and Redis", () => {
           tailDate: "2026-06-30",
           verifiedAt: NOW,
         }),
-      ).rejects.toThrow("Stock price basis changed");
+      ).rejects.toBeInstanceOf(PriceBasisConflictError);
       const prices = await store.getDailyPrices(securityId, {
         from: "2026-06-01",
         to: "2026-06-30",
@@ -277,9 +280,10 @@ describeWithRedis("re-base-safe price loading on PostgreSQL and Redis", () => {
         securityId: other,
         verifiedAt: "2027-01-01T00:00:00.000Z",
       });
+      // A verification that replaced nothing leaves the generation of a history never replaced.
       expect(first).toEqual({
         securityId: other,
-        generation: 1,
+        generation: 0,
         verifiedAt: NOW,
       });
       expect(again).toEqual(first);
@@ -382,7 +386,7 @@ describeWithRedis("re-base-safe price loading on PostgreSQL and Redis", () => {
           security,
           { from: "2026-07-01", to: TODAY },
           [],
-          { priceBasisGeneration: before?.generation ?? null },
+          { priceBasisGeneration: before?.generation ?? 0 },
         ),
       ).rejects.toBeInstanceOf(PriceBasisChangedError);
       // One prepared after it reads on.
@@ -391,7 +395,7 @@ describeWithRedis("re-base-safe price loading on PostgreSQL and Redis", () => {
           security,
           { from: "2026-07-01", to: TODAY },
           [],
-          { priceBasisGeneration: after?.generation ?? null },
+          { priceBasisGeneration: after?.generation ?? 0 },
         ),
       ).resolves.toMatchObject({ securityId: security.id });
     });
