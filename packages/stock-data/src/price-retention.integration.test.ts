@@ -435,6 +435,11 @@ describeRetention(
           tailDate: TODAY,
           freshThrough: TODAY,
         });
+        // Its price basis already verified: this suite is about retention, not re-bases.
+        await store.createPriceBasis({
+          securityId: security.id,
+          verifiedAt: NOW,
+        });
         const weeklyBars = aggregateCompletedWeeks(legacyPrices, TODAY, {
           historyStart: PRODUCT_START,
           historyStartOrigin: "HORIZON",
@@ -474,6 +479,9 @@ describeRetention(
       it(
         "requests only the missing prefix and never the covered thirty years",
         async () => {
+          const firstStored = isoDate(
+            (await persistedPrices(security.id))[0]!.date,
+          );
           await loader.getDailyPrices(security.symbol, {
             from: PRODUCT_START,
             to: TODAY,
@@ -488,9 +496,12 @@ describeRetention(
               from: RETENTION_START,
               to: addDays(PRODUCT_START, -1),
             },
+            // The earliest stored row, re-read once before the prefix is saved beside it
+            // (`historical-price-basis-v1.md`, §7): one session, never the covered history.
+            { symbol: security.symbol, from: firstStored, to: firstStored },
           ]);
-          // Nothing inside the interval the installation already had.
-          expect(calls.every((call) => call.to < PRODUCT_START)).toBe(true);
+          // Nothing inside the interval the installation already had, beyond that one session.
+          expect(calls[0]!.to < PRODUCT_START).toBe(true);
           expect(provider.statementCalls).toEqual([]);
         },
         SLOW,
@@ -727,6 +738,11 @@ describeRetention(
             tailDate: TODAY,
             freshThrough: TODAY,
           });
+          // Its price basis already verified: this suite is about retention, not re-bases.
+          await store.createPriceBasis({
+            securityId: security.id,
+            verifiedAt: NOW,
+          });
 
           // A READY manifest written before the change: it claims coverage from the product
           // horizon and carries the old single `historyYears` field.
@@ -758,12 +774,16 @@ describeRetention(
             security.id,
           );
 
+          const firstStored = isoDate(
+            (await persistedPrices(security.id))[0]!.date,
+          );
           await loader.getDailyPrices(security.symbol, {
             from: PRODUCT_START,
             to: TODAY,
           });
 
-          // The prefix was hydrated despite the manifest claiming readiness...
+          // The prefix was hydrated despite the manifest claiming readiness, after one re-read of
+          // the earliest stored row (`historical-price-basis-v1.md`, §7)...
           expect(
             provider.priceRanges.filter(
               (call) => call.symbol === security.symbol,
@@ -774,6 +794,7 @@ describeRetention(
               from: RETENTION_START,
               to: addDays(PRODUCT_START, -1),
             },
+            { symbol: security.symbol, from: firstStored, to: firstStored },
           ]);
           const rows = await persistedPrices(security.id);
           expect(isoDate(rows[0]!.date) < PRODUCT_START).toBe(true);

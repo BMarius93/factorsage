@@ -276,6 +276,7 @@ describe("daily-state chunk encoding version", () => {
       "benchmarkPriceDatasetVersion",
       "derivedStateRevision",
       "fundamentalsVariantVersion",
+      "priceBasisRevision",
       "priceDatasetVersion",
     ]);
   });

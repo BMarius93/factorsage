@@ -425,6 +425,11 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       tailDate: TODAY,
       freshThrough: TODAY,
     });
+    // Verified under the current loader, so no first verification re-reads the history.
+    await store.createPriceBasis({
+      securityId: created.id,
+      verifiedAt: SYNCED_AT,
+    });
     for (const operation of fundamentalsDatasetOperations(PRODUCT_YEARS)) {
       await store.upsertDatasetState({
         securityId: created.id,

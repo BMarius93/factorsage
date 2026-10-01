@@ -82,6 +82,15 @@ import {
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
 import {
+  comparePriceHistories,
+  heldFromIndex,
+  UNEXPLAINED_SESSION_SHARE,
+  closesDiffer,
+  type PriceBasisEvent,
+  type SecurityPriceBasisState,
+} from "./price-basis.js";
+import { applyPriceBasisToIntrinsicStates } from "./share-basis.js";
+import {
   DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
   PRICE_DATASET_VERSION,
@@ -302,6 +311,12 @@ export type ProviderRequestReason =
   | "MISSING_COVERAGE"
   | "RECENT_TAIL_STALE"
   | "FUNDAMENTALS_BACKFILL"
+  /** The whole stored history, read once to verify it against the provider's (price basis §7). */
+  | "PRICE_BASIS_VERIFICATION"
+  /** The earliest stored row, re-read before rows are saved beside the stored history. */
+  | "PRICE_BASIS_EARLIEST_ROW"
+  /** The whole history, re-read to replace it after the earliest row showed a re-base. */
+  | "PRICE_REBASE"
   /** One batched current-quote read for a whole Monitor evaluation cycle. */
   | "MONITOR_CURRENT_DATA";
 
@@ -318,6 +333,54 @@ export type ProviderRequestEvent = {
   to?: string;
   detail?: string;
 };
+
+/**
+ * What the re-base detector reports (`docs/decisions/historical-price-basis-v1.md`, §7–§9), for the
+ * composition roots to log. Stock data has no logging dependency, as for provider requests.
+ */
+export type PriceBasisObservation = {
+  securityId: string;
+  symbol: string;
+  outcome:
+    /** A first verification found the stored history equal to the provider's. */
+    | "VERIFIED"
+    /** The stored history was replaced: by a first verification or after a re-base. */
+    | "REPLACED"
+    /** A replacement would have dropped too many stored sessions; the old history was kept. */
+    | "REPLACEMENT_REFUSED"
+    /** Rows after a split-sized move were not saved yet (the ex-date hold). */
+    | "HELD"
+    /** The earliest stored row changed, but the full comparison found nothing to replace. */
+    | "EARLIEST_ROW_UNCONFIRMED";
+  generation?: number;
+  measuredEvents?: number;
+  unexplainedEvents?: number;
+  heldFrom?: LocalDate;
+  storedOnlySessions?: number;
+  detail?: string;
+};
+
+/**
+ * The composition roots' one way to log `PriceBasisObservation`s, so the event name and level are
+ * the same in the API and in every worker: `stock-data.price-basis`, at `warn` when a re-base could
+ * not be handled and `info` otherwise.
+ */
+export function logPriceBasisEvent(logger: {
+  info(entry: Record<string, unknown>): void;
+  warn(entry: Record<string, unknown>): void;
+}): (observation: PriceBasisObservation) => void {
+  return (observation) => {
+    const entry = { event: "stock-data.price-basis", ...observation };
+    if (
+      observation.outcome === "REPLACEMENT_REFUSED" ||
+      observation.outcome === "EARLIEST_ROW_UNCONFIRMED"
+    ) {
+      logger.warn(entry);
+    } else {
+      logger.info(entry);
+    }
+  };
+}
 
 export type CanonicalStockDataServiceOptions = {
   defaultHistoryDays?: number;
@@ -346,6 +409,8 @@ export type CanonicalStockDataServiceOptions = {
    * not grow one. The API and worker composition roots point this at their own structured logger.
    */
   onProviderRequest?: (event: ProviderRequestEvent) => void;
+  /** Called on every re-base decision; the composition roots log it at `info`. */
+  onPriceBasisEvent?: (event: PriceBasisObservation) => void;
   /**
    * The alternative-data loader, when this composition offers those metrics.
    *
@@ -367,7 +432,41 @@ export type CanonicalStockDataServiceOptions = {
  */
 export type EvaluationFrameOptions = {
   resolveGroupMembers?: ActorGroupMembershipResolver;
+  /**
+   * The price-basis generation the caller prepared under (`prepareDailyEvaluationData`). When set,
+   * a read whose security has been re-based since is refused with `PriceBasisChangedError`, so one
+   * backtest never reads two bases (`historical-price-basis-v1.md`, §9).
+   */
+  priceBasisGeneration?: number | null;
 };
+
+/** What `prepareDailyEvaluationData` reports: the period's coverage and its price basis. */
+export type PreparedDailyEvaluationData = DailyPriceBounds & {
+  /**
+   * The price-basis generation the period was prepared under, or `null` for a security the loader
+   * has not verified yet. Every later window read of the run must match it.
+   */
+  priceBasisGeneration: number | null;
+};
+
+/**
+ * A security's stored price history was replaced after a re-base between the preparation of a run
+ * and one of its window reads. The run cannot continue on one basis, so it fails and may be run
+ * again (`historical-price-basis-v1.md`, §9).
+ */
+export class PriceBasisChangedError extends Error {
+  constructor(
+    readonly securityId: string,
+    readonly symbol: string,
+    readonly expectedGeneration: number | null,
+    readonly actualGeneration: number | null,
+  ) {
+    super(
+      `The price history of ${symbol} was re-based during the read (generation ${String(expectedGeneration)} -> ${String(actualGeneration)})`,
+    );
+    this.name = "PriceBasisChangedError";
+  }
+}
 
 export class CanonicalStockDataService implements StockDataService {
   private readonly defaultHistoryDays: number;
@@ -379,6 +478,7 @@ export class CanonicalStockDataService implements StockDataService {
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
+  private readonly onPriceBasisEvent: (event: PriceBasisObservation) => void;
   private readonly alternativeData?: CanonicalAlternativeDataService;
 
   constructor(
@@ -403,6 +503,7 @@ export class CanonicalStockDataService implements StockDataService {
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
+    this.onPriceBasisEvent = options.onPriceBasisEvent ?? (() => {});
     if (options.alternativeData) {
       this.alternativeData = options.alternativeData;
     }
@@ -536,7 +637,26 @@ export class CanonicalStockDataService implements StockDataService {
       let prices = await this.store.getDailyPrices(security.id, target);
       let lastPriceRefreshAt = lockedManifest.lastPriceRefreshAt;
       const rebuildStarts: (string | undefined)[] = [];
-      if (refreshPrices) {
+      // Years whose derived rows a replacement already rebuilt in its own transaction.
+      const republishStarts: (string | undefined)[] = [];
+      const verification = await this.verifyPriceBasisWithinLease(
+        security,
+        target,
+        lease,
+      );
+      if (verification.replacedPrices) {
+        // The first verification replaced the whole history, fresh through today: no tail to read.
+        prices = verification.replacedPrices;
+        lastPriceRefreshAt = this.nowInstant();
+        lease.assertOwned();
+        await this.cache.writeDailyPriceYears(
+          security.id,
+          prices,
+          yearsInRange(target),
+          hydrating,
+        );
+        republishStarts.push(target.from);
+      } else if (refreshPrices) {
         const refreshed = await this.refreshPriceWithinLease(
           security,
           target,
@@ -546,6 +666,7 @@ export class CanonicalStockDataService implements StockDataService {
         prices = refreshed.prices;
         lastPriceRefreshAt = refreshed.lastPriceRefreshAt;
         rebuildStarts.push(refreshed.derivedRebuildStart);
+        republishStarts.push(refreshed.republishFrom);
       }
 
       let lastFundamentalsRefreshAt = lockedManifest.lastFundamentalsRefreshAt;
@@ -576,10 +697,16 @@ export class CanonicalStockDataService implements StockDataService {
           derivedRebuildStart,
           lease,
         );
+      }
+      const publishFrom = this.boundedRebuildStart(target, [
+        derivedRebuildStart,
+        ...republishStarts,
+      ]);
+      if (publishFrom) {
         lease.assertOwned();
         await this.publishDailyDerivedStateYears(
           security,
-          derivedRebuildStart,
+          publishFrom,
           target,
           hydrating,
         );
@@ -787,7 +914,7 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[] = [],
-  ): Promise<DailyPriceBounds | null> {
+  ): Promise<PreparedDailyEvaluationData | null> {
     const period = this.requireBoundedRange(range);
     const context = this.evaluationContextRange(period, operands);
     const load = this.loadTarget(security, context);
@@ -798,9 +925,16 @@ export class CanonicalStockDataService implements StockDataService {
     // pure projection that reaches no provider.
     await this.ensureAlternativeDataIngested(security, operands);
     const projection = this.projectionRange(security, period, "BACKTEST");
-    return projection
-      ? this.store.getDailyPriceBounds(security.id, projection)
+    const bounds = projection
+      ? await this.store.getDailyPriceBounds(security.id, projection)
       : null;
+    if (!bounds) {
+      return null;
+    }
+    return {
+      ...bounds,
+      priceBasisGeneration: await this.priceBasisGeneration(security.id),
+    };
   }
 
   /**
@@ -828,12 +962,29 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<EvaluationFrame> {
     const period = this.requireBoundedRange(range);
     const context = this.evaluationContextRange(period, operands);
+    // The generation the rows must belong to: the run's pin, or, for an unpinned read, the one in
+    // force as it starts. A replacement commits in PostgreSQL before anything of it is published and
+    // generations only grow, so the generation still matching after the reads proves the prices and
+    // the derived rows below were read on that one basis.
+    const expected =
+      options.priceBasisGeneration !== undefined
+        ? options.priceBasisGeneration
+        : await this.priceBasisGeneration(security.id);
     const [prices, derived, alternativeData] = await Promise.all([
       this.readDailyPriceProjection(security, context, "BACKTEST"),
       this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
       // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
       this.loadAlternativeDataFacts(security, operands, context, options),
     ]);
+    const current = await this.priceBasisGeneration(security.id);
+    if (current !== expected) {
+      throw new PriceBasisChangedError(
+        security.id,
+        security.symbol,
+        expected,
+        current,
+      );
+    }
     return projectEvaluationFrame({
       security,
       prices,
@@ -899,6 +1050,10 @@ export class CanonicalStockDataService implements StockDataService {
     observationDate: LocalDate;
   }): Promise<MonitorEvaluationFrame | null> {
     const window = this.monitorWindowRange(input.observations, input.asOf);
+    // Prices come from the Redis projection and the derived tail from PostgreSQL. The generation is
+    // read on both sides of them: a replacement committed in between would pair one basis's prices
+    // with another's indicators, and a Signal from such a frame would be permanent (§9).
+    const generationBefore = await this.priceBasisGeneration(input.security.id);
     const prices = (
       await this.readDailyPriceProjection(input.security, window, "BACKTEST")
     ).slice(-input.observations);
@@ -927,6 +1082,11 @@ export class CanonicalStockDataService implements StockDataService {
       { from: prices[0]?.date ?? input.observationDate, to: input.observationDate },
       {},
     );
+    if (
+      (await this.priceBasisGeneration(input.security.id)) !== generationBefore
+    ) {
+      return null;
+    }
 
     return projectMonitorEvaluationFrame({
       security: input.security,
@@ -1203,6 +1363,14 @@ export class CanonicalStockDataService implements StockDataService {
       security,
       lease,
     );
+    // Before anything is loaded beside the stored history, it is verified once against the
+    // provider's (`historical-price-basis-v1.md`, §7, rule 1). A replacement re-establishes the
+    // whole target's coverage, so the gaps read below are then none.
+    const verification = await this.verifyPriceBasisWithinLease(
+      security,
+      target,
+      lease,
+    );
 
     const previousPriceState = await this.store.getDatasetState(
       security.id,
@@ -1243,22 +1411,74 @@ export class CanonicalStockDataService implements StockDataService {
       );
     }
     lease.assertOwned();
-    const priceChange =
-      missing.length === 0
-        ? {}
-        : await this.store.saveDailyPriceSync({
-            securityId: security.id,
-            prices: loaded,
-            successfulCoverage: missing,
-            syncedAt: this.nowInstant(),
-            tailDate: target.to,
-            ...(missing.some(
-              (range) => range.from <= target.to && range.to >= target.to,
-            )
-              ? { freshThrough: target.to }
-              : {}),
-            assertOwned: lease.assertOwned,
-          });
+    let priceChange: { earliestChangedDate?: string } = {};
+    if (missing.length > 0) {
+      // Rows loaded beside a stored history are saved only once its earliest row confirms the
+      // provider has not re-based it since (§7, rule 3). A widening after a re-base would otherwise
+      // put a new-basis prefix beside old-basis rows. A history verified in this very cycle needs
+      // no second look.
+      const newestStored = await this.newestStoredPrice(security.id, target);
+      const loadedDates = loaded.map((row) => row.date).sort();
+      const rebased =
+        newestStored !== undefined &&
+        verification.basis !== null &&
+        !verification.verifiedNow &&
+        loadedDates.length > 0 &&
+        changesStoredRows(
+          await this.store.getDailyPrices(security.id, {
+            from: loadedDates[0] as string,
+            to: loadedDates.at(-1) as string,
+          }),
+          loaded,
+        ) &&
+        !(await this.earliestStoredRowUnchanged(security));
+      const replacement = rebased
+        ? await this.replacePriceHistoryWithinLease(
+            security,
+            target,
+            lease,
+            verification.basis,
+            "PRICE_REBASE",
+          )
+        : undefined;
+      if (replacement?.outcome === "UNCHANGED") {
+        this.onPriceBasisEvent({
+          securityId: security.id,
+          symbol: security.symbol,
+          outcome: "EARLIEST_ROW_UNCONFIRMED",
+        });
+      }
+      if (replacement === undefined || replacement.outcome === "UNCHANGED") {
+        const hold = this.applyExDateHold(security, newestStored, loaded);
+        const successfulCoverage =
+          hold.heldFrom === undefined
+            ? missing
+            : missing
+                .filter((range) => range.from < (hold.heldFrom as string))
+                .map((range) =>
+                  range.to >= (hold.heldFrom as string)
+                    ? {
+                        from: range.from,
+                        to: addDays(hold.heldFrom as string, -1),
+                      }
+                    : range,
+                );
+        priceChange = await this.store.saveDailyPriceSync({
+          securityId: security.id,
+          prices: hold.rows,
+          successfulCoverage,
+          syncedAt: this.nowInstant(),
+          tailDate: target.to,
+          ...(hold.heldFrom === undefined &&
+          missing.some(
+            (range) => range.from <= target.to && range.to >= target.to,
+          )
+            ? { freshThrough: target.to }
+            : {}),
+          assertOwned: lease.assertOwned,
+        });
+      }
+    }
     lease.assertOwned();
 
     const prices = await this.store.getDailyPrices(security.id, target);
@@ -1533,18 +1753,6 @@ export class CanonicalStockDataService implements StockDataService {
    * intrinsic-value carry-forward are all correct at the rebuild boundary, then only the affected
    * trading days are written. Persisting replaces those rows: there is one current methodology per
    * `(securityId, date)` and no version history.
-   *
-   * Intrinsic and Fundamental Metrics materialization deliberately run over the full canonical
-   * trading-date history and every retained statement revision: starting either at `from` would
-   * lose the statement-event and carry-forward context that establishes the correct opening state.
-   * Revisions from the fundamentals warm-up years are read as well, so the first visible trading
-   * day can already have a TTM window, an eight-quarter growth chain and real growth endpoints —
-   * but trading dates still come only from the visible price history, so no derived row is created
-   * before the canonical target.
-   *
-   * Both statement-derived families come from the one revision read below and land on the same
-   * rows in the same write, so a newly eligible revision moves intrinsic values and Fundamental
-   * Metrics together, on the same session, under one publication.
    */
   private async rebuildDailyDerivedState(
     security: Security,
@@ -1562,6 +1770,54 @@ export class CanonicalStockDataService implements StockDataService {
     // the stored prices: it moves only when an earlier bar actually arrives, and the backfill that
     // brings one reports it as the earliest changed date, which rebuilds from there.
     const calculation = await this.calculationPrices(security, target, prices);
+    const derived = await this.computeDailyDerivedState(
+      security,
+      target,
+      calculation,
+      await this.store.getPriceBasisEvents(security.id),
+    );
+    const rows = derived.rows.filter((row) => row.date >= from);
+    const weeklyDelta = derived.weeklyBars.filter(
+      (bar) => bar.weekStartDate >= startOfIsoWeek(from),
+    );
+    if (rows.length === 0 && weeklyDelta.length === 0) {
+      return rows;
+    }
+    lease.assertOwned();
+    await this.store.saveDailyDerivedState({
+      securityId: security.id,
+      rows,
+      weeklyPrices: weeklyDelta,
+      successfulCoverage: { from, to: target.to },
+      syncedAt: this.nowInstant(),
+      assertOwned: lease.assertOwned,
+    });
+    return rows;
+  }
+
+  /**
+   * The unified daily derived state of a calculation window, in memory: the price indicators, the
+   * completed weeks, and the statement-derived families from one read of every retained revision.
+   *
+   * Intrinsic and Fundamental Metrics materialization deliberately run over the full canonical
+   * trading-date history and every retained statement revision: starting either at the rebuild's
+   * first date would lose the statement-event and carry-forward context that establishes the
+   * correct opening state. Revisions from the fundamentals warm-up years are read as well, so the
+   * first visible trading day can already have a TTM window, an eight-quarter growth chain and real
+   * growth endpoints — but trading dates still come only from the price history, so no derived row
+   * is created before the canonical target.
+   *
+   * Both statement-derived families come from the one revision read below and land on the same
+   * rows, so a newly eligible revision moves intrinsic values and Fundamental Metrics together, on
+   * the same session. Intrinsic values are then put on the research scale of these prices by the
+   * measured re-bases (`historical-price-basis-v1.md`, §10): unchanged when there are none.
+   */
+  private async computeDailyDerivedState(
+    security: Security,
+    target: Required<DateRange>,
+    calculation: { prices: readonly DailyPrice[]; range: Required<DateRange> },
+    events: readonly PriceBasisEvent[],
+  ) {
     const weeklyBars = aggregateCompletedWeeks(
       calculation.prices,
       target.to,
@@ -1585,33 +1841,21 @@ export class CanonicalStockDataService implements StockDataService {
       tradingDates,
       statements,
     });
-    const intrinsicStates = materializeDailyIntrinsicValues({
-      securityId: security.id,
-      tradingDates,
-      statements,
-    });
+    const intrinsicStates = applyPriceBasisToIntrinsicStates(
+      materializeDailyIntrinsicValues({
+        securityId: security.id,
+        tradingDates,
+        statements,
+      }),
+      { securityId: security.id, statements, events },
+    );
     const rows = buildDailyDerivedState({
       prices: calculation.prices,
       weeklyBars,
       fundamentalStates,
       intrinsicStates,
-    }).filter((row) => row.date >= from);
-    const weeklyDelta = weeklyBars.filter(
-      (bar) => bar.weekStartDate >= startOfIsoWeek(from),
-    );
-    if (rows.length === 0 && weeklyDelta.length === 0) {
-      return rows;
-    }
-    lease.assertOwned();
-    await this.store.saveDailyDerivedState({
-      securityId: security.id,
-      rows,
-      weeklyPrices: weeklyDelta,
-      successfulCoverage: { from, to: target.to },
-      syncedAt: this.nowInstant(),
-      assertOwned: lease.assertOwned,
     });
-    return rows;
+    return { rows, weeklyBars };
   }
 
   /**
@@ -1670,6 +1914,312 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
+  /**
+   * The first verification of a security's stored price history
+   * (`docs/decisions/historical-price-basis-v1.md`, §7, rule 1).
+   *
+   * Once per security, the first time it is hydrated or refreshed by this loader. A security with no
+   * stored price is verified as it is. Otherwise its whole stored history is read again and compared:
+   * equal, it is recorded as verified; different, it is replaced. That also repairs a history mixed
+   * before this check existed — a tail refreshed after a split, or a prefix widened after one —
+   * which no single-row check can see. A replacement the comparison refuses leaves the security
+   * unverified, and the next cycle tries again.
+   *
+   * Must run under the stock's lease and inside a `HYDRATING` manifest, so a replacement is never
+   * visible half-published.
+   */
+  private async verifyPriceBasisWithinLease(
+    security: Security,
+    target: Required<DateRange>,
+    lease: LoadLease,
+  ): Promise<{
+    basis: SecurityPriceBasisState | null;
+    replacedPrices: DailyPrice[] | null;
+    /** Whether this call compared or created it, so nothing in the same cycle checks again. */
+    verifiedNow: boolean;
+  }> {
+    const existing = await this.store.getPriceBasis(security.id);
+    if (existing) {
+      return { basis: existing, replacedPrices: null, verifiedNow: false };
+    }
+    if ((await this.store.getEarliestDailyPriceDate(security.id)) === null) {
+      lease.assertOwned();
+      return {
+        basis: await this.store.createPriceBasis({
+          securityId: security.id,
+          verifiedAt: this.nowInstant(),
+        }),
+        replacedPrices: null,
+        verifiedNow: true,
+      };
+    }
+    const result = await this.replacePriceHistoryWithinLease(
+      security,
+      target,
+      lease,
+      null,
+      "PRICE_BASIS_VERIFICATION",
+    );
+    if (result.outcome === "REPLACED") {
+      return {
+        basis: result.basis,
+        replacedPrices: result.prices,
+        verifiedNow: true,
+      };
+    }
+    if (result.outcome === "REFUSED") {
+      return { basis: null, replacedPrices: null, verifiedNow: true };
+    }
+    lease.assertOwned();
+    const basis = await this.store.createPriceBasis({
+      securityId: security.id,
+      verifiedAt: this.nowInstant(),
+    });
+    this.onPriceBasisEvent({
+      securityId: security.id,
+      symbol: security.symbol,
+      outcome: "VERIFIED",
+      generation: basis.generation,
+      detail: `${result.comparedSessions} sessions compared`,
+    });
+    return { basis, replacedPrices: null, verifiedNow: true };
+  }
+
+  /** The security's price-basis generation, or `null` while it is unverified. */
+  private async priceBasisGeneration(
+    securityId: string,
+  ): Promise<number | null> {
+    return (await this.store.getPriceBasis(securityId))?.generation ?? null;
+  }
+
+  /** The newest stored price row up to the target's end, if any. */
+  private async newestStoredPrice(
+    securityId: string,
+    target: Required<DateRange>,
+  ): Promise<DailyPrice | undefined> {
+    const bounds = await this.store.getDailyPriceBounds(securityId, {
+      from: EARLIEST_PERSISTED_PRICE_DATE,
+      to: target.to,
+    });
+    if (!bounds) {
+      return undefined;
+    }
+    const [row] = await this.store.getDailyPrices(securityId, {
+      from: bounds.lastDate,
+      to: bounds.lastDate,
+    });
+    return row;
+  }
+
+  /**
+   * Whether the earliest stored row still reads as it was stored (§7, rule 2).
+   *
+   * A re-base rescales every row before its ex-date, so the earliest one changes whenever any
+   * re-base happened, however long ago. Asked before rows are saved beside the stored history.
+   * An answer without that session is not evidence of a re-base, which rescales rows and never
+   * removes them.
+   */
+  private async earliestStoredRowUnchanged(
+    security: Security,
+  ): Promise<boolean> {
+    const earliest = await this.store.getEarliestDailyPriceDate(security.id);
+    if (earliest === null) {
+      return true;
+    }
+    const [stored] = await this.store.getDailyPrices(security.id, {
+      from: earliest,
+      to: earliest,
+    });
+    this.onProviderRequest({
+      symbol: security.symbol,
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      reason: "PRICE_BASIS_EARLIEST_ROW",
+      from: earliest,
+      to: earliest,
+    });
+    const fresh = (
+      await this.provider.getDailyPrices(security.symbol, security.id, {
+        from: earliest,
+        to: earliest,
+      })
+    ).find((row) => row.date === earliest);
+    if (!stored || !fresh) {
+      return true;
+    }
+    return !closesDiffer(stored.close, fresh.close);
+  }
+
+  /**
+   * Re-reads the whole history and, when it differs, replaces the stored one in one transaction
+   * (§8–§9): prices, derived and weekly rows rebuilt from them, the measured re-bases, the next
+   * generation. The caller republishes Redis; it holds a `HYDRATING` manifest throughout.
+   *
+   * Refused, and nothing written, when the provider no longer returns more than 1 % of the stored
+   * sessions: the old history then stays, consistent with itself.
+   */
+  private async replacePriceHistoryWithinLease(
+    security: Security,
+    target: Required<DateRange>,
+    lease: LoadLease,
+    basis: SecurityPriceBasisState | null,
+    reason: "PRICE_BASIS_VERIFICATION" | "PRICE_REBASE",
+  ): Promise<
+    | { outcome: "UNCHANGED"; comparedSessions: number }
+    | { outcome: "REFUSED" }
+    | {
+        outcome: "REPLACED";
+        basis: SecurityPriceBasisState;
+        prices: DailyPrice[];
+      }
+  > {
+    const earliest = await this.store.getEarliestDailyPriceDate(security.id);
+    const readRange = {
+      from: earliest === null ? target.from : minDate(earliest, target.from),
+      to: target.to,
+    };
+    this.onProviderRequest({
+      symbol: security.symbol,
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      reason,
+      from: readRange.from,
+      to: readRange.to,
+    });
+    const fresh = await this.provider.getDailyPrices(
+      security.symbol,
+      security.id,
+      readRange,
+    );
+    const stored = await this.store.getDailyPrices(security.id, readRange);
+    const detectedAt = this.nowInstant();
+    const comparison = comparePriceHistories({
+      securityId: security.id,
+      generation: (basis?.generation ?? 0) + 1,
+      detectedAt,
+      stored,
+      fresh,
+    });
+    // An answer missing more than 1 % of the stored sessions verifies nothing and replaces nothing:
+    // the old history stays, consistent with itself, and the next cycle asks again.
+    if (
+      fresh.length === 0 ||
+      comparison.storedOnly.length > stored.length * UNEXPLAINED_SESSION_SHARE
+    ) {
+      this.onPriceBasisEvent({
+        securityId: security.id,
+        symbol: security.symbol,
+        outcome: "REPLACEMENT_REFUSED",
+        storedOnlySessions: comparison.storedOnly.length,
+        detail: `${fresh.length} provider sessions against ${stored.length} stored`,
+      });
+      return { outcome: "REFUSED" };
+    }
+    if (!comparison.changed) {
+      return {
+        outcome: "UNCHANGED",
+        comparedSessions: comparison.comparedSessions,
+      };
+    }
+
+    // Rows after the newest stored session follow the same hold as any read (§7, rule 4).
+    const newestStored = stored.at(-1)?.date;
+    const firstNew =
+      newestStored === undefined
+        ? 0
+        : fresh.findIndex((row) => row.date > newestStored);
+    const held = heldFromIndex(
+      fresh,
+      firstNew === -1 ? fresh.length : firstNew,
+    );
+    const prices = held === undefined ? [...fresh] : fresh.slice(0, held);
+    const heldFrom = held === undefined ? undefined : fresh[held]!.date;
+
+    const events = [
+      ...(await this.store.getPriceBasisEvents(security.id)),
+      ...comparison.events,
+    ];
+    const derived = await this.computeDailyDerivedState(
+      security,
+      target,
+      { prices, range: readRange },
+      events,
+    );
+    lease.assertOwned();
+    const replaced = await this.store.replaceDailyPriceHistory({
+      securityId: security.id,
+      expectedGeneration: basis?.generation ?? null,
+      prices,
+      derivedRows: derived.rows.filter((row) => row.date >= target.from),
+      weeklyPrices: derived.weeklyBars,
+      events: comparison.events,
+      priceCoverage: {
+        from: readRange.from,
+        to:
+          heldFrom === undefined
+            ? readRange.to
+            : maxDate(readRange.from, addDays(heldFrom, -1)),
+      },
+      derivedCoverage: target,
+      syncedAt: detectedAt,
+      tailDate: target.to,
+      ...(heldFrom === undefined ? { freshThrough: target.to } : {}),
+      verifiedAt: basis?.verifiedAt ?? detectedAt,
+      assertOwned: lease.assertOwned,
+    });
+    this.onPriceBasisEvent({
+      securityId: security.id,
+      symbol: security.symbol,
+      outcome: "REPLACED",
+      generation: replaced.generation,
+      measuredEvents: comparison.events.filter(
+        (event) => event.kind === "MEASURED",
+      ).length,
+      unexplainedEvents: comparison.events.filter(
+        (event) => event.kind === "UNEXPLAINED",
+      ).length,
+      storedOnlySessions: comparison.storedOnly.length,
+      ...(heldFrom === undefined ? {} : { heldFrom }),
+      detail: reason,
+    });
+    return {
+      outcome: "REPLACED",
+      basis: replaced,
+      prices: prices.filter(
+        (row) => row.date >= target.from && row.date <= target.to,
+      ),
+    };
+  }
+
+  /**
+   * Rows a read would save beside the stored history, minus any held after a split-sized move
+   * (§7, rule 4), and the date the hold starts.
+   */
+  private applyExDateHold(
+    security: Security,
+    newestStored: DailyPrice | undefined,
+    loaded: readonly DailyPrice[],
+  ): { rows: DailyPrice[]; heldFrom?: LocalDate } {
+    const sorted = [...loaded].sort((left, right) =>
+      left.date.localeCompare(right.date),
+    );
+    const series = newestStored
+      ? [newestStored, ...sorted.filter((row) => row.date > newestStored.date)]
+      : sorted;
+    const held = heldFromIndex(series, newestStored ? 1 : 0);
+    if (held === undefined) {
+      return { rows: [...loaded] };
+    }
+    const heldFrom = series[held]!.date;
+    this.onPriceBasisEvent({
+      securityId: security.id,
+      symbol: security.symbol,
+      outcome: "HELD",
+      heldFrom,
+    });
+    return { rows: loaded.filter((row) => row.date < heldFrom), heldFrom };
+  }
+
   private async refreshPriceWithinLease(
     security: Security,
     target: Required<DateRange>,
@@ -1678,7 +2228,9 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<{
     prices: DailyPrice[];
     lastPriceRefreshAt: string;
-    derivedRebuildStart: string;
+    derivedRebuildStart: string | undefined;
+    /** Set when the history was replaced: its derived rows are already rebuilt, only republished. */
+    republishFrom?: string;
   }> {
     const unsettledFrom = await this.unsettledTailStart(security, target);
     const tailFrom = maxDate(
@@ -1711,14 +2263,75 @@ export class CanonicalStockDataService implements StockDataService {
       refreshRange,
     );
     const syncedAt = this.nowInstant();
+
+    // Nothing is saved beside the stored history until its earliest row confirms the provider has
+    // not re-based it (`historical-price-basis-v1.md`, §7). A tail read after a re-base returns
+    // rescaled rows that would otherwise overwrite the recent stored ones and leave the rest on the
+    // old basis.
+    const storedTail = await this.store.getDailyPrices(
+      security.id,
+      refreshRange,
+    );
+    if (
+      changesStoredRows(storedTail, loaded) &&
+      !(await this.earliestStoredRowUnchanged(security))
+    ) {
+      const replacement = await this.replacePriceHistoryWithinLease(
+        security,
+        target,
+        lease,
+        await this.store.getPriceBasis(security.id),
+        "PRICE_REBASE",
+      );
+      if (replacement.outcome === "REPLACED") {
+        lease.assertOwned();
+        await this.cache.writeDailyPriceYears(
+          security.id,
+          replacement.prices,
+          yearsInRange(target),
+          hydrating,
+        );
+        return {
+          prices: replacement.prices,
+          lastPriceRefreshAt: syncedAt,
+          derivedRebuildStart: undefined,
+          republishFrom: target.from,
+        };
+      }
+      if (replacement.outcome === "REFUSED") {
+        // The provider re-based the history and it cannot be replaced yet: nothing new is saved
+        // beside the old one, which stays consistent with itself until the next cycle retries.
+        return {
+          prices: await this.store.getDailyPrices(security.id, target),
+          lastPriceRefreshAt: syncedAt,
+          derivedRebuildStart: undefined,
+        };
+      }
+      this.onPriceBasisEvent({
+        securityId: security.id,
+        symbol: security.symbol,
+        outcome: "EARLIEST_ROW_UNCONFIRMED",
+      });
+    }
+
+    const hold = this.applyExDateHold(
+      security,
+      storedTail.at(-1) ?? (await this.newestStoredPrice(security.id, target)),
+      loaded,
+    );
     lease.assertOwned();
     const change = await this.store.saveDailyPriceSync({
       securityId: security.id,
-      prices: loaded,
-      successfulCoverage: [refreshRange],
+      prices: hold.rows,
+      successfulCoverage:
+        hold.heldFrom === undefined
+          ? [refreshRange]
+          : hold.heldFrom > refreshRange.from
+            ? [{ from: refreshRange.from, to: addDays(hold.heldFrom, -1) }]
+            : [],
       syncedAt,
       tailDate: target.to,
-      freshThrough: target.to,
+      ...(hold.heldFrom === undefined ? { freshThrough: target.to } : {}),
       assertOwned: lease.assertOwned,
     });
     lease.assertOwned();
@@ -2626,4 +3239,27 @@ function yearBoundedRange(from: string, to: string): Required<DateRange> {
 
 function toError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
+}
+
+/**
+ * Whether saving `loaded` would change the stored history: a session it does not hold yet, or one
+ * whose bar differs in any field. Only then must the earliest stored row be checked first.
+ */
+function changesStoredRows(
+  stored: readonly DailyPrice[],
+  loaded: readonly DailyPrice[],
+): boolean {
+  const storedByDate = new Map(stored.map((row) => [row.date, row]));
+  return loaded.some((row) => {
+    const existing = storedByDate.get(row.date);
+    return (
+      existing === undefined ||
+      existing.open !== row.open ||
+      existing.high !== row.high ||
+      existing.low !== row.low ||
+      existing.close !== row.close ||
+      existing.volume !== row.volume ||
+      existing.vwap !== row.vwap
+    );
+  });
 }

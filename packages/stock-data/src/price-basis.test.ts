@@ -1,0 +1,579 @@
+import { describe, expect, it } from "vitest";
+import {
+  basisFactorAt,
+  closesDiffer,
+  comparePriceHistories,
+  heldFromIndex,
+  isPlainShareRatio,
+  isSplitSizedMove,
+  type PriceBasisEvent,
+  type PriceComparisonRow,
+} from "./price-basis.js";
+
+const SECURITY = "security-1";
+const DETECTED_AT = "2026-10-07T12:00:00.000Z";
+
+/** Weekday sessions from `from`, `count` of them, at `close(index)`. */
+function sessions(
+  from: string,
+  count: number,
+  close: (index: number) => number,
+): PriceComparisonRow[] {
+  const rows: PriceComparisonRow[] = [];
+  const day = new Date(`${from}T00:00:00.000Z`);
+  while (rows.length < count) {
+    const weekday = day.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) {
+      rows.push({
+        date: day.toISOString().slice(0, 10),
+        close: close(rows.length),
+      });
+    }
+    day.setUTCDate(day.getUTCDate() + 1);
+  }
+  return rows;
+}
+
+/** A plausible as-traded path: a slow drift with a wobble, all far from a split-sized move. */
+function path(index: number): number {
+  return 100 + index * 0.05 + Math.sin(index / 3) * 2;
+}
+
+function compare(
+  stored: readonly PriceComparisonRow[],
+  fresh: readonly PriceComparisonRow[],
+) {
+  return comparePriceHistories({
+    securityId: SECURITY,
+    generation: 2,
+    detectedAt: DETECTED_AT,
+    stored,
+    fresh,
+  });
+}
+
+/** The provider's history after an event at `exDate`: every earlier row divided by `ratio`. */
+function rebased(
+  rows: readonly PriceComparisonRow[],
+  exDate: string,
+  ratio: number,
+): PriceComparisonRow[] {
+  return rows.map((row) =>
+    row.date < exDate ? { date: row.date, close: row.close / ratio } : row,
+  );
+}
+
+describe("closesDiffer", () => {
+  it("allows half a cent per row at or above $1 and half a hundredth below", () => {
+    expect(closesDiffer(100, 100.009)).toBe(false);
+    expect(closesDiffer(100, 100.011)).toBe(true);
+    expect(closesDiffer(0.5, 0.50009)).toBe(false);
+    expect(closesDiffer(0.5, 0.5002)).toBe(true);
+  });
+});
+
+describe("isSplitSizedMove", () => {
+  it("is a 3:2 split or larger, either way, and nothing smaller", () => {
+    expect(isSplitSizedMove(100, 66.67)).toBe(true);
+    expect(isSplitSizedMove(100, 25)).toBe(true);
+    expect(isSplitSizedMove(100, 200)).toBe(true);
+    expect(isSplitSizedMove(100, 75)).toBe(false);
+    expect(isSplitSizedMove(100, 135)).toBe(false);
+    expect(isSplitSizedMove(100, 95.06)).toBe(false);
+  });
+
+  it("is never true for a missing or non-positive close", () => {
+    expect(isSplitSizedMove(0, 25)).toBe(false);
+    expect(isSplitSizedMove(100, Number.NaN)).toBe(false);
+  });
+});
+
+describe("heldFromIndex", () => {
+  const stored = { date: "2026-10-05", close: 200 };
+
+  it("holds an ex-date row published in the new basis before the older rows are rewritten", () => {
+    expect(
+      heldFromIndex([stored, { date: "2026-10-06", close: 50.2 }], 1),
+    ).toBe(1);
+    expect(
+      heldFromIndex(
+        [
+          stored,
+          { date: "2026-10-06", close: 50.2 },
+          { date: "2026-10-07", close: 51 },
+          { date: "2026-10-08", close: 50.5 },
+        ],
+        1,
+      ),
+    ).toBe(1);
+  });
+
+  it("accepts the move as genuine once four sessions stand from it", () => {
+    expect(
+      heldFromIndex(
+        [
+          stored,
+          { date: "2026-10-06", close: 50.2 },
+          { date: "2026-10-07", close: 51 },
+          { date: "2026-10-08", close: 50.5 },
+          { date: "2026-10-09", close: 49 },
+        ],
+        1,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("holds nothing for an ordinary move or a move among stored rows", () => {
+    expect(heldFromIndex([stored, { date: "2026-10-06", close: 180 }], 1)).toBe(
+      undefined,
+    );
+    expect(
+      heldFromIndex(
+        [
+          { date: "2026-10-02", close: 800 },
+          stored,
+          { date: "2026-10-06", close: 201 },
+        ],
+        2,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("holds the trailing move of a first load, whose rows are all new", () => {
+    const rows = sessions("2026-09-01", 30, path);
+    rows.push({ date: "2026-10-13", close: (rows.at(-1)!.close / 4) * 1.01 });
+    expect(heldFromIndex(rows, 0)).toBe(30);
+  });
+});
+
+describe("comparePriceHistories", () => {
+  const history = sessions("2026-01-05", 200, path);
+
+  it("reports nothing when every common session agrees", () => {
+    const result = compare(history, history);
+    expect(result).toEqual({
+      comparedSessions: 200,
+      changed: false,
+      storedOnly: [],
+      events: [],
+    });
+  });
+
+  it("dates a split by the first unchanged session and measures its ratio", () => {
+    const exDate = history[150]!.date;
+    const result = compare(history, rebased(history, exDate, 4));
+    expect(result.changed).toBe(true);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      securityId: SECURITY,
+      generation: 2,
+      kind: "MEASURED",
+      effectiveDate: exDate,
+      detectedAt: DETECTED_AT,
+    });
+    expect(result.events[0]!.priceRatio).toBeCloseTo(4, 9);
+  });
+
+  it("measures a reverse split and a spin-off the same way, without classifying them", () => {
+    const exDate = history[120]!.date;
+    const reverse = compare(history, rebased(history, exDate, 0.1));
+    expect(reverse.events[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveDate: exDate,
+    });
+    expect(reverse.events[0]!.priceRatio).toBeCloseTo(0.1, 9);
+
+    const spinOff = compare(history, rebased(history, exDate, 1.046));
+    expect(spinOff.events[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveDate: exDate,
+    });
+    expect(spinOff.events[0]!.priceRatio).toBeCloseTo(1.046, 6);
+  });
+
+  it("measures two events between two reads, each with its own ratio", () => {
+    const later = history[160]!.date;
+    const earlier = history[60]!.date;
+    const fresh = rebased(rebased(history, later, 2), earlier, 1.05);
+    const result = compare(history, fresh);
+    expect(result.events.map((event) => event.effectiveDate)).toEqual([
+      later,
+      earlier,
+    ]);
+    expect(result.events[0]!.priceRatio).toBeCloseTo(2, 9);
+    expect(result.events[1]!.priceRatio).toBeCloseTo(1.05, 6);
+  });
+
+  it("dates an event that fell after the newest stored session by the one session after it", () => {
+    const stored = history.slice(0, 199);
+    const result = compare(stored, rebased(history, history[199]!.date, 4));
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveDate: history[199]!.date,
+    });
+    expect(result.events[0]!.priceRatio).toBeCloseTo(4, 9);
+  });
+
+  it("records an interval, never a guessed date, when several sessions followed the newest stored one", () => {
+    const stored = history.slice(0, 190);
+    const fresh = history.map((row) => ({ ...row, close: row.close / 3 }));
+    const result = compare(stored, fresh);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveFrom: history[189]!.date,
+      effectiveTo: history[199]!.date,
+    });
+    expect(result.events[0]!.effectiveDate).toBeUndefined();
+    expect(result.events[0]!.priceRatio).toBeCloseTo(3, 9);
+  });
+
+  it("leaves the interval open when the provider re-based before publishing a session after it", () => {
+    const fresh = history.map((row) => ({ ...row, close: row.close / 2 }));
+    const result = compare(history, fresh);
+    expect(result.events[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveFrom: history[199]!.date,
+    });
+    expect(result.events[0]!.effectiveTo).toBeUndefined();
+  });
+
+  it("treats a short block of corrected rows as corrections, never as events", () => {
+    const fresh = history.map((row, index) =>
+      index === 80 || index === 81 ? { ...row, close: row.close * 1.02 } : row,
+    );
+    const result = compare(history, fresh);
+    expect(result.changed).toBe(true);
+    expect(result.events).toEqual([]);
+  });
+
+  it("treats a corrected earliest row as a correction", () => {
+    const fresh = history.map((row, index) =>
+      index === 0 ? { ...row, close: row.close * 0.97 } : row,
+    );
+    expect(compare(history, fresh).events).toEqual([]);
+  });
+
+  it("dates a history mixed by a tail refresh after a split at the refresh's start", () => {
+    // Stored before PR 1: the rows a tail refresh re-read after the provider re-based are new-basis,
+    // everything before them old-basis. The current history is new-basis throughout.
+    const exDate = history[170]!.date;
+    const current = rebased(history, exDate, 2);
+    const tailStart = 165;
+    const stored = history.map((row, index) =>
+      index >= tailStart ? current[index]! : row,
+    );
+    const result = compare(stored, current);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveDate: history[tailStart]!.date,
+    });
+    expect(result.events[0]!.priceRatio).toBeCloseTo(2, 9);
+  });
+
+  it("reports a prefix stored on a newer basis than the rows after it as unexplained", () => {
+    // Stored before PR 1: a prefix widened after the split is new-basis, the middle old-basis.
+    const exDate = history[150]!.date;
+    const current = rebased(history, exDate, 2);
+    const stored = history.map((row, index) =>
+      index < 40 || index >= 150 ? current[index]! : row,
+    );
+    const result = compare(stored, current);
+    expect(result.events.map((event) => event.kind)).toEqual([
+      "MEASURED",
+      "UNEXPLAINED",
+    ]);
+    expect(result.events[0]).toMatchObject({ effectiveDate: exDate });
+    // It reaches back to the earliest compared session: unbounded below.
+    expect(result.events[1]).toMatchObject({ effectiveTo: history[39]!.date });
+    expect(result.events[1]!.effectiveFrom).toBeUndefined();
+  });
+
+  it("treats scattered single corrected rows as corrections, however many", () => {
+    const fresh = history.map((row, index) =>
+      index % 7 === 0 ? { ...row, close: row.close * (1 + index / 1000) } : row,
+    );
+    const result = compare(history, fresh);
+    expect(result.changed).toBe(true);
+    expect(result.events).toEqual([]);
+  });
+
+  it("reports a change with no step structure as one unexplained event", () => {
+    // Every session moves by its own ratio: no run of one ratio, so nothing can be restored.
+    const fresh = history.map((row, index) => ({
+      ...row,
+      close: row.close * (1 + (index + 1) / 1000),
+    }));
+    const result = compare(history, fresh);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      kind: "UNEXPLAINED",
+      effectiveTo: history[199]!.date,
+    });
+    expect(result.events[0]!.effectiveFrom).toBeUndefined();
+    expect(result.events[0]!.priceRatio).toBeUndefined();
+  });
+
+  it("bounds an unexplained change that leaves the rows before it unchanged", () => {
+    // Every session from the 50th on moves by its own ratio; the 49 before it are untouched.
+    const fresh = history.map((row, index) =>
+      index >= 50
+        ? { ...row, close: row.close * (1 + (index + 1) / 1000) }
+        : row,
+    );
+    const result = compare(history, fresh);
+    expect(result.events).toEqual([
+      expect.objectContaining({
+        kind: "UNEXPLAINED",
+        effectiveFrom: history[50]!.date,
+        effectiveTo: history[199]!.date,
+      }),
+    ]);
+  });
+
+  it("lists stored sessions the provider no longer returns", () => {
+    const fresh = history.filter((_, index) => index !== 10 && index !== 11);
+    const result = compare(history, fresh);
+    expect(result.storedOnly).toEqual([history[10]!.date, history[11]!.date]);
+    expect(result.changed).toBe(false);
+  });
+
+  it("records the runs it found as evidence", () => {
+    const exDate = history[150]!.date;
+    const result = compare(history, rebased(history, exDate, 4));
+    expect(result.events[0]!.evidence).toMatchObject({
+      comparedSessions: 200,
+      changedSessions: 150,
+      unfittedSessions: 0,
+      runs: [
+        { from: exDate, to: history[199]!.date, sessions: 50 },
+        { from: history[0]!.date, to: history[149]!.date, sessions: 150 },
+      ],
+    });
+  });
+});
+
+describe("isPlainShareRatio", () => {
+  it("passes ordinary splits and reverse splits, within half a percent", () => {
+    for (const ratio of [
+      2,
+      1.5,
+      4,
+      0.1,
+      20,
+      1 / 32,
+      3,
+      0.5,
+      1.25,
+      7,
+      4.0013,
+      9.9899,
+    ]) {
+      expect(isPlainShareRatio(ratio)).toBe(true);
+    }
+  });
+
+  it("fails every observed distribution, combined event and stock dividend, and no change", () => {
+    for (const ratio of [
+      523 / 500,
+      131 / 125,
+      1323 / 1000,
+      10000 / 8753,
+      1011 / 1000,
+      1907 / 2000,
+      5000 / 2399,
+      331 / 250,
+      1.1963,
+      51 / 50,
+      11 / 10,
+      8 / 7,
+      9 / 5,
+      1,
+      0,
+      Number.NaN,
+    ]) {
+      expect(isPlainShareRatio(ratio)).toBe(false);
+    }
+  });
+});
+
+describe("basisFactorAt", () => {
+  const event = (fields: Partial<PriceBasisEvent>): PriceBasisEvent => ({
+    securityId: SECURITY,
+    generation: 2,
+    kind: "MEASURED",
+    detectedAt: "2026-10-07T12:00:00.000Z",
+    evidence: {
+      runs: [],
+      comparedSessions: 0,
+      changedSessions: 0,
+      unfittedSessions: 0,
+    },
+    ...fields,
+  });
+  const split = event({ effectiveDate: "2026-10-06", priceRatio: 4 });
+
+  it("is 1 with no re-base, or with one detected before the revision was observed", () => {
+    expect(
+      basisFactorAt({
+        session: "2020-01-02",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 1 });
+    expect(
+      basisFactorAt({
+        session: "2020-01-02",
+        observedAt: "2026-10-08T00:00:00.000Z",
+        events: [split],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 1 });
+  });
+
+  it("restores the close a revision observed before the event was read against", () => {
+    expect(
+      basisFactorAt({
+        session: "2026-10-05",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [split],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 4 });
+  });
+
+  it("withholds a session on or after the event when the revision predates its detection", () => {
+    expect(
+      basisFactorAt({
+        session: "2026-10-06",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [split],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "AFTER_REBASE" });
+  });
+
+  it("withholds a revision observed between the event's date and its detection", () => {
+    expect(
+      basisFactorAt({
+        session: "2026-10-02",
+        observedAt: "2026-10-06T23:00:00.000Z",
+        events: [split],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "OBSERVED_DURING_REBASE" });
+  });
+
+  it("applies an undated event only where both the session and the observation precede its interval", () => {
+    const undated = event({
+      effectiveFrom: "2026-09-28",
+      effectiveTo: "2026-10-06",
+      priceRatio: 3,
+    });
+    expect(
+      basisFactorAt({
+        session: "2026-09-28",
+        observedAt: "2026-09-28T20:00:00.000Z",
+        events: [undated],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 3 });
+    expect(
+      basisFactorAt({
+        session: "2026-09-29",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [undated],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "UNDATED_REBASE" });
+    expect(
+      basisFactorAt({
+        session: "2026-09-01",
+        observedAt: "2026-09-30T00:00:00.000Z",
+        events: [undated],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "UNDATED_REBASE" });
+  });
+
+  it("withholds every session an unbounded unexplained change may reach", () => {
+    expect(
+      basisFactorAt({
+        session: "2001-01-02",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [event({ kind: "UNEXPLAINED", effectiveTo: "2005-03-01" })],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "UNEXPLAINED_REBASE" });
+    expect(
+      basisFactorAt({
+        session: "2020-01-02",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [event({ kind: "UNEXPLAINED", effectiveTo: "2005-03-01" })],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "UNEXPLAINED_REBASE" });
+  });
+
+  it("withholds only the sessions a bounded unexplained change touched", () => {
+    const block = event({
+      kind: "UNEXPLAINED",
+      effectiveFrom: "2005-01-03",
+      effectiveTo: "2005-03-01",
+    });
+    const at = (session: string) =>
+      basisFactorAt({
+        session,
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [block],
+      });
+    expect(at("2001-01-02")).toEqual({ kind: "FACTOR", factor: 1 });
+    expect(at("2005-02-01")).toEqual({
+      kind: "WITHHELD",
+      reason: "UNEXPLAINED_REBASE",
+    });
+    expect(at("2010-01-04")).toEqual({ kind: "FACTOR", factor: 1 });
+  });
+
+  it("needs nothing for a revision observed after a measured split, on either side of it", () => {
+    for (const session of ["2026-10-02", "2026-10-09"]) {
+      expect(
+        basisFactorAt({
+          session,
+          observedAt: "2026-10-08T00:00:00.000Z",
+          events: [split],
+        }),
+      ).toEqual({ kind: "FACTOR", factor: 1 });
+    }
+  });
+
+  it("withholds a session before a possible distribution for a revision observed after it", () => {
+    // A quarter filed before the event but first observed after its detection: its count is
+    // unchanged by a distribution, while the close before the event carries the factor.
+    const spinOff = event({ effectiveDate: "2026-10-06", priceRatio: 1.046 });
+    expect(
+      basisFactorAt({
+        session: "2026-10-02",
+        observedAt: "2026-10-08T00:00:00.000Z",
+        events: [spinOff],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "BEFORE_DISTRIBUTION" });
+    expect(
+      basisFactorAt({
+        session: "2026-10-09",
+        observedAt: "2026-10-08T00:00:00.000Z",
+        events: [spinOff],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 1 });
+  });
+
+  it("multiplies the ratios of every later event", () => {
+    expect(
+      basisFactorAt({
+        session: "2020-01-02",
+        observedAt: "2026-09-01T00:00:00.000Z",
+        events: [
+          split,
+          event({
+            effectiveDate: "2027-03-01",
+            priceRatio: 1.05,
+            detectedAt: "2027-03-01T15:00:00.000Z",
+          }),
+        ],
+      }),
+    ).toEqual({ kind: "FACTOR", factor: 4 * 1.05 });
+  });
+});

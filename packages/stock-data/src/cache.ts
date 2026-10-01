@@ -286,7 +286,8 @@ export class RedisStockDataCache implements StockDataCache {
     securityId: string,
     range: Required<DateRange>,
   ): Promise<DailyPrice[] | null> {
-    if ((await this.getManifest(securityId))?.status !== "READY") {
+    const manifest = await this.redis.get(this.manifestKey(securityId));
+    if (!isReadyManifestPayload(manifest)) {
       return null;
     }
     const result = await this.readYearly<DailyPrice>(
@@ -294,6 +295,12 @@ export class RedisStockDataCache implements StockDataCache {
       (year) => this.priceYearKey(securityId, year),
       (row) => row.date,
     );
+    // The manifest check and the yearly `MGET` are separate commands. A republish that began in
+    // between — a history replaced after a re-base, above all — could otherwise hand back old years
+    // beside new ones, so a manifest that moved during the read makes it a miss.
+    if (!(await this.manifestUnchanged(securityId, manifest))) {
+      return null;
+    }
     if (result) {
       await this.touch(securityId);
     }
@@ -330,7 +337,9 @@ export class RedisStockDataCache implements StockDataCache {
     securityId: string,
     range: Required<DateRange>,
   ): Promise<DailyDerivedState[] | null> {
-    const manifest = await this.getManifest(securityId);
+    const payload = await this.redis.get(this.manifestKey(securityId));
+    const manifest =
+      payload === null ? null : (JSON.parse(payload) as StockManifest);
     if (
       manifest?.status !== "READY" ||
       manifest.dailyStateEncodingVersion !== DAILY_STATE_ENCODING_VERSION
@@ -340,6 +349,10 @@ export class RedisStockDataCache implements StockDataCache {
     const years = yearsInRange(range);
     const keys = years.map((year) => this.dailyStateYearKey(securityId, year));
     const payloads = await this.redis.mget(...keys);
+    // As for prices: a republish that began during the read makes it a miss rather than a mix.
+    if (!(await this.manifestUnchanged(securityId, payload))) {
+      return null;
+    }
     const rows: DailyDerivedState[] = [];
     for (const [index, year] of years.entries()) {
       const payload = payloads[index];
@@ -479,6 +492,14 @@ export class RedisStockDataCache implements StockDataCache {
       this.residentKey(),
       securityId,
     );
+  }
+
+  /** Whether the security's manifest is still exactly the one a read started under. */
+  private async manifestUnchanged(
+    securityId: string,
+    observed: string | null,
+  ): Promise<boolean> {
+    return (await this.redis.get(this.manifestKey(securityId))) === observed;
   }
 
   private async readJson<T>(key: string): Promise<T | null> {
@@ -700,6 +721,13 @@ export class NullStockDataCache implements StockDataCache {
   }
   async touch(_securityId: string): Promise<void> {}
   async evict(_securityId: string): Promise<void> {}
+}
+
+function isReadyManifestPayload(payload: string | null): payload is string {
+  return (
+    payload !== null &&
+    (JSON.parse(payload) as StockManifest).status === "READY"
+  );
 }
 
 export function yearsInRange(range: Required<DateRange>): number[] {

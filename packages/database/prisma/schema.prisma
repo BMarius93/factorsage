@@ -359,6 +359,8 @@ model Security {
   recentViews         RecentSecurityView[]
   insiderTransactions InsiderTransaction[]
   congressTrades      CongressTrade[]
+  priceBasis          SecurityPriceBasis?
+  priceBasisEvents    PriceBasisEvent[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -574,6 +576,56 @@ model DailyPrice {
 
   /// The composite primary key already provides the securityId + date-range B-tree access path.
   @@id([securityId, date])
+}
+
+/// The price basis of one security's stored research history
+/// (`docs/decisions/historical-price-basis-v1.md`, §7–§9).
+///
+/// Created the first time the loader verifies the whole stored history against the provider's, and
+/// never deleted. `generation` increases on every replacement of the stored history after a re-base,
+/// and is what a backtest pins and a Monitor cycle compares: one generation is one consistent basis.
+/// `verifiedAt` never changes after creation. Corporate actions after it are measured by the loader;
+/// those before it are known only from the provider's own records.
+model SecurityPriceBasis {
+  securityId String   @id
+  generation Int
+  verifiedAt DateTime
+  updatedAt  DateTime @updatedAt
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+}
+
+/// What one comparison of a re-based history with the stored one measured.
+enum PriceBasisEventKind {
+  /// A step in `stored close ÷ new close` with a single ratio for the rows before it.
+  MEASURED
+  /// A change with no such structure. The rows it covers were replaced, but the units of anything
+  /// observed before it cannot be restored.
+  UNEXPLAINED
+}
+
+/// One measured re-base of one security's stored price history. Append-only.
+///
+/// A `MEASURED` event is dated by `effectiveDate`, the first session of the new basis, or, when its
+/// ex-date fell between two reads, undated: the event lies in `(effectiveFrom, effectiveTo]`, with an
+/// open end when the provider had not yet published a session after it. `priceRatio` is the stored
+/// close over the new close of every row before the event. An `UNEXPLAINED` event carries no ratio;
+/// `effectiveFrom` and `effectiveTo` are then the first and last changed sessions, both inclusive.
+model PriceBasisEvent {
+  id            String              @id @default(uuid())
+  securityId    String
+  /// The replacement that recorded it.
+  generation    Int
+  kind          PriceBasisEventKind
+  effectiveDate DateTime?           @db.Date
+  effectiveFrom DateTime?           @db.Date
+  effectiveTo   DateTime?           @db.Date
+  priceRatio    Decimal?            @db.Decimal(24, 12)
+  detectedAt    DateTime
+  /// Run lengths and the sessions compared; diagnostics only, never read by a calculation.
+  evidence      Json
+  security      Security            @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@index([securityId, generation])
 }
 
 model WeeklyPrice {

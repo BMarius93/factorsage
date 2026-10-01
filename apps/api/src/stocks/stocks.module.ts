@@ -23,6 +23,7 @@ import {
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
+  logPriceBasisEvent,
   type AlternativeDataStore,
   type LoadCoordinator,
   type SecurityCatalogService,
@@ -222,6 +223,9 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
                 ...request,
               });
             },
+            // Every re-base decision (`historical-price-basis-v1.md`, §7–§9): rare, and each one
+            // replaces or holds a security's history, so it is worth an `info` line.
+            onPriceBasisEvent: logPriceBasisEvent(logger),
             alternativeData,
           },
         );

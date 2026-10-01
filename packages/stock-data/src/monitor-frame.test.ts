@@ -197,7 +197,7 @@ describe("projectMonitorEvaluationFrame", () => {
       prices,
       derived: [],
       operands,
-      observation: { price: 300 },
+      observation: { price: 130 },
       observationDate,
     });
 
@@ -205,8 +205,57 @@ describe("projectMonitorEvaluationFrame", () => {
     const flatSma = readOperand(flat!.frame, key, flat!.observationIndex);
     const jumpedSma = readOperand(jumped!.frame, key, jumped!.observationIndex);
     expect(flatSma).toBeCloseTo(100, 10);
-    // One 300 inside a 20-bar window of 100s: (19 * 100 + 300) / 20 = 110.
-    expect(jumpedSma).toBeCloseTo(110, 10);
+    // One 130 inside a 20-bar window of 100s: (19 * 100 + 130) / 20 = 101.5.
+    expect(jumpedSma).toBeCloseTo(101.5, 10);
+  });
+
+  it("is not evaluable while the live quote stands a split-sized move from the last close", () => {
+    // `historical-price-basis-v1.md`, §7, rule 4: on an ex-date the provider has not re-based yet,
+    // the quote is post-split beside pre-split history. Appended, it would read as a 75 % fall
+    // against every indicator.
+    const prices = closedHistory(Array.from({ length: 40 }, () => 100));
+    const observationDate = nextTradingDate(prices);
+    for (const price of [25, 66, 150]) {
+      expect(
+        projectMonitorEvaluationFrame({
+          security: SECURITY,
+          prices,
+          derived: [],
+          operands,
+          observation: { price },
+          observationDate,
+        }),
+      ).toBeNull();
+    }
+    // An ordinary move is evaluated as before.
+    expect(
+      projectMonitorEvaluationFrame({
+        security: SECURITY,
+        prices,
+        derived: [],
+        operands,
+        observation: { price: 75 },
+        observationDate,
+      }),
+    ).not.toBeNull();
+  });
+
+  it("measures a same-day repricing against the session before it", () => {
+    const prices = closedHistory([
+      ...Array.from({ length: 39 }, () => 100),
+      100,
+    ]);
+    const sameDay = prices[prices.length - 1]!.date;
+    expect(
+      projectMonitorEvaluationFrame({
+        security: SECURITY,
+        prices,
+        derived: [],
+        operands,
+        observation: { price: 25 },
+        observationDate: sameDay,
+      }),
+    ).toBeNull();
   });
 
   it("has no observation at all when there is no current quote", () => {
@@ -364,7 +413,7 @@ describe("projectMonitorEvaluationFrame", () => {
         seriesOperand("DCF_FCFF"),
         marginOfSafetyOperand("DCF_FCFF"),
       ],
-      observation: { price: 150 },
+      observation: { price: 130 },
       observationDate,
     })!;
 
@@ -377,14 +426,14 @@ describe("projectMonitorEvaluationFrame", () => {
       readOperand(result.frame, seriesOperand("DCF_FCFF"), result.observationIndex),
     ).toBe(200);
     // Margin of Safety is recomputed against the live price from that same carried intrinsic value:
-    // (200 - 150) / 200 * 100 = 25. The valuation itself is never rerun.
+    // (200 - 130) / 200 * 100 = 35. The valuation itself is never rerun.
     expect(
       readOperand(
         result.frame,
         marginOfSafetyOperand("DCF_FCFF"),
         result.observationIndex,
       ),
-    ).toBeCloseTo(25, 10);
+    ).toBeCloseTo(35, 10);
   });
 
   it("withholds an intrinsic value that has no provenance", () => {
@@ -403,7 +452,7 @@ describe("projectMonitorEvaluationFrame", () => {
       prices,
       derived,
       operands: [PRICE_OPERAND, marginOfSafetyOperand("DCF_FCFF")],
-      observation: { price: 150 },
+      observation: { price: 130 },
       observationDate: nextTradingDate(prices),
     })!;
 
@@ -448,7 +497,7 @@ describe("projectMonitorEvaluationFrame", () => {
       prices,
       derived: [],
       operands: [PRICE_OPERAND, seriesOperand("RSI_14D")],
-      observation: { price: 200 },
+      observation: { price: 160 },
       observationDate,
     })!;
     const down = projectMonitorEvaluationFrame({
@@ -456,7 +505,7 @@ describe("projectMonitorEvaluationFrame", () => {
       prices,
       derived: [],
       operands: [PRICE_OPERAND, seriesOperand("RSI_14D")],
-      observation: { price: 50 },
+      observation: { price: 100 },
       observationDate,
     })!;
 
@@ -471,10 +520,10 @@ describe("projectMonitorEvaluationFrame", () => {
       {
         securityId: SECURITY.id,
         date: observationDate,
-        open: 200,
-        high: 200,
-        low: 200,
-        close: 200,
+        open: 160,
+        high: 160,
+        low: 160,
+        close: 160,
         volume: 0,
       },
     ]);

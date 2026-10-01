@@ -1,6 +1,7 @@
 import { BENCHMARK_PRICE_DATASET_VERSION } from "./benchmark-ports.js";
 import { DERIVED_STATE_REVISION } from "./derived-state.js";
 import { PRICE_DATASET_VERSION } from "./ports.js";
+import { PRICE_BASIS_REVISION } from "./price-basis.js";
 import { FUNDAMENTALS_VARIANT_VERSION } from "./service.js";
 
 /**
@@ -24,6 +25,9 @@ import { FUNDAMENTALS_VARIANT_VERSION } from "./service.js";
  * - `benchmarkPriceDatasetVersion` — what a benchmark bar means. It is both halves of the
  *   comparison *and* the run's execution calendar, since the calendar is the reference series'
  *   trading days.
+ * - `priceBasisRevision` — how a re-based price history is read: which rows are held, and the factor
+ *   that keeps intrinsic values, and with them Margin of Safety, on the units their statements were
+ *   observed in (`docs/decisions/historical-price-basis-v1.md`).
  *
  * Deliberately excluded, with reasons:
  *
@@ -42,6 +46,7 @@ export const BACKTEST_DATA_REVISIONS = {
   derivedStateRevision: DERIVED_STATE_REVISION,
   fundamentalsVariantVersion: FUNDAMENTALS_VARIANT_VERSION,
   benchmarkPriceDatasetVersion: BENCHMARK_PRICE_DATASET_VERSION,
+  priceBasisRevision: PRICE_BASIS_REVISION,
 } as const;
 
 export type BacktestDataRevisions = typeof BACKTEST_DATA_REVISIONS;

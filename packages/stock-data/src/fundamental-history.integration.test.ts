@@ -461,6 +461,11 @@ describeInfrastructure(
         tailDate: TODAY,
         freshThrough: TODAY,
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: row.id,
+        verifiedAt: NOW.toISOString(),
+      });
       // Three syncs, oldest filing first inside each: the restatements are later filings of known
       // identities, the moved period end is first observed by the second sync, and the 2024 Q2
       // balance sheet by the third.

@@ -24,6 +24,7 @@ import {
   DEFAULT_HYDRATION_TTL_MS,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
+  logPriceBasisEvent,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
 import type { ProviderRequestCounts } from "./debug/backtest-debug-archive.js";
@@ -158,6 +159,7 @@ export function createBacktestRuntime(
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
+      onPriceBasisEvent: logPriceBasisEvent(logger),
       alternativeData,
     },
   );

@@ -46,7 +46,9 @@ import {
 } from "./job-lease.js";
 import {
   BACKTEST_DATA_REVISIONS,
+  PriceBasisChangedError,
   type DailyPriceBounds,
+  type PreparedDailyEvaluationData,
 } from "@intrinsic/stock-data";
 import {
   ABANDONED_FAILURE_MESSAGE,
@@ -92,13 +94,19 @@ export interface BacktestFrameLoader {
      * here, in the phase that is allowed to reach the provider — exactly like price history.
      */
     operands?: readonly OperandKey[],
-  ): Promise<DailyPriceBounds | null>;
-  /** Projects one already-prepared window. Must not hydrate. */
+  ): Promise<(DailyPriceBounds & Partial<PreparedDailyEvaluationData>) | null>;
+  /**
+   * Projects one already-prepared window. Must not hydrate. With `priceBasisGeneration`, refuses
+   * with `PriceBasisChangedError` a window of a security re-based since it was prepared.
+   */
   readDailyEvaluationFrame(
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
-    options?: { resolveGroupMembers?: (groupId: string) => Promise<readonly string[]> },
+    options?: {
+      resolveGroupMembers?: (groupId: string) => Promise<readonly string[]>;
+      priceBasisGeneration?: number | null;
+    },
   ): Promise<EvaluationFrame>;
 }
 
@@ -154,6 +162,13 @@ type PreparedSecurity = {
   security: Security;
   /** Persisted price coverage inside the requested period. Never null for a kept security. */
   coverage: DailyPriceBounds;
+  /**
+   * The price-basis generation the security was prepared under. Every window read checks it, so a
+   * run never reads one basis for some years and another for the rest
+   * (`docs/decisions/historical-price-basis-v1.md`, §9). Held in this attempt's memory only: a
+   * retried attempt re-simulates from the first day and prepares again.
+   */
+  priceBasisGeneration?: number | null;
   setup: BacktestSecuritySetup;
 };
 
@@ -702,6 +717,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
       prepared: {
         security,
         coverage,
+        ...(coverage.priceBasisGeneration === undefined
+          ? {}
+          : { priceBasisGeneration: coverage.priceBasisGeneration }),
         setup: {
           securityId: member.securityId,
           symbol: member.symbol,
@@ -1108,13 +1126,38 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const range = { from: window.from, to: window.to } as const;
     const frames: EvaluationFrame[] = new Array(prepared.securities.length);
     await this.mapWithConcurrency(prepared.securities, async (entry, index) => {
-      frames[index] =
-        await this.dependencies.stockData.readDailyEvaluationFrame(
-          entry.security,
-          range,
-          prepared.operands,
-          { resolveGroupMembers: prepared.resolveGroupMembers },
-        );
+      try {
+        frames[index] =
+          await this.dependencies.stockData.readDailyEvaluationFrame(
+            entry.security,
+            range,
+            prepared.operands,
+            {
+              resolveGroupMembers: prepared.resolveGroupMembers,
+              ...(entry.priceBasisGeneration === undefined
+                ? {}
+                : { priceBasisGeneration: entry.priceBasisGeneration }),
+            },
+          );
+      } catch (err) {
+        if (err instanceof PriceBasisChangedError) {
+          // The provider re-based this security while the run was reading it. Finishing on two price
+          // bases could show a split as a crash, so the run stops and can simply be run again.
+          throw new BacktestRunFailure(
+            "EXECUTION_FAILED",
+            FAILURE_MESSAGES.EXECUTION_FAILED,
+            `The data provider updated the price history of ${entry.security.symbol} while the backtest was running.`,
+            {
+              reason: "PRICE_BASIS_CHANGED",
+              symbol: entry.security.symbol,
+              expectedGeneration: err.expectedGeneration,
+              actualGeneration: err.actualGeneration,
+              year: window.year,
+            },
+          );
+        }
+        throw err;
+      }
     });
     return frames;
   }
