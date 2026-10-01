@@ -94,13 +94,14 @@ price" or "corrected price".
 - **Basis verified at**, `verifiedAt`. The instant PR 1 first compared a security's whole stored
   history with FMP's and made them equal. Corporate actions after it are measured; those before it
   are known only from FMP's split list.
-- **Basis factor**, `K(t, R)`. For a statement revision `R` and a session `t`, the product of the
-  price ratios of the measured re-bases detected after `R` was observed whose effective date is
-  after both `R`'s observation and `t`. `researchClose(t) × K` is the close on the basis `R` was
-  observed on. It is 1 when no such re-base exists, which is everywhere in the store today.
-- **Plain share change.** A ratio that in lowest terms `n:d` has `n, d <= 10`, or `n = 1`, or
-  `d = 1` (and, for a provider entry, the label `stock-split`). Used only to decide whether an event
-  may be a distribution (`valuation-ratios-v1.md`).
+- **Basis factor**, `K(t, R)`. For a statement revision `R` and a session `t`, the factor that puts
+  `researchClose(t)` on the basis `R` was observed on, or "withheld" where that basis cannot be
+  known (§10). It is 1 when no re-base was measured, which is everywhere in the store today.
+- **Plain share change.** `k:1` or `1:k` for a whole `k >= 2`, or one of 3:2, 5:4, 4:3, 5:2 and
+  5:3 either way: exactly, for a provider entry labelled `stock-split`; within 0.5 %, for a measured
+  ratio. Deliberately short, because the ratios between 1 and 1.5 are dense with spin-off factors
+  (AXP's 10000:8753 is within 0.03 % of 8:7). Used one-sidedly, to decide whether an event may be a
+  distribution: an event that fails it is treated as one.
 
 ## Current semantics
 
@@ -258,39 +259,49 @@ series derived from them.
 ### 7. Detecting a re-base
 
 A re-base rewrites every row before its ex-date, so the earliest stored row changes whenever one
-happens, and nothing else is needed to see it. Four rules:
+happens. Three rules:
 
 1. **First verification.** The first refresh or hydration that finds no `SecurityPriceBasis` row
    re-reads the security's whole stored range (one paginated read: two requests for 34 years) and
-   compares it with the stored rows (§8). If they differ, the history is replaced (§9). Either way
-   the basis row is created with `verifiedAt`. This repairs a history already mixed before PR 1:
-   a tail refreshed after a split, or a prefix widened after one, which no single-row check sees.
-2. **Earliest-row check on every price refresh.** After reading the tail, the refresh re-reads the
-   earliest stored row (one small request). Changed beyond the tolerance, or missing from the
-   answer, it triggers the full re-read of §8 and the tail read is not saved. The refresh runs at
-   most every six hours per security, so this adds at most four small requests a day.
-3. **Widening overlap.** A prefix widening extends its request through the two earliest stored rows
-   and compares them before saving anything. A change triggers the full re-read instead.
-4. **The ex-date hold, stateless.** The provider may publish an ex-date row in the new basis before
-   it rewrites older rows (open measurement O-1). So rows after the newest stored one are saved only
-   if the first of them does not move by a split-sized amount from the newest stored close (a
-   ratio below 0.7 or above 1.4), or if at least four sessions of rows have arrived since it, in
-   which case the move is genuine. The held rows are simply re-read by the next refresh, which
-   always reaches them. A Monitor whose live quote is split-sized against the newest stored close
-   treats the security as not evaluable for that cycle and does not append the quote.
+   compares it with the stored rows (§8). If they differ, the history is replaced (§9), with any
+   correction the provider made to old rows. If they agree, the basis row is created with
+   `verifiedAt`. A security with no stored price is verified without a request. This repairs a
+   history mixed before PR 1 — a tail refreshed after a split, or a prefix widened after one — which
+   no single-row check sees. An answer missing more than 1 % of the stored sessions verifies
+   nothing; the security stays unverified, and the next cycle asks again.
+2. **Earliest-row check before every save.** Whenever a read would add or change a stored row —
+   the tail refresh, a hydration's leading-edge or gap read, a widening's prefix — the earliest
+   stored row is re-read first (one small request). Changed beyond the tolerance, it triggers the
+   full re-read of §8, and the read is not saved. An answer without that session is not evidence:
+   a re-base rescales rows and never removes them. A refresh runs at most every six hours per
+   security, so this adds at most four small requests a day; a read that changes nothing makes
+   none.
+3. **The ex-date hold, stateless.** The provider may publish an ex-date row in the new basis before
+   it rewrites the older rows (open measurement O-1). Every new row is compared with the one before
+   it, the first with the newest stored close. A move below 0.7 or above 1.4 (a 3:2 split or
+   larger, either way) holds that row and every later one while fewer than four sessions stand from
+   it; the next read reaches them again. Once four sessions stand, the move is genuine and saved —
+   after rule 2 has had that read to see a rewrite. A Monitor whose live quote is split-sized against
+   the last closed session treats the security as not evaluable for that cycle and does not append
+   the quote.
 
 - **Tolerance.** A row has changed when `|new − old| > ½u(new) + ½u(old)` in its close, with
   `u = 0.01` at or above $1 and `0.0001` below. Stored rows carry up to eight decimals, so `u` is a
   floor, not the provider's last decimal.
-- **A change in the tail is a correction.** It takes today's path: the row is replaced and the
-  derived state rebuilt from it. It neither bumps the generation nor triggers a full read.
-- **What it does not see.** A rewrite that leaves the earliest row unchanged: a partial correction
-  of old rows. Stored history then stays internally consistent on the old values, which is today's
-  behaviour for old corrections (`ai/architecture/deep-discovery.md` §6). A distribution that is
-  neither folded by the provider nor split-sized cannot be held, and needs no hold: it changes no
-  stored row.
-- **Not used:** the provider's split calendar as a hold signal (a further daily request, and it
-  omits events) and a monthly full comparison (it existed to keep a classification ledger complete).
+- **A change in the tail is a correction** once rule 2 has confirmed the earliest row. It takes
+  today's path: the row is replaced and the derived state rebuilt from it. It neither bumps the
+  generation nor triggers a full read.
+- **What it does not see.**
+  - A rewrite that leaves the earliest row unchanged: a partial correction of old rows. Stored
+    history then stays internally consistent on the old values, which is today's behaviour for old
+    corrections (`ai/architecture/deep-discovery.md` §6).
+  - An ex-date the provider has not re-based yet, for an event smaller than the hold: a 5:4 split,
+    a stock dividend, a spin-off. Price-derived series show the as-traded move until the next read
+    replaces the history, as they do today. Valuation ratios are withheld there from the provider's
+    listed upcoming events (`valuation-ratios-v1.md`, rule 8); nothing in this decision changes
+    the other operands' behaviour on such a day.
+- **Not used:** the provider's split calendar as a hold for every operand, and a monthly full
+  comparison (it existed to keep a classification ledger complete).
 
 ### 8. The full re-read
 
@@ -299,43 +310,57 @@ happens, and nothing else is needed to see it. Four rules:
   rebuild and the earliest-row check, so a replacement that left them would mismatch again.
 - **A complete answer only.** The paginated walk must reach the requested start. Stored rows the
   answer no longer contains are deleted with the replacement only when they are at most 1 % of the
-  history; otherwise the replacement is refused, the old history kept, and the refresh retried later.
+  history; otherwise the replacement is refused, nothing new is saved beside the old history, and
+  the next cycle retries. Such a security stops gaining sessions until the provider's answer is
+  complete again; each refusal is logged at `warn` (`stock-data.price-basis`,
+  `REPLACEMENT_REFUSED`).
 - **Segmentation.** `r(D) = stored close ÷ new close` on every common session.
   - Going back in time, a genuine event changes every earlier row by one ratio, and each earlier
     event multiplies onto it, so `r` is constant between event dates and steps only at them.
   - A step needs at least three consistent sessions on each side; its date is the first session of
-    the later run, and its measured ratio is the older run's median `r` over the newer run's.
+    the later run, and its measured ratio is the older run's median `r` over the newer run's. When
+    sessions between two runs fit neither, the step is recorded with the interval between them.
   - A block of rows whose ratio differs from both neighbours and returns to theirs is a correction,
-    never an event.
+    never an event; so is a short changed run at either end. Unchanged sessions after the latest
+    event are kept however few.
   - **An undated event.** When every common row changed by one ratio, the event's ex-date fell after
     the newest stored row. It is recorded with an interval: from the newest stored session,
-    exclusive, to the newest session of the read. One session wide, it is dated.
+    exclusive, to the newest session of the read, open when the read holds no later session. One
+    session wide, it is dated.
+  - **A return to "unchanged".** When, going back, the ratio returns to 1 after a changed run, the
+    older rows were stored on a basis newer than the rows after them — a prefix widened after a
+    split before PR 1. That region is `UNEXPLAINED`.
   - **Unexplained.** If more than 1 % of the common rows fit no run, the change is recorded as
-    `UNEXPLAINED` over the changed range. The history is still replaced: the provider is the
-    authority for the research series.
+    `UNEXPLAINED`. It is **bounded** when the rows before the first changed one were compared and
+    found unchanged — a block no re-base can produce, since a re-base changes every earlier row —
+    and **unbounded below** when it reaches the earliest compared session. The history is replaced
+    either way: the provider is the authority for the research series.
 
 ### 9. Atomic replacement and the generation
 
 - **One transaction, under the per-security write lock,** replaces the prices from the earliest
   stored row, the daily derived rows and the weekly rows, all computed in memory from the new prices
-  first; inserts the measured re-bases; bumps the generation; and updates coverage. PostgreSQL never
-  commits an old early history beside a new late one, or new prices beside old indicators. It is
-  about 8,600 price rows, 8,600 derived rows and 1,800 weekly rows, a cold hydration's size.
+  first; inserts the measured re-bases; bumps the generation compare-and-set; and updates coverage.
+  PostgreSQL never commits an old early history beside a new late one, or new prices beside old
+  indicators. It is about 8,600 price rows, 8,600 derived rows and 1,800 weekly rows, a cold
+  hydration's size.
+- **The generation lives in PostgreSQL only.** A replacement commits there, inside a `HYDRATING`
+  manifest, before anything of it is published, and generations only grow. So a reader that finds
+  the generation unchanged after its reads has read one basis.
 - **Redis.** The replacement is republished as a new hydration under the existing `HYDRATING` →
-  `READY` swap, and the `READY` manifest carries the generation. Every yearly read re-checks the
-  manifest after its `MGET`, and a manifest that is no longer `READY` with the same generation makes
-  the read a miss. So a reader that passed the check just before a republish cannot combine old and
-  new years.
+  `READY` swap. Every yearly read re-checks the manifest after its `MGET` and is a miss when the
+  manifest moved during it, so a reader that passed the check just before a republish cannot combine
+  old and new years. No manifest field changes, so the deploy needs no projection rebuild.
 - **Backtests.** `PREPARING_DATA` records each security's generation, and every window read checks
-  that the projection it read carries the same one. A mismatch fails the run with a message that the
-  provider re-based a security's history during it and that it can be run again. The pin lives in
-  the attempt's memory: a run never resumes mid-way (a retry re-simulates from its first day), so
+  that it still holds after reading. A mismatch fails the run with a message that the provider
+  updated the security's price history during it and that it can be run again. The pin lives in the
+  attempt's memory: a run never resumes mid-way (a retry re-simulates from its first day), so
   nothing needs persisting, and the immutable run snapshot is never written after submission
-  (AGENTS.md invariant 12).
+  (AGENTS.md invariant 12). An unpinned evaluation read, such as a Monitor's reconstruction,
+  brackets its own reads the same way.
 - **Monitors.** A cycle reads prices from the Redis projection and the derived tail from
-  PostgreSQL. It reads the PostgreSQL generation with that tail; a mismatch with the manifest the
-  prices came from makes the security not evaluable for that cycle, because a Signal from a mixed
-  frame would be permanent.
+  PostgreSQL, between two reads of the generation. A difference makes the security not evaluable
+  for that cycle, because a Signal from a mixed frame would be permanent.
 - **One counter.** The earlier design added a ledger version for classifications and unit
   conversions, which V1 does not make. Measured re-bases are written only with a replacement, so
   the generation covers them.
@@ -346,18 +371,30 @@ happens, and nothing else is needed to see it. Four rules:
   are seeded from the series' start (AUD-02), and weekly prices are re-aggregated in full.
 - **Intrinsic values carry `K`.** Each session's intrinsic values are divided by `K(t, R)`, with `R`
   the latest point-in-time Income revision (the share basis), so they meet the re-based close on the
-  units their statements were observed in. Where `R` was observed before a measured re-base and the
-  session is on or after it, inside its undated interval, or `R` was observed between its date and
-  its detection, the session's intrinsic values are absent; an `UNEXPLAINED` re-base withholds them
-  for every session that uses a revision observed before it. Margin of Safety and every price-to-value
-  comparison then follow, because they are computed from those stored values.
-  - Before PR 1 the same sessions were right before the ex-date (old prices, old statements) and
-    wrong by the split ratio after it until restated statements arrived. With PR 1 they stay right
-    before it, and the window after it is withheld rather than wrong.
+  units their statements were observed in. For each measured re-base, by when `R` was observed:
+  - **Before the event, and detected after `R`:** a session before the event takes the event's
+    ratio, which restores the close exactly as it was stored when `R` was observed. A session on or
+    after the event, or inside its undated interval, is withheld: without classifying the event,
+    `R`'s units relative to the close are unknown there.
+  - **Between the event's date and its detection:** withheld. The provider may or may not have
+    restated `R` by then.
+  - **After the detection:** `R` is in the new units. A session on or after the event needs
+    nothing. A session before it needs nothing either for a plain share change, since the restated
+    count and the rescaled close cancel; for any other event it is withheld, because a distribution
+    leaves a factor in the close before it that the count does not follow. Only a first observation
+    of an old filing reaches such a session.
+  - **Unexplained:** a bounded change withholds only the sessions it changed; one unbounded below
+    withholds every session for a revision observed before its detection.
+  - Withheld means the session keeps no intrinsic value, blend or provenance. Margin of Safety and
+    every price-to-value comparison follow, because they are computed from those stored values.
   - With no measured re-base, `K = 1` and nothing changes. The store has none today.
+- **Its limit.** `K` is read from `R` alone, while DDM and Graham also use per-share figures of
+  older quarters. When those quarters were observed on another side of a re-base than `R`, the value
+  mixes units, exactly as it does today when the fundamentals refresh has restated some quarters and
+  not others. PR 1 neither causes nor removes that.
 - **Nothing else takes `K`.** Fundamental Metrics are ratios of statement figures, and price-derived
   series are research-only.
-- **Redis:** every year is republished under the new generation.
+- **Redis:** every year is republished.
 
 ### 11. Reproducibility
 
@@ -400,16 +437,21 @@ decision that it is a separate problem.
   MMM's DDM stayed at 81.65–81.75 on the pre-spin dividend from 2024-04-01 to 2024-07-26; HON's
   Balanced Margin of Safety read +14.3 % on 2026-09-24 from one quarter (Q2 2026, 2.4 times any
   other HON quarter since 2016). This needs its own intrinsic-value methodology decision. Open.
-- **What PR 1 changes.** Nothing for sessions with no measured re-base. After one, intrinsic values
-  carry `K` (§10), which keeps every session before the event exactly as it was, and withholds the
-  window after it until statements observed after the detection arrive. For a distribution that
-  window is also the start of the statement-content window above; that defect is otherwise
-  unchanged.
-- **Interim product behaviour: a disclosure** covering both defects, in the Margin of Safety
+- **What PR 1 changes, exactly.** Nothing for a security with no measured re-base. After one
+  (§10):
+  - every session before the event keeps the Margin of Safety it had, through `K`;
+  - the window from the event until a share revision observed after its detection is withheld
+    rather than wrong by the split ratio, as it was before PR 1; for a distribution that window is
+    also the start of the statement-content window above, which is otherwise unchanged;
+  - a first observation of an old filing is withheld before a possible distribution;
+  - an unexplained change withholds what it covers, and everything for older revisions when it
+    reaches back to the earliest compared session;
+  - a first verification that replaces a history also takes the provider's corrections of old rows.
+- **Recommended interim behaviour: a disclosure** covering both defects, in the Margin of Safety
   description, on backtest results whose Strategy uses it or a price-to-value comparison, and beside
-  the intrinsic-value history on Stock Details. It is a separate small change (PR 0), not made here.
-  A partial mask would present the rest as verified, and disabling the history would remove a core
-  feature whose history is right on 89 % of the stored sessions that have a value.
+  the intrinsic-value history on Stock Details. It is a separate small change (PR 0), not made in
+  this work. A partial mask would present the rest as verified, and disabling the history would
+  remove a core feature whose history is right on 89 % of the stored sessions that have a value.
 
 ### 14. What valuation ratios take from this decision
 
@@ -420,6 +462,7 @@ decision that it is a separate problem.
   measures.
 - **The generation pin** of backtests and the generation check of Monitors.
 - **The ex-date hold** for a Monitor's live quote.
+- **The plain-share-change predicate**, shared with the basis factor.
 - **Not needed:** `Φ`, classification, statement unit conversion, an external reference, a
   per-session factor column, a displayed as-traded price, a total-return methodology or SEC share
   data.
@@ -439,11 +482,12 @@ decision that it is a separate problem.
 - **`SecurityPriceBasis`**, one row per security: `generation`, `verifiedAt`, `updatedAt`.
 - **`PriceBasisEvent`**, append-only, one row per measured step: `securityId`, `generation` (the
   replacement that recorded it), `kind` (`MEASURED` or `UNEXPLAINED`), `effectiveDate` (the first
-  session of the new basis, null when undated), `effectiveFrom` (exclusive) and `effectiveTo`
-  (inclusive) for an undated event or an unexplained range, `priceRatio` (null when unexplained),
-  `detectedAt`, and `evidence` (JSON: run lengths and the sessions compared).
-- **The Redis manifest** gains `priceBasisGeneration`.
-- **No change to `DailyPrice`, `WeeklyPrice` or `PRICE_DATASET_VERSION`.**
+  session of the new basis, null when undated), `effectiveFrom` and `effectiveTo` (an undated
+  event lies after `effectiveFrom` and no later than `effectiveTo`, which is null while open; an
+  unexplained change spans them inclusively, with `effectiveFrom` null when it is unbounded below),
+  `priceRatio` (null when unexplained), `detectedAt`, and `evidence` (JSON: run lengths and the
+  sessions compared, diagnostics only).
+- **No change to `DailyPrice`, `WeeklyPrice`, the Redis manifest or `PRICE_DATASET_VERSION`.**
 
 PR 2V adds FMP's stored split list (`valuation-ratios-v1.md`). Nothing in V1 stores a valuation per
 session, a classification, a ledger version, a per-attempt pin or a vendor price.
@@ -452,8 +496,8 @@ session, a classification, a ledger version, a per-attempt pin or a vendor price
 
 - **`DailyPrice`:** 368,857 rows in 100.1 MB with indexes, 271 B a row. **Redis:** MSFT's 8,571 rows
   take 1.35 MB of row JSON, 158 B a row.
-- **The event records** are below 1 KB per security in PostgreSQL, and the manifest field a few
-  bytes in Redis. A full replacement rewrites a cold hydration's rows.
+- **The event records** are below 1 KB per security in PostgreSQL, and nothing in Redis. A full
+  replacement rewrites a cold hydration's rows.
 
 ## Alternatives rejected
 
@@ -504,18 +548,18 @@ anchors; **D**, unnecessary in V1.
 | ----------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------- |
 | Basis row and event records                                 | A, B  | built: `SecurityPriceBasis`, `PriceBasisEvent`                                                       |
 | A second counter, the ledger version                        | C     | dropped: nothing classifies or converts                                                              |
-| Overlap test on the tail read                               | D     | dropped: the earliest-row check sees every full-history re-base                                      |
-| Overlap test on a prefix widening                           | A     | built (§7, rule 3)                                                                                   |
-| Session anchor (the earliest stored row, re-read)           | A     | built, on every price refresh (§7, rule 2)                                                           |
-| Ex-date hold on a split-sized move                          | A     | built, stateless (§7, rule 4), and for the Monitor's live quote                                      |
-| Ex-date hold from the provider's split calendar             | D     | dropped                                                                                              |
+| Overlap test on the tail read                               | A     | subsumed: the earliest-row check runs before every save, the tail's included (§7, rule 2)            |
+| Overlap test on a prefix widening                           | A     | subsumed the same way (§7, rule 2)                                                                   |
+| Session anchor (the earliest stored row, re-read)           | A     | built, before every read that would save a row (§7, rule 2)                                          |
+| Ex-date hold on a split-sized move                          | A     | built, stateless, on every new row (§7, rule 3), and for the Monitor's live quote                    |
+| Ex-date hold from the provider's split calendar             | B     | for valuation only, from the stored split list (`valuation-ratios-v1.md`, rule 8); not for others    |
 | Periodic full comparison                                    | D     | dropped                                                                                              |
 | Full re-read from the earliest stored row                   | A     | built (§8)                                                                                           |
 | Structured segmentation with measured ratios                | A, B  | built (§8): `K` for intrinsic values (A) and valuation (B)                                           |
 | Undated intervals for events between two reads              | A, B  | built (§8)                                                                                           |
 | `UNEXPLAINED` changes and the withheld values they imply    | A     | built (§8, §10)                                                                                      |
 | Single-transaction replacement                              | A     | built (§9)                                                                                           |
-| The generation in the manifest; atomic chunk reads          | A     | built (§9)                                                                                           |
+| The generation in the manifest; atomic chunk reads          | A     | atomic reads built (manifest re-check, §9); the generation stays in PostgreSQL, no manifest field    |
 | Per-attempt data pins outside the run snapshot              | A     | built in the attempt's memory; the pin table was C (anchor versions) and is dropped                  |
 | Counter-consistent Monitor reads                            | A     | built (§9)                                                                                           |
 | Benchmark generation and atomic read                        | D     | not needed while no catalog benchmark can re-base (§12)                                              |
@@ -541,11 +585,13 @@ outcomes; record the observation, and compare it with what the code did.
 - **O-1: does the provider publish an ex-date row before it rewrites the older rows?** Re-read the
   rows in `docs/historical-price-basis/evidence/rebase-observation-baselines.csv` daily around GPMT's
   1:10 on 2026-10-06 and DXJ's 3:1 on 2026-10-09: when the ex-date row appears, when the earliest
-  row changes, whether they change together. If the row comes first, the hold (§7, rule 4) carries
+  row changes, whether they change together. If the row comes first, the hold (§7, rule 3) carries
   the gap; if not, it never fires.
-- **O-2: does the provider restate statements before the ex-date?** GPMT is the one of the two with
-  statements. If it does, valuation's rule 3 withholds the restated revision until the re-base is
-  measured; if not, the rule never fires.
+- **O-2: when does the provider restate statements, relative to the ex-date and to its price
+  re-base?** GPMT is the one of the two with statements. Before the ex-date, valuation's rule 3
+  withholds the restated revision until the re-base is measured. Lagging the re-base, rule 5
+  withholds a revision observed within 30 days after the event. Either way, record how long the
+  provider took, so the 30 days can be calibrated.
 - **Volume across distributions: answered.** The provider scales volume by `A`, distributions
   included (IBM's stored volume is exactly 1.046 × raw before Kyndryl).
 
@@ -555,7 +601,7 @@ outcomes; record the observation, and compare it with what the code did.
   re-base found by the first verification of a history mixed before PR 1 (tail after a split; prefix
   after a split); a prefix widening after a re-base, refused and replaced; a one-row correction in
   the tail, which neither bumps the generation nor triggers a full read; an earliest row missing
-  from the provider's answer.
+  from the provider's answer; a read that changes nothing, which asks for no earliest row.
 - **The hold:** an ex-date row published before the rewrite (held; then the rewrite replaces
   everything); the same row with no rewrite (saved after four sessions); a genuine crash; a Monitor
   quote that is split-sized against the stored close.
@@ -566,8 +612,10 @@ outcomes; record the observation, and compare it with what the code did.
   answer deleted within 1 % and refused beyond it; prices, derived rows, weekly rows, events and the
   generation committed in one transaction.
 - **`K`:** intrinsic values before a measured re-base equal their pre-PR 1 values; the window after
-  it is withheld until a revision observed after the detection; an undated interval withholds; an
-  unexplained change withholds for revisions observed before it; no re-base, no change.
+  it is withheld until a revision observed after the detection; an undated interval withholds; a
+  first observation after a possible distribution is withheld before it, and after a plain split is
+  not; a bounded unexplained change withholds only its sessions, an unbounded one everything for
+  older revisions; no re-base, no change.
 - **No mixed data:** a concurrent reader during a replacement; a backtest that crosses a replacement
   fails, and its snapshot never changes; a Monitor cycle that meets one is not evaluable.
 - **Existing guarantees still hold:** no provider call in the backtest loop; identical frames from
@@ -575,21 +623,26 @@ outcomes; record the observation, and compare it with what the code did.
 
 ## Operational risks and deployment
 
-- **The first verification** re-reads each security's history once, on its first refresh after the
-  deploy: two requests per security through the existing FMP gate.
+- **The first verification** re-reads each security's history once, on its first refresh or
+  hydration after the deploy: two requests per security through the existing FMP gate. Where it
+  replaces a history, it also takes the provider's corrections of old rows.
 - **Re-base storms.** A provider-wide recomputation would trigger many full reads, through the same
   gate. One full read is two requests and about 2 s of CPU.
 - **Holds.** A split-sized move leaves a security's newest rows unsaved for up to four sessions if
   the provider never rewrites, and a Monitor not evaluable on those days. A genuine crash of that
   size is the cost.
+- **A refused replacement** (the provider no longer returns more than 1 % of the stored sessions)
+  leaves the security on its old, consistent history and stops it gaining sessions until a later
+  cycle succeeds. Each refusal is a `warn` line, `stock-data.price-basis` with
+  `REPLACEMENT_REFUSED`; an operator should alert on it. There is no override in V1.
 - **Mid-run failures.** A backtest crossing a replacement fails and must be run again. The chance
   grows with the number of securities in a run; a single security re-bases about once in twenty
   years.
 - **The current vendor.** Every basis here is FMP's, and FMP's display rights for a paid product are
   an open owner input (O11 in `docs/legal/owner-inputs-and-review.md`).
-- **Deployment.** One additive migration. The new manifest field makes every manifest non-current,
-  so each security's projection rebuilds from PostgreSQL: no provider traffic, but a stop-then-start
-  deploy. The `priceBasisRevision` bump refuses queued runs once.
+- **Deployment.** One additive migration; no Redis manifest change, so no projection rebuild and no
+  stop-then-start requirement. The first verification spends two requests per security on first
+  access. The `priceBasisRevision` bump refuses queued runs once.
 
 ## Quantitative summary
 
@@ -601,7 +654,7 @@ outcomes; record the observation, and compare it with what the code did.
 | Market-wide estimate                               | 36–37 of 230 US large caps (about 16 %) carry a provider-listed price-only candidate since 1996-09-30; an estimate, since the list omits events (MMM) |
 | Maximum price-basis divergence                     | `Φ` = 2.120 (HON before 2018-10-01): `close × shares` is 47.2 % of the true value                                                                     |
 | Valuation sessions withheld by the split-list rule | 36,312 of 332,294 (10.9 %) for P/E, P/S and P/FCF; 36,383 for P/B and EV/EBITDA (`valuation-ratios-v1.md`)                                            |
-| PR 1 storage                                       | below 1 KB per security in PostgreSQL; one manifest field in Redis                                                                                    |
+| PR 1 storage                                       | below 1 KB per security in PostgreSQL; nothing in Redis                                                                                               |
 | PR 1 provider requests                             | two per security once (first verification); at most four small ones a day per refreshed security (earliest-row check); two per re-base                |
 
 ## Review
@@ -625,6 +678,22 @@ in-memory pin) and drops the correction trigger with the anchors it protected.
 **FMP-only revision (2026-10-01, evening).** The owner's decision removed the vendor, historical
 `Φ`, the anchors and the historical backfill; "Implementation plan" records what each earlier
 component became. The earlier text of this decision is in the history at `b90ab7e2`.
+
+**Third clean-room review (2026-10-01, of the FMP-only revision).** It read the committed documents,
+the code and the development database, and made four FMP requests. It accepted the basis factor's
+identity, every measured figure, the in-memory backtest pin (runs never resume mid-way), the
+benchmark exemption and the classification of the earlier components. Its findings that changed
+this decision, all applied:
+
+| Finding                                                                                                                                                                                                       | Severity | Correction                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1. Only the refresh checked the earliest row; a hydration re-reading the unsettled tail could save re-based rows beside old ones                                                                             | Major    | the check runs before every read that would save a row (§7, rule 2)                                                                                                          |
+| R2. `K = 1` for a revision observed after a measured distribution left sessions before it carrying the factor; a statement restatement lagging the re-base was unexamined                                     | Major    | withheld before a non-plain event for such revisions (§10); O-2 extended to the lag; valuation adds a 30-day rule                                                            |
+| R4. The hold compared only the first new row, and smaller events reach a Monitor unheld on an ex-date                                                                                                         | Major    | every new row is compared; the remaining gap is stated (§7), and valuation is withheld from the provider's listed upcoming events                                            |
+| R5. An unexplained change withheld a security's whole history, silently, against §13's "unchanged before the event"                                                                                           | Major    | a bounded change withholds only its sessions (§8, §10); §13 lists every change PR 1 makes to Margin of Safety                                                                |
+| Minor: a refused replacement freezes a security silently; "no provider traffic" on deploy; the plain predicate's tolerance; `K` read from one revision while DDM and Graham use four; the disclosure's status | Minor    | the `warn` event and its consequence (§8, risks); deployment restated; predicate defined with tolerance and a short ratio list; limit stated (§10); disclosure "recommended" |
+
+R3 and R6 concern `valuation-ratios-v1.md` and are recorded there.
 
 ## References
 
