@@ -271,9 +271,10 @@ happens. Three rules:
    nothing; the security stays unverified, and the next cycle asks again. In the cycle of such a
    refusal, a read that would save beside the history still makes rule 2's check, makes no second
    whole read, and saves nothing when the check finds the history re-based.
-   - **The preparation phases verify.** A backtest's `PREPARING_DATA` and a Monitor cycle's
-     preparation verify a security found unverified even when it is fresh, so a run's window reads
-     and a cycle's frame read never verify one themselves.
+   - **Nothing forces a verification while preparing.** A verification that finds the history
+     unchanged keeps generation 0 (§9), so a run or a Monitor cycle that meets one mid-read reads
+     on; a security is verified on its next hydration or refresh, at the refresh cadence, and a
+     refused one is asked again no more often than that.
 2. **Earliest-row check before every save.** Whenever a read would add or change a stored row —
    the tail refresh, a hydration's leading-edge or gap read, a widening's prefix — the stored
    history's first 30 calendar days are re-read (one small request) and the earliest stored session
@@ -336,10 +337,18 @@ happens. Three rules:
     the later run, and its measured ratio is the older run's ratio over the newer run's. When
     sessions between two runs fit neither, the step is recorded with the interval between them.
   - A run of fewer than three sessions between two runs sharing a ratio is a correction, never an
-    event; so is a short changed run at either end, absorbed into an established neighbour. Any
-    other short run between two runs fits no step and is dropped, and the runs it separated are
-    joined when they share a ratio. A run's length here counts the sessions that define it, never
-    the corrections it absorbed. Unchanged sessions after the latest event are kept however few.
+    event; so is a short changed run at either end, absorbed into an established neighbour — or, at
+    the newest end, into the unchanged sessions beside it however few. Any other short run between
+    two runs fits no step and is dropped, and the runs it separated are joined when they share a
+    ratio. A run's length here counts the sessions that define it, never the corrections it
+    absorbed. Unchanged sessions after the latest event are kept however few, also behind corrected
+    newest sessions.
+  - **Sessions that admit both 1 and a re-base's ratio.** A small re-base on a cheap stretch changes
+    some closes by less than the rounding: those sessions read unchanged and admit the ratio too.
+    Inside the history they join the adjacent re-base of three or more sessions they share a ratio
+    with, so they never read as a history stored on two bases. After the latest event they stay
+    the post-event sessions, and the event is dated no later than the first of them that cannot be
+    on its ratio — an interval when that is not the first session after the re-base.
   - **A block of three or more sessions changed by one ratio**, with unchanged sessions on both
     sides, is what a history mixed before PR 1 looks like (a prefix widened after a split): the step
     is measured and the older unchanged region is unexplained (below). A provider correction of
@@ -347,9 +356,10 @@ happens. Three rules:
     more, never less.
   - **An undated event.** When every common row changed by one ratio, the event's ex-date fell after
     the newest stored row. It is recorded with an interval: from the newest stored session,
-    exclusive, to the newest session of the read — or to the detection's date when the read holds no
-    later session, since the provider re-based ahead of the event's first session. One session wide,
-    it is dated. The interval's last session is on the new basis.
+    exclusive, to the newest session of the read — or to the detection's date, and never on or
+    before the newest stored session, when the read holds no later session, since the provider
+    re-based ahead of the event's first session. One session wide, it is dated. The interval's last
+    session is on the new basis.
   - **A return to "unchanged".** When, going back, the ratio returns to 1 after a changed run, the
     older rows were stored on a basis newer than the rows after them — a prefix widened after a
     split before PR 1. That region is `UNEXPLAINED`.
@@ -685,7 +695,9 @@ outcomes; record the observation, and compare it with what the code did.
   have no session in common with the provider's answer, every save beside that history compares it
   in full first, two requests per refresh, each logged at `warn` (`EARLIEST_ROW_UNCONFIRMED`).
 - **QA matrix.** The matrix database copies `SecurityPriceBasis` and `PriceBasisEvent` with the
-  prices, so a matrix hydration verifies nothing against the provider and a rebuild keeps `K`.
+  prices, so a matrix hydration verifies nothing against the provider and a rebuild keeps `K`. The
+  matrix preflight fails when a matrix security has no price basis: read it once in the source
+  database, which verifies it, and provision again.
 - **Mid-run failures.** A backtest crossing a replacement fails and must be run again. The chance
   grows with the number of securities in a run; a single security re-bases about once in twenty
   years.
@@ -751,14 +763,26 @@ R3 and R6 concern `valuation-ratios-v1.md` and are recorded there.
 read the replacement transaction, the Redis re-check, the pins, the holds and the migration, which
 it accepted. Its findings, all applied:
 
-| Finding                                                                                                                                                                                                                                                                                                                                          | Severity | Correction                                                                                                                                                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B1. Segmentation anchored a run on its newest session's ratio, so a genuine re-base of a rounded history broke into hundreds of spurious events or an unexplained one, withholding whole intrinsic-value histories                                                                                                                               | Blocker  | runs of shared admitted ratios, corrections resolved until stable, rounded-history property tests (§8)                                                                                   |
-| M1. A hydration saved rows beside a history whose whole read was refused, unchecked                                                                                                                                                                                                                                                              | Major    | the earliest-row check still runs; nothing is saved when it finds a re-base; no second whole read (§7, rules 1–2)                                                                        |
-| M2. An undated event with no later session withheld every later session forever                                                                                                                                                                                                                                                                  | Major    | the interval ends at the detection's date, and its last session is on the new basis (§8, §10)                                                                                            |
-| M3. The earliest-row check went blind when the provider no longer returned the first stored session                                                                                                                                                                                                                                              | Major    | it compares the earliest session the provider still returns from a 30-day window; none in common means a full comparison (§7, rule 2)                                                    |
-| Minor: a run failed by a verification that replaced nothing; the QA matrix copy; two whole reads in one cycle; exact field equality against eight stored decimals; a re-base during reconstruction logged as an error; no duration or failure event on a replacement; first-verification events and lagging restatements unstated; missing tests | Minor    | generation 0 until the first replacement and verification in the preparation phases (§9, §7); the matrix copies the basis tables; the rest as stated in §7–§13 and the risks, with tests |
-| Nits: rule numbers cited wrongly; `>` at an interval's end; a translated error without its cause; the provider's row order assumed                                                                                                                                                                                                               | Nit      | corrected                                                                                                                                                                                |
+| Finding                                                                                                                                                                                                                                                                                                                                          | Severity | Correction                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1. Segmentation anchored a run on its newest session's ratio, so a genuine re-base of a rounded history broke into hundreds of spurious events or an unexplained one, withholding whole intrinsic-value histories                                                                                                                               | Blocker  | runs of shared admitted ratios, corrections resolved until stable, rounded-history property tests (§8)                                        |
+| M1. A hydration saved rows beside a history whose whole read was refused, unchecked                                                                                                                                                                                                                                                              | Major    | the earliest-row check still runs; nothing is saved when it finds a re-base; no second whole read (§7, rules 1–2)                             |
+| M2. An undated event with no later session withheld every later session forever                                                                                                                                                                                                                                                                  | Major    | the interval ends at the detection's date, and its last session is on the new basis (§8, §10)                                                 |
+| M3. The earliest-row check went blind when the provider no longer returned the first stored session                                                                                                                                                                                                                                              | Major    | it compares the earliest session the provider still returns from a 30-day window; none in common means a full comparison (§7, rule 2)         |
+| Minor: a run failed by a verification that replaced nothing; the QA matrix copy; two whole reads in one cycle; exact field equality against eight stored decimals; a re-base during reconstruction logged as an error; no duration or failure event on a replacement; first-verification events and lagging restatements unstated; missing tests | Minor    | generation 0 until the first replacement (§9, §7); the matrix copies the basis tables; the rest as stated in §7–§13 and the risks, with tests |
+| Nits: rule numbers cited wrongly; `>` at an interval's end; a translated error without its cause; the provider's row order assumed                                                                                                                                                                                                               | Nit      | corrected                                                                                                                                     |
+
+**Re-review of the fixes (2026-10-02).** It re-ran its probes and tried further shapes: two events
+between reads, corrections on the ex-date row, legacy tails and prefixes, and events on stocks
+around $1. It confirmed the fixes above and found:
+
+| Finding                                                                                                                                      | Severity | Correction                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| A small re-base on a cheap stretch read some sessions as unchanged, which then read as a history on two bases, withholding the whole history | Major    | such sessions join the re-base they share a ratio with, and date the event when they follow it (§8); property tests at 1.001–1.02 |
+| Forcing a verification in every Monitor preparation re-read a refused security's whole history every cycle                                   | Minor    | nothing forces a verification while preparing; generation 0 already makes one harmless mid-read (§7, §9)                          |
+| A detection on the day of the newest stored session made an empty interval                                                                   | Minor    | an interval ends after the newest stored session, and a session before an event is never after it (§8, §10)                       |
+| A short post-event run beside a corrected newest session was dropped, misdating the event                                                    | Minor    | the correction joins the post-event sessions, which are never dropped (§8)                                                        |
+| Nit: the matrix could still lack a price basis for a security never verified                                                                 | Nit      | a preflight check                                                                                                                 |
 
 ## References
 

@@ -75,6 +75,7 @@ describe("a healthy matrix environment", () => {
         "fundamentals-coverage",
         "migrations",
         "missing-symbols",
+        "price-basis-verified",
         "product-horizon",
         "qa-owner",
         "security-coverage",
@@ -256,6 +257,13 @@ describe("preflight rejection", () => {
     const derived = check(report, "derived-state-coverage");
     expect(derived?.status).toBe("FAIL");
     expect(derived?.problems?.join(" ")).toContain("MSFT");
+  });
+
+  it("refuses a security the provider would verify during the sweep", async () => {
+    const report = await preflight({ unverified: ["MSFT"] });
+    const basis = check(report, "price-basis-verified");
+    expect(basis?.status).toBe("FAIL");
+    expect(basis?.problems?.join(" ")).toContain("MSFT");
   });
 
   it("refuses a stale derived-state revision the loader would rebuild mid-sweep", async () => {

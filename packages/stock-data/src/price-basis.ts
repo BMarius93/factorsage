@@ -1,4 +1,5 @@
 import type { Instant, LocalDate, SecurityId } from "@intrinsic/domain";
+import { addDays, maxDate } from "./dates.js";
 
 /**
  * Re-base-safe price loading: the pure rules (`docs/decisions/historical-price-basis-v1.md`, §7–§10).
@@ -336,6 +337,14 @@ export function comparePriceHistories(input: {
     evidence,
   });
 
+  // The end of an interval no session after the newest stored one closes: the detection's date, and
+  // never on or before that session.
+  const openIntervalEnd = (newestStored: LocalDate): LocalDate =>
+    maxDate(
+      input.detectedAt.slice(0, 10) as LocalDate,
+      addDays(newestStored, 1),
+    ) as LocalDate;
+
   const firstChanged = common[changedIndexes[0] as number]!.date;
   const lastChanged = common[changedIndexes.at(-1) as number]!.date;
 
@@ -391,12 +400,13 @@ export function comparePriceHistories(input: {
   const events: PriceBasisEvent[] = [];
   const newestRun = runs[0] as Run;
   const newestCommon = valid[newestRun.newest]!.date;
+  // Sessions the provider published after the newest stored one.
+  const later = input.fresh
+    .filter((row) => row.date > newestCommon && !storedDates.has(row.date))
+    .map((row) => row.date)
+    .sort();
   if (!newestRun.unchanged) {
     // Every compared row changed: the event fell after the newest stored session.
-    const later = input.fresh
-      .filter((row) => row.date > newestCommon && !storedDates.has(row.date))
-      .map((row) => row.date)
-      .sort();
     events.push(
       event(
         later.length === 1
@@ -409,9 +419,8 @@ export function comparePriceHistories(input: {
               kind: "MEASURED",
               effectiveFrom: newestCommon,
               // With no session after it yet, the provider re-based ahead of the event's first
-              // session, which is then no later than the detection.
-              effectiveTo:
-                later.at(-1) ?? (input.detectedAt.slice(0, 10) as LocalDate),
+              // session, which is then no later than the detection — and after the newest stored one.
+              effectiveTo: later.at(-1) ?? openIntervalEnd(newestCommon),
               priceRatio: runRatio(newestRun),
             },
         evidence,
@@ -435,6 +444,29 @@ export function comparePriceHistories(input: {
       break;
     }
     const ratio = runRatio(older) / runRatio(newer);
+    if (index === 1 && newer.unchanged) {
+      // The sessions after the latest event may admit its ratio too, on a cheap stretch: the event
+      // then lies anywhere up to the first of them that cannot be on it.
+      const first = firstExcluding(valid, newer, runRatio(older));
+      if (first !== newer.oldest || older.newest + 1 !== newer.oldest) {
+        events.push(
+          event(
+            {
+              kind: "MEASURED",
+              effectiveFrom: valid[older.newest]!.date,
+              effectiveTo:
+                first === undefined
+                  ? (later.at(-1) ?? openIntervalEnd(newestCommon))
+                  : valid[first]!.date,
+              priceRatio: ratio,
+            },
+            evidence,
+          ),
+        );
+        changedSeen = true;
+        continue;
+      }
+    }
     events.push(
       event(
         older.newest + 1 === newer.oldest
@@ -496,6 +528,47 @@ function shareRatio(left: Run, right: Run): boolean {
     left.unchanged === right.unchanged &&
     Math.max(left.low, right.low) <= Math.min(left.high, right.high)
   );
+}
+
+/**
+ * Whether `change` is a re-base of at least {@link MINIMUM_STEP_SESSIONS} sessions sharing an
+ * admitted ratio with the unchanged run `unchanged`. A correction never defines a ratio for others
+ * to join.
+ */
+function establishedChange(change: Run, unchanged: Run): boolean {
+  return (
+    !change.unchanged &&
+    change.ratios.length >= MINIMUM_STEP_SESSIONS &&
+    Math.max(change.low, unchanged.low) <= Math.min(change.high, unchanged.high)
+  );
+}
+
+/**
+ * Whether the run at `index` holds the sessions after the latest event: the newest run, or one with
+ * nothing newer than it but short corrected runs.
+ */
+function afterLatestEvent(runs: readonly Run[], index: number): boolean {
+  return runs
+    .slice(0, index)
+    .every(
+      (newer) =>
+        !newer.unchanged && newer.ratios.length < MINIMUM_STEP_SESSIONS,
+    );
+}
+
+/** The first session of `run` whose closes cannot be on `ratio`, or undefined when all of them can. */
+function firstExcluding(
+  rows: readonly ComparedRow[],
+  run: Run,
+  ratio: number,
+): number | undefined {
+  for (let index = run.oldest; index <= run.newest; index += 1) {
+    const row = rows[index] as ComparedRow;
+    if (row.low > ratio || row.high < ratio) {
+      return index;
+    }
+  }
+  return undefined;
 }
 
 /** `newer` and `older` as one run, spanning everything between them. */
@@ -582,10 +655,46 @@ function segmentRuns(rows: readonly ComparedRow[]): {
       resolved = false;
       continue;
     }
+    // Sessions within rounding of 1 that also admit an adjacent re-base's ratio are part of it: on a
+    // cheap stretch a small re-base changes the close by less than the rounding. Not the sessions
+    // after the latest event, newest or behind corrected newest sessions.
+    const ambiguous = runs.findIndex(
+      (run, index) =>
+        run.unchanged &&
+        !afterLatestEvent(runs, index) &&
+        [runs[index - 1], runs[index + 1]].some(
+          (neighbour) =>
+            neighbour !== undefined && establishedChange(neighbour, run),
+        ),
+    );
+    if (ambiguous > 0) {
+      const run = runs[ambiguous] as Run;
+      const into = establishedChange(runs[ambiguous - 1] as Run, run)
+        ? ambiguous - 1
+        : ambiguous + 1;
+      const change = runs[into] as Run;
+      runs[into] = {
+        newest: Math.max(change.newest, run.newest),
+        oldest: Math.min(change.oldest, run.oldest),
+        unchanged: false,
+        low: Math.max(change.low, run.low),
+        high: Math.min(change.high, run.high),
+        ratios: change.ratios,
+      };
+      runs.splice(ambiguous, 1);
+      resolved = false;
+      continue;
+    }
     if (runs.length > 1) {
       const newest = runs[0] as Run;
       const oldest = runs.at(-1) as Run;
-      if (short(newest) && !newest.unchanged && !short(runs[1] as Run)) {
+      // The sessions after the latest event are unchanged however few, so a corrected newest session
+      // beside them belongs to them.
+      if (
+        short(newest) &&
+        !newest.unchanged &&
+        ((runs[1] as Run).unchanged || !short(runs[1] as Run))
+      ) {
         runs[1] = { ...(runs[1] as Run), newest: newest.newest };
         runs.shift();
         resolved = false;
@@ -606,7 +715,12 @@ function segmentRuns(rows: readonly ComparedRow[]): {
       }
     }
     const stray = runs.findIndex(
-      (run, index) => index > 0 && index < runs.length - 1 && short(run),
+      (run, index) =>
+        index > 0 &&
+        index < runs.length - 1 &&
+        short(run) &&
+        // The sessions after the latest event, behind corrected newest sessions, are kept.
+        !(run.unchanged && afterLatestEvent(runs, index)),
     );
     if (stray > 0) {
       droppedSessions += length(runs[stray] as Run);
@@ -713,9 +827,11 @@ export function basisFactorAt(input: {
         ? input.session < event.effectiveDate
         : lastBefore !== undefined && input.session <= lastBefore;
     const sessionAfter =
-      event.effectiveDate !== undefined
+      !sessionBefore &&
+      (event.effectiveDate !== undefined
         ? input.session >= event.effectiveDate
-        : event.effectiveTo !== undefined && input.session >= event.effectiveTo;
+        : event.effectiveTo !== undefined &&
+          input.session >= event.effectiveTo);
     if (!detectedAfter) {
       if (sessionAfter || isPlainShareRatio(event.priceRatio)) {
         continue;

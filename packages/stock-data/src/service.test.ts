@@ -5724,13 +5724,11 @@ describe("the price basis around a refused whole read and in the preparation pha
     expect(store.prices[0]).toEqual(price("2021-06-01", 100));
   });
 
-  it("verifies an unverified security while preparing a run, and pins generation 0 when nothing was replaced", async () => {
-    const { store, provider, cache, loader, observations } =
-      await residentFixture(STORED);
+  it("prepares a fresh unverified security without a provider read, and a verification that replaces nothing keeps the pin", async () => {
+    const { store, provider, cache, loader } = await residentFixture(STORED);
     provider.history = STORED;
     const period = { from: "2022-01-03", to: "2022-01-31" };
-    // Resident and fresh over the whole retention: nothing but the missing verification would take
-    // the stock's lease.
+    // Resident and fresh over the whole retention: nothing takes the stock's lease.
     store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [RETENTION_RANGE]);
     await cache.setSecurity(security);
     await cache.writeDailyPriceYears(
@@ -5758,14 +5756,11 @@ describe("the price basis around a refused whole read and in the preparation pha
 
     const prepared = await loader.prepareDailyEvaluationData(security, period);
 
-    // One whole read, from the earliest stored session.
-    expect(provider.ranges).toHaveLength(1);
-    expect(provider.ranges[0]!.from <= STORED[0]!.date).toBe(true);
-    expect(observations).toEqual([
-      expect.objectContaining({ outcome: "VERIFIED", generation: 0 }),
-    ]);
+    expect(provider.ranges).toEqual([]);
     expect(prepared?.priceBasisGeneration).toBe(0);
-    // A window pinned before the verification reads on: nothing it read was replaced.
+    // The next refresh verifies it, finding nothing to replace: the generation stays 0, so a run
+    // pinned before it reads on.
+    await store.createPriceBasis({ securityId: security.id, verifiedAt: NOW });
     await expect(
       loader.readDailyEvaluationFrame(security, period, [], {
         priceBasisGeneration: 0,

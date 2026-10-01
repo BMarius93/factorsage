@@ -491,8 +491,7 @@ both reported as a not-evaluable observation for the cycle and never as a Signal
   PostgreSQL; `readMonitorEvaluationFrame` reads the security's price-basis generation before and
   after them, and a replacement committed in between makes the cycle's frame for that security
   absent. A reconstruction's history read is bracketed the same way, and meeting a replacement
-  there is a `warn` (`monitor.reconstruction.history-rebased`), not a failure. The cycle's
-  preparation verifies a security the loader has never verified, so the read itself never does.
+  there is a `warn` (`monitor.reconstruction.history-rebased`), not a failure.
 
 ## The trading-session boundary
 

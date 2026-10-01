@@ -605,27 +605,15 @@ export class CanonicalStockDataService implements StockDataService {
   async ensureStockFresh(
     security: Security,
     required: Required<DateRange>,
-    options: {
-      /**
-       * Also run the cycle, under the stock's lease, when the stored history has never been verified
-       * (`historical-price-basis-v1.md`, §7, rule 1). Set by the preparation phases, so the read
-       * that follows is on a verified history and reaches no provider for it.
-       */
-      verifyPriceBasis?: boolean;
-    } = {},
   ): Promise<void> {
     let manifest = await this.cache.getManifest(security.id);
     if (!this.covers(manifest, required)) {
       await this.ensureStockHydrated(security, required);
       manifest = await this.cache.getManifest(security.id);
     }
-    const unverified = async () =>
-      options.verifyPriceBasis === true &&
-      (await this.store.getPriceBasis(security.id)) === null;
     if (
       !this.isPriceFreshnessStale(manifest) &&
-      !this.isFundamentalsFreshnessStale(manifest) &&
-      !(await unverified())
+      !this.isFundamentalsFreshnessStale(manifest)
     ) {
       return;
     }
@@ -642,7 +630,7 @@ export class CanonicalStockDataService implements StockDataService {
       const refreshPrices = this.isPriceFreshnessStale(lockedManifest);
       const refreshFundamentals =
         this.isFundamentalsFreshnessStale(lockedManifest);
-      if (!refreshPrices && !refreshFundamentals && !(await unverified())) {
+      if (!refreshPrices && !refreshFundamentals) {
         return;
       }
 
@@ -948,13 +936,6 @@ export class CanonicalStockDataService implements StockDataService {
     const load = this.loadTarget(security, context);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
-    // A security this loader has never verified is verified here, in the phase that may reach the
-    // provider, and not by a repair inside the run.
-    let basis = await this.store.getPriceBasis(security.id);
-    if (basis === null) {
-      await this.ensureStockFresh(security, load, { verifyPriceBasis: true });
-      basis = await this.store.getPriceBasis(security.id);
-    }
     // The alternative-data domains the strategy names are ingested here, in the same phase and for
     // the same reason price history is: once per security per run, so every later window read is a
     // pure projection that reaches no provider.
@@ -966,7 +947,10 @@ export class CanonicalStockDataService implements StockDataService {
     if (!bounds) {
       return null;
     }
-    return { ...bounds, priceBasisGeneration: basis?.generation ?? 0 };
+    return {
+      ...bounds,
+      priceBasisGeneration: await this.priceBasisGeneration(security.id),
+    };
   }
 
   /**
@@ -1054,7 +1038,7 @@ export class CanonicalStockDataService implements StockDataService {
     const window = this.monitorWindowRange(observations, asOf);
     const load = this.loadTarget(security, window);
     await this.ensureStockHydrated(security, load);
-    await this.ensureStockFresh(security, load, { verifyPriceBasis: true });
+    await this.ensureStockFresh(security, load);
     // Ingested here, in the cycle's own preparation phase, so the read below reaches no provider and
     // several Monitors sharing a symbol share one ingest.
     await this.ensureAlternativeDataIngested(security, operands);

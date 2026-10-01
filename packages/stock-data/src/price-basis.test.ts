@@ -230,14 +230,42 @@ describe("comparePriceHistories", () => {
   });
 
   it("ends the interval at the detection when the provider re-based before publishing a session after it", () => {
-    const fresh = history.map((row) => ({ ...row, close: row.close / 2 }));
-    const result = compare(history, fresh);
+    // Stored through 2026-09-25; detected on 2026-10-07 with nothing published after it.
+    const stored = history.slice(0, 190);
+    const fresh = stored.map((row) => ({ ...row, close: row.close / 2 }));
+    const result = compare(stored, fresh);
     expect(result.events[0]).toMatchObject({
       kind: "MEASURED",
-      effectiveFrom: history[199]!.date,
+      effectiveFrom: stored[189]!.date,
       effectiveTo: DETECTED_AT.slice(0, 10),
     });
     expect(result.events[0]!.effectiveDate).toBeUndefined();
+  });
+
+  it("never ends such an interval on or before the newest stored session", () => {
+    // Detected on the day of the newest stored session: the event is still after it.
+    const fresh = history.map((row) => ({ ...row, close: row.close / 2 }));
+    const result = comparePriceHistories({
+      securityId: SECURITY,
+      generation: 2,
+      detectedAt: `${history[199]!.date}T23:30:00.000Z`,
+      stored: history,
+      fresh,
+    });
+    const nextDay = new Date(`${history[199]!.date}T00:00:00.000Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    expect(result.events[0]).toMatchObject({
+      effectiveFrom: history[199]!.date,
+      effectiveTo: nextDay.toISOString().slice(0, 10),
+    });
+    // The newest stored session is before the event, whatever the revision.
+    expect(
+      basisFactorAt({
+        session: history[199]!.date,
+        observedAt: "2027-01-04T00:00:00.000Z",
+        events: [{ ...result.events[0]!, priceRatio: 1.046 }],
+      }),
+    ).toEqual({ kind: "WITHHELD", reason: "BEFORE_DISTRIBUTION" });
   });
 
   it("treats a short block of corrected rows as corrections, never as events", () => {
@@ -438,6 +466,86 @@ describe("comparePriceHistories on rounded histories", () => {
       }
     });
   }
+
+  // A small distribution on a cheap stretch changes many closes by less than the rounding: those
+  // sessions admit both 1 and the ratio, and must not read as a history stored on two bases.
+  for (const [factor, start, drift] of [
+    [1.005, 2, 0.0002],
+    [1.011, 0.3, 0.0002],
+    [1.003, 10, -0.0002],
+    [1.001, 40, -0.0004],
+  ] as const) {
+    it(`measures a ${factor} distribution on a cheap history as one event, never an unexplained one`, () => {
+      for (let seed = 1; seed <= 20; seed += 1) {
+        const truth = walk(1_500, start, drift, seed);
+        const days = sessions("2020-01-06", truth.length + 1, () => 0).map(
+          (row) => row.date,
+        );
+        const stored = truth.map((price, index) => ({
+          date: days[index]!,
+          close: printed(price * factor),
+        }));
+        const fresh = [
+          ...truth.map((price, index) => ({
+            date: days[index]!,
+            close: printed(price),
+          })),
+          { date: days.at(-1)!, close: printed(truth.at(-1)!) },
+        ];
+        const result = compare(stored, fresh);
+        const message = `${factor}, seed ${seed}`;
+        if (!result.changed) {
+          continue;
+        }
+        expect(
+          result.events.map((event) => event.kind),
+          message,
+        ).toEqual(["MEASURED"]);
+        const event = result.events[0]!;
+        // Measured as precisely as cent-rounded closes of a few dollars allow.
+        expect(Math.abs(event.priceRatio! / factor - 1), message).toBeLessThan(
+          0.003,
+        );
+        // Sessions certainly before it keep the measured factor for an older revision.
+        const before = event.effectiveDate
+          ? days.filter((day) => day < event.effectiveDate!)
+          : days.filter((day) => day <= event.effectiveFrom!);
+        for (const session of before.slice(0, 50)) {
+          const basis = basisFactorAt({
+            session,
+            observedAt: `${days[0]}T12:00:00.000Z`,
+            events: result.events,
+          });
+          expect(basis.kind, message).toBe("FACTOR");
+        }
+      }
+    });
+  }
+
+  it("dates an event behind corrected newest sessions by the unchanged sessions after it", () => {
+    const history = sessions("2026-01-05", 300, (index) =>
+      printed(40 + Math.sin(index / 5) * 3),
+    );
+    const exIndex = 296;
+    // Re-based for a 1.046 distribution on the 297th session; then the provider corrected the newest
+    // stored session, or two of them.
+    for (const corrected of [[299], [298, 299]]) {
+      const current = history.map((row, index) =>
+        index < exIndex ? { ...row, close: printed(row.close / 1.046) } : row,
+      );
+      const stored = history.map((row, index) =>
+        corrected.includes(index)
+          ? { ...row, close: printed(row.close * 1.01) }
+          : row,
+      );
+      const result = compare(stored, current);
+      expect(result.events, `${corrected}`).toHaveLength(1);
+      expect(result.events[0], `${corrected}`).toMatchObject({
+        kind: "MEASURED",
+        effectiveDate: history[exIndex]!.date,
+      });
+    }
+  });
 
   it("dates a split inside a history mixed before verification, whatever the rounding", () => {
     for (let seed = 1; seed <= 20; seed += 1) {
