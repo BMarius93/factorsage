@@ -625,6 +625,12 @@ completed run, and no read path depends on those rows.
 - That a run only ever executes under the engine methodology, Strategy-evaluation revision and
   data-interpretation revisions it recorded — enforced, not merely recorded. See
   **Runtime compatibility** above.
+- That a run reads one price basis per security. `PREPARING_DATA` records each security's
+  `SecurityPriceBasis.generation`, and every window read checks it still holds after reading. If the
+  provider re-based a security during the run and the loader replaced its history, the run fails
+  with `EXECUTION_FAILED` and a message naming the security, rather than finishing with a split
+  shown as a crash between two years (`../../docs/decisions/historical-price-basis-v1.md`, §9). The
+  pin lives in the attempt's memory: a retry re-simulates from the first day and prepares again.
 
 ### What is not guaranteed
 

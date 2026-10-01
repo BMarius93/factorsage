@@ -368,6 +368,14 @@ older than ten calendar days are invisible without a dataset version bump.
 
 **Action.** Recorded here.
 
+**Follow-up (2026-10-01, re-base-safe loading).** A re-base is not a correction: it rescales every
+row before its ex-date. Since `../../docs/decisions/historical-price-basis-v1.md` PR 1, the earliest
+stored row is re-read before any read saves a row beside the stored history, and a change there
+replaces the whole history in one transaction, with the derived and weekly rows, the measured
+`PriceBasisEvent`s and the next `SecurityPriceBasis.generation`. A first verification does the same
+once per security stored before it, which also takes the provider's corrections of old rows. A
+partial correction that leaves the earliest row unchanged is still unseen, as above.
+
 ---
 
 ## 7. Cache invalidation versus domain mutation
