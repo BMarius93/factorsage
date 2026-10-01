@@ -544,18 +544,19 @@ above is what the metric means and does not depend on that answer.
 
 ## Metric compatibility table — current V1 baseline
 
-| Metric                                          | Condition operators                   | Trigger operators                | Value type                                                                              | Allowed in            |
-| ----------------------------------------------- | ------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------- | --------------------- |
-| Price                                           | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series                                                | BUY, SELL, FINAL EXIT |
-| Moving average (any of the 14 canonical series) | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | the canonical compatible moving averages for that series — same timeframe, never itself | BUY, SELL, FINAL EXIT |
-| RSI 7D / 14D / 21D                              | `is above`, `is below`                | `crosses above`, `crosses below` | user-entered numeric threshold `1..100`                                                 | BUY, SELL, FINAL EXIT |
-| RVOL 10 / 20 / 50                               | `is above`, `is below`                | **none — condition only**        | user-entered multiple `>= 0`, rendered `2.0x`                                           | BUY, SELL, FINAL EXIT |
-| Margin of Safety · selected IV source           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
-| Fundamentals · 15 metrics                       | `is above`, `is below`                | **none — condition only**        | percentage points or a raw multiple, by metric (see § Fundamental Metrics)              | BUY, SELL, FINAL EXIT |
-| Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
-| Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
-| Insider Activity · 4 measures                   | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
-| Congressional Trading · 5 measures              | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
+| Metric                                             | Condition operators                   | Trigger operators                | Value type                                                                              | Allowed in            |
+| -------------------------------------------------- | ------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------- | --------------------- |
+| Price                                              | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series                                                | BUY, SELL, FINAL EXIT |
+| Moving average (any of the 14 canonical series)    | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | the canonical compatible moving averages for that series — same timeframe, never itself | BUY, SELL, FINAL EXIT |
+| RSI 7D / 14D / 21D                                 | `is above`, `is below`                | `crosses above`, `crosses below` | user-entered numeric threshold `1..100`                                                 | BUY, SELL, FINAL EXIT |
+| RVOL 10 / 20 / 50                                  | `is above`, `is below`                | **none — condition only**        | user-entered multiple `>= 0`, rendered `2.0x`                                           | BUY, SELL, FINAL EXIT |
+| Margin of Safety · selected IV source              | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
+| Valuation ratios · P/E, P/S, P/B, P/FCF, EV/EBITDA | `is above`, `is below`                | **none — condition only**        | raw multiple, `>= 0` except EV/EBITDA (see § Valuation Ratios)                          | BUY, SELL, FINAL EXIT |
+| Fundamentals · 15 metrics                          | `is above`, `is below`                | **none — condition only**        | percentage points or a raw multiple, by metric (see § Fundamental Metrics)              | BUY, SELL, FINAL EXIT |
+| Gain                                               | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
+| Loss                                               | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
+| Insider Activity · 4 measures                      | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
+| Congressional Trading · 5 measures                 | `is above`, `is below`                | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                                         | BUY, SELL, FINAL EXIT |
 
 **Relative Volume was the first Condition-only metric**, and the empty Trigger column is a product
 decision rather than an omission. A Trigger is a crossing event; the Monitor's existing
@@ -591,6 +592,10 @@ only when a statement is published is a state, and a Monitor's not-matched -> ma
 already raises a Signal on the session a Condition first holds. They sit in their own **Fundamentals**
 category — deliberately separate from Valuation, which compares a statement-derived value with the
 market price — and compare with the strict pair only. See § Fundamental Metrics below.
+
+The five **Valuation Ratios** of `../../docs/decisions/valuation-ratios-v1.md` are the fourth
+condition-only family, by that decision, and sit in the **Valuation** category beside Margin of Safety.
+See § Valuation Ratios below.
 
 A stored or submitted rule that still names the removed `is at least` / `is at most` is **refused,
 never reinterpreted**: `>= 2` is not `> 2`, so no read path maps one onto the other. The canonical
@@ -646,6 +651,34 @@ materialized daily derived state, which used only the statements public by then.
 history is incomplete the metric is **unavailable** and the Condition is `NOT_EVALUABLE` — never a
 reading of zero. That matters most for a leverage screen: an unavailable Debt / Equity read as zero
 would satisfy `Debt / Equity is below 1.0x` for every security without statements.
+
+### Valuation Ratios
+
+One metric kind, `VALUATION_RATIO`, parameterized by the stable identity of one of the five ratios in
+the product catalog (`VALUATION_RATIO_CATALOG` in `@intrinsic/contracts`):
+
+```text
+Metric -> Valuation -> P/E
+Condition -> is below
+Value -> 15x
+```
+
+The rule reads `P/E is below 15` and names nothing else: no distribution factor, basis, generation or
+corporate-action confidence ever appears in the document or the Builder. The document stores
+`{ kind: "VALUATION_RATIO", ratioId }`, and the identity is part of the fingerprint.
+
+**Values.** Raw multiples, rendered `15.0x`. P/E, P/S, P/B and P/FCF are `>= 0` — both sides of the
+ratio are positive whenever it is available — and EV/EBITDA is any finite number, since net cash
+larger than the market capitalisation makes the enterprise value negative. A new row starts at
+`1.0x`.
+
+**Availability.** Each session's ratio is projected from that session's close and the statements
+public by then; nothing is stored per session. A ratio is **unavailable** — `NOT_EVALUABLE`, so the
+Condition does not match — where an input is missing, a denominator is not positive (a loss-maker
+has no P/E), a statement reports another currency than the trading one, or around a corporate action
+the data cannot put on one price and share basis. A Monitor reads the live quote with the newest
+closed session's statements, and keeps an active Signal through an unavailable observation, as for
+every metric. The methodology and the price-basis rules are the decision's, not restated here.
 
 ## BUY levels
 
@@ -777,6 +810,8 @@ At minimum, Strategy validation must enforce:
   percentage range;
 - a Fundamental Metric only as a Condition, only with `is above` / `is below`, only with its own
   unit's Value, and only under an identity the product catalog defines;
+- a Valuation Ratio only as a Condition, only with `is above` / `is below`, only with a `MULTIPLE`
+  inside its own domain, and only under an identity the product catalog defines;
 - no two semantically identical Conditions inside one Signal. A duplicate is rejected with an error
   pointing at the duplicated row; it is never silently removed, because ANDing a predicate with
   itself is a no-op and always a mistake. Identity is semantic — same Metric, same operator, same
