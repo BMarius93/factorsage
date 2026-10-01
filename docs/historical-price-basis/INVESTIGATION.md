@@ -732,8 +732,8 @@ construction and show the window lengths, not a measurement:
   quarter includes the ex-date. A per-session reading has the same mismatch from the ex-date on;
   the carried reading removes the carried sessions from it.
 - **The balance sheet can lag further.** WDC's next anchor after Sandisk (2025-05-05) has no
-  post-spin balance sheet: the stored Q3 FY2025 balance sheet has a moved period end (2025-03-31)
-  and is dated from 2025-08-14. P/B and EV/EBITDA keep the pre-spin balance sheet for 71 sessions,
+  post-spin balance sheet: the stored Q3 FY2025 balance sheet has a moved period end (2025-03-31),
+  was filed 2025-08-14 and is eligible from 2025-08-15. P/B and EV/EBITDA keep the pre-spin balance sheet for 71 sessions,
   so five of the nine steps lag for those two ratios. The evidence's last two columns give the
   balance-sheet lag of every step.
 
