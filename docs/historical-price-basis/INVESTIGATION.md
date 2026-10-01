@@ -89,7 +89,7 @@ quoted values.
 | Development database `intrinsic_value`         | 9,768 catalog securities; 64 with prices (368,857 rows, 1992-09-09 → 2026-09-25); 62 with statements (6,391 quarterly income identities); 363,049 derived rows of those 62; 63,499 priced `S`/`P` insider rows for 33 securities. |
 | Insider history fetched for this investigation | `insider-trading/search` for the 29 priced securities with no stored insider rows (122 pages). With the stored rows, 102,906 open-market trades on stored sessions in 62 securities.                                              |
 | Provider split lists                           | `stable/splits` for the 63 priced securities and for 270 further large caps (a 319-security sample above $50 B market capitalisation on NYSE and NASDAQ).                                                                         |
-| Provider probes                                | 500 FMP requests in all, and 44 more for §8 and §9.5 on 2026-10-01, listed under "Reproducing".                                                                                                                                   |
+| Provider probes                                | 500 FMP requests in all, and 46 more for §8 and §9.5 on 2026-10-01, listed under "Reproducing".                                                                                                                                   |
 | Independent series                             | Alpha Vantage `TIME_SERIES_DAILY` for IBM through its published `demo` key (6,768 sessions from 1999-11-01). EODHD's `demo` key for AAPL, AMZN and TSLA, through the research agent.                                              |
 | External documentation                         | Vendor documentation, pricing pages, licence terms and the CRSP, Compustat and Sharadar factor definitions; about 125 fetches by a research agent. No sign-up, no payment, no personal data.                                      |
 
@@ -651,7 +651,7 @@ when its statement becomes available, and carried by research returns (§9).
 ## 9. Frozen valuation anchors carried by research returns
 
 Investigated on 2026-10-01. The tests use stored data and the Alpha Vantage IBM series already
-fetched (§2.4). Only §9.5 made provider requests: four.
+fetched (§2.4). Only §9.5 made provider requests: six.
 
 ### 9.1 The identity
 
@@ -673,7 +673,9 @@ it.
 - **A split in `(a, t]`:** `k_e` is the split ratio, and the anchor's share count times it is the
   post-split count. The carried market capitalisation is the actual one.
 - **A folded distribution in `(a, t]`:** `k_e` is `φ`. The carried value is the actual market
-  capitalisation × `φ`: the combined company's value.
+  capitalisation × `φ`: the company's value as if the distribution had been reinvested in it. That
+  is the combined company's value at the ex-date, not the later market value of the two companies
+  together, which drifts as their prices move.
 - **A rewrite for any event outside `(a, t]`** cancels. So does any number of them.
 
 ### 9.2 Tests on IBM
@@ -701,7 +703,9 @@ Anchors were built from as-traded closes (Alpha Vantage for IBM, the measured fa
 and carried by stored research returns. Carried ÷ actual as-traded market capitalisation is
 1.0000 on every window without an event (IBM, AAPL, MMM, HON and KO), 1.0000 across AAPL's 4:1
 split of 2020, and the distribution factor inside each distribution window
-(`evidence/anchor-carry-windows.csv`):
+(`evidence/anchor-carry-windows.csv`). Only IBM's as-traded close is independent (Alpha Vantage);
+the others' is the stored close × the measured steps, so for them those ratios hold by
+construction and show the window lengths, not a measurement:
 
 | Security | Ex-date    | Event                        | `φ`                | Next anchor | Carried sessions | Its quarter includes the ex-date | Sessions until one does |
 | -------- | ---------- | ---------------------------- | ------------------ | ----------- | ---------------- | -------------------------------- | ----------------------- |
@@ -727,6 +731,11 @@ split of 2020, and the distribution factor inside each distribution window
   capitalisation with combined-company statements for 60 to 78 sessions, until a statement whose
   quarter includes the ex-date. A per-session reading has the same mismatch from the ex-date on;
   the carried reading removes the carried sessions from it.
+- **The balance sheet can lag further.** WDC's next anchor after Sandisk (2025-05-05) has no
+  post-spin balance sheet: the stored Q3 FY2025 balance sheet has a moved period end (2025-03-31)
+  and is dated from 2025-08-14. P/B and EV/EBITDA keep the pre-spin balance sheet for 71 sessions,
+  so five of the nine steps lag for those two ratios. The evidence's last two columns give the
+  balance-sheet lag of every step.
 
 ### 9.4 EV/EBITDA
 
@@ -746,14 +755,18 @@ quantity.
 - **Currencies in the store.** All 62 securities with statements report in USD, their trading
   currency. All 9,768 catalog securities are quoted in USD, and 2,091 of them have a non-US
   country of incorporation, so their statement currency is unknown until they are loaded.
-- **Two depositary receipts** (four FMP requests, `income-statement` and `profile`):
+- **Share counts follow the listing.** Six FMP requests (`income-statement` and `profile` for HSBC,
+  TSM and BRK-B), with BRK-A from the store:
 
-  | Security | `reportedCurrency` | Latest quarterly `weightedAverageShsOutDil` | Price × that count ÷ FMP's market cap |
-  | -------- | ------------------ | ------------------------------------------- | ------------------------------------- |
-  | HSBC     | USD                | 3,458.6 M                                   | 1.006                                 |
-  | TSM      | TWD                | 5,186.4 M                                   | 1.000                                 |
-  - Both counts are in depositary units (one ADS represents five ordinary shares in both cases),
-    so price × diluted shares is in consistent units for these two.
+  | Security | `reportedCurrency` | Latest quarterly `weightedAverageShsOutDil` | Price × that count ÷ market cap |
+  | -------- | ------------------ | ------------------------------------------- | ------------------------------- |
+  | HSBC     | USD                | 3,458.6 M                                   | 1.006 (FMP's)                   |
+  | TSM      | TWD                | 5,186.4 M                                   | 1.000 (FMP's)                   |
+  | BRK-B    | USD                | 2,154.7 M                                   | 0.999 (FMP's)                   |
+  | BRK-A    | USD                | 1.436 M (stored)                            | 1,085 B against BRK-B's 1,075 B |
+  - HSBC's and TSM's counts are in depositary units: about a fifth of each company's ordinary
+    shares, and one ADS represents five. BRK-A's count is in class A units and BRK-B's in class B
+    units. So price × diluted shares is in consistent units for all four.
   - TSM's statements are in TWD against a USD price, so a ratio would be off by the exchange rate
     without a currency rule.
   - The catalog's `isAdr` flag marks only ARM, not HSBC or TSM, so it cannot select depositary
@@ -761,9 +774,14 @@ quantity.
 
 ### 9.6 Storage
 
-One anchor row per input-changing revision is about four per security-year: about 120 rows and
-30 KB for a 30-year security. Four per-session columns would add about 0.47 MB of Redis per
-security (`retain-wide-column-calculated-series-storage.md`).
+One anchor row per input-changing revision is about four per security-year, so about 120 rows for
+a 30-year security.
+
+- **PostgreSQL.** The provenance list of about nine revision identities and content hashes makes a
+  row about 1 KB, so about 150 KB per security.
+- **Redis.** The projection needs about 150 B of each row, so about 20 KB per resident security.
+- **The alternative.** Five per-session columns would add about 0.6 MB of Redis per security; four
+  were measured at 0.47 MB (`retain-wide-column-calculated-series-storage.md`).
 
 ## Reproducing
 
@@ -826,8 +844,9 @@ did, precisely enough to redo:
     listed above for Margin of Safety.
   - The EV/EBITDA comparison holds each anchor's net debt (enterprise value − market cap) and
     EBITDA (enterprise value ÷ `evToEBITDA`) and moves the market cap by the next anchor's price.
-- **§9 (2026-10-01):** no FMP requests except the four of §9.5 (`income-statement` with
-  `period=quarter` and `profile`, for HSBC and TSM).
+- **§9 (2026-10-01):** no FMP requests except the six of §9.5 (`income-statement` with
+  `period=quarter` and `profile`, for HSBC, TSM and BRK-B). The second clean-room review made one
+  more (BRK-B's `income-statement`).
   - An anchor is every stored quarterly revision's first session on or after its
     `availableFromDate`, with net income and EBITDA summed over the latest four Income quarters,
     diluted shares from the latest one and net debt from the latest Balance Sheet.
