@@ -3180,6 +3180,7 @@ components:
               METRIC_SERIES_UNSUPPORTED,
               METRIC_PERIOD_UNSUPPORTED,
               FUNDAMENTAL_METRIC_UNSUPPORTED,
+              VALUATION_RATIO_UNSUPPORTED,
               METRIC_NOT_ALLOWED_IN_PART,
               OPERATOR_NOT_SUPPORTED,
               VALUE_KIND_MISMATCH,
@@ -3603,6 +3604,21 @@ components:
           NET_DEBT_TO_EBITDA_TTM,
           INTEREST_COVERAGE_TTM,
           ASSET_TURNOVER_TTM,
+        ]
+
+    ValuationRatioId:
+      type: string
+      description: |
+        The stable identity of one of the five Valuation Ratios — P/E, P/S, P/B, P/FCF and
+        EV/EBITDA. It is the ratio's whole identity: never a label. Every ratio is a raw multiple
+        (`15` is 15x) of the market capitalisation, or for EV/EBITDA of the enterprise value.
+      enum:
+        [
+          PRICE_TO_EARNINGS_TTM,
+          PRICE_TO_SALES_TTM,
+          PRICE_TO_BOOK,
+          PRICE_TO_FCF_TTM,
+          EV_TO_EBITDA_TTM,
         ]
 
     DailyFundamentalMetric:
@@ -4052,6 +4068,19 @@ components:
           properties:
             kind: { type: string, const: FUNDAMENTAL }
             metricId: { $ref: "#/components/schemas/FundamentalMetricId" }
+        - type: object
+          required: [kind, ratioId]
+          description: |
+            One of the five Valuation Ratios, projected on each trading day from that day's close
+            and the statements public by then. Unavailable — never zero — where an input is missing,
+            a denominator is not positive, a statement reports another currency than the trading
+            one, or the price and the share count cannot be put on one basis around a corporate
+            action. Compared with a raw `MULTIPLE`, at least 0 except for EV/EBITDA. Condition only —
+            it has no trigger operators. An identity outside this list is refused with
+            `VALUATION_RATIO_UNSUPPORTED`.
+          properties:
+            kind: { type: string, const: VALUATION_RATIO }
+            ratioId: { $ref: "#/components/schemas/ValuationRatioId" }
         - type: object
           description: |
             Position-dependent, so it is only meaningful where simulated position state exists;

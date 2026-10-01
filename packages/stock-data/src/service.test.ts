@@ -14,8 +14,10 @@ import {
   DateRange,
   Security,
   SecurityProfile,
+  StockSplit,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
+import { valuationRatioOperand } from "@intrinsic/strategy";
 import { describe, expect, it, vi } from "vitest";
 import type { StockDataCache, StockManifest } from "./cache.js";
 import {
@@ -775,6 +777,25 @@ class FakeStore implements StockDataStore {
   }
   async getPriceBasisEvents(): Promise<PriceBasisEvent[]> {
     return [...this.priceBasisEvents];
+  }
+  stockSplits: StockSplit[] = [];
+  stockSplitReads: string[] = [];
+  async getStockSplits(): Promise<StockSplit[]> {
+    return [...this.stockSplits];
+  }
+  async replaceStockSplits(input: {
+    securityId: string;
+    splits: readonly StockSplit[];
+    syncedAt: string;
+  }): Promise<void> {
+    this.stockSplits = [...input.splits];
+    this.stockSplitReads.push(input.syncedAt);
+    this.states.set("STOCK_SPLIT:", {
+      securityId: input.securityId,
+      dataset: "STOCK_SPLIT",
+      variant: "",
+      lastSyncedAt: input.syncedAt,
+    });
   }
   async createPriceBasis(input: {
     securityId: string;
@@ -5827,5 +5848,139 @@ describe("a Monitor frame read across a replacement", () => {
 
     expect(store.reads).toBe(2);
     expect(frame).toBeNull();
+  });
+});
+
+describe("valuation inputs in the preparation phases and the reads", () => {
+  /** A provider that also serves the split list, counting its reads. */
+  class SplitProvider extends FakeProvider {
+    splitReads = 0;
+    splits: StockSplit[] = [
+      {
+        securityId: security.id,
+        date: "2026-06-28",
+        numerator: 1907,
+        denominator: 2000,
+        label: "spin-off",
+      },
+    ];
+    async getStockSplits(): Promise<StockSplit[]> {
+      this.splitReads += 1;
+      return this.splits;
+    }
+  }
+
+  const PE = valuationRatioOperand("PRICE_TO_EARNINGS_TTM");
+  const PERIOD = { from: "2026-08-03", to: "2026-08-20" };
+
+  async function residentFresh(provider: FakeProvider) {
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.prices = tradingDays("2026-08-03", "2026-08-21").map((row) =>
+      price(row.date, 100),
+    );
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [RETENTION_RANGE]);
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(RETENTION_RANGE.from, RETENTION_RANGE.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: RETENTION_RANGE.from,
+      coverageEnd: RETENTION_RANGE.to,
+      canonicalHistoryStart: store.prices[0]!.date,
+      canonicalHistoryEnd: store.prices.at(-1)!.date,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+    });
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    return { store, cache, loader };
+  }
+
+  it("reads the split list once a day while preparing, and prepares the inputs once for every window", async () => {
+    const provider = new SplitProvider();
+    const { store, loader } = await residentFresh(provider);
+
+    const prepared = await loader.prepareDailyEvaluationData(security, PERIOD, [
+      PE,
+    ]);
+    expect(provider.splitReads).toBe(1);
+    expect(store.stockSplits).toEqual(provider.splits);
+    expect(prepared?.valuation?.securityId).toBe(security.id);
+
+    // Within a day the stored list is read, not the provider's.
+    await loader.prepareDailyEvaluationData(security, PERIOD, [PE]);
+    expect(provider.splitReads).toBe(1);
+
+    // A window read with the prepared inputs loads none of them again.
+    const splits = vi.spyOn(store, "getStockSplits");
+    const frame = await loader.readDailyEvaluationFrame(
+      security,
+      PERIOD,
+      [PE],
+      {
+        priceBasisGeneration: prepared!.priceBasisGeneration,
+        valuation: prepared!.valuation!,
+      },
+    );
+    expect(splits).not.toHaveBeenCalled();
+    // No statements are stored, so every session is unavailable — and absent, never zero.
+    expect(
+      [...(frame.columns.get(PE) as Float64Array)].every(Number.isNaN),
+    ).toBe(true);
+  });
+
+  it("prepares nothing for a strategy that names no valuation ratio", async () => {
+    const provider = new SplitProvider();
+    const { loader } = await residentFresh(provider);
+    const prepared = await loader.prepareDailyEvaluationData(
+      security,
+      PERIOD,
+      [],
+    );
+    expect(provider.splitReads).toBe(0);
+    expect(prepared?.valuation).toBeUndefined();
+  });
+
+  it("refuses to prepare a valuation ratio when the provider does not serve the split list", async () => {
+    const { loader } = await residentFresh(new FakeProvider());
+    await expect(
+      loader.prepareDailyEvaluationData(security, PERIOD, [PE]),
+    ).rejects.toThrow(/split list/);
+  });
+
+  it("reads a Monitor's valuation inputs inside the generation bracket", async () => {
+    const provider = new SplitProvider();
+    const { store, loader } = await residentFresh(provider);
+    await loader.prepareMonitorEvaluationData(security, 10, "2026-08-21", [PE]);
+    expect(provider.splitReads).toBe(1);
+    const splits = vi.spyOn(store, "getStockSplits");
+    const frame = await loader.readMonitorEvaluationFrame({
+      security,
+      operands: [PE],
+      observations: 10,
+      asOf: "2026-08-21",
+      observation: { price: 101 },
+      observationDate: "2026-08-24",
+    });
+    expect(splits).toHaveBeenCalledTimes(1);
+    expect(frame?.frame.columns.has(PE)).toBe(true);
   });
 });

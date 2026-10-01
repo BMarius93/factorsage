@@ -4,6 +4,7 @@ import {
   mapFmpFinancialStatements,
   mapFmpProfile,
   mapFmpExchangeHolidays,
+  mapFmpStockSplits,
   mapFmpStockUniverse,
   normalizeFmpPercentage,
 } from "./mapping.js";
@@ -474,5 +475,104 @@ describe("mapFmpExchangeHolidays", () => {
     expect(() =>
       mapFmpExchangeHolidays({ error: "nope" } as never),
     ).toThrow(/exchange holiday schedule/);
+  });
+});
+
+describe("mapFmpStockSplits", () => {
+  it("keeps the provider's label, and an unreadable ratio as a possible distribution", () => {
+    expect(
+      mapFmpStockSplits("security-1", [
+        {
+          date: "2026-06-28",
+          numerator: 1907,
+          denominator: 2000,
+          splitType: "spin-off",
+        },
+        {
+          date: "2026-10-06",
+          numerator: 1,
+          denominator: 10,
+          splitType: "stock-split",
+        },
+        {
+          date: "1974-11-29",
+          numerator: "51",
+          denominator: "50",
+          splitType: "stock-dividend",
+        },
+        { date: "2020-08-31", numerator: 4, denominator: 1 },
+        {
+          date: "2019-01-02",
+          numerator: 0,
+          denominator: 1,
+          splitType: "stock-split",
+        },
+        {
+          date: "2019-01-03",
+          numerator: 2,
+          denominator: null,
+          splitType: "stock-split",
+        },
+      ]),
+    ).toEqual([
+      {
+        securityId: "security-1",
+        date: "1974-11-29",
+        numerator: 51,
+        denominator: 50,
+        label: "stock-dividend",
+      },
+      {
+        securityId: "security-1",
+        date: "2019-01-02",
+        numerator: 0,
+        denominator: 1,
+        label: "stock-split",
+      },
+      {
+        securityId: "security-1",
+        date: "2019-01-03",
+        numerator: 0,
+        denominator: 1,
+        label: "stock-split",
+      },
+      {
+        securityId: "security-1",
+        date: "2020-08-31",
+        numerator: 4,
+        denominator: 1,
+        label: null,
+      },
+      {
+        securityId: "security-1",
+        date: "2026-06-28",
+        numerator: 1907,
+        denominator: 2000,
+        label: "spin-off",
+      },
+      {
+        securityId: "security-1",
+        date: "2026-10-06",
+        numerator: 1,
+        denominator: 10,
+        label: "stock-split",
+      },
+    ]);
+  });
+
+  it("skips a row without a real calendar date", () => {
+    expect(
+      mapFmpStockSplits("security-1", [
+        { date: "not-a-date", numerator: 2, denominator: 1 },
+        { date: "2023-02-31", numerator: 2, denominator: 1 },
+        { date: "2023-13-01", numerator: 2, denominator: 1 },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("refuses a response that is not a list", () => {
+    expect(() =>
+      mapFmpStockSplits("security-1", { error: "x" } as never),
+    ).toThrow("Invalid FMP split list");
   });
 });

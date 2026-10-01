@@ -39,6 +39,7 @@ export const FUNDAMENTAL_PROVENANCE_COLUMNS: Readonly<Record<string, string>> =
   );
 
 const FUNDAMENTAL_OPERAND_PREFIX = "fundamental:";
+const VALUATION_OPERAND_PREFIX = "valuation:";
 
 /** One security's persisted Fundamental Metrics, one entry per stored trading session. */
 export type FundamentalReference = {
@@ -237,6 +238,16 @@ export class FrameProvenance {
             continue;
           }
           this.seen.add(signature);
+          if (key.startsWith(VALUATION_OPERAND_PREFIX)) {
+            // Projected when read, from statements, measured re-bases and the split list: there is
+            // no stored column to trace it to. `valuation-ratios.test.ts` pins the projection.
+            this.ledger.skip(
+              "frame-provenance",
+              `${frame.symbol} ${date} ${key}`,
+              "a valuation ratio is projected when read and has no stored column",
+            );
+            continue;
+          }
           const actual = column[row] ?? null;
           const stats = (this.byKey[key] ??= { compared: 0, failed: 0 });
           let expected: number | null | undefined;

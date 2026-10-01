@@ -403,6 +403,24 @@ function copiers(securityIds: readonly string[]): readonly Copier[] {
       },
     },
     {
+      // The split list the valuation ratios read, copied with the `STOCK_SPLIT` freshness row the
+      // dataset states carry: a fresh row over a missing list would mask nothing.
+      table: "StockSplit",
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.stockSplit.findMany({
+              where,
+              orderBy: { id: "asc" },
+              skip,
+              take,
+            }),
+          () => target.stockSplit.deleteMany({ where }),
+          (rows) => target.stockSplit.createMany({ data: [...rows] }),
+        );
+      },
+    },
+    {
       table: "Benchmark",
       copy(source, target) {
         return reconcileIdentityRows({

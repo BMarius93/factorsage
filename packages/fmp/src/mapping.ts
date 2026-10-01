@@ -14,6 +14,7 @@ import type {
   InsiderTransactionCategory,
   Security,
   SecurityProfile,
+  StockSplit,
 } from "@intrinsic/domain";
 import {
   alternativeDataAvailabilityDate,
@@ -652,6 +653,84 @@ export type FmpExchangeCalendarPort = {
     from: string,
     to: string,
   ): Promise<FmpExchangeHoliday[]>;
+};
+
+/** One row of `stable/splits`. */
+export type FmpStockSplitDto = {
+  symbol?: unknown;
+  date?: unknown;
+  numerator?: unknown;
+  denominator?: unknown;
+  splitType?: unknown;
+};
+
+/**
+ * Maps a security's split list, skipping rows without a calendar date.
+ *
+ * Verified live on 2026-10-01: one row per event, newest first, `numerator : denominator` the share
+ * ratio (4:1 for AAPL's 2020 split, 1:10 for a reverse split, 523:500 for IBM's 2021 Kyndryl
+ * spin-off), and `splitType` the provider's label — `stock-split`, `stock-dividend` or `spin-off`,
+ * the last two rare and the first used for most distributions too. Announced events appear before
+ * their date. A response that is not a list throws.
+ *
+ * A dated row whose ratio is unreadable is kept with ratio `0 : 1`, which no plain share change
+ * has: the event is real and placed, and reading it as a possible distribution over-masks, where
+ * dropping it would under-mask. A row without a calendar date cannot be placed and is skipped.
+ */
+export function mapFmpStockSplits(
+  securityId: string,
+  rows: readonly FmpStockSplitDto[],
+): StockSplit[] {
+  if (!Array.isArray(rows)) {
+    throw new Error("Invalid FMP split list");
+  }
+  const splits: StockSplit[] = [];
+  for (const row of rows) {
+    const date = optionalString(row.date);
+    if (!date || !isCalendarDate(date)) {
+      continue;
+    }
+    const numerator =
+      typeof row.numerator === "number" ? row.numerator : Number(row.numerator);
+    const denominator =
+      typeof row.denominator === "number"
+        ? row.denominator
+        : Number(row.denominator);
+    const readable =
+      Number.isFinite(numerator) &&
+      Number.isFinite(denominator) &&
+      numerator > 0 &&
+      denominator > 0;
+    splits.push({
+      securityId,
+      date,
+      numerator: readable ? numerator : 0,
+      denominator: readable ? denominator : 1,
+      label: optionalString(row.splitType) ?? null,
+    });
+  }
+  return splits.sort((left, right) => left.date.localeCompare(right.date));
+}
+
+/** `YYYY-MM-DD` that names a real day, so `2023-02-31` is refused rather than rolled over. */
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+/**
+ * A security's split list, kept as its own port.
+ *
+ * Only the valuation ratios read it, and only when a Strategy names one, so the per-stock read path
+ * and its fakes stay as they are — exactly as the calendar and quote ports are split out.
+ */
+export type FmpStockSplitPort = {
+  getStockSplits(symbol: string, securityId: string): Promise<StockSplit[]>;
 };
 
 export type FmpStockProviderPort = {

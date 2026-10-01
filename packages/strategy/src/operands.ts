@@ -1,6 +1,7 @@
 import {
   findSelectableSeries,
   isFundamentalMetricId,
+  isValuationRatioId,
   RELATIVE_VOLUME_PERIODS,
   type FundamentalMetricId,
   type RelativeVolumePeriod,
@@ -12,6 +13,7 @@ import {
   type StrategySignal,
   type StrategyTrigger,
   type StrategyValue,
+  type ValuationRatioId,
 } from "@intrinsic/contracts";
 import { alternativeDataMetricOperand } from "./alternative-data.js";
 
@@ -115,6 +117,35 @@ export function operandFundamentalMetricId(
   return isFundamentalMetricId(metricId) ? metricId : null;
 }
 
+const VALUATION_PREFIX = "valuation:";
+
+/**
+ * One Valuation Ratio, projected when the frame is read (`docs/decisions/valuation-ratios-v1.md`).
+ *
+ * Its own key family: a ratio is neither a catalog series nor a stored field. It is keyed by the
+ * product catalog's stable identity — `valuation:PRICE_TO_EARNINGS_TTM` — and the projector computes
+ * its column from the security's statements, measured re-bases and split list; no stored column
+ * stands behind it.
+ */
+export function valuationRatioOperand(ratioId: ValuationRatioId): OperandKey {
+  return `${VALUATION_PREFIX}${ratioId}`;
+}
+
+/**
+ * The valuation ratio a key addresses, or null when it addresses something else — including a key in
+ * this family naming an identity the catalog does not define, so it is never projected as a ratio
+ * that happens to be unavailable.
+ */
+export function operandValuationRatioId(
+  key: OperandKey,
+): ValuationRatioId | null {
+  if (!key.startsWith(VALUATION_PREFIX)) {
+    return null;
+  }
+  const ratioId = key.slice(VALUATION_PREFIX.length);
+  return isValuationRatioId(ratioId) ? ratioId : null;
+}
+
 /**
  * Margin of Safety against one explicitly selected intrinsic-value source.
  *
@@ -153,6 +184,8 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
       return marginOfSafetyOperand(metric.sourceId);
     case "FUNDAMENTAL":
       return fundamentalMetricOperand(metric.metricId);
+    case "VALUATION_RATIO":
+      return valuationRatioOperand(metric.ratioId);
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
       // Addressed by their whole configuration, which `alternative-data.ts` owns, so the signature is

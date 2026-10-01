@@ -22,6 +22,7 @@ export * from "./prisma-store.js";
 export * from "./redis-client.js";
 export * from "./security-catalog.js";
 export * from "./share-basis.js";
+export * from "./valuation-ratios.js";
 export * from "./security-search.js";
 export * from "./service.js";
 export * from "./technicals.js";

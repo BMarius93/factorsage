@@ -18,6 +18,7 @@ import {
   mapFmpExchangeHolidays,
   mapFmpProfile,
   mapFmpQuotes,
+  mapFmpStockSplits,
   mapFmpStockUniverse,
   type FmpCurrentQuote,
   type FmpCurrentQuoteProviderPort,
@@ -36,6 +37,8 @@ import {
   type FmpBenchmarkProviderPort,
   type FmpSecurityCatalogPort,
   type FmpStockProviderPort,
+  type FmpStockSplitDto,
+  type FmpStockSplitPort,
   type FmpStockUniverseDto,
   type MappedFmpProfile,
   type MappedFmpSecurityListing,
@@ -154,7 +157,8 @@ export class FmpClient
     FmpCurrentQuoteProviderPort,
     FmpExchangeCalendarPort,
     FmpInsiderTradingPort,
-    FmpCongressTradingPort
+    FmpCongressTradingPort,
+    FmpStockSplitPort
 {
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
@@ -338,6 +342,14 @@ export class FmpClient
       { exchange: exchangeCode.trim().toUpperCase(), from, to },
     );
     return mapFmpExchangeHolidays(payload);
+  }
+
+  /** The provider's split list for one symbol: one request, the whole history and announced events. */
+  async getStockSplits(symbol: string, securityId: string) {
+    const payload = await this.request<FmpStockSplitDto[]>("splits", {
+      symbol: symbol.trim().toUpperCase(),
+    });
+    return mapFmpStockSplits(securityId, payload);
   }
 
   async getFinancialStatements(

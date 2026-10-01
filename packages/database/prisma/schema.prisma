@@ -361,6 +361,7 @@ model Security {
   congressTrades      CongressTrade[]
   priceBasis          SecurityPriceBasis?
   priceBasisEvents    PriceBasisEvent[]
+  stockSplits         StockSplit[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -626,6 +627,22 @@ model PriceBasisEvent {
   security      Security            @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@index([securityId, generation])
+}
+
+/// The provider's split list for one security (FMP `stable/splits`), replaced whole on every read.
+/// `numerator : denominator` is the share ratio and the factor the provider divides earlier closes
+/// by; `label` is the provider's own. Incomplete, and it lists announced events before their date:
+/// only the valuation ratios' price-basis rules read it (`docs/decisions/valuation-ratios-v1.md`).
+model StockSplit {
+  id          String   @id @default(uuid())
+  securityId  String
+  date        DateTime @db.Date
+  numerator   Decimal  @db.Decimal(24, 12)
+  denominator Decimal  @db.Decimal(24, 12)
+  label       String?
+  security    Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@index([securityId, date])
 }
 
 model WeeklyPrice {

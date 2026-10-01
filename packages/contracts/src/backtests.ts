@@ -1053,6 +1053,7 @@ export type BacktestRunSnapshot = {
     fundamentalsVariantVersion: number;
     benchmarkPriceDatasetVersion: number;
     priceBasisRevision: number;
+    valuationRatioRevision: number;
   };
 };
 

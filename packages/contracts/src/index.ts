@@ -169,6 +169,7 @@ export * from "./billing.js";
 export * from "./entitlements.js";
 export * from "./selectable-series.js";
 export * from "./fundamental-metrics.js";
+export * from "./valuation-ratios.js";
 export * from "./alternative-data.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";

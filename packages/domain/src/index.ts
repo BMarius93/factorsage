@@ -8,3 +8,4 @@ export * from "./security-universe.js";
 export * from "./stock-lists.js";
 export * from "./benchmarks.js";
 export * from "./alternative-data.js";
+export * from "./corporate-actions.js";

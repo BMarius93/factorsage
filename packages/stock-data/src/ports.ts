@@ -13,6 +13,7 @@ import type {
   SecurityWithLogo,
   StockDataset,
   StockDatasetState,
+  StockSplit,
 } from "@intrinsic/domain";
 import type { MappedFmpProfile } from "@intrinsic/fmp";
 import type {
@@ -271,6 +272,18 @@ export interface StockDataStore {
   getPriceBasis(securityId: string): Promise<SecurityPriceBasisState | null>;
   /** Every measured re-base of the security, in the order they were recorded. */
   getPriceBasisEvents(securityId: string): Promise<PriceBasisEvent[]>;
+  /** The provider's split list for the security as last stored, oldest first. */
+  getStockSplits(securityId: string): Promise<StockSplit[]>;
+  /**
+   * Replaces the security's stored split list with `splits`, the provider's whole current list, and
+   * records the read in the `STOCK_SPLIT` dataset state — in one transaction under the per-security
+   * write lock, so two readers never leave both lists behind.
+   */
+  replaceStockSplits(input: {
+    securityId: string;
+    splits: readonly StockSplit[];
+    syncedAt: string;
+  }): Promise<void>;
   /**
    * Records the first verification of a history that needed no replacement: generation 0, the
    * generation of a history never replaced, and `verifiedAt`. A security already verified keeps its

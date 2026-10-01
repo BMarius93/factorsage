@@ -31,6 +31,7 @@ import {
 import { calculateDailyTechnicals, type DailyMovingAverageSubset } from "./technicals.js";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 import { isSplitSizedMove } from "./price-basis.js";
+import type { ValuationTimeline } from "./valuation-ratios.js";
 import { isWeekend } from "./trading-calendar.js";
 
 /**
@@ -347,6 +348,12 @@ export function projectMonitorEvaluationFrame(input: {
    * reading from the same window rule as every closed one.
    */
   alternativeData?: ReadonlyMap<OperandKey, AlternativeDataFacts>;
+  /**
+   * The security's valuation inputs, when an operand is a valuation ratio. The provisional session
+   * reads the live quote as its close and the newest closed session's statements, the carry-forward
+   * rule every statement-derived value follows (`docs/decisions/valuation-ratios-v1.md`).
+   */
+  valuation?: ValuationTimeline;
 }): MonitorEvaluationFrame | null {
   const { security, operands, observation, observationDate } = input;
 
@@ -456,6 +463,7 @@ export function projectMonitorEvaluationFrame(input: {
     };
   });
 
+  const carriedFrom = newestClosed.date;
   const projection = projectEvaluationFrame({
     security,
     prices: rows,
@@ -464,6 +472,18 @@ export function projectMonitorEvaluationFrame(input: {
     periodStart: observationRow.date,
     ...(input.alternativeData
       ? { alternativeData: input.alternativeData }
+      : {}),
+    ...(input.valuation
+      ? {
+          valuation: {
+            timeline: input.valuation,
+            // Only a new session carries: a repriced closed day reads its own statements.
+            statementDateOf: (index: number) =>
+              index === rows.length - 1
+                ? carriedFrom
+                : (rows[index] as DailyPrice).date,
+          },
+        }
       : {}),
   });
 
