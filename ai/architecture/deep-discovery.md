@@ -698,6 +698,27 @@ tail re-read. Stored Margin of Safety examples:
 **Action.** Recorded here and in that decision. Valuation Ratios V1 is blocked on it. Margin of
 Safety is not changed.
 
+**Follow-up (2026-09-30).** `../../docs/decisions/historical-price-basis-v1.md` is the proposed
+design: two price bases, a basis-event ledger, re-base detection and atomic replacement. Its
+status is **Blocked** on an external as-traded reference. Its evidence
+(`../../docs/historical-price-basis/INVESTIGATION.md`) confirms the six securities by
+insider-range containment and finds no seventh among the 62.
+
+It adds two findings:
+
+- At the live edge the price basis is right (`Φ = 1`), but statement content can lag a
+  distribution. HON's Balanced Margin of Safety reads +14.3 % on 2026-09-24 because one stored
+  quarter includes the separation.
+- The provider scales volume by the same factor as price, so RVOL is affected too.
+
+**Follow-up (2026-10-01).** Valuation ratios no longer wait for a per-session basis.
+`../../docs/decisions/valuation-ratios-v1.md` now freezes a valuation anchor when a point-in-time
+statement becomes available and carries it by research-price returns, which cancel every later
+re-base. Forward values need only the re-base-safe loading of the price-basis design; `Φ` is
+needed only to reconstruct historical anchors, which stay blocked on the external reference. FMP's
+historical ratio endpoints were tested as anchors and rejected: they carry the same bias. Margin
+of Safety is unchanged.
+
 ---
 
 ## Things that looked suspicious but are correct

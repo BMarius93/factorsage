@@ -1,0 +1,10 @@
+symbol,quarterly_rows_with_price,stockPrice_equals_stored_research_close_at_nearest_session,horizon_rows,horizon_rows_priced_before_a_folded_distribution,example_period_end,example_price_session,distribution_factor_at_example,fmp_pe,pe_on_as_traded_close,fmp_ps,ps_on_as_traded_close,fmp_market_cap_bn,market_cap_on_as_traded_close_bn,bias_pct
+MMM,136,136,120,110,2023-12-31,2023-12-29,1.1963,13.44,16.08,8.447,10.105,50.7,60.7,-16.4
+WDC,136,136,119,113,2024-12-27,2024-12-27,1.3230,6.83,9.03,3.704,4.900,15.9,21.0,-24.4
+IBM,136,136,120,101,2021-09-30,2021-09-30,1.0460,26.35,27.57,8.992,9.406,119.2,124.6,-4.4
+MRK,136,136,120,99,2021-03-31,2021-03-31,1.0480,14.59,15.29,17.510,18.350,186.1,195.0,-4.6
+AXP,136,136,120,37,2005-06-30,2005-06-30,1.1326,14.34,16.24,9.617,10.892,57.9,65.6,-11.7
+HON,102,102,102,101,2025-06-30,2025-06-30,2.0210,11.70,23.64,7.088,14.325,73.4,148.3,-50.5
+AAPL,136,136,119,0,control,,,,,,,,,
+JNJ,136,136,119,0,control,,,,,,,,,
+KO,136,136,120,0,control,,,,,,,,,

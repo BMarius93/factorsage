@@ -1,0 +1,10 @@
+symbol,ex_date,event,distribution_factor_step,last_anchor_session_before,next_anchor_session,carried_sessions_from_ex_date,next_anchor_revisions,next_anchor_period_includes_ex_date,first_anchor_whose_period_includes_ex_date,sessions_from_next_anchor_to_that_anchor,first_anchor_whose_balance_sheet_includes_ex_date,sessions_from_next_anchor_to_that_anchor_balance_sheet
+IBM,2021-11-04,Kyndryl spin-off,1.046,2021-07-28,2021-11-08,2,"2021 Q3 (period end 2021-09-30, filed 2021-11-05)",no,2022-02-23,73,2022-02-23,73
+MRK,2021-06-03,Organon spin-off,1.048,2021-05-06,2021-08-10,47,"2021 Q2 (period end 2021-06-30, filed 2021-08-09)",yes,2021-08-10,0,2021-08-10,0
+MMM,2024-04-01,Solventum spin-off,1.1963,2024-02-08,2024-05-01,22,"2024 Q1 (period end 2024-03-31, filed 2024-04-30)",no,2024-07-29,60,2024-07-29,60
+WDC,2025-02-24,Sandisk spin-off,1.323,2025-02-03,2025-05-05,49,"2025 Q3 (period end 2025-03-28, filed 2025-05-02)",yes,2025-05-05,0,2025-08-15,71
+AXP,2005-10-03,Ameriprise spin-off,1.1326,2005-08-04,2005-11-10,28,"2005 Q3 (period end 2005-09-30, filed 2005-11-09)",no,2006-03-07,78,2006-03-07,78
+HON,2018-10-01,Garrett spin-off,1.049 for both 2018 spin-offs together,2018-07-23,2018-10-22,15,"2018 Q3 (period end 2018-09-30, filed 2018-10-19)",no,2019-02-11,75,2019-02-11,75
+HON,2018-10-29,Resideo spin-off,1.049 for both 2018 spin-offs together,2018-10-22,2019-02-11,70,"2018 Q4 (period end 2018-12-31, filed 2019-02-08)",yes,2019-02-11,0,2019-02-11,0
+HON,2025-10-30,Solstice spin-off,1.060,2025-10-24,2026-02-18,74,"2025 Q4 (period end 2025-12-31, filed 2026-02-17)",yes,2026-02-18,0,2026-02-18,0
+HON,2026-06-29,1-for-2 reverse split fused with Aerospace spin-off,1.906,2026-04-24,2026-07-24,18,"2026 Q2 (period end 2026-06-30, filed 2026-07-23)",yes,2026-07-24,0,2026-07-24,0

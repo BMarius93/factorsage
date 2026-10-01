@@ -1,0 +1,8 @@
+symbol,provider_event,captured_at,session,close,volume,note
+GPMT,1:10 reverse split ex 2026-10-06 (provider calendar),2026-09-30,2018-01-02,17.80,504334,anchor; after a 1:10 rebase expect 178.00 and volume 50433.4 or rounded
+GPMT,1:10 reverse split ex 2026-10-06 (provider calendar),2026-09-30,2026-09-29,0.8873,129000,last settled session before capture
+DXJ,3:1 split ex 2026-10-09 (provider calendar),2026-09-30,2016-01-04,48.99,7259803,anchor; after a 3:1 rebase expect 16.33
+DXJ,3:1 split ex 2026-10-09 (provider calendar),2026-09-30,2026-09-29,178.22,181709,last settled session before capture
+APH,2:1 split ex 2026-09-03 (already applied),2026-09-30,2026-09-02,80.04,25313252,pre-split row already halved in price and doubled in volume
+APH,2:1 split ex 2026-09-03 (already applied),2026-09-30,2026-09-03,82.07,10189410,first post-split session
+APH,2:1 split ex 2026-09-03 (already applied),2026-09-30,2016-01-04,6.36,12748000,anchor; one eighth of the as-traded level after the 2021 2024 and 2026 2:1 splits
