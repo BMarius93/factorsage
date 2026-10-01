@@ -4,6 +4,8 @@ Branch `design/historical-price-basis-v1`, cut from `main` at `79fa8509` (the me
 investigated on 2026-09-30. This is the evidence behind
 `docs/decisions/historical-price-basis-v1.md`. It starts from, and does not repeat,
 `docs/valuation-ratios-gate/INVESTIGATION.md` (the valuation gate, "the prior gate" below).
+Sections 8 and 9, added on 2026-10-01, are the evidence behind the valuation-ratio architecture in
+`docs/decisions/valuation-ratios-v1.md`.
 
 No product code was written. Every provider request was a read with the local key. Nothing the
 provider returned is committed in bulk: `evidence/` holds summaries, ratios and a handful of
@@ -69,6 +71,16 @@ quoted values.
   - EODHD's documented "as traded" close is reconstructed from adjusted prices.
   - The institutional databases (CRSP, Sharadar, Algoseek, Xignite) keep price and share factors
     apart, and need a commercial licence.
+- **FMP's historical ratios cannot be valuation anchors** (§8, 2026-10-01). They are computed
+  from the same research close and share counts, so they carry the same `Φ` bias; they are
+  rewritten after the fact, dated before their statements were public, and not FactorSage's
+  methodology.
+- **A valuation anchor frozen at its statement's availability and carried by research returns is
+  exact across every later re-base** (§9, 2026-10-01). It fails only when one carry mixes price
+  generations, when the provider changes data inside the carried window, or when the anchor's units
+  are inconsistent at creation. Across a folded spin-off it carries the combined company's value
+  until the next statement: 325 sessions in the six securities. That is now the valuation-ratio
+  architecture (`docs/decisions/valuation-ratios-v1.md`).
 
 ## Scope
 
@@ -77,7 +89,7 @@ quoted values.
 | Development database `intrinsic_value`         | 9,768 catalog securities; 64 with prices (368,857 rows, 1992-09-09 → 2026-09-25); 62 with statements (6,391 quarterly income identities); 363,049 derived rows of those 62; 63,499 priced `S`/`P` insider rows for 33 securities. |
 | Insider history fetched for this investigation | `insider-trading/search` for the 29 priced securities with no stored insider rows (122 pages). With the stored rows, 102,906 open-market trades on stored sessions in 62 securities.                                              |
 | Provider split lists                           | `stable/splits` for the 63 priced securities and for 270 further large caps (a 319-security sample above $50 B market capitalisation on NYSE and NASDAQ).                                                                         |
-| Provider probes                                | 500 FMP requests in all, listed under "Reproducing".                                                                                                                                                                              |
+| Provider probes                                | 500 FMP requests in all, and 44 more for §8 and §9.5 on 2026-10-01, listed under "Reproducing".                                                                                                                                   |
 | Independent series                             | Alpha Vantage `TIME_SERIES_DAILY` for IBM through its published `demo` key (6,768 sessions from 1999-11-01). EODHD's `demo` key for AAPL, AMZN and TSLA, through the research agent.                                              |
 | External documentation                         | Vendor documentation, pricing pages, licence terms and the CRSP, Compustat and Sharadar factor definitions; about 125 fetches by a research agent. No sign-up, no payment, no personal data.                                      |
 
@@ -540,6 +552,219 @@ decide the gate:
   `docs/legal/owner-inputs-and-review.md`. Its individual plans exclude display to end users.
   Every basis in the decision is built on FMP's prices.
 
+## 8. FMP's historical ratios as valuation anchors
+
+Investigated on 2026-10-01, after the decision was first written.
+
+**The question.** Could FMP's historical ratio, key-metric or enterprise-value rows serve as
+point-in-time valuation anchors, repriced daily by research returns, so that history needs no
+`Φ`?
+
+**The answer is no.** The probe made 40 FMP requests: `stable/ratios` (quarterly and annual),
+`stable/key-metrics` and `stable/enterprise-values` (quarterly) for MMM, WDC, IBM, MRK, AXP and
+HON, with AAPL, JNJ and KO as controls, plus `ratios-ttm` and `key-metrics-ttm` for MMM. The
+summary is `evidence/fmp-ratio-endpoints.csv`.
+
+### 8.1 What FMP computes
+
+Each formula was confirmed against FactorSage's own stored closes and statements:
+
+| Field                                           | What FMP computes                                                                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stockPrice`                                    | the stored research close at the session nearest the period date, ties going earlier: 136 of 136 rows for each security, 102 of 102 for HON |
+| `numberOfShares`                                | the stored basic weighted-average share count                                                                                               |
+| Market capitalisation                           | price × basic shares                                                                                                                        |
+| Enterprise value                                | market capitalisation + total debt − cash and equivalents                                                                                   |
+| `priceToEarningsRatio`                          | price ÷ (4 × one quarter's net income per share): one quarter annualised, not TTM                                                           |
+| `priceToSalesRatio`, `priceToFreeCashFlowRatio` | price ÷ one quarter's per-share figure, not annualised                                                                                      |
+| `priceToBookRatio`                              | price ÷ book value per share                                                                                                                |
+| `evToEBITDA`                                    | enterprise value ÷ one quarter's EBITDA                                                                                                     |
+| Annual rows                                     | TTM only at fiscal year ends                                                                                                                |
+
+- A row carries `date`, `fiscalYear` and `period` only: no filing or acceptance date, and no
+  revision identity.
+- Every security returns exactly 164 quarterly and 41 annual rows from 1985, which looks like a
+  fixed window. The TTM endpoints return only the current value, and `period=ttm` is ignored.
+
+### 8.2 Point in time
+
+- **Dated before publication.** Rows are dated at the period end. The statements behind them
+  became available 14 to 182 days later, 37 at the median, so a row read at its own date leaks
+  about five weeks of fundamentals. FactorSage's stored `availableFromDate` could re-date 1,076 of
+  the 1,077 horizon rows.
+- **Rewritten after the fact.** FMP recomputes rows from its current price basis and latest
+  statements. MMM's 2023 rows are priced on the post-Solventum basis, and AAPL's 1990s rows on the
+  post-2020-split basis. A stored row would change silently, so history could not be frozen at
+  first observation.
+- **Straddling an event.** MMM's Q1 2024 row is priced at the 2024-04-01 close, after Solventum,
+  against pre-spin earnings.
+
+### 8.3 The bias
+
+Every row priced before a folded distribution is low by exactly the measured `Φ`:
+
+| Security | Horizon rows before a folded distribution | Example period | FMP P/E | P/E on the as-traded close | FMP market cap | On the as-traded close | Bias    |
+| -------- | ----------------------------------------- | -------------- | ------- | -------------------------- | -------------- | ---------------------- | ------- |
+| MMM      | 110 of 120                                | 2023-12-31     | 13.44   | 16.08                      | 50.7 B         | 60.7 B                 | −16.4 % |
+| WDC      | 113 of 119                                | 2024-12-27     | 6.83    | 9.03                       | 15.9 B         | 21.0 B                 | −24.4 % |
+| IBM      | 101 of 120                                | 2021-09-30     | 26.35   | 27.57                      | 119.2 B        | 124.6 B                | −4.4 %  |
+| MRK      | 99 of 120                                 | 2021-03-31     | 14.59   | 15.29                      | 186.1 B        | 195.0 B                | −4.6 %  |
+| AXP      | 37 of 120                                 | 2005-06-30     | 14.34   | 16.24                      | 57.9 B         | 65.6 B                 | −11.7 % |
+| HON      | 101 of 102                                | 2025-06-30     | 11.70   | 23.64                      | 73.4 B         | 148.3 B                | −50.5 % |
+
+- The controls (AAPL, JNJ, KO) have no row before a folded distribution, and AAPL's market
+  capitalisation is continuous across its 2020 split.
+- IBM's rows were also checked against Alpha Vantage's independent raw close (§2.4): raw ÷ FMP's
+  price is 1.046 on all 83 rows before Kyndryl.
+
+### 8.4 Why repricing cannot remove the bias
+
+```text
+PE_t = PE_anchor × P_t ÷ P_anchor = P_t × (shares ÷ earnings, as FMP used them)
+```
+
+- A repriced anchor is today's research close times FMP's per-share denominator. It would remove
+  `Φ` only if FMP had priced its anchor differently from the research close, and it never does
+  (§8.1).
+- Repricing P/S, P/B and P/FCF is pure arithmetic: a repriced anchor equals FMP's next anchor up
+  to the change in its denominator.
+- EV/EBITDA does not reprice by price. Across 1,355 consecutive anchor pairs in the nine
+  securities, price-only repricing differs from repricing the market capitalisation with net debt
+  held by 0.72 % at the median, 6.24 % at the 90th percentile, 23.5 % at the 99th and 72.5 % at
+  most.
+
+### 8.5 Verdict
+
+No-go, for six independent reasons:
+
+- the rows are rebuilt from FactorSage's own price, share count and statements (§8.1);
+- they carry the `Φ` bias (§8.3), confirmed for IBM by an independent series;
+- they are rewritten after the fact (§8.2);
+- they are not FactorSage's methodology: one quarter annualised, basic shares;
+- they carry no publication date, and read at their own date they leak fundamentals;
+- two accepted decisions already forbid them as product truth
+  (`fundamental-metrics-storage-and-evaluation.md`, `fundamental-metrics-v1.md`).
+
+One part of the idea survives: a ratio anchor computed from FactorSage's own statements, frozen
+when its statement becomes available, and carried by research returns (§9).
+
+## 9. Frozen valuation anchors carried by research returns
+
+Investigated on 2026-10-01. The tests use stored data and the Alpha Vantage IBM series already
+fetched (§2.4). Only §9.5 made provider requests: four.
+
+### 9.1 The identity
+
+For a ratio `MC ÷ X`, with `X` a TTM flow or a balance-sheet value frozen between anchors, and both
+closes read from one generation `g`:
+
+```text
+MC_t = MC_a × P^g(t) ÷ P^g(a)
+
+P^g(t) ÷ P^g(a) = (asTraded(t) ÷ asTraded(a)) × Π k_e     over the events e in (a, t] that g folds in
+```
+
+`k_e` is event `e`'s price ratio, the as-traded close before it over the equivalent close after
+it.
+
+- **Why.** Generation `g` divides every row before a folded event's ex-date by `k_e`. For an event
+  after `t`, both closes are divided and the ratio cancels. For one before `a`, neither is. For one
+  in `(a, t]`, only `P^g(a)` is, which multiplies the return by `k_e`.
+- **A split in `(a, t]`:** `k_e` is the split ratio, and the anchor's share count times it is the
+  post-split count. The carried market capitalisation is the actual one.
+- **A folded distribution in `(a, t]`:** `k_e` is `φ`. The carried value is the actual market
+  capitalisation × `φ`: the combined company's value.
+- **A rewrite for any event outside `(a, t]`** cancels. So does any number of them.
+
+### 9.2 Tests on IBM
+
+- **Invariance.** IBM from 2016 to 2020: 20 anchors and 1,223 sessions, each anchor built from
+  Alpha Vantage's as-traded close. Simulated provider rewrites with ex-dates after the window (a
+  3:1 split, a 1-for-2 reverse split, a spin-off with `φ = 1.3`, and a split followed by a
+  spin-off) and one before it (a spin-off) change no carried P/E or EV/EBITDA by more than
+  6.7e-16.
+- **Two generations break it.** A simulated 3:1 re-base on 2019-06-03, stored only from a ten-day
+  tail (2019-05-24), leaves 46 sessions wrong by exactly the event factor, from the tail's start to
+  the next anchor. That is B2 for carried values, and PR 1 prevents it.
+- **The identity fails in three ways, each addressed by the decision:**
+  1. **Two generations in one carry:** an ex-date row published before the rewrite, a tail-only
+     refresh, a prefix widening, a Redis read across a republish, or a stored anchor close divided
+     into a later generation's price.
+  2. **The provider changes data inside `(a, t]`:** a corrected row at `a` or `t`, a changed or
+     added event factor, or a newly folded distribution.
+  3. **An anchor built with inconsistent units:** a split between the statement's filing and the
+     anchor session, a restatement before an ex-date, or an anchor first observed after a split.
+
+### 9.3 Distributions
+
+Anchors were built from as-traded closes (Alpha Vantage for IBM, the measured factors elsewhere)
+and carried by stored research returns. Carried ÷ actual as-traded market capitalisation is
+1.0000 on every window without an event (IBM, AAPL, MMM, HON and KO), 1.0000 across AAPL's 4:1
+split of 2020, and the distribution factor inside each distribution window
+(`evidence/anchor-carry-windows.csv`):
+
+| Security | Ex-date    | Event                        | `φ`                | Next anchor | Carried sessions | Its quarter includes the ex-date | Sessions until one does |
+| -------- | ---------- | ---------------------------- | ------------------ | ----------- | ---------------- | -------------------------------- | ----------------------- |
+| IBM      | 2021-11-04 | Kyndryl                      | 1.046              | 2021-11-08  | 2                | no (Q3 2021)                     | 73                      |
+| MRK      | 2021-06-03 | Organon                      | 1.048              | 2021-08-10  | 47               | yes                              | 0                       |
+| MMM      | 2024-04-01 | Solventum                    | 1.1963             | 2024-05-01  | 22               | no (Q1 2024)                     | 60                      |
+| WDC      | 2025-02-24 | Sandisk                      | 1.323              | 2025-05-05  | 49               | yes                              | 0                       |
+| AXP      | 2005-10-03 | Ameriprise                   | 1.1326             | 2005-11-10  | 28               | no (Q3 2005)                     | 78                      |
+| HON      | 2018-10-01 | Garrett                      | 1.049 with Resideo | 2018-10-22  | 15               | no (Q3 2018)                     | 75                      |
+| HON      | 2018-10-29 | Resideo                      | 1.049 with Garrett | 2019-02-11  | 70               | yes                              | 0                       |
+| HON      | 2025-10-30 | Solstice                     | 1.060              | 2026-02-18  | 74               | yes                              | 0                       |
+| HON      | 2026-06-29 | reverse split with Aerospace | 1.906              | 2026-07-24  | 18               | yes                              | 0                       |
+
+- **Anchors here are every stored quarterly revision's first session on or after its
+  `availableFromDate`.** Each next anchor above is a new quarter's filing, which always changes an
+  input, so the windows are those the decision's rules give.
+- **325 sessions are carried in all**, 2 to 74 per step. The 2026-09-30 candidate's per-session
+  bias touched 35,234.
+- **HON's two 2018 spin-offs are measured together** (1.049). The stored close moves by +1.12 % on
+  2018-10-01 and −0.32 % on 2018-10-29, so each is folded at its own date.
+- **The statement-content lag survives.** In four steps the next anchor's statement covers a
+  quarter that ended before the ex-date. That anchor pairs the post-distribution market
+  capitalisation with combined-company statements for 60 to 78 sessions, until a statement whose
+  quarter includes the ex-date. A per-session reading has the same mismatch from the ex-date on;
+  the carried reading removes the carried sessions from it.
+
+### 9.4 EV/EBITDA
+
+Net debt is a dollar amount, so the enterprise value cannot be carried as one price-proportional
+quantity.
+
+- On IBM from 2001 to 2026 (6,421 sessions, anchors from Alpha Vantage's as-traded closes),
+  carrying the whole ratio by price differs from a direct computation by 0.50 % at the median and
+  by up to 13.3 %.
+- Carrying the components, the market capitalisation by price and net debt in dollars, differs by
+  0.001 % at the median and by at most 0.90 %, outside the two Kyndryl sessions. The residual is
+  the disagreement between Alpha Vantage's close and the stored one (§2.4).
+- Between FMP's quarterly anchors the whole-ratio error reaches 72.5 % (§8.4).
+
+### 9.5 Units and currency at an anchor
+
+- **Currencies in the store.** All 62 securities with statements report in USD, their trading
+  currency. All 9,768 catalog securities are quoted in USD, and 2,091 of them have a non-US
+  country of incorporation, so their statement currency is unknown until they are loaded.
+- **Two depositary receipts** (four FMP requests, `income-statement` and `profile`):
+
+  | Security | `reportedCurrency` | Latest quarterly `weightedAverageShsOutDil` | Price × that count ÷ FMP's market cap |
+  | -------- | ------------------ | ------------------------------------------- | ------------------------------------- |
+  | HSBC     | USD                | 3,458.6 M                                   | 1.006                                 |
+  | TSM      | TWD                | 5,186.4 M                                   | 1.000                                 |
+  - Both counts are in depositary units (one ADS represents five ordinary shares in both cases),
+    so price × diluted shares is in consistent units for these two.
+  - TSM's statements are in TWD against a USD price, so a ratio would be off by the exchange rate
+    without a currency rule.
+  - The catalog's `isAdr` flag marks only ARM, not HSBC or TSM, so it cannot select depositary
+    receipts.
+
+### 9.6 Storage
+
+One anchor row per input-changing revision is about four per security-year: about 120 rows and
+30 KB for a 30-year security. Four per-session columns would add about 0.47 MB of Redis per
+security (`retain-wide-column-calculated-series-storage.md`).
+
 ## Reproducing
 
 The probes were one-off scripts, kept out of the repository as the prior gate's were. What they
@@ -590,3 +815,25 @@ did, precisely enough to redo:
   Plus one Alpha Vantage demo request (IBM `TIME_SERIES_DAILY`, `outputsize=full`) and one
   refused SEC request. The clean-room review made 7 further FMP requests (HON as-reported
   statements, WDC insider pages) and one Alpha Vantage demo request of its own.
+
+- **§8 (2026-10-01):** 40 FMP requests. For each of MMM, WDC, IBM, MRK, AXP, HON, AAPL, JNJ and
+  KO: `stable/ratios` with `period=quarter` and `period=annual`, `stable/key-metrics` and
+  `stable/enterprise-values` with `period=quarter`, all with `limit=1000`. For MMM also
+  `stable/ratios-ttm`, `stable/key-metrics-ttm`, `stable/ratios?period=ttm` and
+  `stable/key-metrics-ttm?limit=20`.
+  - A row's price session is the stored session nearest its `date`, ties going earlier.
+  - A row is before a folded distribution when that session precedes one of the measured steps
+    listed above for Margin of Safety.
+  - The EV/EBITDA comparison holds each anchor's net debt (enterprise value − market cap) and
+    EBITDA (enterprise value ÷ `evToEBITDA`) and moves the market cap by the next anchor's price.
+- **§9 (2026-10-01):** no FMP requests except the four of §9.5 (`income-statement` with
+  `period=quarter` and `profile`, for HSBC and TSM).
+  - An anchor is every stored quarterly revision's first session on or after its
+    `availableFromDate`, with net income and EBITDA summed over the latest four Income quarters,
+    diluted shares from the latest one and net debt from the latest Balance Sheet.
+  - The anchor's market cap is the as-traded close (Alpha Vantage for IBM from 2001, otherwise the
+    stored close × the measured steps after the session) × the diluted count in the session's
+    units.
+  - A simulated re-base divides every stored close before its ex-date by its factor.
+  - The windows of §9.3 count stored sessions from the ex-date to the next anchor, and from it to
+    the first anchor whose quarter's period end is on or after the ex-date.
