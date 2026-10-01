@@ -2,7 +2,8 @@
 
 ## Status
 
-**Blocked.** The design below is proposed. None of it is accepted, and nothing is implemented.
+**Proposed, and blocked for history.** The design below is proposed. None of it is accepted, and
+nothing is implemented.
 
 - **The gate failed on the external data** (see "Gate result").
   - FactorSage cannot measure the price-only adjustments in history without an as-traded
@@ -26,15 +27,23 @@
   - PR 1 still waits for one observation: whether the provider publishes an ex-date row before it
     rewrites the older ones (O-1, GPMT on 2026-10-06).
   - PR 2 waits for the restatement-timing measurement (O-2).
-  - The historical basis, the Margin of Safety correction and the valuation ratios wait for the
-    data decision.
+  - The historical basis and the Margin of Safety correction wait for the data decision.
 
+- **Valuation ratios no longer use this design's per-session basis** (revised 2026-10-01).
+  `valuation-ratios-v1.md` makes frozen anchors carried by research-price returns their canonical
+  architecture.
+  - Forward valuation needs PR 1, with two additions that decision requires: `observedSince` and
+    a generation bump on every correction (section 9, "Data model").
+  - Historical valuation needs `Φ` at anchor sessions only, so it waits for the data decision.
+  - Section 14 lists what each part needs.
 - **The Margin of Safety correction specified here covers B1 only.** Statements that still
   describe a company as it was before a distribution are a second defect, open (section 13).
+  Margin of Safety keeps the per-session design; the anchor simplification does not apply to it.
 
 This decision builds on the documents below and does not reinterpret them:
 
-- `valuation-ratios-v1.md`, which is blocked on this prerequisite;
+- `valuation-ratios-v1.md`, the valuation-ratio architecture, which uses this decision's prices,
+  generations and ledger;
 - `complete-price-coverage.md`, for what a price coverage interval means and how it is
   revisioned;
 - `intrinsic-value-engine.md` and `fundamentals-loader.md`, for share counts and statement
@@ -52,7 +61,8 @@ FactorSage stores one daily price per session: FMP's adjusted close from
 - the chart, the indicators and the backtest engine;
 - Margin of Safety, which compares it with per-share intrinsic values built from statement
   share counts;
-- the four valuation ratios, which are blocked on it.
+- the planned valuation ratios, whose market capitalisation is anchored and carried on it
+  (`valuation-ratios-v1.md`).
 
 The valuation gate established nine facts, and this investigation re-measured them with a
 stronger test:
@@ -133,6 +143,13 @@ price" or "corrected price".
 - **Share basis.** The latest point-in-time quarterly `weightedAverageShsOutDil`, in current
   research share units: restated by the provider for every share-changing action known to it.
 - **Re-base.** The provider rewriting a security's history for a new basis event.
+- **Observed since**, `observedSince`. Per security, the newest settled session stored when PR 1
+  creates the security's basis row. PR 1 detects and measures every basis event after it, so the
+  ledger is complete from it on. Before it, only an external reference can measure events.
+- **Valuation anchor.** A market capitalisation and a set of ratio denominators, frozen at the
+  first settled session on or after a statement revision's `availableFromDate` and carried by
+  research-price returns until the next valuation anchor (`valuation-ratios-v1.md`). It is not
+  the session anchor of section 7, the earliest stored row that PR 1 re-reads once per session.
 
 ## Current semantics
 
@@ -185,7 +202,7 @@ series derived from them.
 | Intrinsic values (DCF, RI, DDM, Graham, blends)                             | statements: restated shares, EPS, dividends per share | current research share units                                                                                                | split-adjusted share units                                                                                                                                                                                                                    | unit conversion for a revision observed before a later share-changing event     |
 | Margin of Safety: frame, Stock Details, backtests, Monitors                 | IV against `close`                                    | IV in share units; the close carries `Φ`                                                                                    | **split-adjusted**                                                                                                                                                                                                                            | **yes**                                                                         |
 | Price compared with an intrinsic value; IV overlays on the chart            | frame `close` against IV; chart overlays              | as Margin of Safety                                                                                                         | **split-adjusted**, or IV ÷ `Φ` on the research scale                                                                                                                                                                                         | **yes**                                                                         |
-| P/E, P/S, P/FCF, EV/EBITDA (planned)                                        | —                                                     | —                                                                                                                           | **split-adjusted** close × share basis                                                                                                                                                                                                        | blocked                                                                         |
+| P/E, P/S, P/B, P/FCF, EV/EBITDA (planned)                                   | —                                                     | —                                                                                                                           | **a valuation anchor**: as-traded close × diluted shares at the anchor session (split-adjusted close × share basis for a historical anchor), carried by research returns                                                                      | `valuation-ratios-v1.md`: PR 2V forward, PR 3V historical                       |
 | EPS growth TTM YoY (a fundamental metric)                                   | restated EPS                                          | share units, consistent within one vintage                                                                                  | split-adjusted share units                                                                                                                                                                                                                    | unit conversion across a later share-changing event                             |
 | Stock Details "price vs value" chips                                        | the latest close against the latest IV                | price basis right today, since `Φ(today) = 1`                                                                               | split-adjusted, which equals research today                                                                                                                                                                                                   | none for the price basis. Statement content can lag a distribution (section 13) |
 | Monitor observation, Signal price, `lifecycleSincePrice` (as stored)        | live quote, or the research close at reconstruction   | as-traded when live; research when reconstructed                                                                            | **as-traded**: a record of what was observed                                                                                                                                                                                                  | none for the stored record; do not compare it with later research prices        |
@@ -196,9 +213,12 @@ series derived from them.
 | Any future comparison of a price with an absolute number ("price above $5") | —                                                     | —                                                                                                                           | **as-traded**: the research level embeds later actions                                                                                                                                                                                        | a rule, below                                                                   |
 
 **No single stored column serves every consumer.** The research close is right for the chart,
-the indicators and the engine. The split-adjusted close is right for every comparison with a
-share count or per-share figure. The as-traded close is needed only to measure `Φ` and for
-absolute price levels, which no consumer compares today.
+the indicators and the engine. The split-adjusted close is right for every per-session comparison
+with a share count or per-share figure. A valuation ratio avoids the per-session comparison: its
+market capitalisation is fixed once at an anchor and then moves with research returns. An
+external as-traded close is needed only to measure `Φ` in history and for absolute price levels,
+which no consumer compares today. A forward anchor's as-traded close is the research close at its
+session, times the ledger's measured price ratios when the anchor is created late.
 
 ## Decision
 
@@ -209,13 +229,18 @@ absolute price levels, which no consumer compares today.
   engine and the benchmark.
 - **RVOL moves to split-adjusted volume** (research volume ÷ `Φ`). The provider scales volume by
   the same factor as price, distributions included.
-- **Every comparison of a price with a share count or a per-share figure uses the split-adjusted
-  basis:**
+- **Every per-session comparison of a price with a share count or a per-share figure uses the
+  split-adjusted basis:**
   - Margin of Safety is `(IV − researchClose × Φ) ÷ IV`.
   - A price compared with an intrinsic value, and an intrinsic-value overlay on the chart, use
     `IV ÷ Φ` on the research scale. The price series then stays continuous, and the comparison
     equals the one on the split-adjusted scale.
-  - A market capitalisation is `researchClose × Φ × shareBasis`.
+- **A valuation ratio's market capitalisation is anchored, not converted per session**
+  (`valuation-ratios-v1.md`).
+  - It is fixed at each valuation anchor: as-traded close × diluted shares forward, and
+    `researchClose × Φ × shareBasis` at a historical anchor session.
+  - Between anchors it moves with research returns, within one generation. The ratio of two
+    research closes cancels every later re-base, so no session needs `Φ`.
 - **`Φ` is kept as a per-security basis-event ledger, not as a per-session column.**
   - `A` is piecewise constant. IBM's independent series shows one step in 22 years and matches
     the stored close within cent rounding on 98.7 % of 6,450 sessions; the exceptions are vendor
@@ -229,8 +254,10 @@ absolute price levels, which no consumer compares today.
   its literal form, and kept in substance.**
   - The provider's share counts are restated, so an as-traded close times a stored share count
     is wrong by `G`: AAPL 2019 ×4, AAPL 2013 ×28.
-  - Valuation needs the split-adjusted close, which pairs with the stored share basis. The
-    as-traded close is what `Φ` is measured from.
+  - A per-session comparison needs the split-adjusted close, which pairs with the stored share
+    basis. The as-traded close is what `Φ` is measured from.
+  - A forward valuation anchor does use the as-traded close, with the share count as filed:
+    created on time, nothing separates the two, so `G` is 1 between them.
 
 ### 2. Backtests keep the research close
 
@@ -270,7 +297,7 @@ absolute price levels, which no consumer compares today.
     - The spin-offs give about 1.
     - The prior gate's as-reported probe gave ×4, ×10, ×20 and ×28 across splits.
   - Its single-quarter anomalies (B3, 593 sessions) stay provider data, as Margin of Safety
-    already treats them. Valuation ratios decide for themselves.
+    already treats them. Valuation ratios decide for themselves (`valuation-ratios-v1.md`, U4).
   - As-filed counts are not a product input: 233 of 2,033 are defective.
 - **Unit conversion changes units, never information.**
   - A revision whose units are older than the current price basis has its per-share fields
@@ -278,6 +305,11 @@ absolute price levels, which no consumer compares today.
   - It keeps its `availableFromDate`.
   - Without conversion, a re-based history pairs new-unit prices with old-unit statements on
     every session before the event. That is B2's statement half.
+  - **Who needs it.** Every per-session comparison: Margin of Safety, the price-to-value
+    comparisons and EPS growth across a split. Valuation ratios need it in two cases only
+    (`valuation-ratios-v1.md`): a historical anchor whose revision was observed before a later
+    share-changing event, and a late forward anchor whose share units that decision's rule 6
+    cannot establish as filed. A forward anchor created on time never needs it.
 - **A revision's units are measured, never assumed from its observation date.** The provider may
   restate before an ex-date as well as after it (O-2), and an assumption would convert twice.
   - **On every detected share-changing event, the whole statement history is re-read.**
@@ -332,6 +364,11 @@ The three options differ in when later corporate-action knowledge enters a histo
 
 Under C:
 
+- **Valuation ratios read a fourth way**, defined in `valuation-ratios-v1.md`: a market
+  capitalisation frozen at each point-in-time statement event and carried by research returns.
+  Between a folded distribution and the next statement it deliberately carries the combined
+  company's value, because the only statements available still describe the combined company.
+
 - **The research basis is retrospective.** It may be used only where scale cancels: returns,
   ratios, and comparisons with series derived from the same research prices.
 - **The split-adjusted basis is retrospective for share-changing actions only.** Every quantity
@@ -357,6 +394,9 @@ Under C:
   or an unpaired revision is unavailable because of something that happened after it. The mask
   withholds a value; it never shows a wrong one. It is recorded as a bias, and it is stamped as
   an interpretation (section 11).
+  - These masks apply to values that take `Φ` per session. A carried valuation ratio is not
+    masked by a later event: its anchor is already frozen. Only an anchor whose own creation
+    needs the event's units waits (`valuation-ratios-v1.md`, rule 8).
 - **The as-traded basis** is strict point in time. It is needed only for absolute levels (the
   rule in section 2).
 - **Information and units are separate questions.**
@@ -387,7 +427,9 @@ Under C:
   - one entry (DIS 2007) whose presence in the prices cannot be established;
   - a combined event labelled as a spin-off whose share half the statements did restate.
 - **An event not yet classified makes share-derived values before its ex-date `NOT_EVALUABLE`.**
-  It never makes them guessed.
+  It never makes them guessed. "Share-derived" here means a value that takes `Φ` per session:
+  Margin of Safety and the price-to-value comparisons. Carried valuation ratios need no
+  classification (section 4).
 
 ### 6. The historical basis needs an external as-traded reference
 
@@ -444,8 +486,8 @@ This is the blocker.
   The runtime never depends on the vendor: the ledger is FactorSage's.
 
 - **What the licence must allow.** Three things, and one to avoid:
-  - Displaying values derived from its prices to paying users: Margin of Safety, the four
-    ratios, their charts and Strategy results.
+  - Displaying values derived from its prices to paying users: Margin of Safety, the historical
+    valuation anchors and every value carried from them, their charts and Strategy results.
   - Storing its data internally for measurement and audit. That includes vendor values kept in
     a ledger event's `evidence`.
   - Reconstructing and showing an as-traded price (`researchClose × A`) reproduces the vendor's
@@ -459,7 +501,9 @@ This is the blocker.
   This decision does not resolve it. It records the dependency.
 
 - **Until such a source is chosen and validated, `Φ` is unknown for history.** Margin of Safety
-  stays as it is (section 13), and valuation ratios stay blocked.
+  stays as it is (section 13). Valuation ratios have no value before each security's first
+  forward anchor, which is on or after its `observedSince`. Their forward values do not need the
+  source (`valuation-ratios-v1.md`).
 
 ### 7. Detecting a re-base
 
@@ -492,7 +536,8 @@ This is the blocker.
   2. **What holds the save.** Any change to two or more settled rows, whatever the ratios, and
      any change to the anchor or its absence from the provider's answer. The save is held and the
      full comparison runs (section 8). The ratios only classify what the comparison finds. A
-     single changed settled row takes today's correction path.
+     single changed settled row takes today's correction path, which now also bumps the basis
+     generation and reports the corrected session (section 9).
   3. **Per-row tolerance.** `|new − r × old| ≤ ½u(new) + r × ½u(old)`, with `u` = 0.01 at or
      above $1 and 0.0001 below. It is a floor, not the provider's last decimal: stored rows carry
      up to eight decimals, and 6,863 rows at or above $1 have more than two (ADBE, BA, AMD, AAL).
@@ -550,7 +595,10 @@ This is the blocker.
   - the change is recorded as `UNEXPLAINED`;
   - the history is still replaced, because the provider is the authority for the research
     series;
-  - share-derived values before the earliest changed row are `NOT_EVALUABLE` until measured.
+  - share-derived values before the earliest changed row are `NOT_EVALUABLE` until measured;
+  - a carried valuation ratio follows the replaced research series like any price-derived value.
+    Only a late valuation anchor whose session precedes the change waits, because the change has
+    no single price ratio (`valuation-ratios-v1.md`, rule 5).
 - **Classification.** Every event starts as pending and is classified by section 5. A
   share-changing or combined event also starts the full statement re-read of section 3.
 
@@ -568,10 +616,14 @@ This is the blocker.
   - This is about 8,600 price rows, 8,600 derived rows and 1,800 weekly rows, the size of a cold
     hydration's writes. PostgreSQL never commits an old early history beside a new late one.
 - **Two counters, because two things change what a consumer reads.**
-  - The **basis generation** changes when the research history is replaced.
+  - The **basis generation** changes when the research history is replaced, and on every
+    correction of a settled stored row, one row included (added 2026-10-01). Without the second
+    trigger a run could read a corrected close in one window and the old one in another, and a
+    corrected valuation-anchor close would silently change up to a quarter of carried values.
   - The **ledger version** changes on any ledger insert, classification or unit conversion.
     Those change `Φ`, a statement's units or a `NOT_EVALUABLE` mask without touching a price.
-  - Every pin below pins both.
+  - Every pin below pins both. Valuation ratios add a third, the per-security anchor version
+    (`valuation-ratios-v1.md`, "Deterministic backtests").
 - **Redis.** The replacement is published as a new hydration generation, using the existing
   `HYDRATING` → `READY` swap.
   - The manifest carries both counters.
@@ -586,7 +638,8 @@ This is the blocker.
     mixed frame would be permanent.
 - **Backtest.**
   - `PREPARING_DATA` records each security's pair of counters in the run's snapshot, and every
-    window read checks both.
+    window read checks both. A run that reads a valuation ratio also records each security's
+    valuation anchor version and reads no anchor above it (`valuation-ratios-v1.md`).
   - A mismatch fails the run with a retryable "market data changed during the run" reason. The
     alternative would be a held position jumping by a split ratio between two years, or Margin
     of Safety changing meaning between two windows.
@@ -617,6 +670,9 @@ This is the blocker.
     overlay. It is never stored per row.
   - RVOL is materialized from volume, so a change to `Φ` (a new ledger version) rebuilds RVOL
     from the earliest affected session.
+  - Valuation ratios never take it per session. It enters once, when a historical valuation
+    anchor is built, and nothing is rebuilt for valuation after a re-base
+    (`valuation-ratios-v1.md`).
 - **Redis:** every year is republished under the new generation.
 
 ### 11. Reproducibility
@@ -641,6 +697,11 @@ This is the blocker.
   it. A queued run is then refused rather than executed under a new rule with an old stamp.
   PR 2 also bumps `DERIVED_STATE_REVISION` (section 3).
 
+- **Valuation ratios version themselves** (`valuation-ratios-v1.md`): PR 2V adds a
+  `valuationMethodologyRevision` to `BACKTEST_DATA_REVISIONS`, and a run pins each security's
+  anchor version. New anchors, restatements and re-backfills are appended rows, so a pinned run
+  never sees them.
+
 ### 12. Benchmark, weekly prices and Stock Details
 
 - **Benchmark.** It stays on the research basis. SPY has had no share-changing action, and the
@@ -653,9 +714,10 @@ This is the blocker.
   - Intrinsic-value overlays are drawn at `IV ÷ Φ`, so the gap between the lines is the true
     one. That line is in research dollars, not the intrinsic value per share on that date, and
     its tooltip says so.
-  - Valuation series get their own pane.
-  - No second price line in V1. A tooltip or footnote says that valuations use prices adjusted
-    for share splits only.
+  - Valuation ratios get their own pane, drawn as daily lines. A footnote states the carried
+    reading: between statements a ratio moves with the chart's price, and across a spin-off it
+    keeps describing the combined company until the next statement (`valuation-ratios-v1.md`).
+  - No second price line in V1.
   - An "as traded" view is derivable from the ledger (`researchClose × A`). It would reproduce
     the reference vendor's prices, so it needs that vendor's display rights (section 6).
 - **Signals keep the price they were observed at.** After a later action that price no longer
@@ -665,6 +727,10 @@ This is the blocker.
 
 Margin of Safety has **two** defects around distributions. This decision specifies the fix for the
 first only.
+
+The valuation-anchor simplification of `valuation-ratios-v1.md` does not apply here, by the owner's
+decision of 2026-10-01: Margin of Safety keeps the per-session basis, classification, unit
+conversion and masks specified below.
 
 - **B1, the price basis (historical).**
   - Every intrinsic value is a per-share figure in current share units. The comparison uses a
@@ -727,31 +793,37 @@ first only.
 
   Intrinsic values themselves need no share normalisation for B1.
 
-### 14. What unblocks valuation ratios
+### 14. What valuation ratios need from this decision
 
-**Required:**
+Revised on 2026-10-01. `valuation-ratios-v1.md` is the valuation architecture: frozen anchors
+carried by research returns. This section lists only what it takes from here.
 
-1. `Φ` measured for the product horizon of each security, or the session marked unavailable.
-   This is the external reference (section 6).
-2. Re-base detection, the ex-date hold and atomic replacement (sections 7–9), so no future event
-   mixes bases.
-3. Statement unit conversion with the full statement re-read (section 3), so no future split
-   mixes units.
-4. The ratios' own methodology: windows, currency, recast statements around spin-offs, statement
-   content after a distribution (section 13), and the B3 decision. This is
-   `valuation-ratios-v1.md`'s follow-up.
+**Forward valuation (PR 2V) requires:**
 
-**Not required:**
+1. Re-base detection, the ex-date hold and atomic replacement (sections 7–9). The carry is exact
+   only within one generation, so no future event may mix bases.
+2. Two additions to PR 1: `observedSince`, from which the ledger is complete, and a generation
+   bump on every correction of a settled row (section 9).
+3. The ledger's measured price ratios, read only to price a late anchor.
 
-- a displayed as-traded price;
-- an as-traded weekly series;
-- per-session factor columns;
-- a total-return methodology;
-- SEC share data.
+**Historical valuation (PR 3V) requires, in addition:**
 
-**A narrower alternative, not recommended.** Ratios only on sessions whose `Φ` is proven by the
-forward ledger, meaning after the first anchor-verified session. That gives no history, so no
-backtest could use them.
+1. `Φ` measured at each historical anchor session, or that anchor unavailable. This is the
+   external reference (section 6) and PR 3's ledger.
+2. Measured unit evidence (section 3, PR 2) for a revision observed before a later
+   share-changing event.
+
+**Not required for valuation:**
+
+- `Φ` on any session other than a historical anchor's;
+- classification of a future event, or unit conversion, for an anchor created on time;
+- a valuation rebuild or mask after a future corporate action;
+- per-session valuation storage;
+- a displayed as-traded price, an as-traded weekly series, per-session factor columns, a
+  total-return methodology or SEC share data.
+
+The previous "narrower alternative" (ratios only where the forward ledger proves `Φ`) is
+superseded: forward anchors need no `Φ` at all, and the historical backfill gives them a history.
 
 ## Data model
 
@@ -778,13 +850,19 @@ option 2's shape, used for measurement and audit only.
   - Append-only; a correction is a new row.
 - **`SecurityPriceBasis`:** one row per security, with:
   - `generation` and `ledgerVersion`;
-  - `anchorDate` and `anchorClose`;
+  - `anchorDate` and `anchorClose`: the session anchor of section 7;
   - `verifiedThrough` and `verifiedAt`;
   - `lastFullComparisonAt`;
   - `holdFrom` (the ex-date hold, section 7) and `holdReason`;
+  - `observedSince` (added 2026-10-01): the newest settled session stored when the row is
+    created, never changed afterwards. The ledger is complete from it on, and it is the boundary
+    between forward and historical valuation anchors. PR 1 sets it because no later change can
+    reconstruct it.
   - `measuredFrom`: the earliest session whose `Φ` is measured. Before it, share-derived values
-    are unavailable.
+    are unavailable. It concerns history (PR 3); `observedSince` concerns forward detection.
   - `referenceSource`.
+- **`ValuationAnchor`** is specified in `valuation-ratios-v1.md`, "Anchor persistence": one
+  append-only row per security and anchor observation.
 - **The Redis manifest** gains both counters. The benchmark cache gains the equivalent (section
   9). The few ledger events travel with the projection, never as per-row fields.
 - **No change to `DailyPrice`, `WeeklyPrice` or `PRICE_DATASET_VERSION`.**
@@ -806,6 +884,7 @@ upper bound (83.7 M rows):
 | one factor per row     | +~69 KB                 | +~171 KB                    | +~0.7 GB                         | +13 % if exposed  |
 | a full second OHLC     | +~240 KB (+19 % heap)   | +~690 KB (+51 %)            | +~2.3 GB                         | +50 % if exposed  |
 | **basis-event ledger** | **< 1 KB**              | **< 200 B in the manifest** | **< 10 MB**                      | **none**          |
+| valuation anchors      | ~30 KB (~120 rows)      | ~30 KB with the projection  | ~0.3 GB                          | own endpoint      |
 
 Redis residency is bounded by the resident-security budget (`production-capacity.md`), so the
 Redis column scales with residents, not with the catalog.
@@ -817,6 +896,8 @@ Redis column scales with residents, not with the catalog.
 | Correct the close with the provider's split list                  | it omits, mis-sizes and mislabels events (investigation, §2.2)                                                                                              |
 | The provider's `non-split-adjusted` series as the as-traded close | the adjusted series times that same list                                                                                                                    |
 | Provider market-cap, enterprise-value or key-metric history       | computed from the adjusted close (MMM 2024-03-28 = 88.68 × 555.0 M)                                                                                         |
+| Provider ratio history as valuation anchors                       | the research close and stored counts again, so the same `Φ` bias; rewritten after the fact; dated at the period end, before publication (investigation, §8) |
+| `Φ` on every session for valuation ratios                         | superseded by frozen anchors carried by research returns, which need `Φ` only at historical anchor sessions (`valuation-ratios-v1.md`)                      |
 | The provider's dividend-adjusted series                           | its factors are computed on the adjusted close                                                                                                              |
 | EODHD's `close`                                                   | documented as traded, observed reconstructed from adjusted prices; fails the whole-cent test                                                                |
 | Insider trade prices as the reference                             | 33 securities stored, from 2003 at best, sparse, clustered on few dates and with non-market rows; they validate a basis to about ±0.5 %, they cannot be one |
@@ -849,18 +930,25 @@ Redis column scales with residents, not with the catalog.
 Conditions 1–4 fail and conditions 8 and 9 are partial, so no product code is written on this
 branch.
 
+These conditions gate the per-session basis: Margin of Safety, the price-to-value comparisons,
+RVOL and the historical valuation anchors. Forward valuation does not depend on conditions 1–4
+(`valuation-ratios-v1.md`); it depends on condition 8, through PR 1.
+
 ## Implementation plan
 
 Conditional. Each PR has its own tests, migration note and validation gate.
 
-| PR                                               | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Depends on                                         | Invariants                                                                                                                                                                                                                                                                                             | Migration                                                                                                                                                       |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 (optional, small)                              | The Margin of Safety disclosure for both defects (section 13) and its documentation                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | nothing                                            | copy only; no number changes                                                                                                                                                                                                                                                                           | none                                                                                                                                                            |
-| **1. Re-base-safe loading**                      | `SecurityPriceBasis` and `PriceBasisEvent` with both counters; the overlap test on every read (tail and prefix widening); the session anchor; the ex-date hold; the periodic full comparison; the full re-read from the earliest stored row, with structured segmentation; single-transaction replacement; both counters in the manifest with atomic chunk reads; the backtest pin in the run snapshot; counter-consistent Monitor reads; the benchmark design of section 9; `NOT_EVALUABLE` before a pending or unexplained event; `priceBasisRevision` | O-1 observed on at least one event                 | PostgreSQL never holds two generations for one security; nothing is saved next to stored rows without the overlap test; the anchor moves only after a passed test; a run reads one pair of counters per series; a one-row correction never triggers a full read; no provider call in the backtest loop | additive tables; basis rows created lazily with generation 1 and the earliest stored row as anchor; no backfill; stop-then-start deploy for the manifest fields |
-| **2. Classification and unit conversion**        | the full statement re-read on a share-changing event; `g` from revision pairs, then as-reported, then dividends, with two methods required to agree; classifying events; unit conversion at materialization; `φ` for forward events; `DERIVED_STATE_REVISION` and `priceBasisRevision` bumps                                                                                                                                                                                                                                                             | PR 1; O-2, including restatement before an ex-date | a revision's `availableFromDate` never moves; conversion only on a measured pair                                                                                                                                                                                                                       | additive columns only                                                                                                                                           |
-| 3. Historical reference (**blocked**)            | an adapter for the chosen vendor behind a port (a new provider package, added to the dependency rules); one full comparison per security; historical ledger events with `a`, `g` and `φ`; `measuredFrom`; a verification report; periodic re-verification                                                                                                                                                                                                                                                                                                | a licensed source that passes section 6's tests    | the ledger, never the vendor, is read at runtime; an event is never taken from a vendor label                                                                                                                                                                                                          | reference table if licensed; a one-off per-security job, resumable                                                                                              |
-| 4. Split-adjusted basis for share-derived values | Margin of Safety, price-to-value comparisons, chart overlays and RVOL; a `priceBasisRevision` bump                                                                                                                                                                                                                                                                                                                                                                                                                                                       | PR 3 (and PR 2 for forward events)                 | `NOT_EVALUABLE` before `measuredFrom` and before a pending event                                                                                                                                                                                                                                       | RVOL rebuild                                                                                                                                                    |
-| 5. Valuation Ratios V1                           | re-run `valuation-ratios-v1.md`'s gate on this basis, with the statement-content decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                | PRs 1–4                                            | as that decision                                                                                                                                                                                                                                                                                       | as that decision                                                                                                                                                |
+| PR                                               | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Depends on                                                      | Invariants                                                                                                                                                                                                                                                                                                                                                             | Migration                                                                                                                                                                                                             |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 (optional, small)                              | The Margin of Safety disclosure for both defects (section 13) and its documentation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | nothing                                                         | copy only; no number changes                                                                                                                                                                                                                                                                                                                                           | none                                                                                                                                                                                                                  |
+| **1. Re-base-safe loading**                      | `SecurityPriceBasis` and `PriceBasisEvent` with both counters; the overlap test on every read (tail and prefix widening); the session anchor; the ex-date hold; the periodic full comparison; the full re-read from the earliest stored row, with structured segmentation; single-transaction replacement; both counters in the manifest with atomic chunk reads; the backtest pin in the run snapshot; counter-consistent Monitor reads; the benchmark design of section 9; `NOT_EVALUABLE` before a pending or unexplained event; `priceBasisRevision`. Added for valuation: `observedSince`, and a generation bump that reports the corrected session on every correction of a settled row | O-1 observed on at least one event                              | PostgreSQL never holds two generations for one security; nothing is saved next to stored rows without the overlap test; the anchor moves only after a passed test; a run reads one pair of counters per series; a one-row correction never triggers a full read, and always bumps the generation; `observedSince` never changes; no provider call in the backtest loop | additive tables; basis rows created lazily with generation 1, the earliest stored row as anchor and the newest settled stored session as `observedSince`; no backfill; stop-then-start deploy for the manifest fields |
+| **2. Classification and unit conversion**        | Margin of Safety's path. The full statement re-read on a share-changing event; `g` from revision pairs, then as-reported, then dividends, with two methods required to agree; classifying events; unit conversion at materialization; `φ` for forward events; `DERIVED_STATE_REVISION` and `priceBasisRevision` bumps. Its measured units also resolve pending valuation anchors, by superseding rows                                                                                                                                                                                                                                                                                         | PR 1; O-2, including restatement before an ex-date              | a revision's `availableFromDate` never moves; conversion only on a measured pair                                                                                                                                                                                                                                                                                       | additive columns only                                                                                                                                                                                                 |
+| **2V. Forward valuation anchors**                | as `valuation-ratios-v1.md` specifies: the methodology lock, `ValuationAnchor`, anchor creation, the carried projection with EV by components, Strategy and Stock Details integration, `valuationMethodologyRevision` and the anchor-version pin; forward only                                                                                                                                                                                                                                                                                                                                                                                                                                | PR 1 deployed; that decision's U1–U4; the invariant 9 amendment | as that decision                                                                                                                                                                                                                                                                                                                                                       | one additive table                                                                                                                                                                                                    |
+| 3. Historical reference (**blocked**)            | an adapter for the chosen vendor behind a port (a new provider package, added to the dependency rules); one full comparison per security; historical ledger events with `a`, `g` and `φ`; `measuredFrom`; a verification report; periodic re-verification                                                                                                                                                                                                                                                                                                                                                                                                                                     | a licensed source that passes section 6's tests                 | the ledger, never the vendor, is read at runtime; an event is never taken from a vendor label                                                                                                                                                                                                                                                                          | reference table if licensed; a one-off per-security job, resumable                                                                                                                                                    |
+| 3V. Historical valuation backfill (**blocked**)  | as `valuation-ratios-v1.md` specifies: `BACKFILL` anchors before `observedSince`, with `Φ` from PR 3's ledger and units from PR 2, frozen; the cutover and first-load rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | PR 3, PR 2 and PR 2V                                            | as that decision                                                                                                                                                                                                                                                                                                                                                       | a one-off per-security job, resumable                                                                                                                                                                                 |
+| 4. Split-adjusted basis for share-derived values | Margin of Safety, price-to-value comparisons, chart overlays and RVOL; a `priceBasisRevision` bump                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | PR 3 (and PR 2 for forward events)                              | `NOT_EVALUABLE` before `measuredFrom` and before a pending event                                                                                                                                                                                                                                                                                                       | RVOL rebuild                                                                                                                                                                                                          |
+
+The former PR 5, "Valuation Ratios V1 after PRs 1–4", is replaced by PRs 2V and 3V.
 
 **Open measurements:**
 
@@ -873,7 +961,8 @@ Conditional. Each PR has its own tests, migration note and validation gate.
     anchor change together.
   - Then repeat for the next events in loaded securities.
 - **O-2: when does the provider restate statements, before or after the ex-date?** PR 2 waits
-  for this. GPMT is the only one of the two with statements; DXJ is an ETF.
+  for this. GPMT is the only one of the two with statements; DXJ is an ETF. PR 2V does not wait:
+  it keeps its calendar hold on until O-2 is observed (`valuation-ratios-v1.md`, rule 7).
 - **Volume across distributions: answered.** The provider scales volume by `A`, distributions
   included. IBM's stored volume is exactly 1.046 × raw before Kyndryl, and 1.000 × raw after.
 
@@ -889,7 +978,7 @@ Conditional. Each PR has its own tests, migration note and validation gate.
   - the same re-base discovered only by the anchor, after the tail has moved past the ex-date;
   - a partial re-base found only by the periodic comparison;
   - an ex-date row published before the rewrite, which the hold must catch;
-  - a one-row correction, which must not trigger a full read;
+  - a one-row correction, which must not trigger a full read and must bump the generation;
   - a block of corrected rows, which is a correction and not two events;
   - an anchor row the provider stops returning;
   - a provider date on a weekend or a holiday;
@@ -918,6 +1007,10 @@ Conditional. Each PR has its own tests, migration note and validation gate.
   from the same counters. Queued runs are refused across a `priceBasisRevision` bump.
 - **Reference validation:** the whole-cent, relative-containment, independent spin-off-date and
   step-structure tests from section 6, run against the chosen source.
+- **`observedSince`:** set once, to the newest settled stored session, when a basis row is created;
+  unchanged by later replacements, holds and corrections.
+- **Valuation ratios:** their own tests are in `valuation-ratios-v1.md`. Among them: carried values
+  unchanged by any re-base outside their window, and never computed from two generations.
 
 ## Operational risks and deployment
 
@@ -934,7 +1027,11 @@ Conditional. Each PR has its own tests, migration note and validation gate.
   three sessions. A pending classification does the same for share-derived values until O-2's
   measured lag. Both need measuring before a bound is promised.
 - **Mid-run failures.** A backtest crossing a replacement or a ledger change fails and must be
-  re-run. The chance grows with the number of securities in a run and its duration.
+  re-run. The chance grows with the number of securities in a run and its duration. Bumping the
+  generation on corrections adds to it; how often the provider corrects a settled row is not
+  measured.
+- **Frozen historical valuation anchors freeze any `Φ` error.** A correction is an explicit,
+  versioned re-backfill (`valuation-ratios-v1.md`), never a silent recomputation.
 - **Deployment.**
   - Additive migrations only.
   - The new manifest fields make every manifest non-current, so each security's projection
@@ -957,6 +1054,8 @@ Conditional. Each PR has its own tests, migration note and validation gate.
 | Storage increase (chosen model)                  | < 1 KB per security in PostgreSQL; < 200 B per resident in Redis                                                                                                                                                                                                                                   |
 | Full-history refresh cost                        | 2 provider requests and about 2 s of CPU per event; about one event per security in twenty years (97 provider entries across 62 securities in 30 years)                                                                                                                                            |
 | Provider request volume                          | +1 request per resident security per session for the anchor (+3.6 % of the refresh budget); +2 per resident security per month for the periodic comparison; a one-off historical comparison of at least one request per security with the chosen vendor                                            |
+| Carried valuation windows                        | 9 distribution steps in the six securities, carried for 2 to 74 sessions each, 325 in all; in 4 of them the next statement still covers a quarter that ended before the ex-date, for 60 to 78 sessions (investigation, §9.3)                                                                       |
+| Valuation anchor storage                         | about 4 rows per security-year, about 120 rows and 30 KB for a 30-year security; no per-session valuation storage                                                                                                                                                                                  |
 
 ## Review
 
@@ -1003,7 +1102,8 @@ A clean-room reviewer checked this decision and its evidence on 2026-09-30.
 ## References
 
 - `docs/historical-price-basis/INVESTIGATION.md` and `docs/historical-price-basis/evidence/`
-- `docs/valuation-ratios-gate/INVESTIGATION.md`, `docs/decisions/valuation-ratios-v1.md`
+- `docs/decisions/valuation-ratios-v1.md`: the valuation-ratio architecture (anchor and carry)
+- `docs/valuation-ratios-gate/INVESTIGATION.md`
 - `docs/decisions/complete-price-coverage.md`, `intrinsic-value-engine.md`,
   `fundamentals-loader.md`, `backtest-run-persistence.md`
 - `ai/architecture/deep-discovery.md` §6 and §15, `ai/product/backtests.md`,

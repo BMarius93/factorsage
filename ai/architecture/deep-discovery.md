@@ -711,6 +711,14 @@ It adds two findings:
   quarter includes the separation.
 - The provider scales volume by the same factor as price, so RVOL is affected too.
 
+**Follow-up (2026-10-01).** Valuation ratios no longer wait for a per-session basis.
+`../../docs/decisions/valuation-ratios-v1.md` now freezes a valuation anchor when a point-in-time
+statement becomes available and carries it by research-price returns, which cancel every later
+re-base. Forward values need only the re-base-safe loading of the price-basis design; `Φ` is
+needed only to reconstruct historical anchors, which stay blocked on the external reference. FMP's
+historical ratio endpoints were tested as anchors and rejected: they carry the same bias. Margin
+of Safety is unchanged.
+
 ---
 
 ## Things that looked suspicious but are correct
