@@ -719,6 +719,17 @@ needed only to reconstruct historical anchors, which stay blocked on the externa
 historical ratio endpoints were tested as anchors and rejected: they carry the same bias. Margin
 of Safety is unchanged.
 
+**Follow-up (2026-10-01, evening): FMP-only V1.** The owner decided V1 has no second provider and no
+historical `Φ`, and that an unsafe valuation is unavailable rather than estimated. The anchors and the
+vendor-backed backfill are withdrawn. `../../docs/decisions/historical-price-basis-v1.md` is now the
+re-scoped PR 1 (re-base detection by an earliest-row check, a stateless ex-date hold, single-transaction
+replacement, measured re-bases with a generation, and a basis factor `K` that keeps intrinsic values on
+their own basis after a re-base). `../../docs/decisions/valuation-ratios-v1.md` computes the ratios per
+session and withholds the sessions FMP's split list or a measured re-base leaves unsafe. FMP's
+split list catches five of the six known securities; MMM's 2024 adjustment is in no FMP metadata
+(splits, dividend factors and dividend yields were checked), so MMM's history before it stays 16.4 %
+low and is an open owner decision. Margin of Safety's historical bias is disclosed, not fixed.
+
 ---
 
 ## Things that looked suspicious but are correct

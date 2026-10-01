@@ -8,7 +8,8 @@ session. FactorSage's close is the provider's split-adjusted close. Before any o
 built, a methodology gate had to show that a stored share count sits on the same basis as that
 close on every session. This document is the evidence. The gate **failed**, and
 `docs/decisions/valuation-ratios-v1.md` records the decision that follows. No product code was
-written.
+written. (Since 2026-10-01 that decision computes the ratios per session and makes the sessions
+this gate found biased unavailable, wherever FMP's own data can mark them.)
 
 A clean-room reviewer checked a first version of this document and corrected it. The provider's
 "unadjusted" prices proved not to be independent, and the size of B1 was measured again against
