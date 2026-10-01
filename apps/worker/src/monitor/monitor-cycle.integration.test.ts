@@ -452,7 +452,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     const summary = await cycleOf(loader).run(nextCycle());
 
@@ -478,7 +478,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
@@ -520,7 +520,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     const summary = await cycleOf(loader).run(nextCycle());
 
@@ -567,7 +567,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
 
@@ -598,16 +598,16 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(0);
 
     // false -> true: the match begins.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     let signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
     expect(signals[0]?.resolvedAt).toBeNull();
 
     // true -> true: the same matched state continues; no duplicate on this scan or the next.
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await cycle.run(nextCycle());
-    loader.currentPrice = 170;
+    loader.currentPrice = 138;
     await cycle.run(nextCycle());
     signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
@@ -675,7 +675,7 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(0);
 
     // Both rules become true on the same observation.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     const signals = await signalsOf(monitorId);
     const exits = signals.filter((signal) => signal.levelKind === "FINAL_EXIT");
@@ -690,7 +690,7 @@ describe("monitor evaluation cycle", () => {
     expect(states).toHaveLength(1);
 
     // Still both true on the next scan: no duplicate.
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await cycle.run(nextCycle());
     expect(
       (await signalsOf(monitorId)).filter(
@@ -738,7 +738,7 @@ describe("monitor evaluation cycle", () => {
     loader.prices.set(security.id, flatHistory(security.id, 100));
     const cycle = cycleOf(loader);
 
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     const before = await prisma.monitorSignalState.findFirstOrThrow({
       where: { monitorId, levelId: "exit-1" },
@@ -768,7 +768,7 @@ describe("monitor evaluation cycle", () => {
       },
     });
 
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await cycle.run(nextCycle());
 
     const after = await prisma.monitorSignalState.findFirstOrThrow({
@@ -804,17 +804,17 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(0);
 
     // The crossing.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
 
     // Still above on the next three scans. Remaining on the post-cross side is not another
     // crossing, and the Signal must not repeat.
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await cycle.run(nextCycle());
-    loader.currentPrice = 170;
+    loader.currentPrice = 138;
     await cycle.run(nextCycle());
-    loader.currentPrice = 180;
+    loader.currentPrice = 139;
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
   });
@@ -830,7 +830,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
@@ -849,7 +849,7 @@ describe("monitor evaluation cycle", () => {
         now: () => SESSION_ONE,
       },
     );
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await restarted.run(nextCycle());
 
     expect(await signalsOf(monitorId)).toHaveLength(1);
@@ -868,7 +868,7 @@ describe("monitor evaluation cycle", () => {
     // A rising history: the last CLOSED day is already above its own average, so nothing crossed
     // between it and now — whatever the Monitor does or does not remember.
     loader.prices.set(security.id, risingHistory(security.id));
-    loader.currentPrice = 1_000;
+    loader.currentPrice = 135;
 
     // Strictly worse than a restart or a flushed cache: the durable record itself is destroyed.
     await prisma.monitorSignalState.deleteMany({ where: { monitorId } });
@@ -892,7 +892,7 @@ describe("monitor evaluation cycle", () => {
     loader.prices.set(security.id, flatHistory(security.id, 100));
     const cycle = cycleOf(loader);
 
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     await prisma.monitorSignalState.deleteMany({ where: { monitorId } });
     await prisma.monitorSignal.deleteMany({ where: { monitorId } });
@@ -917,7 +917,7 @@ describe("monitor evaluation cycle", () => {
     loader.prices.set(security.id, flatHistory(security.id, 100));
     const cycle = cycleOf(loader);
 
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
     const scannedAt = (
@@ -973,7 +973,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     loader.quotedAt = "2020-01-01T00:00:00.000Z";
 
     const summary = await new MonitorCycle(
@@ -1005,7 +1005,7 @@ describe("monitor evaluation cycle", () => {
     const loader = new FixtureLoader([security]);
     // Three closes cannot produce a 20-bar average.
     loader.prices.set(security.id, flatHistory(security.id, 100).slice(0, 3));
-    loader.currentPrice = 1_000;
+    loader.currentPrice = 130;
 
     const summary = await cycleOf(loader).run(nextCycle());
 
@@ -1028,7 +1028,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, []);
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     const summary = await cycleOf(loader).run(nextCycle());
 
@@ -1048,12 +1048,12 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
 
     const [signal] = await signalsOf(monitorId);
-    expect(Number(signal?.observationPrice)).toBe(150);
+    expect(Number(signal?.observationPrice)).toBe(130);
     // The session the cycle derived from its own clock, in the exchange's timezone.
     expect(signal?.observationDate.toISOString().slice(0, 10)).toBe(
       "2026-03-02",
@@ -1113,7 +1113,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
 
@@ -1134,7 +1134,7 @@ describe("monitor evaluation cycle", () => {
     const cycle = cycleOf(loader);
 
     // The crossing.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
 
@@ -1149,7 +1149,7 @@ describe("monitor evaluation cycle", () => {
     // Trigger is an event, so the condition lifecycle does not apply to it.
     expect(signals[0]?.resolvedAt).toBeNull();
 
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await cycle.run(nextCycle());
 
     signals = await signalsOf(monitorId);
@@ -1170,7 +1170,7 @@ describe("monitor evaluation cycle", () => {
     loader.prices.set(security.id, flatHistory(security.id, 100));
     const cycle = cycleOf(loader);
 
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     let signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
@@ -1200,13 +1200,13 @@ describe("monitor evaluation cycle", () => {
     loader.prices.set(security.id, flatHistory(security.id, 100));
     const cycle = cycleOf(loader);
 
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     const [opened] = await signalsOf(monitorId);
     expect(opened).toBeDefined();
     loader.currentPrice = 80;
     await cycle.run(nextCycle());
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
 
     // A Condition describes a state, not an event. Unlike a Trigger it is deliberately not
@@ -1229,7 +1229,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
     let signals = await signalsOf(monitorId);
@@ -1264,7 +1264,7 @@ describe("monitor evaluation cycle", () => {
     const loader = new FixtureLoader([first, second]);
     loader.prices.set(first.id, flatHistory(first.id, 100));
     loader.prices.set(second.id, flatHistory(second.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     // Abort immediately: no Monitor is evaluated at all.
     const aborted = await cycleOf(loader).run(nextCycle(), () => true);
@@ -1323,7 +1323,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
 
@@ -1386,7 +1386,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     await cycleOf(loader).run(nextCycle());
 
@@ -1409,7 +1409,7 @@ describe("monitor evaluation cycle", () => {
     const cycle = cycleOf(loader);
 
     // Session one: a genuine crossing.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
 
@@ -1421,7 +1421,7 @@ describe("monitor evaluation cycle", () => {
 
     // Session three: a genuine, canonical crossing on a new observation date. It must produce a
     // Signal whatever the quiet session left behind.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycleOf(loader, sessionOn("2026-03-04")).run(nextCycle());
 
     const signals = await signalsOf(monitorId);
@@ -1441,7 +1441,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const cycle = cycleOf(loader);
 
     await cycle.run(nextCycle());
@@ -1514,7 +1514,7 @@ describe("monitor evaluation cycle", () => {
     loader.prices.set(security.id, flatHistory(security.id, 100));
 
     // Friday: a crossing fires.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycleOf(loader, sessionOn("2026-03-06")).run(nextCycle());
     let signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
@@ -1551,7 +1551,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     // A provider clock that is wrong, or a timestamp in the wrong unit. A negative age passes a
     // bare `now - quotedAt <= maxAge` test, and the session it names has not happened.
     loader.quotedAt = sessionOn("2026-04-15").toISOString();
@@ -1574,7 +1574,7 @@ describe("monitor evaluation cycle", () => {
     const loader = new FixtureLoader([security]);
     const prices = flatHistory(security.id, 100);
     loader.prices.set(security.id, prices);
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     // Monday: the provider has no trade for this symbol yet, so no timestamp. The cycle dates the
     // observation to its own session and the crossing fires.
@@ -1618,7 +1618,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     // 19:30 New York on Monday 2026-03-02 — already Tuesday in UTC. The session is Monday's, and
     // dating the observation in UTC would name a session that has not started.
     loader.quotedAt = "2026-03-03T00:30:00.000Z";
@@ -1649,7 +1649,7 @@ describe("monitor evaluation cycle", () => {
     calendar.fullCloses.add("2026-03-09");
 
     // Friday: a crossing fires.
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycleOf(loader, sessionOn("2026-03-06"), calendar).run(nextCycle());
     let signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
@@ -1657,7 +1657,7 @@ describe("monitor evaluation cycle", () => {
 
     // Monday is a full exchange closure. The venue held no session, so nothing was observed — and
     // a day the market never opened must not end a crossing that fired on a real one.
-    loader.currentPrice = 160;
+    loader.currentPrice = 135;
     await cycleOf(loader, sessionOn("2026-03-09"), calendar).run(nextCycle());
 
     signals = await signalsOf(monitorId);
@@ -1684,7 +1684,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const calendar = new FixtureCalendar();
     calendar.fullCloses.add("2026-03-09");
 
@@ -1712,7 +1712,7 @@ describe("monitor evaluation cycle", () => {
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
     // A price that would cross decisively above the average if it were allowed to become a bar.
-    loader.currentPrice = 10_000;
+    loader.currentPrice = 130;
     const calendar = new FixtureCalendar();
     calendar.fullCloses.add("2026-03-09");
 
@@ -1722,6 +1722,32 @@ describe("monitor evaluation cycle", () => {
     // The same price on the next real session does produce one, so the fixture is not simply inert.
     await cycleOf(loader, sessionOn("2026-03-10"), calendar).run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
+  });
+
+  it("holds an open Signal through a quote that moved by a split-sized amount", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`SPL${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 130;
+    await cycleOf(loader).run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
+
+    // A 4:1 split's ex-date before the provider has re-based the history: against the stored
+    // closes it reads as a 75 % fall. The security is not evaluable, so the open Signal is neither
+    // resolved nor raised again (`historical-price-basis-v1.md`, §7).
+    loader.currentPrice = 32.5;
+    const summary = await cycleOf(loader).run(nextCycle());
+    expect(summary.notEvaluable).toBe(1);
+    const signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
   });
 
   it("treats an early-close day as an ordinary trading session", async () => {
@@ -1735,7 +1761,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     // The real calendar over a provider schedule that lists 2026-03-09 as an EARLY close. The
     // venue opened and closed sooner, so the day's bar is ordinary — driving this through
@@ -1763,7 +1789,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     // The control for the test above: the only difference is `fullClose`, and it decides.
     const calendar = new CachedTradingCalendar({
@@ -1794,7 +1820,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const calendar = new FixtureCalendar();
     calendar.failure = new Error("calendar unavailable");
 
@@ -1829,7 +1855,7 @@ describe("monitor evaluation cycle", () => {
     for (const security of [first, second, third]) {
       loader.prices.set(security.id, flatHistory(security.id, 100));
     }
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const calendar = new FixtureCalendar();
 
     await cycleOf(loader, SESSION_ONE, calendar).run(nextCycle());
@@ -1851,7 +1877,7 @@ describe("monitor evaluation cycle", () => {
     const loader = new FixtureLoader([nasdaq, nyse]);
     loader.prices.set(nasdaq.id, flatHistory(nasdaq.id, 100));
     loader.prices.set(nyse.id, flatHistory(nyse.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const calendar = new FixtureCalendar();
     // The venues keep separate schedules, so one closure must not silence the other.
     calendar.fullCloses.add("2026-03-02");
@@ -1904,7 +1930,7 @@ describe("monitor evaluation cycle", () => {
 
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
 
     // The same race as the case above, but through the whole cycle rather than one repository
     // call: both cycles load "no state for this level", both decide the match, and both try to
@@ -1966,7 +1992,7 @@ describe("monitor evaluation cycle", () => {
       operator: "IS_ABOVE" as const,
       value: { kind: "PERCENT" as const, value: 10 },
     };
-    /** True for the fixtures below: current price 150 against a flat-100 history. */
+    /** True for the fixtures below: current price 130 against a flat-100 history. */
     const priceAboveEma = (id: string) => ({
       id,
       metric: { kind: "PRICE" as const },
@@ -2030,7 +2056,7 @@ describe("monitor evaluation cycle", () => {
     function matchingLoader(security: Security): FixtureLoader {
       const loader = new FixtureLoader([security]);
       loader.prices.set(security.id, flatHistory(security.id, 100));
-      loader.currentPrice = 150;
+      loader.currentPrice = 130;
       return loader;
     }
 
@@ -2376,7 +2402,7 @@ describe("monitor evaluation cycle", () => {
       security.id,
       longHistory(security.id, Array.from({ length: 60 }, () => 100)),
     );
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const cycle = cycleOf(loader);
     await cycle.run(nextCycle());
     const beforeEdit = await signalsOf(monitorId);
@@ -2423,7 +2449,7 @@ describe("monitor evaluation cycle", () => {
     });
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     const cycle = cycleOf(loader);
     await cycle.run(nextCycle());
 
@@ -2522,7 +2548,7 @@ describe("monitor evaluation cycle", () => {
       expect(signals[0]?.resolvedAt).toBeNull();
 
       // Price falls below SMA50: a Condition fails and the occurrence resolves.
-      loader.currentPrice = 50;
+      loader.currentPrice = 90;
       await cycleOf(loader, sessionOn("2026-03-05")).run(nextCycle());
       const resolved = await signalsOf(monitorId);
       expect(resolved[0]?.resolvedAt).not.toBeNull();
@@ -2555,7 +2581,7 @@ describe("monitor evaluation cycle", () => {
       ]));
       loader.currentPrice = 115;
       await cycleOf(loader).run(nextCycle());
-      loader.currentPrice = 50;
+      loader.currentPrice = 90;
       await cycleOf(loader).run(nextCycle());
 
       const state = await prisma.monitorSignalState.findFirstOrThrow({ where: { monitorId } });
@@ -2696,7 +2722,7 @@ describe("monitor evaluation cycle", () => {
       const loader = new FixtureLoader([security]);
       loader.prices.set(security.id, flatHistory(security.id, 100));
       loader.historyError = new Error("history unavailable");
-      loader.currentPrice = 150;
+      loader.currentPrice = 130;
       await cycleOf(loader).run(nextCycle());
       expect(await prisma.monitorSignalState.count({ where: { monitorId } })).toBe(0);
 
@@ -2953,10 +2979,11 @@ describe("monitor evaluation cycle", () => {
         securities: [streak, recent],
       });
       const loader = streakLoader([streak, recent], streak);
-      // A security whose setup broke recently needs nothing older than the first read.
+      // A security whose setup broke recently needs nothing older than the first read. Its last
+      // close is low enough to break SMA20 and close enough to today's price for the ex-date hold.
       loader.prices.set(
         recent.id,
-        longHistory(recent.id, [...STREAK.slice(0, 399), 90]),
+        longHistory(recent.id, [...STREAK.slice(0, 399), 180]),
       );
       loader.historyStart.set(recent.id, "2016-01-04");
 
@@ -3037,7 +3064,7 @@ describe("monitor evaluation cycle", () => {
       // Closes back the live frame; the canonical history the replay may use starts today.
       loader.prices.set(listed.id, flatHistory(listed.id, 100));
       loader.historyStart.set(listed.id, "2026-03-02");
-      loader.currentPrice = 150;
+      loader.currentPrice = 130;
 
       const summary = await cycleOf(loader).run(nextCycle());
       expect(summary.levelsReconstructed).toBe(1);
@@ -3258,7 +3285,7 @@ describe("monitor evaluation cycle", () => {
       });
       const loader = new FixtureLoader([security]);
       loader.prices.set(security.id, flatHistory(security.id, 100));
-      loader.currentPrice = 150;
+      loader.currentPrice = 130;
       const summary = await cycleOf(loader).run(nextCycle());
 
       expect(summary.monitors).toBe(1);
@@ -3282,7 +3309,7 @@ describe("monitor evaluation cycle", () => {
       });
       const loader = new FixtureLoader([security]);
       loader.prices.set(security.id, flatHistory(security.id, 100));
-      loader.currentPrice = 150;
+      loader.currentPrice = 130;
       const cycle = cycleOf(loader);
       await cycle.run(nextCycle());
 
@@ -3338,7 +3365,7 @@ describe("monitor evaluation cycle", () => {
     });
     const loader = new FixtureLoader([security]);
     loader.prices.set(security.id, flatHistory(security.id, 100));
-    loader.currentPrice = 150;
+    loader.currentPrice = 130;
     await cycleOf(loader).run(nextCycle());
     const states = await prisma.monitorSignalState.findMany({
       where: { monitorId },

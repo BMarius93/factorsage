@@ -216,6 +216,11 @@ describe("the fifteen Fundamental columns in PostgreSQL", () => {
         tailDate: today,
         freshThrough: today,
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: target.id,
+        verifiedAt: syncedAt,
+      });
       for (const operation of fundamentalsDatasetOperations(30)) {
         await store.upsertDatasetState({
           securityId: target.id,

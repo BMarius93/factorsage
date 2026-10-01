@@ -229,6 +229,11 @@ describeInfrastructure(
         tailDate: today,
         freshThrough: today,
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: row.id,
+        verifiedAt: syncedAt,
+      });
       for (const sync of FUNDAMENTAL_AUDIT_ANCHOR_SYNCS) {
         await store.saveFinancialStatements({
           securityId: row.id,
@@ -631,6 +636,8 @@ describeInfrastructure(
       const observations = monitorWindowObservations(
         requiredDailySeries(operands),
       );
+      // Any live price within the ex-date hold's band of every stored close (50 to 78), so the hold
+      // never takes the observation away; the carried values do not depend on it.
       for (const closed of FUNDAMENTAL_AUDIT_ANCHOR_BOUNDARIES) {
         const position = sessions.indexOf(closed);
         const next = sessions[position + 1];
@@ -648,7 +655,7 @@ describeInfrastructure(
           operands,
           observations,
           asOf: closed,
-          observation: { price: 123.45 },
+          observation: { price: 61.23 },
           observationDate: next,
         });
         const repriced = await service.readMonitorEvaluationFrame({
@@ -656,7 +663,7 @@ describeInfrastructure(
           operands,
           observations,
           asOf: closed,
-          observation: { price: 123.45 },
+          observation: { price: 61.23 },
           observationDate: closed,
         });
         expect(provisional?.observationDate).toBe(next);
@@ -749,7 +756,8 @@ describeInfrastructure(
           operands,
           observations,
           asOf: closed,
-          observation: { price: 100 },
+          // Inside the ex-date hold's band of the stored closes of these sessions (64 to 75).
+          observation: { price: 70 },
           observationDate: provisional,
         });
         const rules = observeMonitorLevel(
@@ -912,6 +920,11 @@ describeInfrastructure(
           syncedAt,
           tailDate: today,
           freshThrough: today,
+        });
+        // Verified under the current loader, like the first security.
+        await store.createPriceBasis({
+          securityId: other.id,
+          verifiedAt: syncedAt,
         });
         for (const operation of fundamentalsDatasetOperations(30)) {
           await store.upsertDatasetState({

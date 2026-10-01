@@ -326,6 +326,11 @@ describeInfrastructure(
         tailDate: today,
         freshThrough: today,
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: row.id,
+        verifiedAt: syncedAt,
+      });
       for (const sync of FUNDAMENTAL_AUDIT_ANCHOR_SYNCS) {
         await store.saveFinancialStatements({
           securityId: row.id,
