@@ -2514,6 +2514,15 @@ describe("StockPriceChart valuation pane", () => {
     expect(hover("2026-08-21")).not.toContain("P/E");
   });
 
+  it("prints a negative EV/EBITDA in the hover legend as a signed multiple, never as Unavailable", () => {
+    render(chartWith({ valuation: EV_TO_EBITDA }));
+    const hover = hoverLegend(lastChart());
+    const negative = hover("2026-08-27");
+    expect(negative).toContain("EV/EBITDA-1.25x");
+    expect(negative).not.toContain("EV/EBITDAUnavailable");
+    expect(hover("2026-08-28")).toContain("EV/EBITDA0.75x");
+  });
+
   it("reads Unavailable on the newest session once the ratio has become unavailable, never the last reading", () => {
     const lapsed = valuationSeries({
       points: [
