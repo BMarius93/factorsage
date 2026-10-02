@@ -31,6 +31,18 @@ export function productRatioId(id: OracleValuationRatioId): ValuationRatioId {
   return id;
 }
 
+/**
+ * The day before `date`. A stored row with a real filing date becomes available the day after it
+ * (`statementPublicAvailabilityDate`), so the product sees every revision filed a day before its
+ * availability, as in the store: a calculation that read the filing date instead would see each
+ * revision a day early, and the comparison would show it.
+ */
+function dayBefore(date: string): LocalDate {
+  const instant = new Date(`${date}T00:00:00.000Z`);
+  instant.setUTCDate(instant.getUTCDate() - 1);
+  return instant.toISOString().slice(0, 10) as LocalDate;
+}
+
 export function toProductInputs(
   security: OracleValuationSecurity,
   securityId: SecurityId = AUDIT_SECURITY_ID,
@@ -48,7 +60,7 @@ export function toProductInputs(
           fiscalYear: statement.fiscalYear,
           period: statement.period,
           reportedCurrency: statement.reportedCurrency,
-          filingDate: statement.availableFromDate,
+          filingDate: dayBefore(statement.availableFromDate),
           availableFromDate: statement.availableFromDate,
           observedAt: statement.observedAt,
           contentHash: statement.contentHash,
