@@ -1160,4 +1160,37 @@ describe("valuation ratios: each masking rule in isolation", () => {
       pb((index) => (index < 4 ? 100 : 100 * 1.2 ** (index - 3))),
     ).toBeCloseTo((10 * 100 * 1.2 ** 4) / 400, 12);
   });
+
+  it("rule 2: judges the 25 % band on the reported counts, not their doubles", () => {
+    const eight: Quarter[] = [
+      ...QUARTERS.map((quarter) => ({
+        ...quarter,
+        fiscalYear: 2023,
+        fiscalDate: quarter.fiscalDate.replace("2024", "2023"),
+        availableFromDate: quarter.availableFromDate
+          .replace(/^2024/, "2023")
+          .replace(/^2025/, "2024"),
+      })),
+      ...QUARTERS,
+    ].map((quarter) => ({ ...quarter, observedAt: LATE }));
+    // 1.1 for six quarters, 0.825 in 2024Q3 — exactly 25 % below, although 0.825 / 1.1 - 1 is
+    // -0.2500000000000001 in doubles — then 1.1 again in 2024Q4, a third above the new level.
+    const counts = [1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 0.825, 1.1];
+    const pb = ratiosOn(
+      inputs({
+        statements: company({
+          quarters: eight,
+          shares: (index) => counts[index]!,
+        }),
+        verifiedAt: "2026-10-05T00:00:00.000Z",
+      }),
+      ["2024-11-11", "2025-02-10"],
+      10,
+      ["PRICE_TO_BOOK"],
+    ).PRICE_TO_BOOK;
+    // 0.825 is inside the band: accepted, and the new level.
+    expect(pb[0]).toBeCloseTo((10 * 0.825) / 400, 12);
+    // 1.1 is outside the band of 0.825: withheld, never read against the level the walk left.
+    expect(pb[1]).toBeNaN();
+  });
 });

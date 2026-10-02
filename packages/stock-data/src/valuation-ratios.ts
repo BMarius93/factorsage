@@ -59,8 +59,8 @@ import {
  *
  * - 1: the five ratios, rules 1–8.
  * - 2: rules 4, 5 and 8 read an undated re-base on the days it may lie on, never on its interval's
- *   exclusive start; rule 3's 2 % thresholds are judged exactly on the reported figures (the
- *   independent audit, `docs/valuation-ratios-audit/REPORT.md`).
+ *   exclusive start; rule 2's 25 % band and rule 3's 2 % thresholds are judged exactly on the
+ *   reported figures (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
  */
 export const VALUATION_RATIO_REVISION = 2;
 
@@ -621,8 +621,9 @@ function holdsShareLevel(
   return latestAccepted;
 }
 
+/** Within 25 % of `level`, judged on the reported counts rather than their doubles. */
 function within(count: number, level: number): boolean {
-  return Math.abs(count / level - 1) <= SHARE_LEVEL_TOLERANCE;
+  return exactlyWithinFraction(count, [level], SHARE_LEVEL_TOLERANCE);
 }
 
 /**
