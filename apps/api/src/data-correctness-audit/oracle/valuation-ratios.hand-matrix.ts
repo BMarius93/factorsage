@@ -48,6 +48,11 @@
  * 95+100+102+103, 24+25+25+26, 12+12+13+13. 2025Q1: 9+11+12+13, 100+102+103+105, 25+25+26+27,
  * 12+13+13+14. 2025Q2: 11+12+13+14, 102+103+105+108, 25+26+27+28, 13+13+14+14. Before 2024-03-01 an
  * Income or Cash Flow window has three quarters at most.)
+ *
+ * The cases `G1a`–`G3` at the end are different in kind: they hold the accepted rules' literal
+ * reading where the clean-room review showed that reading to be wrong by the very basis the rules
+ * protect (`docs/valuation-ratios-audit/REPORT.md`, §31). They pin today's behaviour, for both the
+ * product and the oracle, until the owner rules on them.
  */
 
 import type {
@@ -421,6 +426,48 @@ function observeAll(
 ): OracleValuationStatement[] {
   return statements.map((statement) => ({ ...statement, observedAt }));
 }
+
+const ALL_QUARTERS = BASE_ROWS.map(([quarter]) => quarter);
+
+/**
+ * A revision of every listed Income quarter with its diluted (and basic) count set to `count`, as
+ * the provider restates a whole history at once: available and observed on `at`.
+ */
+function restateCounts(
+  statements: readonly OracleValuationStatement[],
+  quarters: readonly string[],
+  count: number,
+  at: string,
+  hashSuffix: string,
+): OracleValuationStatement[] {
+  let result = [...statements];
+  for (const quarter of quarters) {
+    result = revision(
+      result,
+      "INCOME",
+      quarter,
+      {
+        availableFromDate: at,
+        observedAt: `${at}T12:00:00.000Z`,
+        values: {
+          weightedAverageShsOutDil: count,
+          weightedAverageShsOut: count,
+        },
+      },
+      hashSuffix,
+    );
+  }
+  return result;
+}
+
+/** As of 2025Q2 with the count doubled to 20 against a close of 12: MC 240 (G1, G2). */
+const DOUBLED_2025Q2: Readings = {
+  PE: "24/5",
+  PS: "120/209",
+  PB: "12/13",
+  PFCF: "40/9",
+  EV: "135/53",
+};
 
 // ---------------------------------------------------------------------------------------------
 // The cases
@@ -1291,6 +1338,52 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     ],
   },
   {
+    id: "C25b",
+    covers: [24],
+    title: "a re-base of another ratio explains nothing",
+    // C25 with the re-base measured at 3:2 (1.5, plain) instead of 5:4. Before it P takes K = 1.5:
+    // MC = 12 · 1.5 · 10 = 180 -> P/E 180/40 = 9/2, P/S 180/400 = 9/20, P/B 180/240 = 3/4, P/FCF
+    // 180/50 = 18/5, EV/EBITDA (180 + 50)/100 = 23/10. R restates 10 to 12.5 (x1.25), which is not
+    // within 2 % of 1.5 (|1.25 - 1.5| = 0.25 > 0.03): unexplained, although it holds rule 2's level
+    // (exactly +25 %) and is observed after the detection and outside rule 5's month.
+    security: company({
+      statements: revision(
+        edit(baseStatements(), "INCOME", "2024Q4", (statement) => ({
+          ...statement,
+          observedAt: "2025-03-03T12:00:00.000Z",
+        })),
+        "INCOME",
+        "2024Q4",
+        {
+          availableFromDate: "2025-04-15",
+          observedAt: "2025-04-15T12:00:00.000Z",
+          values: { weightedAverageShsOutDil: 12.5 },
+        },
+        "b",
+      ),
+      events: [
+        measured(
+          { effectiveDate: "2025-03-10" },
+          "1.5",
+          "2025-03-11T12:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-03-07",
+        close: CLOSE,
+        expect: { PE: "9/2", PS: "9/20", PB: "3/4", PFCF: "18/5", EV: "23/10" },
+      },
+      { session: "2025-03-10", close: CLOSE, expect: all("BASIS_WITHHELD") },
+      {
+        session: "2025-04-15",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+      },
+    ],
+  },
+  {
     id: "C26",
     covers: [26],
     title:
@@ -2092,6 +2185,231 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
           EV: "2400000001/2",
         },
       },
+    ],
+  },
+
+  // -------------------------------------------------------------------------------------------
+  // Methodology gaps: the accepted rules' literal reading, which the clean-room review showed to be
+  // wrong by the share basis it is meant to protect (REPORT.md §31, G1–G3). The expectations are
+  // what rules 2 and 3 say as written — the product and the oracle both read them so — and each
+  // case records the reading a coherent basis would give. They pin today's behaviour until the
+  // owner rules on it; they are not the readings the product promises.
+  // -------------------------------------------------------------------------------------------
+  {
+    id: "G1a",
+    covers: [],
+    title:
+      "GAP (owner decision pending): a restated count passes rule 3 through a later revision of the same quarter",
+    // Filings observed when available; a 2:1 entry listed for 2025-10-01, after the 2025-06-01
+    // verification (forward). On 2025-09-02 the provider restates every Income quarter's count to 20
+    // (new units, ahead of the ex-date): rule 3 withholds it, 10 -> 20 being unexplained. On
+    // 2025-09-10 it revises 2025Q2 again (another field; the count stays 20): rule 3 compares only
+    // with the previous revision, 20, so the count passes, and every quarter at 20 holds rule 2's
+    // level. MC = 12 x 20 = 240 against an old-basis close: P/E 240/50 = 24/5 (a coherent basis
+    // gives 120/50 = 12/5), P/S 240/418 = 120/209, P/B 240/260 = 12/13, P/FCF 240/54 = 40/9,
+    // EV/EBITDA (240 + 30)/106 = 135/53 — every one twice its coherent value.
+    security: company({
+      statements: revision(
+        restateCounts(
+          baseStatements(observedWhenAvailable),
+          ALL_QUARTERS,
+          20,
+          "2025-09-02",
+          "r",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-10",
+          observedAt: "2025-09-10T12:00:00.000Z",
+          values: {
+            weightedAverageShsOutDil: 20,
+            weightedAverageShsOut: 20,
+            grossProfit: 1,
+          },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-10-01", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-08-29", close: CLOSE, expect: AS_OF_2025Q2 },
+      {
+        session: "2025-09-02",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+      },
+      {
+        session: "2025-09-09",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+      },
+      { session: "2025-09-10", close: CLOSE, expect: DOUBLED_2025Q2 },
+      { session: "2025-09-30", close: CLOSE, expect: DOUBLED_2025Q2 },
+      {
+        session: "2025-10-01",
+        close: CLOSE,
+        expect: all("FORWARD_EVENT_UNMEASURED"),
+      },
+    ],
+  },
+  {
+    id: "G1b",
+    covers: [],
+    title:
+      "GAP (owner decision pending): once the re-base is measured, K keeps the doubled reading in history",
+    // G1a after PR 1 measured the 2:1 re-base (dated 2025-10-01, detected 2025-10-02 06:00): the
+    // stored closes before it are 6 and the entry is superseded by the measurement. A count observed
+    // before the detection takes K = 2 before the event: 6 x 2 x 10 = 120 for the original count
+    // (correct), but 6 x 2 x 20 = 240 for the 2025-09-10 revision — the same doubled readings, now
+    // in history. The restated revision of 2025-09-02 stays unexplained (the re-base was detected
+    // after it was observed); on and after the event every count observed before the detection is
+    // withheld.
+    security: company({
+      statements: revision(
+        restateCounts(
+          baseStatements(observedWhenAvailable),
+          ALL_QUARTERS,
+          20,
+          "2025-09-02",
+          "r",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-10",
+          observedAt: "2025-09-10T12:00:00.000Z",
+          values: {
+            weightedAverageShsOutDil: 20,
+            weightedAverageShsOut: 20,
+            grossProfit: 1,
+          },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-10-01", "2", "1")],
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-08-29", close: "6", expect: AS_OF_2025Q2 },
+      {
+        session: "2025-09-02",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+      },
+      { session: "2025-09-10", close: "6", expect: DOUBLED_2025Q2 },
+      { session: "2025-09-30", close: "6", expect: DOUBLED_2025Q2 },
+      { session: "2025-10-01", close: "6", expect: all("BASIS_WITHHELD") },
+      { session: "2025-11-20", close: "6", expect: all("BASIS_WITHHELD") },
+    ],
+  },
+  {
+    id: "G2",
+    covers: [],
+    title:
+      "GAP (owner decision pending): rule 3 is skipped when the previous revision has no count",
+    // 2025Q2's Income is revised on 2025-09-02 without a diluted count (no reading: no count), then
+    // on 2025-09-10 every Income quarter is restated to 20. 2025Q2's previous revision has no count,
+    // so rule 3 compares nothing and passes; rule 2's level is 20 throughout. The same doubled
+    // readings as G1a, against the old-basis close of 12.
+    security: company({
+      statements: restateCounts(
+        revision(
+          baseStatements(observedWhenAvailable),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-09-02",
+            observedAt: "2025-09-02T12:00:00.000Z",
+            values: { weightedAverageShsOutDil: undefined, grossProfit: 1 },
+          },
+          "q",
+        ),
+        ALL_QUARTERS,
+        20,
+        "2025-09-10",
+        "r",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-10-01", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-08-29", close: CLOSE, expect: AS_OF_2025Q2 },
+      {
+        session: "2025-09-02",
+        close: CLOSE,
+        expect: all("MISSING_SHARE_COUNT"),
+      },
+      { session: "2025-09-10", close: CLOSE, expect: DOUBLED_2025Q2 },
+    ],
+  },
+  {
+    id: "G3",
+    covers: [],
+    title:
+      "GAP (owner decision pending): the walk accepts its first count, even a one-quarter artefact",
+    // 2023Q1 reports 6 shares, every later quarter 10 — the shape of a listing quarter's weighted
+    // average, which the next quarter contradicts. Rule 2 has no level before the first count and
+    // accepts it: P/B 12 x 6 / 200 = 72/200 = 9/25 (10 shares give 120/200 = 3/5). 2023Q2's 10 is
+    // then outside 6's band (first disagreement) and 2023Q3's agrees with it (second): both withheld,
+    // until 2023Q4's third agreeing quarter makes 10 the level on 2024-03-01.
+    security: company({
+      statements: setShares(baseStatements(), { "2023Q1": 6 }),
+    }),
+    observations: [
+      {
+        session: "2023-05-16",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: "9/25",
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+      {
+        session: "2023-08-14",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: "9/25",
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+      {
+        session: "2023-08-15",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: off("SHARE_LEVEL_UNSAFE"),
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+      {
+        session: "2024-02-29",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: off("SHARE_LEVEL_UNSAFE"),
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+      { session: "2024-03-01", close: CLOSE, expect: AS_OF_2023Q4 },
     ],
   },
 ];

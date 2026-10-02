@@ -431,6 +431,15 @@ export type OracleValuationTerms = {
   denominator: OracleRational;
   /** The sum of the magnitudes of the quarterly values summed into the denominator. */
   denominatorMagnitude: OracleRational;
+  /** Diagnostics: the share count is a restatement a measured re-base explained (rule 3). */
+  explainedRestatement: boolean;
+  /**
+   * Diagnostics: the share count passes rule 3 against its predecessor only, the predecessor being
+   * an unexplained restatement or count-less (`REPORT.md` §31, G1 and G2).
+   */
+  restatedPredecessorGap: boolean;
+  /** Diagnostics: the share count is the walk's first usable count, accepted unconfirmed (G3). */
+  firstCountOfWalk: boolean;
 };
 
 export type OracleValuationOutcome =
@@ -670,6 +679,12 @@ type StatementLevel = {
   /** Statement-level failures every ratio shares (share count and rules 2–5 on `R`). */
   shared: OracleValuationReason[];
   ratios: Record<OracleValuationRatioId, RatioInputs>;
+  /** Whether `R`'s count is a restatement a measured re-base explains (rule 3's positive path). */
+  explainedRestatement: boolean;
+  /** Diagnostics for the review's G1/G2 (see `OracleValuationTerms`). */
+  restatedPredecessorGap: boolean;
+  /** Diagnostics for the review's G3 (see `OracleValuationTerms`). */
+  firstCountOfWalk: boolean;
 };
 
 const TWENTY_FIVE_PERCENT = oracleRational(1n, 4n);
@@ -757,7 +772,8 @@ function shareLevelAccepted(incomeQuarters: readonly Statement[]): boolean {
 }
 
 /**
- * Rule 3: whether `R`'s count is an unexplained restatement of the previous revision of its quarter.
+ * Rule 3: whether `R`'s count restates the previous revision of its quarter, and if so whether a
+ * measured re-base explains it.
  *
  * **Reading:**
  * - The previous revision is the one `R` superseded in the revision order. Rule 3 applies only when
@@ -767,24 +783,24 @@ function shareLevelAccepted(incomeQuarters: readonly Statement[]): boolean {
  *   than 30 days before `P`'s observation day, and it was detected no later than `R.observedAt`.
  *   An undated re-base is dated at the latest date it may have, for every date condition here.
  */
-function restatementUnexplained(
+function restatementStatus(
   revision: Statement,
   previous: Statement | undefined,
   events: readonly MeasuredEvent[],
-): boolean {
+): "none" | "explained" | "unexplained" {
   if (previous === undefined) {
-    return false;
+    return "none";
   }
   const current = usableCount(revision);
   const prior = usableCount(previous);
   if (current.kind !== "usable" || prior.kind !== "usable") {
-    return false;
+    return "none";
   }
   if (within(current.count, prior.count, TWO_PERCENT, prior.count)) {
-    return false;
+    return "none";
   }
   const restated = divide(current.count, prior.count);
-  return !events.some((event) => {
+  const explained = events.some((event) => {
     if (event.ratio === undefined || !positive(event.ratio)) {
       return false;
     }
@@ -800,6 +816,7 @@ function restatementUnexplained(
       knownByRevision
     );
   });
+  return explained ? "explained" : "unexplained";
 }
 
 /** The exact sum of one field over the four window quarters, or why it cannot be formed. */
@@ -1076,6 +1093,9 @@ export function createValuationOracle(
       }
     }
     const shared: OracleValuationReason[] = [];
+    let explainedRestatement = false;
+    let restatedPredecessorGap = false;
+    let firstCountOfWalk = false;
     const shareRevision = latestQuarter(book.INCOME);
     const count = usableCount(shareRevision);
     if (shareRevision === undefined || count.kind === "missing") {
@@ -1091,14 +1111,43 @@ export function createValuationOracle(
       if (count.kind === "usable" && !shareLevelAccepted(walk)) {
         shared.push("SHARE_LEVEL_UNSAFE");
       }
+      firstCountOfWalk =
+        count.kind === "usable" &&
+        walk.find((statement) => usableCount(statement).kind === "usable") ===
+          shareRevision;
       // Rule 3.
       const revisions = [
         ...(incomeRevisions.get(shareRevision.quarter) ?? []),
       ].sort(revisionOrder);
       const position = revisions.indexOf(shareRevision);
       const previous = position > 0 ? revisions[position - 1] : undefined;
-      if (restatementUnexplained(shareRevision, previous, measured)) {
+      const restatement = restatementStatus(shareRevision, previous, measured);
+      if (restatement === "unexplained") {
         shared.push("SHARE_RESTATEMENT_UNEXPLAINED");
+      }
+      explainedRestatement = restatement === "explained";
+      // Diagnostics only: `R` passes rule 3 against its predecessor, but not against the latest
+      // earlier revision rule 3 would itself have accepted — the predecessor being an unexplained
+      // restatement, or having no count (the review's G1 and G2). Nothing here withholds.
+      if (restatement !== "unexplained" && previous !== undefined) {
+        const anchor = revisions
+          .slice(0, position)
+          .reverse()
+          .find((candidate) => {
+            const at = revisions.indexOf(candidate);
+            return (
+              usableCount(candidate).kind === "usable" &&
+              restatementStatus(
+                candidate,
+                at > 0 ? revisions[at - 1] : undefined,
+                measured,
+              ) !== "unexplained"
+            );
+          });
+        restatedPredecessorGap =
+          anchor !== undefined &&
+          anchor !== previous &&
+          restatementStatus(shareRevision, anchor, measured) === "unexplained";
       }
     }
     const ratios = {} as Record<OracleValuationRatioId, RatioInputs>;
@@ -1151,6 +1200,9 @@ export function createValuationOracle(
       ...(count.kind === "usable" ? { shares: count.count } : {}),
       shared,
       ratios,
+      explainedRestatement,
+      restatedPredecessorGap,
+      firstCountOfWalk,
     };
   }
 
@@ -1310,6 +1362,9 @@ export function createValuationOracle(
               addend,
               denominator: inputs.denominator,
               denominatorMagnitude: inputs.denominatorMagnitude,
+              explainedRestatement: level.explainedRestatement,
+              restatedPredecessorGap: level.restatedPredecessorGap,
+              firstCountOfWalk: level.firstCountOfWalk,
             },
           };
         }

@@ -48,6 +48,9 @@ function literalOutcome(
       addend: oracleRational(0n),
       denominator: oracleRational(1n),
       denominatorMagnitude: oracleRational(1n),
+      explainedRestatement: false,
+      restatedPredecessorGap: false,
+      firstCountOfWalk: false,
     },
   };
 }
@@ -159,9 +162,14 @@ describe("the product against the hand-computed rule 2 walks and rule 3 threshol
         closes: sessions.map(() => "12"),
         ratios: ["PRICE_TO_BOOK"],
       }).get("PRICE_TO_BOOK") as Float64Array;
+      // A quarter with no usable count (`null`) must have no reading either.
       expect(
         Array.from(column, (value, index) =>
-          walk.accepted[index] === null ? null : !Number.isNaN(value),
+          Number.isNaN(value)
+            ? walk.accepted[index] === null
+              ? null
+              : false
+            : true,
         ),
       ).toEqual(walk.accepted);
     });
