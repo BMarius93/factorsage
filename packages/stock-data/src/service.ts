@@ -549,6 +549,11 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
   private readonly onPriceBasisEvent: (event: PriceBasisObservation) => void;
   private readonly alternativeData?: CanonicalAlternativeDataService;
+  /**
+   * Split-list refreshes in flight, by security: reads that find the stored list stale together
+   * share one provider request instead of each reading and rewriting the same list.
+   */
+  private readonly splitListRefreshes = new Map<string, Promise<void>>();
 
   constructor(
     private readonly store: StockDataStore,
@@ -923,6 +928,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   /**
    * The provider's split list into storage when the stored one is older than
    * {@link STOCK_SPLIT_LIST_FRESHNESS_MS}, or nothing: one dataset-state read when it is fresh.
+   *
+   * Reads in this process that find the list stale while a refresh of it is in flight wait for that
+   * refresh rather than start their own — a ratio switched while the first is loading, or two
+   * viewers of one stock. A failed refresh is not remembered: the next read asks again.
    */
   private async ensureStockSplitListFresh(security: Security): Promise<void> {
     const state = await this.store.getDatasetState(
@@ -937,6 +946,19 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     ) {
       return;
     }
+    const inFlight = this.splitListRefreshes.get(security.id);
+    if (inFlight) {
+      return inFlight;
+    }
+    const refresh = this.refreshStockSplitList(security).finally(() => {
+      this.splitListRefreshes.delete(security.id);
+    });
+    this.splitListRefreshes.set(security.id, refresh);
+    return refresh;
+  }
+
+  /** Reads the provider's split list and replaces the stored one with it. */
+  private async refreshStockSplitList(security: Security): Promise<void> {
     if (!this.provider.getStockSplits) {
       // A composition that offers valuation ratios must serve the list their rules read; projecting
       // them without it would silently mask nothing.
@@ -1438,10 +1460,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       throw new StockDataValidationError("Unsupported valuation ratio");
     }
     const bounded = this.requireBoundedRange(range);
+    const preHydration = await this.getSecurity(symbol);
+    const load = this.loadTarget(preHydration, bounded);
+    await this.ensureStockHydrated(preHydration, load);
+    await this.ensureStockFresh(preHydration, load);
+    // The first hydration's profile sync can enrich the catalog row — its currency and listing date
+    // among them, which the statement rules and the retained window read. Re-resolved, as
+    // `getStockDetails` does, so the ratio is computed from the identity a Strategy frame reads.
     const security = await this.getSecurity(symbol);
-    const load = this.loadTarget(security, bounded);
-    await this.ensureStockHydrated(security, load);
-    await this.ensureStockFresh(security, load);
     await this.ensureStockSplitListFresh(security);
     const expected = await this.priceBasisGeneration(security.id);
     const [prices, timeline] = await Promise.all([

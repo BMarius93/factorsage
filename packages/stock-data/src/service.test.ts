@@ -6338,6 +6338,107 @@ describe("a valuation ratio's daily history for Stock Details", () => {
     expect(provider.splitReads).toBe(2);
   });
 
+  it("lets reads that find the split list stale together share one provider request", async () => {
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    class HeldSplitProvider extends SplitProvider {
+      override async getStockSplits(): Promise<StockSplit[]> {
+        this.splitReads += 1;
+        await held;
+        return this.splits;
+      }
+    }
+    const provider = new HeldSplitProvider();
+    const { store, loader } = await residentFresh(provider);
+
+    // P/E is chosen and, while its read waits on the provider's list, P/B after it.
+    const pe = loader.getDailyValuationRatio(
+      "AAPL",
+      "PRICE_TO_EARNINGS_TTM",
+      WINDOW,
+    );
+    const pb = loader.getDailyValuationRatio("AAPL", "PRICE_TO_BOOK", WINDOW);
+    await vi.waitFor(() => expect(provider.splitReads).toBe(1));
+    release();
+
+    const [earnings, book] = await Promise.all([pe, pb]);
+    // One request and one replacement, and both reads answered from the list it stored.
+    expect(provider.splitReads).toBe(1);
+    expect(store.stockSplitReads).toEqual([NOW]);
+    expect(valueOn(earnings, "2026-08-12")).toBe(11.11);
+    expect(valueOn(book, "2026-08-12")).toBe(33.33);
+  });
+
+  it("asks the provider again after a failed split-list read, and answers once it succeeds", async () => {
+    class FailingOnceProvider extends SplitProvider {
+      override async getStockSplits(): Promise<StockSplit[]> {
+        this.splitReads += 1;
+        if (this.splitReads === 1) {
+          throw new Error("The provider is unavailable");
+        }
+        return this.splits;
+      }
+    }
+    const provider = new FailingOnceProvider();
+    const { store, loader } = await residentFresh(provider);
+
+    await expect(
+      loader.getDailyValuationRatio("AAPL", "PRICE_TO_BOOK", WINDOW),
+    ).rejects.toThrow("The provider is unavailable");
+    // Nothing was stored, and nothing about the failure is kept.
+    expect(store.stockSplitReads).toEqual([]);
+
+    const points = await loader.getDailyValuationRatio(
+      "AAPL",
+      "PRICE_TO_BOOK",
+      WINDOW,
+    );
+    expect(provider.splitReads).toBe(2);
+    expect(valueOn(points, "2026-08-12")).toBe(33.33);
+  });
+
+  it("reads the identity the first hydration enriched, as a Strategy frame does", async () => {
+    // A catalog row written before the profile sync, in another currency than the statements: the
+    // statement rules would make every ratio unavailable if the read kept that row.
+    const store = new FakeStore();
+    store.currentSecurity = { ...security, currency: "EUR" };
+    store.financialStatements = statements();
+    const provider = new SplitProvider();
+    provider.profile = {
+      providerSymbol: security.symbol,
+      security: {
+        symbol: security.symbol,
+        name: security.name,
+        exchangeCode: security.exchangeCode,
+        currency: "USD",
+        type: security.type,
+        isAdr: security.isAdr,
+        isActivelyTrading: security.isActivelyTrading,
+      },
+      profile: { description: "Designs consumer electronics." },
+    };
+    provider.history = tradingDays("2026-08-03", "2026-08-21").map((row) =>
+      row.date === "2026-08-12" ? price(row.date, 120) : row,
+    );
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    const points = await loader.getDailyValuationRatio(
+      "AAPL",
+      "PRICE_TO_BOOK",
+      { from: "2026-08-12", to: "2026-08-12" },
+    );
+    expect(provider.profileCalls).toEqual(["AAPL"]);
+    expect(store.currentSecurity?.currency).toBe("USD");
+    expect(points).toEqual([{ date: "2026-08-12", value: 33.33 }]);
+  });
+
   it("withholds a listed event the provider has not re-based, exactly as the calculation does", async () => {
     const provider = new SplitProvider();
     // A distribution listed after the history was verified and never measured: rule 8 holds its
