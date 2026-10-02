@@ -2451,6 +2451,15 @@ export const SHARE_LEVEL_WALKS: readonly {
   },
   {
     title:
+      "exactly -25 % of a non-integer count is inside: the figures are judged, not their doubles",
+    // |0.825 - 1.1| = 0.275 = 0.25 x 1.1: inside, and 0.825 becomes the level (as doubles,
+    // 0.825 / 1.1 - 1 is -0.2500000000000001). |1.1 - 0.825| = 0.275 > 0.25 x 0.825 = 0.20625: the
+    // return to 1.1 leaves the level, first and second disagreeing quarters.
+    counts: [1.1, 1.1, 1.1, 1.1, 0.825, 0.825, 1.1, 1.1],
+    accepted: [true, true, true, true, true, true, false, false],
+  },
+  {
+    title:
       "a persistent change is accepted on the third quarter (merger/offering)",
     counts: [10, 10, 10, 10, 15, 15, 15, 15],
     accepted: [true, true, true, true, false, false, true, true],
