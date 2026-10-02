@@ -138,7 +138,14 @@ export class ComparisonTally {
     OracleValuationRatioId,
     Map<OracleValuationReason, number>
   >();
-  readonly relativeDifferences: number[] = [];
+  /**
+   * Relative differences, counted in logarithmic bins 1 % wide (bin `k` holds `[1.01^k, 1.01^(k+1))`)
+   * rather than kept one by one: a run of tens of millions of cells needs percentiles to a percent,
+   * not the cells. `zeroDifferences` counts the exact ones.
+   */
+  private readonly relativeDifferenceBins = new Map<number, number>();
+  private zeroDifferences = 0;
+  private relativeDifferenceCount = 0;
   maxAbsoluteDifference = 0;
   maxRelativeDifference = 0;
   maxToleranceUsed = 0;
@@ -204,7 +211,18 @@ export class ComparisonTally {
         comparison.absoluteDifference,
       );
       if (comparison.relativeDifference !== undefined) {
-        this.relativeDifferences.push(comparison.relativeDifference);
+        this.relativeDifferenceCount += 1;
+        if (comparison.relativeDifference === 0) {
+          this.zeroDifferences += 1;
+        } else {
+          const bin = Math.floor(
+            Math.log(comparison.relativeDifference) / Math.log(1.01),
+          );
+          this.relativeDifferenceBins.set(
+            bin,
+            (this.relativeDifferenceBins.get(bin) ?? 0) + 1,
+          );
+        }
         this.maxRelativeDifference = Math.max(
           this.maxRelativeDifference,
           comparison.relativeDifference,
@@ -262,16 +280,28 @@ export class ComparisonTally {
     return total;
   }
 
+  /** The relative difference at `fraction`, to the upper edge of its 1 % bin (0 for exact cells). */
   percentile(fraction: number): number {
-    if (this.relativeDifferences.length === 0) {
+    if (this.relativeDifferenceCount === 0) {
       return 0;
     }
-    const sorted = Float64Array.from(this.relativeDifferences).sort();
-    const index = Math.min(
-      sorted.length - 1,
-      Math.floor(fraction * (sorted.length - 1)),
+    const rank = Math.min(
+      this.relativeDifferenceCount,
+      Math.floor(fraction * (this.relativeDifferenceCount - 1)) + 1,
     );
-    return sorted[index] as number;
+    if (rank <= this.zeroDifferences) {
+      return 0;
+    }
+    let seen = this.zeroDifferences;
+    for (const bin of [...this.relativeDifferenceBins.keys()].sort(
+      (a, b) => a - b,
+    )) {
+      seen += this.relativeDifferenceBins.get(bin) as number;
+      if (seen >= rank) {
+        return Math.pow(1.01, bin + 1);
+      }
+    }
+    return this.maxRelativeDifference;
   }
 
   summary(): Record<string, unknown> {
