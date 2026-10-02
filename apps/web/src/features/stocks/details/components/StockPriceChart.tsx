@@ -1242,7 +1242,7 @@ export function StockPriceChart({
       data-fundamental-pane={hasFundamentalPane ? "true" : undefined}
       // `data-fundamental-space`, the room for that pane while its line or its placeholder is in
       // the chart, is written by the effect that adds and removes the pane: see
-      // `publishFundamentalSpace`.
+      // `publishPaneSpace`.
       data-fundamental-runs={
         fundamental ? fundamentalStretches.length : undefined
       }
