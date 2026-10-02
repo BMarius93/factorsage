@@ -2,6 +2,7 @@
 
 import {
   findFundamentalMetric,
+  findValuationRatio,
   type SelectableSeriesId,
   type StockDetailsResponse,
 } from "@intrinsic/contracts";
@@ -15,13 +16,12 @@ import { useSignInPrompt } from "../../../auth/hooks/use-sign-in-prompt";
 import { AddToListDialog } from "../../../lists/components/AddToListDialog";
 import { useRecordSecurityView } from "../../recent/hooks/use-recent-securities";
 import type { StockHistoryWindow } from "../api/stock-details-api";
-import {
-  useFundamentalHistory,
-  type FundamentalHistoryStatus,
-} from "../hooks/use-fundamental-history";
+import { useFundamentalHistory } from "../hooks/use-fundamental-history";
 import { useIndicatorSelection } from "../hooks/use-indicator-selection";
+import type { SeriesHistoryStatus } from "../hooks/use-series-history";
 import { useStockDetails } from "../hooks/use-stock-details";
 import { useStockHistory } from "../hooks/use-stock-history";
+import { useValuationHistory } from "../hooks/use-valuation-history";
 import {
   closeSeries,
   relativeVolumeByDate,
@@ -42,6 +42,7 @@ import {
 import { summarizePrices } from "../utils/price-summary";
 import { selectLatestTechnicals } from "../utils/technicals";
 import { selectLatestValuations } from "../utils/valuation";
+import { buildValuationSeries } from "../utils/valuation-series";
 import { ChartKey } from "./ChartKey";
 import { IndicatorsMenu } from "./IndicatorsMenu";
 import { StockDetailsSkeleton } from "./StockDetailsSkeleton";
@@ -246,8 +247,14 @@ function StockDetailsContent({
   // older history arrives stops being reported as unavailable. It never narrows: the chosen set
   // survives, because a widening load can only add.
   const available = useMemo(() => availableSeriesIds(source), [source]);
-  const { selected, toggle, fundamental, chooseFundamental } =
-    useIndicatorSelection(available);
+  const {
+    selected,
+    toggle,
+    fundamental,
+    chooseFundamental,
+    valuation,
+    chooseValuation,
+  } = useIndicatorSelection(available);
 
   const chartPoints = useMemo(
     () => closeSeries(loaded.history.prices),
@@ -275,6 +282,29 @@ function StockDetailsContent({
     () => buildOverlays(source, selected, tradingDays),
     [source, selected, tradingDays],
   );
+
+  // The chosen valuation ratio, and only it — never the other four — over exactly the history the
+  // price chart holds, by the same rule as the Fundamental Metric below: from the loaded-from
+  // watermark to the newest bar, the gap alone when older history arrives, nothing until a ratio is
+  // chosen. Every reading is the backend's, computed with the calculation a Strategy reads; where
+  // the line breaks is decided there, never here.
+  const valuationHistory = useValuationHistory({
+    symbol,
+    ratioId: valuation,
+    from: loaded.loadedFrom,
+    to: tradingDays.at(-1) ?? window.to,
+  });
+  const valuationRatio =
+    valuation === null ? undefined : findValuationRatio(valuation);
+  const chartValuation = useMemo(
+    () =>
+      valuation !== null && valuationHistory.loaded
+        ? buildValuationSeries(valuation, valuationHistory.rows, tradingDays)
+        : undefined,
+    [valuation, valuationHistory.loaded, valuationHistory.rows, tradingDays],
+  );
+  const valuationDrawn =
+    chartValuation !== undefined && chartValuation.points.length > 0;
 
   // The chosen Fundamental Metric, and only it, over exactly the history the price chart holds:
   // from the loaded-from watermark to the newest bar on the chart, so the metric never answers for
@@ -313,13 +343,21 @@ function StockDetailsContent({
     () => new Map(chartOverlays.map((overlay) => [overlay.id, overlay.color])),
     [chartOverlays],
   );
-  // The persistent key names what is drawn: the overlays, then the fundamental once its line is.
+  // The persistent key names what is drawn, in the panes' order: the overlays, then the valuation
+  // ratio and the fundamental once each line is.
   const keyEntries = useMemo(
-    () =>
-      chartFundamental && fundamentalDrawn
-        ? [...chartOverlays, chartFundamental]
-        : chartOverlays,
-    [chartOverlays, chartFundamental, fundamentalDrawn],
+    () => [
+      ...chartOverlays,
+      ...(chartValuation && valuationDrawn ? [chartValuation] : []),
+      ...(chartFundamental && fundamentalDrawn ? [chartFundamental] : []),
+    ],
+    [
+      chartOverlays,
+      chartValuation,
+      valuationDrawn,
+      chartFundamental,
+      fundamentalDrawn,
+    ],
   );
   const colorOf = (id: SelectableSeriesId) => overlayColors.get(id);
 
@@ -359,6 +397,8 @@ function StockDetailsContent({
                 available={available}
                 onToggle={toggle}
                 colorOf={colorOf}
+                valuation={valuation}
+                onChooseValuation={chooseValuation}
                 fundamental={fundamental}
                 onChooseFundamental={chooseFundamental}
               />
@@ -394,13 +434,24 @@ function StockDetailsContent({
             ariaLabel={`${security.symbol} daily closing price chart, ${range} range`}
           />
           <ChartKey overlays={keyEntries} />
+          {valuationRatio ? (
+            <PaneSeriesStatus
+              label={valuationRatio.label}
+              status={valuationHistory.status}
+              loaded={valuationHistory.loaded}
+              drawn={valuationDrawn}
+              onRetry={valuationHistory.retry}
+              testId="valuation-status"
+            />
+          ) : null}
           {fundamentalMetric ? (
-            <FundamentalStatus
+            <PaneSeriesStatus
               label={fundamentalMetric.label}
               status={fundamentalHistory.status}
               loaded={fundamentalHistory.loaded}
               drawn={fundamentalDrawn}
               onRetry={fundamentalHistory.retry}
+              testId="fundamental-status"
             />
           ) : null}
 
@@ -462,25 +513,28 @@ function StockDetailsContent({
 }
 
 /**
- * What the Fundamental Metric pane cannot say for itself: that the chosen metric is still on its
- * way, that it could not be loaded, or that it has no value anywhere in the loaded history.
+ * What a pane of its own cannot say for itself — the chosen valuation ratio's or Fundamental
+ * Metric's: that it is still on its way, that it could not be loaded, or that it has no value
+ * anywhere in the loaded history.
  *
- * Loading is never reported as "no values", and a failed request is never reported as the metric
+ * Loading is never reported as "no values", and a failed request is never reported as the series
  * being unavailable — the first is a wait and the second a fact about the company, and neither is
  * the other. Once the line is drawn there is nothing to add: the pane shows its own gaps.
  */
-function FundamentalStatus({
+function PaneSeriesStatus({
   label,
   status,
   loaded,
   drawn,
   onRetry,
+  testId,
 }: {
   readonly label: string;
-  readonly status: FundamentalHistoryStatus;
+  readonly status: SeriesHistoryStatus;
   readonly loaded: boolean;
   readonly drawn: boolean;
   readonly onRetry: () => void;
+  readonly testId: string;
 }) {
   if (status === "error") {
     return (
@@ -496,22 +550,14 @@ function FundamentalStatus({
     // A drawn line extending into older history needs no announcement, exactly as the price
     // chart's own older windows arrive quietly; anything else is waiting, not empty.
     return drawn ? null : (
-      <p
-        className={styles.fundamentalStatus}
-        role="status"
-        data-testid="fundamental-status"
-      >
+      <p className={styles.seriesStatus} role="status" data-testid={testId}>
         Loading {label}…
       </p>
     );
   }
   if (!drawn) {
     return (
-      <p
-        className={styles.fundamentalStatus}
-        role="status"
-        data-testid="fundamental-status"
-      >
+      <p className={styles.seriesStatus} role="status" data-testid={testId}>
         {label} is unavailable for every session in the loaded history.
       </p>
     );

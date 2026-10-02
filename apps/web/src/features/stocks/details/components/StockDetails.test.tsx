@@ -19,6 +19,7 @@ import {
   fetchDailyFundamentalHistory,
   fetchDailyPriceHistory,
   fetchDailyTechnicalHistory,
+  fetchDailyValuationHistory,
   fetchIntrinsicValueBlendHistory,
   fetchIntrinsicValueHistory,
   fetchStockDetails,
@@ -41,6 +42,7 @@ vi.mock("../api/stock-details-api", () => ({
   fetchIntrinsicValueBlendHistory: vi.fn(),
   fetchIntrinsicValueHistory: vi.fn(),
   fetchDailyFundamentalHistory: vi.fn(),
+  fetchDailyValuationHistory: vi.fn(),
 }));
 
 // The chart library boundary is tested separately; here a probe records the data our feature
@@ -130,6 +132,7 @@ const fetchIntrinsicValueHistoryMock = vi.mocked(fetchIntrinsicValueHistory);
 const fetchDailyFundamentalHistoryMock = vi.mocked(
   fetchDailyFundamentalHistory,
 );
+const fetchDailyValuationHistoryMock = vi.mocked(fetchDailyValuationHistory);
 
 const SECURITY: SecurityResponse = {
   id: "sec-1",
@@ -251,6 +254,7 @@ beforeEach(() => {
   fetchIntrinsicValueBlendHistoryMock.mockReset();
   fetchIntrinsicValueHistoryMock.mockReset();
   fetchDailyFundamentalHistoryMock.mockReset();
+  fetchDailyValuationHistoryMock.mockReset();
   fetchDailyTechnicalHistoryMock.mockResolvedValue([]);
   fetchIntrinsicValueBlendHistoryMock.mockResolvedValue([]);
   fetchIntrinsicValueHistoryMock.mockResolvedValue([]);
@@ -876,7 +880,9 @@ describe("StockDetails", () => {
       "Oscillators",
       "Intrinsic Value — Blends",
       "Intrinsic Value — Models",
-      // The Fundamental Metrics follow the overlays as one single-select section.
+      // The valuation ratios and then the Fundamental Metrics follow the overlays, one
+      // single-select section each.
+      "Valuation",
       "Fundamentals",
     ]);
 
@@ -1553,5 +1559,216 @@ describe("StockDetails fundamentals", () => {
     await screen.findByTestId("price-chart");
     expect(chart().dataset.fundamental).toBe("");
     expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("StockDetails valuation ratios", () => {
+  const WINDOW = { from: "2025-08-28", to: "2026-08-28" };
+
+  /** A P/E history as the API computes it: a reading per session, one unavailable session. */
+  const PE_ROWS = [
+    { date: "2025-09-02", value: 18.25 },
+    { date: "2026-03-02", value: 21.5 },
+    { date: "2026-06-02" },
+    { date: "2026-07-30", value: 23.1 },
+    { date: "2026-08-27", value: 24 },
+    { date: "2026-08-28", value: 27.84 },
+  ];
+  const PB_ROWS = [
+    { date: "2026-08-27", value: 0.75 },
+    { date: "2026-08-28", value: 1 },
+  ];
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((onResolve) => {
+      resolve = onResolve;
+    });
+    return { promise, resolve };
+  }
+
+  async function openPage(user: ReturnType<typeof setupUser>) {
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    return screen.getByRole("combobox", { name: "Valuation ratio" });
+  }
+
+  function valuationRequests() {
+    return fetchDailyValuationHistoryMock.mock.calls.map(
+      ([symbol, window, ratio]) => [symbol, ratio, window.from, window.to],
+    );
+  }
+
+  function chartKey(): string {
+    return screen.getByRole("list", { name: "Chart key" }).textContent ?? "";
+  }
+
+  it("loads nothing about valuation until a ratio is chosen", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+    await openPage(user);
+
+    expect(fetchDailyValuationHistoryMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("valuation-status")).toBeNull();
+  });
+
+  it("asks for the chosen ratio alone, by identity, over the window the chart holds — never thirty years", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+
+    await waitFor(() => expect(chartKey()).toContain("P/E"));
+    // One request, for the one-year window loaded, never the reported thirty-year boundary.
+    expect(valuationRequests()).toEqual([
+      ["AAPL", "PRICE_TO_EARNINGS_TTM", WINDOW.from, WINDOW.to],
+    ]);
+    expect(valuationRequests()[0]?.[2]).not.toBe(HISTORY_BOUNDS.start);
+    expect(screen.queryByTestId("valuation-status")).toBeNull();
+    // Nothing about fundamentals is asked for by choosing a ratio.
+    expect(fetchDailyFundamentalHistoryMock).not.toHaveBeenCalled();
+  });
+
+  it("lets P/B win when P/E is chosen first and answers after it", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const pe = deferred<{ date: string; value?: number }[]>();
+    const pb = deferred<{ date: string; value?: number }[]>();
+    fetchDailyValuationHistoryMock
+      .mockReturnValueOnce(pe.promise)
+      .mockReturnValueOnce(pb.promise);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await user.selectOptions(select, "PRICE_TO_BOOK");
+    await act(async () => pb.resolve(PB_ROWS));
+    await act(async () => pe.resolve(PE_ROWS));
+
+    expect(chartKey()).toContain("P/B");
+    expect(chartKey()).not.toContain("P/E");
+    expect(valuationRequests().map((request) => request[1])).toEqual([
+      "PRICE_TO_EARNINGS_TTM",
+      "PRICE_TO_BOOK",
+    ]);
+  });
+
+  it("says a ratio with no value is unavailable only once its history has arrived", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const rows = deferred<{ date: string; value?: number }[]>();
+    fetchDailyValuationHistoryMock.mockReturnValueOnce(rows.promise);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "PRICE_TO_FCF_TTM");
+    const status = screen.getByTestId("valuation-status");
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toBe("Loading P/FCF…");
+
+    await act(async () =>
+      rows.resolve([{ date: "2026-08-27" }, { date: "2026-08-28" }]),
+    );
+    expect(screen.getByTestId("valuation-status").textContent).toBe(
+      "P/FCF is unavailable for every session in the loaded history.",
+    );
+    expect(chartKey()).not.toContain("P/FCF");
+  });
+
+  it("reports a failed load as a failure, never as unavailable, and asks for the same window again", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockRejectedValueOnce(
+      new ApiError(503, "Stock data is temporarily unavailable"),
+    );
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "EV_TO_EBITDA_TTM");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("EV/EBITDA could not be loaded.");
+    expect(screen.queryByText(/is unavailable for every session/)).toBeNull();
+
+    fetchDailyValuationHistoryMock.mockResolvedValueOnce([
+      { date: "2026-08-28", value: -1.25 },
+    ]);
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(chartKey()).toContain("EV/EBITDA"));
+    expect(valuationRequests()).toEqual([
+      ["AAPL", "EV_TO_EBITDA_TTM", WINDOW.from, WINDOW.to],
+      ["AAPL", "EV_TO_EBITDA_TTM", WINDOW.from, WINDOW.to],
+    ]);
+  });
+
+  it("follows older price history with the ratio's gap alone", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2024-09-03", 120)]);
+    fetchDailyValuationHistoryMock
+      .mockResolvedValueOnce(PE_ROWS)
+      .mockResolvedValueOnce([{ date: "2024-09-03", value: 15.2 }]);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await waitFor(() => expect(chartKey()).toContain("P/E"));
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+
+    await waitFor(() => expect(valuationRequests()).toHaveLength(2));
+    expect(valuationRequests()).toEqual([
+      ["AAPL", "PRICE_TO_EARNINGS_TTM", WINDOW.from, WINDOW.to],
+      // Exactly the interval the price chart just gained, and not the year it already held.
+      ["AAPL", "PRICE_TO_EARNINGS_TTM", "2024-08-28", "2025-08-27"],
+    ]);
+  });
+
+  it("keeps a ratio and a metric independent: each loads, changes and clears on its own", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockImplementation(
+      async (_symbol, _window, ratio) =>
+        ratio === "PRICE_TO_EARNINGS_TTM" ? PE_ROWS : PB_ROWS,
+    );
+    fetchDailyFundamentalHistoryMock.mockResolvedValue([
+      { date: "2026-08-27", value: 15.42 },
+      { date: "2026-08-28", value: 15.42 },
+    ]);
+    const user = setupUser();
+    const valuation = await openPage(user);
+    const fundamental = screen.getByRole("combobox", {
+      name: "Fundamental metric",
+    });
+
+    await user.selectOptions(valuation, "PRICE_TO_EARNINGS_TTM");
+    await user.selectOptions(fundamental, "ROIC_TTM");
+    await waitFor(() => expect(chartKey()).toContain("ROIC TTM"));
+    expect(chartKey()).toContain("P/E");
+
+    // Changing the ratio asks for the ratio alone and leaves the metric as it was.
+    await user.selectOptions(valuation, "PRICE_TO_BOOK");
+    await waitFor(() => expect(chartKey()).toContain("P/B"));
+    expect(chartKey()).toContain("ROIC TTM");
+    expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(1);
+
+    // None on the ratio removes the ratio only.
+    await user.selectOptions(valuation, "");
+    expect(chartKey()).not.toContain("P/B");
+    expect(chartKey()).toContain("ROIC TTM");
+    expect(fundamental).toHaveProperty("value", "ROIC_TTM");
+    expect(fetchDailyValuationHistoryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not keep the choice across a new page view", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await waitFor(() => expect(chartKey()).toContain("P/E"));
+    cleanup();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    expect(chartKey()).not.toContain("P/E");
+    expect(fetchDailyValuationHistoryMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,12 @@
-import { FUNDAMENTAL_METRIC_IDS } from "@intrinsic/contracts";
+import {
+  FUNDAMENTAL_METRIC_IDS,
+  VALUATION_RATIO_IDS,
+} from "@intrinsic/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchDailyFundamentalHistory } from "./stock-details-api";
+import {
+  fetchDailyFundamentalHistory,
+  fetchDailyValuationHistory,
+} from "./stock-details-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -56,5 +62,42 @@ describe("fetchDailyFundamentalHistory", () => {
     expect((fetchMock.mock.lastCall?.[1] as RequestInit).signal).toBe(
       controller.signal,
     );
+  });
+});
+
+describe("fetchDailyValuationHistory", () => {
+  it("names the ratio by its stable identity alone, for exactly the window asked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ date: "2026-08-28", value: 18.25 }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    for (const ratio of VALUATION_RATIO_IDS) {
+      await fetchDailyValuationHistory(
+        "BRK.B",
+        { from: "2025-08-28", to: "2026-08-28" },
+        ratio,
+        { signal: controller.signal },
+      );
+      const url = new URL(fetchMock.mock.lastCall?.[0] as string);
+      expect(url.pathname).toBe("/stocks/BRK.B/valuation-ratios/daily");
+      // Exactly three parameters, and the ratio is the catalog identity itself: never a label and
+      // never a list of every ratio.
+      expect([...url.searchParams.keys()].sort()).toEqual([
+        "from",
+        "ratio",
+        "to",
+      ]);
+      expect(url.searchParams.getAll("ratio")).toEqual([ratio]);
+      expect(url.searchParams.get("from")).toBe("2025-08-28");
+      expect(url.searchParams.get("to")).toBe("2026-08-28");
+      expect((fetchMock.mock.lastCall?.[1] as RequestInit).signal).toBe(
+        controller.signal,
+      );
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(VALUATION_RATIO_IDS.length);
   });
 });

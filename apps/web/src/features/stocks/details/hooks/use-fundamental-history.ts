@@ -4,78 +4,24 @@ import type {
   DailyFundamentalMetricResponse,
   FundamentalMetricId,
 } from "@intrinsic/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchDailyFundamentalHistory } from "../api/stock-details-api";
 import {
-  fetchDailyFundamentalHistory,
-  type StockHistoryWindow,
-} from "../api/stock-details-api";
-import { mergeHistory } from "../utils/history-window";
-import { shiftLocalDateDays } from "../utils/local-dates";
+  useSeriesHistory,
+  type SeriesHistory,
+  type SeriesHistoryStatus,
+} from "./use-series-history";
 
-export type FundamentalHistoryStatus = "idle" | "loading" | "error";
+export type FundamentalHistoryStatus = SeriesHistoryStatus;
 
-export type FundamentalHistory = {
-  /**
-   * The chosen metric's sessions, oldest first, exactly as the API returned them — only ever for
-   * the metric currently chosen. Empty while that metric's first window is still on its way.
-   */
-  readonly rows: readonly DailyFundamentalMetricResponse[];
-  /** The chosen metric's rows have arrived at least once, so an empty `rows` means no sessions. */
-  readonly loaded: boolean;
-  readonly status: FundamentalHistoryStatus;
-  /** Asks again for whatever the chosen metric is still missing. */
-  readonly retry: () => void;
-};
-
-type LoadedMetric = {
-  readonly symbol: string;
-  readonly metricId: FundamentalMetricId;
-  /** Everything from here to `to` is held for this metric of this security. */
-  readonly coveredFrom: string;
-  readonly to: string;
-  readonly rows: readonly DailyFundamentalMetricResponse[];
-};
-
-/**
- * What a set of held rows answers for: one metric of one security up to one window end. Rows held
- * for anything else are never shown or extended — not another security's, and not a window that
- * ended elsewhere.
- */
-function sameHistory(
-  loaded: LoadedMetric | null,
-  symbol: string,
-  metricId: FundamentalMetricId | null,
-  to: string,
-): loaded is LoadedMetric {
-  return (
-    loaded !== null &&
-    loaded.symbol === symbol &&
-    loaded.metricId === metricId &&
-    loaded.to === to
-  );
-}
-
-const NO_ROWS: readonly DailyFundamentalMetricResponse[] = [];
+export type FundamentalHistory = SeriesHistory<DailyFundamentalMetricResponse>;
 
 /**
  * The chosen Fundamental Metric's history, kept covering exactly what the page has loaded.
  *
- * Selective by construction: nothing is fetched until a metric is chosen, and then only that
- * metric, for the history the price chart already holds — `[from, to]`, where `from` is the page's
- * loaded-from watermark. When older price history arrives and the watermark moves back, only the
- * gap is asked for and merged in, so panning with a metric on costs one small request per window
- * and nothing already held is fetched again. Choosing a different metric asks for that metric's
- * whole window; its rows replace the previous metric's, which are never shown under the new
- * metric's name — not even for the render before its answer arrives.
- *
- * Only the newest request may land. Every change of metric, watermark or retry aborts the request
- * in flight and tags the next one, so a slow answer for a metric the user has already moved away
- * from can never overwrite the one they chose after it. A failed request merges nothing and moves
- * no watermark: `retry` asks for exactly what is still missing, and a failure is never drawn as an
- * unavailable interval, which would be a false statement about the company.
- *
- * Nothing here calculates or carries a value. Every session arrives already materialized by the
- * backend, absence included.
+ * Nothing is fetched until a metric is chosen; then only that metric, for the history the price
+ * chart holds, and only the gap when older history arrives. Only the newest request may land, and a
+ * failure is a failure, never an unavailable interval. `useSeriesHistory` is the lifecycle; every
+ * session arrives as the backend materialized it, from the persisted derived state.
  */
 export function useFundamentalHistory(input: {
   readonly symbol: string;
@@ -85,95 +31,11 @@ export function useFundamentalHistory(input: {
   /** The newest session the page's price history holds. */
   readonly to: string;
 }): FundamentalHistory {
-  const { symbol, metricId, from, to } = input;
-  const [loadedMetric, setLoadedMetric] = useState<LoadedMetric | null>(null);
-  // The status belongs to the metric it was reached for, so one metric's failure is never shown
-  // under the next metric's name in the render before that metric's own request starts.
-  const requestKey = metricId === null ? null : `${symbol}|${metricId}|${to}`;
-  const [request, setRequest] = useState<{
-    readonly key: string | null;
-    readonly status: FundamentalHistoryStatus;
-  }>({ key: null, status: "idle" });
-  const [attempt, setAttempt] = useState(0);
-  // The request decision reads what is held without depending on it, so a landed answer never
-  // re-runs the effect that asked for it.
-  const loadedRef = useRef<LoadedMetric | null>(null);
-  const requestRef = useRef(0);
-
-  useEffect(() => {
-    // Every run invalidates whatever was asked for before it, answered or not.
-    const requestId = ++requestRef.current;
-    if (metricId === null) {
-      setRequest({ key: null, status: "idle" });
-      return;
-    }
-    const key = `${symbol}|${metricId}|${to}`;
-    const held = loadedRef.current;
-    const same = sameHistory(held, symbol, metricId, to);
-    if (same && held.coveredFrom <= from) {
-      setRequest({ key, status: "idle" });
-      return;
-    }
-    // The same metric extends backwards by the gap alone; another metric needs its whole window.
-    const window: StockHistoryWindow = same
-      ? { from, to: shiftLocalDateDays(held.coveredFrom, -1) }
-      : { from, to };
-    const controller = new AbortController();
-    setRequest({ key, status: "loading" });
-    fetchDailyFundamentalHistory(symbol, window, metricId, {
-      signal: controller.signal,
-    })
-      .then((rows) => {
-        if (requestId !== requestRef.current || controller.signal.aborted) {
-          return;
-        }
-        const base = loadedRef.current;
-        const next: LoadedMetric = {
-          symbol,
-          metricId,
-          coveredFrom: window.from,
-          to,
-          rows: sameHistory(base, symbol, metricId, to)
-            ? mergeHistory(
-                base.rows,
-                rows,
-                (row) => row.date,
-                (row) => row.date,
-              )
-            : rows,
-        };
-        loadedRef.current = next;
-        setLoadedMetric(next);
-        setRequest({ key, status: "idle" });
-      })
-      .catch(() => {
-        if (requestId !== requestRef.current || controller.signal.aborted) {
-          return;
-        }
-        setRequest({ key, status: "error" });
-      });
-    return () => controller.abort();
-  }, [symbol, metricId, from, to, attempt]);
-
-  const retry = useCallback(() => setAttempt((current) => current + 1), []);
-
-  const current = sameHistory(loadedMetric, symbol, metricId, to)
-    ? loadedMetric
-    : null;
-  let status: FundamentalHistoryStatus;
-  if (requestKey === null) {
-    status = "idle";
-  } else if (request.key === requestKey) {
-    status = request.status;
-  } else {
-    // The render before this metric's effect has run: rows it does not have yet are loading —
-    // nothing may read as "no values" in that frame — and rows it already holds are current.
-    status = current === null ? "loading" : "idle";
-  }
-  return {
-    rows: current?.rows ?? NO_ROWS,
-    loaded: current !== null,
-    status,
-    retry,
-  };
+  return useSeriesHistory({
+    symbol: input.symbol,
+    id: input.metricId,
+    from: input.from,
+    to: input.to,
+    fetch: fetchDailyFundamentalHistory,
+  });
 }

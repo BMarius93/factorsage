@@ -177,20 +177,23 @@
   line-height: 1.4;
 }
 
-/* The chosen metric's own catalog summary and formula, so the pane is never an unexplained line. */
-.fundamentalHelp {
+/* The chosen ratio's or metric's own catalog summary and formula, so a pane is never an
+   unexplained line. A formula is long and has few break points, so it may wrap anywhere rather than
+   widen the popover on a phone. */
+.choiceHelp {
   margin-top: 8px;
   color: var(--color-text-secondary);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
-.fundamentalSummary,
-.fundamentalFormula {
+.choiceSummary,
+.choiceFormula {
   margin: 0;
 }
 
-.fundamentalFormula {
+.choiceFormula {
   margin-top: 4px;
   color: var(--color-text-muted);
 }
