@@ -673,6 +673,81 @@ describe("valuation ratios: each masking rule in isolation", () => {
     ).toBeNaN();
   });
 
+  it("matches an undated re-base to an entry by the days it may lie on, never its interval's exclusive start", () => {
+    const entry = split({
+      date: "2025-02-24",
+      numerator: 523,
+      denominator: 500,
+    });
+    // A plain re-base measured between two reads lies after `effectiveFrom`, the last session
+    // certainly before it, and no later than `effectiveTo`.
+    const between = (from: string, to: string) =>
+      measured({
+        effectiveFrom: from,
+        effectiveTo: to,
+        priceRatio: 2,
+        detectedAt: "2025-03-20T12:00:00.000Z",
+      });
+    // Starting six days after the entry, its first possible day is the seventh: it is the entry's.
+    expect(
+      pe(
+        isolated({
+          splits: [entry],
+          events: [between("2025-03-02", "2025-03-05")],
+        }),
+      )[0],
+    ).toBeCloseTo(50, 12);
+    // Starting seven days after it, it lies eight or more days away: the entry still masks.
+    expect(
+      pe(
+        isolated({
+          splits: [entry],
+          events: [between("2025-03-03", "2025-03-05")],
+        }),
+      )[0],
+    ).toBeNaN();
+    // And a listed upcoming event keeps its month.
+    expect(
+      pe(
+        isolated({
+          splits: [entry],
+          verifiedAt: "2025-02-23T09:00:00.000Z",
+          events: [between("2025-03-03", "2025-03-05")],
+        }),
+      )[1],
+    ).toBeNaN();
+  });
+
+  it("rule 5: a count observed on an undated re-base's exclusive start was observed before it", () => {
+    // Measured between 2025-03-03, the last session certainly before it, and 2025-03-05; every
+    // quarter first observed on 2025-03-03. The count predates the event: K = 2 restores the close
+    // it was observed against, and rule 5, for a count observed on or after an event, does not
+    // reach it.
+    const observedOnStart = quarters.map((quarter) => ({
+      ...quarter,
+      observedAt: "2025-03-03T15:00:00.000Z",
+    }));
+    const value = ratiosOn(
+      isolated({
+        statements: company({ quarters: observedOnStart }),
+        events: [
+          measured({
+            effectiveFrom: "2025-03-03",
+            effectiveTo: "2025-03-05",
+            priceRatio: 2,
+            detectedAt: "2025-03-20T12:00:00.000Z",
+          }),
+        ],
+      }),
+      ["2025-03-03", "2025-03-04"],
+      10,
+      ["PRICE_TO_EARNINGS_TTM"],
+    ).PRICE_TO_EARNINGS_TTM;
+    // 10 × 2 × 100 / 20 on the interval's start; inside the interval, withheld.
+    expect(value[0]).toBeCloseTo(100, 12);
+    expect(value[1]).toBeNaN();
+  });
+
   it("splits history from forward entries at the verification date", () => {
     const entry = split({
       date: "2025-02-24",

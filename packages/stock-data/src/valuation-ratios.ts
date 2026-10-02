@@ -58,8 +58,10 @@ import {
  * changes a number.
  *
  * - 1: the five ratios, rules 1–8.
+ * - 2: rules 4, 5 and 8 read an undated re-base on the days it may lie on, never on its interval's
+ *   exclusive start (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
  */
-export const VALUATION_RATIO_REVISION = 1;
+export const VALUATION_RATIO_REVISION = 2;
 
 /** Rule 2: a share count within this fraction of the last accepted one holds the level. */
 export const SHARE_LEVEL_TOLERANCE = 0.25;
@@ -163,13 +165,11 @@ export function buildValuationTimeline(
   );
   const measuredNear = (date: LocalDate) =>
     measured.some((event) => {
-      const from = event.effectiveDate ?? event.effectiveFrom;
-      const to = event.effectiveDate ?? event.effectiveTo ?? from;
+      const days = possibleDays(event);
       return (
-        from !== undefined &&
-        to !== undefined &&
-        from <= addDays(date, ENTRY_MATCH_DAYS) &&
-        to >= addDays(date, -ENTRY_MATCH_DAYS)
+        days !== undefined &&
+        days.from <= addDays(date, ENTRY_MATCH_DAYS) &&
+        days.to >= addDays(date, -ENTRY_MATCH_DAYS)
       );
     });
   // Provider entries not superseded by a re-base the loader measured (that one is read exactly).
@@ -193,9 +193,8 @@ export function buildValuationTimeline(
   const settling: { from: LocalDate; to: LocalDate }[] = [
     ...inputs.splits.map((split) => ({ from: split.date, to: split.date })),
     ...measured.flatMap((event) => {
-      const from = event.effectiveDate ?? event.effectiveFrom;
-      const to = event.effectiveDate ?? event.effectiveTo ?? from;
-      return from === undefined || to === undefined ? [] : [{ from, to }];
+      const days = possibleDays(event);
+      return days === undefined ? [] : [days];
     }),
   ];
 
@@ -307,6 +306,25 @@ export function valuationRatioColumns(input: {
     }
   }
   return columns;
+}
+
+/**
+ * The calendar days a measured re-base may lie on: its date, or, measured between two reads, its
+ * undated interval `(effectiveFrom, effectiveTo]`. `effectiveFrom` is the last session certainly
+ * before the event (`historical-price-basis-v1.md` §8), as `basisFactorAt` reads it, so the event
+ * never lies on it: rules 4 and 8 match an entry, and rule 5 settles a count, only by the days after.
+ */
+function possibleDays(
+  event: PriceBasisEvent,
+): { from: LocalDate; to: LocalDate } | undefined {
+  if (event.effectiveDate !== undefined) {
+    return { from: event.effectiveDate, to: event.effectiveDate };
+  }
+  if (event.effectiveFrom === undefined) {
+    return undefined;
+  }
+  const from = addDays(event.effectiveFrom, 1);
+  return { from, to: event.effectiveTo ?? from };
 }
 
 /** Whether a provider entry is a plain share change: labelled a split, at an exact common ratio. */
