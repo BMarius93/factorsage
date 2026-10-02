@@ -2013,6 +2013,36 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     ],
   },
   {
+    id: "C39f",
+    covers: [39],
+    title:
+      "a count observed on an entry's own date is not before it (rule 4.2), and its quarter ending on that date is not settling",
+    // A plain 2:1 entry on Monday 2025-06-30, history. 2025Q2 (period end 2025-06-30) filed, and
+    // observed, that same day — the boundary, however early such a filing would be. Before it R is
+    // 2025Q1, observed 2025-05-15, before the entry: rule 4.2. On 2025-06-30 R is observed on the
+    // entry's date (not before it) for a quarter that did not end before it (not settling): read.
+    security: company({
+      statements: baseStatements(observedWhenAvailable).map((statement) =>
+        statement.fiscalDate === "2025-06-30"
+          ? {
+              ...statement,
+              availableFromDate: "2025-06-30",
+              observedAt: "2025-06-30T12:00:00.000Z",
+            }
+          : statement,
+      ),
+      splits: [split("2025-06-30", "2", "1")],
+    }),
+    observations: [
+      {
+        session: "2025-06-27",
+        close: CLOSE,
+        expect: all("COUNT_PREDATES_HISTORICAL_ENTRY"),
+      },
+      { session: "2025-06-30", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
     id: "C40",
     covers: [40],
     title:
@@ -2072,6 +2102,40 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
         expect: all("POST_DISTRIBUTION_STATEMENTS_STALE"),
       },
       { session: "2025-08-14", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "C40c",
+    covers: [40],
+    title:
+      "an undated possible distribution's last session is on the new basis: read once the statements cover it",
+    // Measured in (2025-06-24, 2025-06-30], ratio 1.046, detected 2025-06-30 06:00; 2025Q2 (period
+    // end 2025-06-30) filed and observed that day at noon, after the detection — early, to put the
+    // boundary within reach. Before the interval and inside it every count (observed after the
+    // detection) is withheld: the event is not plain. On 2025-06-30, the interval's last session,
+    // the event has happened: K = 1, and 2025Q2 covers it (rule 7), so the readings as of 2025Q2.
+    security: company({
+      statements: baseStatements().map((statement) =>
+        statement.fiscalDate === "2025-06-30"
+          ? {
+              ...statement,
+              availableFromDate: "2025-06-30",
+              observedAt: "2025-06-30T12:00:00.000Z",
+            }
+          : statement,
+      ),
+      events: [
+        measured(
+          { effectiveFrom: "2025-06-24", effectiveTo: "2025-06-30" },
+          "1.046",
+          "2025-06-30T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-06-24", close: CLOSE, expect: all("BASIS_WITHHELD") },
+      { session: "2025-06-27", close: CLOSE, expect: all("BASIS_WITHHELD") },
+      { session: "2025-06-30", close: CLOSE, expect: AS_OF_2025Q2 },
     ],
   },
   {
