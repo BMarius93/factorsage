@@ -410,6 +410,13 @@ function StockDetailsContent({
             volume={chartVolume}
             relativeVolume={chartRelativeVolume}
             overlays={chartOverlays}
+            {...(chartValuation ? { valuation: chartValuation } : {})}
+            // Only while the chosen ratio has nothing yet, as for the fundamental below.
+            valuationPending={
+              valuation !== null &&
+              valuationHistory.status === "loading" &&
+              !valuationHistory.loaded
+            }
             {...(chartFundamental ? { fundamental: chartFundamental } : {})}
             // Only while the chosen metric has nothing yet: an older gap of a metric already on
             // screen, drawn or not, holds no extra room.

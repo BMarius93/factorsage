@@ -67,8 +67,18 @@ export function formatFundamentalValue(
     case "PERCENT":
       return `${formatReading(value, 0)}%`;
     case "MULTIPLE":
-      return `${formatReading(value, 1)}x`;
+      return formatMultiple(value);
   }
+}
+
+/**
+ * A raw multiple, the one way the product prints one: a Fundamental Metric's `MULTIPLE` unit and
+ * every valuation ratio. `15.2` → `"15.2x"`, `1` → `"1.0x"`, `0.75` → `"0.75x"` (never `"0.8x"`),
+ * `-1.25` → `"-1.25x"`, and a non-zero reading too small for two decimals keeps two significant
+ * digits (`"0.004x"`) instead of reading as zero. Never exponent notation, never a percentage.
+ */
+export function formatMultiple(value: number): string {
+  return `${formatReading(value, 1)}x`;
 }
 
 /** Below this magnitude two decimals would print a non-zero reading as zero. */

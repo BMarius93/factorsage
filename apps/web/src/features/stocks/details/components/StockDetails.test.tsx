@@ -99,6 +99,13 @@ vi.mock("./StockPriceChart", () => ({
         .map((point) => `${point.date}:${point.value ?? "-"}`)
         .join(",")}
       data-fundamental-pending={props.fundamentalPending ? "true" : "false"}
+      // The chosen valuation ratio exactly as handed to the chart, the same way.
+      data-valuation={props.valuation?.id ?? ""}
+      data-valuation-label={props.valuation?.label ?? ""}
+      data-valuation-points={(props.valuation?.points ?? [])
+        .map((point) => `${point.date}:${point.value ?? "-"}`)
+        .join(",")}
+      data-valuation-pending={props.valuationPending ? "true" : "false"}
       data-loading={props.loading ? "true" : "false"}
       data-fit-key={props.fitKey}
       data-frame-from={props.frameFrom}
@@ -1611,6 +1618,74 @@ describe("StockDetails valuation ratios", () => {
 
     expect(fetchDailyValuationHistoryMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId("valuation-status")).toBeNull();
+    expect(chart().dataset.valuation).toBe("");
+    expect(chart().dataset.valuationPending).toBe("false");
+  });
+
+  it("draws exactly the sessions the server answered: each reading, and a gap where it had none", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await waitFor(() =>
+      expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
+    );
+    expect(chart().dataset.valuationLabel).toBe("P/E");
+    // The readings as computed, the unavailable session as a gap: nothing carried, nothing rounded.
+    expect(chart().dataset.valuationPoints).toBe(
+      "2025-09-02:18.25,2026-03-02:21.5,2026-06-02:-,2026-07-30:23.1,2026-08-27:24,2026-08-28:27.84",
+    );
+    expect(chart().dataset.valuationPending).toBe("false");
+  });
+
+  it("asks up to the newest bar on the chart, and never draws a session the price series lacks", async () => {
+    const details = detailsFixture();
+    details.prices = details.prices.filter((row) => row.date !== "2026-08-28");
+    fetchStockDetailsMock.mockResolvedValue(details);
+    fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await waitFor(() =>
+      expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
+    );
+    expect(valuationRequests()).toEqual([
+      ["AAPL", "PRICE_TO_EARNINGS_TTM", WINDOW.from, "2026-08-27"],
+    ]);
+    expect(chart().dataset.valuationPoints).toBe(
+      "2025-09-02:18.25,2026-03-02:21.5,2026-06-02:-,2026-07-30:23.1,2026-08-27:24",
+    );
+  });
+
+  it("holds the pane's place while the chosen ratio loads, and draws nothing of the previous one", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockResolvedValueOnce(PE_ROWS);
+    const user = setupUser();
+    const select = await openPage(user);
+    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await waitFor(() =>
+      expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
+    );
+
+    const pb = deferred<{ date: string; value?: number }[]>();
+    fetchDailyValuationHistoryMock.mockReturnValueOnce(pb.promise);
+    await user.selectOptions(select, "PRICE_TO_BOOK");
+    expect(chart().dataset.valuation).toBe("");
+    expect(chart().dataset.valuationPoints).toBe("");
+    expect(chart().dataset.valuationPending).toBe("true");
+    expect(screen.getByTestId("valuation-status").textContent).toBe(
+      "Loading P/B…",
+    );
+
+    await act(async () => pb.resolve(PB_ROWS));
+    expect(chart().dataset.valuation).toBe("PRICE_TO_BOOK");
+    expect(chart().dataset.valuationPoints).toBe(
+      "2026-08-27:0.75,2026-08-28:1",
+    );
+    expect(chart().dataset.valuationPending).toBe("false");
   });
 
   it("asks for the chosen ratio alone, by identity, over the window the chart holds — never thirty years", async () => {
