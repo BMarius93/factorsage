@@ -1752,6 +1752,28 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     ],
   },
   {
+    id: "C31d",
+    covers: [31, 39],
+    title: "an entry on the verification day is history, not forward",
+    // The base company (every statement observed 2026-08-31), verified 2026-10-02 05:00, and a
+    // plain 2:1 entry on 2026-10-02 itself. An entry dated on or before the verification day is
+    // history: no forward hold, but every count observed before it (all of them, on 2026-08-31) is
+    // withheld by rule 4.2, on every session.
+    security: company({ splits: [split("2026-10-02", "2", "1")] }),
+    observations: [
+      {
+        session: "2025-08-14",
+        close: CLOSE,
+        expect: all("COUNT_PREDATES_HISTORICAL_ENTRY"),
+      },
+      {
+        session: "2026-10-02",
+        close: CLOSE,
+        expect: all("COUNT_PREDATES_HISTORICAL_ENTRY"),
+      },
+    ],
+  },
+  {
     id: "C32",
     covers: [32, 33, 34],
     title:
