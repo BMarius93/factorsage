@@ -1,6 +1,7 @@
 import {
   FUNDAMENTAL_METRIC_CATALOG,
   FUNDAMENTAL_METRIC_IDS as PRODUCT_FUNDAMENTAL_METRIC_IDS,
+  VALUATION_RATIO_IDS,
 } from "@intrinsic/contracts";
 import {
   DAILY_OSCILLATORS,
@@ -13,12 +14,28 @@ import {
 import {
   QA_FUNDAMENTAL_HISTORY_WEEKS,
   QA_FUNDAMENTAL_STRETCHES,
+  QA_VALUATION_AVAILABILITY,
+  QA_VALUATION_EARLY_SYNC_WEEK,
+  QA_VALUATION_HISTORY_WEEKS,
+  QA_VALUATION_NET_CASH,
+  QA_VALUATION_QUARTERS,
+  QA_VALUATION_REBASE,
+  QA_VALUATION_VERIFIED_WEEK,
+  QA_VALUATION_WITHHELD,
+  qaValuationAvailable,
+  qaValuationPublicWeek,
+  qaValuationWeekMonday,
+  type QaValuationRatioId,
 } from "@intrinsic/testing";
 import {
+  addDays,
   aggregateCompletedWeeks,
   buildDailyDerivedState,
+  buildValuationTimeline,
   calculateWilderRsi,
+  valuationRatioColumns,
 } from "@intrinsic/stock-data";
+import type { FinancialStatement } from "@intrinsic/domain";
 import { priceRetentionYears, subtractYears } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
@@ -26,6 +43,7 @@ import {
   qaIntrinsicFixture,
   qaIntrinsicWindows,
   qaTradingDays,
+  qaValuationDrafts,
   seedHistoryStart,
 } from "./seed-qa-stock-data";
 
@@ -250,6 +268,144 @@ describe("QA stock-data seed", () => {
       for (const key of Object.keys(qaFundamentalFields(159 * 5))) {
         expect(fields.has(key as never), key).toBe(true);
       }
+    });
+  });
+
+  describe("valuation inputs", () => {
+    const firstMonday = prices[0]!.date;
+    const SEED_SYNC = `${TODAY}T12:00:00.000Z`;
+    const earlySync = `${qaValuationWeekMonday(firstMonday, QA_VALUATION_EARLY_SYNC_WEEK)}T12:00:00.000Z`;
+
+    /** The seeded filings as the store dates them: public the day after filing, observed by their sync. */
+    const statements: FinancialStatement[] = QA_VALUATION_QUARTERS.flatMap(
+      (quarter) =>
+        qaValuationDrafts(SECURITY_ID, firstMonday, quarter).map((draft) => ({
+          ...draft,
+          availableFromDate: addDays(draft.filingDate, 1),
+          observedAt:
+            quarter.observed === "BEFORE_REBASE" ? earlySync : SEED_SYNC,
+          contentHash: `${draft.statementType}:${quarter.index}`,
+        })),
+    );
+    const effective = qaValuationWeekMonday(
+      firstMonday,
+      QA_VALUATION_REBASE.week,
+    );
+    const timeline = buildValuationTimeline({
+      securityId: SECURITY_ID,
+      currency: "USD",
+      statements,
+      verifiedAt: `${qaValuationWeekMonday(firstMonday, QA_VALUATION_VERIFIED_WEEK)}T12:00:00.000Z`,
+      events: [
+        {
+          securityId: SECURITY_ID,
+          generation: 1,
+          kind: "MEASURED",
+          effectiveDate: effective,
+          priceRatio: QA_VALUATION_REBASE.priceRatio,
+          detectedAt: `${addDays(effective, 1)}T12:00:00.000Z`,
+          evidence: {
+            runs: [],
+            comparedSessions: 0,
+            changedSessions: 0,
+            unfittedSessions: 0,
+          },
+        },
+      ],
+      splits: [],
+    });
+    const columns = valuationRatioColumns({
+      timeline,
+      dates: prices.map((price) => price.date),
+      closes: prices.map((price) => price.close),
+      ratios: VALUATION_RATIO_IDS,
+    });
+
+    it("covers exactly the five catalog ratios, in catalog order", () => {
+      // A sixth ratio added to the catalog has no row here and fails, so the browser suite's
+      // coverage of it is a deliberate change.
+      expect(Object.keys(QA_VALUATION_AVAILABILITY)).toEqual([
+        ...VALUATION_RATIO_IDS,
+      ]);
+      expect(QA_VALUATION_HISTORY_WEEKS * 5).toBe(prices.length);
+    });
+
+    it("dates every quarter on the seeded calendar: filed on a Sunday, public from the Monday after", () => {
+      QA_VALUATION_QUARTERS.forEach((quarter, index) => {
+        const [income] = qaValuationDrafts(SECURITY_ID, firstMonday, quarter);
+        const publicFrom = addDays(income!.filingDate, 1);
+        expect(publicFrom).toBe(
+          qaValuationWeekMonday(firstMonday, qaValuationPublicWeek(index)),
+        );
+        expect(new Date(`${income!.filingDate}T00:00:00Z`).getUTCDay()).toBe(0);
+        expect(income!.fiscalDate < income!.filingDate).toBe(true);
+        // Consecutive fiscal quarters, four to a fiscal year.
+        expect(income!.period).toBe(`Q${(index % 4) + 1}`);
+      });
+      expect(qaValuationPublicWeek(11)).toBeLessThan(
+        QA_VALUATION_HISTORY_WEEKS,
+      );
+      expect(qaValuationPublicWeek(12)).toBeGreaterThanOrEqual(
+        QA_VALUATION_HISTORY_WEEKS,
+      );
+    });
+
+    it("is available exactly where the hand-written table says, under the production calculation", () => {
+      let compared = 0;
+      for (const ratioId of VALUATION_RATIO_IDS) {
+        const column = columns.get(ratioId) as Float64Array;
+        prices.forEach((price, index) => {
+          const week = Math.floor(index / 5);
+          const available = qaValuationAvailable(
+            ratioId as QaValuationRatioId,
+            week,
+          );
+          expect(
+            Number.isFinite(column[index]),
+            `${price.date} ${ratioId}`,
+          ).toBe(available);
+          compared += 1;
+        });
+      }
+      expect(compared).toBe(prices.length * VALUATION_RATIO_IDS.length);
+      // The interior gap the browser suite asserts lies inside the default one-year window, and so
+      // does a negative EV/EBITDA stretch before it.
+      expect(QA_VALUATION_WITHHELD.fromWeek).toBeGreaterThan(
+        QA_VALUATION_HISTORY_WEEKS - 52,
+      );
+      expect(QA_VALUATION_NET_CASH.fromWeek).toBeGreaterThan(
+        QA_VALUATION_HISTORY_WEEKS - 52,
+      );
+    });
+
+    it("reads EV/EBITDA negative exactly while the net cash is the latest balance sheet", () => {
+      const ev = columns.get("EV_TO_EBITDA_TTM") as Float64Array;
+      prices.forEach((price, index) => {
+        const week = Math.floor(index / 5);
+        if (!Number.isFinite(ev[index])) {
+          return;
+        }
+        const negative =
+          week >= QA_VALUATION_NET_CASH.fromWeek &&
+          week < QA_VALUATION_NET_CASH.untilWeek;
+        expect(ev[index]! < 0, price.date).toBe(negative);
+      });
+    });
+
+    it("reads the restored close before the re-base, and resumes on its own basis after it", () => {
+      const pe = columns.get("PRICE_TO_EARNINGS_TTM") as Float64Array;
+      const lastBefore = 130 * 5 - 1;
+      const firstAfter = 149 * 5;
+      // Hand-computed: K = 1.05 on 1,000,000 shares over 12.5M (quarters 6-9) before the event;
+      // K = 1 over 17.5M (quarters 8-11) once quarter 11 is public.
+      expect(pe[lastBefore]).toBeCloseTo(
+        (prices[lastBefore]!.close * 1.05 * 1_000_000) / 12_500_000,
+        9,
+      );
+      expect(pe[firstAfter]).toBeCloseTo(
+        (prices[firstAfter]!.close * 1_000_000) / 17_500_000,
+        9,
+      );
     });
   });
 });

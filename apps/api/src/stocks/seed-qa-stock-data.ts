@@ -6,13 +6,22 @@ import {
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_MODELS,
   type DailyPrice,
+  type FinancialStatementDraft,
   type FundamentalMetricSnapshot,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
 } from "@intrinsic/domain";
 import {
+  QA_VALUATION_EARLY_SYNC_WEEK,
+  QA_VALUATION_QUARTERS,
+  QA_VALUATION_REBASE,
+  QA_VALUATION_VERIFIED_WEEK,
   qaFundamentalValue,
+  qaValuationFilingDate,
+  qaValuationQuarterEnd,
+  qaValuationWeekMonday,
   type QaFundamentalMetricId,
+  type QaValuationQuarter,
 } from "@intrinsic/testing";
 import {
   addDays,
@@ -339,8 +348,111 @@ export async function seedQaStockData(
     today,
     syncedAt,
   });
+  await seedQaValuationInputs(prisma, store, securityId, first.date, syncedAt);
 
   return { from: first.date, to: last.date, tradingDays: prices.length };
+}
+
+/**
+ * One fixture quarter's three statements, dated on the seeded calendar from its first Monday.
+ *
+ * Exported so the calendar the browser suite reads can be proven without a database.
+ */
+export function qaValuationDrafts(
+  securityId: string,
+  firstMonday: string,
+  quarter: QaValuationQuarter,
+): FinancialStatementDraft[] {
+  const common = {
+    securityId,
+    fiscalDate: qaValuationQuarterEnd(firstMonday, quarter.index),
+    // Four consecutive quarters a fiscal year, counted from the seed's first year: what makes a
+    // trailing window, never the calendar.
+    fiscalYear: Number(firstMonday.slice(0, 4)) + Math.floor(quarter.index / 4),
+    period: (["Q1", "Q2", "Q3", "Q4"] as const)[quarter.index % 4] as
+      "Q1" | "Q2" | "Q3" | "Q4",
+    reportedCurrency: "USD",
+    filingDate: qaValuationFilingDate(firstMonday, quarter.index),
+  };
+  return [
+    { ...common, statementType: "INCOME", values: { ...quarter.income } },
+    {
+      ...common,
+      statementType: "BALANCE_SHEET",
+      values: { ...quarter.balanceSheet },
+    },
+    { ...common, statementType: "CASH_FLOW", values: { ...quarter.cashFlow } },
+  ];
+}
+
+/**
+ * What a valuation ratio reads besides the closes, for the fictional security: the filings of
+ * `QA_VALUATION_QUARTERS` in `@intrinsic/testing`, a verified price basis with one measured re-base,
+ * and an empty split list read now.
+ *
+ * Valuation ratios are never stored per session, so this seeds inputs and nothing calculated:
+ * Stock Details computes every reading with the production calculation, and the browser suite reads
+ * where each ratio is available from the same table. Statements go through the production store, so
+ * they are dated exactly as the loader dates a real filing; the two syncs give the re-base counts
+ * observed on both sides of its detection. The price basis and its re-base have no store method of
+ * their own outside a replacement, so they are written as one would leave them.
+ */
+async function seedQaValuationInputs(
+  prisma: PrismaClient,
+  store: PrismaStockDataStore,
+  securityId: string,
+  firstMonday: string,
+  syncedAt: string,
+): Promise<void> {
+  const observedBy = (observed: QaValuationQuarter["observed"]) =>
+    QA_VALUATION_QUARTERS.filter(
+      (quarter) => quarter.observed === observed,
+    ).flatMap((quarter) => qaValuationDrafts(securityId, firstMonday, quarter));
+  await store.saveFinancialStatements({
+    securityId,
+    statements: observedBy("BEFORE_REBASE"),
+    syncedAt: `${qaValuationWeekMonday(firstMonday, QA_VALUATION_EARLY_SYNC_WEEK)}T12:00:00.000Z`,
+  });
+  await store.saveFinancialStatements({
+    securityId,
+    statements: observedBy("AT_SEED"),
+    syncedAt,
+  });
+
+  const effective = qaValuationWeekMonday(
+    firstMonday,
+    QA_VALUATION_REBASE.week,
+  );
+  // Generation 1: the replacement that measured the re-base. Created rather than upserted — the
+  // reset removed the previous basis, and the store's own write never rewrites one.
+  await prisma.securityPriceBasis.create({
+    data: {
+      securityId,
+      generation: 1,
+      verifiedAt: new Date(
+        `${qaValuationWeekMonday(firstMonday, QA_VALUATION_VERIFIED_WEEK)}T12:00:00.000Z`,
+      ),
+    },
+  });
+  await prisma.priceBasisEvent.create({
+    data: {
+      securityId,
+      generation: 1,
+      kind: "MEASURED",
+      effectiveDate: new Date(`${effective}T00:00:00.000Z`),
+      priceRatio: QA_VALUATION_REBASE.priceRatio,
+      detectedAt: new Date(`${addDays(effective, 1)}T12:00:00.000Z`),
+      evidence: {
+        runs: [],
+        comparedSessions: 0,
+        changedSessions: 0,
+        unfittedSessions: 0,
+      },
+    },
+  });
+  // Read now and empty: the fixture provider's answer when the list is next read a day later, so a
+  // refresh leaves it as it is.
+  await store.replaceStockSplits({ securityId, splits: [], syncedAt });
 }
 
 /**

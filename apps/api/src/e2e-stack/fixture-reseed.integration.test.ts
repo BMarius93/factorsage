@@ -140,6 +140,33 @@ describe("E2E fixture reseed", () => {
         ]),
         statements: await prisma.financialStatement.count({ where }),
         profile: await prisma.securityProfile.count({ where }),
+        // The price basis, its measured re-bases and the provider's split list: what a valuation
+        // ratio reads besides the closes and statements.
+        priceBasis: await prisma.securityPriceBasis
+          .findUnique({ where: { securityId } })
+          .then((row) =>
+            row ? [row.generation, row.verifiedAt.toISOString()] : null,
+          ),
+        basisEvents: (
+          await prisma.priceBasisEvent.findMany({
+            where,
+            orderBy: [{ effectiveDate: "asc" }, { kind: "asc" }],
+          })
+        ).map((row) => [
+          row.generation,
+          row.kind,
+          day(row.effectiveDate),
+          row.priceRatio?.toString() ?? null,
+          row.detectedAt.toISOString(),
+        ]),
+        splits: (
+          await prisma.stockSplit.findMany({ where, orderBy: { date: "asc" } })
+        ).map((row) => [
+          day(row.date),
+          row.numerator.toString(),
+          row.denominator.toString(),
+          row.label,
+        ]),
         coverage: (
           await prisma.stockDatasetCoverage.findMany({
             where,
@@ -267,6 +294,31 @@ describe("E2E fixture reseed", () => {
         where: { securityId },
         create: { securityId, description: "provider profile" },
         update: { description: "provider profile" },
+      });
+      // A re-base the loader measured and a split list the provider served since the seed.
+      await prisma.securityPriceBasis.upsert({
+        where: { securityId },
+        create: { securityId, generation: 7, verifiedAt: new Date() },
+        update: { generation: 7, verifiedAt: new Date() },
+      });
+      await prisma.priceBasisEvent.create({
+        data: {
+          securityId,
+          generation: 7,
+          kind: "UNEXPLAINED",
+          effectiveTo: new Date(`${today}T00:00:00.000Z`),
+          detectedAt: new Date(),
+          evidence: {},
+        },
+      });
+      await prisma.stockSplit.create({
+        data: {
+          securityId,
+          date: new Date(`${today}T00:00:00.000Z`),
+          numerator: 2,
+          denominator: 1,
+          label: "stock-split",
+        },
       });
       await prisma.stockDatasetCoverage.create({
         data: {

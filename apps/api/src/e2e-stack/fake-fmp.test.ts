@@ -83,6 +83,23 @@ describe("fixture FMP answers", () => {
     ).toMatchObject({ status: 200, body: [], outcome: "fixture" });
   });
 
+  it("answers a fixture security's split list with the empty list the seed stores", () => {
+    // A valuation read refreshes the list once the stored one is a day old, and the list replaces
+    // the stored one whole: the answer must be exactly what the seed wrote, which is nothing.
+    for (const symbol of ["QATEST1", "QATEST2", "ENTF001"]) {
+      expect(
+        answerFakeFmpRequest(request("splits", { symbol }), FIXTURE),
+        symbol,
+      ).toMatchObject({ status: 200, body: [], outcome: "fixture" });
+    }
+    const real = answerFakeFmpRequest(
+      request("splits", { symbol: "AAPL" }),
+      FIXTURE,
+    );
+    expect(real).toMatchObject({ status: 404, outcome: "unexpected" });
+    expect(real.detail).toMatch(/splits\?symbol=AAPL/);
+  });
+
   it("refuses loudly, naming the missing fixture, for anything outside the fixtures", () => {
     const cases: [URL, RegExp][] = [
       [

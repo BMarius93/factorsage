@@ -36,6 +36,12 @@
       "require": "./dist/qa-fundamentals.js",
       "default": "./dist/qa-fundamentals.js"
     },
+    "./qa-valuation": {
+      "types": "./dist/qa-valuation.d.ts",
+      "import": "./dist/qa-valuation.js",
+      "require": "./dist/qa-valuation.js",
+      "default": "./dist/qa-valuation.js"
+    },
     "./fundamental-audit": {
       "types": "./dist/fundamental-audit.d.ts",
       "import": "./dist/fundamental-audit.js",
