@@ -6,6 +6,7 @@ export * from "./live-fmp.js";
 export * from "./persona-credentials.js";
 export * from "./personas.js";
 export * from "./fundamental-audit.js";
+export * from "./valuation-audit.js";
 export * from "./qa-fundamentals.js";
 export * from "./qa-valuation.js";
 export * from "./qa-matrix/index.js";

@@ -117,6 +117,12 @@ export function metricKey(metric: OracleMetric): string | null {
       return `series:${metric.seriesId}`;
     case "MARGIN_OF_SAFETY":
       return `margin-of-safety:${metric.sourceId}`;
+    case "VALUATION_RATIO":
+      return `valuation:${metric.ratioId}`;
+    case "FUNDAMENTAL":
+      return `fundamental:${metric.metricId}`;
+    case "RELATIVE_VOLUME":
+      return `relative-volume:${metric.period}`;
     default:
       return null;
   }
