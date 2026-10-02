@@ -706,8 +706,9 @@ export async function auditRealData(input: {
             rows.coverageEnd,
             operands,
           );
-          // A quote 1 % above the newest close: inside the split-sized hold, a real observation.
-          const quote = Number((Number(newest.close) * 1.01).toFixed(4));
+          // A quote 1 % above the newest close: inside the split-sized hold, a real observation. At
+          // the stored precision, so a tiny close still has a positive quote.
+          const quote = Number((Number(newest.close) * 1.01).toFixed(8));
           clock = new Date(`${observationDate}T15:00:00.000Z`);
           const monitor = await service.readMonitorEvaluationFrame({
             security,

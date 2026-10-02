@@ -579,11 +579,46 @@ async function syntheticStore(): Promise<void> {
         `refusing: the database holds ${others} securities this command did not store; use an empty, migrated database`,
       );
     }
-    await clearSyntheticSecurities(prisma);
+    // `--reuse`: compare the securities an earlier run stored for the same seeds, without storing
+    // them again.
+    const reuse = process.argv.includes("--reuse");
+    if (!reuse) {
+      await clearSyntheticSecurities(prisma);
+    }
     const store = new PrismaStockDataStore(prisma);
     const stored: SyntheticSecurity[] = [];
     let unverified = 0;
-    for (let seed = first; seed <= last; seed += 1) {
+    for (let seed = first; seed <= last && reuse; seed += 1) {
+      for (const family of ["adversarial", "restatement"] as const) {
+        const history = (
+          family === "adversarial"
+            ? generateHistory
+            : generateRestatementHistory
+        )(seed);
+        if (history.security.verifiedAt === null) {
+          unverified += 1;
+          continue;
+        }
+        const prefix = `${SYNTHETIC_SYMBOL_PREFIX}${family === "restatement" ? "R" : "A"}${seed}`;
+        for (const symbol of [prefix, `${prefix}T`]) {
+          const row = await prisma.security.findUnique({
+            where: { providerSymbol: symbol },
+          });
+          if (row) {
+            stored.push({
+              securityId: row.id,
+              symbol,
+              family,
+              seed,
+              ...(symbol.endsWith("T")
+                ? { truncatedBefore: boundarySession(history) as string }
+                : {}),
+            });
+          }
+        }
+      }
+    }
+    for (let seed = first; seed <= last && !reuse; seed += 1) {
       for (const [family, generate] of [
         ["adversarial", generateHistory],
         ["restatement", generateRestatementHistory],
