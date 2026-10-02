@@ -487,7 +487,7 @@ function usableShares(input: {
   if (!holdsShareLevel(input.income, latest)) {
     return undefined;
   }
-  // Rule 3: a restated count must be explained by a re-base measured no later than it was observed.
+  // Rule 3: a restated count needs a new re-base, measured no later than the count was observed.
   const previous = previousRevision(input.statements, latest, input.date);
   const previousShares = previous
     ? value(previous, "weightedAverageShsOutDil")
@@ -498,17 +498,22 @@ function usableShares(input: {
     Math.abs(shares / previousShares - 1) > SHARE_RESTATEMENT_TOLERANCE
   ) {
     const restatement = shares / previousShares;
-    // The re-base must be new to the previous revision — detected or dated after it was observed —
-    // and known by the time `R` was: an older re-base of the same ratio explains nothing.
-    const previousObserved = Date.parse(previous!.observedAt);
+    // The re-base must be new to the previous revision — detected or dated after it was observed,
+    // and dated less than rule 5's month before it — and known by the time `R` was observed. An
+    // older re-base of the same ratio explains nothing, even when the first verification measures
+    // it after the previous revision was observed.
+    const previousObserved = previous!.observedAt;
+    const previousObservedDate = previousObserved.slice(0, 10);
     const explained = input.measured.some((event) => {
+      // An undated re-base is taken at the latest date it may have.
+      const date = event.effectiveDate ?? event.effectiveTo;
       const detected = Date.parse(event.detectedAt);
-      const date =
-        event.effectiveDate ?? event.effectiveTo ?? event.effectiveFrom;
       return (
+        date !== undefined &&
         detected <= Date.parse(latest.observedAt) &&
-        (detected > previousObserved ||
-          (date !== undefined && date > previous!.observedAt.slice(0, 10))) &&
+        (detected > Date.parse(previousObserved) ||
+          date > previousObservedDate) &&
+        previousObservedDate < addDays(date, EVENT_SETTLING_DAYS) &&
         Math.abs(restatement / (event.priceRatio as number) - 1) <=
           SHARE_RESTATEMENT_TOLERANCE
       );

@@ -220,6 +220,33 @@ describe("valuation ratios: the definitions", () => {
     }
   });
 
+  it("reads a ratio only when every statement it reads reports the trading currency, the count's too", () => {
+    const reportedIn = (type: FinancialStatement["statementType"]) =>
+      ratiosOn(
+        inputs({
+          statements: company().map((row) =>
+            row.statementType === type
+              ? { ...row, reportedCurrency: "TWD" }
+              : row,
+          ),
+        }),
+        ["2025-02-10"],
+      );
+    // The Income statement carries the share count every ratio reads.
+    const income = reportedIn("INCOME");
+    for (const ratio of ALL) {
+      expect(income[ratio][0], ratio).toBeNaN();
+    }
+    const balanceSheet = reportedIn("BALANCE_SHEET");
+    expect(balanceSheet.PRICE_TO_BOOK[0]).toBeNaN();
+    expect(balanceSheet.EV_TO_EBITDA_TTM[0]).toBeNaN();
+    expect(balanceSheet.PRICE_TO_EARNINGS_TTM[0]).toBeCloseTo(50, 12);
+    expect(balanceSheet.PRICE_TO_FCF_TTM[0]).toBeCloseTo(1000 / 24, 12);
+    const cashFlow = reportedIn("CASH_FLOW");
+    expect(cashFlow.PRICE_TO_FCF_TTM[0]).toBeNaN();
+    expect(cashFlow.PRICE_TO_BOOK[0]).toBeCloseTo(1000 / 400, 12);
+  });
+
   it("is unavailable for a security whose price history the loader has not verified", () => {
     const result = ratiosOn(inputs({ verifiedAt: null }), ["2025-02-10"]);
     for (const ratio of ALL) {
@@ -734,69 +761,255 @@ describe("valuation ratios: each masking rule in isolation", () => {
     ).toBeCloseTo(2.5, 12);
   });
 
-  it("rule 3: a re-base measured before the previous revision explains nothing", () => {
-    // Every quarter restated two-fold, observed 2025-06-20 — without a new re-base behind it.
-    const restated = quarters.map((quarter) =>
-      statement(
-        "INCOME",
-        {
-          ...quarter,
-          availableFromDate: "2025-06-20",
-          observedAt: "2025-06-20T00:00:00.000Z",
-        },
-        {
-          weightedAverageShsOutDil: 200,
-          netIncome: 5,
-          revenue: 50,
-          ebitda: 10,
-        },
-      ),
-    );
-    const early = quarters.map((quarter) => ({
-      ...quarter,
-      observedAt: "2025-05-09T00:00:00.000Z",
-    }));
-    const withEvent = (event: PriceBasisEvent) =>
-      ratiosOn(
+  describe("rule 3: a restated count", () => {
+    const PREVIOUS = "2025-05-09T00:00:00.000Z";
+    /**
+     * P/B on 2025-06-23 with every quarter first observed at `previousObservedAt` holding 100 shares,
+     * then restated to `shares`, observed 2025-06-20: more than thirty days after every event these
+     * cases date before it, so rule 5 is not what withholds it.
+     */
+    const pb = (
+      shares: number,
+      events: readonly PriceBasisEvent[],
+      previousObservedAt = PREVIOUS,
+    ) => {
+      const restated = quarters.map((quarter) =>
+        statement(
+          "INCOME",
+          {
+            ...quarter,
+            availableFromDate: "2025-06-20",
+            observedAt: "2025-06-20T00:00:00.000Z",
+          },
+          {
+            weightedAverageShsOutDil: shares,
+            netIncome: 5,
+            revenue: 50,
+            ebitda: 10,
+          },
+        ),
+      );
+      const previous = quarters.map((quarter) => ({
+        ...quarter,
+        observedAt: previousObservedAt,
+      }));
+      return ratiosOn(
         inputs({
-          statements: [...company({ quarters: early }), ...restated],
+          statements: [...company({ quarters: previous }), ...restated],
           verifiedAt: "2024-01-02T00:00:00.000Z",
-          events: [event],
+          events,
         }),
         ["2025-06-23"],
         10,
         ["PRICE_TO_BOOK"],
       ).PRICE_TO_BOOK[0];
-    // An earlier 2:1 re-base, already behind the previous revision.
+    };
+    const twoForOne = (fields: Partial<PriceBasisEvent>) =>
+      measured({ priceRatio: 2, ...fields });
+
+    it("is explained only by a re-base new to the previous revision and known by its own", () => {
+      // An earlier 2:1 re-base, already behind the previous revision.
+      expect(
+        pb(200, [
+          twoForOne({
+            effectiveDate: "2024-03-01",
+            detectedAt: "2024-03-02T12:00:00.000Z",
+          }),
+        ]),
+      ).toBeNaN();
+      // Dated and detected before the previous revision was observed, if within the month: the
+      // provider had re-based the prices already, so that revision may be in the new units.
+      expect(
+        pb(200, [
+          twoForOne({
+            effectiveDate: "2025-05-05",
+            detectedAt: "2025-05-06T12:00:00.000Z",
+          }),
+        ]),
+      ).toBeNaN();
+      // Detected after the restated count was observed: not yet known when it was.
+      expect(
+        pb(200, [
+          twoForOne({
+            effectiveDate: "2025-06-24",
+            detectedAt: "2025-06-24T12:00:00.000Z",
+          }),
+        ]),
+      ).toBeNaN();
+      // New to the previous revision and known by the time of the restated one: explained.
+      expect(
+        pb(200, [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ]),
+      ).toBeCloseTo((10 * 200) / 400, 12);
+    });
+
+    it("is not explained by an old re-base the first verification measures after the previous revision", () => {
+      // A 2:1 split of 2023 that a history mixed before PR 1 still carried, measured by the first
+      // verification on 2025-06-01: detected after the previous revision was observed, yet that
+      // revision was observed two years after the split, in its new units already.
+      expect(
+        pb(200, [
+          twoForOne({
+            effectiveDate: "2023-06-12",
+            detectedAt: "2025-06-01T03:00:00.000Z",
+          }),
+        ]),
+      ).toBeNaN();
+    });
+
+    it("is new to a revision observed before the session the provider re-based ahead of", () => {
+      // The provider re-based the history ahead of the event's first session: PR 1 measures it
+      // undated, through the session after the newest stored one — the day after its detection.
+      // The previous revision was observed after the detection but before that session.
+      expect(
+        pb(
+          200,
+          [
+            twoForOne({
+              effectiveFrom: "2025-05-12",
+              effectiveTo: "2025-05-13",
+              detectedAt: "2025-05-12T21:00:00.000Z",
+            }),
+          ],
+          "2025-05-12T22:00:00.000Z",
+        ),
+      ).toBeCloseTo((10 * 200) / 400, 12);
+    });
+
+    it("counts a re-base only while the previous revision may predate its settling", () => {
+      // Detected the day after the previous revision was observed, and dated 29 or 30 days before
+      // it: a month after a re-base, a revision is taken to be in its new units (rule 5's month).
+      const detectedLate = (effectiveDate: string) =>
+        pb(200, [
+          twoForOne({ effectiveDate, detectedAt: "2025-05-10T12:00:00.000Z" }),
+        ]);
+      expect(detectedLate("2025-04-10")).toBeCloseTo((10 * 200) / 400, 12);
+      expect(detectedLate("2025-04-09")).toBeNaN();
+    });
+
+    it("is not explained by a re-base of another ratio", () => {
+      expect(
+        pb(200, [
+          measured({
+            effectiveDate: "2025-05-12",
+            priceRatio: 3,
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ]),
+      ).toBeNaN();
+    });
+
+    it("needs a re-base even when it is too small for the share level to notice", () => {
+      // An 11:10 stock dividend restated with no re-base behind it: within rule 2's 25 %.
+      expect(pb(110, [])).toBeNaN();
+      // A 5:4 split the loader measured: explained.
+      expect(
+        pb(125, [
+          measured({
+            effectiveDate: "2025-05-12",
+            priceRatio: 1.25,
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ]),
+      ).toBeCloseTo((10 * 125) / 400, 12);
+    });
+  });
+
+  it("rule 7: an undated possible distribution counts from the latest date it may have", () => {
+    const after = (event: PriceBasisEvent) =>
+      ratiosOn(isolated({ events: [event] }), ["2025-05-12"], 10, [
+        "PRICE_TO_EARNINGS_TTM",
+      ]).PRICE_TO_EARNINGS_TTM[0];
+    // Dated 2025-03-20: the Q1 2025 quarter, ending 2025-03-31, covers it.
     expect(
-      withEvent(
+      after(
         measured({
-          effectiveDate: "2024-03-01",
-          priceRatio: 2,
-          detectedAt: "2024-03-02T12:00:00.000Z",
+          effectiveDate: "2025-03-20",
+          priceRatio: 1.046,
+          detectedAt: "2025-04-11T12:00:00.000Z",
+        }),
+      ),
+    ).toBeCloseTo(50, 12);
+    // Somewhere after 2025-03-20 and no later than 2025-04-10: Q1 2025 may end before it.
+    expect(
+      after(
+        measured({
+          effectiveFrom: "2025-03-20",
+          effectiveTo: "2025-04-10",
+          priceRatio: 1.046,
+          detectedAt: "2025-04-11T12:00:00.000Z",
         }),
       ),
     ).toBeNaN();
-    // Detected after the restated count was observed: not yet known when it was.
+  });
+
+  it("rules 4.1 and 7: a quarter ending on the event's own date covers it", () => {
+    const quarterEnd = "2025-03-31";
+    const listed = pe(
+      isolated({
+        splits: [split({ date: quarterEnd, numerator: 523, denominator: 500 })],
+      }),
+    );
+    expect(listed[1]).toBeNaN();
+    expect(listed[2]).toBeCloseTo(50, 12);
+    const measuredThere = pe(
+      isolated({
+        events: [
+          measured({
+            effectiveDate: quarterEnd,
+            priceRatio: 1.046,
+            detectedAt: "2025-04-01T12:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+    expect(measuredThere[2]).toBeCloseTo(50, 12);
+  });
+
+  it("rules 4.2 and 5: a count observed on an event's own date is rule 5's", () => {
+    // A plain split listed in the history and never measured, on 2025-03-03.
+    const splits = [
+      split({ date: "2025-03-03", numerator: 2, denominator: 1 }),
+    ];
+    const observedOn = (date: string, quarterList: readonly Quarter[]) =>
+      quarterList.map((quarter) => ({
+        ...quarter,
+        observedAt: `${date}T20:00:00.000Z`,
+      }));
+    // Observed on the split's date for a quarter that ended before it: rule 5 withholds it, from
+    // that very date.
     expect(
-      withEvent(
-        measured({
-          effectiveDate: "2025-06-24",
-          priceRatio: 2,
-          detectedAt: "2025-06-24T12:00:00.000Z",
+      ratiosOn(
+        isolated({
+          statements: company({ quarters: observedOn("2025-03-03", quarters) }),
+          splits,
         }),
-      ),
+        ["2025-03-04"],
+        10,
+        ["PRICE_TO_EARNINGS_TTM"],
+      ).PRICE_TO_EARNINGS_TTM[0],
     ).toBeNaN();
-    // New to the previous revision and known by the time of the restated one: explained.
+    // Observed on the split's date for a quarter that ended on it: no rule withholds it. Rule 4.2
+    // reaches only a count observed before the date.
+    const onTheDate: Quarter[] = observedOn("2025-03-31", [
+      ...QUARTERS,
+      { ...firstOf2025, availableFromDate: "2025-03-31" },
+    ]);
     expect(
-      withEvent(
-        measured({
-          effectiveDate: "2025-05-12",
-          priceRatio: 2,
-          detectedAt: "2025-05-13T12:00:00.000Z",
+      ratiosOn(
+        isolated({
+          statements: company({ quarters: onTheDate }),
+          splits: [split({ date: "2025-03-31", numerator: 2, denominator: 1 })],
         }),
-      ),
-    ).toBeCloseTo((10 * 200) / 400, 12);
+        ["2025-04-01"],
+        10,
+        ["PRICE_TO_EARNINGS_TTM"],
+      ).PRICE_TO_EARNINGS_TTM[0],
+    ).toBeCloseTo(50, 12);
   });
 
   it("rule 2: a count needs three consecutive agreeing quarters, each with a count", () => {
@@ -847,5 +1060,10 @@ describe("valuation ratios: each masking rule in isolation", () => {
       (10 * 200) / 400,
       12,
     );
+    // 100 ×4, then 20 % more each quarter: each count within 25 % of the one before, so the level
+    // follows every accepted count, although the last is more than twice the first.
+    expect(
+      pb((index) => (index < 4 ? 100 : 100 * 1.2 ** (index - 3))),
+    ).toBeCloseTo((10 * 100 * 1.2 ** 4) / 400, 12);
   });
 });

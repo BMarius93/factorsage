@@ -560,14 +560,23 @@ describe("mapFmpStockSplits", () => {
     ]);
   });
 
-  it("skips a row without a real calendar date", () => {
-    expect(
-      mapFmpStockSplits("security-1", [
-        { date: "not-a-date", numerator: 2, denominator: 1 },
-        { date: "2023-02-31", numerator: 2, denominator: 1 },
-        { date: "2023-13-01", numerator: 2, denominator: 1 },
-      ]),
-    ).toEqual([]);
+  it("refuses a row without a real calendar date rather than drop an event", () => {
+    for (const date of [
+      "not-a-date",
+      "2023-02-31",
+      "2023-13-01",
+      "2021-11-04 00:00:00",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(() =>
+        mapFmpStockSplits("security-1", [
+          { date: "1999-05-27", numerator: 2, denominator: 1 },
+          { date, numerator: 523, denominator: 500 },
+        ]),
+      ).toThrow("Invalid FMP split date");
+    }
   });
 
   it("refuses a response that is not a list", () => {

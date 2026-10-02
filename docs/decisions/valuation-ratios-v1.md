@@ -196,12 +196,14 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    Q3 1999 (153.4 M against 76 M), and Visa's counts that alternate in two-quarter blocks of ±40 %
    in fiscal 2010–2012. In the store, quarter-on-quarter changes beyond 25 % are 99 of 6,325, and
    the 99th percentile is 33 %.
-3. **The share count was not restated unexplained.** If `R`'s count differs by more than 2 % from the
-   previous revision of the same fiscal quarter, a measured re-base must explain it (its ratio within
-   2 %): one new to the previous revision — detected or dated after it was observed — and detected no
-   later than `R.observedAt`. Otherwise `R` is unavailable. This keeps a restatement FMP publishes
-   before an ex-date from being read against old-basis closes, whatever the split's size; an older
-   re-base of the same ratio explains nothing.
+3. **The share count was not restated unexplained.** If `R`'s count differs by more than 2 % from
+   the previous revision of the same fiscal quarter, a measured re-base must explain it (its ratio
+   within 2 %): one new to the previous revision — detected or dated after it was observed, and
+   dated less than 30 days before it was observed (rule 5's month; an undated re-base at the latest
+   date it may have) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable. This
+   keeps a restatement FMP publishes before an ex-date from being read against old-basis closes,
+   whatever the split's size. An older re-base of the same ratio explains nothing, even when PR 1's
+   first verification measures it only after the previous revision was observed.
 4. **History, from provider entries** dated on or before `verifiedAt` and not superseded by a
    measured re-base within seven calendar days of them:
    1. **A non-plain entry at `E`:** `r` is unavailable until every statement family it reads has a
@@ -259,6 +261,13 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
   exists (the trailing window still holds quarters from before it). That is the statement-content
   limit Fundamental Metrics already have (`fundamental-metrics-v1.md`; `historical-price-basis-v1.md`
   §13), not a price-basis question.
+- **What rule 3 cannot tell apart:** a second restatement by the same ratio within one quarter. If
+  the provider restated the counts for one re-base before the previous revision was observed — ahead
+  of the ex-date, or together with the price re-base before PR 1 detected it — and restates them
+  again by the same ratio ahead of another event while the same quarter is still the latest, that
+  re-base explains the second restatement too. It takes two events of one ratio within about three
+  months on one security: among the 64 securities in the store, only KO's two 2:1 entries of 1965
+  are, 24 years before its first statement.
 
 ### The six known securities
 
@@ -286,26 +295,27 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
 
 ### Measured coverage
 
-Measured with the PR 2V implementation on 2026-10-02: the development store, 62 securities with
-statements, product horizon (1996-09-30 to 2026-09-25), FMP's split lists as read on 2026-10-01 and
-no measured re-base. The loader had verified nothing in that store yet, so the measurement gives
-every security `verifiedAt` 2026-10-02 — as the first verification after the deploy will — which
-makes every listed event history; with no `verifiedAt` at all, rule 0 withholds everything.
+Measured with the PR 2V implementation, as its reviews left it, on 2026-10-02: the development
+store, 62 securities with statements, product horizon (1996-09-30 to 2026-09-25), FMP's split lists
+as read on 2026-10-01 and no measured re-base. The loader had verified nothing in that store yet, so
+the measurement gives every security `verifiedAt` 2026-10-02 — as the first verification after the
+deploy will — which makes every listed event history; with no `verifiedAt` at all, rule 0 withholds
+everything.
 
 | Ratio     | Unavailable sessions | Share of 332,294 | Of which withheld by the split list (rule 4) |
 | --------- | -------------------- | ---------------- | -------------------------------------------- |
-| P/E       | 74,410               | 22.4 %           | 33,608                                       |
-| P/S       | 42,914               | 12.9 %           | 36,026                                       |
-| P/B       | 53,858               | 16.2 %           | 35,811                                       |
+| P/E       | 74,472               | 22.4 %           | 33,608                                       |
+| P/S       | 42,976               | 12.9 %           | 36,026                                       |
+| P/B       | 53,920               | 16.2 %           | 35,811                                       |
 | P/FCF     | 81,249               | 24.5 %           | 34,493                                       |
-| EV/EBITDA | 62,649               | 18.9 %           | 35,183                                       |
+| EV/EBITDA | 62,711               | 18.9 %           | 35,183                                       |
 
 - **The split list withholds 10.1–10.8 %** of the sessions, in the eight securities named
   below. The figure before implementation (36,312 sessions for P/E) counted every session rule 4.1
   touches; the column above counts only those that would otherwise be available, since the inputs
   already withhold some of the same sessions.
-- **The share-count rule (2)** withholds a further 3,246 sessions of P/E, 5,250 of P/S, 4,980 of P/B,
-  2,644 of P/FCF and 4,202 of EV/EBITDA; **the restatement rule (3)** withholds none in the store.
+- **The share-count rule (2)** withholds a further 3,308 sessions of P/E, 5,312 of P/S, 5,042 of P/B,
+  2,644 of P/FCF and 4,264 of EV/EBITDA; **the restatement rule (3)** withholds none in the store.
   Rules 4.2, 5, 6, 7 and 8 withhold nothing: every statement was observed between 2026-08-31 and
   2026-09-28, more than 30 days after every listed event, and nothing has been measured yet.
 - **The rest is the inputs**: a loss (no P/E), negative free cash flow (no P/FCF), negative EBITDA,
@@ -330,12 +340,12 @@ makes every listed event history; with no `verifiedAt` at all, rule 0 withholds 
   calls the same calculation, so a chart and a Strategy show the same number.
 - **The split list** is stored whole per security (`StockSplit`, replaced on every read). An entry
   whose ratio the provider did not state readably is kept with ratio `0 : 1` — a possible
-  distribution, which over-masks rather than under-masks; one without a real calendar date cannot
-  be placed and is skipped. The list is read
-  from the provider in the preparation phases — a backtest's and a Monitor cycle's — when a Strategy
-  names a valuation ratio and the stored list is more than a day old (`STOCK_SPLIT` dataset state).
-  A day is enough: the provider lists an announced event before its date, and rule 8 withholds it
-  from that listing.
+  distribution, which over-masks rather than under-masks. An entry without a real calendar date
+  cannot be placed, so the read fails like any malformed provider response rather than store a
+  thinner list. The list is read from the provider in the preparation phases — a backtest's and a
+  Monitor cycle's — when a Strategy names a valuation ratio and the stored list is more than a day
+  old (`STOCK_SPLIT` dataset state). A day is enough: the provider lists an announced event before
+  its date, and rule 8 withholds it from that listing.
 - **A backtest computes a security's inputs once**, while preparing, from the generation it pins,
   and passes them to every window read; a window never reads the statements again. A Monitor
   reads them each cycle, between the two reads of the generation.
@@ -504,6 +514,21 @@ findings, all applied:
 | The QA matrix did not copy the split list beside its fresh dataset state; its preflight and provenance audit ignored valuation operands | Minor    | the matrix copies `StockSplit`; the preflight counts ratios as statement readers; the audit skips them by name |
 | Rule 0, nothing for an unverified history, was undocumented, and so was the measurement's `verifiedAt`                                  | Minor    | stated (rule 0, "Measured coverage")                                                                           |
 | A coverage percentage; annual revisions read on every Monitor cycle                                                                     | Nit      | corrected; standalone quarters only. A Monitor reconstruction still builds the inputs twice, accepted          |
+
+**Re-review of the fixes (2026-10-02).** The same reviewer rebuilt the 22 mutants against the fixed
+code and tests (all fail them), confirmed that its earlier counter-examples now withhold, and added
+11 mutants, 10 of which the tests did not catch. Its findings, all applied:
+
+| Finding                                                                                                                                                                                                                                        | Severity | Correction                                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rule 3 still let an old re-base explain a new restatement when PR 1's first verification measures it after the previous revision was observed: P/B at twice its value from the restatement to the ex-date                                      | Minor    | the re-base must also be dated less than 30 days before the previous revision was observed (rule 3); the same-ratio case left is stated under "What rule 3 cannot tell apart" |
+| Ten mutants passed the tests: rule 3 at 25 %, with any ratio, or without "dated after"; rule 7 at an undated re-base's earliest date; P/B without its count's currency; rule 2's level not following each accepted count; four date boundaries | Minor    | a test for each; all 38 mutants, the 33 above and five of the new rule 3 condition, now fail the tests                                                                        |
+| The mapper skipped an entry whose date is in another format, so nothing masked it                                                                                                                                                              | Nit      | a row without a calendar date fails the read                                                                                                                                  |
+| The domain type's comment did not mention the `0 : 1` ratio of an unreadable entry                                                                                                                                                             | Nit      | stated                                                                                                                                                                        |
+
+Re-measuring the coverage for this record showed that its table predated the first review's rule 2
+fix. It now reports the reviewed code: rule 2 withholds 62 more sessions of P/E, P/S, P/B and
+EV/EBITDA; the split list's figures and rule 3's are unchanged.
 
 ## References
 

@@ -6,11 +6,13 @@ import type { LocalDate, SecurityId } from "./stock-data.js";
  * action events").
  *
  * `numerator : denominator` is the share ratio — 4:1 for a four-for-one split, 1:10 for a one-for-ten
- * reverse split — and so also the factor the provider divides every earlier close by. The label is
- * the provider's own (`stock-split`, `stock-dividend`, `spin-off`), kept as given: only an entry
- * labelled `stock-split` with an exact common ratio reads as a plain share change. The list is
- * incomplete and includes announced events before their date, which is why it is read only where a
- * rule says so and never as a complete history.
+ * reverse split — and so also the factor the provider divides every earlier close by. `0 : 1` marks
+ * an entry whose ratio the provider left unreadable: no plain share change has it, so the entry
+ * reads as a possible distribution. The label is the provider's own (`stock-split`,
+ * `stock-dividend`, `spin-off`), kept as given: only an entry labelled `stock-split` with an exact
+ * common ratio reads as a plain share change. The list is incomplete and includes announced events
+ * before their date, which is why it is read only where a rule says so and never as a complete
+ * history.
  */
 export type StockSplit = {
   securityId: SecurityId;

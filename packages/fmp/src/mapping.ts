@@ -665,7 +665,7 @@ export type FmpStockSplitDto = {
 };
 
 /**
- * Maps a security's split list, skipping rows without a calendar date.
+ * Maps a security's split list.
  *
  * Verified live on 2026-10-01: one row per event, newest first, `numerator : denominator` the share
  * ratio (4:1 for AAPL's 2020 split, 1:10 for a reverse split, 523:500 for IBM's 2021 Kyndryl
@@ -675,7 +675,8 @@ export type FmpStockSplitDto = {
  *
  * A dated row whose ratio is unreadable is kept with ratio `0 : 1`, which no plain share change
  * has: the event is real and placed, and reading it as a possible distribution over-masks, where
- * dropping it would under-mask. A row without a calendar date cannot be placed and is skipped.
+ * dropping it would under-mask. A row without a calendar date cannot be placed, and skipping it
+ * would under-mask the same way, so it throws as a response that is not a list does.
  */
 export function mapFmpStockSplits(
   securityId: string,
@@ -688,7 +689,7 @@ export function mapFmpStockSplits(
   for (const row of rows) {
     const date = optionalString(row.date);
     if (!date || !isCalendarDate(date)) {
-      continue;
+      throw new Error("Invalid FMP split date");
     }
     const numerator =
       typeof row.numerator === "number" ? row.numerator : Number(row.numerator);
