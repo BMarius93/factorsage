@@ -1,6 +1,5 @@
 import {
   VALUATION_RATIO_CATALOG,
-  VALUATION_RATIO_IDS,
   type DailyValuationRatioResponse,
   type ValuationRatioId,
 } from "@intrinsic/contracts";
@@ -174,8 +173,13 @@ describe("buildValuationSeries", () => {
   });
 
   it("names every ratio by its one catalog label and draws it in the valuation colour", () => {
+    // Written out by hand: a sixth catalog ratio is a deliberate change to Stock Details too.
     expect(VALUATION_RATIO_CATALOG.map((entry) => entry.id)).toEqual([
-      ...VALUATION_RATIO_IDS,
+      "PRICE_TO_EARNINGS_TTM",
+      "PRICE_TO_SALES_TTM",
+      "PRICE_TO_BOOK",
+      "PRICE_TO_FCF_TTM",
+      "EV_TO_EBITDA_TTM",
     ]);
     for (const entry of VALUATION_RATIO_CATALOG) {
       const built = series([5], entry.id);

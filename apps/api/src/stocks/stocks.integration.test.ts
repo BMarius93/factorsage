@@ -33,7 +33,7 @@ import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
 import {
@@ -1407,6 +1407,57 @@ describe("Stock Details API", () => {
         )
         .expect(404);
       expect(response.body.message).toBe("Stock symbol was not found");
+    });
+
+    it("refuses a read whose price history is re-based between its reads, with no rows, until it is on one basis", async () => {
+      const security = await prisma.security.findFirstOrThrow({
+        where: { providerSymbol: valuationSymbol },
+      });
+      const before = await prisma.securityPriceBasis.findUniqueOrThrow({
+        where: { securityId: security.id },
+      });
+      const readSplits = PrismaStockDataStore.prototype.getStockSplits;
+      // A replacement commits while the read is between its two reads of the generation: the stored
+      // split list is read inside that bracket, so the generation moves on exactly there.
+      const replaced = vi
+        .spyOn(PrismaStockDataStore.prototype, "getStockSplits")
+        .mockImplementationOnce(async function (
+          this: PrismaStockDataStore,
+          securityId: string,
+        ) {
+          await prisma.securityPriceBasis.update({
+            where: { securityId: security.id },
+            data: { generation: { increment: 1 } },
+          });
+          return readSplits.call(this, securityId);
+        });
+      try {
+        const response = await valuation(
+          `${WINDOW}&ratio=PRICE_TO_BOOK`,
+        ).expect(503);
+        expect(replaced).toHaveBeenCalledTimes(1);
+        expect(response.body.message).toBe(
+          "Stock data is temporarily unavailable",
+        );
+        // Refused whole: not one session of either basis.
+        expect(JSON.stringify(response.body)).not.toContain(VALUATION_ALL);
+      } finally {
+        replaced.mockRestore();
+      }
+
+      // On one basis again, the same read answers.
+      const answered = await valuation(`${WINDOW}&ratio=PRICE_TO_BOOK`).expect(
+        200,
+      );
+      expect(
+        (answered.body as { date: string; value?: number }[]).find(
+          (row) => row.date === VALUATION_ALL,
+        )?.value,
+      ).toBe(VALUATION_BY_IDENTITY.PRICE_TO_BOOK);
+      await prisma.securityPriceBasis.update({
+        where: { securityId: security.id },
+        data: { generation: before.generation },
+      });
     });
 
     it("reads the provider's split list once the stored one is a day old, and then the stored one", async () => {

@@ -519,20 +519,50 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
       ["EV_TO_EBITDA_TTM"],
     ]);
 
-    // A race: P/E's answer is held back while P/B is chosen after it. The late P/E answer must not
-    // replace the newer choice.
+    // A race: P/E's answer is held back until P/B, chosen after it, is on screen. The late P/E
+    // answer must not replace the newer choice.
+    let release = (): void => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = (): void => {};
+    const peHeld = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    let delivered = (): void => {};
+    const peDelivered = new Promise<void>((resolve) => {
+      delivered = resolve;
+    });
     await page.route(
       isValuationRequest("PRICE_TO_EARNINGS_TTM"),
       async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        held();
+        await released;
+        // The page has already given up on the request it superseded, so delivering the answer
+        // may be refused; either way the late answer has had its chance.
         await route.continue().catch(() => undefined);
+        delivered();
       },
     );
     await openIndicators(page);
     await valuationSelect(page).selectOption("PRICE_TO_EARNINGS_TTM");
+    // P/E is in flight, held, when P/B is chosen.
+    await peHeld;
     await valuationSelect(page).selectOption("PRICE_TO_BOOK");
     await expect(wrapper).toHaveAttribute("data-valuation", "PRICE_TO_BOOK");
-    await page.waitForTimeout(2_000);
+    await expect(wrapper).toHaveAttribute(
+      "data-valuation-stretches",
+      await expectedStretches(page, "PRICE_TO_BOOK"),
+    );
+    release();
+    await peDelivered;
+    // Whatever the late answer could still do to the page has had two frames to do it.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     await expect(wrapper).toHaveAttribute("data-valuation", "PRICE_TO_BOOK");
     await expect(wrapper).toHaveAttribute(
       "data-valuation-stretches",

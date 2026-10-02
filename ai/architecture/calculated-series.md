@@ -409,11 +409,13 @@ storage decision's "Redis chunk layout" section.
   `StockDetailsDataService.getDailyValuationRatio` (`packages/stock-data/src/service.ts`) projects
   the one named ratio when it is read, with the calculation every Strategy, backtest and Monitor
   read calls (`valuationRatioColumns` over `buildValuationTimeline`), prepared by the same helpers
-  an evaluation frame's inputs are: the canonical hydration and freshness checks, the provider's
-  split list when the stored one is a day old, then the stored closes and the valuation timeline
-  read between two reads of the price-basis generation, refused with `PriceBasisChangedError` if a
-  re-base landed in between. Every price session in the window has a row; an unavailable session has
-  no `value`. The newest row is the newest stored daily bar at its own close and statements.
+  an evaluation frame's inputs are: the canonical hydration and freshness checks, the identity
+  re-resolved after them, the provider's split list when the stored one is a day old (reads in one
+  process that find it stale together share one request), then the stored closes and the valuation
+  timeline read between two reads of the price-basis generation, refused with
+  `PriceBasisChangedError` (a `503`) if a re-base landed in between. Every price session in the
+  window has a row; an unavailable session has no `value`. The newest row is the newest stored daily
+  bar at its own close and statements.
   `StockDetailsDataService` extends `StockDataService` because the ratio identity belongs to the
   contracts catalog, and the domain port (`packages/domain`) does not depend on contracts.
 - Unavailable values are **omitted**, never `null` and never zero.
@@ -524,11 +526,11 @@ storage decision's "Redis chunk layout" section.
   boundary (pinned by the browser test that creates both panes in one frame).
 - Price-scaled catalog series are drawn as **overlays on the price chart**. Oscillators are
   **never** drawn over the price scale: `StockPriceChart` routes them into one shared native
-  Lightweight Charts pane (`paneIndex 1` of the same chart instance), so every selected RSI period
-  shares one fixed `0-100` axis, one muted dashed set of 30/50/70 reference levels (Oversold 30 /
-  50 / Overbought 70, owned by the canonically first oscillator series and moving with it), and the
-  price chart's time scale and crosshair by construction. The first selected oscillator creates the
-  pane, removing the last one removes it, and repeated toggling reuses the same pane index — no
+  Lightweight Charts pane of the same chart instance, below the volume pane, so every selected RSI
+  period shares one fixed `0-100` axis, one muted dashed set of 30/50/70 reference levels (Oversold
+  30 / 50 / Overbought 70, owned by the canonically first oscillator series and moving with it), and
+  the price chart's time scale and crosshair by construction. The first selected oscillator creates
+  the pane, removing the last one removes it, and repeated toggling reuses the same pane index — no
   duplicated panes, lines, levels or subscriptions, pinned by a toggle-cycle test. The hover legend
   renders oscillator readings unitless (one decimal) beside money-formatted price overlays, and the
   chart wrapper grows while the pane exists so the price pane keeps a useful height on desktop and
@@ -601,13 +603,14 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
   reason, and because each is computed when it is read: their endpoint projects one named ratio.
 - **Per-family or per-series revisions** replacing the single global `DERIVED_STATE_REVISION`.
 - **Persisted NOT_EVALUABLE reasons.**
-- **MACD, volatility and valuation ratios (`P/E`, `P/S`, `P/FCF`, `EV/EBITDA`)** — no such series
-  exists. (The daily RSI family is implemented; it is the first oscillator, not a template for
-  storing multi-output families like MACD. The statement-derived growth, margin, return, leverage,
-  liquidity, coverage and turnover ratios are the Fundamental Metrics above.) Valuation ratios
-  (`P/E`, `P/S`, `P/B`, `P/FCF`, `EV/EBITDA`) are **not stored per session**, by the owner's
-  decision: `../../docs/decisions/valuation-ratios-v1.md` projects them when they are read, from the
-  stored close, point-in-time statements and the measured re-bases of
+- **MACD and volatility** — no such series exists. (The daily RSI family is implemented; it is the
+  first oscillator, not a template for storing multi-output families like MACD. The
+  statement-derived growth, margin, return, leverage, liquidity, coverage and turnover ratios are
+  the Fundamental Metrics above.)
+- **A stored valuation-ratio series.** Valuation ratios (`P/E`, `P/S`, `P/B`, `P/FCF`,
+  `EV/EBITDA`) are **not stored per session**, by the owner's decision:
+  `../../docs/decisions/valuation-ratios-v1.md` projects them when they are read, from the stored
+  close, point-in-time statements and the measured re-bases of
   `../../docs/decisions/historical-price-basis-v1.md`, as Margin of Safety is projected from stored
   intrinsic values. That is the one scoped exception AGENTS.md invariant 9 records; every other
   calculated daily series stays an explicit column. Stock Details charts them through the same
