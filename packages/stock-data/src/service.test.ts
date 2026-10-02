@@ -1,4 +1,8 @@
 import {
+  VALUATION_RATIO_IDS,
+  type ValuationRatioId,
+} from "@intrinsic/contracts";
+import {
   FINANCIAL_STATEMENT_TYPES,
   FUNDAMENTAL_METRIC_FIELDS,
   FUNDAMENTAL_METRIC_IDS,
@@ -17,7 +21,7 @@ import {
   StockSplit,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
-import { valuationRatioOperand } from "@intrinsic/strategy";
+import { readOperand, valuationRatioOperand } from "@intrinsic/strategy";
 import { describe, expect, it, vi } from "vitest";
 import type { StockDataCache, StockManifest } from "./cache.js";
 import {
@@ -47,6 +51,7 @@ import { addDays } from "./dates.js";
 import {
   CanonicalStockDataService,
   DERIVED_SERIES_WARMUP_DAYS,
+  PriceBasisChangedError,
   priceRetentionYears,
   StockDataNotFoundError,
   StockDataValidationError,
@@ -65,6 +70,17 @@ import {
   GOLDEN_INCOME,
   goldenStatements,
 } from "./fundamental-metrics.test-helper.js";
+import { valuationRatioColumns } from "./valuation-ratios.js";
+
+// A pass-through spy: every suite here runs the real calculation, and the Stock Details read's
+// selectivity — the one requested ratio computed, never all five — is observable through it.
+vi.mock("./valuation-ratios.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./valuation-ratios.js")>();
+  return {
+    ...actual,
+    valuationRatioColumns: vi.fn(actual.valuationRatioColumns),
+  };
+});
 
 const NOW = "2026-08-24T12:00:00.000Z";
 /** The product horizon: the oldest day any surface may select, chart, query or backtest. */
@@ -5982,5 +5998,428 @@ describe("valuation inputs in the preparation phases and the reads", () => {
     });
     expect(splits).toHaveBeenCalledTimes(1);
     expect(frame?.frame.columns.has(PE)).toBe(true);
+  });
+});
+
+describe("a valuation ratio's daily history for Stock Details", () => {
+  /** A provider that also serves the split list, counting its reads. */
+  class SplitProvider extends FakeProvider {
+    splitReads = 0;
+    splits: StockSplit[] = [];
+    async getStockSplits(): Promise<StockSplit[]> {
+      this.splitReads += 1;
+      return this.splits;
+    }
+  }
+
+  const SHARES = 1_111_000;
+  const INCOME = {
+    weightedAverageShsOutDil: SHARES,
+    netIncome: 3_000_000,
+    revenue: 1_500_000,
+    ebitda: 1_000_000,
+  };
+  const CASH_FLOW = {
+    operatingCashFlow: 1_000_000,
+    capitalExpenditure: -250_000,
+  };
+  const QUARTER_END = { Q1: "03-31", Q2: "06-30", Q3: "09-30", Q4: "12-31" };
+
+  function revision(
+    statementType: FinancialStatement["statementType"],
+    fiscalYear: number,
+    period: "Q1" | "Q2" | "Q3" | "Q4",
+    availableFromDate: string,
+    values: Record<string, number>,
+  ): FinancialStatement {
+    return {
+      securityId: security.id,
+      statementType,
+      fiscalDate: `${fiscalYear}-${QUARTER_END[period]}`,
+      fiscalYear,
+      period,
+      reportedCurrency: "USD",
+      filingDate: addDays(availableFromDate, -1),
+      availableFromDate,
+      observedAt: "2026-03-01T12:00:00.000Z",
+      contentHash: `${statementType}:${fiscalYear}:${period}`,
+      values,
+    };
+  }
+
+  /**
+   * Fiscal 2025, public from 2026-02-10: 1,111,000 diluted shares, net income 12M, revenue 6M,
+   * EBITDA 4M and free cash flow 3M over the four quarters, equity 4M and net cash 355.52M on the
+   * latest balance sheet. At a close of 120 the market capitalisation is 133.32M, so the five ratios
+   * are 11.11, 22.22, 33.33, 44.44 and (133.32M - 355.52M) / 4M = -55.55.
+   *
+   * Fiscal 2026 Q1, public from Thursday 2026-08-20, is a loss of 9M: net income TTM is exactly 0,
+   * so P/E is unavailable from that session on, while the balance sheet doubles equity to 8M and
+   * clears the net cash.
+   */
+  function statements(): FinancialStatement[] {
+    const fiscal2025 = (["Q1", "Q2", "Q3", "Q4"] as const).flatMap((period) => [
+      revision("INCOME", 2025, period, "2026-02-10", INCOME),
+      revision("CASH_FLOW", 2025, period, "2026-02-10", CASH_FLOW),
+      revision("BALANCE_SHEET", 2025, period, "2026-02-10", {
+        totalStockholdersEquity: 4_000_000,
+        netDebt: -355_520_000,
+      }),
+    ]);
+    return [
+      ...fiscal2025,
+      revision("INCOME", 2026, "Q1", "2026-08-20", {
+        ...INCOME,
+        netIncome: -9_000_000,
+      }),
+      revision("CASH_FLOW", 2026, "Q1", "2026-08-20", CASH_FLOW),
+      revision("BALANCE_SHEET", 2026, "Q1", "2026-08-20", {
+        totalStockholdersEquity: 8_000_000,
+        netDebt: 0,
+      }),
+    ];
+  }
+
+  /** What each identity reads on 2026-08-12 at a close of 120, written out by hand. */
+  const DISTINCT_BY_IDENTITY: Record<ValuationRatioId, number> = {
+    PRICE_TO_EARNINGS_TTM: 11.11,
+    PRICE_TO_SALES_TTM: 22.22,
+    PRICE_TO_BOOK: 33.33,
+    PRICE_TO_FCF_TTM: 44.44,
+    EV_TO_EBITDA_TTM: -55.55,
+  };
+
+  const WINDOW = { from: "2026-08-10", to: "2026-08-21" };
+
+  async function residentFresh(provider: FakeProvider = new SplitProvider()) {
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.prices = tradingDays("2026-08-03", "2026-08-21").map((row) =>
+      row.date === "2026-08-12"
+        ? price(row.date, 120)
+        : row.date === "2026-08-13"
+          ? // The market capitalisation equals the net cash: an enterprise value of exactly zero.
+            price(row.date, 320)
+          : row,
+    );
+    store.financialStatements = statements();
+    store.dailyState = store.prices.map((row) => ({
+      securityId: security.id,
+      date: row.date,
+    }));
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [RETENTION_RANGE]);
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(RETENTION_RANGE.from, RETENTION_RANGE.to),
+    );
+    await cache.writeDailyDerivedStateYears(
+      security.id,
+      store.dailyState,
+      yearSpan(RETENTION_RANGE.from, RETENTION_RANGE.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: RETENTION_RANGE.from,
+      coverageEnd: RETENTION_RANGE.to,
+      canonicalHistoryStart: store.prices[0]!.date,
+      canonicalHistoryEnd: store.prices.at(-1)!.date,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+    });
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    return { store, cache, loader };
+  }
+
+  function valueOn(
+    points: readonly { date: string; value?: number }[],
+    date: string,
+  ): number | undefined {
+    const point = points.find((candidate) => candidate.date === date);
+    if (!point) {
+      throw new Error(`No session ${date}`);
+    }
+    return point.value;
+  }
+
+  it("reads each identity through the one calculation, each from its own inputs", async () => {
+    // The oracle covers exactly the identities the read accepts: a sixth ratio added to the catalog
+    // without a literal here fails, rather than being skipped.
+    expect(Object.keys(DISTINCT_BY_IDENTITY)).toEqual([...VALUATION_RATIO_IDS]);
+    const { loader } = await residentFresh();
+    for (const [ratioId, expected] of Object.entries(DISTINCT_BY_IDENTITY)) {
+      const points = await loader.getDailyValuationRatio(
+        "AAPL",
+        ratioId as ValuationRatioId,
+        { from: "2026-08-12", to: "2026-08-12" },
+      );
+      expect(points, ratioId).toEqual([
+        { date: "2026-08-12", value: expected },
+      ]);
+    }
+  });
+
+  it("answers every price session of the window, a zero and a negative as values and absence as no value", async () => {
+    const { loader } = await residentFresh();
+    const evToEbitda = await loader.getDailyValuationRatio(
+      "AAPL",
+      "EV_TO_EBITDA_TTM",
+      WINDOW,
+    );
+    // Exactly the stored sessions of the window, oldest first: no weekend and nothing invented.
+    expect(evToEbitda.map((point) => point.date)).toEqual(
+      tradingDays(WINDOW.from, WINDOW.to).map((row) => row.date),
+    );
+    expect(valueOn(evToEbitda, "2026-08-12")).toBe(-55.55);
+    // Net cash equal to the market capitalisation: a real zero, never a gap.
+    expect(valueOn(evToEbitda, "2026-08-13")).toBe(0);
+    expect(Object.hasOwn(evToEbitda[3]!, "value")).toBe(true);
+
+    const pe = await loader.getDailyValuationRatio(
+      "AAPL",
+      "PRICE_TO_EARNINGS_TTM",
+      WINDOW,
+    );
+    // The loss quarter makes net income TTM exactly zero from 2026-08-20: unavailable, its point
+    // kept without a value — not the reading before it carried, not zero, not infinity.
+    expect(valueOn(pe, "2026-08-19")).toBeGreaterThan(0);
+    for (const date of ["2026-08-20", "2026-08-21"]) {
+      const point = pe.find((candidate) => candidate.date === date)!;
+      expect(point).toEqual({ date });
+      expect(Object.hasOwn(point, "value")).toBe(false);
+    }
+    // Every point is a session and at most its value: no other ratio and no internal identity.
+    for (const point of [...pe, ...evToEbitda]) {
+      expect(
+        Object.keys(point).every((key) => key === "date" || key === "value"),
+      ).toBe(true);
+    }
+  });
+
+  it("reads the newest stored session at its own close and statements, never carried", async () => {
+    const { loader } = await residentFresh();
+    const pb = await loader.getDailyValuationRatio("AAPL", "PRICE_TO_BOOK", {
+      from: "2026-08-19",
+      to: "2026-08-21",
+    });
+    const close = (date: string) =>
+      tradingDays("2026-08-03", "2026-08-21").find((row) => row.date === date)!
+        .close;
+    // 2026-08-19 still reads fiscal 2025's equity of 4M; 2026-08-20, the first session the 2026 Q1
+    // balance sheet is public, reads its 8M on its own date — the backtest frame's rule, and not a
+    // Monitor's carry-forward of the newest closed session's statements onto a live quote.
+    expect(valueOn(pb, "2026-08-19")).toBeCloseTo(
+      (close("2026-08-19") * SHARES) / 4_000_000,
+      10,
+    );
+    expect(valueOn(pb, "2026-08-20")).toBeCloseTo(
+      (close("2026-08-20") * SHARES) / 8_000_000,
+      10,
+    );
+    expect(valueOn(pb, "2026-08-21")).toBeCloseTo(
+      (close("2026-08-21") * SHARES) / 8_000_000,
+      10,
+    );
+  });
+
+  it("computes the requested ratio and no other", async () => {
+    const { loader } = await residentFresh();
+    const columns = vi.mocked(valuationRatioColumns);
+    for (const ratioId of VALUATION_RATIO_IDS) {
+      columns.mockClear();
+      await loader.getDailyValuationRatio("AAPL", ratioId, WINDOW);
+      expect(columns, ratioId).toHaveBeenCalledTimes(1);
+      expect(columns.mock.calls[0]?.[0].ratios, ratioId).toEqual([ratioId]);
+    }
+  });
+
+  it("agrees with the Strategy evaluation frame on every session, for every ratio", async () => {
+    const { loader } = await residentFresh();
+    const operands = VALUATION_RATIO_IDS.map(valuationRatioOperand);
+    const frame = await loader.getDailyEvaluationFrame(
+      security,
+      WINDOW,
+      operands,
+    );
+    let compared = 0;
+    for (const ratioId of VALUATION_RATIO_IDS) {
+      const chart = await loader.getDailyValuationRatio(
+        "AAPL",
+        ratioId,
+        WINDOW,
+      );
+      for (const point of chart) {
+        const index = frame.dates.indexOf(point.date);
+        expect(index, point.date).toBeGreaterThanOrEqual(0);
+        const inFrame = readOperand(
+          frame,
+          valuationRatioOperand(ratioId),
+          index,
+        );
+        if (point.value === undefined) {
+          expect(inFrame, `${point.date} ${ratioId}`).toBeNaN();
+        } else {
+          expect(inFrame, `${point.date} ${ratioId}`).toBe(point.value);
+        }
+        compared += 1;
+      }
+    }
+    expect(compared).toBe(
+      tradingDays(WINDOW.from, WINDOW.to).length * VALUATION_RATIO_IDS.length,
+    );
+  });
+
+  it("has no value anywhere for a security whose price history is not verified", async () => {
+    const { store, loader } = await residentFresh();
+    store.priceBasis = null;
+    for (const ratioId of VALUATION_RATIO_IDS) {
+      const points = await loader.getDailyValuationRatio(
+        "AAPL",
+        ratioId,
+        WINDOW,
+      );
+      expect(points.length).toBeGreaterThan(0);
+      expect(
+        points.every((point) => !("value" in point)),
+        ratioId,
+      ).toBe(true);
+    }
+  });
+
+  it("reads the stored split list within a day, and the provider's once it is older", async () => {
+    const provider = new SplitProvider();
+    const { store, loader } = await residentFresh(provider);
+    await loader.getDailyValuationRatio("AAPL", "PRICE_TO_BOOK", WINDOW);
+    expect(provider.splitReads).toBe(1);
+    expect(store.stockSplitReads).toEqual([NOW]);
+
+    // Warm and current: no provider request of any kind, for any ratio.
+    for (const ratioId of VALUATION_RATIO_IDS) {
+      await loader.getDailyValuationRatio("AAPL", ratioId, WINDOW);
+    }
+    expect(provider.splitReads).toBe(1);
+    expect(provider.ranges).toEqual([]);
+    expect(provider.financialRequests).toEqual([]);
+    expect(provider.profileCalls).toEqual([]);
+
+    // A day later the list is read again, once.
+    const later = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+      () => new Date(Date.parse(NOW) + 25 * 60 * 60 * 1000),
+    );
+    store.states.set("STOCK_SPLIT:", {
+      securityId: security.id,
+      dataset: "STOCK_SPLIT",
+      variant: "",
+      lastSyncedAt: "2026-08-23T10:00:00.000Z",
+    });
+    await expect(
+      later.getDailyValuationRatio("AAPL", "PRICE_TO_BOOK", WINDOW),
+    ).resolves.toBeDefined();
+    expect(provider.splitReads).toBe(2);
+  });
+
+  it("withholds a listed event the provider has not re-based, exactly as the calculation does", async () => {
+    const provider = new SplitProvider();
+    // A distribution listed after the history was verified and never measured: rule 8 holds its
+    // date and the thirty calendar days after it.
+    provider.splits = [
+      {
+        securityId: security.id,
+        date: "2026-08-14",
+        numerator: 1907,
+        denominator: 2000,
+        label: "spin-off",
+      },
+    ];
+    const { loader } = await residentFresh(provider);
+    const ps = await loader.getDailyValuationRatio(
+      "AAPL",
+      "PRICE_TO_SALES_TTM",
+      WINDOW,
+    );
+    expect(valueOn(ps, "2026-08-13")).toBeDefined();
+    for (const date of ["2026-08-14", "2026-08-17", "2026-08-21"]) {
+      expect(valueOn(ps, date), date).toBeUndefined();
+    }
+  });
+
+  it("refuses an identity the catalog does not define before loading anything", async () => {
+    const { store, loader } = await residentFresh();
+    const lookup = vi.spyOn(store, "findSecurityByProviderSymbol");
+    for (const ratioId of [
+      "P/E",
+      "pe",
+      "p_e",
+      "priceToEarningsTtm",
+      "price_to_earnings_ttm",
+      "PRICE_TO_EARNINGS",
+      "PRICE_TO_EARNINGS_TTM ",
+      "PRICE_TO_EARNINGS_TTM,PRICE_TO_BOOK",
+      "valuation:PRICE_TO_EARNINGS_TTM",
+      "__proto__",
+      "constructor",
+      "",
+    ]) {
+      await expect(
+        loader.getDailyValuationRatio(
+          "AAPL",
+          ratioId as ValuationRatioId,
+          WINDOW,
+        ),
+        ratioId,
+      ).rejects.toThrow(StockDataValidationError);
+    }
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("refuses a read whose price history was re-based between its reads", async () => {
+    class ReplacedDuringRead extends FakeStore {
+      reads = 0;
+      override async getPriceBasis(): Promise<SecurityPriceBasisState | null> {
+        this.reads += 1;
+        return {
+          securityId: security.id,
+          generation: this.reads === 1 ? 1 : 2,
+          verifiedAt: "2026-01-01T00:00:00.000Z",
+        };
+      }
+    }
+    const { store, cache } = await residentFresh();
+    const replaced = Object.assign(new ReplacedDuringRead(), {
+      prices: store.prices,
+      financialStatements: store.financialStatements,
+      dailyState: store.dailyState,
+      states: store.states,
+      coverage: store.coverage,
+    });
+    const loader = createService(
+      replaced,
+      new SplitProvider(),
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    await expect(
+      loader.getDailyValuationRatio("AAPL", "PRICE_TO_EARNINGS_TTM", WINDOW),
+    ).rejects.toBeInstanceOf(PriceBasisChangedError);
   });
 });

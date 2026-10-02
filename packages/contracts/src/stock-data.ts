@@ -1,4 +1,5 @@
 import type { FundamentalMetricId } from "./fundamental-metrics.js";
+import type { ValuationRatioId } from "./valuation-ratios.js";
 
 /**
  * Inclusive historical date-range query in `YYYY-MM-DD` form.
@@ -168,6 +169,37 @@ export type DailyFundamentalMetricResponse = {
 /** Inclusive `YYYY-MM-DD` window plus exactly one Fundamental Metric identity. */
 export type FundamentalMetricHistoryQuery = Required<StockDateRangeQuery> & {
   metric: FundamentalMetricId;
+};
+
+/**
+ * One trading day of one valuation ratio's history:
+ * `GET /stocks/:symbol/valuation-ratios/daily?ratio=<ValuationRatioId>`.
+ *
+ * `value` is the ratio as `docs/decisions/valuation-ratios-v1.md` defines it, computed when it is
+ * read by the one calculation a Strategy Condition, a backtest and a Monitor read: the session's
+ * stored close against the statements public by that session, under the price-basis rules. Nothing
+ * is stored per session. Every ratio is a **raw multiple** — `15.2` is 15.2x — of the market
+ * capitalisation, or of the enterprise value for EV/EBITDA.
+ *
+ * Every trading day of the requested range has a row, oldest first: the same sessions the daily
+ * price history holds. `value` is **omitted** on a session the ratio is unavailable on — an input
+ * missing, incomplete or not positive, a statement in another currency, a share count the rules do
+ * not accept, or a price basis the provider's split list or a measured re-base leaves unsafe — and
+ * is never `null`, never zero and never an earlier value carried through the interval. A negative
+ * EV/EBITDA, net cash larger than the market capitalisation, is a real reading.
+ *
+ * The newest row is the newest stored daily bar, which during a session may be the provider's
+ * in-progress bar until the next refresh replaces it; its ratio is read at that bar's close, as the
+ * price chart draws it. No value is ever synthesized from a live quote.
+ */
+export type DailyValuationRatioResponse = {
+  date: string;
+  value?: number;
+};
+
+/** Inclusive `YYYY-MM-DD` window plus exactly one valuation ratio identity. */
+export type ValuationRatioHistoryQuery = Required<StockDateRangeQuery> & {
+  ratio: ValuationRatioId;
 };
 
 export type IntrinsicValueModelResponse =

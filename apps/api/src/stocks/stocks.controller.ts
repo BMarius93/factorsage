@@ -2,10 +2,13 @@ import {
   findSelectableSeries,
   FUNDAMENTAL_METRIC_IDS,
   isFundamentalMetricId,
+  isValuationRatioId,
   TECHNICAL_SERIES,
+  VALUATION_RATIO_IDS,
   type DailyFundamentalMetricResponse,
   type DailyPriceResponse,
   type DailyTechnicalResponse,
+  type DailyValuationRatioResponse,
   type FundamentalMetricId,
   type IntrinsicValueBlendResponse,
   type IntrinsicValueResponse,
@@ -14,6 +17,7 @@ import {
   type StockDetailsResponse,
   type StockHistoryBoundsResponse,
   type StockSearchResultResponse,
+  type ValuationRatioId,
 } from "@intrinsic/contracts";
 import {
   INTRINSIC_VALUE_BLEND_IDS,
@@ -32,6 +36,8 @@ import {
   isLocalDate,
   StockDataNotFoundError,
   StockDataValidationError,
+  type DailyValuationRatioPoint,
+  type StockDetailsDataService,
 } from "@intrinsic/stock-data";
 import {
   BadRequestException,
@@ -268,6 +274,39 @@ function fundamentalResponse(
     : { date: point.date, value: point.value };
 }
 
+/**
+ * Resolves the `ratio` parameter to exactly one valuation ratio identity.
+ *
+ * The same rule as `metric` for a Fundamental Metric: matched exactly against the product catalog's
+ * identities through the catalog's own check — no trimming, no case folding, no label (`P/E`) and no
+ * other spelling — so a missing, empty, repeated or comma-separated parameter, or anything that is not
+ * a string, is rejected rather than narrowed to a guess.
+ */
+function valuationRatio(raw: unknown): ValuationRatioId {
+  if (raw === undefined || raw === "") {
+    throw new BadRequestException("ratio is required");
+  }
+  if (!isValuationRatioId(raw)) {
+    throw new BadRequestException(
+      `Unsupported valuation ratio. Supported: ${VALUATION_RATIO_IDS.join(", ")}`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * One session of the requested ratio onto the wire: the date, and the calculated value when there is
+ * one. An unavailable session keeps its row and loses only `value` — omitted, never `null` and never
+ * zero — so the chart can draw the interval as a gap.
+ */
+function valuationResponse(
+  point: DailyValuationRatioPoint,
+): DailyValuationRatioResponse {
+  return point.value === undefined
+    ? { date: point.date }
+    : { date: point.date, value: point.value };
+}
+
 function intrinsicResponse(
   point: Awaited<ReturnType<StockDataService["getIntrinsicValues"]>>[number],
 ): IntrinsicValueResponse {
@@ -298,7 +337,7 @@ function blendResponse(
 export class StocksController {
   constructor(
     @Inject(STOCK_DATA_SERVICE)
-    private readonly stocks: StockDataService,
+    private readonly stocks: StockDetailsDataService,
     @Inject(STOCK_DETAILS_RETENTION_YEARS)
     private readonly retentionYears: number,
   ) {}
@@ -429,6 +468,35 @@ export class StocksController {
       (
         await this.stocks.getDailyFundamentalMetric(symbol, metricId, query)
       ).map(fundamentalResponse),
+    );
+  }
+
+  /**
+   * One valuation ratio's daily history for the Stock Details chart.
+   *
+   * Exactly one `ratio`, named by its stable product identity (`PRICE_TO_EARNINGS_TTM`), and a
+   * bounded window clamped to the Stock Details horizon like every other read here. The value on
+   * each session is computed when it is read, by the one calculation a Strategy Condition, a
+   * backtest and a Monitor read; nothing is calculated here, and only the requested ratio is
+   * projected.
+   */
+  @RateLimit("stock-read")
+  @Get(":symbol/valuation-ratios/daily")
+  async getDailyValuationRatio(
+    @Param("symbol") symbol: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("ratio") ratioQuery?: unknown,
+  ): Promise<DailyValuationRatioResponse[]> {
+    const query = clampStockDetailsRange(
+      range(from, to, true),
+      this.horizonBounds(),
+    );
+    const ratioId = valuationRatio(ratioQuery);
+    return this.execute(async () =>
+      (await this.stocks.getDailyValuationRatio(symbol, ratioId, query)).map(
+        valuationResponse,
+      ),
     );
   }
 

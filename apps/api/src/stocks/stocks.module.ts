@@ -7,7 +7,6 @@ import {
   getRedisConfig,
   getStockDataConfig,
 } from "@intrinsic/config";
-import type { StockDataService } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import {
@@ -29,6 +28,7 @@ import {
   type SecurityCatalogService,
   type StockDataCache,
   type StockDataStore,
+  type StockDetailsDataService,
 } from "@intrinsic/stock-data";
 import {
   Inject,
@@ -196,7 +196,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         coordinator: LoadCoordinator,
         logger: StructuredLogger,
         alternativeData: CanonicalAlternativeDataService,
-      ): StockDataService => {
+      ): StockDetailsDataService => {
         const service = new CanonicalStockDataService(
           store,
           provider,

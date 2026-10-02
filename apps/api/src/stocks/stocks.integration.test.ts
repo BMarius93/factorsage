@@ -8,6 +8,7 @@ import {
   FUNDAMENTAL_METRIC_IDS,
   STOCK_DETAILS_MAX_HISTORY_YEARS,
   TECHNICAL_SERIES,
+  VALUATION_RATIO_IDS,
 } from "@intrinsic/contracts";
 import {
   INTRINSIC_VALUE_BLEND_IDS,
@@ -21,8 +22,10 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DAILY_PRICE_VARIANT,
   DERIVED_SERIES_WARMUP_DAYS,
+  fundamentalsDatasetOperations,
   InMemoryLoadCoordinator,
   NullStockDataCache,
+  PrismaStockDataStore,
   priceRetentionYears,
   subtractYears,
 } from "@intrinsic/stock-data";
@@ -119,9 +122,42 @@ const DISTINCT_VALUE_BY_IDENTITY: Record<string, number> = {
   ASSET_TURNOVER_TTM: 5.55,
 };
 
+/**
+ * The valuation fixture's sessions: before its statements are public, then a close of 120 — a market
+ * capitalisation of 133.32M on 1,111,000 diluted shares — then a close of 320, at which the market
+ * capitalisation equals the fixture's net cash of 355.52M.
+ */
+const VALUATION_BEFORE = "2026-06-01";
+const VALUATION_ALL = "2026-06-02";
+const VALUATION_ZERO_EV = "2026-06-03";
+const VALUATION_LAST = "2026-06-04";
+
+/**
+ * What each identity must read on `VALUATION_ALL`, written out by hand.
+ *
+ * Deliberately not derived from anything the API reads: this table is the oracle for the identity to
+ * ratio mapping, so a P/E wired to the P/S column, or an EV/EBITDA that lost its sign, cannot match.
+ * Net income TTM 12M, revenue TTM 6M, equity 4M, free cash flow TTM 3M, EBITDA TTM 4M and net debt
+ * -355.52M against a market capitalisation of 133.32M.
+ */
+const VALUATION_BY_IDENTITY: Record<string, number> = {
+  PRICE_TO_EARNINGS_TTM: 11.11,
+  PRICE_TO_SALES_TTM: 22.22,
+  PRICE_TO_BOOK: 33.33,
+  PRICE_TO_FCF_TTM: 44.44,
+  EV_TO_EBITDA_TTM: -55.55,
+};
+
 class FakeFmpProvider implements FmpStockProviderPort {
   allowedSymbol = "";
   readonly dailyCalls: DateRange[] = [];
+  /** Split-list reads: a valuation read asks for one only when the stored list is a day old. */
+  readonly splitCalls: string[] = [];
+
+  async getStockSplits(symbol: string) {
+    this.splitCalls.push(symbol);
+    return [];
+  }
 
   async getProfile(symbol: string): Promise<MappedFmpProfile | null> {
     if (symbol !== this.allowedSymbol) {
@@ -182,6 +218,7 @@ describe("Stock Details API", () => {
   const baseSymbol = `B${suffix}`;
   const loadedSymbol = `L${suffix}`;
   const unknownSymbol = `U${suffix}`;
+  const valuationSymbol = `V${suffix}`;
   const provider = new FakeFmpProvider();
 
   let app: INestApplication;
@@ -442,12 +479,148 @@ describe("Stock Details API", () => {
     await prisma.securityPriceBasis.create({
       data: { securityId: security.id, generation: 1, verifiedAt: new Date() },
     });
+
+    await seedValuationFixture();
   });
+
+  /**
+   * A security whose five valuation ratios are hand-computable on `VALUATION_ALL`: its closes, four
+   * quarters of statements made public on that session, a verified price basis and a split list read
+   * today, every dataset complete — so a read reaches no provider.
+   */
+  async function seedValuationFixture(): Promise<void> {
+    const row = await prisma.security.create({
+      data: {
+        providerSymbol: valuationSymbol,
+        symbol: valuationSymbol,
+        name: "Valuation Test Corp",
+        exchangeCode: "NASDAQ",
+        currency: "USD",
+        type: SecurityType.STOCK,
+        isAdr: false,
+        isActivelyTrading: true,
+      },
+    });
+    const store = new PrismaStockDataStore(prisma);
+    const syncedAt = new Date().toISOString();
+    await store.saveDailyPriceSync({
+      securityId: row.id,
+      prices: [
+        [VALUATION_BEFORE, 100],
+        [VALUATION_ALL, 120],
+        [VALUATION_ZERO_EV, 320],
+        [VALUATION_LAST, 120],
+      ].map(([date, close]) => ({
+        securityId: row.id,
+        date: date as string,
+        open: close as number,
+        high: close as number,
+        low: close as number,
+        close: close as number,
+        volume: 1_000,
+      })),
+      successfulCoverage: [{ from: runtimeRetentionStart, to: runtimeToday }],
+      syncedAt,
+      tailDate: runtimeToday,
+      freshThrough: runtimeToday,
+    });
+    await prisma.stockDatasetCoverage.create({
+      data: {
+        securityId: row.id,
+        dataset: StockDataset.DAILY_DERIVED_STATE,
+        variant: DAILY_DERIVED_STATE_VARIANT,
+        fromDate: new Date(`${runtimeRetentionStart}T00:00:00.000Z`),
+        toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
+        lastSuccessfulSyncAt: new Date(),
+      },
+    });
+    await prisma.stockDatasetState.create({
+      data: {
+        securityId: row.id,
+        dataset: StockDataset.DAILY_DERIVED_STATE,
+        variant: DAILY_DERIVED_STATE_VARIANT,
+        earliestDate: new Date(`${runtimeRetentionStart}T00:00:00.000Z`),
+        latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
+        lastSuccessfulSyncAt: new Date(),
+      },
+    });
+    const periodEnd = { Q1: "03-31", Q2: "06-30", Q3: "09-30", Q4: "12-31" };
+    await store.saveFinancialStatements({
+      securityId: row.id,
+      statements: (["Q1", "Q2", "Q3", "Q4"] as const).flatMap((period) => {
+        const common = {
+          securityId: row.id,
+          fiscalDate: `2025-${periodEnd[period]}`,
+          fiscalYear: 2025,
+          period,
+          reportedCurrency: "USD",
+          // Public from the next day, `VALUATION_ALL`.
+          filingDate: VALUATION_BEFORE,
+        };
+        return [
+          {
+            ...common,
+            statementType: "INCOME" as const,
+            values: {
+              weightedAverageShsOutDil: 1_111_000,
+              netIncome: 3_000_000,
+              revenue: 1_500_000,
+              ebitda: 1_000_000,
+            },
+          },
+          {
+            ...common,
+            statementType: "CASH_FLOW" as const,
+            values: {
+              operatingCashFlow: 1_000_000,
+              capitalExpenditure: -250_000,
+            },
+          },
+          {
+            ...common,
+            statementType: "BALANCE_SHEET" as const,
+            values: {
+              totalStockholdersEquity: 4_000_000,
+              netDebt: -355_520_000,
+            },
+          },
+        ];
+      }),
+      syncedAt,
+    });
+    for (const operation of fundamentalsDatasetOperations(
+      STOCK_DETAILS_MAX_HISTORY_YEARS,
+    )) {
+      await store.upsertDatasetState({
+        securityId: row.id,
+        dataset: operation.dataset,
+        variant: operation.variant,
+        syncedAt,
+      });
+    }
+    await store.upsertDatasetState({
+      securityId: row.id,
+      dataset: "SECURITY_PROFILE",
+      variant: "",
+      syncedAt,
+    });
+    await store.createPriceBasis({
+      securityId: row.id,
+      verifiedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await store.replaceStockSplits({
+      securityId: row.id,
+      splits: [],
+      syncedAt,
+    });
+  }
 
   afterAll(async () => {
     if (prisma) {
       await prisma.security.deleteMany({
-        where: { providerSymbol: { in: [baseSymbol, loadedSymbol] } },
+        where: {
+          providerSymbol: { in: [baseSymbol, loadedSymbol, valuationSymbol] },
+        },
       });
     }
     if (app) {
@@ -1080,6 +1253,181 @@ describe("Stock Details API", () => {
         )
         .expect(404);
       expect(response.body.message).toBe("Stock symbol was not found");
+    });
+  });
+
+  describe("valuation ratio history", () => {
+    const valuation = (query: string) =>
+      request(app.getHttpServer()).get(
+        `/stocks/${valuationSymbol}/valuation-ratios/daily?${query}`,
+      );
+    const WINDOW = `from=${VALUATION_BEFORE}&to=${VALUATION_LAST}`;
+
+    it("reads every one of the five ratios from exactly its own inputs", async () => {
+      // The oracle covers exactly the identities the API accepts: a sixth ratio added to the catalog
+      // without a literal here fails, rather than being skipped.
+      expect(Object.keys(VALUATION_BY_IDENTITY)).toEqual([
+        ...VALUATION_RATIO_IDS,
+      ]);
+      const callsBefore = provider.dailyCalls.length;
+      for (const [ratio, expected] of Object.entries(VALUATION_BY_IDENTITY)) {
+        const response = await valuation(
+          `from=${VALUATION_ALL}&to=${VALUATION_ALL}&ratio=${ratio}`,
+        ).expect(200);
+        expect(response.body, ratio).toEqual([
+          { date: VALUATION_ALL, value: expected },
+        ]);
+      }
+      // Stored history and a split list read today: not one provider call in five reads.
+      expect(provider.dailyCalls).toHaveLength(callsBefore);
+      expect(provider.splitCalls).toEqual([]);
+    });
+
+    it("keeps a real zero, a negative reading and unavailability distinct, and returns the ratio alone", async () => {
+      const ev = await valuation(`${WINDOW}&ratio=EV_TO_EBITDA_TTM`).expect(
+        200,
+      );
+      expect(ev.body).toEqual([
+        // Before the statements are public: the session keeps its row, with no value.
+        { date: VALUATION_BEFORE },
+        { date: VALUATION_ALL, value: -55.55 },
+        // An enterprise value of exactly zero is a reading, not absence.
+        { date: VALUATION_ZERO_EV, value: 0 },
+        { date: VALUATION_LAST, value: -55.55 },
+      ]);
+      expect(Object.hasOwn(ev.body[0], "value")).toBe(false);
+      expect(JSON.stringify(ev.body)).not.toContain("null");
+
+      const pe = await valuation(
+        `${WINDOW}&ratio=PRICE_TO_EARNINGS_TTM`,
+      ).expect(200);
+      for (const row of pe.body as Record<string, unknown>[]) {
+        expect(
+          Object.keys(row).every((key) => key === "date" || key === "value"),
+        ).toBe(true);
+      }
+      // The other four readings of the session, and the inputs and identities behind them, never
+      // reach the wire.
+      const wire = JSON.stringify(pe.body);
+      for (const [ratio, value] of Object.entries(VALUATION_BY_IDENTITY)) {
+        if (ratio !== "PRICE_TO_EARNINGS_TTM") {
+          expect(wire, ratio).not.toContain(String(value));
+        }
+      }
+      for (const internal of [
+        "securityId",
+        "netIncome",
+        "weightedAverageShsOutDil",
+        "netDebt",
+        "PRICE_TO_SALES_TTM",
+      ]) {
+        expect(wire).not.toContain(internal);
+      }
+    });
+
+    it("answers one row per session of the daily price history, and nothing for a weekend", async () => {
+      const window = `from=2026-05-30&to=${VALUATION_LAST}`;
+      const prices = await request(app.getHttpServer())
+        .get(`/stocks/${valuationSymbol}/prices?${window}`)
+        .expect(200);
+      const ratios = await valuation(`${window}&ratio=PRICE_TO_BOOK`).expect(
+        200,
+      );
+      expect(ratios.body.map((row: { date: string }) => row.date)).toEqual(
+        prices.body.map((row: { date: string }) => row.date),
+      );
+      expect(ratios.body.map((row: { date: string }) => row.date)).toEqual([
+        VALUATION_BEFORE,
+        VALUATION_ALL,
+        VALUATION_ZERO_EV,
+        VALUATION_LAST,
+      ]);
+    });
+
+    it("rejects anything that is not exactly one catalog identity", async () => {
+      const window = `from=${VALUATION_ALL}&to=${VALUATION_ALL}`;
+      for (const ratio of [
+        "P/E",
+        "P%2FE",
+        "pe",
+        "p_e",
+        "priceToEarningsTtm",
+        "price_to_earnings_ttm",
+        "PRICE_TO_EARNINGS",
+        "PRICE_TO_EARNINGS_TTM%20",
+        "%20PRICE_TO_EARNINGS_TTM",
+        "valuation:PRICE_TO_EARNINGS_TTM",
+        "EV%2FEBITDA",
+        "__proto__",
+        "constructor",
+        "toString",
+        "PRICE_TO_EARNINGS_TTM,PRICE_TO_BOOK",
+        "ROIC_TTM",
+      ]) {
+        const response = await valuation(`${window}&ratio=${ratio}`).expect(
+          400,
+        );
+        expect(response.body.message, ratio).toContain(
+          "Unsupported valuation ratio",
+        );
+        // The error names the accepted identities, never a label or an input field.
+        expect(response.body.message).toContain("PRICE_TO_EARNINGS_TTM");
+        expect(response.body.message).not.toContain("P/E");
+      }
+
+      // Missing, empty, repeated or structured are refused as well — one request names one ratio.
+      for (const query of [
+        window,
+        `${window}&ratio=`,
+        `${window}&metric=PRICE_TO_EARNINGS_TTM`,
+        `${window}&ratio=PRICE_TO_EARNINGS_TTM&ratio=PRICE_TO_BOOK`,
+        `${window}&ratio=PRICE_TO_EARNINGS_TTM&ratio=PRICE_TO_EARNINGS_TTM`,
+        `${window}&ratio[]=PRICE_TO_EARNINGS_TTM`,
+        `${window}&ratio[id]=PRICE_TO_EARNINGS_TTM`,
+      ]) {
+        await valuation(query).expect(400);
+      }
+    });
+
+    it("validates the window like every other history read", async () => {
+      await valuation("ratio=PRICE_TO_BOOK").expect(400);
+      await valuation(`from=${VALUATION_ALL}&ratio=PRICE_TO_BOOK`).expect(400);
+      await valuation(
+        `from=${VALUATION_LAST}&to=${VALUATION_ALL}&ratio=PRICE_TO_BOOK`,
+      ).expect(400);
+      await valuation(
+        `from=not-a-date&to=${VALUATION_ALL}&ratio=PRICE_TO_BOOK`,
+      ).expect(400);
+    });
+
+    it("answers a stable not-found for an unsupported symbol", async () => {
+      const response = await request(app.getHttpServer())
+        .get(
+          `/stocks/${unknownSymbol}/valuation-ratios/daily?from=${VALUATION_ALL}&to=${VALUATION_ALL}&ratio=PRICE_TO_BOOK`,
+        )
+        .expect(404);
+      expect(response.body.message).toBe("Stock symbol was not found");
+    });
+
+    it("reads the provider's split list once the stored one is a day old, and then the stored one", async () => {
+      const security = await prisma.security.findFirstOrThrow({
+        where: { providerSymbol: valuationSymbol },
+      });
+      await prisma.stockDatasetState.update({
+        where: {
+          securityId_dataset_variant: {
+            securityId: security.id,
+            dataset: StockDataset.STOCK_SPLIT,
+            variant: "",
+          },
+        },
+        data: { lastSuccessfulSyncAt: new Date(Date.now() - 25 * 3_600_000) },
+      });
+      const callsBefore = provider.dailyCalls.length;
+      await valuation(`${WINDOW}&ratio=PRICE_TO_SALES_TTM`).expect(200);
+      await valuation(`${WINDOW}&ratio=PRICE_TO_SALES_TTM`).expect(200);
+      expect(provider.splitCalls).toEqual([valuationSymbol]);
+      expect(provider.dailyCalls).toHaveLength(callsBefore);
     });
   });
 

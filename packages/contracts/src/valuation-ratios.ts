@@ -12,6 +12,13 @@
  * per session; the calculation projects a ratio when it is read.
  */
 
+/**
+ * The family's one product label wherever the five ratios are offered together: the Strategy
+ * Builder's metric category (where Margin of Safety sits beside them) and the Stock Details chart's
+ * section both read it.
+ */
+export const VALUATION_RATIOS_LABEL = "Valuation";
+
 export type ValuationRatioCatalogEntry = {
   /**
    * Stable machine identity. Permanent: a Strategy document, its fingerprint and every frame column

@@ -803,6 +803,50 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/StockDataUnavailable" }
 
+  /stocks/{symbol}/valuation-ratios/daily:
+    get:
+      tags: [Stocks]
+      operationId: getDailyValuationRatio
+      summary: One valuation ratio's daily history, computed when it is read.
+      description: |
+        The chosen ratio on every trading day of the clamped range, computed when it is read by
+        the one calculation a Strategy Condition, a backtest and a Monitor read: the session's
+        stored close against the statements public by that session, under the price-basis rules
+        of the Valuation Ratios V1 design. Nothing is stored per session, and nothing is taken
+        from a provider's ratio endpoint.
+
+        Only the named ratio is returned. A session on which the ratio is unavailable keeps its
+        row with `value` **omitted**: never `null`, never zero, and never an earlier value carried
+        through the interval. The sessions are the daily price history's own; the newest is the
+        newest stored daily bar, read at its own close, and nothing is a realtime reading.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/FromRequired" }
+        - { $ref: "#/components/parameters/ToRequired" }
+        - name: ratio
+          in: query
+          required: true
+          description: |
+            Exactly one valuation ratio, by its stable identity. Matched exactly: a label (`P/E`), a
+            lowercase or other spelling (`price_to_earnings_ttm`, `priceToEarningsTtm`), a repeated
+            or comma-separated value, or anything outside the list is rejected with `400`.
+          schema: { $ref: "#/components/schemas/ValuationRatioId" }
+          example: PRICE_TO_EARNINGS_TTM
+      responses:
+        "200":
+          description: One row per trading day in the clamped range, oldest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DailyValuationRatio" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
   /stocks/{symbol}/intrinsic-values:
     get:
       tags: [Stocks]
@@ -3635,6 +3679,25 @@ components:
         `value` is **omitted** on a session the metric is unavailable on: before its statements
         first support it, or after a later statement revision made it unavailable. It is never
         `null`, never zero and never an earlier value standing in for the unavailable interval.
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        value: { type: number }
+
+    DailyValuationRatio:
+      type: object
+      description: |
+        One trading session of one valuation ratio, computed when it is read.
+
+        `value` is a **raw multiple**: `15.2` is 15.2x of the market capitalisation, or of the
+        enterprise value for EV/EBITDA. A negative EV/EBITDA — net cash larger than the market
+        capitalisation — is a real reading and is returned as such.
+
+        `value` is **omitted** on a session the ratio is unavailable on: a missing, incomplete or
+        non-positive input, a statement in another currency than the listing's, a share count the
+        rules do not accept, or a price basis the provider's split list or a measured re-base
+        leaves unsafe. It is never `null`, never zero and never an earlier value standing in for
+        the unavailable interval.
       required: [date]
       properties:
         date: { type: string, format: date }
