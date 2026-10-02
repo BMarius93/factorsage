@@ -2,6 +2,7 @@ import {
   FUNDAMENTAL_METRICS_LABEL,
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
+  VALUATION_RATIOS_LABEL,
 } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { watchForIssues } from "../utils/page-issues";
@@ -27,7 +28,9 @@ const QA_SYMBOL = "QATEST1";
  */
 const GROUPS = [
   ...SELECTABLE_SERIES_GROUPED.map((group) => group.label),
-  // The Fundamental Metrics follow the overlay groups as one single-select section.
+  // The valuation ratios and then the Fundamental Metrics follow the overlay groups, one
+  // single-select section each.
+  VALUATION_RATIOS_LABEL,
   FUNDAMENTAL_METRICS_LABEL,
 ];
 const CATALOG_SIZE = SELECTABLE_SERIES_CATALOG.length;

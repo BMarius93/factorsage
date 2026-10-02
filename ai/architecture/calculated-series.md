@@ -386,6 +386,7 @@ storage decision's "Redis chunk layout" section.
 | `GET /stocks/:symbol/prices`                 | `DailyPriceResponse[]`                                                |
 | `GET /stocks/:symbol/technicals/daily`       | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows     |
 | `GET /stocks/:symbol/fundamentals/daily`     | `DailyFundamentalMetricResponse[]`, one Fundamental Metric; `metric=` |
+| `GET /stocks/:symbol/valuation-ratios/daily` | `DailyValuationRatioResponse[]`, one valuation ratio; `ratio=`        |
 | `GET /stocks/:symbol/intrinsic-values`       | long-form points; `models=`, `asOf=`                                  |
 | `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=`                                |
 
@@ -402,6 +403,21 @@ storage decision's "Redis chunk layout" section.
   every other projection reads and projects `{ date, value? }` from the one field
   `fundamentalMetricDefinition(id)` names — never the row, and never a field spelled from the
   identity. Every trading day in the window has a row; an unavailable session has no `value`.
+- `/valuation-ratios/daily` takes exactly one `ratio`, a `ValuationRatioId` matched exactly against
+  `VALUATION_RATIO_CATALOG` (a label, another spelling, a repeated or comma-separated value is a
+  `400`), and a required bounded window. Valuation ratios are not stored per session, so
+  `StockDetailsDataService.getDailyValuationRatio` (`packages/stock-data/src/service.ts`) projects
+  the one named ratio when it is read, with the calculation every Strategy, backtest and Monitor
+  read calls (`valuationRatioColumns` over `buildValuationTimeline`), prepared by the same helpers
+  an evaluation frame's inputs are: the canonical hydration and freshness checks, the identity
+  re-resolved after them, the provider's split list when the stored one is a day old (reads in one
+  process that find it stale together share one request), then the stored closes and the valuation
+  timeline read between two reads of the price-basis generation, refused with
+  `PriceBasisChangedError` (a `503`) if a re-base landed in between. Every price session in the
+  window has a row; an unavailable session has no `value`. The newest row is the newest stored daily
+  bar at its own close and statements.
+  `StockDetailsDataService` extends `StockDataService` because the ratio identity belongs to the
+  contracts catalog, and the domain port (`packages/domain`) does not depend on contracts.
 - Unavailable values are **omitted**, never `null` and never zero.
 - Controllers project canonical stock-data values; they never calculate.
 
@@ -463,35 +479,58 @@ storage decision's "Redis chunk layout" section.
   like the overlays. `hooks/use-fundamental-history.ts` asks for nothing until a metric is chosen,
   then for that metric from the page's loaded-from watermark to the newest price bar on the chart,
   and for the gap alone when older history arrives; held rows answer for one security, one metric
-  and one window end, every change aborts the request in flight, and only the newest may land.
-  `utils/fundamental-series.ts` turns the rows into the drawn line on the close series' session
-  axis — from the first to the last session with a value, every price session in between without
-  one as whitespace, a returned session the price series lacks never drawn, nothing carried — and
-  splits it into stretches. `StockPriceChart` draws each stretch as its own `LineType.WithSteps`
-  series in one pane below the volume and oscillator panes, formats its axis, crosshair label and
-  legend by the metric's unit (`formatFundamentalValue`: `15.42%`, `0.75x`, `1.0x`), shows no
-  last-value label, holds the pane's place with an empty preserved pane (`addPane(true)`) while a
+  and one window end, every change aborts the request in flight, and only the newest may land. That
+  lifecycle is `hooks/use-series-history.ts`, shared with the valuation ratio below.
+  `utils/fundamental-series.ts` turns the rows into the drawn line on the close series' session axis
+  — from the first to the last session with a value, every price session in between without one as
+  whitespace, a returned session the price series lacks never drawn, nothing carried — and splits it
+  into stretches, by the session-axis rules both single-choice families share
+  (`utils/session-line.ts`). `StockPriceChart` draws each stretch as its own `LineType.WithSteps`
+  series in one pane below the volume, oscillator and valuation panes, formats its axis, crosshair
+  label and legend by the metric's unit (`formatFundamentalValue`: `15.42%`, `0.75x`, `1.0x`), shows
+  no last-value label, holds the pane's place with an empty preserved pane (`addPane(true)`) while a
   chosen metric's first window loads — so neither the page nor the price pane changes size between
   metrics, and the line itself always opens a fresh pane with a fresh scale — and publishes
-  `data-fundamental`, `-unit`, `-pane`, `-space`, `-runs`, `-gaps` and `-steps` (every transition
-  as `date=value`) plus `data-pane-order` (each pane named by what it holds) for browser tests.
-  One step series per stretch is what keeps a gap empty: a step line's segment into a point is
-  vertical, so the per-point transparent colour the overlays use would still join the values either
-  side of a gap with a vertical edge.
+  `data-fundamental`, `-unit`, `-pane`, `-space`, `-runs`, `-gaps` and `-steps` (every transition as
+  `date=value`) plus `data-pane-order` (each pane named by what it holds) for browser tests. One
+  step series per stretch is what keeps a gap empty: a step line's segment into a point is vertical,
+  so the per-point transparent colour the overlays use would still join the values either side of a
+  gap with a vertical edge.
+- **Valuation ratios are the section before Fundamentals, drawn in a pane of their own.**
+  `IndicatorsMenu` renders `VALUATION_RATIO_CATALOG` flat, in catalog order, as one select with the
+  chosen ratio's catalog summary and formula under it; selection is `useIndicatorSelection`'s
+  `valuation`, independent of `fundamental`. `hooks/use-valuation-history.ts` is the same
+  `useSeriesHistory` lifecycle over `GET /stocks/:symbol/valuation-ratios/daily`: nothing until a
+  ratio is chosen, then that ratio alone for the history the chart holds, the gap alone when older
+  history arrives, and only the newest answer applied. `utils/valuation-series.ts` builds the line
+  with the same `sessionLinePoints` and keeps each returned session's reading for the legend; it
+  never calculates, carries or masks a reading. `StockPriceChart` draws each stretch as its own
+  **`LineType.Simple`** series — a ratio moves with the close every session, so it is an ordinary
+  line, never a step — in the pane between the oscillator and fundamental panes, formats its axis,
+  crosshair label and legend with `formatMultiple` (`15.2x`, `0.75x`, `-1.25x`; `Unavailable` in a
+  gap), shows no last-value label, holds the pane's place with an empty preserved pane while the
+  first window loads, and publishes `data-valuation`, `-pane`, `-space`, `-runs`, `-gaps`,
+  `-stretches` (each stretch as `from..to`) and `-line`, the line type read back from the series the
+  library holds, for browser tests. One series per stretch keeps each gap empty here too, and states
+  exactly where the line breaks and resumes. The two families share the lifecycle, the session axis
+  and the pane plumbing (`drawPaneLines`, `arrangeLowerPanes`); the line type, the formatter and the
+  source — persisted derived state for a fundamental, the canonical projection for a ratio — stay
+  explicit per family.
 - **Pane order is restored with `chart.swapPanes`, never `IPaneApi.moveTo`.** The library appends
-  a new pane at the bottom, so an RSI switched on under a drawn fundamental arrives below it and
-  `arrangeLowerPanes` swaps the two. `swapPanes` checks its indices against the chart model, which
-  already holds the new pane; `moveTo` checks its target against the rendered pane widgets, which
-  only sync on the next animation frame — with both panes created inside one frame it threw
-  `Invalid pane index` and took the whole page to its error boundary (pinned by the browser test
-  that creates both panes in one frame).
+  a new pane at the bottom, so an RSI switched on under a drawn ratio or fundamental, or a ratio
+  chosen under a fundamental, arrives below it and `arrangeLowerPanes` swaps each pane into its slot
+  of the one order: price, volume, oscillators, valuation, fundamental. `swapPanes` checks its
+  indices against the chart model, which already holds the new pane; `moveTo` checks its target
+  against the rendered pane widgets, which only sync on the next animation frame — with both panes
+  created inside one frame it threw `Invalid pane index` and took the whole page to its error
+  boundary (pinned by the browser test that creates both panes in one frame).
 - Price-scaled catalog series are drawn as **overlays on the price chart**. Oscillators are
   **never** drawn over the price scale: `StockPriceChart` routes them into one shared native
-  Lightweight Charts pane (`paneIndex 1` of the same chart instance), so every selected RSI period
-  shares one fixed `0-100` axis, one muted dashed set of 30/50/70 reference levels (Oversold 30 /
-  50 / Overbought 70, owned by the canonically first oscillator series and moving with it), and the
-  price chart's time scale and crosshair by construction. The first selected oscillator creates the
-  pane, removing the last one removes it, and repeated toggling reuses the same pane index — no
+  Lightweight Charts pane of the same chart instance, below the volume pane, so every selected RSI
+  period shares one fixed `0-100` axis, one muted dashed set of 30/50/70 reference levels (Oversold
+  30 / 50 / Overbought 70, owned by the canonically first oscillator series and moving with it), and
+  the price chart's time scale and crosshair by construction. The first selected oscillator creates
+  the pane, removing the last one removes it, and repeated toggling reuses the same pane index — no
   duplicated panes, lines, levels or subscriptions, pinned by a toggle-cycle test. The hover legend
   renders oscillator readings unitless (one decimal) beside money-formatted price overlays, and the
   chart wrapper grows while the pane exists so the price pane keeps a useful height on desktop and
@@ -560,16 +599,19 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
 - **A generic `/series` projection endpoint** taking arbitrary catalog IDs. Not built; today the
   web client fetches all technical series and filters client-side. Fundamental Metrics are the
   exception by design: fifteen metrics nobody draws at once would multiply every history read, so
-  their endpoint serves one named metric.
+  their endpoint serves one named metric. Valuation ratios follow the same rule for the same
+  reason, and because each is computed when it is read: their endpoint projects one named ratio.
 - **Per-family or per-series revisions** replacing the single global `DERIVED_STATE_REVISION`.
 - **Persisted NOT_EVALUABLE reasons.**
-- **MACD, volatility and valuation ratios (`P/E`, `P/S`, `P/FCF`, `EV/EBITDA`)** — no such series
-  exists. (The daily RSI family is implemented; it is the first oscillator, not a template for
-  storing multi-output families like MACD. The statement-derived growth, margin, return, leverage,
-  liquidity, coverage and turnover ratios are the Fundamental Metrics above.) Valuation ratios
-  (`P/E`, `P/S`, `P/B`, `P/FCF`, `EV/EBITDA`) are **not stored per session**, by the owner's
-  decision: `../../docs/decisions/valuation-ratios-v1.md` projects them when they are read, from the
-  stored close, point-in-time statements and the measured re-bases of
+- **MACD and volatility** — no such series exists. (The daily RSI family is implemented; it is the
+  first oscillator, not a template for storing multi-output families like MACD. The
+  statement-derived growth, margin, return, leverage, liquidity, coverage and turnover ratios are
+  the Fundamental Metrics above.)
+- **A stored valuation-ratio series.** Valuation ratios (`P/E`, `P/S`, `P/B`, `P/FCF`,
+  `EV/EBITDA`) are **not stored per session**, by the owner's decision:
+  `../../docs/decisions/valuation-ratios-v1.md` projects them when they are read, from the stored
+  close, point-in-time statements and the measured re-bases of
   `../../docs/decisions/historical-price-basis-v1.md`, as Margin of Safety is projected from stored
   intrinsic values. That is the one scoped exception AGENTS.md invariant 9 records; every other
-  calculated daily series stays an explicit column.
+  calculated daily series stays an explicit column. Stock Details charts them through the same
+  read-time projection (`/valuation-ratios/daily`, API above), never through a stored series.

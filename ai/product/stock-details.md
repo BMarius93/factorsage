@@ -17,7 +17,8 @@ Groups:
 3. Oscillators
 4. Intrinsic Value — Blends
 5. Intrinsic Value — Models
-6. Fundamentals — one of the fifteen Fundamental Metrics at a time (see below)
+6. Valuation — one of the five Valuation Ratios at a time (see below)
+7. Fundamentals — one of the fifteen Fundamental Metrics at a time (see below)
 
 The price series is not an option because it is always shown. The initial chart state keeps
 `Balanced` enabled and every other overlay disabled — every oscillator starts unchecked — driven by
@@ -141,6 +142,55 @@ so a long series is already valid on the oldest day the chart can reach. See
 Stock Details may show the complete model/blend summaries outside the chart. Chart selection is
 presentation state and does not alter strategy configuration.
 
+## Valuation Ratios
+
+The `Indicators` control has a **Valuation** section between the intrinsic-value models and
+Fundamentals: one native select offering `None` and the five Valuation Ratios — P/E, P/S, P/B, P/FCF
+and EV/EBITDA — flat, with no groups. Identities, labels, order and the explanation shown under the
+select (the ratio's summary and formula) all come from `VALUATION_RATIO_CATALOG` in
+`@intrinsic/contracts`, the catalog the Strategy Builder's Valuation category reads; the page keeps
+no list of its own.
+
+- **One ratio at a time**, drawn in its own pane. A ratio never shares the price scale or a
+  Fundamental Metric's: a P/E of 24x has no place on an axis of dollars, nor beside an ROIC of 15%.
+  Choosing another ratio replaces the pane; `None` removes it and nothing else. A ratio and a
+  Fundamental Metric can be shown together, and the lower panes always read volume, oscillators,
+  valuation, fundamental from the top, whatever order they were chosen in. Like the overlays, the
+  choice is not kept across a reload.
+- **The same calculation as Strategy, Backtest and Monitor.** Every reading is computed when it is
+  read, by the one calculation of `../../docs/decisions/valuation-ratios-v1.md` that a Strategy
+  Condition, a backtest and a Monitor evaluate, from the same stored close, point-in-time
+  statements, measured re-bases and split list. The chart therefore shows exactly the reading a
+  Condition on that session compares. Nothing is stored per session and nothing is calculated in the
+  browser.
+- **An ordinary daily line.** A ratio moves with the close on every session, so it is drawn as a
+  normal line from session to session — never a step, which is reserved for the Fundamental Metrics,
+  whose values change only when a statement does. A new statement can still make the line jump
+  between the two sessions it changes on.
+- **Absence is a gap.** A session the calculation leaves a ratio unavailable on — a loss for P/E,
+  negative free cash flow for P/FCF, statements in another currency than the listing, the quarters
+  before a first complete trailing year, or a corporate action the price-basis rules cannot place
+  yet — is drawn as nothing: each available stretch is its own line, never joined across the gap,
+  never carried forward through it and never drawn as zero. A zero, and a negative EV/EBITDA (net
+  cash larger than the market capitalisation), are readings and are drawn.
+- **Raw multiples.** The axis, the crosshair label and the hover legend read a ratio as a raw
+  multiple — `15.2x`, `1.0x`, `0.75x`, `-1.25x` — never as money or a percentage; rounding is
+  display only, never hides a reading (`0.75x`, never `0.8x`) and never prints a small non-zero
+  reading as zero. A hovered session inside a gap reads `Unavailable`.
+- **The newest session.** The chart's newest session is the newest stored price bar — the bar the
+  price chart draws, which during a trading day can be the provider's in-progress bar until the next
+  refresh — valued at its own close and the statements public on its own date, exactly as a backtest
+  frame reads that row. It is never a live quote and never a Monitor's provisional reading. There is
+  no last-value label: once a ratio has become unavailable it would print an older reading as though
+  it were current.
+- **Selective loading.** Nothing about valuation ratios is requested until one is chosen; then only
+  that ratio, for the history the chart already holds — the opening year, never thirty years — from
+  `GET /stocks/:symbol/valuation-ratios/daily`. Older history loaded by panning or a range extends
+  it by the missing interval alone and leaves the window where it was. Switching ratios asks for the
+  new one, and only the newest answer is applied. While it loads the page says so; a failure offers
+  a retry and is never shown as the ratio being unavailable; a ratio with no value anywhere in the
+  loaded history says that instead of drawing an empty pane.
+
 ## Fundamental Metrics
 
 The `Indicators` control ends with a **Fundamentals** section: one native select offering `None`
@@ -154,10 +204,10 @@ inside each group. The one visible difference from the Strategy Builder's flat l
 Ratio follows both Leverage metrics instead of sitting between Debt / Equity and Net Debt / EBITDA
 TTM.
 
-- **One metric at a time**, drawn in its own pane below the price, volume and oscillator panes. A
-  fundamental never shares the price scale — ROIC 15% has no place on an axis of dollars — and the
-  pane shares the chart's time scale and crosshair. Choosing another metric replaces the pane; `None`
-  removes it. Like the overlays, the choice is not kept across a reload.
+- **One metric at a time**, drawn in its own pane below the price, volume, oscillator and valuation
+  panes. A fundamental never shares the price scale — ROIC 15% has no place on an axis of dollars —
+  and the pane shares the chart's time scale and crosshair. Choosing another metric replaces the
+  pane; `None` removes it. Like the overlays, the choice is not kept across a reload.
 - **The same persisted truth as Strategy and Backtest.** Every value is the metric's stored
   `DailyDerivedState` reading for that session, read through the same derived-state path, so the
   chart shows exactly what a Strategy Condition on that session evaluates. Nothing is calculated in

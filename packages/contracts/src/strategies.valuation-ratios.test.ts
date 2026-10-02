@@ -5,6 +5,7 @@ import {
   describeCondition,
   normalizeStrategyDefinition,
   STRATEGY_LEVEL_KINDS,
+  STRATEGY_METRIC_CATEGORY_LABELS,
   STRATEGY_METRIC_HELP,
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionFingerprint,
@@ -28,6 +29,7 @@ import {
   isValuationRatioId,
   VALUATION_RATIO_CATALOG,
   VALUATION_RATIO_IDS,
+  VALUATION_RATIOS_LABEL,
   type ValuationRatioId,
 } from "./valuation-ratios.js";
 
@@ -91,6 +93,14 @@ describe("the Valuation Ratio catalog", () => {
       expect(isValuationRatioId(value)).toBe(false);
     }
     expect(findValuationRatio("P/E")).toBeUndefined();
+  });
+
+  it("names the family once, for every surface that offers it", () => {
+    // The Strategy Builder's category and the Stock Details chart's section read one label.
+    expect(VALUATION_RATIOS_LABEL).toBe("Valuation");
+    expect(STRATEGY_METRIC_CATEGORY_LABELS.VALUATION).toBe(
+      VALUATION_RATIOS_LABEL,
+    );
   });
 });
 

@@ -15,6 +15,9 @@ import { financialStatementPath } from "@intrinsic/fmp";
  *   deletes a persisted row (the store replaces only the dates it is given), so even a request
  *   overlapping the seeded window cannot disturb it;
  * - **profile** and the three **financial statements** for a fixture security: `[]`;
+ * - the **split list** (`splits`) for a fixture security: `[]`. A valuation ratio's read asks for it
+ *   once the stored list is a day old, and the seed stores an empty one, so a refresh leaves exactly
+ *   the seeded list — the list replaces the stored one whole, so any other answer would rewrite it;
  * - **current quotes** (`batch-quote`) for fixture securities: `[]` — fictional securities have no
  *   live price, exactly as the real provider answers them;
  * - **exchange holidays** for a supported exchange: the rule-based NYSE full closures of each
@@ -86,6 +89,16 @@ export function answerFakeFmpRequest(
       return answered(
         [],
         `daily bars for fixture '${symbol}': none beyond the seed`,
+      );
+    }
+    return missing(endpoint, url);
+  }
+
+  if (endpoint === "splits") {
+    if (fixture.securitySymbols.has(symbol)) {
+      return answered(
+        [],
+        `split list for fixture '${symbol}': none, as seeded`,
       );
     }
     return missing(endpoint, url);

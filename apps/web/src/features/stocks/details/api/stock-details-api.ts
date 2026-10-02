@@ -2,6 +2,7 @@ import type {
   DailyFundamentalMetricResponse,
   DailyPriceResponse,
   DailyTechnicalResponse,
+  DailyValuationRatioResponse,
   FundamentalMetricHistoryQuery,
   FundamentalMetricId,
   IntrinsicValueBlendIdResponse,
@@ -9,6 +10,8 @@ import type {
   IntrinsicValueModelResponse,
   IntrinsicValueResponse,
   StockDetailsResponse,
+  ValuationRatioHistoryQuery,
+  ValuationRatioId,
 } from "@intrinsic/contracts";
 import { apiGet } from "../../../../lib/api/client";
 
@@ -84,6 +87,29 @@ export function fetchDailyFundamentalHistory(
   };
   return apiGet<DailyFundamentalMetricResponse[]>(
     stockPath(symbol, "/fundamentals/daily"),
+    { query, ...options },
+  );
+}
+
+/**
+ * One valuation ratio's daily history over a bounded window: exactly the ratio named, by its stable
+ * identity, and never the other four. The server computes it with the calculation a Strategy reads;
+ * this client only ever speaks the identity.
+ */
+export function fetchDailyValuationHistory(
+  symbol: string,
+  window: StockHistoryWindow,
+  ratio: ValuationRatioId,
+  options: RequestOptions = {},
+): Promise<DailyValuationRatioResponse[]> {
+  // Typed by the contract, so the three parameters the API accepts are the three sent.
+  const query: ValuationRatioHistoryQuery = {
+    from: window.from,
+    to: window.to,
+    ratio,
+  };
+  return apiGet<DailyValuationRatioResponse[]>(
+    stockPath(symbol, "/valuation-ratios/daily"),
     { query, ...options },
   );
 }

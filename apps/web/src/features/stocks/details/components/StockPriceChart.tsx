@@ -14,7 +14,7 @@ import {
   type MouseEventParams,
   type Time,
 } from "lightweight-charts";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { LogicalRange, TimeDomain } from "../../../../components/charts/time-domain";
 import { useBoundedTimeScale } from "../../../../components/charts/use-bounded-time-scale";
 import { RELATIVE_VOLUME_PERIODS, relativeVolumeLabel } from "@intrinsic/contracts";
@@ -24,6 +24,7 @@ import type {
   ChartLinePoint,
   ChartOverlaySeries,
   ChartPoint,
+  ChartValuationSeries,
 } from "../utils/chart-series";
 import { CHART_COLORS } from "../utils/chart-theme";
 import {
@@ -31,22 +32,12 @@ import {
   formatFundamentalValue,
   formatLocalDate,
   formatMoney,
+  formatMultiple,
 } from "../utils/format";
-import { fundamentalRuns, fundamentalSteps } from "../utils/fundamental-series";
+import { fundamentalSteps } from "../utils/fundamental-series";
 import { HISTORY_EDGE_TRIGGER_BARS } from "../utils/history-window";
+import { sessionLineRuns, sessionLineStretches } from "../utils/session-line";
 import styles from "./StockPriceChart.module.css";
-
-/**
- * The shared oscillator pane. Every oscillator series draws into this one native Lightweight
- * Charts pane below the price pane, so all selected RSI periods share one fixed scale, one set of
- * reference lines, and the price chart's time scale and crosshair by construction. The library
- * creates the pane with the first series placed into it and removes it again with the last one.
- *
- * It sits directly below the volume pane. The Fundamental Metric pane, when there is one, sits below
- * it in turn, so an oscillator pane created after it is swapped into that order rather than left
- * where the library appended it (`arrangeLowerPanes`).
- */
-const OSCILLATOR_PANE_INDEX = 2;
 
 /**
  * The volume pane, directly below the price pane and **always present**.
@@ -59,7 +50,16 @@ const OSCILLATOR_PANE_INDEX = 2;
  */
 const VOLUME_PANE_INDEX = 1;
 
-/** Relative height of the oscillator pane; the price pane keeps its default factor of 1. */
+/**
+ * Relative height of the shared oscillator pane; the price pane keeps its default factor.
+ *
+ * Every oscillator series draws into that one native pane, so all selected RSI periods share one
+ * fixed scale, one set of reference lines, and the price chart's time scale and crosshair by
+ * construction. The library creates a pane with the first series placed into it and removes it again
+ * with the last one, always appending a new pane at the bottom; below the volume pane, the
+ * oscillator, valuation ratio and Fundamental Metric panes then keep that order however they were
+ * chosen (`arrangeLowerPanes`).
+ */
 const OSCILLATOR_PANE_STRETCH = 0.35;
 
 /**
@@ -69,8 +69,18 @@ const OSCILLATOR_PANE_STRETCH = 0.35;
  */
 const FUNDAMENTAL_PANE_STRETCH = 0.6;
 
-/** Room above and below the fundamental's readings, as fractions of its pane. */
-const FUNDAMENTAL_SCALE_MARGINS = { top: 0.2, bottom: 0.15 } as const;
+/**
+ * Relative height of the valuation ratio pane: the Fundamental Metric pane's, for the same reason —
+ * its scale is the ratio's own, and a daily line needs room to move. The wrapper grows by as much.
+ */
+const VALUATION_PANE_STRETCH = 0.6;
+
+/**
+ * Room above and below the readings of a series in a pane of its own — a Fundamental Metric or a
+ * valuation ratio — as fractions of its pane, so the highest and lowest readings stay off the
+ * separator above and the time axis below.
+ */
+const PANE_LINE_SCALE_MARGINS = { top: 0.2, bottom: 0.15 } as const;
 
 /**
  * Relative height of the volume pane.
@@ -140,33 +150,45 @@ type ChartPanes = {
   readonly price: IPaneApi<Time> | undefined;
   readonly volume: IPaneApi<Time> | undefined;
   readonly oscillator: IPaneApi<Time> | undefined;
+  /** The valuation ratio's line, or the empty pane holding its place while it loads. */
+  readonly valuation: IPaneApi<Time> | undefined;
   /** The fundamental's line, or the empty pane holding its place while it loads. */
   readonly fundamental: IPaneApi<Time> | undefined;
 };
 
 /**
- * Keeps the lower panes in one order whatever order they were created in: volume, then the
- * oscillator pane, then the Fundamental Metric pane — and restates every lower pane's height, which
- * the library resets whenever a pane is added or removed. Returns the resulting order, top to
- * bottom, for the chart's DOM contract: each pane named by what it actually holds.
+ * Keeps the panes in one order whatever order they were created in — price, volume, the oscillator
+ * pane, the valuation ratio pane, the Fundamental Metric pane — and restates every lower pane's
+ * height, which the library resets whenever a pane is added or removed. Returns the resulting
+ * order, top to bottom, for the chart's DOM contract: each pane named by what it actually holds.
  *
- * The library only ever appends a new pane at the bottom and drops a pane when its last series goes,
- * so the one case this corrects is an oscillator switched on while a fundamental's pane is already
- * there: its pane arrives below the fundamental's, and the two are swapped. A swap moves each pane's
- * series, scale and reference lines with it; nothing is recreated, and the fundamental's pane ends
- * up last because the oscillator's was.
+ * The library only ever appends a new pane at the bottom and drops a pane when its last series
+ * goes, so a pane chosen after one that belongs below it arrives in the wrong place: an RSI switched
+ * on under a drawn valuation ratio or fundamental, a ratio chosen under a fundamental. Each pane is
+ * swapped, top down, into its slot of the one order. A swap moves a pane's series, scale and
+ * reference lines with it; nothing is recreated.
  *
  * Swapped through the chart rather than with `IPaneApi.moveTo`: the chart checks the indices
  * against its model, which already holds the pane created a moment ago, while `moveTo` checks its
  * target against the rendered pane widgets, which only catch up on the next animation frame.
  */
 function arrangeLowerPanes(chart: IChartApi, panes: ChartPanes): string {
-  const arrivedAt = panes.oscillator?.paneIndex();
-  if (arrivedAt !== undefined && arrivedAt > OSCILLATOR_PANE_INDEX) {
-    chart.swapPanes(arrivedAt, OSCILLATOR_PANE_INDEX);
-  }
+  const ordered = [
+    panes.price,
+    panes.volume,
+    panes.oscillator,
+    panes.valuation,
+    panes.fundamental,
+  ].filter((pane): pane is IPaneApi<Time> => pane !== undefined);
+  ordered.forEach((pane, slot) => {
+    const at = pane.paneIndex();
+    if (at !== slot) {
+      chart.swapPanes(at, slot);
+    }
+  });
   panes.volume?.setStretchFactor(VOLUME_PANE_STRETCH);
   panes.oscillator?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
+  panes.valuation?.setStretchFactor(VALUATION_PANE_STRETCH);
   panes.fundamental?.setStretchFactor(FUNDAMENTAL_PANE_STRETCH);
   return chart
     .panes()
@@ -180,13 +202,19 @@ function arrangeLowerPanes(chart: IChartApi, panes: ChartPanes): string {
       if (pane === panes.oscillator) {
         return "oscillator";
       }
+      if (pane === panes.valuation) {
+        return "valuation";
+      }
       return pane === panes.fundamental ? "fundamental" : "unknown";
     })
     .join(",");
 }
 
-/** The fundamental's pane: the one its line is drawn in, or the placeholder holding its place. */
-function fundamentalPaneOf(
+/**
+ * The pane of a series drawn in a pane of its own: the one its line is drawn in, or the placeholder
+ * holding its place.
+ */
+function linePaneOf(
   lines: readonly ISeriesApi<"Line">[],
   placeholder: IPaneApi<Time> | null,
 ): IPaneApi<Time> | undefined {
@@ -194,7 +222,88 @@ function fundamentalPaneOf(
 }
 
 /**
- * The panes as the chart holds them, top to bottom — `price,volume,oscillator,fundamental` at most.
+ * Removes the lines of a series drawn in a pane of its own and any empty pane holding its place.
+ * Removing the last line removes its pane with it, so the next line always opens a fresh pane with
+ * a fresh scale; a placeholder carries no series and is removed by index.
+ */
+function clearPaneLines(
+  chart: IChartApi,
+  lines: readonly ISeriesApi<"Line">[],
+  placeholder: IPaneApi<Time> | null,
+): void {
+  for (const series of lines) {
+    chart.removeSeries(series);
+  }
+  const placeholderIndex = placeholder?.paneIndex() ?? -1;
+  if (placeholderIndex >= 0) {
+    chart.removePane(placeholderIndex);
+  }
+}
+
+/**
+ * Draws each stretch of available sessions as its own series in one fresh pane at the bottom of
+ * the chart, all sharing that pane's one scale, and returns them.
+ *
+ * One series per stretch is what keeps an unavailable interval empty: a single series would join
+ * the value before the gap to the value after it. How each stretch is drawn is the caller's, and
+ * stated there — a Fundamental Metric's step, a valuation ratio's ordinary line — and so is the unit
+ * on its axis and crosshair label. Neither shows a last-value label: once the series has become
+ * unavailable it would print an older reading as though it were current.
+ */
+function drawPaneLines(
+  chart: IChartApi,
+  stretches: readonly ChartPoint[][],
+  style: {
+    readonly color: string;
+    readonly lineType: LineType;
+    readonly formatter: (value: number) => string;
+  },
+): ISeriesApi<"Line">[] {
+  const lines: ISeriesApi<"Line">[] = [];
+  // The first stretch opens the pane at the bottom; every later stretch joins that pane.
+  let paneIndex = chart.panes().length;
+  for (const stretch of stretches) {
+    const series = chart.addSeries(
+      LineSeries,
+      {
+        color: style.color,
+        lineWidth: 2,
+        lineType: style.lineType,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat: {
+          type: "custom",
+          formatter: style.formatter,
+          minMove: 0.01,
+        },
+      },
+      paneIndex,
+    );
+    series.setData(
+      stretch.map((point) => ({
+        time: point.date as Time,
+        value: point.value,
+      })),
+    );
+    paneIndex = series.getPane().paneIndex();
+    lines.push(series);
+  }
+  lines[0]
+    ?.priceScale()
+    .applyOptions({ scaleMargins: PANE_LINE_SCALE_MARGINS });
+  return lines;
+}
+
+/** How a drawn line type reads in the chart's DOM contract. */
+const LINE_TYPE_NAMES: Readonly<Record<number, string>> = {
+  [LineType.Simple]: "simple",
+  [LineType.WithSteps]: "steps",
+  [LineType.Curved]: "curved",
+};
+
+/**
+ * The panes as the chart holds them, top to bottom — `price,volume,oscillator,valuation,fundamental`
+ * at most.
  * Read back from the chart after every arrangement and published the way the viewport is, so a
  * browser test asserts the order the library actually has rather than the order this component
  * meant to give it.
@@ -206,23 +315,25 @@ function publishPaneOrder(wrapper: HTMLElement | null, order: string): void {
 }
 
 /**
- * Whether the fundamental's pane is in the chart — its line, or the placeholder holding its place —
- * published as `data-fundamental-space`, which gives the wrapper the room for it. Written by the
- * effect that adds and removes that pane, never from the render: after a failed or empty answer the
- * render would shrink the wrapper a frame before the effect took the placeholder out, squeezing the
- * price pane for that frame. From here the wrapper and the panes change together.
+ * Whether a pane of its own is in the chart — its line, or the placeholder holding its place —
+ * published as `data-fundamental-space` or `data-valuation-space`, which gives the wrapper the room
+ * for it. Written by the effect that adds and removes that pane, never from the render: after a
+ * failed or empty answer the render would shrink the wrapper a frame before the effect took the
+ * placeholder out, squeezing the price pane for that frame. From here the wrapper and the panes
+ * change together.
  */
-function publishFundamentalSpace(
+function publishPaneSpace(
   wrapper: HTMLElement | null,
+  key: "fundamentalSpace" | "valuationSpace",
   present: boolean,
 ): void {
   if (!wrapper) {
     return;
   }
   if (present) {
-    wrapper.dataset.fundamentalSpace = "true";
+    wrapper.dataset[key] = "true";
   } else {
-    delete wrapper.dataset.fundamentalSpace;
+    delete wrapper.dataset[key];
   }
 }
 
@@ -254,6 +365,17 @@ export type StockPriceChartProps = {
   readonly relativeVolume: ReadonlyMap<string, RelativeVolumeValuesResponse>;
   /** Overlay lines currently enabled; order controls legend order. */
   readonly overlays: readonly ChartOverlaySeries[];
+  /**
+   * The one valuation ratio chosen, drawn as an ordinary daily line in its own pane below the
+   * price, volume and oscillator panes and above the Fundamental Metric's, or `undefined` for none.
+   * A ratio with no value anywhere in the loaded history draws no pane.
+   */
+  readonly valuation?: ChartValuationSeries;
+  /**
+   * A ratio is chosen and none of its history has arrived yet: an empty pane of the valuation
+   * pane's height holds its place, exactly as for a Fundamental Metric.
+   */
+  readonly valuationPending?: boolean;
   /**
    * The one Fundamental Metric chosen, drawn as a step line in its own pane below the price, or
    * `undefined` for none. A metric with no value anywhere in the loaded history draws no pane.
@@ -302,6 +424,7 @@ export type StockPriceChartProps = {
 
 type CrosshairContext = {
   overlays: readonly ChartOverlaySeries[];
+  valuation: ChartValuationSeries | undefined;
   fundamental: ChartFundamentalSeries | undefined;
   currency: string;
   relativeVolume: ReadonlyMap<string, RelativeVolumeValuesResponse>;
@@ -346,6 +469,8 @@ export function StockPriceChart({
   volume,
   relativeVolume,
   overlays,
+  valuation,
+  valuationPending = false,
   fundamental,
   fundamentalPending = false,
   currency,
@@ -376,6 +501,13 @@ export function StockPriceChart({
   const fundamentalSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   /** The empty pane holding the fundamental's place while a chosen metric loads, if any. */
   const fundamentalPlaceholderRef = useRef<IPaneApi<Time> | null>(null);
+  /**
+   * The chosen valuation ratio's line, one series per stretch of available sessions, all in the one
+   * valuation pane.
+   */
+  const valuationSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  /** The empty pane holding the valuation ratio's place while a chosen ratio loads, if any. */
+  const valuationPlaceholderRef = useRef<IPaneApi<Time> | null>(null);
   const currencyRef = useRef(currency);
   /** One stable money formatter; it reads the live currency rather than being recreated. */
   const moneyFormatterRef = useRef((value: number) =>
@@ -390,12 +522,14 @@ export function StockPriceChart({
   // The crosshair handler is subscribed once; refs keep it reading current props.
   const crosshairContextRef = useRef<CrosshairContext>({
     overlays,
+    valuation,
     fundamental,
     currency,
     relativeVolume,
   });
   crosshairContextRef.current = {
     overlays,
+    valuation,
     fundamental,
     currency,
     relativeVolume,
@@ -555,6 +689,7 @@ export function StockPriceChart({
       }
       const {
         overlays: currentOverlays,
+        valuation: currentValuation,
         fundamental: currentFundamental,
         currency: currentCurrency,
         relativeVolume: currentRelativeVolume,
@@ -614,11 +749,21 @@ export function StockPriceChart({
           );
         }
       }
-      // The fundamental is read from the loaded sessions themselves, not from whichever stretch
-      // of its line happens to be under the pointer: a session inside an unavailable interval
-      // says so in words rather than printing a number, and a session that was never loaded for
-      // it says nothing.
+      // The valuation ratio and the fundamental are read from the loaded sessions themselves, not
+      // from whichever stretch of their lines happens to be under the pointer: a session inside an
+      // unavailable interval says so in words rather than printing a number — never the reading
+      // before it — and a session that was never loaded for them says nothing.
       const hoveredDate = String(param.time);
+      if (currentValuation?.readings.has(hoveredDate)) {
+        const reading = currentValuation.readings.get(hoveredDate);
+        legend.append(
+          legendRow(
+            currentValuation.label,
+            reading === undefined ? "Unavailable" : formatMultiple(reading),
+            currentValuation.color,
+          ),
+        );
+      }
       if (currentFundamental?.readings.has(hoveredDate)) {
         const reading = currentFundamental.readings.get(hoveredDate);
         legend.append(
@@ -661,6 +806,8 @@ export function StockPriceChart({
       // Disposed with the chart; a later effect must not try to remove them from a new one.
       fundamentalSeriesRef.current = [];
       fundamentalPlaceholderRef.current = null;
+      valuationSeriesRef.current = [];
+      valuationPlaceholderRef.current = null;
       oscillatorReferenceRef.current = null;
       // Framing and the oldest drawn bar describe *this* chart instance. A replacement instance
       // has neither, and carrying them over would leave the new chart unframed at whatever bar
@@ -738,6 +885,29 @@ export function StockPriceChart({
     // bounded code path as a reset and cannot put the viewport somewhere a gesture could not.
     applyFrame(frameFrom, frameTo);
   }, [points, volume, fitKey, frameFrom, frameTo, applyFrame]);
+
+  // The chart's panes by what they hold, as the refs know them now: what every effect that adds or
+  // removes a pane hands to `arrangeLowerPanes`, so the order is restored whichever pane moved.
+  const currentPanes = useCallback(
+    (): ChartPanes => ({
+      price: priceSeriesRef.current?.getPane(),
+      volume: volumeSeriesRef.current?.getPane(),
+      // Every oscillator shares one pane, so any of them names it.
+      oscillator: [...oscillatorOverlaysRef.current]
+        .map((id) => overlaySeriesRef.current.get(id))
+        .find((series) => series !== undefined)
+        ?.getPane(),
+      valuation: linePaneOf(
+        valuationSeriesRef.current,
+        valuationPlaceholderRef.current,
+      ),
+      fundamental: linePaneOf(
+        fundamentalSeriesRef.current,
+        fundamentalPlaceholderRef.current,
+      ),
+    }),
+    [],
+  );
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -862,24 +1032,85 @@ export function StockPriceChart({
     // being left at the library's default once an RSI is toggled.
     publishPaneOrder(
       wrapperRef.current,
-      arrangeLowerPanes(chart, {
-        price: priceSeriesRef.current?.getPane(),
-        volume: volumeSeriesRef.current?.getPane(),
-        oscillator: owner?.getPane(),
-        fundamental: fundamentalPaneOf(
-          fundamentalSeriesRef.current,
-          fundamentalPlaceholderRef.current,
-        ),
-      }),
+      arrangeLowerPanes(chart, currentPanes()),
     );
     // Deliberately no fitContent here: enabling or disabling an overlay is not a request to
     // reframe the history the user has scrolled to.
-  }, [overlays]);
+  }, [overlays, currentPanes]);
+
+  // The chosen ratio's stretches of available sessions, each drawn as its own ordinary line, and
+  // the DOM contract describing them — derived once per ratio history, not on every render.
+  const valuationStretches = useMemo(
+    () => (valuation ? sessionLineRuns(valuation.points) : []),
+    [valuation],
+  );
+  const valuationContract = useMemo(
+    () =>
+      valuation
+        ? {
+            gaps: valuation.points.filter((point) => point.value === undefined)
+              .length,
+            stretches: sessionLineStretches(valuationStretches),
+          }
+        : undefined,
+    [valuation, valuationStretches],
+  );
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    // Rebuilt whole whenever the ratio or its loaded history changes, exactly as the fundamental's
+    // pane is: a new ratio always starts on a fresh pane and a fresh scale, so nothing of the
+    // previous ratio's range or line can survive into the next one.
+    clearPaneLines(
+      chart,
+      valuationSeriesRef.current,
+      valuationPlaceholderRef.current,
+    );
+    valuationSeriesRef.current = [];
+    valuationPlaceholderRef.current = null;
+    if (valuation && valuationStretches.length > 0) {
+      valuationSeriesRef.current = drawPaneLines(chart, valuationStretches, {
+        color: valuation.color,
+        // A ratio of the market capitalisation moves with the close on every session, so it is an
+        // ordinary line: the segment between two sessions is the price moving. Drawn as a step it
+        // would turn daily price movement into a staircase. A new statement can still make the
+        // line jump, between the two sessions it changes on.
+        lineType: LineType.Simple,
+        // A raw multiple on its axis, its crosshair label and its tooltip alike — never money.
+        formatter: formatMultiple,
+      });
+    } else if (valuationPending) {
+      // The chosen ratio's history is on its way: an empty, preserved pane takes its place at its
+      // height, so the price pane keeps the height it will have once the line is in.
+      valuationPlaceholderRef.current = chart.addPane(true);
+    }
+    const wrapper = wrapperRef.current;
+    publishPaneOrder(wrapper, arrangeLowerPanes(chart, currentPanes()));
+    publishPaneSpace(
+      wrapper,
+      "valuationSpace",
+      valuationSeriesRef.current.length > 0 ||
+        valuationPlaceholderRef.current !== null,
+    );
+    // The line type the library actually holds, read back rather than restated: what a browser
+    // test asserts is that the drawn line is not a step.
+    const drawnType = valuationSeriesRef.current[0]?.options().lineType;
+    if (wrapper) {
+      if (drawnType === undefined) {
+        delete wrapper.dataset.valuationLine;
+      } else {
+        wrapper.dataset.valuationLine = LINE_TYPE_NAMES[drawnType] ?? "unknown";
+      }
+    }
+  }, [valuation, valuationStretches, valuationPending, currentPanes]);
 
   // The chosen metric's stretches of available sessions, each drawn as its own step line, and the
   // DOM contract describing them — derived once per metric history, not on every render.
   const fundamentalStretches = useMemo(
-    () => (fundamental ? fundamentalRuns(fundamental.points) : []),
+    () => (fundamental ? sessionLineRuns(fundamental.points) : []),
     [fundamental],
   );
   const fundamentalContract = useMemo(
@@ -902,91 +1133,55 @@ export function StockPriceChart({
     }
     // Rebuilt whole whenever the metric or its loaded history changes. Removing the last series
     // removes the pane with it, so a new metric always starts on a fresh pane and a fresh scale:
-    // nothing of the previous metric's range, unit or line can survive into the next one.
-    for (const series of fundamentalSeriesRef.current) {
-      chart.removeSeries(series);
-    }
+    // nothing of the previous metric's range, unit or line can survive into the next one. A
+    // placeholder only ever holds the place of a metric still loading and never carries a line, so
+    // it goes on every run: a line is always drawn on a fresh pane of its own.
+    clearPaneLines(
+      chart,
+      fundamentalSeriesRef.current,
+      fundamentalPlaceholderRef.current,
+    );
     fundamentalSeriesRef.current = [];
-    // A placeholder only ever holds the place of a metric still loading and never carries a line,
-    // so it goes on every run: a line is always drawn on a fresh pane of its own.
-    const placeholder = fundamentalPlaceholderRef.current;
     fundamentalPlaceholderRef.current = null;
-    const placeholderIndex = placeholder?.paneIndex() ?? -1;
-    if (placeholderIndex >= 0) {
-      chart.removePane(placeholderIndex);
-    }
     if (fundamental && fundamentalStretches.length > 0) {
       const unit = fundamental.unit;
-      // The metric's own unit on its axis, its crosshair label and its tooltip alike: a
-      // percentage reads `%`, a multiple `x`, and neither ever reads as money.
-      const formatter = (value: number) => formatFundamentalValue(value, unit);
-      // The first stretch opens the pane at the bottom; every later stretch joins that pane.
-      let paneIndex = chart.panes().length;
-      for (const stretch of fundamentalStretches) {
-        const series = chart.addSeries(
-          LineSeries,
-          {
-            color: fundamental.color,
-            lineWidth: 2,
-            // A fundamental changes only on a statement event and holds between them, so it is
-            // drawn as a step: flat, then vertical on the session the stored value changes. A
-            // simple line would slant across the session before, implying a gradual change.
-            lineType: LineType.WithSteps,
-            priceLineVisible: false,
-            // The library's last-value label would print the last *drawn* value, which after an
-            // invalidation is an older reading shown as though it were current.
-            lastValueVisible: false,
-            priceFormat: { type: "custom", formatter, minMove: 0.01 },
-          },
-          paneIndex,
-        );
-        series.setData(
-          stretch.map((point) => ({
-            time: point.date as Time,
-            value: point.value,
-          })),
-        );
-        paneIndex = series.getPane().paneIndex();
-        fundamentalSeriesRef.current.push(series);
-      }
-      // Every stretch shares the pane's one scale. Its margins keep the highest and lowest
-      // readings off the pane's edges, where a flat step would merge into the separator above
-      // or the time axis below.
-      fundamentalSeriesRef.current[0]
-        ?.priceScale()
-        .applyOptions({ scaleMargins: FUNDAMENTAL_SCALE_MARGINS });
+      fundamentalSeriesRef.current = drawPaneLines(
+        chart,
+        fundamentalStretches,
+        {
+          color: fundamental.color,
+          // A fundamental changes only on a statement event and holds between them, so it is drawn
+          // as a step: flat, then vertical on the session the stored value changes. A simple line
+          // would slant across the session before, implying a gradual change.
+          lineType: LineType.WithSteps,
+          // The metric's own unit on its axis, its crosshair label and its tooltip alike: a
+          // percentage reads `%`, a multiple `x`, and neither ever reads as money.
+          formatter: (value: number) => formatFundamentalValue(value, unit),
+        },
+      );
     } else if (fundamentalPending) {
       // The chosen metric's history is on its way: an empty pane, preserved although it holds no
       // series, takes the fundamental's place at the fundamental's height. The wrapper keeps the
       // same room, so the price pane keeps exactly the height it will have once the line is in.
       fundamentalPlaceholderRef.current = chart.addPane(true);
     }
-    const oscillator = [...oscillatorOverlaysRef.current]
-      .map((id) => overlaySeriesRef.current.get(id))
-      .find((series) => series !== undefined);
     publishPaneOrder(
       wrapperRef.current,
-      arrangeLowerPanes(chart, {
-        price: priceSeriesRef.current?.getPane(),
-        volume: volumeSeriesRef.current?.getPane(),
-        oscillator: oscillator?.getPane(),
-        fundamental: fundamentalPaneOf(
-          fundamentalSeriesRef.current,
-          fundamentalPlaceholderRef.current,
-        ),
-      }),
+      arrangeLowerPanes(chart, currentPanes()),
     );
-    publishFundamentalSpace(
+    publishPaneSpace(
       wrapperRef.current,
+      "fundamentalSpace",
       fundamentalSeriesRef.current.length > 0 ||
         fundamentalPlaceholderRef.current !== null,
     );
-  }, [fundamental, fundamentalStretches, fundamentalPending]);
+  }, [fundamental, fundamentalStretches, fundamentalPending, currentPanes]);
 
   const empty = points.length < 2;
   const hasOscillatorPane = overlays.some(
     (overlay) => overlay.placement === "OSCILLATOR_PANE",
   );
+  const hasValuationPane = valuationStretches.length > 0;
   const hasFundamentalPane = fundamentalStretches.length > 0;
   // Gaps live on the canvas like the viewport does, so they are published the same way: this is
   // how a browser test tells "the model was unavailable across this interval, and the line is
@@ -1027,6 +1222,16 @@ export function StockPriceChart({
           ? OSCILLATOR_REFERENCE_LEVELS.map((level) => level.price).join(",")
           : undefined
       }
+      // The chosen valuation ratio, published the way the fundamental is: which ratio, whether its
+      // pane exists, how many separate stretches its line is drawn in, how many unavailable
+      // sessions break it, and where each stretch starts and ends (`from..to`) — exactly where the
+      // line is broken and where it resumes. `data-valuation-space` and `data-valuation-line`, the
+      // line type the library holds, are written by the effect that draws the pane.
+      data-valuation={valuation?.id}
+      data-valuation-pane={hasValuationPane ? "true" : undefined}
+      data-valuation-runs={valuation ? valuationStretches.length : undefined}
+      data-valuation-gaps={valuationContract?.gaps}
+      data-valuation-stretches={valuationContract?.stretches}
       // The chosen fundamental, published the way the other canvas-drawn state is: which metric
       // and unit, whether its pane exists, how many separate stretches its line is drawn in, how
       // many unavailable sessions break it, and every transition the line makes — the first
@@ -1037,7 +1242,7 @@ export function StockPriceChart({
       data-fundamental-pane={hasFundamentalPane ? "true" : undefined}
       // `data-fundamental-space`, the room for that pane while its line or its placeholder is in
       // the chart, is written by the effect that adds and removes the pane: see
-      // `publishFundamentalSpace`.
+      // `publishPaneSpace`.
       data-fundamental-runs={
         fundamental ? fundamentalStretches.length : undefined
       }

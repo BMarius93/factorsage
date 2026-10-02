@@ -5,6 +5,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import type {
   ChartFundamentalSeries,
   ChartOverlaySeries,
+  ChartValuationSeries,
 } from "../utils/chart-series";
 import { CHART_COLORS, overlayColorAt } from "../utils/chart-theme";
 import { StockPriceChart } from "./StockPriceChart";
@@ -12,6 +13,8 @@ import { StockPriceChart } from "./StockPriceChart";
 type FakeSeries = {
   setData: Mock;
   applyOptions: Mock;
+  /** The options the series holds, the library's defaults under what it was created with. */
+  options: Mock;
   createPriceLine: Mock;
   removePriceLine: Mock;
   /** The series' own price scale; the volume histogram applies its scale margins through it. */
@@ -146,6 +149,8 @@ vi.mock("lightweight-charts", () => {
                 scale.points = Math.max(scale.points, rows.length);
               }),
               applyOptions: vi.fn(),
+              // A line series defaults to the library's simple line type.
+              options: vi.fn(() => ({ lineType: 0, ...options })),
               // Returns the options so a line stays identifiable: the reference-line assertions
               // track which specific lines are still attached to which series.
               createPriceLine: vi.fn((options: { price: number }) => ({
@@ -2279,3 +2284,476 @@ function oscillatorSeriesIn(chart: FakeChart) {
       entry.definition === "LineSeries",
   );
 }
+
+/**
+ * A chosen valuation ratio as the page hands it to the chart: `points` is the drawn line (whitespace
+ * for an unavailable session inside it) and `readings` every loaded session.
+ */
+function valuationSeries(
+  overrides: Partial<ChartValuationSeries> & {
+    points: ChartValuationSeries["points"];
+  },
+): ChartValuationSeries {
+  return {
+    id: "PRICE_TO_EARNINGS_TTM",
+    label: "P/E",
+    color: CHART_COLORS.valuation,
+    readings: new Map(
+      overrides.points.map((point) => [point.date, point.value] as const),
+    ),
+    ...overrides,
+  };
+}
+
+/** Five sessions of a daily P/E: a reading every session, one unavailable session, then more. */
+const PE = valuationSeries({
+  points: [
+    { date: "2026-08-24", value: 18.2 },
+    { date: "2026-08-25", value: 18.6 },
+    { date: "2026-08-26", value: 18.4 },
+    { date: "2026-08-27" },
+    { date: "2026-08-28", value: 19.1 },
+  ],
+});
+
+const EV_TO_EBITDA = valuationSeries({
+  id: "EV_TO_EBITDA_TTM",
+  label: "EV/EBITDA",
+  points: [
+    { date: "2026-08-27", value: -1.25 },
+    { date: "2026-08-28", value: 0.75 },
+  ],
+});
+
+function chartWith(props: {
+  overlays?: ChartOverlaySeries[];
+  valuation?: ChartValuationSeries;
+  valuationPending?: boolean;
+  fundamental?: ChartFundamentalSeries;
+  fundamentalPending?: boolean;
+}) {
+  return (
+    <StockPriceChart
+      points={POINTS}
+      overlays={props.overlays ?? []}
+      {...(props.valuation ? { valuation: props.valuation } : {})}
+      valuationPending={props.valuationPending ?? false}
+      {...(props.fundamental ? { fundamental: props.fundamental } : {})}
+      fundamentalPending={props.fundamentalPending ?? false}
+      volume={VOLUME}
+      relativeVolume={NO_RELATIVE_VOLUME}
+      currency="USD"
+      fitKey="1Y"
+      {...FRAME}
+      ariaLabel="AAPL chart"
+    />
+  );
+}
+
+/** Series added with the valuation colour, still attached to the chart. */
+function liveValuationSeries(chart: FakeChart) {
+  const removed = new Set(chart.removeSeries.mock.calls.map((call) => call[0]));
+  return chart.addedSeries.filter(
+    (entry) =>
+      entry.options.color === CHART_COLORS.valuation && !removed.has(entry.api),
+  );
+}
+
+function hoverLegend(chart: FakeChart) {
+  const onCrosshairMove = chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+    param: unknown,
+  ) => void;
+  const legend = screen.getByTestId("chart-legend");
+  return (time: string) => {
+    onCrosshairMove({
+      time,
+      seriesData: new Map([[chart.addedSeries[0]?.api, { value: 232 }]]),
+    });
+    return legend.textContent ?? "";
+  };
+}
+
+describe("StockPriceChart valuation pane", () => {
+  it("draws the chosen ratio as an ordinary line in a pane of its own, below price and volume", () => {
+    const { container } = render(
+      chartWith({
+        valuation: valuationSeries({
+          points: [
+            { date: "2026-08-27", value: 18.2 },
+            { date: "2026-08-28", value: 18.6 },
+          ],
+        }),
+      }),
+    );
+    const chart = lastChart();
+
+    const [line, ...others] = liveValuationSeries(chart);
+    expect(others).toEqual([]);
+    expect(line?.definition).toBe("LineSeries");
+    // Never on the price scale or the volume scale: a new pane at the bottom.
+    expect(line?.paneIndex).toBe(2);
+    expect(line?.api.getPane()).toBe(chart.panesList[2]);
+    expect(line?.api.getPane()).not.toBe(chart.addedSeries[0]?.api.getPane());
+    expect(chart.panesList).toHaveLength(3);
+    // An ordinary line, never a step: daily price movement is not a staircase.
+    expect(line?.options.lineType).toBe(0);
+    expect(line?.options.lineType).not.toBe(1);
+    // No last-value label and no price line: after the ratio becomes unavailable either would show
+    // an older reading as though it were current.
+    expect(line?.options.lastValueVisible).toBe(false);
+    expect(line?.options.priceLineVisible).toBe(false);
+    expect(line?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-27", value: 18.2 },
+      { time: "2026-08-28", value: 18.6 },
+    ]);
+    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(line?.api.scaleOptions).toEqual({
+      scaleMargins: { top: 0.2, bottom: 0.15 },
+    });
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset).toMatchObject({
+      valuation: "PRICE_TO_EARNINGS_TTM",
+      valuationPane: "true",
+      valuationRuns: "1",
+      valuationGaps: "0",
+      valuationStretches: "2026-08-27..2026-08-28",
+      valuationSpace: "true",
+      // Read back from the series the library holds.
+      valuationLine: "simple",
+      paneOrder: "price,volume,valuation",
+    });
+  });
+
+  it("leaves each unavailable interval empty by drawing every available stretch on its own", () => {
+    const { container } = render(
+      chartWith({
+        valuation: valuationSeries({
+          points: [
+            { date: "2026-08-24", value: 18.2 },
+            { date: "2026-08-25" },
+            { date: "2026-08-26", value: 18.4 },
+            { date: "2026-08-27" },
+            { date: "2026-08-28", value: 19.1 },
+          ],
+        }),
+      }),
+    );
+    const chart = lastChart();
+    const lines = liveValuationSeries(chart);
+    expect(lines).toHaveLength(3);
+    // One pane for every stretch, and no stretch reaches into a gap.
+    for (const line of lines) {
+      expect(line.api.getPane()).toBe(lines[0]?.api.getPane());
+      expect(line.options.lineType).toBe(0);
+    }
+    const written = lines.flatMap(
+      (line) =>
+        line.api.setData.mock.calls[0]?.[0] as Array<Record<string, unknown>>,
+    );
+    expect(written.map((point) => point.time)).toEqual([
+      "2026-08-24",
+      "2026-08-26",
+      "2026-08-28",
+    ]);
+    // Nothing carried, interpolated or bridged with a transparent segment.
+    expect(written.some((point) => "color" in point)).toBe(false);
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.valuationRuns).toBe("3");
+    expect(wrapper.dataset.valuationGaps).toBe("2");
+    expect(wrapper.dataset.valuationStretches).toBe(
+      "2026-08-24..2026-08-24;2026-08-26..2026-08-26;2026-08-28..2026-08-28",
+    );
+  });
+
+  it("draws a real zero and a negative EV/EBITDA as readings", () => {
+    render(
+      chartWith({
+        valuation: valuationSeries({
+          id: "EV_TO_EBITDA_TTM",
+          label: "EV/EBITDA",
+          points: [
+            { date: "2026-08-26", value: 0 },
+            { date: "2026-08-27", value: -1.25 },
+            { date: "2026-08-28", value: -55.55 },
+          ],
+        }),
+      }),
+    );
+    const [line] = liveValuationSeries(lastChart());
+    expect(line?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-26", value: 0 },
+      { time: "2026-08-27", value: -1.25 },
+      { time: "2026-08-28", value: -55.55 },
+    ]);
+  });
+
+  it("formats its axis and crosshair label as a raw multiple, never money or a percent", () => {
+    render(chartWith({ valuation: PE }));
+    const [line] = liveValuationSeries(lastChart());
+    const format = formatterOf(line!.options);
+    expect(format(0.75)).toBe("0.75x");
+    expect(format(1)).toBe("1.0x");
+    expect(format(15.2)).toBe("15.2x");
+    expect(format(-1.25)).toBe("-1.25x");
+    expect(format(0.004)).toBe("0.004x");
+    expect(format(18.6)).not.toMatch(/[$%]/);
+  });
+
+  it("names the ratio in the hover legend with its reading, or Unavailable inside a gap", () => {
+    render(chartWith({ valuation: PE }));
+    const hover = hoverLegend(lastChart());
+
+    expect(hover("2026-08-26")).toContain("P/E18.4x");
+    // Inside the unavailable session: words, never a number and never the 18.4x before it.
+    const gap = hover("2026-08-27");
+    expect(gap).toContain("P/EUnavailable");
+    expect(gap).not.toContain("18.4x");
+    expect(hover("2026-08-28")).toContain("P/E19.1x");
+    // A session never loaded for the ratio says nothing about it at all.
+    expect(hover("2026-08-21")).not.toContain("P/E");
+  });
+
+  it("prints a negative EV/EBITDA in the hover legend as a signed multiple, never as Unavailable", () => {
+    render(chartWith({ valuation: EV_TO_EBITDA }));
+    const hover = hoverLegend(lastChart());
+    const negative = hover("2026-08-27");
+    expect(negative).toContain("EV/EBITDA-1.25x");
+    expect(negative).not.toContain("EV/EBITDAUnavailable");
+    expect(hover("2026-08-28")).toContain("EV/EBITDA0.75x");
+  });
+
+  it("reads Unavailable on the newest session once the ratio has become unavailable, never the last reading", () => {
+    const lapsed = valuationSeries({
+      points: [
+        { date: "2026-08-24", value: 18.2 },
+        { date: "2026-08-25", value: 18.6 },
+      ],
+      readings: new Map([
+        ["2026-08-24", 18.2],
+        ["2026-08-25", 18.6],
+        ["2026-08-26", undefined],
+        ["2026-08-27", undefined],
+        ["2026-08-28", undefined],
+      ]),
+    });
+    render(chartWith({ valuation: lapsed }));
+    const chart = lastChart();
+    const [line] = liveValuationSeries(chart);
+    // The line ends where the readings end, with no label carrying 18.6x to the right edge.
+    expect(line?.options.lastValueVisible).toBe(false);
+    const legend = hoverLegend(chart)("2026-08-28");
+    expect(legend).toContain("P/EUnavailable");
+    expect(legend).not.toContain("18.6x");
+  });
+
+  it("replaces the previous ratio's lines and pane when another is chosen, and None removes only its own pane", () => {
+    const { rerender, container } = render(
+      chartWith({ valuation: PE, fundamental: ROIC }),
+    );
+    const chart = lastChart();
+    const wrapper = container.firstElementChild as HTMLElement;
+    const fundamentalPane = liveFundamentalSeries(chart)[0]?.api.getPane();
+    const peLines = liveValuationSeries(chart);
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,valuation,fundamental",
+    );
+
+    rerender(chartWith({ valuation: EV_TO_EBITDA, fundamental: ROIC }));
+    for (const line of peLines) {
+      expect(chart.removeSeries).toHaveBeenCalledWith(line.api);
+    }
+    const evLines = liveValuationSeries(chart);
+    expect(evLines).toHaveLength(1);
+    expect(evLines[0]?.api.setData).toHaveBeenCalledWith([
+      { time: "2026-08-27", value: -1.25 },
+      { time: "2026-08-28", value: 0.75 },
+    ]);
+    // Still price, volume, one valuation pane and the fundamental's, in that order; the
+    // fundamental's lines were not touched by the change of ratio.
+    expect(chart.panesList).toHaveLength(4);
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,valuation,fundamental",
+    );
+    expect(liveFundamentalSeries(chart)[0]?.api.getPane()).toBe(
+      fundamentalPane,
+    );
+    for (const line of liveFundamentalSeries(chart)) {
+      expect(chart.removeSeries).not.toHaveBeenCalledWith(line.api);
+    }
+
+    // Repeated switching never accumulates lines or panes.
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      rerender(chartWith({ valuation: PE, fundamental: ROIC }));
+      rerender(chartWith({ valuation: EV_TO_EBITDA, fundamental: ROIC }));
+    }
+    expect(liveValuationSeries(chart)).toHaveLength(1);
+    expect(chart.panesList).toHaveLength(4);
+
+    // None removes the valuation pane and leaves the fundamental's.
+    rerender(chartWith({ fundamental: ROIC }));
+    expect(liveValuationSeries(chart)).toHaveLength(0);
+    expect(liveFundamentalSeries(chart).length).toBeGreaterThan(0);
+    expect(chart.panesList).toHaveLength(3);
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
+    expect(wrapper.dataset.valuationSpace).toBeUndefined();
+    expect(wrapper.dataset.valuationLine).toBeUndefined();
+  });
+
+  it("keeps one pane order — volume, oscillator, valuation, fundamental — whatever order they are chosen in", () => {
+    const rsi = rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3);
+    type Step = {
+      overlays?: ChartOverlaySeries[];
+      valuation?: ChartValuationSeries;
+      fundamental?: ChartFundamentalSeries;
+    };
+    const orders: Step[][] = [
+      // Fundamental, then RSI, then valuation.
+      [
+        { fundamental: ROIC },
+        { fundamental: ROIC, overlays: [rsi] },
+        { fundamental: ROIC, overlays: [rsi], valuation: PE },
+      ],
+      // Valuation, then RSI, then fundamental.
+      [
+        { valuation: PE },
+        { valuation: PE, overlays: [rsi] },
+        { valuation: PE, overlays: [rsi], fundamental: ROIC },
+      ],
+      // RSI, then fundamental, then valuation.
+      [
+        { overlays: [rsi] },
+        { overlays: [rsi], fundamental: ROIC },
+        { overlays: [rsi], fundamental: ROIC, valuation: PE },
+      ],
+      // Fundamental, then valuation, then RSI.
+      [
+        { fundamental: ROIC },
+        { fundamental: ROIC, valuation: PE },
+        { fundamental: ROIC, valuation: PE, overlays: [rsi] },
+      ],
+    ];
+    for (const steps of orders) {
+      const { rerender, container, unmount } = render(chartWith(steps[0]!));
+      for (const step of steps.slice(1)) {
+        rerender(chartWith(step));
+      }
+      const chart = lastChart();
+      const wrapper = container.firstElementChild as HTMLElement;
+      expect(wrapper.dataset.paneOrder).toBe(
+        "price,volume,oscillator,valuation,fundamental",
+      );
+      // Five panes, each holding its own series: no ratio on the RSI's or the metric's scale.
+      expect(chart.panesList).toHaveLength(5);
+      const valuationPane = liveValuationSeries(chart)[0]?.api.getPane();
+      const fundamentalPane = liveFundamentalSeries(chart)[0]?.api.getPane();
+      const oscillatorPane = oscillatorSeriesIn(chart).at(-1)?.api.getPane();
+      expect(chart.panesList.indexOf(oscillatorPane!)).toBe(2);
+      expect(chart.panesList.indexOf(valuationPane!)).toBe(3);
+      expect(chart.panesList.indexOf(fundamentalPane!)).toBe(4);
+      expect(
+        valuationPane?.series.every((series) =>
+          liveValuationSeries(chart).some((entry) => entry.api === series),
+        ),
+      ).toBe(true);
+      expect(valuationPane?.setStretchFactor).toHaveBeenCalledWith(0.6);
+      unmount();
+    }
+  });
+
+  it("holds the valuation pane's place with an empty pane while a chosen ratio loads", () => {
+    const { rerender, container } = render(
+      chartWith({ valuationPending: true }),
+    );
+    const chart = lastChart();
+    const wrapper = container.firstElementChild as HTMLElement;
+
+    expect(chart.addPane).toHaveBeenCalledWith(true);
+    const placeholder = chart.panesList[2];
+    expect(placeholder?.series).toEqual([]);
+    expect(placeholder?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(wrapper.dataset.valuationSpace).toBe("true");
+    expect(wrapper.dataset.valuationPane).toBeUndefined();
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,valuation");
+
+    // A fundamental chosen meanwhile goes below the placeholder.
+    rerender(chartWith({ valuationPending: true, fundamental: ROIC }));
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,valuation,fundamental",
+    );
+
+    // Arrived: the placeholder goes and the line opens a fresh pane in the same place.
+    rerender(chartWith({ valuation: PE, fundamental: ROIC }));
+    expect(chart.panesList).not.toContain(placeholder);
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,valuation,fundamental",
+    );
+    expect(wrapper.dataset.valuationPane).toBe("true");
+
+    // A ratio with nothing to draw holds no pane and no room.
+    rerender(
+      chartWith({
+        valuation: valuationSeries({ points: [] }),
+        fundamental: ROIC,
+      }),
+    );
+    expect(liveValuationSeries(chart)).toEqual([]);
+    expect(wrapper.dataset.valuationSpace).toBeUndefined();
+    expect(wrapper.dataset.valuationRuns).toBe("0");
+    expect(wrapper.dataset.paneOrder).toBe("price,volume,fundamental");
+  });
+
+  it("names both lower series on one crosshair, each in its own unit", () => {
+    render(chartWith({ valuation: PE, fundamental: ROIC }));
+    const legend = hoverLegend(lastChart())("2026-08-25");
+    expect(legend).toContain("P/E18.6x");
+    expect(legend).toContain("ROIC TTM18.25%");
+    // The ratio's row comes first, as its pane does.
+    expect(legend.indexOf("P/E")).toBeLessThan(legend.indexOf("ROIC TTM"));
+  });
+
+  it("does not redraw the ratio when an unrelated overlay or the fundamental changes", () => {
+    const { rerender } = render(chartWith({ valuation: PE }));
+    const chart = lastChart();
+    const before = liveValuationSeries(chart);
+    rerender(chartWith({ valuation: PE, overlays: [priceOverlay(0)] }));
+    rerender(
+      chartWith({
+        valuation: PE,
+        overlays: [priceOverlay(0)],
+        fundamental: ROIC,
+      }),
+    );
+    rerender(
+      chartWith({
+        valuation: PE,
+        overlays: [priceOverlay(0)],
+        fundamental: DEBT_TO_EQUITY,
+      }),
+    );
+    expect(liveValuationSeries(chart).map((entry) => entry.api)).toEqual(
+      before.map((entry) => entry.api),
+    );
+    for (const entry of before) {
+      expect(chart.removeSeries).not.toHaveBeenCalledWith(entry.api);
+    }
+  });
+
+  it("survives a development remount with every lower pane drawn", () => {
+    expect(() =>
+      render(
+        <StrictMode>
+          {chartWith({
+            overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3)],
+            valuation: PE,
+            fundamental: ROIC,
+          })}
+        </StrictMode>,
+      ),
+    ).not.toThrow();
+    const chart = lastChart();
+    expect(liveValuationSeries(chart)).toHaveLength(2);
+    expect(chart.panesList).toHaveLength(5);
+    expect(chart.removePane).not.toHaveBeenCalled();
+  });
+});

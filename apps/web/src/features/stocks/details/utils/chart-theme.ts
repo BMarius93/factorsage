@@ -41,6 +41,13 @@ export const CHART_COLORS = {
    * whenever an unrelated overlay is toggled.
    */
   fundamental: "#1f2937",
+  /**
+   * The valuation ratio line, alone in its own pane. The primary ink blue (`--color-primary-ink`):
+   * a ratio of the market capitalisation moves with the price, and the ink tone ties it to the
+   * price's blue without ever being mistaken for it — it never shares the price pane. Fixed, and
+   * distinct from the fundamental's neutral, so the two lower panes read apart in the legend.
+   */
+  valuation: "#3b5ccc",
 } as const;
 
 /**

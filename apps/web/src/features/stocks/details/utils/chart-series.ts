@@ -84,6 +84,33 @@ export type ChartFundamentalSeries = {
   readings: ReadonlyMap<string, number | undefined>;
 };
 
+/**
+ * The one valuation ratio drawn in its own pane below the price chart.
+ *
+ * Not a `ChartFundamentalSeries`, on purpose: a ratio's market capitalisation moves with the close
+ * on every session, so it is drawn as an ordinary line and never as a step; it is always a raw
+ * multiple; and nothing about it is persisted — the backend computed every reading when it was read.
+ * Its unavailable intervals are broken the same way, one line per available stretch.
+ */
+export type ChartValuationSeries = {
+  /** The ratio's stable catalog identity. */
+  id: string;
+  /** The catalog's one product label. */
+  label: string;
+  color: string;
+  /**
+   * The drawn line on the price chart's session axis: from its first session with a value to its
+   * last, with every session in between that has no value present as whitespace.
+   */
+  points: readonly ChartLinePoint[];
+  /**
+   * Every loaded session of the chart to its reading, or to `undefined` where the ratio is
+   * unavailable. What the hover legend reads: a session outside this map was not loaded for the
+   * ratio, and says nothing about it.
+   */
+  readings: ReadonlyMap<string, number | undefined>;
+};
+
 export function closeSeries(
   prices: readonly DailyPriceResponse[],
 ): ChartPoint[] {

@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
+  isValuationRatioId,
+  type ValuationRatioId,
+} from "@intrinsic/contracts";
+import {
   operandValuationRatioId,
   requiredAlternativeDataLeadingSessions,
   type AlternativeDataFacts,
@@ -94,6 +98,7 @@ import {
 import { applyPriceBasisToIntrinsicStates } from "./share-basis.js";
 import {
   buildValuationTimeline,
+  valuationRatioColumns,
   type ValuationTimeline,
 } from "./valuation-ratios.js";
 import {
@@ -479,6 +484,28 @@ export type PreparedDailyEvaluationData = DailyPriceBounds & {
 };
 
 /**
+ * One trading session of one valuation ratio, as Stock Details reads it: the ratio the canonical
+ * calculation gives that session, or no `value` where the ratio is unavailable — never zero, and
+ * never an earlier value standing in for the unavailable one.
+ */
+export type DailyValuationRatioPoint = {
+  date: LocalDate;
+  value?: number;
+};
+
+/**
+ * The Stock Details read boundary: every canonical stock-data read, and one whose identity belongs
+ * to a product catalog the domain does not know — a valuation ratio's history, projected when read.
+ */
+export interface StockDetailsDataService extends StockDataService {
+  getDailyValuationRatio(
+    symbol: string,
+    ratioId: ValuationRatioId,
+    range: DateRange,
+  ): Promise<DailyValuationRatioPoint[]>;
+}
+
+/**
  * A security's stored price history was replaced after a re-base between the preparation of a run
  * and one of its window reads. The run cannot continue on one basis, so it fails and may be run
  * again (`historical-price-basis-v1.md`, §9).
@@ -510,7 +537,7 @@ export class PriceBasisChangedError extends Error {
   }
 }
 
-export class CanonicalStockDataService implements StockDataService {
+export class CanonicalStockDataService implements StockDetailsDataService {
   private readonly defaultHistoryDays: number;
   private readonly productHistoryYears: number;
   private readonly priceRetentionYears: number;
@@ -522,6 +549,11 @@ export class CanonicalStockDataService implements StockDataService {
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
   private readonly onPriceBasisEvent: (event: PriceBasisObservation) => void;
   private readonly alternativeData?: CanonicalAlternativeDataService;
+  /**
+   * Split-list refreshes in flight, by security: reads that find the stored list stale together
+   * share one provider request instead of each reading and rewriting the same list.
+   */
+  private readonly splitListRefreshes = new Map<string, Promise<void>>();
 
   constructor(
     private readonly store: StockDataStore,
@@ -890,6 +922,18 @@ export class CanonicalStockDataService implements StockDataService {
     if (!namesValuationRatio(operands)) {
       return;
     }
+    await this.ensureStockSplitListFresh(security);
+  }
+
+  /**
+   * The provider's split list into storage when the stored one is older than
+   * {@link STOCK_SPLIT_LIST_FRESHNESS_MS}, or nothing: one dataset-state read when it is fresh.
+   *
+   * Reads in this process that find the list stale while a refresh of it is in flight wait for that
+   * refresh rather than start their own — a ratio switched while the first is loading, or two
+   * viewers of one stock. A failed refresh is not remembered: the next read asks again.
+   */
+  private async ensureStockSplitListFresh(security: Security): Promise<void> {
     const state = await this.store.getDatasetState(
       security.id,
       "STOCK_SPLIT",
@@ -902,6 +946,19 @@ export class CanonicalStockDataService implements StockDataService {
     ) {
       return;
     }
+    const inFlight = this.splitListRefreshes.get(security.id);
+    if (inFlight) {
+      return inFlight;
+    }
+    const refresh = this.refreshStockSplitList(security).finally(() => {
+      this.splitListRefreshes.delete(security.id);
+    });
+    this.splitListRefreshes.set(security.id, refresh);
+    return refresh;
+  }
+
+  /** Reads the provider's split list and replaces the stored one with it. */
+  private async refreshStockSplitList(security: Security): Promise<void> {
     if (!this.provider.getStockSplits) {
       // A composition that offers valuation ratios must serve the list their rules read; projecting
       // them without it would silently mask nothing.
@@ -935,9 +992,15 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     operands: readonly OperandKey[],
   ): Promise<ValuationTimeline | undefined> {
-    if (!namesValuationRatio(operands)) {
-      return undefined;
-    }
+    return namesValuationRatio(operands)
+      ? this.readValuationTimeline(security)
+      : undefined;
+  }
+
+  /** {@link loadValuationTimeline} for a read that names a ratio by its identity, not by operand. */
+  private async readValuationTimeline(
+    security: Security,
+  ): Promise<ValuationTimeline> {
     const retention = this.fundamentalsTarget(security);
     const [statements, basis, events, splits] = await Promise.all([
       // Standalone quarters only: no ratio reads an annual row.
@@ -1366,6 +1429,72 @@ export class CanonicalStockDataService implements StockDataService {
     return (await this.getDailyDerivedState(symbol, range)).map((row) =>
       toFundamentalMetricPoint(row, field),
     );
+  }
+
+  /**
+   * One valuation ratio's daily history for the Stock Details chart: the ratio on every trading
+   * session of the range, computed when it is read by the calculation a Strategy Condition, a
+   * backtest and a Monitor read (`docs/decisions/valuation-ratios-v1.md`). Nothing is stored.
+   *
+   * The inputs are prepared the way an evaluation frame's are, and by the same helpers: the
+   * canonical hydration and freshness checks, the provider's split list when the stored one is a day
+   * old, and then — between two reads of the price-basis generation — the stored closes the price
+   * chart draws and the valuation timeline built from the stored statements, measured re-bases and
+   * split list. A replacement committed in between would pair one basis's closes with another's
+   * re-bases, so the read is refused rather than answered from two bases, exactly as an unpinned
+   * frame read is (`historical-price-basis-v1.md`, §9).
+   *
+   * Only the requested ratio is projected. A session it is unavailable on keeps its point without a
+   * value, so absence reaches the caller as absence. The newest session is the newest stored bar,
+   * read at its own close and statements — the bar the price chart draws and the row a backtest
+   * frame reads, which during a session can be the provider's in-progress bar — never a live quote.
+   */
+  async getDailyValuationRatio(
+    symbol: string,
+    ratioId: ValuationRatioId,
+    range: DateRange,
+  ): Promise<DailyValuationRatioPoint[]> {
+    // An exact catalog identity or nothing: refused before a security is resolved, so no
+    // caller-supplied string reaches the calculation. The input is deliberately not echoed back.
+    if (!isValuationRatioId(ratioId)) {
+      throw new StockDataValidationError("Unsupported valuation ratio");
+    }
+    const bounded = this.requireBoundedRange(range);
+    const preHydration = await this.getSecurity(symbol);
+    const load = this.loadTarget(preHydration, bounded);
+    await this.ensureStockHydrated(preHydration, load);
+    await this.ensureStockFresh(preHydration, load);
+    // The first hydration's profile sync can enrich the catalog row — its currency and listing date
+    // among them, which the statement rules and the retained window read. Re-resolved, as
+    // `getStockDetails` does, so the ratio is computed from the identity a Strategy frame reads.
+    const security = await this.getSecurity(symbol);
+    await this.ensureStockSplitListFresh(security);
+    const expected = await this.priceBasisGeneration(security.id);
+    const [prices, timeline] = await Promise.all([
+      this.readDailyPriceProjection(security, bounded),
+      this.readValuationTimeline(security),
+    ]);
+    const current = await this.priceBasisGeneration(security.id);
+    if (current !== expected) {
+      throw new PriceBasisChangedError(
+        security.id,
+        security.symbol,
+        expected,
+        current,
+      );
+    }
+    const column = valuationRatioColumns({
+      timeline,
+      dates: prices.map((price) => price.date),
+      closes: prices.map((price) => price.close),
+      ratios: [ratioId],
+    }).get(ratioId) as Float64Array;
+    return prices.map((price, index) => {
+      const value = column[index] as number;
+      return Number.isFinite(value)
+        ? { date: price.date, value }
+        : { date: price.date };
+    });
   }
 
   async getFinancialStatements(

@@ -25,9 +25,10 @@ import {
 /**
  * Deletes every provider-derived row of the named fixture securities, in one transaction.
  *
- * Prices, weekly bars, derived state, financial statements, the descriptive profile, and the
- * coverage and dataset-state watermarks that describe them. Returns the ids it cleared, in the
- * order the symbols were given; a symbol with no catalog row yet is skipped.
+ * Prices, weekly bars, derived state, financial statements, the descriptive profile, the price
+ * basis with its measured re-bases, the provider's split list, and the coverage and dataset-state
+ * watermarks that describe them. Returns the ids it cleared, in the order the symbols were given; a
+ * symbol with no catalog row yet is skipped.
  */
 export async function resetE2eFixtureSecurityData(
   prisma: PrismaClient,
@@ -62,6 +63,9 @@ export async function resetE2eFixtureSecurityData(
       prisma.dailyDerivedState.deleteMany({ where: { securityId } }),
       prisma.financialStatement.deleteMany({ where: { securityId } }),
       prisma.securityProfile.deleteMany({ where: { securityId } }),
+      prisma.priceBasisEvent.deleteMany({ where: { securityId } }),
+      prisma.securityPriceBasis.deleteMany({ where: { securityId } }),
+      prisma.stockSplit.deleteMany({ where: { securityId } }),
       prisma.stockDatasetCoverage.deleteMany({ where: { securityId } }),
       prisma.stockDatasetState.deleteMany({ where: { securityId } }),
     ]);

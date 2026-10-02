@@ -5,6 +5,7 @@ import {
   formatInteger,
   formatLocalDate,
   formatMoney,
+  formatMultiple,
   formatSignedMoney,
   formatSignedPercent,
   formatWebsiteHost,
@@ -133,5 +134,36 @@ describe("formatFundamentalValue", () => {
     // percentage metric, and differently only because the unit differs.
     expect(formatFundamentalValue(0.5, "PERCENT")).toBe("0.5%");
     expect(formatFundamentalValue(0.5, "MULTIPLE")).toBe("0.5x");
+  });
+});
+
+describe("formatMultiple", () => {
+  it("reads every valuation ratio as a raw multiple, the way a Fundamental Metric's multiple reads", () => {
+    // Written out by hand: the axis, the crosshair label and the hover legend all print these.
+    const cases: ReadonlyArray<[number, string]> = [
+      [15, "15.0x"],
+      [15.2, "15.2x"],
+      [18.25384617, "18.25x"],
+      [0.75, "0.75x"],
+      [1, "1.0x"],
+      [-1.25, "-1.25x"],
+      [-55.55, "-55.55x"],
+      [0, "0.0x"],
+      [-0, "0.0x"],
+      [0.004, "0.004x"],
+      [1e-8, "0.00000001x"],
+      [999_999_999_999.99, "999,999,999,999.99x"],
+    ];
+    for (const [value, text] of cases) {
+      expect(formatMultiple(value), String(value)).toBe(text);
+      expect(formatFundamentalValue(value, "MULTIPLE")).toBe(text);
+    }
+  });
+
+  it("never rounds 0.75 to 0.8x, never prints money, a percent or an exponent", () => {
+    expect(formatMultiple(0.75)).not.toBe("0.8x");
+    for (const value of [0.75, 15.2, -1.25, 1e-8, 999_999_999_999.99]) {
+      expect(formatMultiple(value)).not.toMatch(/[$%e]/i);
+    }
   });
 });

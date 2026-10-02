@@ -161,7 +161,7 @@ number; changing a limit is one edit there.
 | `auth-sensitive`     | 20 / 5 min | —                    | IP      | **deny**         | login, register, verify, resend, forgot/reset password, both Google routes        |
 | `session-probe`      | 120 / min  | —                    | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`       |
 | `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                      |
-| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the six `/stocks/{symbol}*` reads                                                 |
+| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the seven `/stocks/{symbol}*` reads and `GET /market-overview`                    |
 | `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health` |
 | `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                 |
 | `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                    |
@@ -178,10 +178,10 @@ reaches one:
   a minute of searching is a handful of requests. One per second sustained is an order of magnitude
   of headroom.
 - **`stock-read`** — extending the Stock Details chart one window costs four requests (prices,
-  technicals, intrinsic values, blends), and a fifth for the chosen Fundamental Metric's gap once
-  they land; the hook never has two loads outstanding and each is a full round trip. Three per
-  second is ~45 window extensions a minute (~36 with a Fundamental Metric chosen), which no
-  sequential loader reaches.
+  technicals, intrinsic values, blends), a fifth for the chosen Fundamental Metric's gap and a sixth
+  for the chosen valuation ratio's once they land; the hook never has two loads outstanding and
+  each is a full round trip. Three per second is ~45 window extensions a minute (~36 with one of the
+  two chosen, ~30 with both), which no sequential loader reaches.
 - **`progress-poll`** — `BACKTEST_RUNNING_POLL_INTERVAL_MS` is one second per open run. Five per
   second leaves room for several concurrent runs plus a reload. This is the one allowance set by a
   machine rather than by a person.

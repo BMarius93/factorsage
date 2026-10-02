@@ -50,6 +50,7 @@ import {
   findValuationRatio,
   isValuationRatioId,
   VALUATION_RATIO_CATALOG,
+  VALUATION_RATIOS_LABEL,
   type ValuationRatioCatalogEntry,
   type ValuationRatioId,
 } from "./valuation-ratios.js";
@@ -412,7 +413,7 @@ export const STRATEGY_METRIC_CATEGORY_LABELS = {
   MOVING_AVERAGES: "Moving averages",
   OSCILLATORS: "Oscillators",
   VOLUME: "Volume",
-  VALUATION: "Valuation",
+  VALUATION: VALUATION_RATIOS_LABEL,
   FUNDAMENTALS: FUNDAMENTAL_METRICS_LABEL,
   POSITION: "Position",
   INSIDER_ACTIVITY: "Insider activity",

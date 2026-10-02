@@ -342,17 +342,19 @@ everything.
   re-bases and the stored provider entries. It reads no provider, writes nothing and has no clock.
   `buildValuationTimeline` applies the statement-level rules (1–5) once per statement event;
   `valuationRatioColumns` applies the session-level rules (6–8) and the arithmetic per session.
-- **Every consumer calls it:** the backtest evaluation frame and the Monitor frame (with the live
-  quote as the provisional close). A Stock Details series is not part of PR 2V; one added later
-  calls the same calculation, so a chart and a Strategy show the same number.
+- **Every consumer calls it:** the backtest evaluation frame, the Monitor frame (with the live
+  quote as the provisional close) and the Stock Details chart, added after PR 2V
+  (`getDailyValuationRatio`, one named ratio over the stored closes the price chart draws), so a
+  chart and a Strategy show the same number.
 - **The split list** is stored whole per security (`StockSplit`, replaced on every read). An entry
   whose ratio the provider did not state readably is kept with ratio `0 : 1` — a possible
   distribution, which over-masks rather than under-masks. An entry without a real calendar date
   cannot be placed, so the read fails like any malformed provider response rather than store a
   thinner list. The list is read from the provider in the preparation phases — a backtest's and a
   Monitor cycle's — when a Strategy names a valuation ratio and the stored list is more than a day
-  old (`STOCK_SPLIT` dataset state). A day is enough: the provider lists an announced event before
-  its date, and rule 8 withholds it from that listing.
+  old (`STOCK_SPLIT` dataset state), and by a Stock Details valuation read on the same terms. A day
+  is enough: the provider lists an announced event before its date, and rule 8 withholds it from
+  that listing.
 - **A backtest computes a security's inputs once**, while preparing, from the generation it pins,
   and passes them to every window read; a window never reads the statements again. A Monitor
   reads them each cycle, between the two reads of the generation.

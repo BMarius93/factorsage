@@ -1,3 +1,4 @@
+import type { ValuationRatioId } from "@intrinsic/contracts";
 import type {
   DailyDerivedState,
   DailyFundamentalMetricPoint,
@@ -13,19 +14,21 @@ import type {
   SecuritySearchQuery,
   SecurityWithLogo,
   StockDetails,
-  StockDataService,
   DailyPrice,
   DailyTechnical,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
+  PriceBasisChangedError,
   StockDataNotFoundError,
   StockDataValidationError,
+  type DailyValuationRatioPoint,
+  type StockDetailsDataService,
 } from "@intrinsic/stock-data";
 
-export class LoggedStockDataService implements StockDataService {
+export class LoggedStockDataService implements StockDetailsDataService {
   constructor(
-    private readonly delegate: StockDataService,
+    private readonly delegate: StockDetailsDataService,
     private readonly logger: StructuredLogger,
   ) {}
 
@@ -99,6 +102,21 @@ export class LoggedStockDataService implements StockDataService {
     );
   }
 
+  getDailyValuationRatio(
+    symbol: string,
+    ratioId: ValuationRatioId,
+    range: DateRange,
+  ): Promise<DailyValuationRatioPoint[]> {
+    return this.execute(
+      "getDailyValuationRatio",
+      symbol,
+      () => this.delegate.getDailyValuationRatio(symbol, ratioId, range),
+      // Already validated against the catalog by the controller, so it is an identity, never raw
+      // input.
+      { ratioId },
+    );
+  }
+
   getFinancialStatements(
     symbol: string,
     query: FinancialStatementQuery,
@@ -145,9 +163,12 @@ export class LoggedStockDataService implements StockDataService {
         err,
       };
 
+      // A re-base committed during the read is the provider updating the stock, not a fault: the
+      // read is refused so it never answers from two bases, and the next one reads the new basis.
       if (
         err instanceof StockDataNotFoundError ||
-        err instanceof StockDataValidationError
+        err instanceof StockDataValidationError ||
+        err instanceof PriceBasisChangedError
       ) {
         this.logger.warn(fields);
       } else {

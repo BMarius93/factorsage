@@ -344,9 +344,16 @@ When it is introduced in V2:
   `../../docs/decisions/selectable-series-catalog.md`; feature components must not duplicate its
   option identities, grouping, or ordering.
 - Stock Details exposes that catalog through one grouped multi-select `Indicators` control. Price
-  remains the always-visible base series. The same control ends with a Fundamentals section offering
-  one Fundamental Metric at a time from `FUNDAMENTAL_METRIC_CATALOG`, drawn as a step line in its own
-  pane from the persisted derived state (`../product/stock-details.md`).
+  remains the always-visible base series. The same control ends with two single-select sections,
+  each read from its own contracts catalog and drawn in its own pane
+  (`../product/stock-details.md`): Valuation offers one Valuation Ratio at a time from
+  `VALUATION_RATIO_CATALOG`, drawn as an ordinary line from the backend's projection of the
+  canonical valuation calculation; Fundamentals offers one Fundamental Metric at a time from
+  `FUNDAMENTAL_METRIC_CATALOG`, drawn as a step line from the persisted derived state. Both load
+  only the chosen series, for the history the chart holds, through one shared history lifecycle
+  (`hooks/use-series-history.ts`) and one session-line builder (`utils/session-line.ts`); what
+  differs between them — line type, persisted versus projected — stays explicit in each family's own
+  adapter and in the chart. The browser never calculates either.
 
 Do not add a second chart library just for convenience when Lightweight Charts can cleanly satisfy the requirement. A different library is acceptable for a materially different visualization category if justified by the task.
 

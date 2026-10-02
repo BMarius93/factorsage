@@ -2,10 +2,15 @@
 
 import {
   findFundamentalMetric,
+  findValuationRatio,
   FUNDAMENTAL_METRICS_LABEL,
   isFundamentalMetricId,
+  isValuationRatioId,
+  VALUATION_RATIO_CATALOG,
+  VALUATION_RATIOS_LABEL,
   type FundamentalMetricId,
   type SelectableSeriesId,
+  type ValuationRatioId,
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Select } from "../../../../components/ui/Select";
@@ -22,6 +27,12 @@ const FUNDAMENTAL_OPTION_GROUPS = FUNDAMENTAL_GROUPS.map((group) => ({
   })),
 }));
 
+/** The valuation select's options: the catalog's identities, labels and order, built once. */
+const VALUATION_OPTIONS = VALUATION_RATIO_CATALOG.map((ratio) => ({
+  value: ratio.id,
+  label: ratio.label,
+}));
+
 type IndicatorsMenuProps = {
   /** Currently enabled overlays. Price is always drawn and is never one of these. */
   readonly selected: ReadonlySet<SelectableSeriesId>;
@@ -30,6 +41,9 @@ type IndicatorsMenuProps = {
   readonly onToggle: (id: SelectableSeriesId) => void;
   /** Colour the chart paints an enabled series with, so the picker matches the legend. */
   readonly colorOf: (id: SelectableSeriesId) => string | undefined;
+  /** The one valuation ratio drawn in its own pane, or `null`. */
+  readonly valuation: ValuationRatioId | null;
+  readonly onChooseValuation: (id: ValuationRatioId | null) => void;
   /** The one Fundamental Metric drawn in its own pane, or `null`. */
   readonly fundamental: FundamentalMetricId | null;
   readonly onChooseFundamental: (id: FundamentalMetricId | null) => void;
@@ -45,16 +59,19 @@ type IndicatorsMenuProps = {
  *
  * The overlays are native checkboxes inside labelled fieldsets, so keyboard traversal,
  * screen-reader grouping and touch targets are the platform's rather than a re-implementation. The
- * Fundamental Metrics follow them as one more section — one metric at a time, so it is a native
- * select grouped by the Fundamentals catalog, with "None" to clear it — and the chosen metric's own
- * catalog summary and formula explain what is being drawn. The popover closes on Escape or an
- * outside pointer press and returns focus to the trigger.
+ * valuation ratios and then the Fundamental Metrics follow them as two more sections — one ratio
+ * and one metric at a time, so each is a native select over its own catalog, with "None" to clear
+ * it — and the chosen entry's own catalog summary and formula explain what is being drawn. The two
+ * choices are independent. The popover closes on Escape or an outside pointer press and returns
+ * focus to the trigger.
  */
 export function IndicatorsMenu({
   selected,
   available,
   onToggle,
   colorOf,
+  valuation,
+  onChooseValuation,
   fundamental,
   onChooseFundamental,
 }: IndicatorsMenuProps) {
@@ -63,6 +80,7 @@ export function IndicatorsMenu({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const baseId = useId();
   const panelId = `${baseId}-indicators`;
+  const valuationHintId = `${baseId}-valuation-hint`;
   const fundamentalHintId = `${baseId}-fundamentals-hint`;
 
   const close = useCallback((returnFocus: boolean) => {
@@ -96,7 +114,12 @@ export function IndicatorsMenu({
     };
   }, [close, open]);
 
-  const count = selected.size + (fundamental === null ? 0 : 1);
+  const count =
+    selected.size +
+    (valuation === null ? 0 : 1) +
+    (fundamental === null ? 0 : 1);
+  const chosenRatio =
+    valuation === null ? undefined : findValuationRatio(valuation);
   const chosenMetric =
     fundamental === null ? undefined : findFundamentalMetric(fundamental);
 
@@ -172,6 +195,32 @@ export function IndicatorsMenu({
             </ul>
           </fieldset>
         ))}
+        <fieldset className={styles.group} data-testid="valuation-section">
+          <legend className={styles.groupLabel}>
+            {VALUATION_RATIOS_LABEL}
+          </legend>
+          <p className={styles.groupHint} id={valuationHintId}>
+            One ratio at a time, in its own pane below the price.
+          </p>
+          <Select
+            value={valuation ?? ""}
+            onValueChange={(value) =>
+              onChooseValuation(isValuationRatioId(value) ? value : null)
+            }
+            placeholder="None"
+            options={VALUATION_OPTIONS}
+            density="compact"
+            aria-label="Valuation ratio"
+            aria-describedby={valuationHintId}
+            testId="valuation-select"
+          />
+          {chosenRatio ? (
+            <div className={styles.choiceHelp} data-testid="valuation-help">
+              <p className={styles.choiceSummary}>{chosenRatio.summary}</p>
+              <p className={styles.choiceFormula}>{chosenRatio.formula}</p>
+            </div>
+          ) : null}
+        </fieldset>
         <fieldset className={styles.group} data-testid="fundamentals-section">
           <legend className={styles.groupLabel}>
             {FUNDAMENTAL_METRICS_LABEL}
@@ -192,16 +241,9 @@ export function IndicatorsMenu({
             testId="fundamental-select"
           />
           {chosenMetric ? (
-            <div
-              className={styles.fundamentalHelp}
-              data-testid="fundamental-help"
-            >
-              <p className={styles.fundamentalSummary}>
-                {chosenMetric.summary}
-              </p>
-              <p className={styles.fundamentalFormula}>
-                {chosenMetric.formula}
-              </p>
+            <div className={styles.choiceHelp} data-testid="fundamental-help">
+              <p className={styles.choiceSummary}>{chosenMetric.summary}</p>
+              <p className={styles.choiceFormula}>{chosenMetric.formula}</p>
             </div>
           ) : null}
         </fieldset>
