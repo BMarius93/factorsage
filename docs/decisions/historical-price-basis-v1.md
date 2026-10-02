@@ -520,6 +520,10 @@ decision that it is a separate problem.
 - **Not needed:** `Φ`, classification, statement unit conversion, an external reference, a
   per-session factor column, a displayed as-traded price, a total-return methodology or SEC share
   data.
+- **What it cannot give them:** an event FMP had folded into its history before FactorSage stored
+  it is no re-base of stored history, so PR 1 never measures it. When FMP's split list omits it
+  too, as it does MMM's Solventum spin-off, valuation cannot see it. `valuation-ratios-v1.md`
+  accepts that as a V1 limitation (owner, 2026-10-02), and PR 1 adds no detection for it.
 
 ## Data model
 
@@ -624,12 +628,12 @@ anchors; **D**, unnecessary in V1.
 
 ### Pull requests
 
-| PR                                | Scope                                                                                                                      | Depends on         |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| **1. Re-base-safe price loading** | the A and B components above, with their tests                                                                             | nothing            |
-| **2V. Valuation Ratios V1**       | `valuation-ratios-v1.md`: FMP's split list, the per-session calculation and its rules, Strategy, backtest, Monitor and API | PR 1               |
-| 0. Margin of Safety disclosure    | copy only (§13)                                                                                                            | nothing; optional  |
-| Not in V1                         | the external reference, historical `Φ`, statement unit conversion, Margin of Safety's split-adjusted basis, RVOL on it     | a post-V1 decision |
+| PR                                | Scope                                                                                                                                                                                      | Depends on         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| **1. Re-base-safe price loading** | the A and B components above, with their tests                                                                                                                                             | nothing            |
+| **2V. Valuation Ratios V1**       | `valuation-ratios-v1.md`: FMP's split list, the per-session calculation and its rules, Strategy, backtest, Monitor and API                                                                 | PR 1               |
+| 0. Margin of Safety disclosure    | copy only (§13)                                                                                                                                                                            | nothing; optional  |
+| Not in V1                         | the external reference, historical `Φ`, statement unit conversion, Margin of Safety's split-adjusted basis, RVOL on it; independent detection of basis events the provider does not report | a post-V1 decision |
 
 ### Open measurements
 

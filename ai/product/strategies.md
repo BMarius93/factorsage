@@ -680,6 +680,14 @@ the data cannot put on one price and share basis. A Monitor reads the live quote
 closed session's statements, and keeps an active Signal through an unavailable observation, as for
 every metric. The methodology and the price-basis rules are the decision's, not restated here.
 
+**Accepted V1 limitation** (owner, 2026-10-02). FMP is the only source. A corporate action that
+changed the price basis, that FMP does not report and that FactorSage cannot otherwise detect is not
+seen, so the ratios before it are available and biased. MMM's Solventum spin-off (2024-04-01) is the
+known case: MMM's valuation history before it reads about 16.4 % low. It is accepted for V1 and
+disclosed in the metric's help, not treated as correct. Do not special-case or work around it in
+unrelated changes; independent detection of such events is a later enhancement
+(`../../docs/decisions/valuation-ratios-v1.md`, "Accepted V1 limitation").
+
 ## BUY levels
 
 A Strategy may contain multiple ordered BUY levels, and must contain at least one.

@@ -16,6 +16,10 @@ the price-basis part and PR 2V the ratios. A clean-room review corrected them th
   makes that basis unsafe, the ratio is unavailable. That is intended V1 behaviour, not a gap.
 - **A Strategy Condition on an unavailable ratio does not match.** It is `NOT_EVALUABLE`, as every
   unavailable metric is: a backtest never acts on it, and a Monitor never raises a Signal on it.
+- **One limitation is accepted for V1** (owner, 2026-10-02). A basis-changing event that FMP does
+  not report and FactorSage cannot otherwise detect escapes the rules below, and the ratios before
+  it are biased. MMM's Solventum spin-off is the known case. It is accepted, not treated as correct
+  ("Accepted V1 limitation").
 - **This supersedes** the frozen-anchor architecture merged with PR #75 (`b90ab7e2`): valuation
   anchors carried by research returns, `Φ` at historical anchors, the vendor-backed historical
   backfill (PR 3V), the anchor version pin and the invariant 9 amendment that architecture needed.
@@ -36,6 +40,9 @@ ratio endpoints in §8). It is kept: it is why the unavailable policy exists.
 FMP data on a coherent price/share basis      -> AVAILABLE
 known or detected basis ambiguity (spin-off,
 unmeasured re-base, unexplained share count)  -> UNAVAILABLE
+basis event FMP does not report and V1
+cannot otherwise detect (MMM, 2024)           -> not seen: AVAILABLE and biased,
+                                                 an accepted V1 limitation
 unavailable metric in a Strategy Condition    -> the Condition does not match
 ```
 
@@ -97,8 +104,8 @@ EV/EBITDA_t = (MC_t + NetDebt) ÷ EBITDA_TTM
   reads, and the accepted rules refuse `totalEquity` because minority interest would change what
   the denominator means. It includes preferred stock while the market capitalisation does not; in
   the store that is 31.9 % of MSTR's equity, 10.6 % of GS's, 5.6 % of JPM's, 1.5 % of V's and 0.1 %
-  of BA's, and nothing for the other 57. Deducting `preferredStock` is an open owner choice
-  ("Open owner decisions"), not a V1 rule.
+  of BA's, and nothing for the other 57. Deducting `preferredStock` is a later owner choice
+  ("Later owner choices"), not a V1 rule.
 - **Share counts follow the listing.** FMP serves depositary units for HSBC's and TSM's ADSs,
   class A units for BRK-A and class B units for BRK-B, so the close times the count is in one unit
   for all four (investigation, §9.5). That was checked on those four only; the currency rule removes
@@ -278,7 +285,7 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
 | MRK      | Organon (2021-06-03)                | 131:125 `stock-split`   | masked; available from 2021-08-10                                                                                     |
 | AXP      | Ameriprise (2005-10-03)             | 10000:8753              | masked; available from 2006-03-07                                                                                     |
 | HON      | 2018, 2025 spin-offs; 2026 combined | 1011:1000; 1907:2000    | masked through 2026-07-23 (the unlisted 2025 Solstice event lies inside the 2026 mask); available from 2026-07-24     |
-| **MMM**  | **Solventum (2024-04-01)**          | **none**                | **not masked: 6,920 sessions before 2024-04-01 read 16.4 % low. See "Open owner decisions".**                         |
+| **MMM**  | **Solventum (2024-04-01)**          | **none**                | **not masked: 6,920 sessions before 2024-04-01 read 16.4 % low, the accepted V1 limitation**                          |
 
 - MMM's adjustment is in FMP's adjusted close and in no usable FMP metadata. Checked on 2026-10-01:
   `stable/splits` lists only its 2:1 splits of 1972, 1987, 1994 and 2003. `stable/dividends` has
@@ -397,53 +404,74 @@ everything.
 
 ## What changed from PR #75
 
-| PR #75 element                                                                     | Under the FMP-only decision                                                                                                       |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Frozen valuation anchors, carried by research returns                              | removed: the per-session product with PR 1's measured `K` is exact forward and needs no frozen state                              |
-| `ValuationAnchor` table, supersession, pending-reason sets, late-revision rule 11  | removed with the anchors                                                                                                          |
-| The "as if reinvested" reading across a distribution                               | removed: the window is unavailable                                                                                                |
-| Historical anchors from `Φ` (PR 3V) and the external as-traded vendor (PR 3)       | removed: no second provider; unsafe history is unavailable                                                                        |
-| Measured unit evidence for revisions observed before a later split (PR 2)          | removed for valuation: `K` restores the price side exactly; an unexplained restatement is unavailable (rule 3)                    |
-| The anchor version pin and the per-attempt data-pin table                          | removed: a run re-simulates from its first day on retry, so an in-memory generation pin per attempt suffices                      |
-| `observedSince` from a verified read                                               | kept as `verifiedAt`, which separates provider-listed history from measured events                                                |
-| Undated intervals for events between two reads                                     | kept: `K` cannot be applied inside one                                                                                            |
-| The settling delay and a generation bump on every one-row correction               | removed: they protected frozen anchor closes; nothing is frozen now                                                               |
-| The ex-date calendar hold                                                          | for valuation, rule 8 from the stored split list; for every operand, PR 1's stateless split-sized-move hold                       |
-| Rules 6–7 (a count's units ordered against events; a hold near an announced event) | rule 5 (a count observed within 30 days after an event) and rule 8 (a listed event not yet measured)                              |
-| The periodic monthly full comparison                                               | removed: the earliest-row check catches every full-history re-base                                                                |
-| The invariant 9 amendment "if the owner accepts"                                   | made: the owner decided no per-session valuation persistence                                                                      |
-| U1–U4                                                                              | decided by the owner's defaults: denominators `<= 0`, currency, the existing equity field, anomalies unavailable                  |
-| U5 (bootstrap), U7 (Triggers), U9 (rebuild a corrected anchor)                     | U5: no synthetic start; U7: Conditions only; U9: no anchors                                                                       |
-| U6 (statements around a distribution), U8 (unfolded distributions)                 | U6: the price-basis windows above; the remaining statement lag is shared with Fundamental Metrics. U8: see "Open owner decisions" |
+| PR #75 element                                                                     | Under the FMP-only decision                                                                                                              |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen valuation anchors, carried by research returns                              | removed: the per-session product with PR 1's measured `K` is exact forward and needs no frozen state                                     |
+| `ValuationAnchor` table, supersession, pending-reason sets, late-revision rule 11  | removed with the anchors                                                                                                                 |
+| The "as if reinvested" reading across a distribution                               | removed: the window is unavailable                                                                                                       |
+| Historical anchors from `Φ` (PR 3V) and the external as-traded vendor (PR 3)       | removed: no second provider; unsafe history is unavailable                                                                               |
+| Measured unit evidence for revisions observed before a later split (PR 2)          | removed for valuation: `K` restores the price side exactly; an unexplained restatement is unavailable (rule 3)                           |
+| The anchor version pin and the per-attempt data-pin table                          | removed: a run re-simulates from its first day on retry, so an in-memory generation pin per attempt suffices                             |
+| `observedSince` from a verified read                                               | kept as `verifiedAt`, which separates provider-listed history from measured events                                                       |
+| Undated intervals for events between two reads                                     | kept: `K` cannot be applied inside one                                                                                                   |
+| The settling delay and a generation bump on every one-row correction               | removed: they protected frozen anchor closes; nothing is frozen now                                                                      |
+| The ex-date calendar hold                                                          | for valuation, rule 8 from the stored split list; for every operand, PR 1's stateless split-sized-move hold                              |
+| Rules 6–7 (a count's units ordered against events; a hold near an announced event) | rule 5 (a count observed within 30 days after an event) and rule 8 (a listed event not yet measured)                                     |
+| The periodic monthly full comparison                                               | removed: the earliest-row check catches every full-history re-base                                                                       |
+| The invariant 9 amendment "if the owner accepts"                                   | made: the owner decided no per-session valuation persistence                                                                             |
+| U1–U4                                                                              | decided by the owner's defaults: denominators `<= 0`, currency, the existing equity field, anomalies unavailable                         |
+| U5 (bootstrap), U7 (Triggers), U9 (rebuild a corrected anchor)                     | U5: no synthetic start; U7: Conditions only; U9: no anchors                                                                              |
+| U6 (statements around a distribution), U8 (unfolded distributions)                 | U6: the price-basis windows above; the remaining statement lag is shared with Fundamental Metrics. U8: an accepted V1 limitation (owner) |
 
-## Open owner decisions
+## Accepted V1 limitation: basis events FMP does not report
 
-1. **Folded distributions FMP does not list (MMM).** No FMP metadata places them, so the rule cannot
-   see them: MMM's history before 2024-04-01 is available and 16.4 % low, against the owner's own
-   rule that a known spin-off ambiguity makes a valuation unavailable. HON's 2025 event is the only
-   other one known, and HON's 2026 entry masks it. No option satisfies every instruction at once, so
-   this is the owner's choice:
-   - **(a) Accept it as a stated exception to the rule**, disclosed in the metric description:
-     history before a distribution the data provider does not record can read low. No code. It
-     ships 6,920 sessions known to be wrong.
-   - **(b) Add FMP's insider trade prices as a second historical signal.** The investigation's
-     range-containment test flags MMM, HON and AXP, and also flags feed defects (class B trades filed
-     under BRK-A, class mixing in GOOG and GOOGL, non-market rows in GS, MRK and AAL), which would
-     mask those histories too. It needs insider ingestion for every valued security and tuned
-     thresholds, and still sees nothing for a security without open-market insider trades. It is the
-     kind of confidence test the owner asked this design to avoid.
-   - **(c) No historical valuation before `verifiedAt`.** Safe and simple, and it removes every
-     historical value, including the 89 % the rule shows to be safe, against the owner's instruction
-     not to mask whole histories for a bounded problem.
-   - A dated list of the known unlisted events (MMM 2024-04-01, HON 2025-10-30) would be the smallest
-     compliant change, and is excluded by the owner's instruction against curated per-security
-     exceptions.
-   - PR 2V implements the rule as written, which is option (a) until the owner decides; (b) or (c)
-     changes rule 4 only.
-2. **Preferred stock in P/B.** `totalStockholdersEquity` is used (above). Deducting `preferredStock`
+**Owner decision, 2026-10-02: option (a), accept and disclose.** FactorSage V1 accepts that FMP
+may omit a historical basis-changing corporate action, and that the valuation ratios before such an
+event are then biased.
+
+- **FMP remains V1's source of truth.** The rules read nothing but what FMP serves and what PR 1
+  measures from it.
+- **Every known or detected unsafe period is still unavailable.** Rules 0–8 apply unchanged: to an
+  event FMP's split list reports, and to every re-base PR 1 measures in a history FactorSage has
+  stored, including a distribution FMP leaves off its list but folds into its prices later.
+- **What escapes them.** An event FMP had already folded into its adjusted close when FactorSage
+  first stored the history, and that its split list does not report, leaves no trace in anything V1
+  reads: PR 1 measures only re-bases of stored history, and the split list is the only other
+  signal. The ratios before such an event are available, and biased by its factor.
+- **The known case is MMM.** Solventum (2024-04-01) is in FMP's adjusted close and in no usable FMP
+  metadata ("The six known securities"). MMM's valuation history before 2024-04-01, 6,920 sessions,
+  reads about 16.4 % low. HON's 2025 Solstice event is the only other unlisted event known, and
+  HON's 2026 entry already withholds every session before it.
+- **Accepted, not correct.** It is a known inaccuracy, accepted to keep V1 simple. The ratios' help
+  discloses it ("A distribution the data provider does not record cannot be seen, and before one a
+  ratio can read low"); nothing may present those sessions as verified.
+- **Not to be fixed in unrelated work.** Do not special-case MMM or any other security, add insider
+  transaction prices or another provider, reconstruct `Φ`, add a confidence framework, withhold all
+  history before `verifiedAt`, or add detection infrastructure for it.
+- **A future enhancement, not a V1 blocker:** independent detection of basis-changing events the
+  provider does not report. It needs its own owner decision, and the options below are where it
+  starts.
+
+The options the owner did not choose for V1:
+
+- **(b) FMP's insider trade prices as a second historical signal.** The investigation's
+  range-containment test flags MMM, HON and AXP, and also flags feed defects (class B trades filed
+  under BRK-A, class mixing in GOOG and GOOGL, non-market rows in GS, MRK and AAL), which would mask
+  those histories too. It needs insider ingestion for every valued security and tuned thresholds,
+  and still sees nothing for a security without open-market insider trades.
+- **(c) No historical valuation before `verifiedAt`.** Safe and simple, and it removes every
+  historical value, including the 89 % the rule shows to be safe.
+- **A dated list of the known unlisted events** (MMM 2024-04-01, HON 2025-10-30): excluded by the
+  owner's instruction against curated per-security exceptions.
+
+## Later owner choices
+
+V1 ships the owner's defaults for both, and neither blocks it.
+
+1. **Preferred stock in P/B.** `totalStockholdersEquity` is used (above). Deducting `preferredStock`
    would raise P/B by 46.8 % for MSTR, 11.9 % for GS and 6.0 % for JPM. One line of the calculation;
    no other part depends on it.
-3. **Triggers.** Conditions only in V1. Margin of Safety supports `crosses above` and
+2. **Triggers.** Conditions only in V1. Margin of Safety supports `crosses above` and
    `crosses below`; whether valuation ratios should is a later product decision.
 
 ## Rejected alternatives
