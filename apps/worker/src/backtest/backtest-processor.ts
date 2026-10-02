@@ -49,6 +49,7 @@ import {
   PriceBasisChangedError,
   type DailyPriceBounds,
   type PreparedDailyEvaluationData,
+  type ValuationTimeline,
 } from "@intrinsic/stock-data";
 import {
   ABANDONED_FAILURE_MESSAGE,
@@ -106,6 +107,7 @@ export interface BacktestFrameLoader {
     options?: {
       resolveGroupMembers?: (groupId: string) => Promise<readonly string[]>;
       priceBasisGeneration?: number;
+      valuation?: ValuationTimeline;
     },
   ): Promise<EvaluationFrame>;
 }
@@ -169,6 +171,12 @@ type PreparedSecurity = {
    * retried attempt re-simulates from the first day and prepares again.
    */
   priceBasisGeneration?: number;
+  /**
+   * The security's valuation inputs, computed once while preparing when the Strategy names a
+   * valuation ratio, and passed to every window read so no window reads the statements again.
+   * Held in this attempt's memory, like the generation they were computed from.
+   */
+  valuation?: ValuationTimeline;
   setup: BacktestSecuritySetup;
 };
 
@@ -722,6 +730,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
         ...(coverage.priceBasisGeneration === undefined
           ? {}
           : { priceBasisGeneration: coverage.priceBasisGeneration }),
+        ...(coverage.valuation === undefined
+          ? {}
+          : { valuation: coverage.valuation }),
         setup: {
           securityId: member.securityId,
           symbol: member.symbol,
@@ -1139,6 +1150,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
               ...(entry.priceBasisGeneration === undefined
                 ? {}
                 : { priceBasisGeneration: entry.priceBasisGeneration }),
+              ...(entry.valuation === undefined
+                ? {}
+                : { valuation: entry.valuation }),
             },
           );
       } catch (err) {

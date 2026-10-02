@@ -3,6 +3,7 @@ import { DERIVED_STATE_REVISION } from "./derived-state.js";
 import { PRICE_DATASET_VERSION } from "./ports.js";
 import { PRICE_BASIS_REVISION } from "./price-basis.js";
 import { FUNDAMENTALS_VARIANT_VERSION } from "./service.js";
+import { VALUATION_RATIO_REVISION } from "./valuation-ratios.js";
 
 /**
  * Every revision of *how canonical data is interpreted* that can move a number the backtest engine
@@ -28,6 +29,9 @@ import { FUNDAMENTALS_VARIANT_VERSION } from "./service.js";
  * - `priceBasisRevision` — how a re-based price history is read: which rows are held, and the factor
  *   that keeps intrinsic values, and with them Margin of Safety, on the units their statements were
  *   observed in (`docs/decisions/historical-price-basis-v1.md`).
+ * - `valuationRatioRevision` — how a valuation ratio is calculated and when it is withheld
+ *   (`docs/decisions/valuation-ratios-v1.md`). The ratios are projected when they are read, so no
+ *   stored revision covers them.
  *
  * Deliberately excluded, with reasons:
  *
@@ -47,6 +51,7 @@ export const BACKTEST_DATA_REVISIONS = {
   fundamentalsVariantVersion: FUNDAMENTALS_VARIANT_VERSION,
   benchmarkPriceDatasetVersion: BENCHMARK_PRICE_DATASET_VERSION,
   priceBasisRevision: PRICE_BASIS_REVISION,
+  valuationRatioRevision: VALUATION_RATIO_REVISION,
 } as const;
 
 export type BacktestDataRevisions = typeof BACKTEST_DATA_REVISIONS;

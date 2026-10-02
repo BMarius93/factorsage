@@ -16,6 +16,7 @@ import type {
   Security,
   SecurityProfile,
   SecurityWithLogo,
+  StockSplit,
 } from "@intrinsic/domain";
 import {
   FUNDAMENTAL_METRIC_FIELDS,
@@ -1117,6 +1118,63 @@ export class PrismaStockDataStore implements StockDataStore {
       detectedAt: row.detectedAt.toISOString(),
       evidence: row.evidence as unknown as PriceBasisEventEvidence,
     }));
+  }
+
+  async getStockSplits(securityId: string): Promise<StockSplit[]> {
+    const rows = await this.prisma.stockSplit.findMany({
+      where: { securityId },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+    });
+    return rows.map((row) => ({
+      securityId: row.securityId,
+      date: fromDatabaseDate(row.date),
+      numerator: row.numerator.toNumber(),
+      denominator: row.denominator.toNumber(),
+      label: row.label,
+    }));
+  }
+
+  async replaceStockSplits(input: {
+    securityId: string;
+    splits: readonly StockSplit[];
+    syncedAt: string;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (transaction) => {
+      await this.lockStockWrite(transaction, input.securityId);
+      await transaction.stockSplit.deleteMany({
+        where: { securityId: input.securityId },
+      });
+      if (input.splits.length > 0) {
+        await transaction.stockSplit.createMany({
+          data: input.splits.map((split) => ({
+            securityId: input.securityId,
+            date: toDatabaseDate(split.date),
+            numerator: split.numerator,
+            denominator: split.denominator,
+            label: split.label,
+          })),
+        });
+      }
+      const syncedAt = new Date(input.syncedAt);
+      await transaction.stockDatasetState.upsert({
+        where: {
+          securityId_dataset_variant: {
+            securityId: input.securityId,
+            dataset: StockDataset.STOCK_SPLIT,
+            variant: "",
+          },
+        },
+        create: {
+          securityId: input.securityId,
+          dataset: StockDataset.STOCK_SPLIT,
+          variant: "",
+          lastSuccessfulSyncAt: syncedAt,
+        },
+        update: { lastSuccessfulSyncAt: syncedAt },
+      });
+      // The bulk writers' limits: this transaction waits on the same per-security lock as a
+      // replacement or a derived rebuild of the stock, which can hold it for many seconds.
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 
   async createPriceBasis(input: {

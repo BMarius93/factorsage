@@ -101,7 +101,11 @@ For valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA), read
 `../docs/decisions/valuation-ratios-v1.md` as well. It is their canonical V1 design: computed per
 session from the research close, the share count and point-in-time TTM inputs, never stored, and
 **unavailable** wherever FMP's split list or a measured re-base leaves the price basis unsafe. An
-unavailable ratio makes a Condition not match.
+unavailable ratio makes a Condition not match. One limitation is accepted for V1 (owner,
+2026-10-02): a basis-changing event FMP does not report and FactorSage cannot otherwise detect
+escapes those rules, so the ratios before it are biased — MMM's valuation history before the 2024
+Solventum spin-off reads about 16.4 % low. It is accepted, not correct; do not special-case or
+"fix" it in unrelated work (the decision's "Accepted V1 limitation", and `AGENTS.md` invariant 24).
 
 For the Dashboard's market-overview cards, the market-reference index series or anything that
 touches which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the

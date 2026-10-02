@@ -5,7 +5,8 @@
 **Accepted direction, decided by the product owner on 2026-10-01 (evening). The detailed rules
 below are this design's, written the same night; PR 1 (`historical-price-basis-v1.md`) implements
 the price-basis part and PR 2V the ratios. A clean-room review corrected them the same night
-("Review").**
+("Review"). PR 2V implements them as written (`packages/stock-data/src/valuation-ratios.ts`), and
+"Measured coverage" reports what the implementation computes on the development store.**
 
 - **FactorSage V1 is FMP-only.** There is no second market-data provider, no purchased as-traded
   price series, no reconstruction of the historical distribution factor `Φ`, and no approximated
@@ -15,6 +16,10 @@ the price-basis part and PR 2V the ratios. A clean-room review corrected them th
   makes that basis unsafe, the ratio is unavailable. That is intended V1 behaviour, not a gap.
 - **A Strategy Condition on an unavailable ratio does not match.** It is `NOT_EVALUABLE`, as every
   unavailable metric is: a backtest never acts on it, and a Monitor never raises a Signal on it.
+- **One limitation is accepted for V1** (owner, 2026-10-02). A basis-changing event that FMP does
+  not report and FactorSage cannot otherwise detect escapes the rules below, and the ratios before
+  it are biased. MMM's Solventum spin-off is the known case. It is accepted, not treated as correct
+  ("Accepted V1 limitation").
 - **This supersedes** the frozen-anchor architecture merged with PR #75 (`b90ab7e2`): valuation
   anchors carried by research returns, `Φ` at historical anchors, the vendor-backed historical
   backfill (PR 3V), the anchor version pin and the invariant 9 amendment that architecture needed.
@@ -35,6 +40,9 @@ ratio endpoints in §8). It is kept: it is why the unavailable policy exists.
 FMP data on a coherent price/share basis      -> AVAILABLE
 known or detected basis ambiguity (spin-off,
 unmeasured re-base, unexplained share count)  -> UNAVAILABLE
+basis event FMP does not report and V1
+cannot otherwise detect (MMM, 2024)           -> not seen: AVAILABLE and biased,
+                                                 an accepted V1 limitation
 unavailable metric in a Strategy Condition    -> the Condition does not match
 ```
 
@@ -96,8 +104,8 @@ EV/EBITDA_t = (MC_t + NetDebt) ÷ EBITDA_TTM
   reads, and the accepted rules refuse `totalEquity` because minority interest would change what
   the denominator means. It includes preferred stock while the market capitalisation does not; in
   the store that is 31.9 % of MSTR's equity, 10.6 % of GS's, 5.6 % of JPM's, 1.5 % of V's and 0.1 %
-  of BA's, and nothing for the other 57. Deducting `preferredStock` is an open owner choice
-  ("Open owner decisions"), not a V1 rule.
+  of BA's, and nothing for the other 57. Deducting `preferredStock` is a later owner choice
+  ("Later owner choices"), not a V1 rule.
 - **Share counts follow the listing.** FMP serves depositary units for HSBC's and TSM's ADSs,
   class A units for BRK-A and class B units for BRK-B, so the close times the count is in one unit
   for all four (investigation, §9.5). That was checked on those four only; the currency rule removes
@@ -181,20 +189,28 @@ the prices, and until it has, the entry holds the sessions after its date (rule 
 For a ratio `r` on session `t`, with `R` the share-count revision (the latest point-in-time Income
 quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or a measured re-base:
 
+0. **The price history is verified.** A security whose stored history PR 1 has not verified yet has
+   no ratio on any session: without `verifiedAt` no provider entry can be placed as history or
+   forward. A security whose verification the provider's answer keeps refusing (more than 1 % of the
+   stored sessions missing, `historical-price-basis-v1.md` §8) therefore has none until it succeeds.
 1. **The inputs** (previous section) are complete, positive and in the trading currency.
 2. **The share count holds a level.** Walking the point-in-time Income quarters in order, a count
    within 25 % of the last accepted count is accepted. A count outside it is accepted as a new level
    only on the third consecutive quarter that agrees with it within 25 %; until then the quarter is
-   withheld, with no fallback. So a merger or an offering is withheld for two quarters and then
+   withheld, with no fallback. Consecutive means consecutive fiscal quarters, each with a usable
+   count: a missing quarter or count starts the agreement again. So a merger or an offering is withheld for two quarters and then
    available, while a one- or two-quarter artefact is never accepted: NKE's ×2.03 quarter, MSTR's
    Q3 1999 (153.4 M against 76 M), and Visa's counts that alternate in two-quarter blocks of ±40 %
    in fiscal 2010–2012. In the store, quarter-on-quarter changes beyond 25 % are 99 of 6,325, and
    the 99th percentile is 33 %.
-3. **The share count was not restated unexplained.** If `R`'s count differs by more than 2 % from the
-   previous revision of the same fiscal quarter, a measured re-base detected no later than
-   `R.observedAt` must explain it (its ratio within 2 %). Otherwise `R` is unavailable. This keeps a
-   restatement FMP publishes before an ex-date from being read against old-basis closes, whatever
-   the split's size.
+3. **The share count was not restated unexplained.** If `R`'s count differs by more than 2 % from
+   the previous revision of the same fiscal quarter, a measured re-base must explain it (its ratio
+   within 2 %): one new to the previous revision — detected or dated after it was observed, and
+   dated less than 30 days before it was observed (rule 5's month; an undated re-base at the latest
+   date it may have) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable. This
+   keeps a restatement FMP publishes before an ex-date from being read against old-basis closes,
+   whatever the split's size. An older re-base of the same ratio explains nothing, even when PR 1's
+   first verification measures it only after the previous revision was observed.
 4. **History, from provider entries** dated on or before `verifiedAt` and not superseded by a
    measured re-base within seven calendar days of them:
    1. **A non-plain entry at `E`:** `r` is unavailable until every statement family it reads has a
@@ -208,7 +224,12 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    `E <= R.observedAt < E + 30 days` and `R`'s fiscal quarter ended before `E`, `R` is unavailable.
    The provider may restate its statements some time after it re-bases the prices, so such a count
    can still be in the old units while every rule above takes it as new (open measurement O-2). A
-   quarter that ended after the event is reported in the new units by the company itself.
+   quarter that ended after the event is reported in the new units by the company itself. **Its
+   cost:** a security whose statements are all first observed in the 30 days after an event — first
+   loaded then — has no ratio on any session whose latest quarter ended before the event, and on the
+   historical ones for good, since a revision is never observed again unless its content changes.
+   If O-2 shows FMP restates counts together with the price re-base, rule 5 can go; otherwise a
+   confirming re-read after 30 days is the follow-up.
 6. **The basis factor.** `K(t)` for `R`, from PR 1's measured re-bases
    (`historical-price-basis-v1.md`, §10). Where it is withheld, `r` is unavailable: on or after a
    re-base `R` predates, inside an undated interval, for an `R` observed between a re-base and its
@@ -247,6 +268,13 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
   exists (the trailing window still holds quarters from before it). That is the statement-content
   limit Fundamental Metrics already have (`fundamental-metrics-v1.md`; `historical-price-basis-v1.md`
   §13), not a price-basis question.
+- **What rule 3 cannot tell apart:** a second restatement by the same ratio within one quarter. If
+  the provider restated the counts for one re-base before the previous revision was observed — ahead
+  of the ex-date, or together with the price re-base before PR 1 detected it — and restates them
+  again by the same ratio ahead of another event while the same quarter is still the latest, that
+  re-base explains the second restatement too. It takes two events of one ratio within about three
+  months on one security: among the 64 securities in the store, only KO's two 2:1 entries of 1965
+  are, 24 years before its first statement.
 
 ### The six known securities
 
@@ -257,7 +285,7 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
 | MRK      | Organon (2021-06-03)                | 131:125 `stock-split`   | masked; available from 2021-08-10                                                                                     |
 | AXP      | Ameriprise (2005-10-03)             | 10000:8753              | masked; available from 2006-03-07                                                                                     |
 | HON      | 2018, 2025 spin-offs; 2026 combined | 1011:1000; 1907:2000    | masked through 2026-07-23 (the unlisted 2025 Solstice event lies inside the 2026 mask); available from 2026-07-24     |
-| **MMM**  | **Solventum (2024-04-01)**          | **none**                | **not masked: 6,920 sessions before 2024-04-01 read 16.4 % low. See "Open owner decisions".**                         |
+| **MMM**  | **Solventum (2024-04-01)**          | **none**                | **not masked: 6,920 sessions before 2024-04-01 read 16.4 % low, the accepted V1 limitation**                          |
 
 - MMM's adjustment is in FMP's adjusted close and in no usable FMP metadata. Checked on 2026-10-01:
   `stable/splits` lists only its 2:1 splits of 1972, 1987, 1994 and 2003. `stable/dividends` has
@@ -274,35 +302,60 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
 
 ### Measured coverage
 
-The development store, 62 securities with statements, product horizon (1996-09-30 to 2026-09-25),
-the price-basis rule 4.1 only. The inputs, the share-count rules 2 and 3 and the windows make
-further sessions unavailable for reasons every fundamental shares; PR 2V reports the complete
-figure, measured with the implementation.
+Measured with the PR 2V implementation, as its reviews left it, on 2026-10-02: the development
+store, 62 securities with statements, product horizon (1996-09-30 to 2026-09-25), FMP's split lists
+as read on 2026-10-01 and no measured re-base. The loader had verified nothing in that store yet, so
+the measurement gives every security `verifiedAt` 2026-10-02 — as the first verification after the
+deploy will — which makes every listed event history; with no `verifiedAt` at all, rule 0 withholds
+everything.
 
-| Ratio           | Unavailable sessions | Share of 332,294 |
-| --------------- | -------------------- | ---------------- |
-| P/E, P/S, P/FCF | 36,312               | 10.9 %           |
-| P/B, EV/EBITDA  | 36,383               | 10.9 %           |
+| Ratio     | Unavailable sessions | Share of 332,294 | Of which withheld by the split list (rule 4) |
+| --------- | -------------------- | ---------------- | -------------------------------------------- |
+| P/E       | 74,472               | 22.4 %           | 33,608                                       |
+| P/S       | 42,976               | 12.9 %           | 36,026                                       |
+| P/B       | 53,920               | 16.2 %           | 35,811                                       |
+| P/FCF     | 81,249               | 24.5 %           | 34,493                                       |
+| EV/EBITDA | 62,711               | 18.9 %           | 35,183                                       |
 
-- Eight securities are affected: HON 6,392, IBM 6,393, MRK 6,257, WDC 7,194 (7,265 for the
-  balance-sheet ratios), DIS 2,736, GOOGL 2,515, GOOG 2,452 and AXP 2,373.
-- DIS (2000:1973 in 2007, whose price effect the investigation could not determine) and GOOG and
+- **The split list withholds 10.1–10.8 %** of the sessions, in the eight securities named
+  below. The figure before implementation (36,312 sessions for P/E) counted every session rule 4.1
+  touches; the column above counts only those that would otherwise be available, since the inputs
+  already withhold some of the same sessions.
+- **The share-count rule (2)** withholds a further 3,308 sessions of P/E, 5,312 of P/S, 5,042 of P/B,
+  2,644 of P/FCF and 4,264 of EV/EBITDA; **the restatement rule (3)** withholds none in the store.
+  Rules 4.2, 5, 6, 7 and 8 withhold nothing: every statement was observed between 2026-08-31 and
+  2026-09-28, more than 30 days after every listed event, and nothing has been measured yet.
+- **The rest is the inputs**: a loss (no P/E), negative free cash flow (no P/FCF), negative EBITDA,
+  a missing quarter or field, the four quarters before a security's first complete trailing year,
+  and statements in another currency than the listing (TSM).
+- Eight securities are affected by the split list: HON, IBM, MRK, WDC, DIS, GOOGL, GOOG and AXP.
+  DIS (2000:1973 in 2007, whose price effect the investigation could not determine) and GOOG and
   GOOGL (the 2014 class C distribution, 1001:500 and 999:500) are masked because their entries are
   not plain. That is over-masking by design: their bias, if any, is at most a few tenths of a
   percent.
-- Rules 4.2, 5, 6, 7 and 8 mask nothing in the store today: every statement was observed between
-  2026-08-31 and 2026-09-28, more than 30 days after every listed event, and nothing has been
-  measured yet.
 - The figure is reported, not optimised. No rule was added to raise it.
 
 ## Computation and storage
 
-- **One pure calculation**, in `@intrinsic/stock-data`, computes a security's daily ratios from its
-  stored closes, its point-in-time statement revisions, PR 1's measured re-bases and the stored
-  provider entries. It reads no provider, writes nothing and has no clock.
-- **Every consumer calls it:** the backtest evaluation frame, the Monitor frame (with the live quote
-  as the provisional close) and the Stock Details series. So a chart and a Strategy show the same
-  number.
+- **One pure calculation**, `packages/stock-data/src/valuation-ratios.ts`, computes a security's
+  daily ratios from its stored closes, its point-in-time statement revisions, PR 1's measured
+  re-bases and the stored provider entries. It reads no provider, writes nothing and has no clock.
+  `buildValuationTimeline` applies the statement-level rules (1–5) once per statement event;
+  `valuationRatioColumns` applies the session-level rules (6–8) and the arithmetic per session.
+- **Every consumer calls it:** the backtest evaluation frame and the Monitor frame (with the live
+  quote as the provisional close). A Stock Details series is not part of PR 2V; one added later
+  calls the same calculation, so a chart and a Strategy show the same number.
+- **The split list** is stored whole per security (`StockSplit`, replaced on every read). An entry
+  whose ratio the provider did not state readably is kept with ratio `0 : 1` — a possible
+  distribution, which over-masks rather than under-masks. An entry without a real calendar date
+  cannot be placed, so the read fails like any malformed provider response rather than store a
+  thinner list. The list is read from the provider in the preparation phases — a backtest's and a
+  Monitor cycle's — when a Strategy names a valuation ratio and the stored list is more than a day
+  old (`STOCK_SPLIT` dataset state). A day is enough: the provider lists an announced event before
+  its date, and rule 8 withholds it from that listing.
+- **A backtest computes a security's inputs once**, while preparing, from the generation it pins,
+  and passes them to every window read; a window never reads the statements again. A Monitor
+  reads them each cycle, between the two reads of the generation.
 - **Nothing is stored per session.** Valuation ratios are projected the way Margin of Safety is:
   from stored inputs, when they are read. This is a scoped exception to AGENTS.md invariant 9, which
   stores every other calculated daily series as an explicit column; the owner decided it, and the
@@ -351,53 +404,74 @@ figure, measured with the implementation.
 
 ## What changed from PR #75
 
-| PR #75 element                                                                     | Under the FMP-only decision                                                                                                       |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Frozen valuation anchors, carried by research returns                              | removed: the per-session product with PR 1's measured `K` is exact forward and needs no frozen state                              |
-| `ValuationAnchor` table, supersession, pending-reason sets, late-revision rule 11  | removed with the anchors                                                                                                          |
-| The "as if reinvested" reading across a distribution                               | removed: the window is unavailable                                                                                                |
-| Historical anchors from `Φ` (PR 3V) and the external as-traded vendor (PR 3)       | removed: no second provider; unsafe history is unavailable                                                                        |
-| Measured unit evidence for revisions observed before a later split (PR 2)          | removed for valuation: `K` restores the price side exactly; an unexplained restatement is unavailable (rule 3)                    |
-| The anchor version pin and the per-attempt data-pin table                          | removed: a run re-simulates from its first day on retry, so an in-memory generation pin per attempt suffices                      |
-| `observedSince` from a verified read                                               | kept as `verifiedAt`, which separates provider-listed history from measured events                                                |
-| Undated intervals for events between two reads                                     | kept: `K` cannot be applied inside one                                                                                            |
-| The settling delay and a generation bump on every one-row correction               | removed: they protected frozen anchor closes; nothing is frozen now                                                               |
-| The ex-date calendar hold                                                          | for valuation, rule 8 from the stored split list; for every operand, PR 1's stateless split-sized-move hold                       |
-| Rules 6–7 (a count's units ordered against events; a hold near an announced event) | rule 5 (a count observed within 30 days after an event) and rule 8 (a listed event not yet measured)                              |
-| The periodic monthly full comparison                                               | removed: the earliest-row check catches every full-history re-base                                                                |
-| The invariant 9 amendment "if the owner accepts"                                   | made: the owner decided no per-session valuation persistence                                                                      |
-| U1–U4                                                                              | decided by the owner's defaults: denominators `<= 0`, currency, the existing equity field, anomalies unavailable                  |
-| U5 (bootstrap), U7 (Triggers), U9 (rebuild a corrected anchor)                     | U5: no synthetic start; U7: Conditions only; U9: no anchors                                                                       |
-| U6 (statements around a distribution), U8 (unfolded distributions)                 | U6: the price-basis windows above; the remaining statement lag is shared with Fundamental Metrics. U8: see "Open owner decisions" |
+| PR #75 element                                                                     | Under the FMP-only decision                                                                                                              |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen valuation anchors, carried by research returns                              | removed: the per-session product with PR 1's measured `K` is exact forward and needs no frozen state                                     |
+| `ValuationAnchor` table, supersession, pending-reason sets, late-revision rule 11  | removed with the anchors                                                                                                                 |
+| The "as if reinvested" reading across a distribution                               | removed: the window is unavailable                                                                                                       |
+| Historical anchors from `Φ` (PR 3V) and the external as-traded vendor (PR 3)       | removed: no second provider; unsafe history is unavailable                                                                               |
+| Measured unit evidence for revisions observed before a later split (PR 2)          | removed for valuation: `K` restores the price side exactly; an unexplained restatement is unavailable (rule 3)                           |
+| The anchor version pin and the per-attempt data-pin table                          | removed: a run re-simulates from its first day on retry, so an in-memory generation pin per attempt suffices                             |
+| `observedSince` from a verified read                                               | kept as `verifiedAt`, which separates provider-listed history from measured events                                                       |
+| Undated intervals for events between two reads                                     | kept: `K` cannot be applied inside one                                                                                                   |
+| The settling delay and a generation bump on every one-row correction               | removed: they protected frozen anchor closes; nothing is frozen now                                                                      |
+| The ex-date calendar hold                                                          | for valuation, rule 8 from the stored split list; for every operand, PR 1's stateless split-sized-move hold                              |
+| Rules 6–7 (a count's units ordered against events; a hold near an announced event) | rule 5 (a count observed within 30 days after an event) and rule 8 (a listed event not yet measured)                                     |
+| The periodic monthly full comparison                                               | removed: the earliest-row check catches every full-history re-base                                                                       |
+| The invariant 9 amendment "if the owner accepts"                                   | made: the owner decided no per-session valuation persistence                                                                             |
+| U1–U4                                                                              | decided by the owner's defaults: denominators `<= 0`, currency, the existing equity field, anomalies unavailable                         |
+| U5 (bootstrap), U7 (Triggers), U9 (rebuild a corrected anchor)                     | U5: no synthetic start; U7: Conditions only; U9: no anchors                                                                              |
+| U6 (statements around a distribution), U8 (unfolded distributions)                 | U6: the price-basis windows above; the remaining statement lag is shared with Fundamental Metrics. U8: an accepted V1 limitation (owner) |
 
-## Open owner decisions
+## Accepted V1 limitation: basis events FMP does not report
 
-1. **Folded distributions FMP does not list (MMM).** No FMP metadata places them, so the rule cannot
-   see them: MMM's history before 2024-04-01 is available and 16.4 % low, against the owner's own
-   rule that a known spin-off ambiguity makes a valuation unavailable. HON's 2025 event is the only
-   other one known, and HON's 2026 entry masks it. No option satisfies every instruction at once, so
-   this is the owner's choice:
-   - **(a) Accept it as a stated exception to the rule**, disclosed in the metric description:
-     history before a distribution the data provider does not record can read low. No code. It
-     ships 6,920 sessions known to be wrong.
-   - **(b) Add FMP's insider trade prices as a second historical signal.** The investigation's
-     range-containment test flags MMM, HON and AXP, and also flags feed defects (class B trades filed
-     under BRK-A, class mixing in GOOG and GOOGL, non-market rows in GS, MRK and AAL), which would
-     mask those histories too. It needs insider ingestion for every valued security and tuned
-     thresholds, and still sees nothing for a security without open-market insider trades. It is the
-     kind of confidence test the owner asked this design to avoid.
-   - **(c) No historical valuation before `verifiedAt`.** Safe and simple, and it removes every
-     historical value, including the 89 % the rule shows to be safe, against the owner's instruction
-     not to mask whole histories for a bounded problem.
-   - A dated list of the known unlisted events (MMM 2024-04-01, HON 2025-10-30) would be the smallest
-     compliant change, and is excluded by the owner's instruction against curated per-security
-     exceptions.
-   - PR 2V implements the rule as written, which is option (a) until the owner decides; (b) or (c)
-     changes rule 4 only.
-2. **Preferred stock in P/B.** `totalStockholdersEquity` is used (above). Deducting `preferredStock`
+**Owner decision, 2026-10-02: option (a), accept and disclose.** FactorSage V1 accepts that FMP
+may omit a historical basis-changing corporate action, and that the valuation ratios before such an
+event are then biased.
+
+- **FMP remains V1's source of truth.** The rules read nothing but what FMP serves and what PR 1
+  measures from it.
+- **Every known or detected unsafe period is still unavailable.** Rules 0–8 apply unchanged: to an
+  event FMP's split list reports, and to every re-base PR 1 measures in a history FactorSage has
+  stored, including a distribution FMP leaves off its list but folds into its prices later.
+- **What escapes them.** An event FMP had already folded into its adjusted close when FactorSage
+  first stored the history, and that its split list does not report, leaves no trace in anything V1
+  reads: PR 1 measures only re-bases of stored history, and the split list is the only other
+  signal. The ratios before such an event are available, and biased by its factor.
+- **The known case is MMM.** Solventum (2024-04-01) is in FMP's adjusted close and in no usable FMP
+  metadata ("The six known securities"). MMM's valuation history before 2024-04-01, 6,920 sessions,
+  reads about 16.4 % low. HON's 2025 Solstice event is the only other unlisted event known, and
+  HON's 2026 entry already withholds every session before it.
+- **Accepted, not correct.** It is a known inaccuracy, accepted to keep V1 simple. The ratios' help
+  discloses it ("A distribution the data provider does not record cannot be seen, and before one a
+  ratio can read low"); nothing may present those sessions as verified.
+- **Not to be fixed in unrelated work.** Do not special-case MMM or any other security, add insider
+  transaction prices or another provider, reconstruct `Φ`, add a confidence framework, withhold all
+  history before `verifiedAt`, or add detection infrastructure for it.
+- **A future enhancement, not a V1 blocker:** independent detection of basis-changing events the
+  provider does not report. It needs its own owner decision, and the options below are where it
+  starts.
+
+The options the owner did not choose for V1:
+
+- **(b) FMP's insider trade prices as a second historical signal.** The investigation's
+  range-containment test flags MMM, HON and AXP, and also flags feed defects (class B trades filed
+  under BRK-A, class mixing in GOOG and GOOGL, non-market rows in GS, MRK and AAL), which would mask
+  those histories too. It needs insider ingestion for every valued security and tuned thresholds,
+  and still sees nothing for a security without open-market insider trades.
+- **(c) No historical valuation before `verifiedAt`.** Safe and simple, and it removes every
+  historical value, including the 89 % the rule shows to be safe.
+- **A dated list of the known unlisted events** (MMM 2024-04-01, HON 2025-10-30): excluded by the
+  owner's instruction against curated per-security exceptions.
+
+## Later owner choices
+
+V1 ships the owner's defaults for both, and neither blocks it.
+
+1. **Preferred stock in P/B.** `totalStockholdersEquity` is used (above). Deducting `preferredStock`
    would raise P/B by 46.8 % for MSTR, 11.9 % for GS and 6.0 % for JPM. One line of the calculation;
    no other part depends on it.
-3. **Triggers.** Conditions only in V1. Margin of Safety supports `crosses above` and
+2. **Triggers.** Conditions only in V1. Margin of Safety supports `crosses above` and
    `crosses below`; whether valuation ratios should is a later product decision.
 
 ## Rejected alternatives
@@ -450,6 +524,39 @@ documents, the code and the development database, with four FMP requests.
 | Minor: the plain predicate trusts the provider in the unsafe direction; the listing-unit caveat was dropped; the Monitor's input date departed from the carry-forward rule; "does not match" in a Monitor is `NOT_EVALUABLE`; nits on MMM's split list, a stored close and the EV/EBITDA rationale            | Minor    | stated (predicate, listing units); carry-forward adopted; `NOT_EVALUABLE` semantics stated; facts corrected                    |
 
 R1 concerns PR 1's hydration path and is recorded in `historical-price-basis-v1.md`.
+
+**Clean-room code review of PR 2V (2026-10-02).** It read the implementation against these rules,
+probed every rule with fixtures that isolate it, and ran 19 mutants of the calculation against its
+tests. It confirmed the inputs, the point-in-time selection, the date boundaries, the Monitor's
+carry-forward, the generation-consistent preparation, the contracts and the OpenAPI document. Its
+findings, all applied:
+
+| Finding                                                                                                                                 | Severity | Correction                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| Rule 3 let an older measured re-base of the same ratio explain a new restatement, reading a pre-ex-date restatement at twice its P/E    | Major    | the re-base must be new to the previous revision and known by `R`'s observation (rule 3)                       |
+| The tests did not prove the masking rules: nine mutants, among them removing rule 4.1 or rule 7, passed                                 | Major    | a test per rule with statements observed long after every event; all 22 mutants now fail the tests             |
+| Rule 2 kept an agreement across a missing quarter or count                                                                              | Minor    | consecutive means consecutive quarters with usable counts (rule 2)                                             |
+| Rule 5 withholds the whole history of a security first loaded in the month after an event                                               | Minor    | stated as rule 5's cost, tied to O-2                                                                           |
+| The split list's write used the default transaction limits under the per-security write lock                                            | Minor    | the bulk writers' limits                                                                                       |
+| The mapper dropped a dated entry with an unreadable ratio, and checked dates by pattern only                                            | Minor    | kept as a possible distribution; dates checked as real days                                                    |
+| The QA matrix did not copy the split list beside its fresh dataset state; its preflight and provenance audit ignored valuation operands | Minor    | the matrix copies `StockSplit`; the preflight counts ratios as statement readers; the audit skips them by name |
+| Rule 0, nothing for an unverified history, was undocumented, and so was the measurement's `verifiedAt`                                  | Minor    | stated (rule 0, "Measured coverage")                                                                           |
+| A coverage percentage; annual revisions read on every Monitor cycle                                                                     | Nit      | corrected; standalone quarters only. A Monitor reconstruction still builds the inputs twice, accepted          |
+
+**Re-review of the fixes (2026-10-02).** The same reviewer rebuilt the 22 mutants against the fixed
+code and tests (all fail them), confirmed that its earlier counter-examples now withhold, and added
+11 mutants, 10 of which the tests did not catch. Its findings, all applied:
+
+| Finding                                                                                                                                                                                                                                        | Severity | Correction                                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rule 3 still let an old re-base explain a new restatement when PR 1's first verification measures it after the previous revision was observed: P/B at twice its value from the restatement to the ex-date                                      | Minor    | the re-base must also be dated less than 30 days before the previous revision was observed (rule 3); the same-ratio case left is stated under "What rule 3 cannot tell apart" |
+| Ten mutants passed the tests: rule 3 at 25 %, with any ratio, or without "dated after"; rule 7 at an undated re-base's earliest date; P/B without its count's currency; rule 2's level not following each accepted count; four date boundaries | Minor    | a test for each; all 38 mutants, the 33 above and five of the new rule 3 condition, now fail the tests                                                                        |
+| The mapper skipped an entry whose date is in another format, so nothing masked it                                                                                                                                                              | Nit      | a row without a calendar date fails the read                                                                                                                                  |
+| The domain type's comment did not mention the `0 : 1` ratio of an unreadable entry                                                                                                                                                             | Nit      | stated                                                                                                                                                                        |
+
+Re-measuring the coverage for this record showed that its table predated the first review's rule 2
+fix. It now reports the reviewed code: rule 2 withholds 62 more sessions of P/E, P/S, P/B and
+EV/EBITDA; the split list's figures and rule 3's are unchanged.
 
 ## References
 

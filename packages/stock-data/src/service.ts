@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  operandValuationRatioId,
   requiredAlternativeDataLeadingSessions,
   type AlternativeDataFacts,
   type EvaluationFrame,
@@ -47,6 +48,7 @@ import {
 } from "@intrinsic/domain";
 import type {
   FmpCurrentQuoteProviderPort,
+  FmpStockSplitPort,
   FmpStockProviderPort,
 } from "@intrinsic/fmp";
 import {
@@ -90,6 +92,10 @@ import {
   type SecurityPriceBasisState,
 } from "./price-basis.js";
 import { applyPriceBasisToIntrinsicStates } from "./share-basis.js";
+import {
+  buildValuationTimeline,
+  type ValuationTimeline,
+} from "./valuation-ratios.js";
 import {
   DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
@@ -318,7 +324,9 @@ export type ProviderRequestReason =
   /** The whole history, re-read to replace it after the earliest row showed a re-base. */
   | "PRICE_REBASE"
   /** One batched current-quote read for a whole Monitor evaluation cycle. */
-  | "MONITOR_CURRENT_DATA";
+  | "MONITOR_CURRENT_DATA"
+  /** The split list a valuation ratio's price-basis rules read, when the stored one is a day old. */
+  | "VALUATION_SPLIT_LIST";
 
 export type ProviderRequestEvent = {
   symbol: string;
@@ -327,7 +335,8 @@ export type ProviderRequestEvent = {
     | "SECURITY_PROFILE"
     | "DAILY_PRICE"
     | "FINANCIAL_STATEMENTS"
-    | "CURRENT_QUOTE";
+    | "CURRENT_QUOTE"
+    | "STOCK_SPLIT";
   reason: ProviderRequestReason;
   from?: string;
   to?: string;
@@ -447,6 +456,12 @@ export type EvaluationFrameOptions = {
    * backtest never reads two bases (`historical-price-basis-v1.md`, §9).
    */
   priceBasisGeneration?: number;
+  /**
+   * The valuation inputs the caller prepared (`prepareDailyEvaluationData`), read instead of the
+   * stored statements, re-bases and split list. A backtest reads every window through the inputs
+   * of the generation it pinned, and reads them once.
+   */
+  valuation?: ValuationTimeline;
 };
 
 /** What `prepareDailyEvaluationData` reports: the period's coverage and its price basis. */
@@ -456,6 +471,11 @@ export type PreparedDailyEvaluationData = DailyPriceBounds & {
    * replaced. Every later window read of the run must match it.
    */
   priceBasisGeneration: number;
+  /**
+   * The security's valuation inputs, when the operands name a valuation ratio: computed once while
+   * preparing, from the generation above, and passed back with every window read.
+   */
+  valuation?: ValuationTimeline;
 };
 
 /**
@@ -468,6 +488,13 @@ export type PreparedDailyEvaluationData = DailyPriceBounds & {
  * sessions that a provider no longer returning the first few still leaves one in common.
  */
 const EARLIEST_ROWS_WINDOW_CALENDAR_DAYS = 30;
+
+/**
+ * How long a stored split list is trusted before a valuation read asks the provider again. A day is
+ * enough: the provider lists an announced event before its date, and an event it has not re-based is
+ * withheld from that listing (`valuation-ratios-v1.md`, rule 8).
+ */
+export const STOCK_SPLIT_LIST_FRESHNESS_MS = 24 * 60 * 60 * 1000;
 
 export class PriceBasisChangedError extends Error {
   constructor(
@@ -499,7 +526,8 @@ export class CanonicalStockDataService implements StockDataService {
   constructor(
     private readonly store: StockDataStore,
     private readonly provider: FmpStockProviderPort &
-      Partial<FmpCurrentQuoteProviderPort>,
+      Partial<FmpCurrentQuoteProviderPort> &
+      Partial<FmpStockSplitPort>,
     private readonly cache: StockDataCache,
     private readonly coordinator: LoadCoordinator,
     options: CanonicalStockDataServiceOptions = {},
@@ -848,6 +876,91 @@ export class CanonicalStockDataService implements StockDataService {
     });
   }
 
+  /**
+   * Reads the provider's split list into storage when the operands name a valuation ratio and the
+   * stored list is older than {@link STOCK_SPLIT_LIST_FRESHNESS_MS}, or does nothing.
+   *
+   * Called in the preparation phases only, as alternative data is, so every later read is a
+   * projection that reaches no provider.
+   */
+  private async ensureValuationInputsIngested(
+    security: Security,
+    operands: readonly OperandKey[],
+  ): Promise<void> {
+    if (!namesValuationRatio(operands)) {
+      return;
+    }
+    const state = await this.store.getDatasetState(
+      security.id,
+      "STOCK_SPLIT",
+      "",
+    );
+    if (
+      state?.lastSyncedAt !== undefined &&
+      this.now().getTime() - Date.parse(state.lastSyncedAt) <
+        STOCK_SPLIT_LIST_FRESHNESS_MS
+    ) {
+      return;
+    }
+    if (!this.provider.getStockSplits) {
+      // A composition that offers valuation ratios must serve the list their rules read; projecting
+      // them without it would silently mask nothing.
+      throw new Error(
+        "Valuation ratios need the provider's split list, which this composition does not serve",
+      );
+    }
+    this.onProviderRequest({
+      symbol: security.symbol,
+      securityId: security.id,
+      dataset: "STOCK_SPLIT",
+      reason: "VALUATION_SPLIT_LIST",
+    });
+    const splits = await this.provider.getStockSplits(
+      security.symbol,
+      security.id,
+    );
+    await this.store.replaceStockSplits({
+      securityId: security.id,
+      splits,
+      syncedAt: this.nowInstant(),
+    });
+  }
+
+  /**
+   * Everything a valuation ratio reads besides the closes, precomputed: the stored statement
+   * revisions, the price basis and its measured re-bases, and the stored split list. Undefined when
+   * no operand is a valuation ratio.
+   */
+  private async loadValuationTimeline(
+    security: Security,
+    operands: readonly OperandKey[],
+  ): Promise<ValuationTimeline | undefined> {
+    if (!namesValuationRatio(operands)) {
+      return undefined;
+    }
+    const retention = this.fundamentalsTarget(security);
+    const [statements, basis, events, splits] = await Promise.all([
+      // Standalone quarters only: no ratio reads an annual row.
+      this.store.getFinancialStatementRevisions({
+        securityId: security.id,
+        cadence: "QUARTERLY",
+        from: retention.from,
+        to: retention.to,
+      }),
+      this.store.getPriceBasis(security.id),
+      this.store.getPriceBasisEvents(security.id),
+      this.store.getStockSplits(security.id),
+    ]);
+    return buildValuationTimeline({
+      securityId: security.id,
+      currency: security.currency,
+      statements,
+      verifiedAt: basis?.verifiedAt ?? null,
+      events,
+      splits,
+    });
+  }
+
   async getDailyPrices(symbol: string, range: DateRange) {
     const bounded = this.requireBoundedRange(range);
     const security = await this.getSecurity(symbol);
@@ -891,10 +1004,12 @@ export class CanonicalStockDataService implements StockDataService {
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
     await this.ensureAlternativeDataIngested(security, operands);
-    const [prices, derived, alternativeData] = await Promise.all([
+    await this.ensureValuationInputsIngested(security, operands);
+    const [prices, derived, alternativeData, valuation] = await Promise.all([
       this.readDailyPriceProjection(security, context, "BACKTEST"),
       this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
       this.loadAlternativeDataFacts(security, operands, context, options),
+      options.valuation ?? this.loadValuationTimeline(security, operands),
     ]);
     return projectEvaluationFrame({
       security,
@@ -903,6 +1018,7 @@ export class CanonicalStockDataService implements StockDataService {
       operands,
       periodStart: period.from,
       alternativeData,
+      ...(valuation ? { valuation: { timeline: valuation } } : {}),
     }).frame;
   }
 
@@ -938,8 +1054,9 @@ export class CanonicalStockDataService implements StockDataService {
     await this.ensureStockFresh(security, load);
     // The alternative-data domains the strategy names are ingested here, in the same phase and for
     // the same reason price history is: once per security per run, so every later window read is a
-    // pure projection that reaches no provider.
+    // pure projection that reaches no provider. So is the split list a valuation ratio reads.
     await this.ensureAlternativeDataIngested(security, operands);
+    await this.ensureValuationInputsIngested(security, operands);
     const projection = this.projectionRange(security, period, "BACKTEST");
     const bounds = projection
       ? await this.store.getDailyPriceBounds(security.id, projection)
@@ -947,9 +1064,15 @@ export class CanonicalStockDataService implements StockDataService {
     if (!bounds) {
       return null;
     }
+    // The generation first: inputs computed after a replacement it predates belong to a run that
+    // every window read then refuses, never to one that reads them on the old basis.
+    const priceBasisGeneration = await this.priceBasisGeneration(security.id);
+    // Computed once, from the generation the run pins, and read by every window.
+    const valuation = await this.loadValuationTimeline(security, operands);
     return {
       ...bounds,
-      priceBasisGeneration: await this.priceBasisGeneration(security.id),
+      priceBasisGeneration,
+      ...(valuation ? { valuation } : {}),
     };
   }
 
@@ -986,11 +1109,13 @@ export class CanonicalStockDataService implements StockDataService {
       options.priceBasisGeneration !== undefined
         ? options.priceBasisGeneration
         : await this.priceBasisGeneration(security.id);
-    const [prices, derived, alternativeData] = await Promise.all([
+    const [prices, derived, alternativeData, valuation] = await Promise.all([
       this.readDailyPriceProjection(security, context, "BACKTEST"),
       this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
       // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
       this.loadAlternativeDataFacts(security, operands, context, options),
+      // The prepared inputs when the run passes them, so a window never reads the statements again.
+      options.valuation ?? this.loadValuationTimeline(security, operands),
     ]);
     const current = await this.priceBasisGeneration(security.id);
     if (current !== expected) {
@@ -1008,6 +1133,7 @@ export class CanonicalStockDataService implements StockDataService {
       operands,
       periodStart: period.from,
       alternativeData,
+      ...(valuation ? { valuation: { timeline: valuation } } : {}),
     }).frame;
   }
 
@@ -1042,6 +1168,7 @@ export class CanonicalStockDataService implements StockDataService {
     // Ingested here, in the cycle's own preparation phase, so the read below reaches no provider and
     // several Monitors sharing a symbol share one ingest.
     await this.ensureAlternativeDataIngested(security, operands);
+    await this.ensureValuationInputsIngested(security, operands);
   }
 
   /**
@@ -1098,6 +1225,11 @@ export class CanonicalStockDataService implements StockDataService {
       { from: prices[0]?.date ?? input.observationDate, to: input.observationDate },
       {},
     );
+    // Read inside the bracket too: the measured re-bases are part of the basis the frame is on.
+    const valuation = await this.loadValuationTimeline(
+      input.security,
+      input.operands,
+    );
     if (
       (await this.priceBasisGeneration(input.security.id)) !== generationBefore
     ) {
@@ -1112,6 +1244,7 @@ export class CanonicalStockDataService implements StockDataService {
       observation: input.observation,
       observationDate: input.observationDate,
       ...(alternativeData ? { alternativeData } : {}),
+      ...(valuation ? { valuation } : {}),
     });
   }
 
@@ -3360,4 +3493,9 @@ function sameStoredValue(
       loaded !== undefined &&
       Math.abs(stored - loaded) <= 5e-9 * (1 + Math.abs(loaded)))
   );
+}
+
+/** Whether any operand is a valuation ratio, whose inputs are then ingested and loaded. */
+function namesValuationRatio(operands: readonly OperandKey[]): boolean {
+  return operands.some((key) => operandValuationRatioId(key) !== null);
 }

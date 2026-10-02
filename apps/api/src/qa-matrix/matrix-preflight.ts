@@ -26,6 +26,7 @@ import {
   collectOperands,
   ExecutionCalendar,
   operandFundamentalMetricId,
+  operandValuationRatioId,
   PRICE_OPERAND,
 } from "@intrinsic/strategy";
 import {
@@ -1340,6 +1341,10 @@ function operandNeedsFundamentals(operand: string): boolean {
   // Strategy reading one needs them just as much. Decoded through the operand module's own inverse
   // rather than by prefix, so the family's encoding stays in one place.
   if (operandFundamentalMetricId(operand) !== null) {
+    return true;
+  }
+  // A Valuation Ratio divides by statement figures too.
+  if (operandValuationRatioId(operand) !== null) {
     return true;
   }
   if (operand.startsWith("margin-of-safety:")) {

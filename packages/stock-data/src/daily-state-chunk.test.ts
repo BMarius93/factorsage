@@ -278,6 +278,7 @@ describe("daily-state chunk encoding version", () => {
       "fundamentalsVariantVersion",
       "priceBasisRevision",
       "priceDatasetVersion",
+      "valuationRatioRevision",
     ]);
   });
 

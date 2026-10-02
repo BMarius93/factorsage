@@ -841,3 +841,50 @@ describe("FMP index symbols", () => {
     });
   });
 });
+
+describe("FMP split list", () => {
+  it("asks for one symbol's whole list in one request and maps it oldest first", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      response([
+        {
+          symbol: "IBM",
+          date: "2021-11-04",
+          numerator: 523,
+          denominator: 500,
+          splitType: "stock-split",
+        },
+        {
+          symbol: "IBM",
+          date: "1999-05-27",
+          numerator: 2,
+          denominator: 1,
+          splitType: "stock-split",
+        },
+      ]),
+    );
+    const client = new FmpClient(config, fetchMock);
+
+    await expect(client.getStockSplits(" ibm ", "security-1")).resolves.toEqual(
+      [
+        {
+          securityId: "security-1",
+          date: "1999-05-27",
+          numerator: 2,
+          denominator: 1,
+          label: "stock-split",
+        },
+        {
+          securityId: "security-1",
+          date: "2021-11-04",
+          numerator: 523,
+          denominator: 500,
+          label: "stock-split",
+        },
+      ],
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe("/stable/splits");
+    expect(url.searchParams.get("symbol")).toBe("IBM");
+  });
+});

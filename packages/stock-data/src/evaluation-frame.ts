@@ -1,6 +1,7 @@
 import {
   findSelectableSeries,
   type SelectableSeriesId,
+  type ValuationRatioId,
 } from "@intrinsic/contracts";
 import {
   fundamentalMetricDefinition,
@@ -17,6 +18,7 @@ import {
   operandAlternativeDataMetric,
   operandFundamentalMetricId,
   operandRelativeVolumePeriod,
+  operandValuationRatioId,
   PRICE_OPERAND,
   type AlternativeDataFacts,
   type EvaluationFrame,
@@ -26,6 +28,10 @@ import {
   blendSourceDataAsOf,
   intrinsicModelSourceAsOf,
 } from "./intrinsic-values.js";
+import {
+  valuationRatioColumns,
+  type ValuationTimeline,
+} from "./valuation-ratios.js";
 
 /**
  * Calendar days of context read before a backtest period starts.
@@ -89,6 +95,19 @@ export function projectEvaluationFrame(input: {
    * references insider activity simply never fire, with nothing to see.
    */
   alternativeData?: ReadonlyMap<OperandKey, AlternativeDataFacts>;
+  /**
+   * The security's valuation inputs, behind every valuation-ratio operand
+   * (`docs/decisions/valuation-ratios-v1.md`). Required when a frame names one, and refused when
+   * missing for the same reason alternative data is: a ratio that could never be computed must not
+   * read as one that is unavailable.
+   *
+   * `statementDateOf` names the date whose statements a row reads when it is not the row's own — a
+   * Monitor's provisional row carries the newest closed session's.
+   */
+  valuation?: {
+    timeline: ValuationTimeline;
+    statementDateOf?: (index: number) => LocalDate;
+  };
 }): ProjectedEvaluationFrame {
   const { prices, derived, operands, periodStart, security } = input;
 
@@ -110,12 +129,19 @@ export function projectEvaluationFrame(input: {
   // An alternative-data column is built from a whole date axis and a window rather than row by row, so
   // it is resolved after the axis exists and never gets a `ColumnReader`.
   const alternativeOperands: OperandKey[] = [];
+  // So is a valuation ratio: it reads the close and the statements of each session together.
+  const valuationOperands = new Map<OperandKey, ValuationRatioId>();
   for (const key of operands) {
     if (key === PRICE_OPERAND) {
       continue;
     }
     if (operandAlternativeDataMetric(key)) {
       alternativeOperands.push(key);
+      continue;
+    }
+    const valuationRatio = operandValuationRatioId(key);
+    if (valuationRatio !== null) {
+      valuationOperands.set(key, valuationRatio);
       continue;
     }
     readers.set(key, columnReaderFor(key));
@@ -155,6 +181,26 @@ export function projectEvaluationFrame(input: {
         facts,
       }),
     );
+  }
+
+  if (valuationOperands.size > 0) {
+    if (!input.valuation) {
+      throw new Error(
+        `Evaluation frame for ${security.symbol} requested valuation ratios without their inputs`,
+      );
+    }
+    const ratioColumns = valuationRatioColumns({
+      timeline: input.valuation.timeline,
+      dates,
+      closes,
+      ratios: [...new Set(valuationOperands.values())],
+      ...(input.valuation.statementDateOf
+        ? { statementDateOf: input.valuation.statementDateOf }
+        : {}),
+    });
+    for (const [key, ratio] of valuationOperands) {
+      columns.set(key, ratioColumns.get(ratio) as Float64Array);
+    }
   }
 
   let periodStartIndex = dates.length;

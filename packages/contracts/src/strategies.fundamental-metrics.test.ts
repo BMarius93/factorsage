@@ -907,7 +907,11 @@ describe("explaining a Fundamental Metric", () => {
 
   it("leaves every other metric's help exactly as its kind's entry", () => {
     for (const option of strategyMetricOptions("SELL")) {
-      if (option.metric.kind === "FUNDAMENTAL") {
+      // A Valuation Ratio leads with its own summary too (`strategies.valuation-ratios.test.ts`).
+      if (
+        option.metric.kind === "FUNDAMENTAL" ||
+        option.metric.kind === "VALUATION_RATIO"
+      ) {
         continue;
       }
       expect(strategyMetricHelp(option.metric)).toBe(

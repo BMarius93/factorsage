@@ -34,7 +34,8 @@ Read `ai/README.md` before substantial work.
    `docs/development/adding-a-calculated-series.md` to add one. The one scoped exception is the
    valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA): by the owner's decision they are never
    persisted per session and are projected when read, as Margin of Safety is, from stored prices,
-   point-in-time statements and measured re-bases (`docs/decisions/valuation-ratios-v1.md`).
+   point-in-time statements, measured re-bases and the provider's split list
+   (`docs/decisions/valuation-ratios-v1.md`).
 10. `maximumPositions` belongs to a Backtest execution, not a Strategy. A full-position fraction is
     derived as `1 / maximumPositions`; do not introduce a user-entered max-allocation percentage.
 11. Strategy signal semantics are defined in `ai/product/strategies.md`. Keep Strategy, Stock List,
@@ -226,6 +227,18 @@ Read `ai/README.md` before substantial work.
     group scope from the snapshot and never from the database. Do not add insider person groups, a
     semantic or historical group, or a second FMP gate: ingestion goes through the one
     `RedisFmpRequestGate` like every other provider read.
+24. Valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA) are correct or unavailable, from FMP's data
+    alone: V1 has no second market-data provider and no historical distribution factor `Φ`, and
+    `docs/decisions/valuation-ratios-v1.md` is the source of truth. A known or detected unsafe
+    price-basis period — from FMP's split list or a re-base the loader measured — is unavailable,
+    and an unavailable ratio makes a Condition not match. **Accepted V1 limitation** (owner,
+    2026-10-02): a basis-changing event that FMP does not report and FactorSage cannot otherwise
+    detect escapes those rules, and the ratios before it are biased. MMM's Solventum spin-off
+    (2024-04-01) is the known case: MMM's valuation history before it reads about 16.4 % low. It is
+    accepted for V1, not correct. Do not special-case a security, add insider prices or another
+    provider, reconstruct `Φ`, add a confidence framework, withhold history before verification, or
+    build detection for it in unrelated work; independent detection of provider-unreported events
+    is a later enhancement, not a V1 blocker.
 
 ## Dependency rules
 

@@ -46,6 +46,13 @@ import {
   type SelectableSeriesId,
   type SelectableSeriesSource,
 } from "./selectable-series.js";
+import {
+  findValuationRatio,
+  isValuationRatioId,
+  VALUATION_RATIO_CATALOG,
+  type ValuationRatioCatalogEntry,
+  type ValuationRatioId,
+} from "./valuation-ratios.js";
 
 /**
  * The one canonical Strategy model: its types, its Metric/Condition/Trigger/Value compatibility
@@ -140,6 +147,9 @@ export function relativeVolumeLabel(period: RelativeVolumePeriod): string {
  * A **Fundamental Metric** is one kind for all fifteen, parameterized by the stable identity of the
  * product catalog (`fundamental-metrics.ts`). The identity is the whole of it: no label, group or
  * storage field is ever stored in the document, and there is no configuration to edit.
+ *
+ * A **Valuation Ratio** is the same shape for the five ratios of `valuation-ratios.ts`, keyed by
+ * `ratioId`: `P/E is below 15` names the ratio and nothing about how its availability is decided.
  */
 export type StrategyMetric =
   | { kind: "PRICE" }
@@ -147,6 +157,7 @@ export type StrategyMetric =
   | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId }
   | { kind: "RELATIVE_VOLUME"; period: RelativeVolumePeriod }
   | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }
+  | { kind: "VALUATION_RATIO"; ratioId: ValuationRatioId }
   | { kind: "FUNDAMENTAL"; metricId: FundamentalMetricId }
   | { kind: "GAIN" }
   | { kind: "LOSS" }
@@ -168,6 +179,7 @@ export const STRATEGY_METRIC_KINDS = [
   "OSCILLATOR",
   "RELATIVE_VOLUME",
   "MARGIN_OF_SAFETY",
+  "VALUATION_RATIO",
   "FUNDAMENTAL",
   "GAIN",
   "LOSS",
@@ -181,7 +193,7 @@ export const STRATEGY_METRIC_KINDS = [
  * `SERIES` compares against another canonical series; `NUMBER` is a plain user-entered threshold
  * (RSI); `PERCENT` is a user-entered percentage in percentage points (Margin of Safety, Gain, Loss,
  * the percentage Fundamental Metrics); `MULTIPLE` is a user-entered raw multiple (Relative Volume,
- * the ratio Fundamental Metrics). The distinction between them is a unit,
+ * the ratio Fundamental Metrics, the Valuation Ratios). The distinction between them is a unit,
  * which is what lets one renderer print `30`, `25%` and `2x` without a per-metric formatting rule
  * in feature code.
  */
@@ -501,6 +513,15 @@ export type StrategyMetricDefinition = StrategyMetricDefinitionBase &
         valueSource: "FUNDAMENTAL_METRIC";
         value?: never;
       }
+    | {
+        /**
+         * Values resolve from the selected Valuation Ratio's own catalog entry: always a `MULTIPLE`,
+         * floored at zero where the ratio's mathematics is, so `P/E` and `EV/EBITDA` share a kind
+         * and take different Values.
+         */
+        valueSource: "VALUATION_RATIO";
+        value?: never;
+      }
     | { valueSource?: undefined; value: StrategyValueSpec }
   );
 
@@ -604,6 +625,24 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
      * margin simply means price exceeds intrinsic value, which is a legitimate rule.
      */
     value: { kind: "PERCENT", max: 100 },
+    allowedIn: ALL_LEVEL_KINDS,
+  },
+  /**
+   * The five Valuation Ratios, one kind instantiated once per catalog entry by `instancesOf`, beside
+   * Margin of Safety in the Valuation category.
+   *
+   * Like the Fundamental Metrics it carries no `label` and takes the strict comparison pair, and its
+   * `triggerOperators` is empty: `docs/decisions/valuation-ratios-v1.md` makes the ratios Condition
+   * metrics in V1, and a Monitor's own not-matched -> matched transition already raises a Signal on
+   * the session `P/E is below 15` first holds. The Value comes from the ratio's catalog entry — see
+   * `VALUATION_RATIO` above.
+   */
+  VALUATION_RATIO: {
+    kind: "VALUATION_RATIO",
+    category: "VALUATION",
+    conditionOperators: COMPARISON_OPERATORS,
+    triggerOperators: [],
+    valueSource: "VALUATION_RATIO",
     allowedIn: ALL_LEVEL_KINDS,
   },
   /**
@@ -733,6 +772,21 @@ function fundamentalMetricValueSpec(
 }
 
 /**
+ * The permitted Values for one Valuation Ratio: a raw multiple, floored at zero where the ratio's own
+ * mathematics is and otherwise any finite number. The `step` is the Builder input's increment, as for
+ * every multiple; validation requires none, so `P/E is below 14.5` is as valid as `15`.
+ */
+function valuationRatioValueSpec(
+  entry: ValuationRatioCatalogEntry,
+): StrategyValueSpec {
+  return {
+    kind: "MULTIPLE",
+    ...(entry.minimum === undefined ? {} : { min: entry.minimum }),
+    step: 0.1,
+  };
+}
+
+/**
  * The catalog id a Metric is parameterized with, or `undefined` for the metrics that take none.
  *
  * One accessor so no caller switches on `seriesId` versus `sourceId` itself.
@@ -779,6 +833,8 @@ export function strategyMetricKey(metric: StrategyMetric): string {
       return `${metric.kind}:${metric.period}`;
     case "FUNDAMENTAL":
       return `${metric.kind}:${metric.metricId}`;
+    case "VALUATION_RATIO":
+      return `${metric.kind}:${metric.ratioId}`;
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
       return `${metric.kind}:${metric.seriesId}`;
@@ -853,6 +909,16 @@ export function valueSpecFor(metric: StrategyMetric): StrategyValueSpec {
       : // Unreachable for a validated metric: an identity the catalog does not define is refused
         // before any Value is judged. A renderer of a drifted document still gets a spec, not a throw.
         { kind: "PERCENT" };
+  }
+  if (definition.valueSource === "VALUATION_RATIO") {
+    const entry =
+      metric.kind === "VALUATION_RATIO"
+        ? findValuationRatio(metric.ratioId)
+        : undefined;
+    return entry
+      ? valuationRatioValueSpec(entry)
+      : // Unreachable for a validated metric, exactly as for a Fundamental Metric above.
+        { kind: "MULTIPLE", step: 0.1 };
   }
   return definition.value;
 }
@@ -983,6 +1049,9 @@ function instantiateMetric(
     case "FUNDAMENTAL":
       // Parameterized by a Fundamental Metric identity, never by a catalog series id.
       throw new Error("FUNDAMENTAL is not parameterized by a series id");
+    case "VALUATION_RATIO":
+      // Parameterized by a Valuation Ratio identity, never by a catalog series id.
+      throw new Error("VALUATION_RATIO is not parameterized by a series id");
     case "PRICE":
       return { kind: "PRICE" };
     case "GAIN":
@@ -1018,6 +1087,13 @@ function instancesOf(kind: StrategyMetricKind): readonly StrategyMetric[] {
     return FUNDAMENTAL_METRIC_CATALOG.map((entry) => ({
       kind,
       metricId: entry.id,
+    }));
+  }
+  if (kind === "VALUATION_RATIO") {
+    // One option per catalog entry, in the catalog's canonical order.
+    return VALUATION_RATIO_CATALOG.map((entry) => ({
+      kind,
+      ratioId: entry.id,
     }));
   }
   const definition = STRATEGY_METRIC_DEFINITIONS[kind];
@@ -1256,6 +1332,9 @@ export function strategyMetricLabel(metric: StrategyMetric): string {
       // The raw identity for a drifted document, exactly as `seriesLabel` does: validation rejects it,
       // and a preview that threw would hide the rule that needs fixing.
       return findFundamentalMetric(metric.metricId)?.label ?? metric.metricId;
+    case "VALUATION_RATIO":
+      // `P/E`, `EV/EBITDA`: the catalog label alone, and the raw identity for a drifted document.
+      return findValuationRatio(metric.ratioId)?.label ?? metric.ratioId;
     case "PRICE":
     case "GAIN":
     case "LOSS":
@@ -1756,6 +1835,23 @@ export const STRATEGY_METRIC_HELP: Record<
       "The point-in-time intrinsic value for the date is zero or negative. The ratio is undefined at zero and sign-inverted below it, so it is reported as not evaluable rather than as a large margin of safety.",
   },
   /**
+   * The help all five Valuation Ratios share. `strategyMetricHelp` puts each ratio's own summary and
+   * formula, from its catalog entry, in front of it, so nothing here names one ratio.
+   */
+  VALUATION_RATIO: {
+    summary:
+      "What the market pays for the company, as a multiple of what its reported statements show.",
+    detail:
+      "Market capitalisation is the session's close times the diluted share count of the latest reported quarter. Every value is point-in-time: on each trading day it uses that day's close and only the statements that were public by then. It is a condition only; a monitor already raises a signal on the session a condition first holds, so there is no crossing form.",
+    notes: [
+      "A raw multiple, not a percentage: a rule set at 15x compares with 15.",
+      "TTM is the latest four consecutive reported fiscal quarters, summed. Equity and net debt are from the latest reported balance sheet.",
+      "Around a corporate action the data cannot place on one basis, such as a spin-off, a ratio is unavailable rather than estimated. A distribution the data provider does not record cannot be seen, and before one a ratio can read low.",
+    ],
+    notEvaluableWhen:
+      "The statements cannot support a value on that date — a missing quarter or line item, a denominator that is not positive, or statements in a currency other than the stock's — or the price and the share count cannot be put on one basis around a corporate action. It is then unavailable, never zero, and a condition on it never matches.",
+  },
+  /**
    * The help all fifteen Fundamental Metrics share. `strategyMetricHelp` puts each metric's own
    * summary and formula, from its catalog entry, in front of it, so nothing here names one metric.
    */
@@ -1857,11 +1953,18 @@ const FUNDAMENTAL_UNIT_NOTES = {
  *
  * The entry of the metric's kind, except that a Fundamental Metric leads with its own summary and
  * formula from the product catalog and a note on its unit — one help entry for the kind would
- * otherwise describe ROIC and Debt / Equity in the same words. Every surface reads this, so the
- * explanation of a metric is never assembled in feature code.
+ * otherwise describe ROIC and Debt / Equity in the same words — and a Valuation Ratio with its own
+ * summary and formula. Every surface reads this, so the explanation of a metric is never assembled in
+ * feature code.
  */
 export function strategyMetricHelp(metric: StrategyMetric): StrategyHelpEntry {
   const shared = STRATEGY_METRIC_HELP[metric.kind];
+  if (metric.kind === "VALUATION_RATIO") {
+    const ratio = findValuationRatio(metric.ratioId);
+    return ratio
+      ? { ...shared, summary: ratio.summary, formula: ratio.formula }
+      : shared;
+  }
   if (metric.kind !== "FUNDAMENTAL") {
     return shared;
   }
@@ -2037,6 +2140,8 @@ export const STRATEGY_VALIDATION_CODES = [
   "METRIC_PERIOD_UNSUPPORTED",
   /** A Fundamental Metric named an identity the product catalog does not define. */
   "FUNDAMENTAL_METRIC_UNSUPPORTED",
+  /** A Valuation Ratio named an identity the product catalog does not define. */
+  "VALUATION_RATIO_UNSUPPORTED",
   /** The metric exists, but not in the part of a Signal the document used it in. */
   "METRIC_NOT_ALLOWED_IN_PART",
   "OPERATOR_NOT_SUPPORTED",
@@ -2131,6 +2236,7 @@ const METRIC_KEYS: Record<StrategyMetricKind, readonly string[]> = {
   MARGIN_OF_SAFETY: ["kind", "sourceId"],
   // The identity and nothing else: a label, group, unit or storage field smuggled beside it is refused.
   FUNDAMENTAL: ["kind", "metricId"],
+  VALUATION_RATIO: ["kind", "ratioId"],
   GAIN: ["kind"],
   LOSS: ["kind"],
   INSIDER_ACTIVITY: ["kind", "measure", "lookback", "roles"],
@@ -2547,6 +2653,19 @@ function parseMetric(
       }
       return { kind: "FUNDAMENTAL", metricId };
     }
+    case "VALUATION_RATIO": {
+      // Exactly as for a Fundamental Metric: an identity the catalog defines, matched exactly.
+      const ratioId = raw.ratioId;
+      if (!isValuationRatioId(ratioId)) {
+        issues.add(
+          "VALUATION_RATIO_UNSUPPORTED",
+          path,
+          `\`${String(ratioId)}\` is not a valuation ratio this product offers.`,
+        );
+        return undefined;
+      }
+      return { kind: "VALUATION_RATIO", ratioId };
+    }
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
       return parseAlternativeDataMetric(kind, raw, path, issues);
@@ -2795,6 +2914,8 @@ function predicateMetricKey(metric: StrategyMetric): string {
       return String(metric.period);
     case "FUNDAMENTAL":
       return metric.metricId;
+    case "VALUATION_RATIO":
+      return metric.ratioId;
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
       return metric.seriesId;
@@ -3396,6 +3517,8 @@ function buildMetric(metric: StrategyMetric): StrategyMetric {
       return { kind: "RELATIVE_VOLUME", period: metric.period };
     case "FUNDAMENTAL":
       return { kind: "FUNDAMENTAL", metricId: metric.metricId };
+    case "VALUATION_RATIO":
+      return { kind: "VALUATION_RATIO", ratioId: metric.ratioId };
     case "PRICE":
       return { kind: "PRICE" };
     case "GAIN":
@@ -3643,7 +3766,7 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
     //
     // A Fundamental Metric carries its catalog identity there from its first day, so `ROIC TTM` and
     // `ROE TTM` can never share a definition hash or a Monitor latch — and, the kind being new, no
-    // stored hash moves.
+    // stored hash moves. A Valuation Ratio does the same with its `ratioId`.
     //
     // Exhaustive, with no fallback: a kind parameterized by something new must choose its
     // serialization here or fail to compile, rather than silently collapse into `[kind, null]`.
@@ -3652,6 +3775,8 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
         return [input.kind, null, input.period];
       case "FUNDAMENTAL":
         return [input.kind, null, input.metricId];
+      case "VALUATION_RATIO":
+        return [input.kind, null, input.ratioId];
       case "INSIDER_ACTIVITY":
       case "CONGRESS_ACTIVITY":
         return [input.kind, null, alternativeDataMetricSignature(input)];

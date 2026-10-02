@@ -13,6 +13,7 @@ import {
   alternativeDataOperand,
   fundamentalMetricOperand,
   relativeVolumeOperand,
+  valuationRatioOperand,
 } from "@intrinsic/strategy";
 import type { InvariantResult } from "./matrix-invariants";
 
@@ -100,6 +101,9 @@ function metricSeries(
       // whether the evaluator was entitled to its trade given the frame it consumed. Through the
       // canonical builder, because a hand-encoded key is how a column goes silently missing.
       return column(frame, fundamentalMetricOperand(metric.metricId));
+    case "VALUATION_RATIO":
+      // Read, never re-derived, exactly as a Fundamental Metric is: the column the evaluator consumed.
+      return column(frame, valuationRatioOperand(metric.ratioId));
     case "GAIN":
     case "LOSS":
       // Position-dependent: not decidable from a frame, and forbidden in a BUY Signal anyway.

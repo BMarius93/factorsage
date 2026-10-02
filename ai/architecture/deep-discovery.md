@@ -736,7 +736,14 @@ their own basis after a re-base). `../../docs/decisions/valuation-ratios-v1.md` 
 session and withholds the sessions FMP's split list or a measured re-base leaves unsafe. FMP's
 split list catches five of the six known securities; MMM's 2024 adjustment is in no FMP metadata
 (splits, dividend factors and dividend yields were checked), so MMM's history before it stays 16.4 %
-low and is an open owner decision. Margin of Safety's historical bias is disclosed, not fixed.
+low. Margin of Safety's historical bias is disclosed, not fixed.
+
+**Follow-up (2026-10-02): an accepted V1 limitation.** The owner accepted MMM's case for V1: a
+basis-changing event FMP does not report and FactorSage cannot otherwise detect escapes the
+valuation rules, and the ratios before it read biased. It is recorded in
+`../../docs/decisions/valuation-ratios-v1.md` ("Accepted V1 limitation") so that it is neither
+rediscovered as a defect nor fixed in passing; independent detection of such events is a later
+enhancement.
 
 ---
 
