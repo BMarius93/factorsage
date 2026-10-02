@@ -978,6 +978,25 @@ describe("valuation ratios: each masking rule in isolation", () => {
       ).toBeNaN();
     });
 
+    it("is a restatement only beyond 2 %, judged on the reported figures, not their doubles", () => {
+      // 100 restated to exactly 102 or 98 differs by 2 %, not by more: nothing needs explaining,
+      // although 102 / 100 - 1 is 0.020000000000000018 in doubles.
+      expect(pb(102, [])).toBeCloseTo((10 * 102) / 400, 12);
+      expect(pb(98, [])).toBeCloseTo((10 * 98) / 400, 12);
+      expect(pb(102.0001, [])).toBeNaN();
+      expect(pb(97.9999, [])).toBeNaN();
+      // 204 and 196 are exactly 2 % from a measured 2:1 re-base, which explains them; 204.01 is not.
+      const split = [
+        twoForOne({
+          effectiveDate: "2025-05-12",
+          detectedAt: "2025-05-13T12:00:00.000Z",
+        }),
+      ];
+      expect(pb(204, split)).toBeCloseTo((10 * 204) / 400, 12);
+      expect(pb(196, split)).toBeCloseTo((10 * 196) / 400, 12);
+      expect(pb(204.01, split)).toBeNaN();
+    });
+
     it("needs a re-base even when it is too small for the share level to notice", () => {
       // An 11:10 stock dividend restated with no re-base behind it: within rule 2's 25 %.
       expect(pb(110, [])).toBeNaN();

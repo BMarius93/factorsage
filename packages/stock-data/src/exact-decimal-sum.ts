@@ -26,6 +26,42 @@ export function exactDecimalSum(values: readonly number[]): number {
   return Number(`${total}e${exponent}`);
 }
 
+/**
+ * Whether `|value − reference| <= tolerance × reference` for a positive `reference` given as a
+ * product of factors, exactly, on every number's shortest round-trip decimal form — as a sum is
+ * read above. A threshold a rule states is then judged on the figures reported, not on their
+ * binary approximations: `102 / 100 - 1` is `0.020000000000000018` in doubles, which would make a
+ * restatement of exactly 2 % read as more than 2 %.
+ */
+export function exactlyWithinFraction(
+  value: number,
+  reference: readonly number[],
+  tolerance: number,
+): boolean {
+  const target = decimalParts(value);
+  const allowance = decimalParts(tolerance);
+  let coefficient = 1n;
+  let exponent = 0;
+  for (const factor of reference) {
+    const part = decimalParts(factor);
+    coefficient *= part.coefficient;
+    exponent += part.exponent;
+  }
+  const base = Math.min(
+    target.exponent,
+    exponent,
+    allowance.exponent + exponent,
+  );
+  const scaled = (part: bigint, partExponent: number) =>
+    part * 10n ** BigInt(partExponent - base);
+  const difference =
+    scaled(target.coefficient, target.exponent) - scaled(coefficient, exponent);
+  return (
+    (difference < 0n ? -difference : difference) <=
+    scaled(allowance.coefficient * coefficient, allowance.exponent + exponent)
+  );
+}
+
 /** A finite double as `coefficient × 10^exponent`, from its shortest round-trip decimal form. */
 function decimalParts(value: number): {
   coefficient: bigint;

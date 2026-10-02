@@ -16,7 +16,7 @@ import {
   type StockSplit,
 } from "@intrinsic/domain";
 import { addDays } from "./dates.js";
-import { exactDecimalSum } from "./exact-decimal-sum.js";
+import { exactDecimalSum, exactlyWithinFraction } from "./exact-decimal-sum.js";
 import {
   indexFiscalQuarters,
   isFiscalQuarterPeriod,
@@ -59,7 +59,8 @@ import {
  *
  * - 1: the five ratios, rules 1–8.
  * - 2: rules 4, 5 and 8 read an undated re-base on the days it may lie on, never on its interval's
- *   exclusive start (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
+ *   exclusive start; rule 3's 2 % thresholds are judged exactly on the reported figures (the
+ *   independent audit, `docs/valuation-ratios-audit/REPORT.md`).
  */
 export const VALUATION_RATIO_REVISION = 2;
 
@@ -513,9 +514,12 @@ function usableShares(input: {
   if (
     previousShares !== undefined &&
     previousShares > 0 &&
-    Math.abs(shares / previousShares - 1) > SHARE_RESTATEMENT_TOLERANCE
+    !exactlyWithinFraction(
+      shares,
+      [previousShares],
+      SHARE_RESTATEMENT_TOLERANCE,
+    )
   ) {
-    const restatement = shares / previousShares;
     // The re-base must be new to the previous revision — detected or dated after it was observed,
     // and dated less than rule 5's month before it — and known by the time `R` was observed. An
     // older re-base of the same ratio explains nothing, even when the first verification measures
@@ -532,8 +536,12 @@ function usableShares(input: {
         (detected > Date.parse(previousObserved) ||
           date > previousObservedDate) &&
         previousObservedDate < addDays(date, EVENT_SETTLING_DAYS) &&
-        Math.abs(restatement / (event.priceRatio as number) - 1) <=
-          SHARE_RESTATEMENT_TOLERANCE
+        // The restatement within 2 % of the ratio: |shares − ratio × previous| <= 2 % of the latter.
+        exactlyWithinFraction(
+          shares,
+          [event.priceRatio as number, previousShares],
+          SHARE_RESTATEMENT_TOLERANCE,
+        )
       );
     });
     if (!explained) {
