@@ -1002,6 +1002,46 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     ],
   },
   {
+    id: "C18d",
+    covers: [18],
+    title:
+      "revision order: a later observation wins over a later period end at the same availability",
+    // Two 2024Q4 Income revisions available 2025-03-03, like the original: "x" observed 2026-09-01
+    // with a moved period end 2025-01-03 and NI 20, "y" observed a day later with the original
+    // period end and NI 16. The order is availability, then observation, and the period end only
+    // between rows of one observation: y represents the quarter. NI 8 + 9 + 11 + 16 = 44, P/E
+    // 120/44 = 30/11 (x would give 120/48 = 5/2); the other ratios as of 2024Q4.
+    security: company({
+      statements: revision(
+        revision(
+          baseStatements(),
+          "INCOME",
+          "2024Q4",
+          {
+            observedAt: "2026-09-01T12:00:00.000Z",
+            fiscalDate: "2025-01-03",
+            values: { netIncome: 20 },
+          },
+          "x",
+        ),
+        "INCOME",
+        "2024Q4",
+        {
+          observedAt: "2026-09-02T12:00:00.000Z",
+          values: { netIncome: 16 },
+        },
+        "y",
+      ),
+    }),
+    observations: [
+      {
+        session: "2025-03-03",
+        close: CLOSE,
+        expect: { ...AS_OF_2024Q4, PE: "30/11" },
+      },
+    ],
+  },
+  {
     id: "C19",
     covers: [19],
     title: "every statement in another currency than the listing",
@@ -1940,6 +1980,36 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     }),
     observations: [
       { session: "2025-08-14", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "C39e",
+    covers: [39],
+    title:
+      "a count for a quarter that ends after the event is the company's own: observed within the month, it is not settling",
+    // Filings observed when available, 2025Q2's (period end 2025-06-30) moved to Monday 2025-07-21.
+    // A plain 2:1 entry on 2025-06-27, history. Before 2025-07-21 R is 2025Q1, observed 2025-05-15,
+    // before the entry: rule 4.2. On 2025-07-21 R is 2025Q2, observed 24 days after the entry, but
+    // its quarter ended after it, so rule 5 does not hold it: the readings as of 2025Q2.
+    security: company({
+      statements: baseStatements(observedWhenAvailable).map((statement) =>
+        statement.fiscalDate === "2025-06-30"
+          ? {
+              ...statement,
+              availableFromDate: "2025-07-21",
+              observedAt: "2025-07-21T12:00:00.000Z",
+            }
+          : statement,
+      ),
+      splits: [split("2025-06-27", "2", "1")],
+    }),
+    observations: [
+      {
+        session: "2025-07-18",
+        close: CLOSE,
+        expect: all("COUNT_PREDATES_HISTORICAL_ENTRY"),
+      },
+      { session: "2025-07-21", close: CLOSE, expect: AS_OF_2025Q2 },
     ],
   },
   {
