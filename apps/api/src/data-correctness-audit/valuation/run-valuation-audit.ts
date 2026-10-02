@@ -277,7 +277,13 @@ async function http(): Promise<void> {
   const prisma = new PrismaClient({ datasources: { db: { url } } });
   const tally = new ComparisonTally();
   const statuses: Record<string, number> = {};
-  const refused: { symbol: string; ratio: string; status: number }[] = [];
+  const refused: {
+    symbol: string;
+    ratio: string;
+    status: number;
+    /** A verified security has no reason to be refused: such a refusal fails the run. */
+    verified: boolean;
+  }[] = [];
   let rowsChecked = 0;
   let dateMismatches = 0;
   const sessionDifferences: {
@@ -340,7 +346,12 @@ async function http(): Promise<void> {
         );
         statuses[response.status] = (statuses[response.status] ?? 0) + 1;
         if (response.status !== 200) {
-          refused.push({ symbol: rows.symbol, ratio, status: response.status });
+          refused.push({
+            symbol: rows.symbol,
+            ratio,
+            status: response.status,
+            verified: rows.security.verifiedAt !== null,
+          });
           continue;
         }
         const body = (await response.json()) as {
@@ -402,7 +413,8 @@ async function http(): Promise<void> {
     tally.total("FALSE_AVAILABLE") +
     tally.total("FALSE_UNAVAILABLE") +
     tally.total("VALUE_MISMATCH") +
-    dateMismatches;
+    dateMismatches +
+    refused.filter((read) => read.verified).length;
   console.log(
     `http: ${tally.total()} cells, ${failed} failed, statuses ${JSON.stringify(statuses)}`,
   );
