@@ -361,7 +361,9 @@ Deferred, measured opportunities:
 
 **Headroom for the valuation ratios.** Four more daily-changing numeric columns were appended to real
 and synthetic chunks, with a value on every session. That is the size of P/E, P/S, P/FCF and
-EV/EBITDA, and it is a benchmark-only simulation: no product field exists.
+EV/EBITDA, and it is a benchmark-only simulation: no product field exists. (The owner later decided
+that valuation ratios are not stored per session at all; `valuation-ratios-v1.md` projects them when
+read. The measurement stays as the cost that decision avoids.)
 
 - On real securities it adds 0.47 MB per security on average (0.59 MB row-oriented).
 - The realistic worst case becomes 5.16 MiB per security: 0.54 GB at 100 residents, and about 369

@@ -85,20 +85,23 @@ same document.
 revision, `PRICE_DATASET_VERSION`, documented in `../docs/decisions/complete-price-coverage.md`;
 bumping one does not invalidate the other.
 
-Read `../docs/decisions/historical-price-basis-v1.md` (status: proposed, blocked for history)
-before any of these:
+Read `../docs/decisions/historical-price-basis-v1.md` before any of these:
 
 - work that compares a price with a share count or a per-share figure: Margin of Safety, a price
   against an intrinsic value, valuation ratios;
 - work on how the loader re-reads prices after a split or spin-off.
 
-It defines the research, as-traded and split-adjusted closes, and it explains why the stored
-close alone is right for charts, indicators and backtests but not for share-derived comparisons.
+It defines the research and as-traded closes, explains why the stored close alone is right for
+charts, indicators and backtests but not for share-derived comparisons, and specifies PR 1: re-base
+detection, single-transaction replacement, measured re-bases, the price-basis generation, the
+ex-date hold and the basis factor `K`. V1 is FMP-only (owner, 2026-10-01): no second provider and no
+historical distribution factor `Φ`, so Margin of Safety's historical bias is disclosed, not fixed.
 
 For valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA), read
-`../docs/decisions/valuation-ratios-v1.md` as well. It is their canonical architecture: a
-valuation anchor frozen when a point-in-time statement becomes available, carried by research-price
-returns until the next one, with `Φ` only for historical anchors.
+`../docs/decisions/valuation-ratios-v1.md` as well. It is their canonical V1 design: computed per
+session from the research close, the share count and point-in-time TTM inputs, never stored, and
+**unavailable** wherever FMP's split list or a measured re-base leaves the price basis unsafe. An
+unavailable ratio makes a Condition not match.
 
 For the Dashboard's market-overview cards, the market-reference index series or anything that
 touches which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the

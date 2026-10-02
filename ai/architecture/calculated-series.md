@@ -566,9 +566,10 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
 - **MACD, volatility and valuation ratios (`P/E`, `P/S`, `P/FCF`, `EV/EBITDA`)** — no such series
   exists. (The daily RSI family is implemented; it is the first oscillator, not a template for
   storing multi-output families like MACD. The statement-derived growth, margin, return, leverage,
-  liquidity, coverage and turnover ratios are the Fundamental Metrics above.) Valuation ratios are
-  **designed, not built**: `../../docs/decisions/valuation-ratios-v1.md` (proposed). The design
-  projects their values from append-only valuation anchors carried by research-price returns, as
-  Margin of Safety is projected from stored intrinsic values, and stores nothing per session. That
-  is an exception to the wide-column rule: it holds only if the owner accepts the amendment of
-  invariant 9 that their implementation must make. Until then, the wide-column rule applies.
+  liquidity, coverage and turnover ratios are the Fundamental Metrics above.) Valuation ratios
+  (`P/E`, `P/S`, `P/B`, `P/FCF`, `EV/EBITDA`) are **not stored per session**, by the owner's
+  decision: `../../docs/decisions/valuation-ratios-v1.md` projects them when they are read, from the
+  stored close, point-in-time statements and the measured re-bases of
+  `../../docs/decisions/historical-price-basis-v1.md`, as Margin of Safety is projected from stored
+  intrinsic values. That is the one scoped exception AGENTS.md invariant 9 records; every other
+  calculated daily series stays an explicit column.

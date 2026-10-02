@@ -7,6 +7,11 @@ investigated on 2026-09-30. This is the evidence behind
 Sections 8 and 9, added on 2026-10-01, are the evidence behind the valuation-ratio architecture in
 `docs/decisions/valuation-ratios-v1.md`.
 
+**Superseded conclusions (2026-10-01, evening).** The owner decided V1 is FMP-only. The external
+reference (§6–7) and the frozen valuation anchors (§9) are therefore not built; the measurements here
+are kept as the reason V1 withholds what FMP cannot vouch for. The current decisions are
+`docs/decisions/historical-price-basis-v1.md` and `docs/decisions/valuation-ratios-v1.md`.
+
 No product code was written. Every provider request was a read with the local key. Nothing the
 provider returned is committed in bulk: `evidence/` holds summaries, ratios and a handful of
 quoted values.

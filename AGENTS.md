@@ -31,7 +31,10 @@ Read `ai/README.md` before substantial work.
    Calculated series are stored as explicit PostgreSQL columns — see
    `docs/decisions/retain-wide-column-calculated-series-storage.md` for the accepted decision,
    `ai/architecture/calculated-series.md` for how it is implemented, and
-   `docs/development/adding-a-calculated-series.md` to add one.
+   `docs/development/adding-a-calculated-series.md` to add one. The one scoped exception is the
+   valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA): by the owner's decision they are never
+   persisted per session and are projected when read, as Margin of Safety is, from stored prices,
+   point-in-time statements and measured re-bases (`docs/decisions/valuation-ratios-v1.md`).
 10. `maximumPositions` belongs to a Backtest execution, not a Strategy. A full-position fraction is
     derived as `1 / maximumPositions`; do not introduce a user-entered max-allocation percentage.
 11. Strategy signal semantics are defined in `ai/product/strategies.md`. Keep Strategy, Stock List,
