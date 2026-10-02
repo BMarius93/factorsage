@@ -55,6 +55,8 @@ export type OracleRows = {
   coverageEnd: LocalDate;
   /** Where the durable price coverage ending at `coverageEnd` begins. */
   coverageStart: LocalDate;
+  /** The security's listing date from the provider's profile, when known. */
+  listingDate: LocalDate | null;
   /** The fundamentals retention's first fiscal period end (see `readOracleRows`). */
   retentionFrom: LocalDate;
   /** Stored statement revisions outside the retention, counted and never read. */
@@ -187,6 +189,7 @@ export async function readOracleRows(
     currency: identity.currency,
     coverageEnd,
     coverageStart: identity.coverage_start ?? (prices[0]?.date as string),
+    listingDate: identity.ipo_date,
     retentionFrom,
     outsideRetention: statements.length - retained.length,
     security: {
@@ -238,6 +241,17 @@ export type RealDataAudit = {
   >;
   /** Securities a production read refused, with why (a provider request it needed, and so on). */
   refusedReads: { symbol: string; layer: RealDataLayer; error: string }[];
+  /**
+   * Reads whose sessions were not exactly the stored sessions of the range read (from the listing
+   * date on): a layer that left a session out, or added one, without either being a cell.
+   */
+  sessionMismatches: {
+    symbol: string;
+    layer: RealDataLayer;
+    range: { from: LocalDate; to: LocalDate };
+    missing: LocalDate[];
+    extra: LocalDate[];
+  }[];
   providerCalls: string[];
   /** Per security and ratio: the reference's unavailable intervals, for the event regression set. */
   intervals: Map<string, Record<OracleValuationRatioId, UnavailableInterval[]>>;
@@ -253,6 +267,8 @@ export type RealDataAudit = {
       serviceFrom: LocalDate;
       /** Where the `pure` layer's timeline came from. */
       pureTimeline: "prepared" | "store";
+      /** Whether the stored price history was ever verified (rule 0). */
+      verified: boolean;
       retentionFrom: LocalDate;
       outsideRetention: number;
     }
@@ -348,6 +364,7 @@ export async function auditRealData(input: {
     REAL_DATA_LAYERS.map((layer) => [layer, 0]),
   );
   const refusedReads: RealDataAudit["refusedReads"] = [];
+  const sessionMismatches: RealDataAudit["sessionMismatches"] = [];
   const divergences: RealDataAudit["divergences"] = new Map();
   const intervals: RealDataAudit["intervals"] = new Map();
   const readings: RealDataAudit["readings"] = new Map();
@@ -465,6 +482,37 @@ export async function auditRealData(input: {
           refused(layer, error);
         }
       };
+      // Every product read must answer exactly the stored sessions of its range, from the listing
+      // date on (`complete-price-coverage.md`, `LISTING`): a session left out is no cell at all.
+      const storedIn = (from: LocalDate, to: LocalDate) =>
+        rows.sessions
+          .filter(
+            (session) =>
+              session.date >= from &&
+              session.date <= to &&
+              (rows.listingDate === null || session.date >= rows.listingDate),
+          )
+          .map((session) => session.date);
+      const checkSessions = (
+        layer: RealDataLayer,
+        range: { from: LocalDate; to: LocalDate },
+        answered: readonly LocalDate[],
+        expected: readonly LocalDate[] = storedIn(range.from, range.to),
+      ) => {
+        const got = new Set(answered);
+        const want = new Set(expected);
+        const missing = expected.filter((date) => !got.has(date));
+        const extra = answered.filter((date) => !want.has(date));
+        if (missing.length > 0 || extra.length > 0) {
+          sessionMismatches.push({
+            symbol: rows.symbol,
+            layer,
+            range,
+            missing: missing.slice(0, 20),
+            extra: extra.slice(0, 20),
+          });
+        }
+      };
 
       // The service layers read what is durably covered without the provider: the whole horizon
       // where the coverage reaches the retention start or the listing, otherwise from the first
@@ -536,6 +584,7 @@ export async function auditRealData(input: {
         available,
         serviceFrom,
         pureTimeline,
+        verified: rows.security.verifiedAt !== null,
         retentionFrom: rows.retentionFrom,
         outsideRetention: rows.outsideRetention,
       });
@@ -574,6 +623,11 @@ export async function auditRealData(input: {
                 ...(pinned.valuation ? { valuation: pinned.valuation } : {}),
               },
             );
+            checkSessions(
+              "backtest-window",
+              { from, to },
+              frame.dates.slice(frame.periodStartIndex),
+            );
             for (
               let index = frame.periodStartIndex;
               index < frame.dates.length;
@@ -601,6 +655,11 @@ export async function auditRealData(input: {
             security,
             { from: serviceFrom, to: rows.coverageEnd },
             operands,
+          );
+          checkSessions(
+            "strategy-frame",
+            { from: serviceFrom, to: rows.coverageEnd },
+            frame.dates.slice(frame.periodStartIndex),
           );
           for (
             let index = frame.periodStartIndex;
@@ -663,6 +722,14 @@ export async function auditRealData(input: {
             throw new Error("no Monitor frame");
           }
           const { frame } = monitor;
+          const closed = frame.dates.filter(
+            (_, index) => index !== monitor.observationIndex,
+          );
+          checkSessions(
+            "monitor-closed",
+            { from: closed[0] ?? rows.coverageEnd, to: rows.coverageEnd },
+            closed,
+          );
           const provisional = oracle.reading(observationDate, String(quote), {
             statementDate: newest.date,
           });
@@ -699,6 +766,11 @@ export async function auditRealData(input: {
                 to: rows.coverageEnd,
               },
             );
+            checkSessions(
+              "stock-details",
+              { from: serviceFrom, to: rows.coverageEnd },
+              points.map((point) => point.date),
+            );
             for (const point of points) {
               record(
                 "stock-details",
@@ -725,6 +797,7 @@ export async function auditRealData(input: {
     layerDisagreements,
     divergences,
     refusedReads,
+    sessionMismatches,
     providerCalls,
     intervals,
     readings,

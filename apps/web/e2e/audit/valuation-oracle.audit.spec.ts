@@ -133,8 +133,17 @@ test.describe("valuation ratios in the browser, against the audit oracle", () =>
         }[];
         await page.keyboard.press("Escape");
 
-        // The server's rows: every session the expectations hold, valued as the oracle values it.
+        // The server's rows: every session the expectations hold, valued as the oracle values it,
+        // and no stored session left out between the first row and the last.
         expect(rows.length).toBeGreaterThan(200);
+        const answered = new Set(rows.map((row) => row.date));
+        const omitted = Object.keys(expected).filter(
+          (date) =>
+            date >= rows[0]!.date &&
+            date <= rows.at(-1)!.date &&
+            !answered.has(date),
+        );
+        expect(omitted, "stored sessions missing from the answer").toEqual([]);
         for (const row of rows) {
           expect(
             Object.hasOwn(expected, row.date),

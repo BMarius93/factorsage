@@ -73,6 +73,8 @@ export type CellComparison = {
   relativeDifference?: number;
   /** The difference over its tolerance (`<= 1` passes), when both are available. */
   toleranceUsed?: number;
+  /** The tolerance over `|exact|` (`Infinity` for an exact zero), when both are available. */
+  relativeTolerance?: number;
 };
 
 /** Compares one product double (NaN = unavailable) with the reference outcome. */
@@ -109,6 +111,10 @@ export function compareCell(
     ...(exactMagnitude > 0
       ? { relativeDifference: absoluteDifference / exactMagnitude }
       : {}),
+    relativeTolerance:
+      exactMagnitude > 0
+        ? oracleNearestDouble(tolerance) / exactMagnitude
+        : Infinity,
     toleranceUsed:
       tolerance.n === 0n
         ? absolute.n === 0n
@@ -136,7 +142,21 @@ export class ComparisonTally {
   maxAbsoluteDifference = 0;
   maxRelativeDifference = 0;
   maxToleranceUsed = 0;
+  /** Available cells whose double equals the exact value itself (no rounding at all). */
   exactMatches = 0;
+  /**
+   * Compared cells by how loose their tolerance is relative to the exact value: how many readings a
+   * wrong value of that relative size could hide in. Without net cash the tolerance is
+   * `(m + 8) · 2^-48` of the value, under `1e-13` for up to 20 basis factors; only an enterprise
+   * value whose net cash approaches the market capitalisation has a wider one.
+   */
+  readonly relativeToleranceBuckets: Record<string, number> = {
+    "<=1e-13": 0,
+    "<=1e-9": 0,
+    "<=1e-6": 0,
+    "<=1e-3": 0,
+    ">1e-3": 0,
+  };
   readonly failures: {
     key: string;
     ratio: OracleValuationRatioId;
@@ -194,6 +214,19 @@ export class ComparisonTally {
         this.maxToleranceUsed,
         comparison.toleranceUsed ?? 0,
       );
+      const loose = comparison.relativeTolerance ?? Infinity;
+      const bucket =
+        loose <= 1e-13
+          ? "<=1e-13"
+          : loose <= 1e-9
+            ? "<=1e-9"
+            : loose <= 1e-6
+              ? "<=1e-6"
+              : loose <= 1e-3
+                ? "<=1e-3"
+                : ">1e-3";
+      this.relativeToleranceBuckets[bucket] =
+        (this.relativeToleranceBuckets[bucket] ?? 0) + 1;
     }
     if (
       comparison.cls !== "AVAILABLE_MATCH" &&
@@ -263,10 +296,11 @@ export class ComparisonTally {
       FALSE_AVAILABLE: this.total("FALSE_AVAILABLE"),
       FALSE_UNAVAILABLE: this.total("FALSE_UNAVAILABLE"),
       VALUE_MISMATCH: this.total("VALUE_MISMATCH"),
-      exactBitMatches: this.exactMatches,
+      exactValueMatches: this.exactMatches,
       maxAbsoluteDifference: this.maxAbsoluteDifference,
       maxRelativeDifference: this.maxRelativeDifference,
       maxToleranceUsed: this.maxToleranceUsed,
+      relativeToleranceBuckets: this.relativeToleranceBuckets,
       relativeDifferenceP50: this.percentile(0.5),
       relativeDifferenceP95: this.percentile(0.95),
       relativeDifferenceP99: this.percentile(0.99),

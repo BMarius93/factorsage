@@ -12,7 +12,22 @@ import {
 import { auditCacheParity } from "./cache-parity";
 import { ComparisonTally } from "./compare";
 import { runDifferential } from "./differential";
-import { auditRealData, readOracleRows, REAL_DATA_LAYERS } from "./real-data";
+import { generateHistory } from "./generator";
+import { generateRestatementHistory } from "./generator-restatements";
+import {
+  auditRealData,
+  readOracleRows,
+  REAL_DATA_LAYERS,
+  type RealDataAudit,
+} from "./real-data";
+import { firstCountExposure, retentionScope } from "./retention-scope";
+import {
+  boundarySession,
+  clearSyntheticSecurities,
+  storeSyntheticHistory,
+  SYNTHETIC_SYMBOL_PREFIX,
+  type SyntheticSecurity,
+} from "./synthetic-store";
 
 /**
  * The Valuation Ratios V1 audit's command line (`docs/valuation-ratios-audit/REPORT.md`).
@@ -24,7 +39,16 @@ import { auditRealData, readOracleRows, REAL_DATA_LAYERS } from "./real-data";
  * pnpm audit:valuation -- http --database-url=<copy> --api=http://localhost:3001
  * pnpm audit:valuation -- browser-expectations --database-url=<copy> --symbols=HON,WDC
  * pnpm audit:valuation -- cache-parity --database-url=<copy> --redis-url=redis://localhost:6379/6
+ * pnpm audit:valuation -- retention-scope --database-url=<copy>
+ * pnpm audit:valuation -- synthetic-store --database-url=<empty migrated db> --redis-url=… --seeds=1-150
  * ```
+ *
+ * `retention-scope` compares the reference over the retained statements with the reference over
+ * every stored row (what retention changes, cell by cell), and lists the readings taken on a walk's
+ * first count that the next quarter contradicts (`REPORT.md` §31, G3). `synthetic-store` writes
+ * generated histories of both families into an empty, migrated throwaway database as securities and
+ * runs the `real` comparison over them, so every production layer meets the rules the development
+ * store never exercises; it refuses any database holding a security it did not store.
  *
  * `http` asks a running API — started against the copy (`TEST_DATABASE_URL=<copy> pnpm
  * dev:api:e2e`, the hermetic launcher: fixture FMP, egress guard) — for every ratio of every security
@@ -97,6 +121,27 @@ async function generated(): Promise<void> {
     ],
     durationMs: Date.now() - started,
     ...summary,
+    families: Object.fromEntries(
+      [...result.families.entries()].map(([family, value]) => {
+        const familySummary = value.tally.summary();
+        return [
+          family,
+          {
+            histories: value.histories,
+            sessions: value.sessions,
+            comparisons: familySummary.comparisons,
+            AVAILABLE_MATCH: familySummary.AVAILABLE_MATCH,
+            EXPECTED_UNAVAILABLE: familySummary.EXPECTED_UNAVAILABLE,
+            FALSE_AVAILABLE: familySummary.FALSE_AVAILABLE,
+            FALSE_UNAVAILABLE: familySummary.FALSE_UNAVAILABLE,
+            VALUE_MISMATCH: familySummary.VALUE_MISMATCH,
+            explainedRestatementCells: value.explainedRestatementCells,
+            restatedPredecessorGapCells: value.restatedPredecessorGapCells,
+            firstCountCells: value.firstCountCells,
+          },
+        ];
+      }),
+    ),
     soleRuleCells: Object.fromEntries(
       ORACLE_VALUATION_REASONS.map((reason) => [
         reason,
@@ -204,27 +249,16 @@ async function real(): Promise<void> {
       durationMs: Date.now() - started,
       providerCalls: audit.providerCalls,
       refusedReads: audit.refusedReads,
+      sessionMismatches: audit.sessionMismatches,
       divergences: Object.fromEntries(audit.divergences),
       layers,
       perSecurity: Object.fromEntries(audit.perSecurity),
       intervals: Object.fromEntries(audit.intervals),
     });
-    let failed = 0;
-    for (const layer of REAL_DATA_LAYERS) {
-      const tally = audit.tallies.get(layer);
-      const bad =
-        (tally?.total("FALSE_AVAILABLE") ?? 0) +
-        (tally?.total("FALSE_UNAVAILABLE") ?? 0) +
-        (tally?.total("VALUE_MISMATCH") ?? 0);
-      failed += bad;
-      console.log(
-        `${layer}: ${tally?.total() ?? 0} comparisons, ${bad} failed, ${audit.layerDisagreements.get(layer) ?? 0} bit disagreements with pure`,
-      );
-    }
-    console.log(
-      `refused reads: ${audit.refusedReads.length}; provider calls: ${audit.providerCalls.length}`,
-    );
-    process.exitCode = failed === 0 ? 0 : 1;
+    // A service layer may refuse only a security never verified (rule 0): its first verification
+    // needs the provider, which this audit never reaches. Any other refusal is a failure, as is a
+    // read that left out or added a session.
+    process.exitCode = realDataFailures(audit) === 0 ? 0 : 1;
   } finally {
     await prisma.$disconnect();
   }
@@ -252,6 +286,11 @@ async function http(): Promise<void> {
     responseOnly: string[];
     storedOnly: string[];
   }[] = [];
+  const preListing: {
+    symbol: string;
+    listingDate: string;
+    sessions: { date: string; availableRatios: string[] }[];
+  }[] = [];
   try {
     const securities = await prisma.$queryRawUnsafe<
       { id: string; symbol: string }[]
@@ -268,9 +307,33 @@ async function http(): Promise<void> {
       const from =
         served.perSecurity[rows.symbol]?.serviceFrom ?? rows.coverageEnd;
       const to = rows.coverageEnd;
+      // Every Stock Details read starts at the listing date when it is later than the horizon
+      // (`complete-price-coverage.md`, `LISTING`), so a stored session before it is not served.
+      // Such sessions are counted apart, with the reference's reading of each, and nothing else
+      // may differ.
+      const listed = (date: string) =>
+        rows.listingDate === null || date >= rows.listingDate;
       const stored = rows.sessions.filter(
-        (session) => session.date >= from && session.date <= to,
+        (session) =>
+          session.date >= from && session.date <= to && listed(session.date),
       );
+      const before = rows.sessions.filter(
+        (session) =>
+          session.date >= from && session.date <= to && !listed(session.date),
+      );
+      if (before.length > 0) {
+        preListing.push({
+          symbol: rows.symbol,
+          listingDate: rows.listingDate as string,
+          sessions: before.map((session) => ({
+            date: session.date,
+            availableRatios: ORACLE_VALUATION_RATIO_IDS.filter(
+              (ratio) =>
+                oracle.reading(session.date, session.close)[ratio].available,
+            ),
+          })),
+        });
+      }
       for (const ratio of ORACLE_VALUATION_RATIO_IDS) {
         const response = await fetch(
           `${api}/stocks/${encodeURIComponent(rows.symbol)}/valuation-ratios/daily?from=${from}&to=${to}&ratio=${ratio}`,
@@ -331,6 +394,7 @@ async function http(): Promise<void> {
     rowsChecked,
     responsesWithOtherSessions: dateMismatches,
     sessionDifferences,
+    preListing,
     ...tally.summary(),
     failures: tally.failures,
   });
@@ -435,6 +499,165 @@ async function cacheParity(): Promise<void> {
   }
 }
 
+/** A real-data audit's verdict: every cell class, refusal and session set, printed and counted. */
+function realDataFailures(audit: RealDataAudit): number {
+  let failed = 0;
+  for (const layer of REAL_DATA_LAYERS) {
+    const tally = audit.tallies.get(layer);
+    const disagreements = audit.layerDisagreements.get(layer) ?? 0;
+    const bad =
+      (tally?.total("FALSE_AVAILABLE") ?? 0) +
+      (tally?.total("FALSE_UNAVAILABLE") ?? 0) +
+      (tally?.total("VALUE_MISMATCH") ?? 0) +
+      disagreements;
+    failed += bad;
+    console.log(
+      `${layer}: ${tally?.total() ?? 0} comparisons, ${bad} failed, ${disagreements} bit disagreements with pure`,
+    );
+  }
+  const unexpectedRefusals = audit.refusedReads.filter(
+    (read) => audit.perSecurity.get(read.symbol)?.verified !== false,
+  );
+  failed += unexpectedRefusals.length + audit.sessionMismatches.length;
+  console.log(
+    `refused reads: ${audit.refusedReads.length} (${unexpectedRefusals.length} of a verified security); session mismatches: ${audit.sessionMismatches.length}; provider calls: ${audit.providerCalls.length}`,
+  );
+  return failed;
+}
+
+async function retentionScopeCommand(): Promise<void> {
+  const url = option("database-url");
+  if (!url) {
+    throw new Error("retention-scope needs --database-url");
+  }
+  refuseSharedDatabase(url);
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  try {
+    const securities = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `select s.id from "Security" s
+        where s.id in (select distinct "securityId" from "FinancialStatement") order by s.symbol`,
+    );
+    const scope = await retentionScope(
+      prisma,
+      securities.map((security) => security.id),
+    );
+    const firstCounts = await firstCountExposure(
+      prisma,
+      securities.map((security) => security.id),
+    );
+    write(option("output") ?? "retention-scope.json", {
+      database: new URL(url).pathname.replace(/^\//, ""),
+      ...scope,
+      firstCountExposure: firstCounts,
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function syntheticStore(): Promise<void> {
+  const url = option("database-url");
+  const redisUrl = option("redis-url");
+  if (!url || !redisUrl) {
+    throw new Error("synthetic-store needs --database-url and --redis-url");
+  }
+  refuseSharedDatabase(url);
+  const [first, last] = (option("seeds") ?? "1-150").split("-").map(Number) as [
+    number,
+    number,
+  ];
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  const started = Date.now();
+  try {
+    const others = await prisma.security.count({
+      where: {
+        NOT: { providerSymbol: { startsWith: SYNTHETIC_SYMBOL_PREFIX } },
+      },
+    });
+    if (others > 0) {
+      throw new Error(
+        `refusing: the database holds ${others} securities this command did not store; use an empty, migrated database`,
+      );
+    }
+    await clearSyntheticSecurities(prisma);
+    const store = new PrismaStockDataStore(prisma);
+    const stored: SyntheticSecurity[] = [];
+    let unverified = 0;
+    for (let seed = first; seed <= last; seed += 1) {
+      for (const [family, generate] of [
+        ["adversarial", generateHistory],
+        ["restatement", generateRestatementHistory],
+      ] as const) {
+        const history = generate(seed);
+        if (history.security.verifiedAt === null) {
+          unverified += 1;
+          continue;
+        }
+        const full = await storeSyntheticHistory({
+          prisma,
+          store,
+          history,
+          family,
+        });
+        if (full) {
+          stored.push(full);
+        }
+        const boundary = boundarySession(history);
+        if (boundary !== undefined) {
+          const truncated = await storeSyntheticHistory({
+            prisma,
+            store,
+            history,
+            family,
+            truncateBefore: boundary,
+          });
+          if (truncated) {
+            stored.push(truncated);
+          }
+        }
+      }
+    }
+    console.log(
+      `stored ${stored.length} securities (${unverified} unverified histories left to the pure audit)`,
+    );
+    const audit = await auditRealData({
+      prisma,
+      redisUrl,
+      namespace: `stock-data:v2:valuation-synthetic:${Date.now()}`,
+      securityIds: stored.map((security) => security.securityId),
+      log: () => undefined,
+    });
+    const failed = realDataFailures(audit);
+    write(option("output") ?? "synthetic-store.json", {
+      database: new URL(url).pathname.replace(/^\//, ""),
+      seeds: `${first}-${last}`,
+      securities: stored.length,
+      truncatedCopies: stored.filter((security) => security.truncatedBefore)
+        .length,
+      unverifiedHistoriesSkipped: unverified,
+      storedSessions: audit.sessions,
+      durationMs: Date.now() - started,
+      providerCalls: audit.providerCalls,
+      refusedReads: audit.refusedReads,
+      sessionMismatches: audit.sessionMismatches,
+      divergences: Object.fromEntries(audit.divergences),
+      layers: Object.fromEntries(
+        REAL_DATA_LAYERS.map((layer) => [
+          layer,
+          {
+            ...(audit.tallies.get(layer)?.summary() ?? {}),
+            bitDisagreementsWithPure: audit.layerDisagreements.get(layer) ?? 0,
+            failures: audit.tallies.get(layer)?.failures ?? [],
+          },
+        ]),
+      ),
+    });
+    process.exitCode = failed === 0 ? 0 : 1;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 const command = process.argv[2];
 const commands: Record<string, () => Promise<void>> = {
   generated,
@@ -443,6 +666,8 @@ const commands: Record<string, () => Promise<void>> = {
   http,
   "browser-expectations": browserExpectations,
   "cache-parity": cacheParity,
+  "retention-scope": retentionScopeCommand,
+  "synthetic-store": syntheticStore,
 };
 const run = command ? commands[command] : undefined;
 if (!run) {
