@@ -12,6 +12,7 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import {
   addDays,
   monitorWindowCalendarDays,
+  PriceBasisChangedError,
   type CurrentObservation,
   type MonitorEvaluationFrame,
   type TradingCalendar,
@@ -576,6 +577,18 @@ export class MonitorCycle {
         sessions *= 2;
       }
     } catch (err) {
+      if (err instanceof PriceBasisChangedError) {
+        // The provider re-based the history while it was read. Nothing failed: the next cycle reads
+        // the replaced history, and these levels wait for it (`historical-price-basis-v1.md`, §9).
+        this.logger.warn({
+          event: "monitor.reconstruction.history-rebased",
+          cycleSequence: input.cycleSequence,
+          symbol: input.security.symbol,
+          expectedGeneration: err.expectedGeneration,
+          actualGeneration: err.actualGeneration,
+        });
+        return null;
+      }
       this.logger.error({
         event: "monitor.reconstruction.history-failed",
         cycleSequence: input.cycleSequence,

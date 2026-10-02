@@ -438,6 +438,10 @@ describe("Stock Details API", () => {
         },
       ],
     });
+    // Verified under the current loader, so no first verification re-reads the seeded history.
+    await prisma.securityPriceBasis.create({
+      data: { securityId: security.id, generation: 1, verifiedAt: new Date() },
+    });
   });
 
   afterAll(async () => {

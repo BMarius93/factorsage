@@ -371,6 +371,11 @@ describeInfrastructure(
         tailDate: TODAY,
         freshThrough: TODAY,
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: row.id,
+        verifiedAt: SYNCED_AT,
+      });
       // Oldest filing first, so the restatement is a later filing of a known identity.
       await store.saveFinancialStatements({
         securityId: row.id,

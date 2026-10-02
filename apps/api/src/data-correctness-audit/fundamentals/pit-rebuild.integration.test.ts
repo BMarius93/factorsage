@@ -257,6 +257,8 @@ describeInfrastructure("PIT revisions through the real refresh path", () => {
       tailDate: T1,
       freshThrough: T1,
     });
+    // Verified under the current loader, so no first verification re-reads the history.
+    await store.createPriceBasis({ securityId: row.id, verifiedAt: t1At });
     await store.saveFinancialStatements({
       securityId: row.id,
       statements: history(row.id, options.placeholderQ1),

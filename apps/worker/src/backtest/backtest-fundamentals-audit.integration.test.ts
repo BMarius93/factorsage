@@ -223,6 +223,11 @@ describeInfrastructure(
         tailDate: today,
         freshThrough: today,
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: row.id,
+        verifiedAt: syncedAt,
+      });
       for (const sync of FUNDAMENTAL_AUDIT_ANCHOR_SYNCS) {
         await store.saveFinancialStatements({
           securityId: row.id,
@@ -688,6 +693,9 @@ describeInfrastructure(
           ).length,
           derivedSql: sql.filter((query) => /"DailyDerivedState"/.test(query))
             .length,
+          priceBasisSql: sql.filter((query) =>
+            /"SecurityPriceBasis"/.test(query),
+          ).length,
           rebuilds: rebuilds.mock.calls.length,
           redisReads: keysRead.length,
           derivedChunkReads: derivedReads.length,
@@ -699,10 +707,12 @@ describeInfrastructure(
         expect(counters.rebuilds).toBe(0);
         // 2023, 2024 and 2025: one multi-key read of the yearly chunks per execution window.
         expect(counters.derivedChunkReads).toBe(3);
-        // Far fewer Redis reads than sessions, and one SQL statement for the whole run: the period's
-        // price bounds, read once while preparing.
+        // Far fewer Redis reads than sessions, and SQL only per run and per window: the period's
+        // price bounds and its price-basis generation, read once while preparing, and the
+        // generation again after each window's reads (`historical-price-basis-v1.md`, §9).
         expect(counters.redisReads).toBeLessThan(50);
-        expect(counters.sql).toBe(1);
+        expect(counters.priceBasisSql).toBe(1 + 3);
+        expect(counters.sql).toBe(1 + counters.priceBasisSql);
         expect(provider.calls).toEqual([]);
       } finally {
         rebuilds.mockRestore();

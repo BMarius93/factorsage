@@ -29,6 +29,7 @@ export {
   MonitorLifecycleState,
   MonitorTransitionReason,
   OAuthProvider,
+  PriceBasisEventKind,
   PrismaClient,
   SecurityType,
   StockDataset,

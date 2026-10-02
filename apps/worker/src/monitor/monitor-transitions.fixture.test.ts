@@ -137,7 +137,13 @@ function triggerDefinition(): StrategyDefinition {
   };
 }
 
-/** Thirty flat closes at 100, ending on Friday 2026-02-27, so a 20-bar SMA is warm and equals 100. */
+/**
+ * Thirty flat closes at 100, ending on Friday 2026-02-27, so a 20-bar SMA is warm and equals 100.
+ *
+ * Every quote below stays inside the ex-date hold's band of the last close (70 to 140): a larger
+ * move is withheld as a possible unadjusted split (`historical-price-basis-v1.md`, §7), which is
+ * not what these scenarios are about.
+ */
 const FLAT_HISTORY = Array.from({ length: 30 }, () => 100);
 
 /**
@@ -207,7 +213,7 @@ const SCENARIOS: readonly Scenario[] = [
       },
       {
         session: "2026-03-03",
-        price: 150,
+        price: 130,
         expected: {
           state: "ACTIVE",
           signals: 1,
@@ -227,12 +233,12 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1, since: "2026-03-02" },
       },
       {
         session: "2026-03-03",
-        price: 160,
+        price: 135,
         // A new session, a higher price, the same condition: the occurrence is the same one, and
         // "since" stays on the session it began.
         expected: {
@@ -245,7 +251,7 @@ const SCENARIOS: readonly Scenario[] = [
       },
       {
         session: "2026-03-04",
-        price: 170,
+        price: 138,
         expected: { state: "ACTIVE", signals: 1, open: 1, since: "2026-03-02" },
       },
     ],
@@ -258,7 +264,7 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1 },
       },
       {
@@ -282,7 +288,7 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1 },
       },
       {
@@ -292,7 +298,7 @@ const SCENARIOS: readonly Scenario[] = [
       },
       {
         session: "2026-03-04",
-        price: 155,
+        price: 132,
         // A second occurrence, not a reopening of the first: the log is append-only.
         expected: {
           state: "ACTIVE",
@@ -312,12 +318,12 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1 },
       },
       {
         session: "2026-03-03",
-        price: 150,
+        price: 130,
         membership: "remove",
         // No state row survives: the Monitor no longer watches this security at all.
         expected: {
@@ -337,18 +343,18 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1 },
       },
       {
         session: "2026-03-03",
-        price: 150,
+        price: 130,
         membership: "remove",
         expected: { state: "NONE", signals: 1, open: 0 },
       },
       {
         session: "2026-03-04",
-        price: 150,
+        price: 130,
         membership: "add",
         // The forgotten state cannot be resumed, so the match is a new occurrence dated to the
         // session that observed it.
@@ -370,7 +376,7 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1, since: "2026-03-02" },
       },
     ],
@@ -383,7 +389,7 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1, since: "2026-03-02" },
       },
     ],
@@ -396,7 +402,7 @@ const SCENARIOS: readonly Scenario[] = [
     steps: [
       {
         session: "2026-03-02",
-        price: 150,
+        price: 130,
         expected: { state: "ACTIVE", signals: 1, open: 1, since: "2026-03-02" },
       },
       {

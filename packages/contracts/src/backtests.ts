@@ -1052,6 +1052,7 @@ export type BacktestRunSnapshot = {
     derivedStateRevision: number;
     fundamentalsVariantVersion: number;
     benchmarkPriceDatasetVersion: number;
+    priceBasisRevision: number;
   };
 };
 

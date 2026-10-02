@@ -51,6 +51,8 @@ export type StubOptions = {
   latePrices?: Readonly<Record<string, string>>;
   /** Symbols with no derived state. */
   noDerivedState?: readonly string[];
+  /** Symbols with no price basis: never verified against the provider. */
+  unverified?: readonly string[];
   /** Symbols with no financial statements. Default: none. */
   noStatements?: readonly string[];
   /** Persist a stale derived-state variant instead of the current one. */
@@ -272,6 +274,21 @@ export function stubPrisma(
           _count: 8000,
         };
       },
+    },
+    securityPriceBasis: {
+      findMany: async ({
+        where,
+      }: {
+        where: { securityId: { in: string[] } };
+      }) =>
+        where.securityId.in
+          .filter(
+            (securityId) =>
+              !(options.unverified ?? []).includes(
+                symbolOfSecurityId(securityId),
+              ),
+          )
+          .map((securityId) => ({ securityId })),
     },
     financialStatement: {
       count: async ({ where }: { where: { securityId: string } }) =>

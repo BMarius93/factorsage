@@ -49,7 +49,13 @@ import {
   StockDataNotFoundError,
   StockDataValidationError,
   VALUATION_FUNDAMENTALS_WARMUP_YEARS,
+  type PriceBasisObservation,
 } from "./service.js";
+import {
+  PriceBasisConflictError,
+  type PriceBasisEvent,
+  type SecurityPriceBasisState,
+} from "./price-basis.js";
 import type { WeeklyPrice } from "./weekly.js";
 import {
   GOLDEN_ENDING_BALANCE_SHEET,
@@ -292,6 +298,8 @@ class FakeProvider implements FmpStockProviderPort {
     limit: number;
   }> = [];
   rowsByRange = new Map<string, DailyPrice[]>();
+  /** When set, the provider's whole history: a range not in `rowsByRange` is answered from it. */
+  history?: readonly DailyPrice[];
   financialRows = new Map<string, FinancialStatementDraft[]>();
   financialDelays = new Map<string, Promise<void>>();
   financialStarted: string[] = [];
@@ -310,7 +318,13 @@ class FakeProvider implements FmpStockProviderPort {
     this.ranges.push({ from: range.from, to: range.to });
     if (this.failure) throw this.failure;
     await this.beforeReturn?.();
-    return this.rowsByRange.get(`${range.from}:${range.to}`) ?? [];
+    const configured = this.rowsByRange.get(`${range.from}:${range.to}`);
+    if (configured || !this.history) {
+      return configured ?? [];
+    }
+    return this.history.filter(
+      (row) => row.date >= range.from! && row.date <= range.to!,
+    );
   }
   async getFinancialStatements(
     _symbol: string,
@@ -333,6 +347,24 @@ class FakeProvider implements FmpStockProviderPort {
     this.financialCompleted.push(key);
     return this.financialRows.get(key) ?? [];
   }
+}
+
+/**
+ * Lets the provider answer the earliest-row check (`historical-price-basis-v1.md`, §7, rule 2) with
+ * the stored rows unchanged, as it does for a history it has not re-based. Returns the window the
+ * check reads, from the earliest stored session.
+ */
+function serveEarliestRowsUnchanged(
+  provider: FakeProvider,
+  stored: readonly DailyPrice[],
+): Required<DateRange> {
+  const from = [...stored].map((row) => row.date).sort()[0] as string;
+  const window = { from, to: addDays(from, 30) };
+  provider.rowsByRange.set(
+    `${window.from}:${window.to}`,
+    stored.filter((row) => row.date >= window.from && row.date <= window.to),
+  );
+  return window;
 }
 
 class FakeStore implements StockDataStore {
@@ -725,6 +757,102 @@ class FakeStore implements StockDataStore {
       variant: WEEKLY_PRICE_VARIANT,
       lastSyncedAt: input.syncedAt,
     });
+  }
+  /**
+   * The suites below model the loader's steady state, so a store starts verified: the one-time
+   * first verification of a history stored before the re-base detector existed is exercised by its
+   * own tests, which clear this.
+   */
+  priceBasis: SecurityPriceBasisState | null = {
+    securityId: security.id,
+    generation: 1,
+    verifiedAt: "2026-01-01T00:00:00.000Z",
+  };
+  priceBasisEvents: PriceBasisEvent[] = [];
+  replacements: Array<{ generation: number; eventKinds: string[] }> = [];
+  async getPriceBasis(): Promise<SecurityPriceBasisState | null> {
+    return this.priceBasis;
+  }
+  async getPriceBasisEvents(): Promise<PriceBasisEvent[]> {
+    return [...this.priceBasisEvents];
+  }
+  async createPriceBasis(input: {
+    securityId: string;
+    verifiedAt: string;
+  }): Promise<SecurityPriceBasisState> {
+    this.priceBasis ??= {
+      securityId: input.securityId,
+      generation: 0,
+      verifiedAt: input.verifiedAt,
+    };
+    return this.priceBasis;
+  }
+  async replaceDailyPriceHistory(
+    input: Parameters<StockDataStore["replaceDailyPriceHistory"]>[0],
+  ): Promise<SecurityPriceBasisState> {
+    input.assertOwned?.();
+    if ((this.priceBasis?.generation ?? 0) !== input.expectedGeneration) {
+      throw new PriceBasisConflictError(
+        input.securityId,
+        input.expectedGeneration,
+        this.priceBasis?.generation ?? 0,
+      );
+    }
+    assertOneRowPerTradingDay(input.derivedRows);
+    const generation = (this.priceBasis?.generation ?? 0) + 1;
+    this.prices = [...input.prices].sort((left, right) =>
+      left.date.localeCompare(right.date),
+    );
+    const priceKey = `DAILY_PRICE:${DAILY_PRICE_VARIANT}`;
+    const priorCoverage = this.coverage.get(priceKey) ?? [];
+    this.coverage.set(priceKey, [...priorCoverage, input.priceCoverage]);
+    this.coverageSyncs.delete(priceKey);
+    const allCoverage = this.coverage.get(priceKey) ?? [];
+    this.states.set(priceKey, {
+      securityId: input.securityId,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: allCoverage.map((range) => range.from).sort()[0],
+      latestDate: allCoverage
+        .map((range) => range.to)
+        .sort()
+        .at(-1),
+      lastSyncedAt: input.syncedAt,
+    });
+    if (input.freshThrough && input.freshThrough >= input.tailDate) {
+      this.states.set("DAILY_PRICE:split-adjusted-eod-full:recent-tail", {
+        securityId: input.securityId,
+        dataset: "DAILY_PRICE",
+        variant: "split-adjusted-eod-full:recent-tail",
+        earliestDate: input.tailDate,
+        latestDate: input.tailDate,
+        lastSyncedAt: input.syncedAt,
+      });
+    }
+    this.dailyState = [...input.derivedRows];
+    const derivedKey = `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`;
+    this.coverage.set(derivedKey, [input.derivedCoverage]);
+    this.states.set(derivedKey, {
+      securityId: input.securityId,
+      dataset: "DAILY_DERIVED_STATE",
+      variant: DAILY_DERIVED_STATE_VARIANT,
+      earliestDate: input.derivedCoverage.from,
+      latestDate: input.derivedCoverage.to,
+      lastSyncedAt: input.syncedAt,
+    });
+    this.priceBasisEvents.push(
+      ...input.events.map((event) => ({ ...event, generation })),
+    );
+    this.replacements.push({
+      generation,
+      eventKinds: input.events.map((event) => event.kind),
+    });
+    this.priceBasis = {
+      securityId: input.securityId,
+      generation,
+      verifiedAt: this.priceBasis?.verifiedAt ?? input.verifiedAt,
+    };
+    return this.priceBasis;
   }
 }
 
@@ -1427,6 +1555,7 @@ describe("canonical full-stock hydration", () => {
     provider.rowsByRange.set(`${RETENTION_RANGE.from}:2014-12-31`, [
       price("2010-01-04", 30),
     ]);
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const api = createService(store, provider, cache, coordinator);
     const worker = createService(store, provider, cache, coordinator);
 
@@ -1442,6 +1571,8 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.ranges).toEqual([
       { from: RETENTION_RANGE.from, to: "2014-12-31" },
+      // The earliest stored rows, re-read before the prefix is saved beside them.
+      earliestRows,
     ]);
     expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
     expect(newer.map((row) => row.date)).toEqual(["2010-01-04", "2022-01-03"]);
@@ -1456,7 +1587,7 @@ describe("canonical full-stock hydration", () => {
       from: "2024-01-01",
       to: "2026-01-01",
     });
-    expect(provider.ranges).toHaveLength(1);
+    expect(provider.ranges).toHaveLength(2);
   });
 
   it("re-admits a fully durable stock after eviction with zero FMP calls", async () => {
@@ -1707,6 +1838,7 @@ describe("canonical full-stock hydration", () => {
       price("2026-08-20", 200),
       price("2026-08-21", 201),
     ]);
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const loader = createService(
       store,
       provider,
@@ -1719,7 +1851,11 @@ describe("canonical full-stock hydration", () => {
       to: "2026-08-24",
     });
 
-    expect(provider.ranges).toEqual([{ from: "2026-08-14", to: "2026-08-24" }]);
+    expect(provider.ranges).toEqual([
+      { from: "2026-08-14", to: "2026-08-24" },
+      // The earliest stored row, re-read before the tail's new session is saved beside it.
+      earliestRows,
+    ]);
     expect(cache.priceYearWrites.at(-1)).toEqual([2026]);
     // The rebuild window also covers the completed-week boundary, because a newly completed week
     // changes the carried-forward weekly source on every later trading day.
@@ -1788,6 +1924,7 @@ describe("canonical full-stock hydration", () => {
       price("2026-08-20", 200),
       price("2026-08-21", 201),
     ]);
+    serveEarliestRowsUnchanged(provider, store.prices);
     const loader = createService(
       store,
       provider,
@@ -1950,6 +2087,7 @@ describe("canonical full-stock hydration", () => {
       price("2026-08-20", 200),
       price("2026-08-21", 201),
     ]);
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const loader = createService(
       store,
       provider,
@@ -1963,7 +2101,11 @@ describe("canonical full-stock hydration", () => {
     });
 
     expect(provider.financialRequests).toHaveLength(0);
-    expect(provider.ranges).toEqual([{ from: "2026-08-14", to: "2026-08-24" }]);
+    expect(provider.ranges).toEqual([
+      { from: "2026-08-14", to: "2026-08-24" },
+      // The earliest stored row, re-read before the tail's new session is saved beside it.
+      earliestRows,
+    ]);
   });
 
   it("does not advance fundamentals freshness when one of six operations fails", async () => {
@@ -4438,12 +4580,14 @@ describe("complete price coverage", () => {
       `${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`,
       complete,
     );
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const loader = currentService(store, provider, cache);
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
-    // One complete provider ask for the caller's target: v1 coverage is not evidence.
-    expect(provider.ranges).toEqual([RETENTION_RANGE]);
+    // One complete provider ask for the caller's target: v1 coverage is not evidence. Then the
+    // earliest stored row, re-read before the recovered rows are saved beside it.
+    expect(provider.ranges).toEqual([RETENTION_RANGE, earliestRows]);
     expect(prices.map((row) => row.date)).toEqual(
       complete.map((row) => row.date),
     );
@@ -4516,6 +4660,7 @@ describe("complete price coverage", () => {
       price("2010-01-04"),
       price("2026-08-20"),
     ]);
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const loader = currentService(store, provider, cache);
 
     await loader.getDailyPrices("AAPL", {
@@ -4523,7 +4668,7 @@ describe("complete price coverage", () => {
       to: "2010-12-31",
     });
 
-    expect(provider.ranges).toEqual([target]);
+    expect(provider.ranges).toEqual([target, earliestRows]);
     expect(store.coverage.get(CURRENT_KEY)).toEqual([target]);
     expect(store.coverage.has(LEGACY_KEY)).toBe(false);
     expect(cache.manifests.get(security.id)).toMatchObject({
@@ -4582,11 +4727,12 @@ describe("complete price coverage", () => {
     provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
       price("1996-09-03"),
     ]);
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const loader = currentService(store, provider, cache);
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
-    expect(provider.ranges).toEqual([prefix]);
+    expect(provider.ranges).toEqual([prefix, earliestRows]);
     expect(prices.map((row) => row.date)).toEqual([
       "1996-09-03",
       "2000-01-03",
@@ -4796,11 +4942,12 @@ describe("complete price coverage", () => {
       `${target.from}:${target.to}`,
       tradingDays(target.from, "2007-12-31"),
     );
+    const earliestRows = serveEarliestRowsUnchanged(provider, store.prices);
     const loader = currentService(store, provider, cache);
 
     const technicals = await loader.getDailyTechnicals("AAPL", requested);
 
-    expect(provider.ranges).toEqual([target]);
+    expect(provider.ranges).toEqual([target, earliestRows]);
     expect(technicals[0]?.date).toBe("2005-01-03");
     for (const field of TECHNICAL_SERIES_FIELDS) {
       expect(technicals[0]?.[field]).toBeTypeOf("number");
@@ -5001,5 +5148,684 @@ describe("a backtest executes exactly the period it snapshotted", () => {
       to: "2030-08-25",
     });
     expect(technicals.every((row) => row.date >= "2000-08-25")).toBe(true);
+  });
+});
+
+describe("re-base-safe price loading", () => {
+  /** Weekdays from `from` to `to`, at `close(date)`. */
+  function weekdays(
+    from: string,
+    to: string,
+    close: (date: string) => number,
+  ): DailyPrice[] {
+    return tradingDays(from, to).map((row) => price(row.date, close(row.date)));
+  }
+
+  /**
+   * A stock resident and verified, whose prices have gone stale while its fundamentals have not:
+   * the next read takes the recent-tail refresh path, as in the tail-refresh tests above.
+   */
+  async function staleRefreshFixture(stored: DailyPrice[]) {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = stored;
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: "2026-08-23T01:00:00.000Z",
+    });
+    setTailFreshness(store, "2026-08-23T01:00:00.000Z");
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(CANONICAL_RANGE.from, CANONICAL_RANGE.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      canonicalHistoryStart: stored[0]?.date,
+      canonicalHistoryEnd: stored.at(-1)?.date,
+      hydratedAt: "2026-08-23T01:00:00.000Z",
+      lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+    });
+    setFundamentalsStates(store);
+    const observations: PriceBasisObservation[] = [];
+    const loader = new CanonicalStockDataService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      {
+        productHistoryYears: 30,
+        recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
+        fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
+        recentTailCalendarDays: 10,
+        now: () => new Date(NOW),
+        onPriceBasisEvent: (event) => observations.push(event),
+      },
+    );
+    return { store, provider, cache, loader, observations };
+  }
+
+  const TAIL = "2026-08-14:2026-08-24";
+  const FIRST = "2026-08-03";
+  /** What the earliest-row check reads: a window from the earliest stored session. */
+  const EARLIEST_WINDOW = { from: FIRST, to: addDays(FIRST, 30) };
+  const EARLIEST_WINDOW_KEY = `${EARLIEST_WINDOW.from}:${EARLIEST_WINDOW.to}`;
+  const EX_DATE = "2026-08-21";
+  /** As traded: about $400 before the 4:1 split on 2026-08-21, about $100 after it. */
+  const asTraded = (date: string) =>
+    (date < EX_DATE ? 400 : 100) + Number(date.slice(8)) / 10;
+  /** The provider's history after it re-based for the split: everything before it divided by 4. */
+  const rebased = (date: string) =>
+    date < EX_DATE ? asTraded(date) / 4 : asTraded(date);
+
+  it("replaces the whole history in one write when the earliest stored row shows a re-base", async () => {
+    const { store, provider, cache, loader, observations } =
+      await staleRefreshFixture(weekdays(FIRST, "2026-08-20", asTraded));
+    provider.rowsByRange.set(
+      TAIL,
+      weekdays("2026-08-14", "2026-08-24", rebased),
+    );
+    provider.rowsByRange.set(
+      EARLIEST_WINDOW_KEY,
+      weekdays(FIRST, FIRST, rebased),
+    );
+    provider.rowsByRange.set(
+      `${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`,
+      weekdays(FIRST, "2026-08-24", rebased),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(provider.ranges).toEqual([
+      { from: "2026-08-14", to: "2026-08-24" },
+      EARLIEST_WINDOW,
+      CANONICAL_RANGE,
+    ]);
+    // The tail was never saved beside the old rows: the whole history is the provider's new one.
+    expect(store.priceSaves).toBe(0);
+    expect(store.prices).toEqual(weekdays(FIRST, "2026-08-24", rebased));
+    expect(store.priceBasis?.generation).toBe(2);
+    expect(store.priceBasisEvents).toHaveLength(1);
+    // Two sessions followed the newest stored one, so the comparison cannot say which of them
+    // the split fell on: it records the interval, never a guessed date.
+    expect(store.priceBasisEvents[0]).toMatchObject({
+      kind: "MEASURED",
+      effectiveFrom: "2026-08-20",
+      effectiveTo: "2026-08-24",
+      generation: 2,
+    });
+    expect(store.priceBasisEvents[0]!.effectiveDate).toBeUndefined();
+    expect(store.priceBasisEvents[0]!.priceRatio).toBeCloseTo(4, 9);
+    // Derived rows were rebuilt from the new prices, one per session, in the same write.
+    expect(store.dailyState.map((row) => row.date)).toEqual(
+      store.prices.map((row) => row.date),
+    );
+    expect(cache.priceYearWrites.at(-1)).toEqual(
+      yearSpan(CANONICAL_RANGE.from, CANONICAL_RANGE.to),
+    );
+    expect(cache.manifests.get(security.id)?.status).toBe("READY");
+    expect(observations).toEqual([
+      expect.objectContaining({
+        outcome: "REPLACED",
+        generation: 2,
+        measuredEvents: 1,
+        unexplainedEvents: 0,
+      }),
+    ]);
+  });
+
+  it("holds an ex-date row the provider published before rewriting the older rows", async () => {
+    const stored = weekdays(FIRST, "2026-08-20", asTraded);
+    const { store, provider, loader, observations } =
+      await staleRefreshFixture(stored);
+    provider.rowsByRange.set(TAIL, [
+      ...weekdays("2026-08-14", "2026-08-20", asTraded),
+      price(EX_DATE, asTraded(EX_DATE)),
+    ]);
+    // The older rows are not rewritten yet, so the earliest row still reads as stored.
+    provider.rowsByRange.set(
+      EARLIEST_WINDOW_KEY,
+      weekdays(FIRST, FIRST, asTraded),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(store.prices.map((row) => row.date)).not.toContain(EX_DATE);
+    expect(store.prices.at(-1)?.date).toBe("2026-08-20");
+    expect(store.replacements).toEqual([]);
+    expect(observations).toEqual([
+      expect.objectContaining({ outcome: "HELD", heldFrom: EX_DATE }),
+    ]);
+    // Coverage and freshness stop before the held session, so the next read reaches it again.
+    expect(store.coverage.get(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`)).toEqual([
+      CANONICAL_RANGE,
+      { from: "2026-08-14", to: "2026-08-20" },
+    ]);
+    // Not advanced either: it still names the previous tail.
+    expect(
+      store.states.get("DAILY_PRICE:split-adjusted-eod-full:recent-tail")
+        ?.lastSyncedAt,
+    ).toBe("2026-08-23T01:00:00.000Z");
+  });
+
+  it("accepts a split-sized move as genuine once four sessions stand from it", async () => {
+    const stored = weekdays(FIRST, "2026-08-17", asTraded);
+    const { store, provider, loader, observations } =
+      await staleRefreshFixture(stored);
+    const crash = (date: string) =>
+      date < "2026-08-18" ? asTraded(date) : 100;
+    provider.rowsByRange.set(TAIL, weekdays("2026-08-14", "2026-08-21", crash));
+    provider.rowsByRange.set(
+      EARLIEST_WINDOW_KEY,
+      weekdays(FIRST, FIRST, asTraded),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    expect(store.prices.at(-1)?.date).toBe("2026-08-21");
+    expect(observations).toEqual([]);
+  });
+
+  it("saves the tail as before when the earliest row still reads as stored", async () => {
+    const steady = (date: string) => 100 + Number(date.slice(8)) / 10;
+    const stored = weekdays(FIRST, "2026-08-20", steady);
+    const { store, provider, loader, observations } =
+      await staleRefreshFixture(stored);
+    provider.rowsByRange.set(
+      TAIL,
+      weekdays("2026-08-14", "2026-08-24", steady),
+    );
+    provider.rowsByRange.set(
+      EARLIEST_WINDOW_KEY,
+      weekdays(FIRST, FIRST, steady),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(store.prices).toEqual(weekdays(FIRST, "2026-08-24", steady));
+    expect(store.replacements).toEqual([]);
+    expect(store.priceBasis?.generation).toBe(1);
+    expect(observations).toEqual([]);
+  });
+
+  it("verifies a history stored before the detector once, and leaves an unchanged one as it is", async () => {
+    const stored = weekdays(FIRST, "2026-08-24", asTraded);
+    const { store, provider, loader, observations } =
+      await staleRefreshFixture(stored);
+    store.priceBasis = null;
+    provider.rowsByRange.set(
+      `${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`,
+      stored,
+    );
+    provider.rowsByRange.set(
+      TAIL,
+      weekdays("2026-08-14", "2026-08-24", asTraded),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(provider.ranges[0]).toEqual(CANONICAL_RANGE);
+    // Nothing was replaced, so the generation stays that of a history never replaced.
+    expect(store.priceBasis).toEqual({
+      securityId: security.id,
+      generation: 0,
+      verifiedAt: NOW,
+    });
+    expect(store.replacements).toEqual([]);
+    expect(observations).toEqual([
+      expect.objectContaining({ outcome: "VERIFIED", generation: 0 }),
+    ]);
+  });
+
+  it("replaces a history mixed by a tail refresh after a split, dating the step where the stored rows changed", async () => {
+    // Before the detector: the tail re-read after the provider re-based is new-basis, the rest old.
+    const tailStart = "2026-08-17";
+    const mixed = weekdays(FIRST, "2026-08-24", (date) =>
+      date < tailStart ? asTraded(date) : rebased(date),
+    );
+    const { store, provider, loader, observations } =
+      await staleRefreshFixture(mixed);
+    store.priceBasis = null;
+    provider.rowsByRange.set(
+      `${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`,
+      weekdays(FIRST, "2026-08-24", rebased),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(store.prices).toEqual(weekdays(FIRST, "2026-08-24", rebased));
+    expect((await store.getPriceBasis())?.generation).toBe(1);
+    expect(store.priceBasisEvents).toEqual([
+      expect.objectContaining({ kind: "MEASURED", effectiveDate: tailStart }),
+    ]);
+    expect(store.priceBasisEvents[0]!.priceRatio).toBeCloseTo(4, 9);
+    expect(observations).toEqual([
+      expect.objectContaining({ outcome: "REPLACED", generation: 1 }),
+    ]);
+  });
+
+  it("refuses a replacement that would drop more than 1 % of the stored sessions", async () => {
+    const stored = weekdays(FIRST, "2026-08-20", asTraded);
+    const { store, provider, loader, observations } =
+      await staleRefreshFixture(stored);
+    provider.rowsByRange.set(
+      TAIL,
+      weekdays("2026-08-14", "2026-08-24", rebased),
+    );
+    provider.rowsByRange.set(
+      EARLIEST_WINDOW_KEY,
+      weekdays(FIRST, FIRST, rebased),
+    );
+    // The provider's new history has lost half of what is stored.
+    provider.rowsByRange.set(
+      `${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`,
+      weekdays("2026-08-12", "2026-08-24", rebased),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    // Nothing was saved beside the old history, and nothing replaced it.
+    expect(store.prices).toEqual(stored);
+    expect(store.replacements).toEqual([]);
+    expect(observations).toEqual([
+      expect.objectContaining({ outcome: "REPLACEMENT_REFUSED" }),
+    ]);
+  });
+});
+
+describe("re-base-safe price loading on a widening read", () => {
+  it("replaces the history instead of saving a widened prefix beside a re-based one", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    // Resident from 2022 under the old basis; the provider has since re-based for a 2:1 split.
+    const stored = tradingDays("2022-01-03", "2022-01-31").map((row) =>
+      price(row.date, 200),
+    );
+    store.prices = stored;
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
+      { from: "2022-01-01", to: CANONICAL_RANGE.to },
+    ]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: "2022-01-01",
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const target = loadRange("2021-06-01");
+    const prefix = { from: target.from, to: "2021-12-31" };
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    const earliestRows = { from: "2022-01-03", to: addDays("2022-01-03", 30) };
+    provider.rowsByRange.set(
+      `${earliestRows.from}:${earliestRows.to}`,
+      stored.map((row) => price(row.date, 100)),
+    );
+    const rebasedHistory = [
+      price("2021-06-01", 100),
+      ...stored.map((row) => price(row.date, 100)),
+    ];
+    provider.rowsByRange.set(`${target.from}:${target.to}`, rebasedHistory);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2021-06-01",
+      to: "2022-01-31",
+    });
+
+    expect(provider.ranges).toEqual([prefix, earliestRows, target]);
+    // The prefix was never saved beside the old rows.
+    expect(store.priceSaves).toBe(0);
+    expect(store.prices).toEqual(rebasedHistory);
+    expect(store.priceBasisEvents).toEqual([
+      expect.objectContaining({
+        kind: "MEASURED",
+        effectiveFrom: "2022-01-31",
+      }),
+    ]);
+    expect(store.priceBasisEvents[0]!.priceRatio).toBeCloseTo(2, 9);
+  });
+
+  it("does not verify a stored history against an empty answer, and asks again next time", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.priceBasis = null;
+    const stored = [price("2026-08-20", 200)];
+    store.prices = stored;
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(await store.getPriceBasis()).toBeNull();
+    expect(store.prices).toEqual(stored);
+    // The verification asked for the whole stored history and the hydration's target.
+    expect(provider.ranges[0]).toEqual(loadRange("2026-08-20"));
+  });
+});
+
+describe("the price basis around a refused whole read and in the preparation phases", () => {
+  /** A stock resident since 2022 and fresh; unverified unless a test says otherwise. */
+  async function residentFixture(stored: DailyPrice[]) {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.priceBasis = null;
+    store.prices = stored;
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
+      { from: "2022-01-01", to: CANONICAL_RANGE.to },
+    ]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: "2022-01-01",
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const observations: PriceBasisObservation[] = [];
+    const loader = new CanonicalStockDataService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      {
+        productHistoryYears: 30,
+        recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
+        fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
+        recentTailCalendarDays: 10,
+        now: () => new Date(NOW),
+        onPriceBasisEvent: (event) => observations.push(event),
+      },
+    );
+    return { store, provider, cache, loader, observations };
+  }
+
+  const STORED = tradingDays("2022-01-03", "2022-01-31").map((row) =>
+    price(row.date, 200),
+  );
+  const EARLIEST = { from: "2022-01-03", to: addDays("2022-01-03", 30) };
+  const target = loadRange("2021-06-01");
+  const prefix = { from: target.from, to: "2021-12-31" };
+
+  it("saves nothing beside a history whose whole read was refused when its earliest rows show a re-base, and reads it whole only once", async () => {
+    const { store, provider, observations, loader } =
+      await residentFixture(STORED);
+    // The whole read misses every stored session, so it is refused; the earliest rows are re-based.
+    provider.rowsByRange.set(`${target.from}:${target.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    provider.rowsByRange.set(
+      `${EARLIEST.from}:${EARLIEST.to}`,
+      STORED.map((row) => price(row.date, 100)),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2021-06-01",
+      to: "2022-01-31",
+    });
+
+    expect(provider.ranges).toEqual([target, prefix, EARLIEST]);
+    expect(store.priceSaves).toBe(0);
+    expect(store.prices).toEqual(STORED);
+    expect(await store.getPriceBasis()).toBeNull();
+    expect(observations).toEqual([
+      expect.objectContaining({ outcome: "REPLACEMENT_REFUSED" }),
+    ]);
+  });
+
+  it("saves a prefix beside a history whose whole read was refused when its earliest rows still read as stored", async () => {
+    const { store, provider, loader } = await residentFixture(STORED);
+    provider.rowsByRange.set(`${target.from}:${target.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    provider.rowsByRange.set(`${EARLIEST.from}:${EARLIEST.to}`, STORED);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2021-06-01",
+      to: "2022-01-31",
+    });
+
+    expect(provider.ranges).toEqual([target, prefix, EARLIEST]);
+    expect(store.prices.map((row) => row.date)).toEqual([
+      "2021-06-01",
+      ...STORED.map((row) => row.date),
+    ]);
+    // Still unverified: the next cycle compares the whole history again.
+    expect(await store.getPriceBasis()).toBeNull();
+  });
+
+  it("compares the earliest stored session the provider still returns", async () => {
+    const { store, provider, loader } = await residentFixture(STORED);
+    store.priceBasis = {
+      securityId: security.id,
+      generation: 0,
+      verifiedAt: NOW,
+    };
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    // The provider no longer has the first stored session; the second still reads as stored.
+    provider.rowsByRange.set(
+      `${EARLIEST.from}:${EARLIEST.to}`,
+      STORED.slice(1),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2021-06-01",
+      to: "2022-01-31",
+    });
+
+    expect(provider.ranges).toEqual([prefix, EARLIEST]);
+    expect(store.prices[0]).toEqual(price("2021-06-01", 100));
+  });
+
+  it("compares the whole history when the earliest stored sessions are no longer at the provider", async () => {
+    const { store, provider, loader, observations } =
+      await residentFixture(STORED);
+    store.priceBasis = {
+      securityId: security.id,
+      generation: 0,
+      verifiedAt: NOW,
+    };
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
+      price("2021-06-01", 100),
+    ]);
+    provider.rowsByRange.set(`${target.from}:${target.to}`, [
+      price("2021-06-01", 100),
+      ...STORED,
+    ]);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2021-06-01",
+      to: "2022-01-31",
+    });
+
+    // The window held nothing in common, which confirms nothing: the whole read found no change.
+    expect(provider.ranges).toEqual([prefix, EARLIEST, target]);
+    expect(observations).toEqual([
+      expect.objectContaining({ outcome: "EARLIEST_ROW_UNCONFIRMED" }),
+    ]);
+    expect(store.prices[0]).toEqual(price("2021-06-01", 100));
+  });
+
+  it("prepares a fresh unverified security without a provider read, and a verification that replaces nothing keeps the pin", async () => {
+    const { store, provider, cache, loader } = await residentFixture(STORED);
+    provider.history = STORED;
+    const period = { from: "2022-01-03", to: "2022-01-31" };
+    // Resident and fresh over the whole retention: nothing takes the stock's lease.
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [RETENTION_RANGE]);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(RETENTION_RANGE.from, RETENTION_RANGE.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: RETENTION_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      canonicalHistoryStart: STORED[0]!.date,
+      canonicalHistoryEnd: STORED.at(-1)!.date,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+    });
+
+    const prepared = await loader.prepareDailyEvaluationData(security, period);
+
+    expect(provider.ranges).toEqual([]);
+    expect(prepared?.priceBasisGeneration).toBe(0);
+    // The next refresh verifies it, finding nothing to replace: the generation stays 0, so a run
+    // pinned before it reads on.
+    await store.createPriceBasis({ securityId: security.id, verifiedAt: NOW });
+    await expect(
+      loader.readDailyEvaluationFrame(security, period, [], {
+        priceBasisGeneration: 0,
+      }),
+    ).resolves.toMatchObject({ securityId: security.id });
+  });
+});
+
+describe("a Monitor frame read across a replacement", () => {
+  it("is not evaluable when the history was replaced between its reads", async () => {
+    class ReplacedDuringRead extends FakeStore {
+      reads = 0;
+      override async getPriceBasis(): Promise<SecurityPriceBasisState | null> {
+        this.reads += 1;
+        return {
+          securityId: security.id,
+          generation: this.reads === 1 ? 1 : 2,
+          verifiedAt: NOW,
+        };
+      }
+    }
+    const store = new ReplacedDuringRead();
+    const cache = new MemoryCache();
+    store.prices = tradingDays("2026-07-01", "2026-08-21").map((row) =>
+      price(row.date, 100),
+    );
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(CANONICAL_RANGE.from, CANONICAL_RANGE.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+      dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+    });
+    const loader = createService(
+      store,
+      new FakeProvider(),
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const frame = await loader.readMonitorEvaluationFrame({
+      security,
+      operands: ["price"],
+      observations: 10,
+      asOf: "2026-08-21",
+      observation: { price: 101 },
+      observationDate: "2026-08-24",
+    });
+
+    expect(store.reads).toBe(2);
+    expect(frame).toBeNull();
   });
 });

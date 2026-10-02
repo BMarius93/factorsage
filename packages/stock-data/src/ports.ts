@@ -15,6 +15,10 @@ import type {
   StockDatasetState,
 } from "@intrinsic/domain";
 import type { MappedFmpProfile } from "@intrinsic/fmp";
+import type {
+  PriceBasisEvent,
+  SecurityPriceBasisState,
+} from "./price-basis.js";
 import type { WeeklyPrice } from "./weekly.js";
 
 export type PersistedStockDataset = StockDataset | "WEEKLY_PRICE";
@@ -260,4 +264,48 @@ export interface StockDataStore {
     syncedAt: string;
     assertOwned?: () => void;
   }): Promise<void>;
+  /**
+   * The security's price basis, or `null` while the loader has never verified its stored history
+   * against the provider's (`docs/decisions/historical-price-basis-v1.md`, §7).
+   */
+  getPriceBasis(securityId: string): Promise<SecurityPriceBasisState | null>;
+  /** Every measured re-base of the security, in the order they were recorded. */
+  getPriceBasisEvents(securityId: string): Promise<PriceBasisEvent[]>;
+  /**
+   * Records the first verification of a history that needed no replacement: generation 0, the
+   * generation of a history never replaced, and `verifiedAt`. A security already verified keeps its
+   * row; the existing one is returned.
+   */
+  createPriceBasis(input: {
+    securityId: string;
+    verifiedAt: string;
+  }): Promise<SecurityPriceBasisState>;
+  /**
+   * Replaces the security's whole stored price history after a re-base, in **one** transaction
+   * under the per-security write lock (§9): every price row, the daily derived rows and the weekly
+   * rows rebuilt from them, the measured re-bases, and the next generation. PostgreSQL therefore
+   * never holds an old early history beside a new late one, or new prices beside old indicators.
+   *
+   * `expectedGeneration` is the generation the caller compared against (0 for a history never
+   * replaced, verified or not); a different one means another writer replaced the history first,
+   * and nothing is written. Derived and weekly coverage are re-established for exactly the rebuilt
+   * range.
+   */
+  replaceDailyPriceHistory(input: {
+    securityId: string;
+    expectedGeneration: number;
+    prices: readonly DailyPrice[];
+    derivedRows: readonly DailyDerivedState[];
+    weeklyPrices: readonly WeeklyPrice[];
+    events: readonly PriceBasisEvent[];
+    /** The range the provider was asked for completely. */
+    priceCoverage: Required<DateRange>;
+    /** The range `derivedRows` cover. */
+    derivedCoverage: Required<DateRange>;
+    syncedAt: string;
+    tailDate: string;
+    freshThrough?: string;
+    verifiedAt: string;
+    assertOwned?: () => void;
+  }): Promise<SecurityPriceBasisState>;
 }

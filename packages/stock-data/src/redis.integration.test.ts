@@ -1324,10 +1324,22 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
         },
       });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await prismaA.securityPriceBasis.create({
+        data: {
+          securityId: security.id,
+          generation: 1,
+          verifiedAt: new Date("2026-08-24T12:00:00.000Z"),
+        },
+      });
       // Both callers reach past the product horizon, so both load targets snap to the shared
       // raw-price retention boundary — thirty-four years back, four behind what they may show.
       provider.rows.set("1992-08-24:2014-12-31", [
         integrationPrice(security.id, "2010-01-04", 30),
+      ]);
+      // The earliest stored sessions, as the provider still returns them: unchanged.
+      provider.rows.set("2022-01-03:2022-02-02", [
+        integrationPrice(security.id, "2022-01-03", 150),
       ]);
       const storeA = new PrismaStockDataStore(prismaA);
       const storeB = new PrismaStockDataStore(prismaB);
@@ -1365,7 +1377,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
         },
       );
 
+      // Only the delta is slow, so the other caller provably waits on the lock for it. The
+      // earliest-row re-read before the delta is saved answers at once.
       provider.delayMs = 3_500;
+      provider.delayedRange = "1992-08-24:2014-12-31";
       const startedAt = Date.now();
       // Both windows reach past the retention horizon, so both resolve to the same load target:
       // whichever process wins the Redlock does the one delta and the other waits on it.
@@ -1382,6 +1397,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
 
       expect(provider.ranges).toEqual([
         { from: "1992-08-24", to: "2014-12-31" },
+        // The earliest stored sessions, re-read once before the delta is saved beside them.
+        { from: "2022-01-03", to: "2022-02-02" },
       ]);
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
@@ -1600,6 +1617,13 @@ describeInfrastructure("cross-process canonical hydration", () => {
           earliestDate: new Date("2026-08-24T00:00:00.000Z"),
           latestDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
+        },
+      });
+      await prisma.securityPriceBasis.create({
+        data: {
+          securityId: security.id,
+          generation: 1,
+          verifiedAt: new Date("2026-08-24T12:00:00.000Z"),
         },
       });
       const staleYearKey = `${namespace}:security:${security.id}:prices:1D:1990`;
@@ -2143,6 +2167,11 @@ describeInfrastructure(
         syncedAt: SYNCED_AT,
         tailDate: TODAY,
         freshThrough: TODAY,
+      });
+      // Verified under the current loader, so no first verification re-reads the history.
+      await store.createPriceBasis({
+        securityId: security.id,
+        verifiedAt: SYNCED_AT,
       });
       // Oldest filing first, so every restatement is a later filing of a known identity.
       const drafts = [...statements(security.id)].sort((left, right) =>
@@ -2862,6 +2891,8 @@ class IntegrationProvider implements FmpStockProviderPort {
   readonly ranges: Required<DateRange>[] = [];
   readonly rows = new Map<string, ReturnType<typeof integrationPrice>[]>();
   delayMs = 0;
+  /** When set, only this `from:to` range is delayed. */
+  delayedRange?: string;
 
   async getProfile() {
     return null;
@@ -2870,7 +2901,11 @@ class IntegrationProvider implements FmpStockProviderPort {
   async getDailyPrices(_symbol: string, _securityId: string, range: DateRange) {
     if (!range.from || !range.to) throw new Error("Expected bounded range");
     this.ranges.push({ from: range.from, to: range.to });
-    if (this.delayMs > 0) {
+    if (
+      this.delayMs > 0 &&
+      (this.delayedRange === undefined ||
+        this.delayedRange === `${range.from}:${range.to}`)
+    ) {
       await new Promise<void>((resolve) => {
         setTimeout(resolve, this.delayMs);
       });

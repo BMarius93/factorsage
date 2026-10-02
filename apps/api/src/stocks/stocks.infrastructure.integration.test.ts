@@ -1272,11 +1272,15 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
           .expect(200);
 
-        expect(priceRangesFor()).toHaveLength(2);
+        // The prefix, then the short look at the earliest stored sessions that every load beside a
+        // stored history makes before it saves (`historical-price-basis-v1.md`, §7, rule 2).
+        expect(priceRangesFor()).toHaveLength(3);
+        const [, delta, earliestRows] = priceRangesFor();
         // Only the prefix: the interval already covered is not requested from the provider again.
-        const delta = provider.dailyPriceCalls.at(-1)!;
-        expect(delta.to! < coverageStart!).toBe(true);
-        expect(delta.from! >= WIDENING_START).toBe(true);
+        expect(delta!.to! < coverageStart!).toBe(true);
+        expect(delta!.from! >= WIDENING_START).toBe(true);
+        expect(earliestRows!.to).toBe(addDays(earliestRows!.from!, 30));
+        expect(earliestRows!.from! >= coverageStart!).toBe(true);
 
         // The older rows are genuinely there, ascending, and the widening never narrowed the tail.
         const prices = widened.body as Array<{ date: string }>;
@@ -1309,7 +1313,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         await wideningHttp()
           .get(`/stocks/${symbol}/prices?from=${addDays(older, 40)}&to=${TODAY}`)
           .expect(200);
-        expect(priceRangesFor()).toHaveLength(2);
+        expect(priceRangesFor()).toHaveLength(3);
       },
       SLOW,
     );
@@ -1524,9 +1528,12 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(dates.at(-1)).toBe(TODAY);
         expect(dates).toEqual(expectedDates);
 
-        // Provider boundary: the v1 claim was not evidence. The caller's whole target was asked
-        // for again, exactly once, and the resident fundamentals were left alone.
+        // Provider boundary: the stored rows were first verified against the provider's history,
+        // once (`historical-price-basis-v1.md`, §7, rule 1). Then the v1 claim was not evidence: the
+        // caller's whole target was asked for again, exactly once, and the resident fundamentals
+        // were left alone.
         expect(priceCallsFor()).toEqual([
+          { symbol: symbols.legacy, from: WIDENING_RETENTION_START, to: TODAY },
           { symbol: symbols.legacy, from: WIDENING_RETENTION_START, to: TODAY },
         ]);
         expect(statementCallsFor()).toEqual([]);
@@ -1614,7 +1621,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           where: { id: securityId },
         });
         expect(security.ipoDate).toBeNull();
-        expect(priceCallsFor()).toHaveLength(1);
+        expect(priceCallsFor()).toHaveLength(2);
       },
       SLOW,
     );
@@ -1634,7 +1641,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         await legacyHttp()
           .get(`/stocks/${symbols.legacy}/prices?from=2020-01-02&to=2020-12-31`)
           .expect(200);
-        expect(priceCallsFor()).toHaveLength(1);
+        expect(priceCallsFor()).toHaveLength(2);
 
         // Lose only this stock's Redis state; PostgreSQL is untouched.
         const registered = await readRedisStockKeys(securityId);
@@ -1652,7 +1659,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         ).toEqual(expectedDates);
         // Current-revision coverage is durable evidence, so nothing is refetched and nothing
         // durable changes; the cache is rebuilt on the current revision.
-        expect(priceCallsFor()).toHaveLength(1);
+        expect(priceCallsFor()).toHaveLength(2);
         expect(statementCallsFor()).toEqual([]);
         expect(await readDbStockSnapshot(securityId)).toEqual(dbBefore);
         expect(await readRedisManifest(securityId)).toMatchObject({
@@ -2292,11 +2299,20 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           .get(`/stocks/${symbol}/prices?from=2026-08-01&to=${TODAY}`)
           .expect(200);
 
-        expect(provider.dailyPriceCalls.length).toBe(priceCallsBefore + 1);
-        expect(provider.dailyPriceCalls.at(-1)).toEqual({
+        // The tail, then the short look at the earliest stored sessions that a load changing a
+        // stored row makes before it saves (`historical-price-basis-v1.md`, §7, rule 2).
+        expect(provider.dailyPriceCalls.length).toBe(priceCallsBefore + 2);
+        const [tail, earliestRows] =
+          provider.dailyPriceCalls.slice(priceCallsBefore);
+        expect(tail).toEqual({
           symbol,
           from: addDays(TODAY, -10),
           to: TODAY,
+        });
+        expect(earliestRows).toEqual({
+          symbol,
+          from: earliestRows!.from,
+          to: addDays(earliestRows!.from!, 30),
         });
         expect(provider.statementCalls.length).toBe(statementCallsBefore);
         expect(

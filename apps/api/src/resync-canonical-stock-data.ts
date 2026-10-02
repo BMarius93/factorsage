@@ -19,6 +19,7 @@ import {
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
+  logPriceBasisEvent,
 } from "@intrinsic/stock-data";
 import { QA_MATRIX_SECURITIES } from "@intrinsic/testing";
 
@@ -271,6 +272,7 @@ async function resync(): Promise<void> {
         providerRequests += 1;
         logger.debug({ event: "stock.resync.provider.request", ...request });
       },
+      onPriceBasisEvent: logPriceBasisEvent(logger),
     },
   );
 

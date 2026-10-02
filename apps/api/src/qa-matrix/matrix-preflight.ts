@@ -188,6 +188,7 @@ export async function runQaMatrixPreflight(
     await checkSecurityCoverage(input, symbols.securities, calendar.calendar),
   );
   checks.push(await checkDerivedStateCoverage(input, symbols.securities));
+  checks.push(await checkPriceBasisVerified(input, symbols.securities));
   checks.push(await checkFundamentalsCoverage(input, symbols.securities));
   checks.push(await checkDatasetRevisions(input, symbols.securities));
 
@@ -1208,6 +1209,42 @@ async function checkDerivedStateCoverage(
     problems,
     `derived state present for all ${securities.length} securities at revision ${BACKTEST_DATA_REVISIONS.derivedStateRevision}`,
     { revision: DAILY_DERIVED_STATE_VARIANT },
+  );
+}
+
+/**
+ * Every security verified against the provider (`docs/decisions/historical-price-basis-v1.md`,
+ * §7, rule 1).
+ *
+ * The matrix copies the price basis with the prices. A security the source database never verified
+ * arrives without one, and its first hydration in the sweep would read its whole history from the
+ * provider — traffic the sweep must not make, and a replacement in the middle of it.
+ */
+async function checkPriceBasisVerified(
+  input: PreflightInput,
+  securities: readonly SecurityRow[],
+): Promise<PreflightCheck> {
+  const verified = new Set(
+    (
+      await input.prisma.securityPriceBasis.findMany({
+        where: {
+          securityId: { in: securities.map((security) => security.id) },
+        },
+        select: { securityId: true },
+      })
+    ).map((row) => row.securityId),
+  );
+  const problems = securities
+    .filter((security) => !verified.has(security.id))
+    .map(
+      (security) =>
+        `\`${security.symbol}\` has never been verified against the provider; read it once in the source database and provision again.`,
+    );
+  return check(
+    "price-basis-verified",
+    "Price basis verified",
+    problems,
+    `all ${securities.length} securities verified against the provider`,
   );
 }
 

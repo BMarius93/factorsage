@@ -4,6 +4,7 @@ import {
 } from "@intrinsic/contracts";
 import {
   BACKTEST_DATA_REVISIONS,
+  PriceBasisChangedError,
   type DailyPriceBounds,
 } from "@intrinsic/stock-data";
 import {
@@ -254,13 +255,19 @@ class RecordingRepository implements BacktestJobRepository {
 class RecordingFrameLoader implements BacktestFrameLoader {
   readonly prepared: Required<DateRange>[] = [];
   readonly windows: Required<DateRange>[] = [];
+  /** The generation each window read was pinned to. */
+  readonly pins: (number | undefined)[] = [];
 
-  constructor(private readonly failWindowStartingIn?: string) {}
+  constructor(
+    private readonly failWindowStartingIn?: string,
+    /** When set, the security is re-based in PostgreSQL before the window starting in this year. */
+    private readonly rebaseBeforeWindowStartingIn?: string,
+  ) {}
 
   async prepareDailyEvaluationData(
     _security: Security,
     range: Required<DateRange>,
-  ): Promise<DailyPriceBounds | null> {
+  ): Promise<(DailyPriceBounds & { priceBasisGeneration: number }) | null> {
     this.prepared.push(range);
     const inside = HISTORY.filter(
       (date) => date >= range.from && date <= range.to,
@@ -271,6 +278,7 @@ class RecordingFrameLoader implements BacktestFrameLoader {
           firstDate: inside[0] as string,
           lastDate: inside[inside.length - 1] as string,
           tradingDays: inside.length,
+          priceBasisGeneration: 3,
         };
   }
 
@@ -278,13 +286,26 @@ class RecordingFrameLoader implements BacktestFrameLoader {
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
+    options?: { priceBasisGeneration?: number },
   ): Promise<EvaluationFrame> {
     this.windows.push(range);
+    this.pins.push(options?.priceBasisGeneration);
     if (
       this.failWindowStartingIn &&
       range.from.startsWith(this.failWindowStartingIn)
     ) {
       throw new Error("the projection for this window could not be read");
+    }
+    if (
+      this.rebaseBeforeWindowStartingIn &&
+      range.from.startsWith(this.rebaseBeforeWindowStartingIn)
+    ) {
+      throw new PriceBasisChangedError(
+        security.id,
+        security.symbol,
+        options?.priceBasisGeneration ?? 0,
+        4,
+      );
     }
     // The loader widens a window by its own leading context, exactly as the real one does.
     const context = new Date(`${range.from}T00:00:00.000Z`);
@@ -529,6 +550,40 @@ describe("annual execution windows", () => {
       repository.progress.filter((write) => write.milestone !== undefined),
     ).toHaveLength(2);
     expect(loader.windows).toHaveLength(3);
+  });
+
+  it("pins every window read to the generation the security was prepared under", async () => {
+    const loader = new RecordingFrameLoader();
+    const { processor, repository } = processorWith(loader);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toEqual([]);
+    expect(loader.pins.length).toBeGreaterThan(0);
+    expect(loader.pins.every((pin) => pin === 3)).toBe(true);
+  });
+
+  it("fails the whole run when the provider re-bases a security during it, naming the security", async () => {
+    // 2019 simulates; before 2020 is read, the security's history is replaced after a re-base.
+    const loader = new RecordingFrameLoader(undefined, "2020");
+    const { processor, repository } = processorWith(loader);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.results).toEqual([]);
+    expect(repository.failures).toHaveLength(1);
+    const failure = repository.failures[0];
+    expect(failure?.code).toBe("EXECUTION_FAILED");
+    expect(failure?.phase).toBe("RUNNING");
+    // The user is told to run it again and why; the generations stay server-side.
+    expect(failure?.message).toContain("Please try running it again.");
+    expect(failure?.message).toContain("updated the price history of");
+    expect(failure?.message).not.toContain("generation");
+    expect(failure?.detail).toMatchObject({
+      reason: "PRICE_BASIS_CHANGED",
+      expectedGeneration: 3,
+      actualGeneration: 4,
+    });
   });
 });
 

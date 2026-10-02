@@ -479,6 +479,20 @@ nothing about whether that day was a session. `security-universe.test.ts` pins t
 against the claim, so admitting a venue on another clock fails a test rather than silently
 mis-dating its observations — at which point the question has to be answered again, deliberately.
 
+## Re-based histories and the ex-date hold
+
+`../../docs/decisions/historical-price-basis-v1.md` PR 1 adds two guards to the symbol snapshot,
+both reported as a not-evaluable observation for the cycle and never as a Signal decision:
+
+- **The live quote's hold.** A quote that moved by a split-sized amount (below 0.7 or above 1.4
+  times) from the last closed session may be a post-split price beside a history the provider has
+  not re-based yet. `projectMonitorEvaluationFrame` returns no frame, so the quote is never appended.
+- **One basis per frame.** Prices come from the Redis projection and the derived tail from
+  PostgreSQL; `readMonitorEvaluationFrame` reads the security's price-basis generation before and
+  after them, and a replacement committed in between makes the cycle's frame for that security
+  absent. A reconstruction's history read is bracketed the same way, and meeting a replacement
+  there is a `warn` (`monitor.reconstruction.history-rebased`), not a failure.
+
 ## The trading-session boundary
 
 A provisional observation is built only for a day the exchange held a session. Weekends need no

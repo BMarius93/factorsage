@@ -371,9 +371,20 @@ describeReuse("provider reuse across repeated reads", () => {
       to: "2020-07-01",
     });
 
-    // Whatever it asked for, it asked only about the tail — never the covered history.
+    // Whatever it asked for, it asked only about the tail — never the covered history. The one
+    // exception is a single session: the earliest stored row, re-read before the new tail is saved
+    // beside it (`historical-price-basis-v1.md`, §7).
+    const probes = provider.priceRequests.filter(
+      (request) => request.from < "2020-06-01",
+    );
+    expect(probes.length).toBeLessThanOrEqual(1);
+    for (const probe of probes) {
+      expect(probe.from).toBe(probe.to);
+    }
     for (const request of provider.priceRequests) {
-      expect(request.from >= "2020-06-01").toBe(true);
+      expect(request.from >= "2020-06-01" || request.from === request.to).toBe(
+        true,
+      );
     }
   });
 

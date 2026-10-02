@@ -22,6 +22,7 @@ import {
   DEFAULT_HYDRATION_TTL_MS,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
+  logPriceBasisEvent,
   monitorWindowObservations,
   requiredDailySeries,
   type ProviderRequestEvent,
@@ -123,6 +124,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
+      onPriceBasisEvent: logPriceBasisEvent(logger),
       alternativeData,
     },
   );

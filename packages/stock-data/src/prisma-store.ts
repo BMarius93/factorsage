@@ -27,6 +27,7 @@ import type { MappedFmpProfile } from "@intrinsic/fmp";
 import {
   FinancialPeriod as FinancialPeriodEnum,
   FinancialStatementType as FinancialStatementTypeEnum,
+  PriceBasisEventKind,
   type Prisma,
   PrismaClient,
   SecurityType,
@@ -36,6 +37,12 @@ import {
   assertOneRowPerTradingDay,
   DAILY_DERIVED_STATE_VARIANT,
 } from "./derived-state.js";
+import {
+  PriceBasisConflictError,
+  type PriceBasisEvent,
+  type PriceBasisEventEvidence,
+  type SecurityPriceBasisState,
+} from "./price-basis.js";
 import {
   DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
@@ -278,6 +285,18 @@ function dailyDerivedStateToRow(
 
 function toDatabaseInstant(value: string | undefined): Date | null {
   return value === undefined ? null : new Date(value);
+}
+
+function priceBasisFromRow(row: {
+  securityId: string;
+  generation: number;
+  verifiedAt: Date;
+}): SecurityPriceBasisState {
+  return {
+    securityId: row.securityId,
+    generation: row.generation,
+    verifiedAt: row.verifiedAt.toISOString(),
+  };
 }
 
 function toDatabaseDate(value: string): Date {
@@ -1062,6 +1081,200 @@ export class PrismaStockDataStore implements StockDataStore {
         syncedAt: input.syncedAt,
       });
       input.assertOwned?.();
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
+  }
+
+  async getPriceBasis(
+    securityId: string,
+  ): Promise<SecurityPriceBasisState | null> {
+    const row = await this.prisma.securityPriceBasis.findUnique({
+      where: { securityId },
+    });
+    return row ? priceBasisFromRow(row) : null;
+  }
+
+  async getPriceBasisEvents(securityId: string): Promise<PriceBasisEvent[]> {
+    const rows = await this.prisma.priceBasisEvent.findMany({
+      where: { securityId },
+      orderBy: [{ generation: "asc" }, { detectedAt: "asc" }, { id: "asc" }],
+    });
+    return rows.map((row) => ({
+      securityId: row.securityId,
+      generation: row.generation,
+      kind: row.kind,
+      ...(row.effectiveDate
+        ? { effectiveDate: fromDatabaseDate(row.effectiveDate) }
+        : {}),
+      ...(row.effectiveFrom
+        ? { effectiveFrom: fromDatabaseDate(row.effectiveFrom) }
+        : {}),
+      ...(row.effectiveTo
+        ? { effectiveTo: fromDatabaseDate(row.effectiveTo) }
+        : {}),
+      ...(row.priceRatio === null
+        ? {}
+        : { priceRatio: row.priceRatio.toNumber() }),
+      detectedAt: row.detectedAt.toISOString(),
+      evidence: row.evidence as unknown as PriceBasisEventEvidence,
+    }));
+  }
+
+  async createPriceBasis(input: {
+    securityId: string;
+    verifiedAt: string;
+  }): Promise<SecurityPriceBasisState> {
+    const row = await this.prisma.securityPriceBasis.upsert({
+      where: { securityId: input.securityId },
+      create: {
+        securityId: input.securityId,
+        generation: 0,
+        verifiedAt: new Date(input.verifiedAt),
+      },
+      // An existing row is never rewritten: `verifiedAt` and the generation only move forward.
+      update: {},
+    });
+    return priceBasisFromRow(row);
+  }
+
+  async replaceDailyPriceHistory(
+    input: Parameters<StockDataStore["replaceDailyPriceHistory"]>[0],
+  ): Promise<SecurityPriceBasisState> {
+    assertOneRowPerTradingDay(input.derivedRows);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.lockStockWrite(transaction, input.securityId);
+      const current = await transaction.securityPriceBasis.findUnique({
+        where: { securityId: input.securityId },
+      });
+      if ((current?.generation ?? 0) !== input.expectedGeneration) {
+        throw new PriceBasisConflictError(
+          input.securityId,
+          input.expectedGeneration,
+          current?.generation ?? 0,
+        );
+      }
+      const generation = (current?.generation ?? 0) + 1;
+
+      await transaction.dailyPrice.deleteMany({
+        where: { securityId: input.securityId },
+      });
+      await transaction.dailyPrice.createMany({
+        data: input.prices.map((price) => ({
+          securityId: input.securityId,
+          date: toDatabaseDate(price.date),
+          open: price.open,
+          high: price.high,
+          low: price.low,
+          close: price.close,
+          volume: BigInt(price.volume),
+          vwap: price.vwap,
+        })),
+      });
+      await this.advanceState(transaction, {
+        securityId: input.securityId,
+        dataset: "DAILY_PRICE",
+        variant: DAILY_PRICE_VARIANT,
+        from: input.priceCoverage.from,
+        to: input.priceCoverage.to,
+        syncedAt: input.syncedAt,
+      });
+      if (input.freshThrough && input.freshThrough >= input.tailDate) {
+        await this.advanceFreshnessState(transaction, {
+          securityId: input.securityId,
+          tailDate: input.tailDate,
+          syncedAt: input.syncedAt,
+        });
+      }
+
+      // Every derived row and every weekly row was computed from prices that no longer exist, so
+      // all of them and their coverage go, and exactly the rebuilt range is re-established.
+      const derived = {
+        securityId: input.securityId,
+        dataset: StockDataset.DAILY_DERIVED_STATE,
+        variant: DAILY_DERIVED_STATE_VARIANT,
+      };
+      await transaction.dailyDerivedState.deleteMany({
+        where: { securityId: input.securityId },
+      });
+      await transaction.stockDatasetCoverage.deleteMany({ where: derived });
+      await transaction.stockDatasetState.deleteMany({ where: derived });
+      await transaction.dailyDerivedState.createMany({
+        data: input.derivedRows.map((row) =>
+          dailyDerivedStateToRow(input.securityId, row),
+        ),
+      });
+      await this.advanceState(transaction, {
+        securityId: input.securityId,
+        dataset: "DAILY_DERIVED_STATE",
+        variant: DAILY_DERIVED_STATE_VARIANT,
+        from: input.derivedCoverage.from,
+        to: input.derivedCoverage.to,
+        syncedAt: input.syncedAt,
+      });
+
+      const weekly = {
+        securityId: input.securityId,
+        dataset: StockDataset.WEEKLY_PRICE,
+        variant: WEEKLY_PRICE_VARIANT,
+      };
+      await transaction.weeklyPrice.deleteMany({
+        where: { securityId: input.securityId },
+      });
+      await transaction.stockDatasetCoverage.deleteMany({ where: weekly });
+      await transaction.stockDatasetState.deleteMany({ where: weekly });
+      if (input.weeklyPrices.length > 0) {
+        await transaction.weeklyPrice.createMany({
+          data: input.weeklyPrices.map((bar) => ({
+            ...bar,
+            securityId: input.securityId,
+            weekStartDate: toDatabaseDate(bar.weekStartDate),
+            weekEndDate: toDatabaseDate(bar.weekEndDate),
+            eligibleDate: toDatabaseDate(bar.eligibleDate),
+            volume: BigInt(bar.volume),
+          })),
+        });
+        await this.advanceState(transaction, {
+          securityId: input.securityId,
+          dataset: "WEEKLY_PRICE",
+          variant: WEEKLY_PRICE_VARIANT,
+          from: input.weeklyPrices[0]!.weekStartDate,
+          to: input.weeklyPrices.at(-1)!.weekEndDate,
+          syncedAt: input.syncedAt,
+        });
+      }
+
+      if (input.events.length > 0) {
+        await transaction.priceBasisEvent.createMany({
+          data: input.events.map((event) => ({
+            securityId: input.securityId,
+            // The replacement that recorded it, whatever the caller assumed.
+            generation,
+            kind: PriceBasisEventKind[event.kind],
+            effectiveDate: event.effectiveDate
+              ? toDatabaseDate(event.effectiveDate)
+              : null,
+            effectiveFrom: event.effectiveFrom
+              ? toDatabaseDate(event.effectiveFrom)
+              : null,
+            effectiveTo: event.effectiveTo
+              ? toDatabaseDate(event.effectiveTo)
+              : null,
+            priceRatio: event.priceRatio ?? null,
+            detectedAt: new Date(event.detectedAt),
+            evidence: event.evidence as unknown as Prisma.InputJsonValue,
+          })),
+        });
+      }
+      const basis = await transaction.securityPriceBasis.upsert({
+        where: { securityId: input.securityId },
+        create: {
+          securityId: input.securityId,
+          generation,
+          verifiedAt: new Date(input.verifiedAt),
+        },
+        update: { generation },
+      });
+      input.assertOwned?.();
+      return priceBasisFromRow(basis);
     }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 
