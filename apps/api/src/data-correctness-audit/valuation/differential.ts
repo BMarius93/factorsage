@@ -5,6 +5,7 @@ import {
 } from "../oracle/valuation-ratios";
 import { ComparisonTally } from "./compare";
 import { generateHistory, type GeneratedHistory } from "./generator";
+import { generateRestatementHistory } from "./generator-restatements";
 import { productColumns, productTimeline } from "./production-adapter";
 
 /**
@@ -12,13 +13,40 @@ import { productColumns, productTimeline } from "./production-adapter";
  * twice — as a backtest frame reads a closed session (its own statements) and as a Monitor's
  * provisional row reads one (the previous session's statements, the session's own price-basis
  * rules) — by the reference and by the product, and classified.
+ *
+ * Each seed gives one history of each family: the adversarial one (`generator.ts`) and one built
+ * around a share-basis event and the provider's restatement of it (`generator-restatements.ts`).
  */
+export const DIFFERENTIAL_FAMILIES = ["adversarial", "restatement"] as const;
+export type DifferentialFamily = (typeof DIFFERENTIAL_FAMILIES)[number];
+
+const GENERATORS: Record<
+  DifferentialFamily,
+  (seed: number) => GeneratedHistory
+> = {
+  adversarial: generateHistory,
+  restatement: generateRestatementHistory,
+};
+
+export type DifferentialFamilyResult = {
+  histories: number;
+  sessions: number;
+  tally: ComparisonTally;
+  /** Available cells whose share count a measured re-base explained (rule 3's positive path). */
+  explainedRestatementCells: number;
+  /** Available cells of the review's G1/G2 shape: rule 3 passed against a restated predecessor. */
+  restatedPredecessorGapCells: number;
+  /** Available cells read on the walk's first count, accepted unconfirmed (the review's G3). */
+  firstCountCells: number;
+};
+
 export type DifferentialResult = {
   seeds: number[];
   histories: number;
   sessions: number;
   tally: ComparisonTally;
-  /** Per adversarial feature: histories carrying it, and cells withheld only by each rule. */
+  families: Map<DifferentialFamily, DifferentialFamilyResult>;
+  /** Histories carrying each adversarial feature (the second family's prefixed `restatement:`). */
   features: Map<string, number>;
   /** Per rule: cells the rule alone withheld, across every history (a rule that never fires alone is unproven here). */
   soleRuleCells: Map<OracleValuationReason, number>;
@@ -26,40 +54,78 @@ export type DifferentialResult = {
 
 export function runDifferential(
   seeds: readonly number[],
-  options: { provisional?: boolean; keepFailures?: number } = {},
+  options: {
+    provisional?: boolean;
+    keepFailures?: number;
+    families?: readonly DifferentialFamily[];
+  } = {},
 ): DifferentialResult {
   const tally = new ComparisonTally();
+  const families = new Map<DifferentialFamily, DifferentialFamilyResult>();
   const features = new Map<string, number>();
   const soleRuleCells = new Map<OracleValuationReason, number>();
   let sessions = 0;
-  for (const seed of seeds) {
-    const history = generateHistory(seed);
-    for (const feature of history.features) {
-      features.set(feature, (features.get(feature) ?? 0) + 1);
-    }
-    sessions += history.sessions.length;
-    compareHistory(history, tally, soleRuleCells, false, options.keepFailures);
-    if (options.provisional !== false) {
-      compareHistory(history, tally, soleRuleCells, true, options.keepFailures);
+  let histories = 0;
+  for (const family of options.families ?? DIFFERENTIAL_FAMILIES) {
+    const result: DifferentialFamilyResult = {
+      histories: 0,
+      sessions: 0,
+      tally: new ComparisonTally(),
+      explainedRestatementCells: 0,
+      restatedPredecessorGapCells: 0,
+      firstCountCells: 0,
+    };
+    families.set(family, result);
+    for (const seed of seeds) {
+      const history = GENERATORS[family](seed);
+      for (const feature of history.features) {
+        const key =
+          family === "adversarial" ? feature : `restatement:${feature}`;
+        features.set(key, (features.get(key) ?? 0) + 1);
+      }
+      histories += 1;
+      sessions += history.sessions.length;
+      result.histories += 1;
+      result.sessions += history.sessions.length;
+      for (const provisional of options.provisional === false
+        ? [false]
+        : [false, true]) {
+        compareHistory({
+          history,
+          tallies: [tally, result.tally],
+          soleRuleCells,
+          provisional,
+          keepFailures: options.keepFailures,
+          diagnostics: result,
+        });
+      }
     }
   }
   return {
     seeds: [...seeds],
-    histories: seeds.length,
+    histories,
     sessions,
     tally,
+    families,
     features,
     soleRuleCells,
   };
 }
 
-function compareHistory(
-  history: GeneratedHistory,
-  tally: ComparisonTally,
-  soleRuleCells: Map<OracleValuationReason, number>,
-  provisional: boolean,
-  keepFailures = 200,
-): void {
+function compareHistory(input: {
+  history: GeneratedHistory;
+  tallies: readonly ComparisonTally[];
+  soleRuleCells: Map<OracleValuationReason, number>;
+  provisional: boolean;
+  keepFailures: number | undefined;
+  diagnostics: Pick<
+    DifferentialFamilyResult,
+    | "explainedRestatementCells"
+    | "restatedPredecessorGapCells"
+    | "firstCountCells"
+  >;
+}): void {
+  const { history, provisional } = input;
   const oracle = createValuationOracle(history.security);
   const timeline = productTimeline(history.security);
   const dates = history.sessions.map((session) => session.date);
@@ -81,17 +147,29 @@ function compareHistory(
     for (const ratio of ORACLE_VALUATION_RATIO_IDS) {
       const outcome = reading[ratio];
       const product = (columns.get(ratio) as Float64Array)[index] as number;
-      tally.record(
-        `seed ${history.seed}${provisional ? " provisional" : ""} ${session.date}`,
-        ratio,
-        product,
-        outcome,
-        keepFailures,
-      );
+      for (const tally of input.tallies) {
+        tally.record(
+          `${history.features.includes("family-restatement") ? "restatement " : ""}seed ${history.seed}${provisional ? " provisional" : ""} ${session.date}`,
+          ratio,
+          product,
+          outcome,
+          input.keepFailures ?? 200,
+        );
+      }
+      if (outcome.available) {
+        const { terms } = outcome;
+        input.diagnostics.explainedRestatementCells += Number(
+          terms.explainedRestatement,
+        );
+        input.diagnostics.restatedPredecessorGapCells += Number(
+          terms.restatedPredecessorGap,
+        );
+        input.diagnostics.firstCountCells += Number(terms.firstCountOfWalk);
+      }
       if (!outcome.available && outcome.failing.length === 1) {
-        soleRuleCells.set(
+        input.soleRuleCells.set(
           outcome.reason,
-          (soleRuleCells.get(outcome.reason) ?? 0) + 1,
+          (input.soleRuleCells.get(outcome.reason) ?? 0) + 1,
         );
       }
     }

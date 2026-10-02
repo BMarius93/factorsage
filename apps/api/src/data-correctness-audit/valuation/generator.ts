@@ -30,7 +30,7 @@ export type GeneratedHistory = {
   features: string[];
 };
 
-class Random {
+export class Random {
   private state: number;
   constructor(seed: number) {
     this.state = (seed * 2654435761) >>> 0 || 1;
@@ -56,29 +56,29 @@ class Random {
 
 const DAY = 86_400_000;
 
-function addDays(date: string, days: number): string {
+export function addDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * DAY)
     .toISOString()
     .slice(0, 10);
 }
 
-function weekday(date: string): number {
+export function weekday(date: string): number {
   return new Date(`${date}T00:00:00.000Z`).getUTCDay();
 }
 
-function monthEnd(year: number, month: number): string {
+export function monthEnd(year: number, month: number): string {
   // month 1-12, possibly beyond 12 (rolls into the next year)
   const y = year + Math.floor((month - 1) / 12);
   const m = ((month - 1) % 12) + 1;
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 }
 
-function isHoliday(date: string): boolean {
+export function isHoliday(date: string): boolean {
   const md = date.slice(5);
   return md === "01-01" || md === "07-04" || md === "12-25" || md === "11-26";
 }
 
-function instant(date: string, random: Random): string {
+export function instant(date: string, random: Random): string {
   const ms = Date.parse(`${date}T00:00:00.000Z`) + random.int(0, DAY - 1);
   return new Date(ms).toISOString();
 }
