@@ -660,7 +660,7 @@ async function syntheticStore(): Promise<void> {
       redisUrl,
       namespace: `stock-data:v2:valuation-synthetic:${Date.now()}`,
       securityIds: stored.map((security) => security.securityId),
-      log: () => undefined,
+      log: (line) => console.log(line),
     });
     const failed = realDataFailures(audit);
     write(option("output") ?? "synthetic-store.json", {
