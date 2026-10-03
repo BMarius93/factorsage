@@ -345,9 +345,11 @@ export async function auditRealData(input: {
     store,
     provider,
     cache,
+    // Generous locks: on a loaded machine one security's hydration can outlast two minutes, and a
+    // lock that expires mid-read is refused — an infrastructure refusal, not a reading.
     new RedlockLoadCoordinator(redis, {
-      lockDurationMs: 120_000,
-      lockWaitMs: 120_000,
+      lockDurationMs: 900_000,
+      lockWaitMs: 900_000,
     }),
     {
       productHistoryYears: 30,
