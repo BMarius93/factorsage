@@ -673,6 +673,81 @@ describe("valuation ratios: each masking rule in isolation", () => {
     ).toBeNaN();
   });
 
+  it("matches an undated re-base to an entry by the days it may lie on, never its interval's exclusive start", () => {
+    const entry = split({
+      date: "2025-02-24",
+      numerator: 523,
+      denominator: 500,
+    });
+    // A plain re-base measured between two reads lies after `effectiveFrom`, the last session
+    // certainly before it, and no later than `effectiveTo`.
+    const between = (from: string, to: string) =>
+      measured({
+        effectiveFrom: from,
+        effectiveTo: to,
+        priceRatio: 2,
+        detectedAt: "2025-03-20T12:00:00.000Z",
+      });
+    // Starting six days after the entry, its first possible day is the seventh: it is the entry's.
+    expect(
+      pe(
+        isolated({
+          splits: [entry],
+          events: [between("2025-03-02", "2025-03-05")],
+        }),
+      )[0],
+    ).toBeCloseTo(50, 12);
+    // Starting seven days after it, it lies eight or more days away: the entry still masks.
+    expect(
+      pe(
+        isolated({
+          splits: [entry],
+          events: [between("2025-03-03", "2025-03-05")],
+        }),
+      )[0],
+    ).toBeNaN();
+    // And a listed upcoming event keeps its month.
+    expect(
+      pe(
+        isolated({
+          splits: [entry],
+          verifiedAt: "2025-02-23T09:00:00.000Z",
+          events: [between("2025-03-03", "2025-03-05")],
+        }),
+      )[1],
+    ).toBeNaN();
+  });
+
+  it("rule 5: a count observed on an undated re-base's exclusive start was observed before it", () => {
+    // Measured between 2025-03-03, the last session certainly before it, and 2025-03-05; every
+    // quarter first observed on 2025-03-03. The count predates the event: K = 2 restores the close
+    // it was observed against, and rule 5, for a count observed on or after an event, does not
+    // reach it.
+    const observedOnStart = quarters.map((quarter) => ({
+      ...quarter,
+      observedAt: "2025-03-03T15:00:00.000Z",
+    }));
+    const value = ratiosOn(
+      isolated({
+        statements: company({ quarters: observedOnStart }),
+        events: [
+          measured({
+            effectiveFrom: "2025-03-03",
+            effectiveTo: "2025-03-05",
+            priceRatio: 2,
+            detectedAt: "2025-03-20T12:00:00.000Z",
+          }),
+        ],
+      }),
+      ["2025-03-03", "2025-03-04"],
+      10,
+      ["PRICE_TO_EARNINGS_TTM"],
+    ).PRICE_TO_EARNINGS_TTM;
+    // 10 × 2 × 100 / 20 on the interval's start; inside the interval, withheld.
+    expect(value[0]).toBeCloseTo(100, 12);
+    expect(value[1]).toBeNaN();
+  });
+
   it("splits history from forward entries at the verification date", () => {
     const entry = split({
       date: "2025-02-24",
@@ -903,6 +978,25 @@ describe("valuation ratios: each masking rule in isolation", () => {
       ).toBeNaN();
     });
 
+    it("is a restatement only beyond 2 %, judged on the reported figures, not their doubles", () => {
+      // 100 restated to exactly 102 or 98 differs by 2 %, not by more: nothing needs explaining,
+      // although 102 / 100 - 1 is 0.020000000000000018 in doubles.
+      expect(pb(102, [])).toBeCloseTo((10 * 102) / 400, 12);
+      expect(pb(98, [])).toBeCloseTo((10 * 98) / 400, 12);
+      expect(pb(102.0001, [])).toBeNaN();
+      expect(pb(97.9999, [])).toBeNaN();
+      // 204 and 196 are exactly 2 % from a measured 2:1 re-base, which explains them; 204.01 is not.
+      const split = [
+        twoForOne({
+          effectiveDate: "2025-05-12",
+          detectedAt: "2025-05-13T12:00:00.000Z",
+        }),
+      ];
+      expect(pb(204, split)).toBeCloseTo((10 * 204) / 400, 12);
+      expect(pb(196, split)).toBeCloseTo((10 * 196) / 400, 12);
+      expect(pb(204.01, split)).toBeNaN();
+    });
+
     it("needs a re-base even when it is too small for the share level to notice", () => {
       // An 11:10 stock dividend restated with no re-base behind it: within rule 2's 25 %.
       expect(pb(110, [])).toBeNaN();
@@ -1065,5 +1159,38 @@ describe("valuation ratios: each masking rule in isolation", () => {
     expect(
       pb((index) => (index < 4 ? 100 : 100 * 1.2 ** (index - 3))),
     ).toBeCloseTo((10 * 100 * 1.2 ** 4) / 400, 12);
+  });
+
+  it("rule 2: judges the 25 % band on the reported counts, not their doubles", () => {
+    const eight: Quarter[] = [
+      ...QUARTERS.map((quarter) => ({
+        ...quarter,
+        fiscalYear: 2023,
+        fiscalDate: quarter.fiscalDate.replace("2024", "2023"),
+        availableFromDate: quarter.availableFromDate
+          .replace(/^2024/, "2023")
+          .replace(/^2025/, "2024"),
+      })),
+      ...QUARTERS,
+    ].map((quarter) => ({ ...quarter, observedAt: LATE }));
+    // 1.1 for six quarters, 0.825 in 2024Q3 — exactly 25 % below, although 0.825 / 1.1 - 1 is
+    // -0.2500000000000001 in doubles — then 1.1 again in 2024Q4, a third above the new level.
+    const counts = [1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 0.825, 1.1];
+    const pb = ratiosOn(
+      inputs({
+        statements: company({
+          quarters: eight,
+          shares: (index) => counts[index]!,
+        }),
+        verifiedAt: "2026-10-05T00:00:00.000Z",
+      }),
+      ["2024-11-11", "2025-02-10"],
+      10,
+      ["PRICE_TO_BOOK"],
+    ).PRICE_TO_BOOK;
+    // 0.825 is inside the band: accepted, and the new level.
+    expect(pb[0]).toBeCloseTo((10 * 0.825) / 400, 12);
+    // 1.1 is outside the band of 0.825: withheld, never read against the level the walk left.
+    expect(pb[1]).toBeNaN();
   });
 });

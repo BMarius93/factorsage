@@ -30,6 +30,7 @@
     "qa:matrix:preflight": "tsx src/qa-matrix-preflight.ts",
     "qa:matrix:run": "tsx src/qa-matrix-run.ts",
     "audit:data-correctness": "tsx src/data-correctness-audit/run-audit.ts",
+    "audit:valuation": "tsx src/data-correctness-audit/valuation/run-valuation-audit.ts",
     "bench:daily-state-cache": "tsx src/cache-benchmark/daily-state-cache-benchmark.ts",
     "billing:reconcile": "tsx src/reconcile-billing.ts",
     "billing:verify-catalog": "tsx src/verify-stripe-catalog.ts",

@@ -16,7 +16,7 @@ import {
   type StockSplit,
 } from "@intrinsic/domain";
 import { addDays } from "./dates.js";
-import { exactDecimalSum } from "./exact-decimal-sum.js";
+import { exactDecimalSum, exactlyWithinFraction } from "./exact-decimal-sum.js";
 import {
   indexFiscalQuarters,
   isFiscalQuarterPeriod,
@@ -58,8 +58,11 @@ import {
  * changes a number.
  *
  * - 1: the five ratios, rules 1–8.
+ * - 2: rules 4, 5 and 8 read an undated re-base on the days it may lie on, never on its interval's
+ *   exclusive start; rule 2's 25 % band and rule 3's 2 % thresholds are judged exactly on the
+ *   reported figures (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
  */
-export const VALUATION_RATIO_REVISION = 1;
+export const VALUATION_RATIO_REVISION = 2;
 
 /** Rule 2: a share count within this fraction of the last accepted one holds the level. */
 export const SHARE_LEVEL_TOLERANCE = 0.25;
@@ -163,13 +166,11 @@ export function buildValuationTimeline(
   );
   const measuredNear = (date: LocalDate) =>
     measured.some((event) => {
-      const from = event.effectiveDate ?? event.effectiveFrom;
-      const to = event.effectiveDate ?? event.effectiveTo ?? from;
+      const days = possibleDays(event);
       return (
-        from !== undefined &&
-        to !== undefined &&
-        from <= addDays(date, ENTRY_MATCH_DAYS) &&
-        to >= addDays(date, -ENTRY_MATCH_DAYS)
+        days !== undefined &&
+        days.from <= addDays(date, ENTRY_MATCH_DAYS) &&
+        days.to >= addDays(date, -ENTRY_MATCH_DAYS)
       );
     });
   // Provider entries not superseded by a re-base the loader measured (that one is read exactly).
@@ -193,9 +194,8 @@ export function buildValuationTimeline(
   const settling: { from: LocalDate; to: LocalDate }[] = [
     ...inputs.splits.map((split) => ({ from: split.date, to: split.date })),
     ...measured.flatMap((event) => {
-      const from = event.effectiveDate ?? event.effectiveFrom;
-      const to = event.effectiveDate ?? event.effectiveTo ?? from;
-      return from === undefined || to === undefined ? [] : [{ from, to }];
+      const days = possibleDays(event);
+      return days === undefined ? [] : [days];
     }),
   ];
 
@@ -307,6 +307,25 @@ export function valuationRatioColumns(input: {
     }
   }
   return columns;
+}
+
+/**
+ * The calendar days a measured re-base may lie on: its date, or, measured between two reads, its
+ * undated interval `(effectiveFrom, effectiveTo]`. `effectiveFrom` is the last session certainly
+ * before the event (`historical-price-basis-v1.md` §8), as `basisFactorAt` reads it, so the event
+ * never lies on it: rules 4 and 8 match an entry, and rule 5 settles a count, only by the days after.
+ */
+function possibleDays(
+  event: PriceBasisEvent,
+): { from: LocalDate; to: LocalDate } | undefined {
+  if (event.effectiveDate !== undefined) {
+    return { from: event.effectiveDate, to: event.effectiveDate };
+  }
+  if (event.effectiveFrom === undefined) {
+    return undefined;
+  }
+  const from = addDays(event.effectiveFrom, 1);
+  return { from, to: event.effectiveTo ?? from };
 }
 
 /** Whether a provider entry is a plain share change: labelled a split, at an exact common ratio. */
@@ -495,9 +514,12 @@ function usableShares(input: {
   if (
     previousShares !== undefined &&
     previousShares > 0 &&
-    Math.abs(shares / previousShares - 1) > SHARE_RESTATEMENT_TOLERANCE
+    !exactlyWithinFraction(
+      shares,
+      [previousShares],
+      SHARE_RESTATEMENT_TOLERANCE,
+    )
   ) {
-    const restatement = shares / previousShares;
     // The re-base must be new to the previous revision — detected or dated after it was observed,
     // and dated less than rule 5's month before it — and known by the time `R` was observed. An
     // older re-base of the same ratio explains nothing, even when the first verification measures
@@ -514,8 +536,12 @@ function usableShares(input: {
         (detected > Date.parse(previousObserved) ||
           date > previousObservedDate) &&
         previousObservedDate < addDays(date, EVENT_SETTLING_DAYS) &&
-        Math.abs(restatement / (event.priceRatio as number) - 1) <=
-          SHARE_RESTATEMENT_TOLERANCE
+        // The restatement within 2 % of the ratio: |shares − ratio × previous| <= 2 % of the latter.
+        exactlyWithinFraction(
+          shares,
+          [event.priceRatio as number, previousShares],
+          SHARE_RESTATEMENT_TOLERANCE,
+        )
       );
     });
     if (!explained) {
@@ -595,8 +621,9 @@ function holdsShareLevel(
   return latestAccepted;
 }
 
+/** Within 25 % of `level`, judged on the reported counts rather than their doubles. */
 function within(count: number, level: number): boolean {
-  return Math.abs(count / level - 1) <= SHARE_LEVEL_TOLERANCE;
+  return exactlyWithinFraction(count, [level], SHARE_LEVEL_TOLERANCE);
 }
 
 /**
