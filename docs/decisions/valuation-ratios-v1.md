@@ -214,7 +214,9 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    latest revision of the same fiscal quarter observed before `R` that rule 3 itself accepted and
    that has a usable count (**owner**, 2026-10-06). "Before" is the order of observation — by one
    observation, the order that picks a quarter's representing revision — among the revisions
-   public on the session, so a revision observed after `R` is never its anchor, however early the
+   public on the statement date the reading uses (the session's own, or the newest closed session's
+   for a Monitor's provisional row), so a revision observed after `R` is never its anchor, however
+   early the
    loader dates it (a late-observed amendment): `R` is judged against what was known when it was
    observed. "Accepted" is by this rule alone, whatever the other rules say of that revision. A
    revision with no anchor has nothing to compare and passes. If `R`'s count differs by more than
@@ -303,15 +305,17 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
     after the provider pre-restated the history — already carries the new units ahead of the
     ex-date, nothing anchors it and rule 2 sees no step, so every session before the event reads the
     count against an old-basis close. Rule 8 holds only the sessions from the event.
-  - **A count in the old units observed after the re-base's month** (open, for the owner: MAJOR-1).
-    Rule 6 takes a count observed after a re-base's detection to be in its new units, and rule 5
-    withholds only the month after the event. A revision of a quarter that ended before the event,
+  - **A count in the old units observed after an event's month** (open, for the owner: MAJOR-1).
+    Rule 6 takes a count observed after a re-base's detection to be in its new units, rule 5
+    withholds only the month after an event (a measured re-base or a provider entry), and rule 8
+    only the month after a forward entry. A revision of a quarter that ended before the event,
     observed later and still in the old units — the provider never restating it, or taking back a
-    restatement it published before the ex-date — agrees with its anchor and reads at `K = 1`, off
-    by the event's ratio, until a quarter that ended after the event is the latest. That is the open
+    restatement it published before the ex-date — agrees with its anchor and reads off by the
+    event's ratio, until a quarter that ended after the event is the latest. That is the open
     measurement O-2 beyond rule 5's month; anchoring rule 3 to the last accepted count (rule 3 above)
     makes the taken-back restatement one such case, where comparing with the withheld revision
-    before it had withheld it.
+    before it had withheld it. A revision public only after `R` (a placeholder-dated one) is not in
+    `R`'s walk, which can leave an older anchor in its place.
 
 ### The six known securities
 
@@ -338,6 +342,13 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
   statements.
 
 ### Measured coverage
+
+**Measured before revision 3.** The owner's rulings of 2026-10-06 change the store's readings
+only through rule 2's first level: on the independent audit's copy of the store, 3,441 sessions of
+P/B and 116 each of P/E, P/S and EV/EBITDA (3,789 readings, 3,441 sessions, 29 securities), all in
+a walk's first quarters, go from available to withheld — among them the 408 listing-quarter P/B
+readings that read 21–54 % low. Rule 3's anchor changes none: no stored revision changes a count
+(`docs/valuation-ratios-audit/REPORT.md`, §31). The table below is as first measured.
 
 Measured with the PR 2V implementation, as its reviews left it, on 2026-10-02: the development
 store, 62 securities with statements, product horizon (1996-09-30 to 2026-09-25), FMP's split lists

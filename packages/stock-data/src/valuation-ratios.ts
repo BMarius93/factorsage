@@ -606,7 +606,7 @@ function within(count: number, level: number): boolean {
  * the anchor before it: within 2 % of the anchor's count, or a restatement a measured re-base
  * explains, it is accepted and anchors the revisions after it; a restatement nothing explains is
  * withheld and anchors nothing, so it stays withheld through every later revision repeating it, or
- * with no count, until one observed after a matching re-base's detection is explained. A revision
+ * with no count, until one observed no earlier than a matching re-base's detection is explained. A revision
  * with no anchor passes.
  */
 function passesRestatementRule(
