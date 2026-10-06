@@ -220,9 +220,9 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    it was observed (**owner**, 2026-10-06: confirmed). "Accepted" is by this rule alone, whatever
    the other rules say of that revision. A revision with no anchor has nothing to compare and
    passes. If `R`'s count differs by more than 2 % from the anchor's, a measured re-base must
-   explain it (its ratio within 2 %): one new to the
-   anchor — detected or dated after the anchor was observed, and dated less than 30 days before the
-   anchor was observed (rule 5's month; an undated re-base at the latest date it may have, for both
+   explain it (its ratio within 2 %): one new to the anchor — detected or dated after the anchor
+   was observed, and dated less than 30 days before the anchor was observed (rule 5's month; an
+   undated re-base at the latest date it may have, for both
    dates) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable and not
    accepted, so it never anchors a later revision. A restatement therefore stays withheld through
    every later revision of the quarter that repeats it, or that has no count, until a revision
@@ -247,19 +247,19 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    Rule 6 reads a count observed after a re-base's detection as already in the new units, and rule
    5 one observed a month after any event. A count in the new units differs from a count observed
    before the event by the event's ratio, so a count that still agrees with such an anchor is in the
-   old units, or in units nothing confirms. Across separating events, `X` is accepted only when the
-   measured re-bases that separate it explain it together: its count is within 2 % of the anchor's
-   times the product of their ratios, and each of them is dated less than 30 days before the anchor
-   was observed (the separation itself puts each detection after the anchor's observation and no
-   later than `X`'s, the other terms above). One re-base's ratio does not explain a count across
-   two, and a re-base that does not separate them explains nothing here. Agreeing with the anchor
-   is therefore never enough, unless the ratios cancel. A provider entry is never such an
+   old units, or in units nothing confirms. Across separating events, `X` within 2 % of the anchor
+   is never accepted, even where their ratios cancel: the anchor may itself have been restated
+   ahead of one of them. `X` differing by more is accepted only when the measured re-bases that
+   separate it explain it together: its count is within 2 % of the anchor's times the product of
+   their ratios, and each of them is dated less than 30 days before the anchor was observed (the
+   separation itself puts each detection after the anchor's observation and no later than `X`'s,
+   the other terms above). One re-base's ratio does not explain a count across two, and a re-base
+   that does not separate them explains nothing here. A provider entry is never such an
    explanation, so across a separating entry `X` is not accepted at all. A revision not accepted is
    unavailable and anchors nothing, so the quarter stays unavailable until a revision the
    separating re-bases explain is observed, or until a quarter that ended after the event is the
-   latest. This covers
-   the provider never restating a count after a split, and taking back a restatement it published
-   ahead of the ex-date, alike.
+   latest. This covers the provider never restating a count after a split, and taking back a
+   restatement it published ahead of the ex-date, alike.
 
 4. **History, from provider entries** dated on or before `verifiedAt` and not superseded by a
    measured re-base within seven calendar days of them:
@@ -292,8 +292,7 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    back (rule 3) while each revision agrees with its anchor within 2 % and is accepted. A count
    only repeated in the window was observed before the provider could have restated it. For an
    undated re-base the window starts 30 days before its first possible day, and the sessions it
-   withholds run up to its last possible day (those inside the interval rule 6 withholds anyway).
-   The events are rule 5's. **Its cost:** a
+   withholds run up to its last possible day. The events are rule 5's. **Its cost:** a
    quarterly filing first observed in the month before a split loses its sessions before the
    ex-date, and so does a security first loaded then.
 
