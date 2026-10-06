@@ -1336,6 +1336,31 @@ describe("valuation ratios: each masking rule in isolation", () => {
         );
       });
 
+      it("does not accept an agreeing count across a split and its reversal", () => {
+        // 2:1 dated 2025-05-12 (detected 2025-05-13), then 1:2 dated 2025-05-20 (detected
+        // 2025-05-21): their ratios cancel, but the original 100 may itself have been restated ahead
+        // of the split, so 2025Q1 revised on 2025-06-25 still at 100 is not accepted.
+        const rebases = [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+          measured({
+            priceRatio: 0.5,
+            effectiveDate: "2025-05-20",
+            detectedAt: "2025-05-21T12:00:00.000Z",
+          }),
+        ];
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-25", {
+            weightedAverageShsOutDil: 100,
+            netIncome: 6,
+          }),
+        ];
+        expect(pbOn(statements, ["2025-06-26"], rebases)[0]).toBeNaN();
+      });
+
       it("explains a count across a split only by one dated less than 30 days before the anchor was observed", () => {
         // The original 100 was observed on 2025-05-09; a 2:1 re-base detected after it, on
         // 2025-05-13, dated 2025-04-10 (29 days before) is new to it, dated 2025-04-09 (30 days

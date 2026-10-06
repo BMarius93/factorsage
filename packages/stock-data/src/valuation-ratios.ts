@@ -64,10 +64,11 @@ import {
  * - 3: the owner's rulings on the audit's gaps (2026-10-06): rule 2 confirms the walk's first count
  *   like any new level, and rule 3 compares a count with its anchor — the latest revision of the
  *   quarter observed before it that rule 3 accepted — rather than with the revision just before it.
- * - 4: the owner's rulings on the second review (2026-10-06): across a share-changing event, a count
- *   that still agrees with an anchor observed before it is not accepted (rule 6's basis assumption,
- *   checked in rule 3), and a count first observed in the month before an event is withheld on the
- *   sessions before it (rule 5, before the event).
+ * - 4: the owner's rulings on the second review (2026-10-06): across share-changing events, a count
+ *   that still agrees with an anchor observed before them is not accepted, and one that differs only
+ *   when the separating re-bases' ratios together explain it (rule 6's basis assumption, checked in
+ *   rule 3); a count first observed in the month before an event is withheld on the sessions before
+ *   it (rule 5, before the event).
  */
 export const VALUATION_RATIO_REVISION = 4;
 
@@ -815,14 +816,20 @@ function acceptedAgainst(
  * the count together — within 2 % of the anchor's count times the product of their ratios, each
  * dated less than rule 5's month before the anchor was observed (the separation puts each detection
  * after the anchor's observation and no later than the revision's). A provider entry explains
- * nothing, so across one nothing is accepted; agreeing with the anchor explains nothing unless the
- * ratios cancel.
+ * nothing, so across one nothing is accepted. A count within 2 % of the anchor's is never
+ * explained, even where the ratios cancel: the anchor may itself have been restated ahead of one
+ * of them.
  */
 function explainedAcross(
   separating: readonly ShareChange[],
   shares: number,
   anchor: Anchor,
 ): boolean {
+  if (
+    exactlyWithinFraction(shares, [anchor.shares], SHARE_RESTATEMENT_TOLERANCE)
+  ) {
+    return false;
+  }
   const anchorObservedDate = anchor.statement.observedAt.slice(0, 10);
   const ratios: number[] = [];
   for (const change of separating) {
