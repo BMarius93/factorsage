@@ -420,8 +420,13 @@ happens. Three rules:
     count and the rescaled close cancel; for any other event it is withheld, because a distribution
     leaves a factor in the close before it that the count does not follow. Only a first observation
     of an old filing reaches such a session.
-  - **Unexplained:** a bounded change withholds only the sessions it changed; one unbounded below
-    withholds every session for a revision observed before its detection.
+  - **Unexplained:** for a revision observed before its detection, a bounded change withholds only
+    the sessions it changed, and one unbounded below withholds every session. A revision observed
+    after its detection takes nothing from it (owner, 2026-10-06, ratifying the reading the
+    independent audit recorded as its interpretation 1). One consequence is accepted with it: an
+    unbounded change may hide a distribution folded into the rows it covers, which a later
+    revision's ratios then read like any other history the provider re-based without a measurable
+    step.
   - Withheld means the session keeps no intrinsic value, blend or provenance. Margin of Safety and
     every price-to-value comparison follow, because they are computed from those stored values.
   - With no measured re-base, `K = 1` and nothing changes. The store has none today.
@@ -541,8 +546,11 @@ decision that it is a separate problem.
 - **`PriceBasisEvent`**, append-only, one row per measured step: `securityId`, `generation` (the
   replacement that recorded it), `kind` (`MEASURED` or `UNEXPLAINED`), `effectiveDate` (the first
   session of the new basis, null when undated), `effectiveFrom` and `effectiveTo` (an undated
-  event lies after `effectiveFrom` and no later than `effectiveTo`, which is null while open; an
-  unexplained change spans them inclusively, with `effectiveFrom` null when it is unbounded below),
+  event lies after `effectiveFrom` and no later than `effectiveTo`; the writer always closes the
+  interval (§8): at the newest session the provider had published after the newest stored one or,
+  when it had published none, at the later of the detection's date and the day after the newest
+  stored session. An unexplained change spans them inclusively, with `effectiveFrom` null when it
+  is unbounded below),
   `priceRatio` (null when unexplained), `detectedAt`, and `evidence` (JSON: run lengths and the
   sessions compared, diagnostics only).
 - **No change to `DailyPrice`, `WeeklyPrice`, the Redis manifest or `PRICE_DATASET_VERSION`.**

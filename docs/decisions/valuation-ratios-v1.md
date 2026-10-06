@@ -197,20 +197,35 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
 2. **The share count holds a level.** Walking the point-in-time Income quarters in order, a count
    within 25 % of the last accepted count is accepted. A count outside it is accepted as a new level
    only on the third consecutive quarter that agrees with it within 25 %; until then the quarter is
-   withheld, with no fallback. Consecutive means consecutive fiscal quarters, each with a usable
-   count: a missing quarter or count starts the agreement again. So a merger or an offering is withheld for two quarters and then
-   available, while a one- or two-quarter artefact is never accepted: NKE's ×2.03 quarter, MSTR's
-   Q3 1999 (153.4 M against 76 M), and Visa's counts that alternate in two-quarter blocks of ±40 %
-   in fiscal 2010–2012. In the store, quarter-on-quarter changes beyond 25 % are 99 of 6,325, and
-   the 99th percentile is 33 %.
-3. **The share count was not restated unexplained.** If `R`'s count differs by more than 2 % from
-   the previous revision of the same fiscal quarter, a measured re-base must explain it (its ratio
-   within 2 %): one new to the previous revision — detected or dated after it was observed, and
-   dated less than 30 days before it was observed (rule 5's month; an undated re-base at the latest
-   date it may have) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable. This
-   keeps a restatement FMP publishes before an ex-date from being read against old-basis closes,
-   whatever the split's size. An older re-base of the same ratio explains nothing, even when PR 1's
-   first verification measures it only after the previous revision was observed.
+   withheld, with no fallback. **The walk's first count is confirmed the same way** (**owner**,
+   2026-10-06): with no level before it, it is a count outside every level, read only from the third
+   consecutive quarter agreeing with it. Consecutive means consecutive fiscal quarters, each with a
+   usable count: a missing quarter or count starts the agreement again. So a merger or an offering
+   is withheld for two quarters and then available, while a one- or two-quarter artefact is never
+   accepted: NKE's ×2.03 quarter, MSTR's Q3 1999 (153.4 M against 76 M), and Visa's counts that
+   alternate in two-quarter blocks of ±40 % in fiscal 2010–2012. In the store, quarter-on-quarter
+   changes beyond 25 % are 99 of 6,325, and the 99th percentile is 33 %. **Its cost:** the first two
+   quarters of every walk are withheld. For a security listed inside the retention horizon the walk
+   starts at its listing quarter, whose weighted-average count the shares outstanding after it
+   routinely exceed (by 27–118 % for seven of the stored securities), so a recent listing has no P/B
+   for its first two quarters or more — the other ratios wait four quarters for a trailing window
+   anyway. No security is special-cased.
+3. **The share count was not restated unexplained.** `R` is compared with its **anchor**: the
+   latest earlier revision of the same fiscal quarter that rule 3 itself accepted and that has a
+   usable count (**owner**, 2026-10-06) — "earlier" in the order that picks a quarter's
+   representing revision, and "accepted" by this rule alone, whatever the other rules say of that
+   revision. A revision with no anchor has nothing to compare and passes. If `R`'s count differs by
+   more than 2 % from the anchor's, a measured re-base must explain it (its ratio within 2 %): one
+   new to the anchor — detected or dated after the anchor was observed, and dated less than 30 days
+   before it was observed (rule 5's month; an undated re-base at the latest date it may have) — and
+   detected no later than `R.observedAt`. Otherwise `R` is unavailable and not accepted, so it never
+   anchors a later revision. A restatement therefore stays withheld through every later revision of
+   the quarter that repeats it, or that has no count, until a revision observed after a matching
+   re-base's detection is explained by it; that revision is accepted and anchors the ones after it.
+   This keeps a restatement FMP publishes before an ex-date from being read against old-basis closes,
+   whatever the split's size and however often the provider revises the quarter before the re-base.
+   An older re-base of the same ratio explains nothing, even when PR 1's first verification measures
+   it only after the anchor was observed.
 4. **History, from provider entries** dated on or before `verifiedAt` and not superseded by a
    measured re-base within seven calendar days of them:
    1. **A non-plain entry at `E`:** `r` is unavailable until every statement family it reads has a
@@ -233,8 +248,9 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
 6. **The basis factor.** `K(t)` for `R`, from PR 1's measured re-bases
    (`historical-price-basis-v1.md`, §10). Where it is withheld, `r` is unavailable: on or after a
    re-base `R` predates, inside an undated interval, for an `R` observed between a re-base and its
-   detection, before a non-plain re-base for an `R` observed after it, and where an unexplained
-   change reaches.
+   detection, before a non-plain re-base for an `R` observed after it, and, for an `R` observed
+   before an unexplained change's detection, where that change reaches (ratified by the owner on
+   2026-10-06; a revision observed after the detection takes nothing from it).
 7. **After a measured non-plain re-base at `E`**, on sessions on or after it: `r` is unavailable
    until every statement family it reads has a point-in-time latest quarter whose fiscal period
    ends on or after `E`, as in rule 4.1.
@@ -269,12 +285,12 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
   limit Fundamental Metrics already have (`fundamental-metrics-v1.md`; `historical-price-basis-v1.md`
   §13), not a price-basis question.
 - **What rule 3 cannot tell apart:** a second restatement by the same ratio within one quarter. If
-  the provider restated the counts for one re-base before the previous revision was observed — ahead
-  of the ex-date, or together with the price re-base before PR 1 detected it — and restates them
-  again by the same ratio ahead of another event while the same quarter is still the latest, that
-  re-base explains the second restatement too. It takes two events of one ratio within about three
-  months on one security: among the 64 securities in the store, only KO's two 2:1 entries of 1965
-  are, 24 years before its first statement.
+  the provider restated the counts for one re-base before the anchor was observed — ahead of the
+  ex-date, or together with the price re-base before PR 1 detected it — and restates them again by
+  the same ratio ahead of another event while the same quarter is still the latest, that re-base
+  explains the second restatement too. It takes two events of one ratio within about three months on
+  one security: among the 64 securities in the store, only KO's two 2:1 entries of 1965 are, 24 years
+  before its first statement.
 
 ### The six known securities
 
