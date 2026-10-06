@@ -1271,6 +1271,31 @@ describe("valuation ratios: each masking rule in isolation", () => {
     ).toBeCloseTo((10 * 100 * 1.2 ** 4) / 400, 12);
   });
 
+  it("rule 2: confirms the walk's first count like any new level (owner, 2026-10-06)", () => {
+    // Quarters public 2024-05-10, 2024-08-09, 2024-11-09, 2025-02-09 and 2025-05-09.
+    const sessions = ["2024-05-10", "2024-08-09", "2024-11-11", "2025-02-10"];
+    const pb = (shares?: (index: number) => number) =>
+      ratiosOn(
+        inputs({
+          statements: company({ quarters, shares }),
+          verifiedAt: "2026-10-05T00:00:00.000Z",
+        }),
+        sessions,
+        10,
+        ["PRICE_TO_BOOK"],
+      ).PRICE_TO_BOOK;
+    // A steady first count: the first two quarters wait, the third sets the level.
+    const steady = pb();
+    expect(steady[0]).toBeNaN();
+    expect(steady[1]).toBeNaN();
+    expect(steady[2]).toBeCloseTo((10 * 100) / 400, 12);
+    // A listing quarter's 60 the next quarter contradicts is never read; 100 is the level from the
+    // third quarter agreeing with it.
+    const listing = pb((index) => (index === 0 ? 60 : 100));
+    expect(listing.slice(0, 3).every(Number.isNaN)).toBe(true);
+    expect(listing[3]).toBeCloseTo((10 * 100) / 400, 12);
+  });
+
   it("rule 2: judges the 25 % band on the reported counts, not their doubles", () => {
     const eight: Quarter[] = [
       ...QUARTERS.map((quarter) => ({

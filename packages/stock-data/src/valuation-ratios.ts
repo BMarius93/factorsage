@@ -61,9 +61,9 @@ import {
  * - 2: rules 4, 5 and 8 read an undated re-base on the days it may lie on, never on its interval's
  *   exclusive start; rule 2's 25 % band and rule 3's 2 % thresholds are judged exactly on the
  *   reported figures (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
- * - 3: the owner's ruling on the audit's gaps G1 and G2 (2026-10-06): rule 3 compares a count with
- *   its anchor, the latest earlier revision of the quarter rule 3 accepted, rather than with the
- *   revision just before it.
+ * - 3: the owner's rulings on the audit's gaps (2026-10-06): rule 2 confirms the walk's first count
+ *   like any new level, and rule 3 compares a count with its anchor, the latest earlier revision of
+ *   the quarter rule 3 accepted, rather than with the revision just before it.
  */
 export const VALUATION_RATIO_REVISION = 3;
 
@@ -538,7 +538,9 @@ function usableShares(input: {
  *
  * Walking the point-in-time Income quarters in order, a count within 25 % of the last accepted one is
  * accepted; one outside it is accepted as a new level only on the third consecutive quarter agreeing
- * with it within 25 %, and withheld until then. A one- or two-quarter artefact is never accepted; a
+ * with it within 25 %, and withheld until then. The walk's first count has no level to hold and is
+ * confirmed the same way (owner, 2026-10-06), so a listing quarter's weighted average is never read
+ * before the quarters after it agree with it. A one- or two-quarter artefact is never accepted; a
  * merger or an offering is withheld for two quarters and then read. Consecutive means consecutive
  * fiscal quarters, each with a count: a missing quarter or a missing count starts the agreement
  * again.
@@ -563,7 +565,7 @@ function holdsShareLevel(
     if (count === undefined || !(count > 0)) {
       candidate = [];
     } else {
-      if (level === undefined || within(count, level)) {
+      if (level !== undefined && within(count, level)) {
         accepted = true;
         candidate = [];
       } else {
