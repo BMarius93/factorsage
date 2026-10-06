@@ -434,9 +434,10 @@ export type OracleValuationTerms = {
   /** Diagnostics: the share count is a restatement a measured re-base explained (rule 3). */
   explainedRestatement: boolean;
   /**
-   * Diagnostics: rule 3 compared the share count with an anchor older than its immediately
-   * previous revision, the previous one being unaccepted by rule 3 or count-less (`REPORT.md` §31,
-   * the shapes of G1 and G2).
+   * Diagnostics: rule 3 compared the share count with an anchor older than the revision of its
+   * quarter observed just before it (rule 3's order of observation, among the revisions public on
+   * the statement date), that one being unaccepted by rule 3 or count-less (`REPORT.md` §31, the
+   * shapes of G1 and G2).
    */
   anchorBeyondPrevious: boolean;
 };
@@ -689,7 +690,7 @@ type StatementLevel = {
   ratios: Record<OracleValuationRatioId, RatioInputs>;
   /** Whether `R`'s count is a restatement a measured re-base explains (rule 3's positive path). */
   explainedRestatement: boolean;
-  /** Diagnostics: `R`'s anchor is older than its previous revision (see `OracleValuationTerms`). */
+  /** Diagnostics: `R`'s anchor is older than the revision observed before it (see the terms). */
   anchorBeyondPrevious: boolean;
   /** Diagnostics: rule 2 withholds `R` before the walk's first level (see the outcome type). */
   firstLevelUnconfirmed: boolean;
@@ -802,8 +803,9 @@ type Restatement = "none" | "explained" | "unexplained";
  *   passes. "Differs by more than 2 %" is `|c_R − c_A| > 0.02 · c_A`.
  * - A measured re-base explains it when `|(c_R / c_A) − ρ| <= 0.02 · ρ`, it is new to the anchor
  *   (detected after `A.observedAt`, or dated after `A`'s observation day), it is dated less than 30
- *   days before `A`'s observation day, and it was detected no later than `R.observedAt`. An
- *   undated re-base is dated at the latest date it may have, for every date condition here.
+ *   days before `A`'s observation day, and it was detected no later than `R.observedAt` ("a
+ *   revision observed no earlier than a matching re-base's detection"). An undated re-base is
+ *   dated at the latest date it may have, for both date conditions ("for both dates").
  */
 function restatementStatus(
   revision: Statement,
@@ -841,24 +843,41 @@ function restatementStatus(
 }
 
 /**
- * Rule 3 over every revision of one fiscal quarter, in revision order: each revision's anchor and
- * its verdict against it.
+ * Rule 3's order of observation: the earlier `observedAt` first, and the revisions one observation
+ * delivered in the order that picks a quarter's representing revision.
  *
- * "`R` is compared with its anchor: the latest earlier revision of the same fiscal quarter that
- * rule 3 itself accepted and that has a usable count — "earlier" in the order that picks a
- * quarter's representing revision, and "accepted" by this rule alone, whatever the other rules say
- * of that revision. A revision with no anchor has nothing to compare and passes. […] Otherwise `R`
- * is unavailable and not accepted, so it never anchors a later revision." (owner, 2026-10-06)
+ * "'Before' is the order of observation — by one observation, the order that picks a quarter's
+ * representing revision — among the revisions public on the session, so a revision observed after
+ * `R` is never its anchor, however early the loader dates it (a late-observed amendment)."
+ */
+function observationOrder(a: Statement, b: Statement): number {
+  return a.observedMs !== b.observedMs
+    ? a.observedMs - b.observedMs
+    : revisionOrder(a, b);
+}
+
+/**
+ * Rule 3 over revisions of one fiscal quarter, in the order of observation: each revision's
+ * anchor and its verdict against it.
+ *
+ * "`R` is compared with its anchor: the latest revision of the same fiscal quarter observed before
+ * `R` that rule 3 itself accepted and that has a usable count. […] "Accepted" is by this rule
+ * alone, whatever the other rules say of that revision. A revision with no anchor has nothing to
+ * compare and passes. […] Otherwise `R` is unavailable and not accepted, so it never anchors a
+ * later revision." (owner, 2026-10-06)
  *
  * **Reading:**
- * - Acceptance is decided in revision order, each revision against the anchor its predecessors
- *   leave: the first revision has none and is accepted; each later one is accepted unless it is an
+ * - The walk is over the revisions public on the statement date (the session's own, or a Monitor's
+ *   provisional row's statement date), sorted by `observationOrder`; `R`'s verdict reads only the
+ *   revisions before it in that order, so one observed after `R` never reaches it.
+ * - Acceptance is decided in that order, each revision against the anchor its predecessors leave:
+ *   the first revision has none and is accepted; each later one is accepted unless it is an
  *   unexplained restatement of its anchor, and an accepted one with a usable count becomes the
  *   anchor of the revisions after it. A count-less revision is accepted (it has nothing to compare)
  *   but anchors nothing.
- * - Every revision earlier than `R` in the revision order is eligible whenever `R` is, since the
- *   order puts a later `availableFromDate` last, so the verdict on a revision never depends on the
- *   statement date that reads it.
+ * - Earlier revisions are judged among the revisions public on the session too, as the text
+ *   scopes "before"; a revision observed earlier but public later than another is therefore part
+ *   of that other's walk only on sessions where both are public.
  */
 function restatementWalk(
   revisions: readonly Statement[],
@@ -1139,7 +1158,7 @@ export function createValuationOracle(
       BALANCE_SHEET: new Map(),
       CASH_FLOW: new Map(),
     };
-    /** Every eligible revision of each Income quarter, in revision order, for rule 3. */
+    /** Every eligible (public) revision of each Income quarter, for rule 3. */
     const incomeRevisions = new Map<number, Statement[]>();
     for (const statement of eligible) {
       const quarters = book[statement.statementType];
@@ -1176,20 +1195,23 @@ export function createValuationOracle(
         }
         firstLevelUnconfirmed = verdict === "unconfirmed";
       }
-      // Rule 3: `R` against its anchor, every earlier revision of its quarter judged in order.
+      // Rule 3: `R` against its anchor, every revision of its quarter observed before it judged in
+      // the order of observation.
       const revisions = [
         ...(incomeRevisions.get(shareRevision.quarter) ?? []),
-      ].sort(revisionOrder);
+      ].sort(observationOrder);
       const position = revisions.indexOf(shareRevision);
-      const { anchor, status } = restatementWalk(revisions, measured)[
-        position
-      ] as { anchor: Statement | undefined; status: Restatement };
+      const { anchor, status } = restatementWalk(
+        revisions.slice(0, position + 1),
+        measured,
+      )[position] as { anchor: Statement | undefined; status: Restatement };
       if (status === "unexplained") {
         shared.push("SHARE_RESTATEMENT_UNEXPLAINED");
       }
       explainedRestatement = status === "explained";
-      // Diagnostics only: the anchor lies beyond the revision `R` superseded, because that one was
-      // not accepted by rule 3 or has no usable count (the shapes of the review's G1 and G2).
+      // Diagnostics only: the anchor lies beyond the revision observed just before `R`, because
+      // that one was not accepted by rule 3 or has no usable count (the shapes of the review's G1
+      // and G2).
       anchorBeyondPrevious =
         count.kind === "usable" &&
         anchor !== undefined &&

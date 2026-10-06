@@ -374,6 +374,51 @@ describe("reference valuation ratios: the rulings' diagnostics", () => {
         firstLevelUnconfirmed: true,
       },
     },
+    // "m" against "a", observed before it; "m" is withheld by rules 2 and 5, not rule 3.
+    {
+      id: "G1e",
+      session: "2025-09-08",
+      close: "6",
+      expected: {
+        available: false,
+        anchorBeyondPrevious: false,
+        firstLevelUnconfirmed: false,
+      },
+    },
+    // "r" against "a", the revision observed just before it: "m", though public earlier, was
+    // observed after "r" and is not in its walk.
+    {
+      id: "G1e",
+      session: "2025-09-15",
+      close: "6",
+      expected: {
+        available: false,
+        anchorBeyondPrevious: false,
+        firstLevelUnconfirmed: false,
+      },
+    },
+    // "b" against "a".
+    {
+      id: "G1f",
+      session: "2025-11-05",
+      close: "6",
+      expected: {
+        available: false,
+        anchorBeyondPrevious: false,
+        firstLevelUnconfirmed: false,
+      },
+    },
+    // "r" against "a", past the unaccepted "b", explained by the measured 2:1.
+    {
+      id: "G1f",
+      session: "2025-11-20",
+      close: "6",
+      expected: {
+        available: true,
+        explainedRestatement: true,
+        anchorBeyondPrevious: true,
+      },
+    },
     // An unexplained restatement of the revision it superseded, at an existing level.
     {
       id: "C24",
@@ -423,6 +468,86 @@ describe("reference valuation ratios: the rulings' diagnostics", () => {
 });
 
 describe("reference valuation ratios: rule 3's anchor", () => {
+  const base = handCase("C01").security;
+  const original = base.statements.find(
+    (statement) =>
+      statement.statementType === "INCOME" &&
+      statement.fiscalDate === "2025-06-30",
+  ) as OracleValuationStatement;
+  /** A revision of 2025Q2's Income: public from `at`, observed at noon that day unless given. */
+  const later = (
+    at: string,
+    hash: string,
+    values: Record<string, unknown>,
+    observedAt = `${at}T12:00:00.000Z`,
+  ): OracleValuationStatement => ({
+    ...original,
+    availableFromDate: at,
+    observedAt,
+    contentHash: `INCOME-2025Q2-${hash}`,
+    values: { ...original.values, ...values },
+  });
+  /** The base company plus `revisions`, its 2025Q2 Income "a" observed at `originalObservedAt`. */
+  const withRevisions = (
+    revisions: readonly OracleValuationStatement[],
+    originalObservedAt: string,
+    events: OracleValuationSecurity["events"] = [],
+  ): OracleValuationSecurity => ({
+    ...base,
+    statements: [
+      ...base.statements.map((statement) =>
+        statement === original
+          ? { ...statement, observedAt: originalObservedAt }
+          : statement,
+      ),
+      ...revisions,
+    ],
+    events,
+  });
+  /** Every ratio withheld by rule 3 alone, with neither diagnostic set. */
+  const expectRestatedOnly = (
+    reading: Record<string, OracleValuationOutcome>,
+  ) => {
+    for (const outcome of Object.values(reading)) {
+      expect(outcome.available).toBe(false);
+      if (!outcome.available) {
+        expect(outcome.failing).toEqual(["SHARE_RESTATEMENT_UNEXPLAINED"]);
+      }
+      expect(diagnostics(outcome)).toEqual({
+        available: false,
+        anchorBeyondPrevious: false,
+        firstLevelUnconfirmed: false,
+      });
+    }
+  };
+  /** Every ratio at `readings`, and the two available-side diagnostics. */
+  const expectReadings = (
+    reading: Record<string, OracleValuationOutcome>,
+    readings: Record<HandRatio, string>,
+    explainedRestatement: boolean,
+    anchorBeyondPrevious: boolean,
+    label: string,
+  ) => {
+    for (const [ratio, id] of Object.entries(HAND_RATIO_IDS) as [
+      HandRatio,
+      string,
+    ][]) {
+      check(
+        reading[id] as OracleValuationOutcome,
+        readings[ratio],
+        `${label} ${ratio}`,
+      );
+      expect(
+        diagnostics(reading[id] as OracleValuationOutcome),
+        `${label} ${ratio}`,
+      ).toEqual({
+        available: true,
+        explainedRestatement,
+        anchorBeyondPrevious,
+      });
+    }
+  };
+
   it("explains a restatement against the anchor, not against an unaccepted predecessor", () => {
     // The base company with 2025Q2's Income "a" (10 shares) observed 2025-08-14. On 2025-09-02
     // "r" restates it to 11 (x1.1, beyond 2 %; no re-base of that ratio): unexplained, so not
@@ -440,48 +565,27 @@ describe("reference valuation ratios: rule 3's anchor", () => {
     // On 2025-09-02 "r" is read alone against "a": unexplained, and nothing else fails — observed
     // before the event and its detection, a session before the event takes K = 1.25, and the
     // event is not yet dated when "r" is observed (rule 5).
-    const base = handCase("C01").security;
-    const original = base.statements.find(
-      (statement) =>
-        statement.statementType === "INCOME" &&
-        statement.fiscalDate === "2025-06-30",
-    ) as OracleValuationStatement;
-    const later = (
-      at: string,
-      hash: string,
-      values: Record<string, unknown>,
-    ): OracleValuationStatement => ({
-      ...original,
-      availableFromDate: at,
-      observedAt: `${at}T12:00:00.000Z`,
-      contentHash: `INCOME-2025Q2-${hash}`,
-      values: { ...original.values, ...values },
-    });
-    const security: OracleValuationSecurity = {
-      ...base,
-      statements: [
-        ...base.statements.map((statement) =>
-          statement === original
-            ? { ...statement, observedAt: "2025-08-14T12:00:00.000Z" }
-            : statement,
-        ),
-        later("2025-09-02", "r", { weightedAverageShsOutDil: 11 }),
-        later("2025-11-03", "b", { weightedAverageShsOutDil: 12.5 }),
-        later("2025-12-01", "c", {
-          weightedAverageShsOutDil: 12.5,
-          grossProfit: 1,
-        }),
-      ],
-      events: [
-        {
-          kind: "MEASURED",
-          effectiveDate: "2025-09-15",
-          priceRatio: "1.25",
-          detectedAt: "2025-09-16T06:00:00.000Z",
-        },
-      ],
-    };
-    const oracle = createValuationOracle(security);
+    const oracle = createValuationOracle(
+      withRevisions(
+        [
+          later("2025-09-02", "r", { weightedAverageShsOutDil: 11 }),
+          later("2025-11-03", "b", { weightedAverageShsOutDil: 12.5 }),
+          later("2025-12-01", "c", {
+            weightedAverageShsOutDil: 12.5,
+            grossProfit: 1,
+          }),
+        ],
+        "2025-08-14T12:00:00.000Z",
+        [
+          {
+            kind: "MEASURED",
+            effectiveDate: "2025-09-15",
+            priceRatio: "1.25",
+            detectedAt: "2025-09-16T06:00:00.000Z",
+          },
+        ],
+      ),
+    );
     const readings = {
       PE: "3",
       PS: "75/209",
@@ -489,37 +593,92 @@ describe("reference valuation ratios: rule 3's anchor", () => {
       PFCF: "25/9",
       EV: "90/53",
     };
+    expectRestatedOnly(oracle.reading("2025-09-02", "12"));
+    expectReadings(
+      oracle.reading("2025-11-03", "12"),
+      readings,
+      true,
+      true,
+      "2025-11-03",
+    );
+    expectReadings(
+      oracle.reading("2025-12-01", "12"),
+      readings,
+      false,
+      false,
+      "2025-12-01",
+    );
+  });
 
-    const restated = oracle.reading("2025-09-02", "12");
-    for (const outcome of Object.values(restated)) {
-      expect(outcome.available).toBe(false);
-      if (!outcome.available) {
-        expect(outcome.failing).toEqual(["SHARE_RESTATEMENT_UNEXPLAINED"]);
-      }
-      expect(diagnostics(outcome)).toEqual({
-        available: false,
-        anchorBeyondPrevious: false,
-        firstLevelUnconfirmed: false,
-      });
-    }
+  it("orders the revisions one observation delivered as the representing order does", () => {
+    // A first load: 2025Q2's Income "a" (10, public 2025-08-14) and an amendment (11, public
+    // 2025-09-06) are both observed on 2026-08-31 at 12:00. By one observation the order is the
+    // representing one, which puts the earlier `availableFromDate` first, so "a" is the
+    // amendment's anchor — whatever the content hashes say (the amendment's, "-0", sorts first).
+    // 11 against 10 is 10 %, beyond 2 %, with no re-base: unexplained. Rule 2 holds (11 is inside
+    // the level 10's 25 %), and with no event nothing else applies. On 2025-09-05 the amendment is
+    // not public: "a" alone, the readings as of 2025Q2.
+    const oracle = createValuationOracle(
+      withRevisions(
+        [
+          later(
+            "2025-09-06",
+            "0",
+            { weightedAverageShsOutDil: 11 },
+            "2026-08-31T12:00:00.000Z",
+          ),
+        ],
+        "2026-08-31T12:00:00.000Z",
+      ),
+    );
+    expectReadings(
+      oracle.reading("2025-09-05", "12"),
+      { PE: "12/5", PS: "60/209", PB: "6/13", PFCF: "20/9", EV: "75/53" },
+      false,
+      false,
+      "2025-09-05",
+    );
+    expectRestatedOnly(oracle.reading("2025-09-08", "12"));
+  });
 
-    for (const [session, explained, beyond] of [
-      ["2025-11-03", true, true],
-      ["2025-12-01", false, false],
-    ] as const) {
-      const reading = oracle.reading(session, "12");
-      for (const [ratio, id] of Object.entries(HAND_RATIO_IDS) as [
-        HandRatio,
-        keyof typeof reading,
-      ][]) {
-        check(reading[id], readings[ratio], `${session} ${ratio}`);
-        expect(diagnostics(reading[id]), `${session} ${ratio}`).toEqual({
-          available: true,
-          explainedRestatement: explained,
-          anchorBeyondPrevious: beyond,
-        });
-      }
-    }
+  it("walks only the revisions public on the statement date", () => {
+    // 2025Q2's Income "a" (10) is observed 2025-08-14. "x" (10.2) is observed 2025-09-09 but the
+    // loader makes it public only from 2025-09-11; "y" (10.4) is observed and public 2025-09-10.
+    // On 2025-09-10 "y" represents the quarter and "x" is not public, so "y"'s anchor is "a":
+    // |10.4 - 10| = 0.4 > 0.2, unexplained. (Were "x" in the walk, it would be accepted — exactly
+    // 2 % from "a" — and anchor "y", 0.2 <= 0.204 from it: available.) On 2025-09-11 "x"
+    // represents the quarter (the later `availableFromDate`); "y" was observed after it and is not
+    // in its walk, so "x" is judged against "a": exactly 2 %, accepted. Rule 2 holds for both.
+    // MC = 12 x 10.2 = 122.4: P/E 122.4/50 = 306/125, P/S 122.4/418 = 306/1045, P/B 122.4/260 =
+    // 153/325, P/FCF 122.4/54 = 34/15, EV/EBITDA (122.4 + 30)/106 = 381/265.
+    const oracle = createValuationOracle(
+      withRevisions(
+        [
+          later(
+            "2025-09-11",
+            "x",
+            { weightedAverageShsOutDil: 10.2 },
+            "2025-09-09T12:00:00.000Z",
+          ),
+          later("2025-09-10", "y", { weightedAverageShsOutDil: 10.4 }),
+        ],
+        "2025-08-14T12:00:00.000Z",
+      ),
+    );
+    expectRestatedOnly(oracle.reading("2025-09-10", "12"));
+    expectReadings(
+      oracle.reading("2025-09-11", "12"),
+      {
+        PE: "306/125",
+        PS: "306/1045",
+        PB: "153/325",
+        PFCF: "34/15",
+        EV: "381/265",
+      },
+      false,
+      false,
+      "2025-09-11",
+    );
   });
 });
 

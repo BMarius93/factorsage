@@ -2649,6 +2649,221 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     ],
   },
   {
+    id: "G1e",
+    covers: [],
+    title:
+      "rule 3 anchor: a late-observed amendment dated earlier is never the anchor of a revision observed before it",
+    // G1b's restatement ("r", every quarter to 20, public and observed 2025-09-10) and 2:1 re-base
+    // (dated 2025-10-01, detected 2025-10-02 06:00), plus a 2025Q2 amendment "m" filed 2025-09-05
+    // and first observed 2025-10-05, with 20 shares: the loader dates it from its filing, public from
+    // 2025-09-06. On 2025-09-08 "m" represents 2025Q2. Its anchor is "a" (10), the only revision
+    // observed before it and public then; the re-base explains it (detected before "m" was observed,
+    // after "a" was, dated after "a" was observed, |20 - 2 x 10| = 0), but 20 is outside the level
+    // 10 the other quarters still hold (rule 2), and it was observed in rule 5's month after the
+    // event for a quarter that ended before it: withheld. From 2025-09-10 "r" represents 2025Q2 (it
+    // is public later). Its anchor is "a" again — "m" was observed after "r", so "r" is judged
+    // against what was known on 2025-09-10 — and the re-base, detected after "r" was observed,
+    // explains nothing: withheld. (Ordered by availability alone, "m" anchored "r", which then agreed
+    // with it and read 6 x 2 x 20 = 240 at K = 2: P/E 24/5, twice the coherent 12/5.)
+    security: company({
+      statements: revision(
+        restateCounts(
+          baseStatements(observedWhenAvailable),
+          ALL_QUARTERS,
+          20,
+          "2025-09-10",
+          "r",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-06",
+          observedAt: "2025-10-05T12:00:00.000Z",
+          values: {
+            weightedAverageShsOutDil: 20,
+            weightedAverageShsOut: 20,
+            grossProfit: 1,
+          },
+        },
+        "m",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-10-01", "2", "1")],
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-09-08",
+        close: "6",
+        expect: all("SHARE_LEVEL_UNSAFE", ["EVENT_SETTLING"]),
+      },
+      {
+        session: "2025-09-15",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+      {
+        session: "2025-09-30",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+    ],
+  },
+  {
+    id: "G1f",
+    covers: [],
+    title:
+      "rule 3 anchor: a re-base new to the anchor explains R, though a withheld revision between them was observed after it",
+    // Filings observed when available, verified 2025-06-01, a 2:1 re-base dated 2025-10-01 and
+    // detected 2025-10-02 06:00 (no provider entry). 2025Q2 is revised on 2025-11-05 to 13 shares
+    // ("b"): 30 % from its anchor "a" (10), which the 2:1 re-base does not explain (|13 - 20| > 0.4):
+    // withheld, and 13 is outside the level 10 as well. On 2025-11-20 every quarter is restated to
+    // 20 ("r"). 2025Q2's "r" is judged against its anchor "a", not against "b": the re-base is new to
+    // "a" (detected after it was observed, dated after it), known when "r" was observed, and
+    // |20 - 2 x 10| = 0 — explained, although it is not new to "b" (observed after the detection and
+    // after the event). Observed after the detection, on a session after the event, K = 1: MC =
+    // 6 x 20 = 120, the coherent readings as of 2025Q2.
+    security: company({
+      statements: restateCounts(
+        revision(
+          baseStatements(observedWhenAvailable),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-11-05",
+            observedAt: "2025-11-05T12:00:00.000Z",
+            values: {
+              weightedAverageShsOutDil: 13,
+              weightedAverageShsOut: 13,
+            },
+          },
+          "b",
+        ),
+        ALL_QUARTERS,
+        20,
+        "2025-11-20",
+        "r",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-11-05",
+        close: "6",
+        expect: all("SHARE_LEVEL_UNSAFE", ["SHARE_RESTATEMENT_UNEXPLAINED"]),
+      },
+      { session: "2025-11-20", close: "6", expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "G1g",
+    covers: [],
+    title:
+      "rule 3 anchor: only the revisions public on the session are walked, in the order they were observed",
+    // Filings observed when available: 2025Q2's "a" (10) on 2025-08-14. "x" (10.2) is observed on
+    // 2025-09-09 but public only from 2025-09-11; "y" (10.4) is observed and public on 2025-09-10.
+    // On 2025-09-10 "y" represents the quarter and "x" is not public, so "y"'s anchor is "a":
+    // |10.4 - 10| = 0.4 > 0.2, unexplained. On 2025-09-11 "x" represents it (the later
+    // availability); "y" was observed after "x" and is not in its walk, so "x"'s anchor is "a":
+    // |10.2 - 10| = 0.2, exactly 2 %, accepted. MC = 12 x 10.2 = 122.4: P/E 122.4/50 = 306/125,
+    // P/S 122.4/418 = 306/1045, P/B 122.4/260 = 153/325, P/FCF 122.4/54 = 34/15, EV/EBITDA
+    // (122.4 + 30)/106 = 381/265.
+    security: company({
+      statements: revision(
+        revision(
+          baseStatements(observedWhenAvailable),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-09-11",
+            observedAt: "2025-09-09T12:00:00.000Z",
+            values: {
+              weightedAverageShsOutDil: 10.2,
+              weightedAverageShsOut: 10.2,
+            },
+          },
+          "x",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-10",
+          observedAt: "2025-09-10T12:00:00.000Z",
+          values: {
+            weightedAverageShsOutDil: 10.4,
+            weightedAverageShsOut: 10.4,
+          },
+        },
+        "y",
+      ),
+    }),
+    observations: [
+      {
+        session: "2025-09-10",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+      {
+        session: "2025-09-11",
+        close: CLOSE,
+        expect: {
+          PE: "306/125",
+          PS: "306/1045",
+          PB: "153/325",
+          PFCF: "34/15",
+          EV: "381/265",
+        },
+      },
+    ],
+  },
+  {
+    id: "G1h",
+    covers: [],
+    title:
+      "rule 3 anchor: revisions one observation delivers are ordered as the representing revision is picked",
+    // A first load: every statement observed on 2026-08-31 at noon, among them a 2025Q2 Income
+    // amendment public from 2025-09-06 with 11 shares, whose content hash sorts before the original's.
+    // By one observation the order is the representing one — the earlier availability first — so
+    // the original (10) is the amendment's anchor: 10 % with no re-base, unexplained. Rule 2 holds
+    // (11 is inside 10's 25 %). On 2025-09-05 the amendment is not yet public: as of 2025Q2.
+    security: company({
+      statements: revision(
+        baseStatements(),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-06",
+          values: {
+            weightedAverageShsOutDil: 11,
+            weightedAverageShsOut: 11,
+          },
+        },
+        "0",
+      ),
+    }),
+    observations: [
+      { session: "2025-09-05", close: CLOSE, expect: AS_OF_2025Q2 },
+      {
+        session: "2025-09-08",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+    ],
+  },
+  {
     id: "G2",
     covers: [],
     title:
