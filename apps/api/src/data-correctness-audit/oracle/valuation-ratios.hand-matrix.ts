@@ -1329,8 +1329,10 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     // than 30 days before P's observation, known by R's: explained. R is observed 36 days after the
     // event (no settling) and after the detection: K = 1 (plain).
     // MC with R: 12 · 12.5 = 150 -> P/E 15/4, P/S 3/8, P/B 5/8, P/FCF 3, EV/EBITDA 2.
-    // P was observed before the event and its detection: before 2025-03-10 K = 1.25, so
-    // MC = 12 · 1.25 · 10 = 150 again; from 2025-03-10 on it is withheld.
+    // P was observed before the event and its detection: before 2025-03-10 K = 1.25 would make
+    // MC = 12 · 1.25 · 10 = 150 again, but P's count was first observed on 2025-03-03, within 30 days
+    // before the event (from 2025-02-08), for a quarter that ended before it: rule 5 before the event
+    // (owner, 2026-10-06) withholds it there. From 2025-03-10 on it is withheld (rule 6).
     security: company({
       statements: revision(
         edit(baseStatements(), "INCOME", "2024Q4", (statement) => ({
@@ -1358,7 +1360,7 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-03-07",
         close: CLOSE,
-        expect: { PE: "15/4", PS: "3/8", PB: "5/8", PFCF: "3", EV: "2" },
+        expect: all("COUNT_BEFORE_EVENT", []),
       },
       { session: "2025-03-10", close: CLOSE, expect: all("BASIS_WITHHELD") },
       { session: "2025-04-14", close: CLOSE, expect: all("BASIS_WITHHELD") },
@@ -1373,9 +1375,8 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     id: "C25b",
     covers: [24],
     title: "a re-base of another ratio explains nothing",
-    // C25 with the re-base measured at 3:2 (1.5, plain) instead of 5:4. Before it P takes K = 1.5:
-    // MC = 12 · 1.5 · 10 = 180 -> P/E 180/40 = 9/2, P/S 180/400 = 9/20, P/B 180/240 = 3/4, P/FCF
-    // 180/50 = 18/5, EV/EBITDA (180 + 50)/100 = 23/10. R restates 10 to 12.5 (x1.25), which is not
+    // C25 with the re-base measured at 3:2 (1.5, plain) instead of 5:4. Before it P would take
+    // K = 1.5, but rule 5 before the event withholds it, as in C25. R restates 10 to 12.5 (x1.25), which is not
     // within 2 % of 1.5 (|1.25 - 1.5| = 0.25 > 0.03): unexplained, although it holds rule 2's level
     // (exactly +25 %) and is observed after the detection and outside rule 5's month.
     security: company({
@@ -1405,7 +1406,7 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-03-07",
         close: CLOSE,
-        expect: { PE: "9/2", PS: "9/20", PB: "3/4", PFCF: "18/5", EV: "23/10" },
+        expect: all("COUNT_BEFORE_EVENT", []),
       },
       { session: "2025-03-10", close: CLOSE, expect: all("BASIS_WITHHELD") },
       {
@@ -1826,9 +1827,11 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     title:
       "a measured 2:1 split: K before it for a count observed before it, withheld on its date, nothing after the detection",
     // Statements observed the day they became available. Measured 2025-06-02, ratio 2, detected
-    // 2025-06-05. R as of 2025Q1 was observed 2025-05-15: before the event and its detection.
-    // Before 2025-06-02: K = 2, MC = 240 -> 240/45 = 16/3, 240/410 = 24/41, 240/250 = 24/25,
-    // 240/52 = 60/13, (240 + 40)/103 = 280/103. From 2025-06-02: withheld. As of 2025Q2, R was
+    // 2025-06-05. R as of 2024Q4 was observed 2025-03-03, before the event and its detection and more
+    // than 30 days before it: on 2025-05-14, K = 2, MC = 240 -> 240/40 = 6, 240/400 = 3/5,
+    // 240/240 = 1, 240/50 = 24/5, (240 + 50)/100 = 29/10. R as of 2025Q1 was first observed
+    // 2025-05-15, within 30 days before the event (from 2025-05-03): rule 5 before the event (owner,
+    // 2026-10-06) withholds it before 2025-06-02. From 2025-06-02: withheld (rule 6). As of 2025Q2, R was
     // observed 2025-08-14, after the detection and 73 days after the event: K = 1.
     security: company({
       statements: baseStatements(observedWhenAvailable),
@@ -1842,15 +1845,14 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     }),
     observations: [
       {
+        session: "2025-05-14",
+        close: CLOSE,
+        expect: { PE: "6", PS: "3/5", PB: "1", PFCF: "24/5", EV: "29/10" },
+      },
+      {
         session: "2025-05-30",
         close: CLOSE,
-        expect: {
-          PE: "16/3",
-          PS: "24/41",
-          PB: "24/25",
-          PFCF: "60/13",
-          EV: "280/103",
-        },
+        expect: all("COUNT_BEFORE_EVENT", []),
       },
       { session: "2025-06-02", close: CLOSE, expect: all("BASIS_WITHHELD") },
       { session: "2025-08-13", close: CLOSE, expect: all("BASIS_WITHHELD") },
@@ -2061,9 +2063,13 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     covers: [40],
     title:
       "an undated re-base: K up to its interval's start, withheld inside it and on its last session",
-    // Measured in (2025-06-02, 2025-06-06], ratio 2, detected 2025-06-07. R as of 2025Q1 observed
-    // 2025-05-15, before the interval: 2025-06-02 is before the event (K = 2, MC 240, the C35
-    // readings); 2025-06-03 is inside; 2025-06-06 is the interval's last session, on the new basis.
+    // Measured in (2025-06-02, 2025-06-06], ratio 2, detected 2025-06-07. R as of 2024Q4 (observed
+    // 2025-03-03) reads at K = 2 on 2025-05-14, as in C35. R as of 2025Q1 was first observed
+    // 2025-05-15: within 30 days before the interval's first possible day (2025-06-03, so from
+    // 2025-05-04), for a quarter that ended before it, so rule 5 before the event withholds it on
+    // every session before the interval's last day — 2025-06-02, and 2025-06-03 inside the interval,
+    // where rule 6 withholds it too. 2025-06-06 is the interval's last session, on the new basis:
+    // withheld by rule 6 only.
     security: company({
       statements: baseStatements(observedWhenAvailable),
       events: [
@@ -2076,17 +2082,20 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     }),
     observations: [
       {
+        session: "2025-05-14",
+        close: CLOSE,
+        expect: { PE: "6", PS: "3/5", PB: "1", PFCF: "24/5", EV: "29/10" },
+      },
+      {
         session: "2025-06-02",
         close: CLOSE,
-        expect: {
-          PE: "16/3",
-          PS: "24/41",
-          PB: "24/25",
-          PFCF: "60/13",
-          EV: "280/103",
-        },
+        expect: all("COUNT_BEFORE_EVENT", []),
       },
-      { session: "2025-06-03", close: CLOSE, expect: all("BASIS_WITHHELD") },
+      {
+        session: "2025-06-03",
+        close: CLOSE,
+        expect: all("COUNT_BEFORE_EVENT", ["BASIS_WITHHELD"]),
+      },
       { session: "2025-06-06", close: CLOSE, expect: all("BASIS_WITHHELD") },
     ],
   },
@@ -2358,6 +2367,9 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     // twice the coherent 12/5.) Rule 2 is no obstacle: every quarter reads 20, so 20 is the level
     // from 2023Q3 on. From 2025-10-01 the forward entry holds too (rule 8, through 2025-10-31); on
     // 2025-11-03 nothing has been measured and the restatement is still unexplained.
+    // Rule 5 before the event (owner, 2026-10-06): "r" and "s", first observed on 2025-09-02 and 2025-09-10 — within 30 days
+    // before the 2025-10-01 event, for a quarter that ended before it — is withheld by that rule
+    // too on the sessions before the event.
     security: company({
       statements: revision(
         restateCounts(
@@ -2388,22 +2400,22 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-09-02",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-09-09",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-09-10",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-09-30",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-10-01",
@@ -2432,6 +2444,9 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     // withheld. (Before the ruling "s" passed against "r" and read 6 x 2 x 20 = 240 — the doubled
     // readings, kept in history by K.) On and after the event a count observed before the detection
     // is withheld by rule 6 as well.
+    // Rule 5 before the event (owner, 2026-10-06): "r" and "s", first observed on 2025-09-02 and 2025-09-10 — within 30 days
+    // before the 2025-10-01 event, for a quarter that ended before it — is withheld by that rule
+    // too on the sessions before the event.
     security: company({
       statements: revision(
         restateCounts(
@@ -2469,17 +2484,17 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-09-02",
         close: "6",
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-09-10",
         close: "6",
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-09-30",
         close: "6",
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-10-01",
@@ -2656,6 +2671,9 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     // against what was known on 2025-09-10 — and the re-base, detected after "r" was observed,
     // explains nothing: withheld. (Ordered by availability alone, "m" anchored "r", which then agreed
     // with it and read 6 x 2 x 20 = 240 at K = 2: P/E 24/5, twice the coherent 12/5.)
+    // Rule 5 before the event (owner, 2026-10-06): "r", first observed on 2025-09-10 — within 30 days
+    // before the 2025-10-01 event, for a quarter that ended before it — is withheld by that rule
+    // too on the sessions before the event.
     security: company({
       statements: revision(
         restateCounts(
@@ -2697,12 +2715,12 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-09-15",
         close: "6",
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-09-30",
         close: "6",
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
     ],
   },
@@ -2865,6 +2883,9 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     // measured re-base is unexplained: withheld. (Before the ruling rule 3 compared "r" with "q"
     // only, found nothing to compare and read the doubled values.) From 2025-10-01 the forward
     // entry holds as well.
+    // Rule 5 before the event (owner, 2026-10-06): "r", first observed on 2025-09-10 — within 30 days
+    // before the 2025-10-01 event, for a quarter that ended before it — is withheld by that rule
+    // too on the sessions before the event.
     security: company({
       statements: restateCounts(
         revision(
@@ -2896,7 +2917,7 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-09-10",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["COUNT_BEFORE_EVENT"]),
       },
       {
         session: "2025-10-01",
@@ -3015,6 +3036,526 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
           EV: off("INCOMPLETE_WINDOW"),
         },
       },
+    ],
+  },
+  // -------------------------------------------------------------------------------------------
+  // The owner's rulings on the second clean-room review (2026-10-06). M1: across a share-changing
+  // event, a count that still agrees with an anchor observed before it is not accepted (rule 6's
+  // basis assumption, checked in rule 3). M3: a count first observed in the 30 days before an event
+  // is withheld on the sessions before it (rule 5, before the event).
+  // -------------------------------------------------------------------------------------------
+  {
+    id: "M1a",
+    covers: [],
+    title:
+      "rule 3 across a measured split: a count that still agrees with an anchor observed before it is not accepted",
+    // Filings observed when available, verified 2025-06-01; a 2:1 re-base dated 2025-10-01 and
+    // detected 2025-10-02 06:00 (the stored closes before it are 6). 2025Q2 is revised on 2025-11-03
+    // ("s", another field) still at 10. Its anchor "a" was observed on 2025-08-14, before the
+    // detection; "s" after it; 2025Q2 ended before the event: the split separates them, and 10 is
+    // not 2 x 10 — "s" is not accepted. (Before the ruling "s" agreed with "a" and read at K = 1:
+    // MC 6 x 10 = 60, half the coherent 120: P/E 6/5 against 12/5.) On 2025-08-29 "a" reads at
+    // K = 2: 6 x 2 x 10 = 120, as of 2025Q2; on 2025-10-31, after the event, "a" observed before
+    // the detection is withheld by rule 6.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-08-29", close: "6", expect: AS_OF_2025Q2 },
+      {
+        session: "2025-10-31",
+        close: "6",
+        expect: all("BASIS_WITHHELD", []),
+      },
+      {
+        session: "2025-11-03",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1b",
+    covers: [],
+    title:
+      "rule 3 across a listed plain entry in the history: agreement is not acceptance, and an entry explains nothing",
+    // Filings observed when available; a 2:1 provider entry dated 2025-09-15 in the history verified
+    // on 2026-10-02, nothing measured. On 2025-08-29 "a" (observed 2025-08-14) predates the entry
+    // (rule 4.2). 2025Q2 is revised on 2025-11-03 ("s") still at 10: the entry separates it from "a"
+    // (the quarter ended before it, "a" was observed before it and "s" after), so it is not accepted;
+    // rule 5's month after the entry ended on 2025-10-14.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      splits: [split("2025-09-15", "2", "1")],
+    }),
+    observations: [
+      {
+        session: "2025-08-29",
+        close: CLOSE,
+        expect: all("COUNT_PREDATES_HISTORICAL_ENTRY", []),
+      },
+      {
+        session: "2025-11-03",
+        close: CLOSE,
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1c",
+    covers: [],
+    title:
+      "rule 3 across a measured split: a restatement explained against the anchor before it, past a revision that agreed",
+    // M1a's re-base (2:1, dated 2025-10-01, detected 2025-10-02 06:00, closes 6). 2025Q2 is revised on
+    // 2025-10-20 ("t") still at 10: separated from "a", not accepted — and within rule 5's month. On
+    // 2025-11-03 every quarter is restated to 20 ("r"). 2025Q2's "r" walks "a", "t", "r": its anchor
+    // is "a" ("t" was not accepted), the split separates them, and the re-base explains 20 against
+    // 10 (new to "a", detected before "r" was observed, |20 - 2 x 10| = 0): accepted. Observed after
+    // the detection, on a session after the event: K = 1, MC = 6 x 20 = 120, as of 2025Q2. (Before the
+    // ruling "t" agreed with "a" and anchored "r", which the re-base — detected before "t" was
+    // observed — could not explain: withheld.)
+    security: company({
+      statements: restateCounts(
+        revision(
+          baseStatements(observedWhenAvailable),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-10-20",
+            observedAt: "2025-10-20T12:00:00.000Z",
+            values: { grossProfit: 1 },
+          },
+          "t",
+        ),
+        ALL_QUARTERS,
+        20,
+        "2025-11-03",
+        "r",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-10-20",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", ["EVENT_SETTLING"]),
+      },
+      { session: "2025-11-03", close: "6", expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M1d",
+    covers: [],
+    title:
+      "rule 3 across a measured split: an anchor observed between the event and its detection is before it",
+    // A 2:1 re-base dated 2025-10-01, detected only on 2025-10-20 06:00. 2025Q2 is revised on
+    // 2025-10-10 ("b", still 10) — between the event and the detection, so not separated from "a":
+    // accepted by rule 3, but rule 6 withholds a count observed then, and rule 5's month holds it. On
+    // 2025-11-20 ("c", still 10) the anchor is "b", observed before the detection: separated, and 10
+    // is not 2 x 10 — not accepted. (Reading "before the event" as before its date would have let
+    // "c" agree with "b" and read 6 x 10 = 60.)
+    security: company({
+      statements: revision(
+        revision(
+          baseStatements(observedWhenAvailable),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-10-10",
+            observedAt: "2025-10-10T12:00:00.000Z",
+            values: { grossProfit: 1 },
+          },
+          "b",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-20",
+          observedAt: "2025-11-20T12:00:00.000Z",
+          values: { grossProfit: 2 },
+        },
+        "c",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-20T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-10-10",
+        close: "6",
+        expect: all("EVENT_SETTLING", ["BASIS_WITHHELD"]),
+      },
+      {
+        session: "2025-11-20",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1e",
+    covers: [],
+    title:
+      "rule 3 across a forward plain entry never measured: agreement after it is not acceptance",
+    // Filings observed when available, verified 2025-06-01; a 2:1 entry listed for 2025-09-15,
+    // never measured. Before it "a" reads as of 2025Q2; from its date through 2025-10-15 rule 8
+    // holds; on 2025-11-03 the revision "s", still 10, is separated from "a" by the entry and not
+    // accepted.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-09-15", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-09-12", close: CLOSE, expect: AS_OF_2025Q2 },
+      {
+        session: "2025-09-15",
+        close: CLOSE,
+        expect: all("FORWARD_EVENT_UNMEASURED", []),
+      },
+      {
+        session: "2025-11-03",
+        close: CLOSE,
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1f",
+    covers: [],
+    title:
+      "rule 3 across a measured non-plain re-base: no share change, so agreement is accepted — rule 7 holds it",
+    // A re-base of 1.046 (a possible distribution) dated 2025-10-01, detected 2025-10-02 06:00. It is
+    // no share change, so the revision "s" of 2025-11-03, still 10, agrees with "a" and is accepted;
+    // on 2025-11-03 the statements still end before the event (2025Q2), so rule 7 withholds every
+    // ratio.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "1.046",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-11-03",
+        close: CLOSE,
+        expect: all("POST_DISTRIBUTION_STATEMENTS_STALE", []),
+      },
+    ],
+  },
+  {
+    id: "M1g",
+    covers: [],
+    title:
+      "rule 3 across a measured split: a count within 2 % of the anchor is not accepted, whatever re-base could explain it",
+    // 2025Q2 ("a") filed fast: available and observed 2025-07-25. A re-base at 1.01 (a possible
+    // distribution, not a plain share change, so it separates nothing) dated 2025-06-27 — inside
+    // 2025Q2, so every family covers it (rule 7) — and detected 2025-09-03, after "a" was observed
+    // and dated less than 30 days before it: new to "a". A 2:1 re-base dated 2025-09-15, detected
+    // 2025-09-16 06:00. 2025Q2 is revised on 2025-11-03 ("s", another field) still at 10: the split
+    // separates "s" from "a" (2025Q2 ended before it, "a" was observed before the detection, "s"
+    // after), so a count within 2 % of "a" is not accepted. The 1.01 re-base would "explain" 10
+    // against 10 (|10 - 1.01 x 10| = 0.1 <= 2 % of 10.1), but explaining is for a count that
+    // differs. Read at K = 1 it would be MC 6 x 10 = 60, half the coherent 6 x 20.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable).map((statement) =>
+          statement.fiscalDate === "2025-06-30"
+            ? {
+                ...statement,
+                availableFromDate: "2025-07-25",
+                observedAt: "2025-07-25T12:00:00.000Z",
+              }
+            : statement,
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-06-27" },
+          "1.01",
+          "2025-09-03T12:00:00.000Z",
+        ),
+        measured(
+          { effectiveDate: "2025-09-15" },
+          "2",
+          "2025-09-16T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-11-03",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1h",
+    covers: [],
+    title:
+      "M1g without the split: the same revision agrees with its anchor and is read",
+    // As M1g with only the 1.01 re-base: nothing separates "s" from "a", 10 is within 2 % of 10, so
+    // "s" is accepted. Observed after the re-base's detection, K = 1: MC 12 x 10 = 120, as of 2025Q2.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable).map((statement) =>
+          statement.fiscalDate === "2025-06-30"
+            ? {
+                ...statement,
+                availableFromDate: "2025-07-25",
+                observedAt: "2025-07-25T12:00:00.000Z",
+              }
+            : statement,
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-06-27" },
+          "1.01",
+          "2025-09-03T12:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-11-03", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M3a",
+    covers: [],
+    title:
+      "rule 5 before the event: a first load in the month before a split, already restated, is withheld before it",
+    // Every statement first observed on 2025-09-15 (a first load, history verified an hour later),
+    // with 20 shares — the provider had restated ahead of the 2:1 re-base dated 2025-10-01 (detected
+    // 2025-10-02 06:00; the stored closes before it are 6). 2025Q2's count was first observed on
+    // 2025-09-15, within 30 days before the event (from 2025-09-01), and the quarter ended before
+    // it: withheld on every session before 2025-10-01. (Before the ruling it read at K = 2:
+    // 6 x 2 x 20 = 240, P/E 24/5 against the coherent 12/5.) On the event's date a count observed
+    // before the detection is withheld by rule 6.
+    security: company({
+      statements: observeAll(
+        setShares(
+          baseStatements(),
+          Object.fromEntries(ALL_QUARTERS.map((quarter) => [quarter, 20])),
+        ),
+        "2025-09-15T12:00:00.000Z",
+      ),
+      verifiedAt: "2025-09-15T13:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-09-16",
+        close: "6",
+        expect: all("COUNT_BEFORE_EVENT", []),
+      },
+      {
+        session: "2025-09-30",
+        close: "6",
+        expect: all("COUNT_BEFORE_EVENT", []),
+      },
+      {
+        session: "2025-10-01",
+        close: "6",
+        expect: all("BASIS_WITHHELD", []),
+      },
+    ],
+  },
+  {
+    id: "M3b",
+    covers: [],
+    title:
+      "rule 5 before the event: a quarter filed in the month before a listed split waits for it",
+    // Filings observed when available, verified 2025-06-01; a 2:1 entry listed for 2025-09-08. 2025Q2
+    // was filed and first observed on 2025-08-14, within 30 days before it (from 2025-08-09), and
+    // ended before it: withheld on the sessions before 2025-09-08. 2025Q1's count (2025-05-15) is
+    // outside the window: as of 2025Q1 on 2025-08-13. From the entry's date rule 8 holds through
+    // 2025-10-08; after it nothing withholds "a" — the provider has not re-based the prices, so its
+    // units are the closes'.
+    security: company({
+      statements: baseStatements(observedWhenAvailable),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-09-08", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-08-13", close: CLOSE, expect: AS_OF_2025Q1 },
+      {
+        session: "2025-08-14",
+        close: CLOSE,
+        expect: all("COUNT_BEFORE_EVENT", []),
+      },
+      {
+        session: "2025-09-05",
+        close: CLOSE,
+        expect: all("COUNT_BEFORE_EVENT", []),
+      },
+      {
+        session: "2025-09-08",
+        close: CLOSE,
+        expect: all("FORWARD_EVENT_UNMEASURED", []),
+      },
+      { session: "2025-10-09", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M3c",
+    covers: [],
+    title:
+      "rule 5 before the event: a count first observed exactly 30 days before is in the window",
+    // M3b with the entry on 2025-09-13: 2025-09-13 - 30 days = 2025-08-14, the day 2025Q2 was first
+    // observed — inside the window (inclusive): withheld on 2025-08-14 and 2025-09-12.
+    security: company({
+      statements: baseStatements(observedWhenAvailable),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-09-13", "2", "1")],
+    }),
+    observations: [
+      {
+        session: "2025-08-14",
+        close: CLOSE,
+        expect: all("COUNT_BEFORE_EVENT", []),
+      },
+      {
+        session: "2025-09-12",
+        close: CLOSE,
+        expect: all("COUNT_BEFORE_EVENT", []),
+      },
+    ],
+  },
+  {
+    id: "M3d",
+    covers: [],
+    title:
+      "rule 5 before the event: a count first observed 31 days before is outside the window",
+    // M3b with the entry on 2025-09-14: the window starts on 2025-08-15, the day after 2025Q2 was
+    // first observed — as of 2025Q2 until the entry.
+    security: company({
+      statements: baseStatements(observedWhenAvailable),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-09-14", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-08-14", close: CLOSE, expect: AS_OF_2025Q2 },
+      { session: "2025-09-12", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M3e",
+    covers: [],
+    title:
+      "rule 5 before the event: a count only repeated in the month before was first observed earlier",
+    // Filings observed when available, verified 2025-06-01; a 2:1 entry listed for 2025-10-01. 2025Q2
+    // is revised on 2025-09-10 ("s", another field) at the same 10, inside the window (from
+    // 2025-09-01): it agrees with "a", so the count was first observed with "a" on 2025-08-14,
+    // outside it — as of 2025Q2 on 2025-09-10.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-10",
+          observedAt: "2025-09-10T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-10-01", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-09-10", close: CLOSE, expect: AS_OF_2025Q2 },
     ],
   },
 ];

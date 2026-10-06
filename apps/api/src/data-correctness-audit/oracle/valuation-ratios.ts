@@ -399,12 +399,22 @@ export const ORACLE_VALUATION_REASONS = [
   "SHARE_LEVEL_UNSAFE",
   /** Rule 3: the share count was restated by more than 2 % with no measured re-base explaining it. */
   "SHARE_RESTATEMENT_UNEXPLAINED",
+  /**
+   * Rule 3: a share-changing event separates the share count from its anchor, and no measured
+   * re-base explains it against the anchor ("Agreement across a share change is not acceptance").
+   */
+  "SHARE_BASIS_UNCONFIRMED",
   /** Rule 4.1: a non-plain provider entry in history whose statements do not yet cover it. */
   "HISTORICAL_DISTRIBUTION_ENTRY",
   /** Rule 4.2: the share count was observed before a provider entry folded into the history. */
   "COUNT_PREDATES_HISTORICAL_ENTRY",
   /** Rule 5: the share count was observed within 30 days after an event, for a quarter before it. */
   "EVENT_SETTLING",
+  /**
+   * Rule 5 ("And soon before it"): a session before an event, for a share count first observed in
+   * the 30 days before it, of a quarter that ended before it.
+   */
+  "COUNT_BEFORE_EVENT",
   /** Rule 6: the basis factor is withheld on this session for this share count. */
   "BASIS_WITHHELD",
   /** Rule 7: on or after a measured non-plain re-base whose statements do not yet cover it. */
@@ -684,6 +694,8 @@ type RatioInputs = {
 type StatementLevel = {
   /** `R`: the latest point-in-time Income quarter's representing revision. */
   shareRevision?: Statement;
+  /** The day `R`'s count was first observed (rule 5, "And soon before it"); set with `R`. */
+  countFirstObservedDay?: number;
   shares?: OracleRational;
   /** Statement-level failures every ratio shares (share count and rules 2–5 on `R`). */
   shared: OracleValuationReason[];
@@ -792,15 +804,19 @@ function shareLevel(
       : "withheld";
 }
 
-type Restatement = "none" | "explained" | "unexplained";
+/**
+ * How a revision's count compares with its anchor's: nothing to compare (no anchor, or no usable
+ * count of its own), within 2 % of it, or a restatement a measured re-base does or does not explain.
+ */
+type Restatement = "nothing" | "agrees" | "explained" | "unexplained";
 
 /**
  * Rule 3 for one revision against its anchor: whether its count restates the anchor's, and if so
  * whether a measured re-base explains it.
  *
  * **Reading:**
- * - With no anchor, or without a usable count of its own, a revision has nothing to compare and
- *   passes. "Differs by more than 2 %" is `|c_R − c_A| > 0.02 · c_A`.
+ * - With no anchor, or without a usable count of its own, a revision has nothing to compare.
+ *   "Differs by more than 2 %" is `|c_R − c_A| > 0.02 · c_A`; a count that does not, agrees.
  * - A measured re-base explains it when `|(c_R / c_A) − ρ| <= 0.02 · ρ`, it is new to the anchor
  *   (detected after `A.observedAt`, or dated after `A`'s observation day), it is dated less than 30
  *   days before `A`'s observation day, and it was detected no later than `R.observedAt` ("a
@@ -813,15 +829,15 @@ function restatementStatus(
   events: readonly MeasuredEvent[],
 ): Restatement {
   if (anchor === undefined) {
-    return "none";
+    return "nothing";
   }
   const current = usableCount(revision);
   const prior = usableCount(anchor);
   if (current.kind !== "usable" || prior.kind !== "usable") {
-    return "none";
+    return "nothing";
   }
   if (within(current.count, prior.count, TWO_PERCENT, prior.count)) {
-    return "none";
+    return "agrees";
   }
   const restated = divide(current.count, prior.count);
   const explained = events.some((event) => {
@@ -872,31 +888,136 @@ function observationOrder(a: Statement, b: Statement): number {
  *   revisions before it in that order, so one observed after `R` never reaches it.
  * - Acceptance is decided in that order, each revision against the anchor its predecessors leave:
  *   the first revision has none and is accepted; each later one is accepted unless it is an
- *   unexplained restatement of its anchor, and an accepted one with a usable count becomes the
- *   anchor of the revisions after it. A count-less revision is accepted (it has nothing to compare)
- *   but anchors nothing.
+ *   unexplained restatement of its anchor or a separating event refuses it (below), and an
+ *   accepted one with a usable count becomes the anchor of the revisions after it. A count-less
+ *   revision is accepted (it has nothing to compare) but anchors nothing.
  * - Earlier revisions are judged among the revisions public on the session too, as the text
  *   scopes "before"; a revision observed earlier but public later than another is therefore part
  *   of that other's walk only on sessions where both are public.
+ * - Across a separating share-changing event (`separation`), only a restatement a measured re-base
+ *   explains is accepted: a count that agrees with its anchor is not ("agreeing with the anchor is
+ *   not enough"), and across a separating provider entry nothing is ("so across a separating entry
+ *   `X` is not accepted at all"). A count-less revision still has nothing to compare and is
+ *   accepted; it anchors nothing either way.
+ * - Why a revision is not accepted: an unexplained restatement stays
+ *   `SHARE_RESTATEMENT_UNEXPLAINED`, separated or not; any other refusal is a separating event's,
+ *   `SHARE_BASIS_UNCONFIRMED` — an agreeing count, or (only across a separating entry) a
+ *   restatement a measured re-base explains.
  */
 function restatementWalk(
   revisions: readonly Statement[],
   events: readonly MeasuredEvent[],
-): { anchor: Statement | undefined; status: Restatement }[] {
+  shareChanges: readonly ShareChange[],
+): RestatementVerdict[] {
   let anchor: Statement | undefined;
   return revisions.map((revision) => {
-    const verdict = {
+    const status = restatementStatus(revision, anchor, events);
+    const separated =
+      anchor === undefined || status === "nothing"
+        ? undefined
+        : separation(revision, anchor, shareChanges);
+    const refusal: RestatementVerdict["refusal"] =
+      status === "unexplained"
+        ? "SHARE_RESTATEMENT_UNEXPLAINED"
+        : separated === "ENTRY" ||
+            (separated === "MEASURED" && status !== "explained")
+          ? "SHARE_BASIS_UNCONFIRMED"
+          : undefined;
+    const verdict: RestatementVerdict = {
       anchor,
-      status: restatementStatus(revision, anchor, events),
+      status,
+      accepted: refusal === undefined,
+      ...(refusal !== undefined ? { refusal } : {}),
     };
-    if (
-      verdict.status !== "unexplained" &&
-      usableCount(revision).kind === "usable"
-    ) {
+    if (verdict.accepted && usableCount(revision).kind === "usable") {
       anchor = revision;
     }
     return verdict;
   });
+}
+
+/** Rule 3's verdict on one revision of the walk. */
+type RestatementVerdict = {
+  anchor: Statement | undefined;
+  status: Restatement;
+  /** Accepted by rule 3 alone. */
+  accepted: boolean;
+  /** Why it is not accepted. */
+  refusal?: "SHARE_RESTATEMENT_UNEXPLAINED" | "SHARE_BASIS_UNCONFIRMED";
+};
+
+/**
+ * A share-changing event (rule 3, "Agreement across a share change is not acceptance"): "a
+ * measured re-base whose ratio is a plain share change, or a provider entry that is one and that no
+ * measured re-base supersedes (within seven days, as in rule 4)".
+ */
+type ShareChange =
+  | { kind: "MEASURED"; latest: number; detectedMs: number }
+  | { kind: "ENTRY"; day: number };
+
+/**
+ * Whether a share-changing event separates `revision` from its `anchor`, and the kind of the one
+ * that does (a provider entry over a measured re-base, since an entry denies acceptance outright).
+ *
+ * "It separates a revision `X` from its anchor when all three hold: `X`'s fiscal quarter ended
+ * before the event (an undated re-base at the latest date it may have); the anchor was observed
+ * before the event — before its detection, for a measured re-base […]; `X` was observed after it —
+ * no earlier than the detection of a measured re-base, on or after the date of a provider entry."
+ *
+ * **Reading:** for a provider entry, "observed before the event" is an observation day before the
+ * entry's date, as in rule 4.2; "ended before the event" compares the fiscal period end with the
+ * event's (latest) date.
+ */
+function separation(
+  revision: Statement,
+  anchor: Statement,
+  shareChanges: readonly ShareChange[],
+): ShareChange["kind"] | undefined {
+  let separated: ShareChange["kind"] | undefined;
+  for (const change of shareChanges) {
+    const separates =
+      change.kind === "MEASURED"
+        ? revision.fiscalDay < change.latest &&
+          anchor.observedMs < change.detectedMs &&
+          revision.observedMs >= change.detectedMs
+        : revision.fiscalDay < change.day &&
+          anchor.observedDay < change.day &&
+          revision.observedDay >= change.day;
+    if (separates && separated !== "ENTRY") {
+      separated = change.kind;
+    }
+  }
+  return separated;
+}
+
+/**
+ * Rule 5's first observation of a revision's count (rule 5, "And soon before it").
+ *
+ * "A count is first observed at the observation of the earliest revision in the chain that `R`
+ * agrees with: follow `R`'s anchors back (rule 3) while each revision agrees with its anchor within
+ * 2 % and is accepted."
+ *
+ * **Reading:** the chain stops at the first revision that is not accepted, has nothing to compare,
+ * or restates its anchor (an explained restatement too: its count is new); the count was first
+ * observed with that revision. A revision rule 3 does not accept is its own first observation.
+ */
+function firstObservation(
+  revision: Statement,
+  verdicts: ReadonlyMap<Statement, RestatementVerdict>,
+): Statement {
+  let current = revision;
+  for (;;) {
+    const verdict = verdicts.get(current);
+    if (
+      verdict === undefined ||
+      !verdict.accepted ||
+      verdict.status !== "agrees" ||
+      verdict.anchor === undefined
+    ) {
+      return current;
+    }
+    current = verdict.anchor;
+  }
 }
 
 /** The exact sum of one field over the four window quarters, or why it cannot be formed. */
@@ -1074,9 +1195,10 @@ export type OracleValuationOracle = {
    * `statementDate` is the date whose statements the observation reads when it is not the
    * session's own: a Monitor's provisional observation reads the newest closed session's
    * ("The Monitor evaluates its provisional observation with the live quote as the close and the
-   * inputs of the newest closed session"). Every price-basis rule that names a session — the basis
-   * factor (6), the window after a distribution (7) and a listed upcoming event (8) — is read on
-   * `session` itself.
+   * inputs of the newest closed session"). Every price-basis rule that names a session — the
+   * sessions before an event for a count first observed soon before it (5), the basis factor (6),
+   * the window after a distribution (7) and a listed upcoming event (8) — is read on `session`
+   * itself.
    */
   reading(
     session: string,
@@ -1125,6 +1247,29 @@ export function createValuationOracle(
       : splits.filter((entry) => entry.day > verifiedDay && !matched(entry));
   // Rule 7: measured re-bases that may have been distributions.
   const distributions = measured.filter((event) => !event.plain);
+  // Rule 3: the share-changing events — plain measured re-bases, and plain provider entries no
+  // measured re-base supersedes (history or forward alike).
+  const shareChanges: ShareChange[] = [
+    ...measured
+      .filter((event) => event.plain)
+      .map((event) => ({
+        kind: "MEASURED" as const,
+        latest: event.latest,
+        detectedMs: event.detectedMs,
+      })),
+    ...splits
+      .filter((entry) => plainProviderEntry(entry) && !matched(entry))
+      .map((entry) => ({ kind: "ENTRY" as const, day: entry.day })),
+  ];
+  // Rule 5: "a provider entry, superseded or not, or a measured re-base", each as the days it may
+  // lie on.
+  const rule5Events: readonly { earliest: number; latest: number }[] = [
+    ...splits.map((entry) => ({ earliest: entry.day, latest: entry.day })),
+    ...measured.map((event) => ({
+      earliest: event.earliest,
+      latest: event.latest,
+    })),
+  ];
 
   const statementLevelMemo = new Map<number, StatementLevel>();
 
@@ -1176,6 +1321,7 @@ export function createValuationOracle(
     let explainedRestatement = false;
     let anchorBeyondPrevious = false;
     let firstLevelUnconfirmed = false;
+    let countFirstObservedDay: number | undefined;
     const shareRevision = latestQuarter(book.INCOME);
     const count = usableCount(shareRevision);
     if (shareRevision === undefined || count.kind === "missing") {
@@ -1201,21 +1347,31 @@ export function createValuationOracle(
         ...(incomeRevisions.get(shareRevision.quarter) ?? []),
       ].sort(observationOrder);
       const position = revisions.indexOf(shareRevision);
-      const { anchor, status } = restatementWalk(
-        revisions.slice(0, position + 1),
-        measured,
-      )[position] as { anchor: Statement | undefined; status: Restatement };
-      if (status === "unexplained") {
-        shared.push("SHARE_RESTATEMENT_UNEXPLAINED");
+      const walked = revisions.slice(0, position + 1);
+      const verdicts = restatementWalk(walked, measured, shareChanges);
+      const restatement = verdicts[position] as RestatementVerdict;
+      if (restatement.refusal !== undefined) {
+        shared.push(restatement.refusal);
       }
-      explainedRestatement = status === "explained";
+      explainedRestatement = restatement.status === "explained";
       // Diagnostics only: the anchor lies beyond the revision observed just before `R`, because
       // that one was not accepted by rule 3 or has no usable count (the shapes of the review's G1
       // and G2).
       anchorBeyondPrevious =
         count.kind === "usable" &&
-        anchor !== undefined &&
-        anchor !== revisions[position - 1];
+        restatement.anchor !== undefined &&
+        restatement.anchor !== revisions[position - 1];
+      // Rule 5, "And soon before it": when `R`'s count was first observed. The session test is
+      // made per session (`reading`).
+      countFirstObservedDay = firstObservation(
+        shareRevision,
+        new Map(
+          walked.map((revision, index) => [
+            revision,
+            verdicts[index] as RestatementVerdict,
+          ]),
+        ),
+      ).observedDay;
     }
     const ratios = {} as Record<OracleValuationRatioId, RatioInputs>;
     for (const ratio of ORACLE_VALUATION_RATIOS) {
@@ -1237,26 +1393,19 @@ export function createValuationOracle(
         if (history.some((entry) => shareRevision.observedDay < entry.day)) {
           inputs.failing.push("COUNT_PREDATES_HISTORICAL_ENTRY");
         }
-        // Rule 5: E <= R.observedAt < E + 30 days and R's quarter ended before E, for any event:
-        // a provider entry or a measured re-base.
-        //
-        // **Reading:** every provider entry (history or forward, matched or not) and every
-        // measured re-base is an event; an undated one fires when any day it may lie on does.
+        // Rule 5: E <= R.observedAt < E + 30 days and R's quarter ended before E, for any of rule
+        // 5's events (history or forward, superseded or not). "An undated re-base lies on each day
+        // it may lie on, and its quarter test uses the latest": the window holds when it does for
+        // any of those days, and the quarter must end before the last.
         const observed = shareRevision.observedDay;
-        const fiscal = shareRevision.fiscalDay;
-        const settling =
-          splits.some(
-            (entry) =>
-              entry.day <= observed &&
-              observed < entry.day + 30 &&
-              fiscal < entry.day,
-          ) ||
-          measured.some((event) => {
-            const from = Math.max(event.earliest, observed - 29, fiscal + 1);
-            const to = Math.min(event.latest, observed);
-            return from <= to;
-          });
-        if (settling) {
+        if (
+          rule5Events.some(
+            (event) =>
+              Math.max(event.earliest, observed - 29) <=
+                Math.min(event.latest, observed) &&
+              shareRevision.fiscalDay < event.latest,
+          )
+        ) {
           inputs.failing.push("EVENT_SETTLING");
         }
       }
@@ -1264,6 +1413,7 @@ export function createValuationOracle(
     }
     return {
       ...(shareRevision !== undefined ? { shareRevision } : {}),
+      ...(countFirstObservedDay !== undefined ? { countFirstObservedDay } : {}),
       ...(count.kind === "usable" ? { shares: count.count } : {}),
       shared,
       ratios,
@@ -1360,6 +1510,24 @@ export function createValuationOracle(
     const forwardHeld = forward.some(
       (entry) => sessionDay >= entry.day && sessionDay <= entry.day + 30,
     );
+    // Rule 5, "And soon before it": a session before an event at E, for `R`'s count first observed
+    // in [E − 30 days, E) and a quarter that ended before E, for any of rule 5's events.
+    //
+    // **Reading:** for an undated re-base "E is each day it may lie on, so the window starts 30
+    // days before its first possible day and the sessions run up to its last" — taken as the
+    // window [first − 30 days, last), the sessions before its last possible day (exclusive, as
+    // "before E" is for E that day), and rule 5's quarter test on its last possible day.
+    const firstObserved = level.countFirstObservedDay;
+    const countBeforeEvent =
+      revision !== undefined &&
+      firstObserved !== undefined &&
+      rule5Events.some(
+        (event) =>
+          event.earliest - 30 <= firstObserved &&
+          firstObserved < event.latest &&
+          revision.fiscalDay < event.latest &&
+          sessionDay < event.latest,
+      );
     for (const ratio of ORACLE_VALUATION_RATIOS) {
       const inputs = level.ratios[ratio.id];
       const failing = new Set<OracleValuationReason>([
@@ -1390,6 +1558,9 @@ export function createValuationOracle(
         )
       ) {
         failing.add("POST_DISTRIBUTION_STATEMENTS_STALE");
+      }
+      if (countBeforeEvent) {
+        failing.add("COUNT_BEFORE_EVENT");
       }
       // Rule 8: from a listed upcoming event's date through the next 30 calendar days.
       if (forwardHeld) {

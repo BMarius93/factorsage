@@ -467,87 +467,88 @@ describe("reference valuation ratios: the rulings' diagnostics", () => {
   });
 });
 
-describe("reference valuation ratios: rule 3's anchor", () => {
-  const base = handCase("C01").security;
-  const original = base.statements.find(
-    (statement) =>
-      statement.statementType === "INCOME" &&
-      statement.fiscalDate === "2025-06-30",
-  ) as OracleValuationStatement;
-  /** A revision of 2025Q2's Income: public from `at`, observed at noon that day unless given. */
-  const later = (
-    at: string,
-    hash: string,
-    values: Record<string, unknown>,
-    observedAt = `${at}T12:00:00.000Z`,
-  ): OracleValuationStatement => ({
-    ...original,
-    availableFromDate: at,
-    observedAt,
-    contentHash: `INCOME-2025Q2-${hash}`,
-    values: { ...original.values, ...values },
-  });
-  /** The base company plus `revisions`, its 2025Q2 Income "a" observed at `originalObservedAt`. */
-  const withRevisions = (
-    revisions: readonly OracleValuationStatement[],
-    originalObservedAt: string,
-    events: OracleValuationSecurity["events"] = [],
-  ): OracleValuationSecurity => ({
-    ...base,
-    statements: [
-      ...base.statements.map((statement) =>
-        statement === original
-          ? { ...statement, observedAt: originalObservedAt }
-          : statement,
-      ),
-      ...revisions,
-    ],
-    events,
-  });
-  /** Every ratio withheld by rule 3 alone, with neither diagnostic set. */
-  const expectRestatedOnly = (
-    reading: Record<string, OracleValuationOutcome>,
-  ) => {
-    for (const outcome of Object.values(reading)) {
-      expect(outcome.available).toBe(false);
-      if (!outcome.available) {
-        expect(outcome.failing).toEqual(["SHARE_RESTATEMENT_UNEXPLAINED"]);
-      }
-      expect(diagnostics(outcome)).toEqual({
-        available: false,
-        anchorBeyondPrevious: false,
-        firstLevelUnconfirmed: false,
-      });
+const baseCompany = handCase("C01").security;
+const income2025Q2 = baseCompany.statements.find(
+  (statement) =>
+    statement.statementType === "INCOME" &&
+    statement.fiscalDate === "2025-06-30",
+) as OracleValuationStatement;
+/** A revision of 2025Q2's Income: public from `at`, observed at noon that day unless given. */
+const later = (
+  at: string,
+  hash: string,
+  values: Record<string, unknown>,
+  observedAt = `${at}T12:00:00.000Z`,
+): OracleValuationStatement => ({
+  ...income2025Q2,
+  availableFromDate: at,
+  observedAt,
+  contentHash: `INCOME-2025Q2-${hash}`,
+  values: { ...income2025Q2.values, ...values },
+});
+/** The base company plus `revisions`, its 2025Q2 Income "a" observed at `originalObservedAt`. */
+const withRevisions = (
+  revisions: readonly OracleValuationStatement[],
+  originalObservedAt: string,
+  events: OracleValuationSecurity["events"] = [],
+): OracleValuationSecurity => ({
+  ...baseCompany,
+  statements: [
+    ...baseCompany.statements.map((statement) =>
+      statement === income2025Q2
+        ? { ...statement, observedAt: originalObservedAt }
+        : statement,
+    ),
+    ...revisions,
+  ],
+  events,
+});
+/** Every ratio withheld by exactly `failing` (rule 3 alone by default), neither diagnostic set. */
+const expectWithheld = (
+  reading: Record<string, OracleValuationOutcome>,
+  failing: readonly string[] = ["SHARE_RESTATEMENT_UNEXPLAINED"],
+) => {
+  for (const outcome of Object.values(reading)) {
+    expect(outcome.available).toBe(false);
+    if (!outcome.available) {
+      expect(outcome.failing).toEqual(failing);
     }
-  };
-  /** Every ratio at `readings`, and the two available-side diagnostics. */
-  const expectReadings = (
-    reading: Record<string, OracleValuationOutcome>,
-    readings: Record<HandRatio, string>,
-    explainedRestatement: boolean,
-    anchorBeyondPrevious: boolean,
-    label: string,
-  ) => {
-    for (const [ratio, id] of Object.entries(HAND_RATIO_IDS) as [
-      HandRatio,
-      string,
-    ][]) {
-      check(
-        reading[id] as OracleValuationOutcome,
-        readings[ratio],
-        `${label} ${ratio}`,
-      );
-      expect(
-        diagnostics(reading[id] as OracleValuationOutcome),
-        `${label} ${ratio}`,
-      ).toEqual({
-        available: true,
-        explainedRestatement,
-        anchorBeyondPrevious,
-      });
-    }
-  };
+    expect(diagnostics(outcome)).toEqual({
+      available: false,
+      anchorBeyondPrevious: false,
+      firstLevelUnconfirmed: false,
+    });
+  }
+};
+/** Every ratio at `readings`, and the two available-side diagnostics. */
+const expectReadings = (
+  reading: Record<string, OracleValuationOutcome>,
+  readings: Record<HandRatio, string>,
+  explainedRestatement: boolean,
+  anchorBeyondPrevious: boolean,
+  label: string,
+) => {
+  for (const [ratio, id] of Object.entries(HAND_RATIO_IDS) as [
+    HandRatio,
+    string,
+  ][]) {
+    check(
+      reading[id] as OracleValuationOutcome,
+      readings[ratio],
+      `${label} ${ratio}`,
+    );
+    expect(
+      diagnostics(reading[id] as OracleValuationOutcome),
+      `${label} ${ratio}`,
+    ).toEqual({
+      available: true,
+      explainedRestatement,
+      anchorBeyondPrevious,
+    });
+  }
+};
 
+describe("reference valuation ratios: rule 3's anchor", () => {
   it("explains a restatement against the anchor, not against an unaccepted predecessor", () => {
     // The base company with 2025Q2's Income "a" (10 shares) observed 2025-08-14. On 2025-09-02
     // "r" restates it to 11 (x1.1, beyond 2 %; no re-base of that ratio): unexplained, so not
@@ -555,16 +556,21 @@ describe("reference valuation ratios: rule 3's anchor", () => {
     // 2025-11-03 "b" reports 12.5. Its anchor is "a", not "r": 12.5 / 10 = 1.25 is the re-base's
     // ratio, and the re-base is new to "a" (detected after "a" was observed), dated less than 30
     // days before that observation (it is after it), and detected before "b" was observed:
-    // explained, and "b" is accepted. (Against "r", 12.5 / 11 = 25/22 is 0.114 from 1.25, beyond
-    // 2 % of it, 0.025: unexplained.) Rule 2 holds: 12.5 is exactly +25 % of the level 10.
+    // explained, and "b" is accepted — the 5:4 separates "b" from "a" (2025Q2 ended before it, "a"
+    // was observed before its detection, "b" after), and an explained restatement is what is
+    // accepted across it. (Against "r", 12.5 / 11 = 25/22 is 0.114 from 1.25, beyond 2 % of it,
+    // 0.025: unexplained.) Rule 2 holds: 12.5 is exactly +25 % of the level 10.
     // "b" is observed after the detection, on a session after the event: K = 1; 49 days after the
     // event, rule 5 is past. MC = 12 x 12.5 = 150: P/E 150/50 = 3, P/S 150/418 = 75/209, P/B
     // 150/260 = 15/26, P/FCF 150/54 = 25/9, EV/EBITDA (150 + 30)/106 = 90/53.
     // On 2025-12-01 "c" (12.5, another field) is compared with its anchor "b", the revision it
-    // superseded: no restatement, the same readings.
-    // On 2025-09-02 "r" is read alone against "a": unexplained, and nothing else fails — observed
-    // before the event and its detection, a session before the event takes K = 1.25, and the
-    // event is not yet dated when "r" is observed (rule 5).
+    // superseded: no restatement — and "b" was observed after the detection, so the 5:4 does not
+    // separate them — the same readings.
+    // On 2025-09-02 "r" is read against "a": unexplained. Rule 5 before the event withholds it as
+    // well: not accepted, its count was first observed on 2025-09-02 itself, within the 30 days
+    // before 2025-09-15 (from 2025-08-16), for a quarter that ended before it, on a session before
+    // it. Nothing else fails: observed before the event and its detection, a session before the
+    // event takes K = 1.25, and rule 5's month after the event has not begun.
     const oracle = createValuationOracle(
       withRevisions(
         [
@@ -593,7 +599,10 @@ describe("reference valuation ratios: rule 3's anchor", () => {
       PFCF: "25/9",
       EV: "90/53",
     };
-    expectRestatedOnly(oracle.reading("2025-09-02", "12"));
+    expectWithheld(oracle.reading("2025-09-02", "12"), [
+      "SHARE_RESTATEMENT_UNEXPLAINED",
+      "COUNT_BEFORE_EVENT",
+    ]);
     expectReadings(
       oracle.reading("2025-11-03", "12"),
       readings,
@@ -638,7 +647,7 @@ describe("reference valuation ratios: rule 3's anchor", () => {
       false,
       "2025-09-05",
     );
-    expectRestatedOnly(oracle.reading("2025-09-08", "12"));
+    expectWithheld(oracle.reading("2025-09-08", "12"));
   });
 
   it("walks only the revisions public on the statement date", () => {
@@ -665,7 +674,7 @@ describe("reference valuation ratios: rule 3's anchor", () => {
         "2025-08-14T12:00:00.000Z",
       ),
     );
-    expectRestatedOnly(oracle.reading("2025-09-10", "12"));
+    expectWithheld(oracle.reading("2025-09-10", "12"));
     expectReadings(
       oracle.reading("2025-09-11", "12"),
       {
@@ -679,6 +688,144 @@ describe("reference valuation ratios: rule 3's anchor", () => {
       false,
       "2025-09-11",
     );
+  });
+
+  it("refuses a restatement a measured re-base explains when a provider entry separates it", () => {
+    // 2025Q2's Income "a" (10) observed 2025-08-14; a 5:4 provider entry dated 2025-09-15 (history
+    // under the 2026-10-02 verification) and a measured 5:4 re-base (1.25) dated 2025-10-01,
+    // detected 2025-10-02 06:00 — 16 days from the entry, so it does not supersede it. "r" (12.5)
+    // is observed 2025-11-03. Against "a", 12.5 / 10 = 1.25: the re-base explains it on rule 3's
+    // terms. But the entry is a share-changing event that separates "r" from "a" (2025Q2 ended
+    // before 2025-09-15, "a" was observed before it, "r" on or after it), and "across a separating
+    // entry X is not accepted at all": SHARE_BASIS_UNCONFIRMED, and nothing else fails — rule 4.2
+    // looks at "r" (observed after the entry), rules 5 are past (the entry's month ended
+    // 2025-10-14, the re-base's 2025-10-30), K = 1 (observed after the detection, on a session
+    // after the event), and 12.5 is inside the level 10's 25 %. Without the entry the measured
+    // re-base alone separates them, and an explained restatement is accepted across it: MC = 12 x
+    // 12.5 = 150, P/E 3, P/S 75/209, P/B 15/26, P/FCF 25/9, EV/EBITDA 90/53.
+    const security = withRevisions(
+      [later("2025-11-03", "r", { weightedAverageShsOutDil: 12.5 })],
+      "2025-08-14T12:00:00.000Z",
+      [
+        {
+          kind: "MEASURED",
+          effectiveDate: "2025-10-01",
+          priceRatio: "1.25",
+          detectedAt: "2025-10-02T06:00:00.000Z",
+        },
+      ],
+    );
+    expectWithheld(
+      createValuationOracle({
+        ...security,
+        splits: [
+          {
+            date: "2025-09-15",
+            numerator: "5",
+            denominator: "4",
+            label: "stock-split",
+          },
+        ],
+      }).reading("2025-11-03", "12"),
+      ["SHARE_BASIS_UNCONFIRMED"],
+    );
+    expectReadings(
+      createValuationOracle(security).reading("2025-11-03", "12"),
+      { PE: "3", PS: "75/209", PB: "15/26", PFCF: "25/9", EV: "90/53" },
+      true,
+      false,
+      "without the entry",
+    );
+  });
+
+  it("follows the first observation back through every agreeing, accepted anchor", () => {
+    // Verified 2025-06-01; a 2:1 entry listed for 2025-10-01, never measured. 2025Q2's Income
+    // "a" (10) observed 2025-08-14, "s" (10.1) on 2025-09-05 and "t" (10.2) on 2025-09-20, each
+    // public when observed. "s" agrees with "a" (0.1 <= 0.2) and "t" with "s" (0.1 <= 0.202); the
+    // entry separates neither (both observed before it): both accepted. "t"'s count was therefore
+    // first observed with "a" on 2025-08-14, outside the 30 days before 2025-10-01 (from
+    // 2025-09-01), though "s" and "t" lie inside them. (Stopping one link back, at "s", would
+    // withhold it.) On 2025-09-20 nothing withholds "t": MC = 12 x 10.2 = 122.4, P/E 306/125, P/S
+    // 306/1045, P/B 153/325, P/FCF 34/15, EV/EBITDA 381/265.
+    const oracle = createValuationOracle({
+      ...withRevisions(
+        [
+          later("2025-09-05", "s", { weightedAverageShsOutDil: 10.1 }),
+          later("2025-09-20", "t", { weightedAverageShsOutDil: 10.2 }),
+        ],
+        "2025-08-14T12:00:00.000Z",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [
+        {
+          date: "2025-10-01",
+          numerator: "2",
+          denominator: "1",
+          label: "stock-split",
+        },
+      ],
+    });
+    expectReadings(
+      oracle.reading("2025-09-20", "12"),
+      {
+        PE: "306/125",
+        PS: "306/1045",
+        PB: "153/325",
+        PFCF: "34/15",
+        EV: "381/265",
+      },
+      false,
+      false,
+      "2025-09-20",
+    );
+  });
+});
+
+describe("reference valuation ratios: rule 5 before the event", () => {
+  it("reads a Monitor provisional row's session on its own date", () => {
+    // M3b: 2025Q2 first observed 2025-08-14, within the 30 days before the 2:1 entry listed for
+    // 2025-09-08. A provisional row on 2025-09-08 reading the statements of 2025-09-05 is on the
+    // event's date, not before it: only rule 8 holds it. One on 2025-09-05 reading those of
+    // 2025-09-04 is before it: rule 5 before the event.
+    const oracle = createValuationOracle(handCase("M3b").security);
+    expectWithheld(
+      oracle.reading("2025-09-08", "12", { statementDate: "2025-09-05" }),
+      ["FORWARD_EVENT_UNMEASURED"],
+    );
+    expectWithheld(
+      oracle.reading("2025-09-05", "12", { statementDate: "2025-09-04" }),
+      ["COUNT_BEFORE_EVENT"],
+    );
+  });
+
+  it("opens an undated re-base's window 30 days before its first day and holds up to its last", () => {
+    // 2025Q2's Income "a" (10) observed 2025-08-14 (the base company otherwise). A 2:1 re-base
+    // measured undated after 2025-09-10 and no later than 2025-09-20 — its first possible day
+    // 2025-09-11, its last 2025-09-20 — detected 2025-09-21 06:00. The window starts on
+    // 2025-08-12 (30 days before 2025-09-11), so the count first observed on 2025-08-14 is in it
+    // (from the last day, 2025-08-21, it would not be), and 2025Q2 ended before 2025-09-20; the
+    // sessions before 2025-09-20 are withheld.
+    // - 2025-09-10: before the interval, "a" (observed before it and its detection) takes K = 2;
+    //   only rule 5 before the event withholds.
+    // - 2025-09-15: inside the interval: rule 6 withholds too.
+    // - 2025-09-20: the last possible day is not before the event: rule 6 alone.
+    const oracle = createValuationOracle(
+      withRevisions([], "2025-08-14T12:00:00.000Z", [
+        {
+          kind: "MEASURED",
+          effectiveFrom: "2025-09-10",
+          effectiveTo: "2025-09-20",
+          priceRatio: "2",
+          detectedAt: "2025-09-21T06:00:00.000Z",
+        },
+      ]),
+    );
+    expectWithheld(oracle.reading("2025-09-10", "6"), ["COUNT_BEFORE_EVENT"]);
+    expectWithheld(oracle.reading("2025-09-15", "6"), [
+      "COUNT_BEFORE_EVENT",
+      "BASIS_WITHHELD",
+    ]);
+    expectWithheld(oracle.reading("2025-09-20", "6"), ["BASIS_WITHHELD"]);
   });
 });
 
