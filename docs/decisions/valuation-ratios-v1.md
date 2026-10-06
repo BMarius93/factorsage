@@ -216,11 +216,11 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    observation, the order that picks a quarter's representing revision — among the revisions
    public on the statement date the reading uses (the session's own, or the newest closed session's
    for a Monitor's provisional row), so a revision observed after `R` is never its anchor, however
-   early the
-   loader dates it (a late-observed amendment): `R` is judged against what was known when it was
-   observed (**owner**, 2026-10-06: confirmed). "Accepted" is by this rule alone, whatever the other
-   rules say of that revision. A revision with no anchor has nothing to compare and passes. If `R`'s
-   count differs by more than 2 % from the anchor's, a measured re-base must explain it (its ratio within 2 %): one new to the
+   early the loader dates it (a late-observed amendment): `R` is judged against what was known when
+   it was observed (**owner**, 2026-10-06: confirmed). "Accepted" is by this rule alone, whatever
+   the other rules say of that revision. A revision with no anchor has nothing to compare and
+   passes. If `R`'s count differs by more than 2 % from the anchor's, a measured re-base must
+   explain it (its ratio within 2 %): one new to the
    anchor — detected or dated after the anchor was observed, and dated less than 30 days before the
    anchor was observed (rule 5's month; an undated re-base at the latest date it may have, for both
    dates) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable and not
@@ -247,14 +247,19 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    Rule 6 reads a count observed after a re-base's detection as already in the new units, and rule
    5 one observed a month after any event. A count in the new units differs from a count observed
    before the event by the event's ratio, so a count that still agrees with such an anchor is in the
-   old units, or in units nothing confirms. Across a separating event, `X` within 2 % of the anchor
-   is not accepted, and `X` differing by more is accepted only when a measured re-base explains it
-   against the anchor, on the terms above (any measured re-base that meets them). A provider entry
-   is never such an explanation, so across a separating entry `X` is not accepted at all. A
-   revision not accepted is unavailable and anchors nothing, so the quarter stays unavailable until
-   a revision a re-base explains is observed, or until a quarter that ended after the event is the
-   latest. This covers the provider never restating a count after a split, and taking back a
-   restatement it published ahead of the ex-date, alike.
+   old units, or in units nothing confirms. Across separating events, `X` is accepted only when the
+   measured re-bases that separate it explain it together: its count is within 2 % of the anchor's
+   times the product of their ratios, and each of them is dated less than 30 days before the anchor
+   was observed (the separation itself puts each detection after the anchor's observation and no
+   later than `X`'s, the other terms above). One re-base's ratio does not explain a count across
+   two, and a re-base that does not separate them explains nothing here. Agreeing with the anchor
+   is therefore never enough, unless the ratios cancel. A provider entry is never such an
+   explanation, so across a separating entry `X` is not accepted at all. A revision not accepted is
+   unavailable and anchors nothing, so the quarter stays unavailable until a revision the
+   separating re-bases explain is observed, or until a quarter that ended after the event is the
+   latest. This covers
+   the provider never restating a count after a split, and taking back a restatement it published
+   ahead of the ex-date, alike.
 
 4. **History, from provider entries** dated on or before `verifiedAt` and not superseded by a
    measured re-base within seven calendar days of them:
@@ -286,8 +291,9 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    observation of the earliest revision in the chain that `R` agrees with: follow `R`'s anchors
    back (rule 3) while each revision agrees with its anchor within 2 % and is accepted. A count
    only repeated in the window was observed before the provider could have restated it. For an
-   undated re-base, `E` is each day it may lie on, so the window starts 30 days before its first
-   possible day and the sessions run up to its last. The events are rule 5's. **Its cost:** a
+   undated re-base the window starts 30 days before its first possible day, and the sessions it
+   withholds run up to its last possible day (those inside the interval rule 6 withholds anyway).
+   The events are rule 5's. **Its cost:** a
    quarterly filing first observed in the month before a split loses its sessions before the
    ex-date, and so does a security first loaded then.
 
@@ -326,8 +332,10 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
   ex-date; WDC's balance sheet lagged its income statement by 71 sessions).
 - **A plain split masks nothing in history**: the counts and the close are restated together.
 - **A measured re-base masks only the window it cannot order.** Before it, `K` restores the exact
-  basis. On and after it, the window ends at the first share revision observed after its detection
-  and at least 30 days after its date (rule 5), plus rule 7 for a possible distribution.
+  basis, except for a count first observed in the month before it (rule 5). On and after it, the
+  window ends at the first share revision observed after its detection and at least 30 days after
+  its date (rule 5) that rule 3 accepts across it — one the re-base explains, or one of a quarter
+  that ended after it — plus rule 7 for a possible distribution.
 - **What is not masked:** a session whose statements lag a distribution after a covering statement
   exists (the trailing window still holds quarters from before it). That is the statement-content
   limit Fundamental Metrics already have (`fundamental-metrics-v1.md`; `historical-price-basis-v1.md`
@@ -350,6 +358,13 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
     2026-10-06: "Agreement across a share change is not acceptance", rule 3). Without a revision
     observed before the event there is no anchor to differ from, so a first observation after the
     event is taken in the units rule 6 and rule 5 assume.
+  - **An anchor not yet public** (the third clean-room review's MINOR-2, for the owner). Rule 3
+    walks only the revisions public on the statement date, so a revision observed before an event
+    but dated by the loader to a later placeholder date is no revision's anchor until that date. On
+    the sessions before it, a revision of the quarter observed after the event, public earlier and
+    still in the old units, has no anchor and passes. From the placeholder date the earlier-observed
+    revision is public and the rules withhold the quarter again; the exposure is the days in
+    between.
 
 ### The six known securities
 
@@ -377,8 +392,10 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
 
 ### Measured coverage
 
-**Measured before revision 3.** The owner's rulings of 2026-10-06 change the store's readings
-only through rule 2's first level: on the independent audit's copy of the store, 3,441 sessions of
+**Measured before revision 3.** Revision 4 (the owner's rulings on the second review, 2026-10-06)
+changes no stored reading: the audit's copy reads the same before and after it, and neither of its
+reasons fails on any stored session. The owner's rulings on the first review change the store's
+readings only through rule 2's first level: on the independent audit's copy of the store, 3,441 sessions of
 P/B and 116 each of P/E, P/S and EV/EBITDA (3,789 readings, 3,441 sessions, 29 securities), all in
 a walk's first quarters, go from available to withheld — among them the 408 listing-quarter P/B
 readings that read 21–54 % low. Rule 3's anchor changes none: no stored revision changes a count
@@ -423,7 +440,8 @@ everything.
   daily ratios from its stored closes, its point-in-time statement revisions, PR 1's measured
   re-bases and the stored provider entries. It reads no provider, writes nothing and has no clock.
   `buildValuationTimeline` applies the statement-level rules (1–5) once per statement event;
-  `valuationRatioColumns` applies the session-level rules (6–8) and the arithmetic per session.
+  `valuationRatioColumns` applies the session-level ones — rule 5's month before an event and rules
+  6–8 — and the arithmetic per session.
 - **Every consumer calls it:** the backtest evaluation frame, the Monitor frame (with the live
   quote as the provisional close) and the Stock Details chart, added after PR 2V
   (`getDailyValuationRatio`, one named ratio over the stored closes the price chart draws), so a
@@ -488,24 +506,24 @@ everything.
 
 ## What changed from PR #75
 
-| PR #75 element                                                                     | Under the FMP-only decision                                                                                                              |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Frozen valuation anchors, carried by research returns                              | removed: the per-session product with PR 1's measured `K` is exact forward and needs no frozen state                                     |
-| `ValuationAnchor` table, supersession, pending-reason sets, late-revision rule 11  | removed with the anchors                                                                                                                 |
-| The "as if reinvested" reading across a distribution                               | removed: the window is unavailable                                                                                                       |
-| Historical anchors from `Φ` (PR 3V) and the external as-traded vendor (PR 3)       | removed: no second provider; unsafe history is unavailable                                                                               |
-| Measured unit evidence for revisions observed before a later split (PR 2)          | removed for valuation: `K` restores the price side exactly; an unexplained restatement is unavailable (rule 3)                           |
-| The anchor version pin and the per-attempt data-pin table                          | removed: a run re-simulates from its first day on retry, so an in-memory generation pin per attempt suffices                             |
-| `observedSince` from a verified read                                               | kept as `verifiedAt`, which separates provider-listed history from measured events                                                       |
-| Undated intervals for events between two reads                                     | kept: `K` cannot be applied inside one                                                                                                   |
-| The settling delay and a generation bump on every one-row correction               | removed: they protected frozen anchor closes; nothing is frozen now                                                                      |
-| The ex-date calendar hold                                                          | for valuation, rule 8 from the stored split list; for every operand, PR 1's stateless split-sized-move hold                              |
-| Rules 6–7 (a count's units ordered against events; a hold near an announced event) | rule 5 (a count observed within 30 days after an event) and rule 8 (a listed event not yet measured)                                     |
-| The periodic monthly full comparison                                               | removed: the earliest-row check catches every full-history re-base                                                                       |
-| The invariant 9 amendment "if the owner accepts"                                   | made: the owner decided no per-session valuation persistence                                                                             |
-| U1–U4                                                                              | decided by the owner's defaults: denominators `<= 0`, currency, the existing equity field, anomalies unavailable                         |
-| U5 (bootstrap), U7 (Triggers), U9 (rebuild a corrected anchor)                     | U5: no synthetic start; U7: Conditions only; U9: no anchors                                                                              |
-| U6 (statements around a distribution), U8 (unfolded distributions)                 | U6: the price-basis windows above; the remaining statement lag is shared with Fundamental Metrics. U8: an accepted V1 limitation (owner) |
+| PR #75 element                                                                     | Under the FMP-only decision                                                                                                                       |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen valuation anchors, carried by research returns                              | removed: the per-session product with PR 1's measured `K` is exact forward and needs no frozen state                                              |
+| `ValuationAnchor` table, supersession, pending-reason sets, late-revision rule 11  | removed with the anchors                                                                                                                          |
+| The "as if reinvested" reading across a distribution                               | removed: the window is unavailable                                                                                                                |
+| Historical anchors from `Φ` (PR 3V) and the external as-traded vendor (PR 3)       | removed: no second provider; unsafe history is unavailable                                                                                        |
+| Measured unit evidence for revisions observed before a later split (PR 2)          | removed for valuation: `K` restores the price side exactly; an unexplained restatement is unavailable (rule 3)                                    |
+| The anchor version pin and the per-attempt data-pin table                          | removed: a run re-simulates from its first day on retry, so an in-memory generation pin per attempt suffices                                      |
+| `observedSince` from a verified read                                               | kept as `verifiedAt`, which separates provider-listed history from measured events                                                                |
+| Undated intervals for events between two reads                                     | kept: `K` cannot be applied inside one                                                                                                            |
+| The settling delay and a generation bump on every one-row correction               | removed: they protected frozen anchor closes; nothing is frozen now                                                                               |
+| The ex-date calendar hold                                                          | for valuation, rule 8 from the stored split list; for every operand, PR 1's stateless split-sized-move hold                                       |
+| Rules 6–7 (a count's units ordered against events; a hold near an announced event) | rule 5 (a count observed within 30 days after an event, or first observed within 30 days before one) and rule 8 (a listed event not yet measured) |
+| The periodic monthly full comparison                                               | removed: the earliest-row check catches every full-history re-base                                                                                |
+| The invariant 9 amendment "if the owner accepts"                                   | made: the owner decided no per-session valuation persistence                                                                                      |
+| U1–U4                                                                              | decided by the owner's defaults: denominators `<= 0`, currency, the existing equity field, anomalies unavailable                                  |
+| U5 (bootstrap), U7 (Triggers), U9 (rebuild a corrected anchor)                     | U5: no synthetic start; U7: Conditions only; U9: no anchors                                                                                       |
+| U6 (statements around a distribution), U8 (unfolded distributions)                 | U6: the price-basis windows above; the remaining statement lag is shared with Fundamental Metrics. U8: an accepted V1 limitation (owner)          |
 
 ## Accepted V1 limitation: basis events FMP does not report
 
