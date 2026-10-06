@@ -191,10 +191,21 @@ describe("valuation ratios on a Monitor's repriced day and around a listed event
   });
 
   it("withholds the provisional session inside a listed event the provider has not re-based", () => {
+    // Q4 public more than 30 days before the event, so its count is not one first observed in the
+    // month before it (rule 5, before the event: the next test).
     const listed = buildValuationTimeline({
       securityId: SECURITY.id,
       currency: "USD",
-      statements: STATEMENTS,
+      statements: STATEMENTS.map((statement) =>
+        statement.period === "Q4"
+          ? {
+              ...statement,
+              filingDate: "2026-01-09",
+              availableFromDate: "2026-01-09",
+              observedAt: "2026-01-09T12:00:00.000Z",
+            }
+          : statement,
+      ),
       verifiedAt: "2026-01-01T00:00:00.000Z",
       events: [],
       splits: [
@@ -228,5 +239,39 @@ describe("valuation ratios on a Monitor's repriced day and around a listed event
         monitor.observationIndex,
       ),
     ).toBe(Evaluability.NOT_EVALUABLE);
+  });
+
+  it("withholds the closed session before a listed event when the count was first observed in the month before it (owner, 2026-10-06)", () => {
+    // Q4 first observed on 2026-02-09, the day before the listed 1:10 event: the provider may already
+    // have restated it, so no session before the event reads it.
+    const listed = buildValuationTimeline({
+      securityId: SECURITY.id,
+      currency: "USD",
+      statements: STATEMENTS,
+      verifiedAt: "2026-01-01T00:00:00.000Z",
+      events: [],
+      splits: [
+        {
+          securityId: SECURITY.id,
+          date: "2026-02-10",
+          numerator: 1,
+          denominator: 10,
+          label: "stock-split",
+        },
+      ],
+    });
+    const monitor = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices: PRICES.slice(0, 3),
+      derived: [],
+      operands: [PRICE_OPERAND, PE],
+      observation: { price: 2.2 },
+      observationDate: "2026-02-10",
+      valuation: listed,
+    })!;
+    expect(
+      readOperand(monitor.frame, PE, monitor.observationIndex - 1),
+    ).toBeNaN();
+    expect(readOperand(monitor.frame, PE, monitor.observationIndex)).toBeNaN();
   });
 });

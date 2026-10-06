@@ -719,17 +719,37 @@ describe("valuation ratios: each masking rule in isolation", () => {
   });
 
   it("rule 5: a count observed on an undated re-base's exclusive start was observed before it", () => {
-    // Measured between 2025-03-03, the last session certainly before it, and 2025-03-05; every
-    // quarter first observed on 2025-03-03. The count predates the event: K = 2 restores the close
-    // it was observed against, and rule 5, for a count observed on or after an event, does not
-    // reach it.
-    const observedOnStart = quarters.map((quarter) => ({
+    // Measured between 2025-03-03, the last session certainly before it, and 2025-03-05. Every
+    // quarter was first observed on 2025-01-15, and 2024Q4 again, unchanged, on 2025-03-03: the
+    // count predates the event, K = 2 restores the close it was observed against, and rule 5, for a
+    // count observed on or after an event, does not reach it. (Its count was first observed more
+    // than a month before the event, so rule 5's month before it does not reach it either.)
+    const observedEarlier = quarters.map((quarter) => ({
       ...quarter,
-      observedAt: "2025-03-03T15:00:00.000Z",
+      observedAt: "2025-01-15T15:00:00.000Z",
     }));
+    const fourth = QUARTERS[3] as Quarter;
     const value = ratiosOn(
       isolated({
-        statements: company({ quarters: observedOnStart }),
+        statements: [
+          ...company({ quarters: observedEarlier }).filter(
+            (row) => row.availableFromDate <= "2025-03-03",
+          ),
+          statement(
+            "INCOME",
+            {
+              ...fourth,
+              availableFromDate: "2025-03-03",
+              observedAt: "2025-03-03T15:00:00.000Z",
+            },
+            {
+              weightedAverageShsOutDil: 100,
+              netIncome: 5,
+              revenue: 50,
+              ebitda: 10,
+            },
+          ),
+        ],
         events: [
           measured({
             effectiveFrom: "2025-03-03",
@@ -786,6 +806,82 @@ describe("valuation ratios: each masking rule in isolation", () => {
     // After it, until a quarter ending after it: rule 7 alone.
     expect(value[1]).toBeNaN();
     expect(value[2]).toBeCloseTo(50, 12);
+  });
+
+  it("rule 5 before the event: a count first observed in the month before it waits for the event (owner, 2026-10-06)", () => {
+    // Fiscal 2024 first loaded on `loadedOn`, before a 2:1 re-base dated 2025-05-12 and detected the
+    // next day; P/B on 2025-04-25, when 2024Q4 (ended before the event) is the latest quarter.
+    const pbBefore = (loadedOn: string) =>
+      ratiosOn(
+        inputs({
+          statements: company({
+            quarters: QUARTERS.map((quarter) => ({
+              ...quarter,
+              observedAt: `${loadedOn}T12:00:00.000Z`,
+            })),
+          }),
+          verifiedAt: "2025-01-02T00:00:00.000Z",
+          events: [
+            measured({
+              effectiveDate: "2025-05-12",
+              priceRatio: 2,
+              detectedAt: "2025-05-13T12:00:00.000Z",
+            }),
+          ],
+        }),
+        ["2025-04-25"],
+        10,
+        ["PRICE_TO_BOOK"],
+      ).PRICE_TO_BOOK[0];
+    // 2025-04-12 is exactly 30 days before the event: the count may already be restated.
+    expect(pbBefore("2025-04-21")).toBeNaN();
+    expect(pbBefore("2025-04-12")).toBeNaN();
+    // A day earlier it is outside the month: K = 2 restores the close it was observed against.
+    expect(pbBefore("2025-04-11")).toBeCloseTo((10 * 2 * 100) / 400, 12);
+  });
+
+  it("rule 5 before the event: a count only repeated in the month before was first observed earlier", () => {
+    // First loaded on 2025-02-20; 2024Q4 revised on 2025-04-21 with the same 100 shares: the count
+    // was first observed on 2025-02-20, more than a month before the 2025-05-12 re-base.
+    const fourth = QUARTERS[3] as Quarter;
+    const read = ratiosOn(
+      inputs({
+        statements: [
+          ...company({
+            quarters: QUARTERS.map((quarter) => ({
+              ...quarter,
+              observedAt: "2025-02-20T12:00:00.000Z",
+            })),
+          }),
+          statement(
+            "INCOME",
+            {
+              ...fourth,
+              availableFromDate: "2025-04-21",
+              observedAt: "2025-04-21T12:00:00.000Z",
+            },
+            {
+              weightedAverageShsOutDil: 100,
+              netIncome: 5,
+              revenue: 50,
+              ebitda: 10,
+            },
+          ),
+        ],
+        verifiedAt: "2025-01-02T00:00:00.000Z",
+        events: [
+          measured({
+            effectiveDate: "2025-05-12",
+            priceRatio: 2,
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ],
+      }),
+      ["2025-04-25"],
+      10,
+      ["PRICE_TO_BOOK"],
+    ).PRICE_TO_BOOK;
+    expect(read[0]).toBeCloseTo((10 * 2 * 100) / 400, 12);
   });
 
   it("rule 5: applies only to a quarter that ended before the event", () => {
@@ -1143,6 +1239,122 @@ describe("valuation ratios: each masking rule in isolation", () => {
           }),
         ];
         expect(pbOn(statements, ["2025-07-02"], rebase)[0]).toBeCloseTo(
+          (10 * 200) / 400,
+          12,
+        );
+      });
+
+      it("does not accept a count that still agrees with an anchor observed before a measured split", () => {
+        // A 2:1 re-base dated 2025-05-12, detected 2025-05-13, after the original 100 was observed
+        // (2025-05-09). 2025Q1, which ended before it, is revised on 2025-06-20 — after the detection
+        // and rule 5's month — still at 100: rule 6 would read it in the new units, but it does not
+        // differ from the anchor by the split's ratio, so it is not accepted.
+        const rebase = [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ];
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-20", {
+            weightedAverageShsOutDil: 100,
+            netIncome: 6,
+          }),
+        ];
+        expect(pbOn(statements, ["2025-06-23"], rebase)[0]).toBeNaN();
+      });
+
+      it("does not accept a count that still agrees across a measured split, whatever else could explain it", () => {
+        // 2025Q1 first observed on 2025-04-20, three weeks after it ended. A re-base at 1.01 (not a
+        // plain share change, so it separates nothing) dated 2025-03-28 — inside the quarter, so its
+        // statements cover it — and detected 2025-05-15 is new to that count and within 2 % of an
+        // unchanged one: it would "explain" it. Across the 2:1 split of 2025-05-12 a count within 2 %
+        // of the anchor is not accepted at all, so the revision of 2025-06-20 still at 100 is
+        // withheld.
+        const rebases = [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+          measured({
+            priceRatio: 1.01,
+            effectiveDate: "2025-03-28",
+            detectedAt: "2025-05-15T12:00:00.000Z",
+          }),
+        ];
+        const statements = [
+          ...company({
+            quarters: previous.map((quarter) =>
+              quarter === previous.at(-1)
+                ? {
+                    ...quarter,
+                    availableFromDate: "2025-04-20",
+                    observedAt: "2025-04-20T00:00:00.000Z",
+                  }
+                : quarter,
+            ),
+          }),
+          income(latestQuarter, "2025-06-20", {
+            weightedAverageShsOutDil: 100,
+            netIncome: 6,
+          }),
+        ];
+        expect(pbOn(statements, ["2025-06-23"], rebases)[0]).toBeNaN();
+        // Without the split, the same revision agrees with its anchor and is read.
+        expect(pbOn(statements, ["2025-06-23"], [rebases[1]!])[0]).toBeCloseTo(
+          (10 * 100) / 400,
+          12,
+        );
+      });
+
+      it("does not accept a count that still agrees across a listed plain entry", () => {
+        // A 2:1 provider entry of 2025-05-12 in the verified history, nothing measured: the 2025Q1
+        // revision observed on 2025-06-20 still at 100 is not accepted, and no entry explains a
+        // restatement, so the quarter waits for one that ended after the entry.
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-20", {
+            weightedAverageShsOutDil: 100,
+            netIncome: 6,
+          }),
+        ];
+        const read = ratiosOn(
+          inputs({
+            statements,
+            verifiedAt: "2026-01-02T00:00:00.000Z",
+            splits: [
+              split({ date: "2025-05-12", numerator: 2, denominator: 1 }),
+            ],
+          }),
+          ["2025-06-23"],
+          10,
+          ["PRICE_TO_BOOK"],
+        ).PRICE_TO_BOOK;
+        expect(read[0]).toBeNaN();
+      });
+
+      it("anchors a restatement explained across a split to the count before it, past one that agreed", () => {
+        // After the original 100 (2025-05-09) and a 2:1 re-base detected on 2025-05-13, 2025Q1 is
+        // revised on 2025-06-01 still at 100 — not accepted, so no anchor — and every quarter is
+        // restated to 200 on 2025-06-20: against the original 100 the re-base explains it.
+        const rebase = [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ];
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-01", {
+            weightedAverageShsOutDil: 100,
+            netIncome: 6,
+          }),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-06-20", { weightedAverageShsOutDil: 200 }),
+          ),
+        ];
+        expect(pbOn(statements, ["2025-06-23"], rebase)[0]).toBeCloseTo(
           (10 * 200) / 400,
           12,
         );

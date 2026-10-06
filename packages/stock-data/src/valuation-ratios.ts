@@ -64,8 +64,12 @@ import {
  * - 3: the owner's rulings on the audit's gaps (2026-10-06): rule 2 confirms the walk's first count
  *   like any new level, and rule 3 compares a count with its anchor — the latest revision of the
  *   quarter observed before it that rule 3 accepted — rather than with the revision just before it.
+ * - 4: the owner's rulings on the second review (2026-10-06): across a share-changing event, a count
+ *   that still agrees with an anchor observed before it is not accepted (rule 6's basis assumption,
+ *   checked in rule 3), and a count first observed in the month before an event is withheld on the
+ *   sessions before it (rule 5, before the event).
  */
-export const VALUATION_RATIO_REVISION = 3;
+export const VALUATION_RATIO_REVISION = 4;
 
 /** Rule 2: a share count within this fraction of the last accepted one holds the level. */
 export const SHARE_LEVEL_TOLERANCE = 0.25;
@@ -111,8 +115,21 @@ type ValuationState = {
   shares?: number;
   /** When `R` was observed, for the basis factor. */
   observedAt?: Instant;
+  /**
+   * Rule 5, before the event: `R`'s count was first observed in the month before an event, so no
+   * session before this date reads it.
+   */
+  withheldBefore?: LocalDate;
   ratios: Partial<Record<ValuationRatioId, RatioInputs>>;
 };
+
+/**
+ * A share-changing event for rule 3 (rule 6's basis assumption, checked): a measured re-base at a
+ * plain share ratio, or a provider entry at one that no measured re-base supersedes.
+ */
+type ShareChange =
+  | { kind: "MEASURED"; lastDay: LocalDate; detectedAt: Instant }
+  | { kind: "ENTRY"; date: LocalDate };
 
 /**
  * One security's valuation inputs, precomputed: the statement states between statement events and
@@ -202,6 +219,19 @@ export function buildValuationTimeline(
     }),
   ];
 
+  // Rule 3: the events across which a count must change by the event's ratio.
+  const shareChanges: ShareChange[] = [
+    ...measured.flatMap((event): ShareChange[] => {
+      const days = possibleDays(event);
+      return days !== undefined && isPlainShareRatio(event.priceRatio as number)
+        ? [{ kind: "MEASURED", lastDay: days.to, detectedAt: event.detectedAt }]
+        : [];
+    }),
+    ...unmeasured
+      .filter((split) => isPlainEntry(split))
+      .map((split): ShareChange => ({ kind: "ENTRY", date: split.date })),
+  ];
+
   const eventDates = [
     ...new Set(statements.map((statement) => statement.availableFromDate)),
   ].sort();
@@ -214,6 +244,7 @@ export function buildValuationTimeline(
       history,
       historyCoverage,
       settling,
+      shareChanges,
     }),
   );
 
@@ -270,6 +301,10 @@ export function valuationRatioColumns(input: {
       input.statementDateOf?.(index) ?? session,
     );
     if (state?.shares === undefined || state.observedAt === undefined) {
+      continue;
+    }
+    // Rule 5, before the event: a count that may already be restated, against an old-basis close.
+    if (state.withheldBefore !== undefined && session < state.withheldBefore) {
       continue;
     }
     // Rule 8: a listed event the provider has not re-based yet.
@@ -384,6 +419,7 @@ function stateOn(input: {
   history: readonly StockSplit[];
   historyCoverage: LocalDate | undefined;
   settling: readonly { from: LocalDate; to: LocalDate }[];
+  shareChanges: readonly ShareChange[];
 }): ValuationState {
   const eligible = selectFinancialStatements(input.statements, {
     asOf: input.date,
@@ -394,10 +430,24 @@ function stateOn(input: {
   if (!latest) {
     return { from: input.date, ratios: {} };
   }
-  const shares = usableShares({ ...input, income, latest });
-  if (shares === undefined) {
+  const usable = usableShares({ ...input, income, latest });
+  if (usable === undefined) {
     return { from: input.date, ratios: {} };
   }
+  const { shares, firstObservedAt } = usable;
+  // Rule 5, before the event: first observed in the month before an event, for a quarter that
+  // ended before it. An undated re-base lies on every day it may lie on.
+  const firstObservedDate = firstObservedAt.slice(0, 10);
+  const withheldBefore = input.settling
+    .filter(
+      (event) =>
+        latest.fiscalDate < event.to &&
+        addDays(event.from, -EVENT_SETTLING_DAYS) <= firstObservedDate &&
+        firstObservedDate < event.to,
+    )
+    .map((event) => event.to)
+    .sort()
+    .at(-1);
 
   const balanceSheet = latestFiscalQuarterStatement(
     indexFiscalQuarters(eligible, "BALANCE_SHEET"),
@@ -482,6 +532,7 @@ function stateOn(input: {
     from: input.date,
     shares,
     observedAt: latest.observedAt,
+    ...(withheldBefore !== undefined ? { withheldBefore } : {}),
     ratios,
   };
 }
@@ -499,8 +550,9 @@ function usableShares(input: {
   measured: readonly PriceBasisEvent[];
   history: readonly StockSplit[];
   settling: readonly { from: LocalDate; to: LocalDate }[];
+  shareChanges: readonly ShareChange[];
   date: LocalDate;
-}): number | undefined {
+}): { shares: number; firstObservedAt: Instant } | undefined {
   const { latest } = input;
   const shares = value(latest, "weightedAverageShsOutDil");
   if (shares === undefined || !(shares > 0)) {
@@ -509,9 +561,14 @@ function usableShares(input: {
   if (!holdsShareLevel(input.income, latest)) {
     return undefined;
   }
-  if (
-    !passesRestatementRule(input.statements, latest, input.date, input.measured)
-  ) {
+  const restatement = restatementVerdict(
+    input.statements,
+    latest,
+    input.date,
+    input.measured,
+    input.shareChanges,
+  );
+  if (!restatement.accepted) {
     return undefined;
   }
   const observedDate = latest.observedAt.slice(0, 10);
@@ -530,7 +587,7 @@ function usableShares(input: {
   ) {
     return undefined;
   }
-  return shares;
+  return { shares, firstObservedAt: restatement.firstObservedAt };
 }
 
 /**
@@ -594,27 +651,36 @@ function within(count: number, level: number): boolean {
   return exactlyWithinFraction(count, [level], SHARE_LEVEL_TOLERANCE);
 }
 
+/** A revision rule 3 accepted with a usable count: an anchor for the revisions after it. */
+type Anchor = {
+  statement: FinancialStatement;
+  shares: number;
+  /** When its count was first observed: back through every revision it agreed with. */
+  firstObservedAt: Instant;
+};
+
 /**
  * Rule 3: whether `latest`'s count passes against its anchor — the latest revision of its fiscal
- * quarter observed before it that rule 3 accepted and that has a usable count (owner, 2026-10-06).
+ * quarter observed before it that rule 3 accepted and that has a usable count (owner, 2026-10-06) —
+ * and when the count it reads was first observed (rule 5, before the event).
  *
  * The quarter's revisions visible on `date` and observed before `latest` are taken in the order
  * they were observed (by one observation, in the order that picks a quarter's representing
  * revision), matched by fiscal year and period so a moved period end is still the same quarter. A
  * revision observed after `latest` but dated earlier, as a late-observed amendment is, is never its
  * anchor: what `latest` is judged against was known when it was observed. Each is judged against
- * the anchor before it: within 2 % of the anchor's count, or a restatement a measured re-base
- * explains, it is accepted and anchors the revisions after it; a restatement nothing explains is
- * withheld and anchors nothing, so it stays withheld through every later revision repeating it, or
- * with no count, until one observed no earlier than a matching re-base's detection is explained. A revision
- * with no anchor passes.
+ * the anchor before it (`acceptedAgainst`); an accepted one with a usable count anchors the
+ * revisions after it, one not accepted anchors nothing, so a restatement stays withheld through
+ * every later revision repeating it, or with no count, until one observed no earlier than a matching
+ * re-base's detection is explained. A revision with no anchor passes.
  */
-function passesRestatementRule(
+function restatementVerdict(
   statements: readonly FinancialStatement[],
   latest: FinancialStatement,
   date: LocalDate,
   measured: readonly PriceBasisEvent[],
-): boolean {
+  shareChanges: readonly ShareChange[],
+): { accepted: boolean; firstObservedAt: Instant } {
   const earlier = statements
     .filter(
       (statement) =>
@@ -628,22 +694,34 @@ function passesRestatementRule(
     .sort((left, right) =>
       observedBefore(left, right) ? -1 : observedBefore(right, left) ? 1 : 0,
     );
-  let anchor: { statement: FinancialStatement; shares: number } | undefined;
+  let anchor: Anchor | undefined;
   for (const revision of earlier) {
     const shares = value(revision, "weightedAverageShsOutDil");
-    if (
-      shares !== undefined &&
-      shares > 0 &&
-      (anchor === undefined ||
-        acceptedAgainst(revision, shares, anchor, measured))
-    ) {
-      anchor = { statement: revision, shares };
+    if (shares === undefined || !(shares > 0)) {
+      continue;
+    }
+    const verdict = acceptedAgainst(
+      revision,
+      shares,
+      anchor,
+      measured,
+      shareChanges,
+    );
+    if (verdict !== undefined) {
+      anchor = { statement: revision, shares, firstObservedAt: verdict };
     }
   }
   const shares = value(latest, "weightedAverageShsOutDil") as number;
-  return (
-    anchor === undefined || acceptedAgainst(latest, shares, anchor, measured)
+  const verdict = acceptedAgainst(
+    latest,
+    shares,
+    anchor,
+    measured,
+    shareChanges,
   );
+  return verdict === undefined
+    ? { accepted: false, firstObservedAt: latest.observedAt }
+    : { accepted: true, firstObservedAt: verdict };
 }
 
 /** Rule 3's order: observed earlier, or by the same observation and represented over by `later`. */
@@ -659,26 +737,47 @@ function observedBefore(
 }
 
 /**
- * Rule 3 for one revision against its anchor: within 2 % of the anchor's count, or a restatement a
- * measured re-base explains. The re-base must be new to the anchor — detected or dated after it was
- * observed, and dated less than rule 5's month before it — and known by the time the revision was
- * observed. An older re-base of the same ratio explains nothing, even when the first verification
- * measures it after the anchor was observed.
+ * Rule 3 for one revision against its anchor: when its count was first observed if it is accepted,
+ * or `undefined` if it is not.
+ *
+ * With no anchor it is accepted, its own count first observed now. Otherwise it is accepted when it
+ * is within 2 % of the anchor's count — the anchor's count, first observed when the anchor's was —
+ * or a restatement a measured re-base explains, first observed now. The re-base must be new to the
+ * anchor — detected or dated after it was observed, and dated less than rule 5's month before it —
+ * and known by the time the revision was observed. An older re-base of the same ratio explains
+ * nothing, even when the first verification measures it after the anchor was observed.
+ *
+ * Across a share-changing event that separates them (owner, 2026-10-06: rule 6's basis assumption,
+ * checked), agreeing with the anchor is not acceptance: a count in the new units differs from one
+ * observed before the event by the event's ratio. A count within 2 % of the anchor is not accepted,
+ * one that differs only when a measured re-base explains it, and a separating provider entry, which
+ * explains nothing, leaves the revision unaccepted.
  */
 function acceptedAgainst(
   revision: FinancialStatement,
   shares: number,
-  anchor: { statement: FinancialStatement; shares: number },
+  anchor: Anchor | undefined,
   measured: readonly PriceBasisEvent[],
-): boolean {
+  shareChanges: readonly ShareChange[],
+): Instant | undefined {
+  if (anchor === undefined) {
+    return revision.observedAt;
+  }
+  const separating = shareChanges.filter((change) =>
+    separates(change, revision, anchor.statement),
+  );
+  if (separating.some((change) => change.kind === "ENTRY")) {
+    return undefined;
+  }
   if (
     exactlyWithinFraction(shares, [anchor.shares], SHARE_RESTATEMENT_TOLERANCE)
   ) {
-    return true;
+    // Agreeing is acceptance, except across a separating event, where nothing can explain it.
+    return separating.length === 0 ? anchor.firstObservedAt : undefined;
   }
   const anchorObserved = anchor.statement.observedAt;
   const anchorObservedDate = anchorObserved.slice(0, 10);
-  return measured.some((event) => {
+  const explained = measured.some((event) => {
     // An undated re-base is taken at the latest date it may have.
     const date = event.effectiveDate ?? event.effectiveTo;
     const detected = Date.parse(event.detectedAt);
@@ -695,6 +794,32 @@ function acceptedAgainst(
       )
     );
   });
+  return explained ? revision.observedAt : undefined;
+}
+
+/**
+ * Whether a share-changing event separates a revision from its anchor: the revision's quarter ended
+ * before it, the anchor was observed before it — before its detection, for a measured re-base — and
+ * the revision after it — no earlier than the detection, or on or after an entry's date.
+ */
+function separates(
+  change: ShareChange,
+  revision: FinancialStatement,
+  anchor: FinancialStatement,
+): boolean {
+  if (change.kind === "MEASURED") {
+    const detected = Date.parse(change.detectedAt);
+    return (
+      revision.fiscalDate < change.lastDay &&
+      Date.parse(anchor.observedAt) < detected &&
+      Date.parse(revision.observedAt) >= detected
+    );
+  }
+  return (
+    revision.fiscalDate < change.date &&
+    anchor.observedAt.slice(0, 10) < change.date &&
+    revision.observedAt.slice(0, 10) >= change.date
+  );
 }
 
 /** A line item as a finite number, or `undefined` when the provider did not supply one. */
