@@ -595,16 +595,19 @@ function within(count: number, level: number): boolean {
 }
 
 /**
- * Rule 3: whether `latest`'s count passes against its anchor — the latest earlier revision of its
- * fiscal quarter that rule 3 accepted and that has a usable count (owner, 2026-10-06).
+ * Rule 3: whether `latest`'s count passes against its anchor — the latest revision of its fiscal
+ * quarter observed before it that rule 3 accepted and that has a usable count (owner, 2026-10-06).
  *
- * The quarter's revisions visible on `date` are taken in the order that picks a quarter's
- * representing revision, matched by fiscal year and period so a moved period end is still the same
- * quarter. Each is judged against the anchor before it: within 2 % of the anchor's count, or a
- * restatement a measured re-base explains, it is accepted and anchors the revisions after it; a
- * restatement nothing explains is withheld and anchors nothing, so it stays withheld through every
- * later revision repeating it, or with no count, until one observed after a matching re-base's
- * detection is explained. A revision with no anchor passes.
+ * The quarter's revisions visible on `date` and observed before `latest` are taken in the order
+ * they were observed (by one observation, in the order that picks a quarter's representing
+ * revision), matched by fiscal year and period so a moved period end is still the same quarter. A
+ * revision observed after `latest` but dated earlier, as a late-observed amendment is, is never its
+ * anchor: what `latest` is judged against was known when it was observed. Each is judged against
+ * the anchor before it: within 2 % of the anchor's count, or a restatement a measured re-base
+ * explains, it is accepted and anchors the revisions after it; a restatement nothing explains is
+ * withheld and anchors nothing, so it stays withheld through every later revision repeating it, or
+ * with no count, until one observed after a matching re-base's detection is explained. A revision
+ * with no anchor passes.
  */
 function passesRestatementRule(
   statements: readonly FinancialStatement[],
@@ -620,14 +623,10 @@ function passesRestatementRule(
         statement.fiscalYear === latest.fiscalYear &&
         statement.period === latest.period &&
         statement.availableFromDate <= date &&
-        representsFiscalPeriodOver(latest, statement),
+        observedBefore(statement, latest),
     )
     .sort((left, right) =>
-      representsFiscalPeriodOver(left, right)
-        ? 1
-        : representsFiscalPeriodOver(right, left)
-          ? -1
-          : 0,
+      observedBefore(left, right) ? -1 : observedBefore(right, left) ? 1 : 0,
     );
   let anchor: { statement: FinancialStatement; shares: number } | undefined;
   for (const revision of earlier) {
@@ -644,6 +643,18 @@ function passesRestatementRule(
   const shares = value(latest, "weightedAverageShsOutDil") as number;
   return (
     anchor === undefined || acceptedAgainst(latest, shares, anchor, measured)
+  );
+}
+
+/** Rule 3's order: observed earlier, or by the same observation and represented over by `later`. */
+function observedBefore(
+  earlier: FinancialStatement,
+  later: FinancialStatement,
+): boolean {
+  return (
+    earlier.observedAt < later.observedAt ||
+    (earlier.observedAt === later.observedAt &&
+      representsFiscalPeriodOver(later, earlier))
   );
 }
 

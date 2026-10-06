@@ -997,7 +997,7 @@ describe("valuation ratios: each masking rule in isolation", () => {
       expect(pb(204.01, split)).toBeNaN();
     });
 
-    describe("its anchor, the latest earlier revision rule 3 accepted (owner, 2026-10-06)", () => {
+    describe("its anchor, the latest revision observed before it that rule 3 accepted (owner, 2026-10-06)", () => {
       const previous = quarters.map((quarter) => ({
         ...quarter,
         observedAt: PREVIOUS,
@@ -1086,6 +1086,66 @@ describe("valuation ratios: each masking rule in isolation", () => {
           ),
         ];
         expect(pbOn(statements, ["2025-06-23"])[0]).toBeNaN();
+      });
+
+      it("never takes as its anchor a revision observed after it, however early that one is dated", () => {
+        // Every quarter restated two-fold on 2025-06-20, before the 2:1 re-base dated 2025-06-30 was
+        // detected (2025-07-01). An amendment of 2025Q1 filed earlier — public from 2025-06-18 — was
+        // first observed on 2025-07-03, after the detection, with 200: the re-base explains it, but
+        // it was observed after the restatement, so it is not the restatement's anchor.
+        const statements = [
+          ...company({ quarters: previous }),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-06-20", { weightedAverageShsOutDil: 200 }),
+          ),
+          statement(
+            "INCOME",
+            {
+              ...latestQuarter,
+              availableFromDate: "2025-06-18",
+              observedAt: "2025-07-03T00:00:00.000Z",
+            },
+            {
+              weightedAverageShsOutDil: 200,
+              netIncome: 6,
+              revenue: 50,
+              ebitda: 10,
+            },
+          ),
+        ];
+        const rebase = [
+          twoForOne({
+            effectiveDate: "2025-06-30",
+            detectedAt: "2025-07-01T12:00:00.000Z",
+          }),
+        ];
+        expect(pbOn(statements, ["2025-06-23"], rebase)[0]).toBeNaN();
+      });
+
+      it("judges a re-base new to the anchor, not to a withheld revision observed in between", () => {
+        // A 2:1 re-base dated 2025-05-12, detected 2025-05-13. 2025Q1 revised on 2025-06-20 to 130:
+        // unexplained, so withheld and no anchor. Every quarter restated to 200 on 2025-07-01: the
+        // re-base is new to the anchor (the original 100, observed 2025-05-09), though not to the
+        // 130, and explains it. Observed after the detection, on a session after the event: K = 1.
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-20", {
+            weightedAverageShsOutDil: 130,
+          }),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-07-01", { weightedAverageShsOutDil: 200 }),
+          ),
+        ];
+        const rebase = [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+        ];
+        expect(pbOn(statements, ["2025-07-02"], rebase)[0]).toBeCloseTo(
+          (10 * 200) / 400,
+          12,
+        );
       });
 
       it("reads a restatement the provider took back against the anchor", () => {
