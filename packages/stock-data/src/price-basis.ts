@@ -33,9 +33,11 @@ export type PriceBasisEventKind = "MEASURED" | "UNEXPLAINED";
  *
  * A `MEASURED` event is dated by `effectiveDate`, the first session of the new basis, or, when its
  * ex-date fell between two reads, undated: it lies after `effectiveFrom` and no later than
- * `effectiveTo`. The writer always sets `effectiveTo`: the newest session the provider had published
- * after the newest stored one or, when it had published none yet, the later of the detection's date
- * and the day after the newest stored session.
+ * `effectiveTo`, which the writer always sets: for an event after the newest compared session, the
+ * newest session the provider had published after it or, with none yet, the later of the detection's
+ * date and the day after that session; between two runs of one ratio each, the first session of the
+ * newer run; after a stretch whose sessions admit both ratios, the first session that cannot be on
+ * the old one (or, when all can, as for an event after the newest compared session).
  * `priceRatio` is the stored close over the new close of every row before the event. An
  * `UNEXPLAINED` event has no ratio. Its `effectiveTo` is the last changed session; its
  * `effectiveFrom` is the first changed session when the rows before it were compared and found

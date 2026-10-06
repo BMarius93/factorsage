@@ -546,11 +546,13 @@ decision that it is a separate problem.
 - **`PriceBasisEvent`**, append-only, one row per measured step: `securityId`, `generation` (the
   replacement that recorded it), `kind` (`MEASURED` or `UNEXPLAINED`), `effectiveDate` (the first
   session of the new basis, null when undated), `effectiveFrom` and `effectiveTo` (an undated
-  event lies after `effectiveFrom` and no later than `effectiveTo`; the writer always closes the
-  interval (§8): at the newest session the provider had published after the newest stored one or,
-  when it had published none, at the later of the detection's date and the day after the newest
-  stored session. An unexplained change spans them inclusively, with `effectiveFrom` null when it
-  is unbounded below),
+  event lies after `effectiveFrom` and no later than `effectiveTo`, which the writer always sets
+  (§8): for an event after the newest compared session, the newest session the provider had
+  published after it or, with none, the later of the detection's date and the day after that
+  session; between two runs of one ratio each, the first session of the newer run; after a stretch
+  whose sessions admit both ratios, the first session that cannot be on the old one (or, when all
+  can, as for an event after the newest compared session). An unexplained
+  change spans them inclusively, with `effectiveFrom` null when it is unbounded below),
   `priceRatio` (null when unexplained), `detectedAt`, and `evidence` (JSON: run lengths and the
   sessions compared, diagnostics only).
 - **No change to `DailyPrice`, `WeeklyPrice`, the Redis manifest or `PRICE_DATASET_VERSION`.**

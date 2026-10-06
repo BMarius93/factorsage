@@ -211,21 +211,26 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    for its first two quarters or more — the other ratios wait four quarters for a trailing window
    anyway. No security is special-cased.
 3. **The share count was not restated unexplained.** `R` is compared with its **anchor**: the
-   latest earlier revision of the same fiscal quarter that rule 3 itself accepted and that has a
-   usable count (**owner**, 2026-10-06) — "earlier" in the order that picks a quarter's
-   representing revision, and "accepted" by this rule alone, whatever the other rules say of that
-   revision. A revision with no anchor has nothing to compare and passes. If `R`'s count differs by
-   more than 2 % from the anchor's, a measured re-base must explain it (its ratio within 2 %): one
-   new to the anchor — detected or dated after the anchor was observed, and dated less than 30 days
-   before it was observed (rule 5's month; an undated re-base at the latest date it may have) — and
-   detected no later than `R.observedAt`. Otherwise `R` is unavailable and not accepted, so it never
-   anchors a later revision. A restatement therefore stays withheld through every later revision of
-   the quarter that repeats it, or that has no count, until a revision observed after a matching
-   re-base's detection is explained by it; that revision is accepted and anchors the ones after it.
-   This keeps a restatement FMP publishes before an ex-date from being read against old-basis closes,
-   whatever the split's size and however often the provider revises the quarter before the re-base.
-   An older re-base of the same ratio explains nothing, even when PR 1's first verification measures
-   it only after the anchor was observed.
+   latest revision of the same fiscal quarter observed before `R` that rule 3 itself accepted and
+   that has a usable count (**owner**, 2026-10-06). "Before" is the order of observation — by one
+   observation, the order that picks a quarter's representing revision — among the revisions
+   public on the session, so a revision observed after `R` is never its anchor, however early the
+   loader dates it (a late-observed amendment): `R` is judged against what was known when it was
+   observed. "Accepted" is by this rule alone, whatever the other rules say of that revision. A
+   revision with no anchor has nothing to compare and passes. If `R`'s count differs by more than
+   2 % from the anchor's, a measured re-base must explain it (its ratio within 2 %): one new to the
+   anchor — detected or dated after the anchor was observed, and dated less than 30 days before the
+   anchor was observed (rule 5's month; an undated re-base at the latest date it may have, for both
+   dates) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable and not
+   accepted, so it never anchors a later revision. A restatement therefore stays withheld through
+   every later revision of the quarter that repeats it, or that has no count, until a revision
+   observed no earlier than a matching re-base's detection is explained by it on these terms; that
+   revision is accepted and anchors the ones after it. This keeps a restatement FMP publishes before
+   an ex-date from being read against old-basis closes once FactorSage has observed a count before
+   it, whatever the split's size and however often the provider revises the quarter before the
+   re-base ("What rule 3 cannot tell apart" lists what it cannot see). An older re-base of the same
+   ratio explains nothing, even when PR 1's first verification measures it only after the anchor was
+   observed.
 4. **History, from provider entries** dated on or before `verifiedAt` and not superseded by a
    measured re-base within seven calendar days of them:
    1. **A non-plain entry at `E`:** `r` is unavailable until every statement family it reads has a
@@ -284,13 +289,29 @@ Income and Cash Flow; EV/EBITDA reads Income and Balance Sheet.
   exists (the trailing window still holds quarters from before it). That is the statement-content
   limit Fundamental Metrics already have (`fundamental-metrics-v1.md`; `historical-price-basis-v1.md`
   §13), not a price-basis question.
-- **What rule 3 cannot tell apart:** a second restatement by the same ratio within one quarter. If
-  the provider restated the counts for one re-base before the anchor was observed — ahead of the
-  ex-date, or together with the price re-base before PR 1 detected it — and restates them again by
-  the same ratio ahead of another event while the same quarter is still the latest, that re-base
-  explains the second restatement too. It takes two events of one ratio within about three months on
-  one security: among the 64 securities in the store, only KO's two 2:1 entries of 1965 are, 24 years
-  before its first statement.
+- **What rule 3 cannot tell apart:**
+  - **A second restatement by the same ratio within one quarter.** If the provider restated the
+    counts for one re-base before the anchor was observed — ahead of the ex-date, or together with
+    the price re-base before PR 1 detected it — and restates them again by the same ratio ahead of
+    another event while the same quarter is still the latest, that re-base explains the second
+    restatement too. It takes two events of one ratio within about three months on one security:
+    among the 64 securities in the store, only KO's two 2:1 entries of 1965 are, 24 years before its
+    first statement.
+  - **A count first observed already restated** (open, for the owner: the second clean-room review
+    of 2026-10-06, MAJOR-3). Rule 3 sees a restatement only against a count observed before it.
+    When FactorSage's first observation of a quarter — a security's first load, or a quarter filed
+    after the provider pre-restated the history — already carries the new units ahead of the
+    ex-date, nothing anchors it and rule 2 sees no step, so every session before the event reads the
+    count against an old-basis close. Rule 8 holds only the sessions from the event.
+  - **A count in the old units observed after the re-base's month** (open, for the owner: MAJOR-1).
+    Rule 6 takes a count observed after a re-base's detection to be in its new units, and rule 5
+    withholds only the month after the event. A revision of a quarter that ended before the event,
+    observed later and still in the old units — the provider never restating it, or taking back a
+    restatement it published before the ex-date — agrees with its anchor and reads at `K = 1`, off
+    by the event's ratio, until a quarter that ended after the event is the latest. That is the open
+    measurement O-2 beyond rule 5's month; anchoring rule 3 to the last accepted count (rule 3 above)
+    makes the taken-back restatement one such case, where comparing with the withheld revision
+    before it had withheld it.
 
 ### The six known securities
 
