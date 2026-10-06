@@ -49,10 +49,11 @@
  * 12+13+13+14. 2025Q2: 11+12+13+14, 102+103+105+108, 25+26+27+28, 13+13+14+14. Before 2024-03-01 an
  * Income or Cash Flow window has three quarters at most.)
  *
- * The cases `G1a`–`G3` at the end are different in kind: they hold the accepted rules' literal
- * reading where the clean-room review showed that reading to be wrong by the very basis the rules
- * protect (`docs/valuation-ratios-audit/REPORT.md`, §31). They pin today's behaviour, for both the
- * product and the oracle, until the owner rules on them.
+ * The cases `G1a`–`G3b` at the end hold the owner's rulings of 2026-10-06 on the three shapes the
+ * clean-room review found the rules as first written to read wrong (`docs/valuation-ratios-audit/
+ * REPORT.md`, §31): rule 3 compares `R` with its anchor, the latest earlier revision of the quarter
+ * that rule 3 accepted and that has a usable count, and rule 2 confirms the walk's first count like
+ * any new level. Each comment records the reading before the ruling.
  */
 
 import type {
@@ -2345,25 +2346,27 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
   },
 
   // -------------------------------------------------------------------------------------------
-  // Methodology gaps: the accepted rules' literal reading, which the clean-room review showed to be
-  // wrong by the share basis it is meant to protect (REPORT.md §31, G1–G3). The expectations are
-  // what rules 2 and 3 say as written — the product and the oracle both read them so — and each
-  // case records the reading a coherent basis would give. They pin today's behaviour until the
-  // owner rules on it; they are not the readings the product promises.
+  // The owner's rulings of 2026-10-06 on the clean-room review's gaps (REPORT.md §31, G1–G3):
+  // rule 3 compares `R` with its anchor, the latest earlier revision of the quarter that rule 3
+  // accepted and that has a usable count; rule 2 confirms the walk's first count like any new
+  // level. Before the rulings these cases read the doubled or the listing-quarter values the
+  // review found wrong; each comment says what changed.
   // -------------------------------------------------------------------------------------------
   {
     id: "G1a",
     covers: [],
     title:
-      "GAP (owner decision pending): a restated count passes rule 3 through a later revision of the same quarter",
+      "rule 3 anchor: a restated count stays withheld through a later revision of the same quarter",
     // Filings observed when available; a 2:1 entry listed for 2025-10-01, after the 2025-06-01
     // verification (forward). On 2025-09-02 the provider restates every Income quarter's count to 20
-    // (new units, ahead of the ex-date): rule 3 withholds it, 10 -> 20 being unexplained. On
-    // 2025-09-10 it revises 2025Q2 again (another field; the count stays 20): rule 3 compares only
-    // with the previous revision, 20, so the count passes, and every quarter at 20 holds rule 2's
-    // level. MC = 12 x 20 = 240 against an old-basis close: P/E 240/50 = 24/5 (a coherent basis
-    // gives 120/50 = 12/5), P/S 240/418 = 120/209, P/B 240/260 = 12/13, P/FCF 240/54 = 40/9,
-    // EV/EBITDA (240 + 30)/106 = 135/53 — every one twice its coherent value.
+    // (new units, ahead of the ex-date): 2025Q2's revision "r" is 20 against its anchor, the
+    // original "a" (10), with no measured re-base: unexplained, and not accepted. On 2025-09-10 it
+    // revises 2025Q2 again ("s": another field, the count still 20). Its anchor is still "a" — "r"
+    // was not accepted — so 20 against 10 is unexplained again: withheld. (Before the ruling rule 3
+    // compared "s" with "r" only and read MC 12 x 20 = 240 against the old-basis close: P/E 24/5,
+    // twice the coherent 12/5.) Rule 2 is no obstacle: every quarter reads 20, so 20 is the level
+    // from 2023Q3 on. From 2025-10-01 the forward entry holds too (rule 8, through 2025-10-31); on
+    // 2025-11-03 nothing has been measured and the restatement is still unexplained.
     security: company({
       statements: revision(
         restateCounts(
@@ -2394,19 +2397,34 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-09-02",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
       },
       {
         session: "2025-09-09",
         close: CLOSE,
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
       },
-      { session: "2025-09-10", close: CLOSE, expect: DOUBLED_2025Q2 },
-      { session: "2025-09-30", close: CLOSE, expect: DOUBLED_2025Q2 },
+      {
+        session: "2025-09-10",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+      {
+        session: "2025-09-30",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
       {
         session: "2025-10-01",
         close: CLOSE,
-        expect: all("FORWARD_EVENT_UNMEASURED"),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", [
+          "FORWARD_EVENT_UNMEASURED",
+        ]),
+      },
+      {
+        session: "2025-11-03",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
       },
     ],
   },
@@ -2414,14 +2432,15 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     id: "G1b",
     covers: [],
     title:
-      "GAP (owner decision pending): once the re-base is measured, K keeps the doubled reading in history",
+      "rule 3 anchor: a re-base measured after the later revision was observed explains nothing for it",
     // G1a after PR 1 measured the 2:1 re-base (dated 2025-10-01, detected 2025-10-02 06:00): the
-    // stored closes before it are 6 and the entry is superseded by the measurement. A count observed
-    // before the detection takes K = 2 before the event: 6 x 2 x 10 = 120 for the original count
-    // (correct), but 6 x 2 x 20 = 240 for the 2025-09-10 revision — the same doubled readings, now
-    // in history. The restated revision of 2025-09-02 stays unexplained (the re-base was detected
-    // after it was observed); on and after the event every count observed before the detection is
-    // withheld.
+    // stored closes before it are 6 and the entry is superseded by the measurement. The original
+    // count, observed before the detection, takes K = 2 before the event: 6 x 2 x 10 = 120, as of
+    // 2025Q2. Revisions "r" (2025-09-02) and "s" (2025-09-10) are both 20 against the anchor "a"
+    // (10), and the re-base was detected after either was observed, so it explains neither: both
+    // withheld. (Before the ruling "s" passed against "r" and read 6 x 2 x 20 = 240 — the doubled
+    // readings, kept in history by K.) On and after the event a count observed before the detection
+    // is withheld by rule 6 as well.
     security: company({
       statements: revision(
         restateCounts(
@@ -2459,23 +2478,187 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       {
         session: "2025-09-02",
         close: "6",
-        expect: all("SHARE_RESTATEMENT_UNEXPLAINED"),
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
       },
-      { session: "2025-09-10", close: "6", expect: DOUBLED_2025Q2 },
-      { session: "2025-09-30", close: "6", expect: DOUBLED_2025Q2 },
-      { session: "2025-10-01", close: "6", expect: all("BASIS_WITHHELD") },
-      { session: "2025-11-20", close: "6", expect: all("BASIS_WITHHELD") },
+      {
+        session: "2025-09-10",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+      {
+        session: "2025-09-30",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+      {
+        session: "2025-10-01",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["BASIS_WITHHELD"]),
+      },
+      {
+        session: "2025-11-20",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["BASIS_WITHHELD"]),
+      },
+    ],
+  },
+  {
+    id: "G1c",
+    covers: [],
+    title:
+      "rule 3 anchor: a revision observed after the re-base's detection is explained, and anchors the next",
+    // G1b with two more 2025Q2 Income revisions. "t", observed 2025-11-03, still 20: against the
+    // anchor "a" (10) it is a restatement, now explained — the 2:1 re-base is new to "a" (detected
+    // 2025-10-02 06:00, after "a" was observed on 2025-08-14), dated 2025-10-01, after that
+    // observation (so not 30 days or more before it), detected before "t" was observed, and
+    // |20 - 2 x 10| = 0 <= 2 % of 20. "t" is accepted. Observed after the detection, on a session
+    // on or after the event, K = 1; rule 5's month after 2025-10-01 ends on 2025-10-30, before "t"
+    // was observed. MC = 6 x 20 = 120: the coherent readings as of 2025Q2.
+    // "u", observed 2025-12-01 with 20.3 shares, is compared with its anchor "t" (20):
+    // |20.3 - 20| = 0.3 <= 0.4, no explanation needed. MC = 6 x 20.3 = 121.8: P/E 121.8/50 =
+    // 609/250, P/S 121.8/418 = 609/2090, P/B 121.8/260 = 609/1300, P/FCF 121.8/54 = 203/90,
+    // EV/EBITDA (121.8 + 30)/106 = 759/530. On 2025-10-31 "s" is still in force: withheld.
+    security: company({
+      statements: revision(
+        revision(
+          revision(
+            restateCounts(
+              baseStatements(observedWhenAvailable),
+              ALL_QUARTERS,
+              20,
+              "2025-09-02",
+              "r",
+            ),
+            "INCOME",
+            "2025Q2",
+            {
+              availableFromDate: "2025-09-10",
+              observedAt: "2025-09-10T12:00:00.000Z",
+              values: {
+                weightedAverageShsOutDil: 20,
+                weightedAverageShsOut: 20,
+                grossProfit: 1,
+              },
+            },
+            "s",
+          ),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-11-03",
+            observedAt: "2025-11-03T12:00:00.000Z",
+            values: {
+              weightedAverageShsOutDil: 20,
+              weightedAverageShsOut: 20,
+              grossProfit: 2,
+            },
+          },
+          "t",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-12-01",
+          observedAt: "2025-12-01T12:00:00.000Z",
+          values: {
+            weightedAverageShsOutDil: 20.3,
+            weightedAverageShsOut: 20.3,
+            grossProfit: 3,
+          },
+        },
+        "u",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-10-01", "2", "1")],
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-10-31",
+        close: "6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", ["BASIS_WITHHELD"]),
+      },
+      { session: "2025-11-03", close: "6", expect: AS_OF_2025Q2 },
+      {
+        session: "2025-12-01",
+        close: "6",
+        expect: {
+          PE: "609/250",
+          PS: "609/2090",
+          PB: "609/1300",
+          PFCF: "203/90",
+          EV: "759/530",
+        },
+      },
+    ],
+  },
+  {
+    id: "G1d",
+    covers: [],
+    title:
+      "rule 3 anchor: a restatement the provider takes back is read again against the anchor",
+    // Filings observed when available. 2025Q2's Income is revised on 2025-09-02 to 20 shares ("r",
+    // that quarter only), then on 2025-09-10 back to 10 ("s", another field changed). On
+    // 2025-09-02 "r" is 20 against its anchor "a" (10), unexplained, and 20 is outside the level
+    // 10 (rule 2's first disagreeing quarter): withheld by both. On 2025-09-10 "s"'s anchor is still
+    // "a" — "r" was not accepted — and 10 against 10 is no restatement: the readings as of 2025Q2.
+    // (Before the ruling rule 3 compared "s" with "r", 10 against 20, and withheld it.)
+    security: company({
+      statements: revision(
+        revision(
+          baseStatements(observedWhenAvailable),
+          "INCOME",
+          "2025Q2",
+          {
+            availableFromDate: "2025-09-02",
+            observedAt: "2025-09-02T12:00:00.000Z",
+            values: {
+              weightedAverageShsOutDil: 20,
+              weightedAverageShsOut: 20,
+            },
+          },
+          "r",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-10",
+          observedAt: "2025-09-10T12:00:00.000Z",
+          values: {
+            weightedAverageShsOutDil: 10,
+            weightedAverageShsOut: 10,
+            grossProfit: 1,
+          },
+        },
+        "s",
+      ),
+    }),
+    observations: [
+      {
+        session: "2025-09-02",
+        close: CLOSE,
+        expect: all("SHARE_LEVEL_UNSAFE", ["SHARE_RESTATEMENT_UNEXPLAINED"]),
+      },
+      { session: "2025-09-10", close: CLOSE, expect: AS_OF_2025Q2 },
     ],
   },
   {
     id: "G2",
     covers: [],
     title:
-      "GAP (owner decision pending): rule 3 is skipped when the previous revision has no count",
-    // 2025Q2's Income is revised on 2025-09-02 without a diluted count (no reading: no count), then
-    // on 2025-09-10 every Income quarter is restated to 20. 2025Q2's previous revision has no count,
-    // so rule 3 compares nothing and passes; rule 2's level is 20 throughout. The same doubled
-    // readings as G1a, against the old-basis close of 12.
+      "rule 3 anchor: a count-less revision anchors nothing, so the restatement after it is compared with the last count",
+    // 2025Q2's Income is revised on 2025-09-02 without a diluted count ("q": no count, no reading),
+    // then on 2025-09-10 every Income quarter is restated to 20 ("r"). 2025Q2's "r" has two earlier
+    // revisions: "q", which has no usable count, and "a" (10), its anchor. 20 against 10 with no
+    // measured re-base is unexplained: withheld. (Before the ruling rule 3 compared "r" with "q"
+    // only, found nothing to compare and read the doubled values.) From 2025-10-01 the forward
+    // entry holds as well.
     security: company({
       statements: restateCounts(
         revision(
@@ -2504,19 +2687,32 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
         close: CLOSE,
         expect: all("MISSING_SHARE_COUNT"),
       },
-      { session: "2025-09-10", close: CLOSE, expect: DOUBLED_2025Q2 },
+      {
+        session: "2025-09-10",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+      {
+        session: "2025-10-01",
+        close: CLOSE,
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", [
+          "FORWARD_EVENT_UNMEASURED",
+        ]),
+      },
     ],
   },
   {
     id: "G3",
     covers: [],
     title:
-      "GAP (owner decision pending): the walk accepts its first count, even a one-quarter artefact",
+      "rule 2 first level: a listing quarter's count the next quarter contradicts is never read",
     // 2023Q1 reports 6 shares, every later quarter 10 — the shape of a listing quarter's weighted
-    // average, which the next quarter contradicts. Rule 2 has no level before the first count and
-    // accepts it: P/B 12 x 6 / 200 = 72/200 = 9/25 (10 shares give 120/200 = 3/5). 2023Q2's 10 is
-    // then outside 6's band (first disagreement) and 2023Q3's agrees with it (second): both withheld,
-    // until 2023Q4's third agreeing quarter makes 10 the level on 2024-03-01.
+    // average, which the next quarter contradicts. The walk's first count is confirmed like any new
+    // level: 6 is the first quarter of a run (withheld); 2023Q2's 10 is 4 from 6, beyond 25 % of 6
+    // (1.5), and starts a new run (first); 2023Q3's 10 agrees (second); 2023Q4's 10 is the third and
+    // becomes the level on 2024-03-01. P/B is withheld until then — the other ratios have no
+    // trailing window before 2024-03-01 anyway. (Before the ruling rule 2 accepted the first count:
+    // P/B 12 x 6 / 200 = 9/25 against the coherent 3/5.)
     security: company({
       statements: setShares(baseStatements(), { "2023Q1": 6 }),
     }),
@@ -2527,7 +2723,7 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
         expect: {
           PE: off("INCOMPLETE_WINDOW"),
           PS: off("INCOMPLETE_WINDOW"),
-          PB: "9/25",
+          PB: off("SHARE_LEVEL_UNSAFE"),
           PFCF: off("INCOMPLETE_WINDOW"),
           EV: off("INCOMPLETE_WINDOW"),
         },
@@ -2538,7 +2734,7 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
         expect: {
           PE: off("INCOMPLETE_WINDOW"),
           PS: off("INCOMPLETE_WINDOW"),
-          PB: "9/25",
+          PB: off("SHARE_LEVEL_UNSAFE"),
           PFCF: off("INCOMPLETE_WINDOW"),
           EV: off("INCOMPLETE_WINDOW"),
         },
@@ -2568,6 +2764,53 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       { session: "2024-03-01", close: CLOSE, expect: AS_OF_2023Q4 },
     ],
   },
+  {
+    id: "G3b",
+    covers: [],
+    title:
+      "rule 2 first level: even a steady first count waits for its third quarter",
+    // The base company: 10 shares in every quarter. 2023Q1 starts the first run (first), 2023Q2
+    // agrees (second), 2023Q3 is the third and 10 becomes the level on 2023-11-15. P/B is withheld
+    // on 2023Q1's and 2023Q2's sessions and reads 120/210 = 4/7 from 2023-11-15; the other ratios
+    // have no trailing window yet. (Before the ruling P/B read 120/200 = 3/5 from 2023-05-16 and
+    // 120/205 = 24/41 from 2023-08-15.)
+    security: company(),
+    observations: [
+      {
+        session: "2023-05-16",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: off("SHARE_LEVEL_UNSAFE"),
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+      {
+        session: "2023-11-14",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: off("SHARE_LEVEL_UNSAFE"),
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+      {
+        session: "2023-11-15",
+        close: CLOSE,
+        expect: {
+          PE: off("INCOMPLETE_WINDOW"),
+          PS: off("INCOMPLETE_WINDOW"),
+          PB: "4/7",
+          PFCF: off("INCOMPLETE_WINDOW"),
+          EV: off("INCOMPLETE_WINDOW"),
+        },
+      },
+    ],
+  },
 ];
 
 /**
@@ -2575,7 +2818,10 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
  * session each quarter becomes available (its balance sheet and every other input are the base
  * company's). `true` = available, `false` = withheld by rule 2, `null` = no usable count.
  *
- * Every row is worked out by hand from the rule's text and the reading stated in the oracle.
+ * Every row is worked out by hand from the rule's text and the reading stated in the oracle. Since
+ * the owner's ruling of 2026-10-06 the walk's first count is confirmed like any new level, so every
+ * walk below withholds its first two quarters and reads its third: the first count and the two
+ * agreeing with it are its first run.
  */
 export const SHARE_LEVEL_WALKS: readonly {
   title: string;
@@ -2585,25 +2831,25 @@ export const SHARE_LEVEL_WALKS: readonly {
   {
     title: "steady level",
     counts: [10, 10, 10, 10, 10, 10, 10, 10],
-    accepted: [true, true, true, true, true, true, true, true],
+    accepted: [false, false, true, true, true, true, true, true],
   },
   {
     title: "exactly +25 % is inside the level, and the level follows it",
     // 10 -> 12.5 (|2.5| <= 2.5) -> 15.625 (|3.125| <= 3.125) -> 19.53125 (inside 15.625's 25 %)
     counts: [10, 10, 10, 10, 12.5, 15.625, 19.53125, 19.53125],
-    accepted: [true, true, true, true, true, true, true, true],
+    accepted: [false, false, true, true, true, true, true, true],
   },
   {
     title: "just above +25 % is outside",
     // 12.50001 - 10 = 2.50001 > 2.5: first outside; back to 10 next quarter.
     counts: [10, 10, 10, 10, 12.50001, 10, 10, 10],
-    accepted: [true, true, true, true, false, true, true, true],
+    accepted: [false, false, true, true, false, true, true, true],
   },
   {
     title: "exactly -25 % is inside; just below is outside",
     counts: [10, 10, 10, 10, 7.5, 7.5, 5.62499, 7.5],
     // 7.5 inside 10's band; level 7.5; 5.62499 is 1.87501 below 7.5 > 1.875: outside; 7.5 back.
-    accepted: [true, true, true, true, true, true, false, true],
+    accepted: [false, false, true, true, true, true, false, true],
   },
   {
     title:
@@ -2612,48 +2858,94 @@ export const SHARE_LEVEL_WALKS: readonly {
     // 0.825 / 1.1 - 1 is -0.2500000000000001). |1.1 - 0.825| = 0.275 > 0.25 x 0.825 = 0.20625: the
     // return to 1.1 leaves the level, first and second disagreeing quarters.
     counts: [1.1, 1.1, 1.1, 1.1, 0.825, 0.825, 1.1, 1.1],
-    accepted: [true, true, true, true, true, true, false, false],
+    accepted: [false, false, true, true, true, true, false, false],
   },
   {
     title:
       "a persistent change is accepted on the third quarter (merger/offering)",
     counts: [10, 10, 10, 10, 15, 15, 15, 15],
-    accepted: [true, true, true, true, false, false, true, true],
+    accepted: [false, false, true, true, false, false, true, true],
   },
   {
     title:
       "two-quarter blocks alternating by 40 % are never accepted (Visa 2010-2012)",
     counts: [10, 10, 10, 10, 14, 14, 10, 10, 14, 14],
-    accepted: [true, true, true, true, false, false, true, true, false, false],
+    accepted: [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+    ],
   },
   {
     title: "a two-quarter artefact is never accepted (MSTR Q3 1999 kind)",
     counts: [10, 10, 10, 10, 20.18, 20.18, 10, 10],
-    accepted: [true, true, true, true, false, false, true, true],
+    accepted: [false, false, true, true, false, false, true, true],
   },
   {
     title: "the agreement is with the count that left the level",
     // 14 leaves 10's band (first). 17 agrees with 14 (|3| <= 3.5): second. 17.6 is 3.6 from 14 >
     // 3.5: it starts again (first). 17.6, 17.6: second, third -> accepted.
     counts: [10, 10, 10, 10, 14, 17, 17.6, 17.6, 17.6],
-    accepted: [true, true, true, true, false, false, false, false, true],
+    accepted: [false, false, true, true, false, false, false, false, true],
   },
   {
     title: "a missing count starts the agreement again",
     counts: [10, 10, 10, 10, 15, 15, null, 15, 15, 15],
-    accepted: [true, true, true, true, false, false, null, false, false, true],
+    accepted: [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      null,
+      false,
+      false,
+      true,
+    ],
   },
   {
     title: "a zero count is no usable count and starts the agreement again",
     counts: [10, 10, 10, 10, 15, 15, 0, 15, 15, 15],
-    accepted: [true, true, true, true, false, false, null, false, false, true],
+    accepted: [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      null,
+      false,
+      false,
+      true,
+    ],
   },
   {
     title: "an accepted quarter inside the level ends a disagreement run",
     // 13 is outside 10 (first); 10.5 is inside the level (accepted, level 10.5) and ends the run;
     // 13.2 is outside 10.5's band (2.7 > 2.625): first again; 13.2: second; 13.2: third.
     counts: [10, 10, 10, 10, 13, 10.5, 13.2, 13.2, 13.2],
-    accepted: [true, true, true, true, false, true, false, false, true],
+    accepted: [false, false, true, true, false, true, false, false, true],
+  },
+  {
+    title:
+      "the first count is confirmed like any new level: a listing quarter's weighted average",
+    // 6 starts the first run; 10 is 4 from 6 (> 1.5) and starts another; 10, 10 agree: the third
+    // quarter of that run, 2023Q4, sets the level.
+    counts: [6, 10, 10, 10, 10, 10, 10, 10],
+    accepted: [false, false, false, true, true, true, true, true],
+  },
+  {
+    title: "a missing count restarts the first level's agreement too",
+    counts: [10, 10, null, 10, 10, 10, 10, 10],
+    accepted: [false, false, null, false, false, true, true, true],
   },
 ];
 

@@ -49,8 +49,7 @@ function literalOutcome(
       denominator: oracleRational(1n),
       denominatorMagnitude: oracleRational(1n),
       explainedRestatement: false,
-      restatedPredecessorGap: false,
-      firstCountOfWalk: false,
+      anchorBeyondPrevious: false,
     },
   };
 }

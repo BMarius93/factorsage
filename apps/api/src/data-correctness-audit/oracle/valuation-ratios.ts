@@ -434,12 +434,11 @@ export type OracleValuationTerms = {
   /** Diagnostics: the share count is a restatement a measured re-base explained (rule 3). */
   explainedRestatement: boolean;
   /**
-   * Diagnostics: the share count passes rule 3 against its predecessor only, the predecessor being
-   * an unexplained restatement or count-less (`REPORT.md` §31, G1 and G2).
+   * Diagnostics: rule 3 compared the share count with an anchor older than its immediately
+   * previous revision, the previous one being unaccepted by rule 3 or count-less (`REPORT.md` §31,
+   * the shapes of G1 and G2).
    */
-  restatedPredecessorGap: boolean;
-  /** Diagnostics: the share count is the walk's first usable count, accepted unconfirmed (G3). */
-  firstCountOfWalk: boolean;
+  anchorBeyondPrevious: boolean;
 };
 
 export type OracleValuationOutcome =
@@ -455,6 +454,15 @@ export type OracleValuationOutcome =
       reason: OracleValuationReason;
       /** Every rule this observation fails, in that order. */
       failing: readonly OracleValuationReason[];
+      /**
+       * Diagnostics: as on `OracleValuationTerms`; false when the share count is not usable.
+       */
+      anchorBeyondPrevious: boolean;
+      /**
+       * Diagnostics: rule 2 withholds the share count because the walk has set no level yet at its
+       * quarter — the first level is unconfirmed (`REPORT.md` §31, the shape of G3).
+       */
+      firstLevelUnconfirmed: boolean;
     };
 
 export type OracleValuationReading = Record<
@@ -681,10 +689,10 @@ type StatementLevel = {
   ratios: Record<OracleValuationRatioId, RatioInputs>;
   /** Whether `R`'s count is a restatement a measured re-base explains (rule 3's positive path). */
   explainedRestatement: boolean;
-  /** Diagnostics for the review's G1/G2 (see `OracleValuationTerms`). */
-  restatedPredecessorGap: boolean;
-  /** Diagnostics for the review's G3 (see `OracleValuationTerms`). */
-  firstCountOfWalk: boolean;
+  /** Diagnostics: `R`'s anchor is older than its previous revision (see `OracleValuationTerms`). */
+  anchorBeyondPrevious: boolean;
+  /** Diagnostics: rule 2 withholds `R` before the walk's first level (see the outcome type). */
+  firstLevelUnconfirmed: boolean;
 };
 
 const TWENTY_FIVE_PERCENT = oracleRational(1n, 4n);
@@ -704,23 +712,30 @@ function usableCount(
 }
 
 /**
- * Rule 2, the share level: whether the newest quarter of the walk is accepted.
+ * Rule 2, the share level: the verdict on the newest quarter of the walk — accepted, withheld at
+ * an existing level, or withheld before the walk has set any level (`"unconfirmed"`).
  *
  * "Walking the point-in-time Income quarters in order, a count within 25 % of the last accepted
  * count is accepted. A count outside it is accepted as a new level only on the third consecutive
  * quarter that agrees with it within 25 %; until then the quarter is withheld, with no fallback.
- * Consecutive means consecutive fiscal quarters, each with a usable count: a missing quarter or
- * count starts the agreement again."
+ * The walk's first count is confirmed the same way (owner, 2026-10-06): with no level before it,
+ * it is a count outside every level, read only from the third consecutive quarter agreeing with
+ * it. Consecutive means consecutive fiscal quarters, each with a usable count: a missing quarter
+ * or count starts the agreement again."
  *
  * **Reading:**
- * - The first usable count of the walk is accepted: there is no earlier level to hold.
+ * - Until a level exists every usable count is outside it, so the walk's first count starts a run
+ *   like any count that leaves a level, and a count that disagrees with that run starts another;
+ *   the first level is set on the third quarter of whichever run gets there.
  * - "Within 25 %" of a reference `x` is `|c − x| <= 0.25 · x`, inclusive.
  * - Every accepted count becomes the level, so the level follows the counts it accepts.
  * - The agreement is with the count that first left the level ("agrees with it"), and runs only
  *   while consecutive quarters stay outside the level; a quarter accepted inside the level ends
  *   it. The quarter that left counts as the first of the three.
  */
-function shareLevelAccepted(incomeQuarters: readonly Statement[]): boolean {
+function shareLevel(
+  incomeQuarters: readonly Statement[],
+): "accepted" | "withheld" | "unconfirmed" {
   let level: OracleRational | undefined;
   let candidate: OracleRational | undefined;
   let run = 0;
@@ -743,7 +758,7 @@ function shareLevelAccepted(incomeQuarters: readonly Statement[]): boolean {
       continue;
     }
     const c = count.count;
-    if (level === undefined || within(c, level, TWENTY_FIVE_PERCENT, level)) {
+    if (level !== undefined && within(c, level, TWENTY_FIVE_PERCENT, level)) {
       level = c;
       candidate = undefined;
       run = 0;
@@ -768,31 +783,38 @@ function shareLevelAccepted(incomeQuarters: readonly Statement[]): boolean {
       accepted = false;
     }
   }
-  return accepted;
+  // A withheld quarter never sets the level, so no level after the walk means none at its quarter.
+  return accepted
+    ? "accepted"
+    : level === undefined
+      ? "unconfirmed"
+      : "withheld";
 }
 
+type Restatement = "none" | "explained" | "unexplained";
+
 /**
- * Rule 3: whether `R`'s count restates the previous revision of its quarter, and if so whether a
- * measured re-base explains it.
+ * Rule 3 for one revision against its anchor: whether its count restates the anchor's, and if so
+ * whether a measured re-base explains it.
  *
  * **Reading:**
- * - The previous revision is the one `R` superseded in the revision order. Rule 3 applies only when
- *   both carry a usable count; "differs by more than 2 %" is `|c_R − c_P| > 0.02 · c_P`.
- * - A measured re-base explains it when `|(c_R / c_P) − ρ| <= 0.02 · ρ`, it is new to the previous
- *   revision (detected after `P.observedAt`, or dated after `P`'s observation day), it is dated less
- *   than 30 days before `P`'s observation day, and it was detected no later than `R.observedAt`.
- *   An undated re-base is dated at the latest date it may have, for every date condition here.
+ * - With no anchor, or without a usable count of its own, a revision has nothing to compare and
+ *   passes. "Differs by more than 2 %" is `|c_R − c_A| > 0.02 · c_A`.
+ * - A measured re-base explains it when `|(c_R / c_A) − ρ| <= 0.02 · ρ`, it is new to the anchor
+ *   (detected after `A.observedAt`, or dated after `A`'s observation day), it is dated less than 30
+ *   days before `A`'s observation day, and it was detected no later than `R.observedAt`. An
+ *   undated re-base is dated at the latest date it may have, for every date condition here.
  */
 function restatementStatus(
   revision: Statement,
-  previous: Statement | undefined,
+  anchor: Statement | undefined,
   events: readonly MeasuredEvent[],
-): "none" | "explained" | "unexplained" {
-  if (previous === undefined) {
+): Restatement {
+  if (anchor === undefined) {
     return "none";
   }
   const current = usableCount(revision);
-  const prior = usableCount(previous);
+  const prior = usableCount(anchor);
   if (current.kind !== "usable" || prior.kind !== "usable") {
     return "none";
   }
@@ -804,19 +826,58 @@ function restatementStatus(
     if (event.ratio === undefined || !positive(event.ratio)) {
       return false;
     }
-    const newToPrevious =
-      event.detectedMs > previous.observedMs ||
-      event.latest > previous.observedDay;
-    const recentEnough = event.latest > previous.observedDay - 30;
+    const newToAnchor =
+      event.detectedMs > anchor.observedMs || event.latest > anchor.observedDay;
+    const recentEnough = event.latest > anchor.observedDay - 30;
     const knownByRevision = event.detectedMs <= revision.observedMs;
     return (
       within(restated, event.ratio, TWO_PERCENT, event.ratio) &&
-      newToPrevious &&
+      newToAnchor &&
       recentEnough &&
       knownByRevision
     );
   });
   return explained ? "explained" : "unexplained";
+}
+
+/**
+ * Rule 3 over every revision of one fiscal quarter, in revision order: each revision's anchor and
+ * its verdict against it.
+ *
+ * "`R` is compared with its anchor: the latest earlier revision of the same fiscal quarter that
+ * rule 3 itself accepted and that has a usable count — "earlier" in the order that picks a
+ * quarter's representing revision, and "accepted" by this rule alone, whatever the other rules say
+ * of that revision. A revision with no anchor has nothing to compare and passes. […] Otherwise `R`
+ * is unavailable and not accepted, so it never anchors a later revision." (owner, 2026-10-06)
+ *
+ * **Reading:**
+ * - Acceptance is decided in revision order, each revision against the anchor its predecessors
+ *   leave: the first revision has none and is accepted; each later one is accepted unless it is an
+ *   unexplained restatement of its anchor, and an accepted one with a usable count becomes the
+ *   anchor of the revisions after it. A count-less revision is accepted (it has nothing to compare)
+ *   but anchors nothing.
+ * - Every revision earlier than `R` in the revision order is eligible whenever `R` is, since the
+ *   order puts a later `availableFromDate` last, so the verdict on a revision never depends on the
+ *   statement date that reads it.
+ */
+function restatementWalk(
+  revisions: readonly Statement[],
+  events: readonly MeasuredEvent[],
+): { anchor: Statement | undefined; status: Restatement }[] {
+  let anchor: Statement | undefined;
+  return revisions.map((revision) => {
+    const verdict = {
+      anchor,
+      status: restatementStatus(revision, anchor, events),
+    };
+    if (
+      verdict.status !== "unexplained" &&
+      usableCount(revision).kind === "usable"
+    ) {
+      anchor = revision;
+    }
+    return verdict;
+  });
 }
 
 /** The exact sum of one field over the four window quarters, or why it cannot be formed. */
@@ -1094,8 +1155,8 @@ export function createValuationOracle(
     }
     const shared: OracleValuationReason[] = [];
     let explainedRestatement = false;
-    let restatedPredecessorGap = false;
-    let firstCountOfWalk = false;
+    let anchorBeyondPrevious = false;
+    let firstLevelUnconfirmed = false;
     const shareRevision = latestQuarter(book.INCOME);
     const count = usableCount(shareRevision);
     if (shareRevision === undefined || count.kind === "missing") {
@@ -1108,47 +1169,31 @@ export function createValuationOracle(
         (a, b) => a.quarter - b.quarter,
       );
       // Rule 2.
-      if (count.kind === "usable" && !shareLevelAccepted(walk)) {
-        shared.push("SHARE_LEVEL_UNSAFE");
+      if (count.kind === "usable") {
+        const verdict = shareLevel(walk);
+        if (verdict !== "accepted") {
+          shared.push("SHARE_LEVEL_UNSAFE");
+        }
+        firstLevelUnconfirmed = verdict === "unconfirmed";
       }
-      firstCountOfWalk =
-        count.kind === "usable" &&
-        walk.find((statement) => usableCount(statement).kind === "usable") ===
-          shareRevision;
-      // Rule 3.
+      // Rule 3: `R` against its anchor, every earlier revision of its quarter judged in order.
       const revisions = [
         ...(incomeRevisions.get(shareRevision.quarter) ?? []),
       ].sort(revisionOrder);
       const position = revisions.indexOf(shareRevision);
-      const previous = position > 0 ? revisions[position - 1] : undefined;
-      const restatement = restatementStatus(shareRevision, previous, measured);
-      if (restatement === "unexplained") {
+      const { anchor, status } = restatementWalk(revisions, measured)[
+        position
+      ] as { anchor: Statement | undefined; status: Restatement };
+      if (status === "unexplained") {
         shared.push("SHARE_RESTATEMENT_UNEXPLAINED");
       }
-      explainedRestatement = restatement === "explained";
-      // Diagnostics only: `R` passes rule 3 against its predecessor, but not against the latest
-      // earlier revision rule 3 would itself have accepted — the predecessor being an unexplained
-      // restatement, or having no count (the review's G1 and G2). Nothing here withholds.
-      if (restatement !== "unexplained" && previous !== undefined) {
-        const anchor = revisions
-          .slice(0, position)
-          .reverse()
-          .find((candidate) => {
-            const at = revisions.indexOf(candidate);
-            return (
-              usableCount(candidate).kind === "usable" &&
-              restatementStatus(
-                candidate,
-                at > 0 ? revisions[at - 1] : undefined,
-                measured,
-              ) !== "unexplained"
-            );
-          });
-        restatedPredecessorGap =
-          anchor !== undefined &&
-          anchor !== previous &&
-          restatementStatus(shareRevision, anchor, measured) === "unexplained";
-      }
+      explainedRestatement = status === "explained";
+      // Diagnostics only: the anchor lies beyond the revision `R` superseded, because that one was
+      // not accepted by rule 3 or has no usable count (the shapes of the review's G1 and G2).
+      anchorBeyondPrevious =
+        count.kind === "usable" &&
+        anchor !== undefined &&
+        anchor !== revisions[position - 1];
     }
     const ratios = {} as Record<OracleValuationRatioId, RatioInputs>;
     for (const ratio of ORACLE_VALUATION_RATIOS) {
@@ -1201,8 +1246,8 @@ export function createValuationOracle(
       shared,
       ratios,
       explainedRestatement,
-      restatedPredecessorGap,
-      firstCountOfWalk,
+      anchorBeyondPrevious,
+      firstLevelUnconfirmed,
     };
   }
 
@@ -1233,7 +1278,9 @@ export function createValuationOracle(
    * revisions", the schema says the units "of anything observed before it cannot be restored", and a
    * revision observed after the replacement is on the replaced history's basis, which is all `K`
    * restores. The first draft withheld a bounded change's sessions for every revision, which reads
-   * the bounded clause outside that frame; see the audit report's interpretation log.
+   * the bounded clause outside that frame; see the audit report's interpretation log. The owner
+   * ratified this reading on 2026-10-06 (rule 6; historical-price-basis-v1.md §10, "Unexplained":
+   * "A revision observed after its detection takes nothing from it").
    */
   function basisFactor(
     sessionDay: number,
@@ -1363,8 +1410,7 @@ export function createValuationOracle(
               denominator: inputs.denominator,
               denominatorMagnitude: inputs.denominatorMagnitude,
               explainedRestatement: level.explainedRestatement,
-              restatedPredecessorGap: level.restatedPredecessorGap,
-              firstCountOfWalk: level.firstCountOfWalk,
+              anchorBeyondPrevious: level.anchorBeyondPrevious,
             },
           };
         }
@@ -1377,6 +1423,8 @@ export function createValuationOracle(
           available: false,
           reason: ordered[0] ?? "MISSING_SHARE_COUNT",
           failing: ordered,
+          anchorBeyondPrevious: level.anchorBeyondPrevious,
+          firstLevelUnconfirmed: level.firstLevelUnconfirmed,
         };
       }
       result[ratio.id] = outcome;
