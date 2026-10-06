@@ -1308,6 +1308,55 @@ describe("valuation ratios: each masking rule in isolation", () => {
         );
       });
 
+      it("explains a count across two splits only by their ratios together", () => {
+        // 2:1 dated 2025-05-12 (detected 2025-05-13) and 3:1 dated 2025-05-20 (detected
+        // 2025-05-21), both after the original 100 was observed: every quarter restated on
+        // 2025-06-25 by the 2:1 alone (200) is not explained, by both (600) it is.
+        const rebases = [
+          twoForOne({
+            effectiveDate: "2025-05-12",
+            detectedAt: "2025-05-13T12:00:00.000Z",
+          }),
+          measured({
+            priceRatio: 3,
+            effectiveDate: "2025-05-20",
+            detectedAt: "2025-05-21T12:00:00.000Z",
+          }),
+        ];
+        const restatedTo = (count: number) => [
+          ...company({ quarters: previous }),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-06-25", { weightedAverageShsOutDil: count }),
+          ),
+        ];
+        expect(pbOn(restatedTo(200), ["2025-06-26"], rebases)[0]).toBeNaN();
+        expect(pbOn(restatedTo(600), ["2025-06-26"], rebases)[0]).toBeCloseTo(
+          (10 * 600) / 400,
+          12,
+        );
+      });
+
+      it("explains a count across a split only by one dated less than 30 days before the anchor was observed", () => {
+        // The original 100 was observed on 2025-05-09; a 2:1 re-base detected after it, on
+        // 2025-05-13, dated 2025-04-10 (29 days before) is new to it, dated 2025-04-09 (30 days
+        // before) is not: the provider may have restated the anchor already.
+        const statements = [
+          ...company({ quarters: previous }),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-06-20", { weightedAverageShsOutDil: 200 }),
+          ),
+        ];
+        const rebaseOn = (effectiveDate: string) => [
+          twoForOne({ effectiveDate, detectedAt: "2025-05-13T12:00:00.000Z" }),
+        ];
+        expect(
+          pbOn(statements, ["2025-06-23"], rebaseOn("2025-04-10"))[0],
+        ).toBeCloseTo((10 * 200) / 400, 12);
+        expect(
+          pbOn(statements, ["2025-06-23"], rebaseOn("2025-04-09"))[0],
+        ).toBeNaN();
+      });
+
       it("does not accept a count that still agrees across a listed plain entry", () => {
         // A 2:1 provider entry of 2025-05-12 in the verified history, nothing measured: the 2025Q1
         // revision observed on 2025-06-20 still at 100 is not accepted, and no entry explains a

@@ -128,7 +128,12 @@ type ValuationState = {
  * plain share ratio, or a provider entry at one that no measured re-base supersedes.
  */
 type ShareChange =
-  | { kind: "MEASURED"; lastDay: LocalDate; detectedAt: Instant }
+  | {
+      kind: "MEASURED";
+      lastDay: LocalDate;
+      detectedAt: Instant;
+      event: PriceBasisEvent;
+    }
   | { kind: "ENTRY"; date: LocalDate };
 
 /**
@@ -224,7 +229,14 @@ export function buildValuationTimeline(
     ...measured.flatMap((event): ShareChange[] => {
       const days = possibleDays(event);
       return days !== undefined && isPlainShareRatio(event.priceRatio as number)
-        ? [{ kind: "MEASURED", lastDay: days.to, detectedAt: event.detectedAt }]
+        ? [
+            {
+              kind: "MEASURED",
+              lastDay: days.to,
+              detectedAt: event.detectedAt,
+              event,
+            },
+          ]
         : [];
     }),
     ...unmeasured
@@ -747,11 +759,11 @@ function observedBefore(
  * and known by the time the revision was observed. An older re-base of the same ratio explains
  * nothing, even when the first verification measures it after the anchor was observed.
  *
- * Across a share-changing event that separates them (owner, 2026-10-06: rule 6's basis assumption,
+ * Across share-changing events that separate them (owner, 2026-10-06: rule 6's basis assumption,
  * checked), agreeing with the anchor is not acceptance: a count in the new units differs from one
- * observed before the event by the event's ratio. A count within 2 % of the anchor is not accepted,
- * one that differs only when a measured re-base explains it, and a separating provider entry, which
- * explains nothing, leaves the revision unaccepted.
+ * observed before the events by their ratios. Only the separating re-bases explain it, together
+ * (`explainedAcross`), and a separating provider entry, which explains nothing, leaves the revision
+ * unaccepted.
  */
 function acceptedAgainst(
   revision: FinancialStatement,
@@ -766,14 +778,15 @@ function acceptedAgainst(
   const separating = shareChanges.filter((change) =>
     separates(change, revision, anchor.statement),
   );
-  if (separating.some((change) => change.kind === "ENTRY")) {
-    return undefined;
+  if (separating.length > 0) {
+    return explainedAcross(separating, shares, anchor)
+      ? revision.observedAt
+      : undefined;
   }
   if (
     exactlyWithinFraction(shares, [anchor.shares], SHARE_RESTATEMENT_TOLERANCE)
   ) {
-    // Agreeing is acceptance, except across a separating event, where nothing can explain it.
-    return separating.length === 0 ? anchor.firstObservedAt : undefined;
+    return anchor.firstObservedAt;
   }
   const anchorObserved = anchor.statement.observedAt;
   const anchorObservedDate = anchorObserved.slice(0, 10);
@@ -795,6 +808,42 @@ function acceptedAgainst(
     );
   });
   return explained ? revision.observedAt : undefined;
+}
+
+/**
+ * Rule 3 across separating share-changing events: whether the measured re-bases among them explain
+ * the count together — within 2 % of the anchor's count times the product of their ratios, each
+ * dated less than rule 5's month before the anchor was observed (the separation puts each detection
+ * after the anchor's observation and no later than the revision's). A provider entry explains
+ * nothing, so across one nothing is accepted; agreeing with the anchor explains nothing unless the
+ * ratios cancel.
+ */
+function explainedAcross(
+  separating: readonly ShareChange[],
+  shares: number,
+  anchor: Anchor,
+): boolean {
+  const anchorObservedDate = anchor.statement.observedAt.slice(0, 10);
+  const ratios: number[] = [];
+  for (const change of separating) {
+    if (change.kind === "ENTRY") {
+      return false;
+    }
+    // An undated re-base is taken at the latest date it may have.
+    const date = change.event.effectiveDate ?? change.event.effectiveTo;
+    if (
+      date === undefined ||
+      !(anchorObservedDate < addDays(date, EVENT_SETTLING_DAYS))
+    ) {
+      return false;
+    }
+    ratios.push(change.event.priceRatio as number);
+  }
+  return exactlyWithinFraction(
+    shares,
+    [...ratios, anchor.shares],
+    SHARE_RESTATEMENT_TOLERANCE,
+  );
 }
 
 /**
