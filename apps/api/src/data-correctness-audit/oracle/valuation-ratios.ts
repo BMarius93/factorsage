@@ -894,15 +894,19 @@ function observationOrder(a: Statement, b: Statement): number {
  * - Earlier revisions are judged among the revisions public on the session too, as the text
  *   scopes "before"; a revision observed earlier but public later than another is therefore part
  *   of that other's walk only on sessions where both are public.
- * - Across a separating share-changing event (`separation`), only a restatement a measured re-base
- *   explains is accepted: a count that agrees with its anchor is not ("agreeing with the anchor is
- *   not enough"), and across a separating provider entry nothing is ("so across a separating entry
- *   `X` is not accepted at all"). A count-less revision still has nothing to compare and is
- *   accepted; it anchors nothing either way.
- * - Why a revision is not accepted: an unexplained restatement stays
- *   `SHARE_RESTATEMENT_UNEXPLAINED`, separated or not; any other refusal is a separating event's,
- *   `SHARE_BASIS_UNCONFIRMED` — an agreeing count, or (only across a separating entry) a
- *   restatement a measured re-base explains.
+ * - With no separating share-changing event (`separation`), a restatement is explained by any
+ *   measured re-base on the terms of `restatementStatus`. Across separating events those terms
+ *   give way to `explainedTogether`: "a re-base that does not separate them explains nothing
+ *   here". A revision across them is accepted only when no separating event is a provider entry
+ *   ("so across a separating entry `X` is not accepted at all") and the separating measured
+ *   re-bases explain it together — an agreeing count included ("never enough, unless the ratios
+ *   cancel"). A count-less revision still has nothing to compare and is accepted; it anchors
+ *   nothing either way.
+ * - Why a revision is not accepted: a count that differs from its anchor by more than 2 % and is
+ *   not explained (by any re-base, or across separating events by the separating ones together) is
+ *   an unexplained restatement, `SHARE_RESTATEMENT_UNEXPLAINED`; any other refusal is a separating
+ *   event's, `SHARE_BASIS_UNCONFIRMED` — a count that agrees with its anchor, or one the separating
+ *   re-bases explain across a separating provider entry.
  */
 function restatementWalk(
   revisions: readonly Statement[],
@@ -911,25 +915,33 @@ function restatementWalk(
 ): RestatementVerdict[] {
   let anchor: Statement | undefined;
   return revisions.map((revision) => {
-    const status = restatementStatus(revision, anchor, events);
+    let status = restatementStatus(revision, anchor, events);
+    let accepted = status !== "unexplained";
     const separated =
       anchor === undefined || status === "nothing"
         ? undefined
         : separation(revision, anchor, shareChanges);
-    const refusal: RestatementVerdict["refusal"] =
-      status === "unexplained"
-        ? "SHARE_RESTATEMENT_UNEXPLAINED"
-        : separated === "ENTRY" ||
-            (separated === "MEASURED" && status !== "explained")
-          ? "SHARE_BASIS_UNCONFIRMED"
-          : undefined;
+    if (anchor !== undefined && separated !== undefined) {
+      const together = explainedTogether(revision, anchor, separated.measured);
+      if (status !== "agrees") {
+        status = together ? "explained" : "unexplained";
+      }
+      accepted = together && !separated.entry;
+    }
     const verdict: RestatementVerdict = {
       anchor,
       status,
-      accepted: refusal === undefined,
-      ...(refusal !== undefined ? { refusal } : {}),
+      accepted,
+      ...(accepted
+        ? {}
+        : {
+            refusal:
+              status === "unexplained"
+                ? "SHARE_RESTATEMENT_UNEXPLAINED"
+                : "SHARE_BASIS_UNCONFIRMED",
+          }),
     };
-    if (verdict.accepted && usableCount(revision).kind === "usable") {
+    if (accepted && usableCount(revision).kind === "usable") {
       anchor = revision;
     }
     return verdict;
@@ -939,6 +951,10 @@ function restatementWalk(
 /** Rule 3's verdict on one revision of the walk. */
 type RestatementVerdict = {
   anchor: Statement | undefined;
+  /**
+   * How the count compares with the anchor's; for a restatement, whether the re-bases that may
+   * explain it do (across separating events, the separating ones together).
+   */
   status: Restatement;
   /** Accepted by rule 3 alone. */
   accepted: boolean;
@@ -946,18 +962,24 @@ type RestatementVerdict = {
   refusal?: "SHARE_RESTATEMENT_UNEXPLAINED" | "SHARE_BASIS_UNCONFIRMED";
 };
 
+/** A plain measured re-base, as a share-changing event. */
+type MeasuredShareChange = {
+  kind: "MEASURED";
+  latest: number;
+  detectedMs: number;
+  ratio: OracleRational;
+};
+
 /**
  * A share-changing event (rule 3, "Agreement across a share change is not acceptance"): "a
  * measured re-base whose ratio is a plain share change, or a provider entry that is one and that no
  * measured re-base supersedes (within seven days, as in rule 4)".
  */
-type ShareChange =
-  | { kind: "MEASURED"; latest: number; detectedMs: number }
-  | { kind: "ENTRY"; day: number };
+type ShareChange = MeasuredShareChange | { kind: "ENTRY"; day: number };
 
 /**
- * Whether a share-changing event separates `revision` from its `anchor`, and the kind of the one
- * that does (a provider entry over a measured re-base, since an entry denies acceptance outright).
+ * The share-changing events that separate `revision` from its `anchor`: whether a provider entry
+ * does, and every measured re-base that does; `undefined` when none does.
  *
  * "It separates a revision `X` from its anchor when all three hold: `X`'s fiscal quarter ended
  * before the event (an undated re-base at the latest date it may have); the anchor was observed
@@ -972,22 +994,63 @@ function separation(
   revision: Statement,
   anchor: Statement,
   shareChanges: readonly ShareChange[],
-): ShareChange["kind"] | undefined {
-  let separated: ShareChange["kind"] | undefined;
+): { entry: boolean; measured: MeasuredShareChange[] } | undefined {
+  let entry = false;
+  const measured: MeasuredShareChange[] = [];
   for (const change of shareChanges) {
-    const separates =
-      change.kind === "MEASURED"
-        ? revision.fiscalDay < change.latest &&
-          anchor.observedMs < change.detectedMs &&
-          revision.observedMs >= change.detectedMs
-        : revision.fiscalDay < change.day &&
-          anchor.observedDay < change.day &&
-          revision.observedDay >= change.day;
-    if (separates && separated !== "ENTRY") {
-      separated = change.kind;
+    if (change.kind === "MEASURED") {
+      if (
+        revision.fiscalDay < change.latest &&
+        anchor.observedMs < change.detectedMs &&
+        revision.observedMs >= change.detectedMs
+      ) {
+        measured.push(change);
+      }
+    } else if (
+      revision.fiscalDay < change.day &&
+      anchor.observedDay < change.day &&
+      revision.observedDay >= change.day
+    ) {
+      entry = true;
     }
   }
-  return separated;
+  return entry || measured.length > 0 ? { entry, measured } : undefined;
+}
+
+/**
+ * Whether the measured re-bases that separate `revision` from its `anchor` explain its count
+ * together.
+ *
+ * "Across separating events, `X` is accepted only when the measured re-bases that separate it
+ * explain it together: its count is within 2 % of the anchor's times the product of their ratios,
+ * and each of them is dated less than 30 days before the anchor was observed (the separation itself
+ * puts each detection after the anchor's observation and no later than `X`'s, the other terms
+ * above). One re-base's ratio does not explain a count across two, and a re-base that does not
+ * separate them explains nothing here."
+ *
+ * **Reading:** "within 2 % of" the expected count `e = c_A · Πρ` is `|c_X − e| <= 0.02 · e`, as
+ * rule 3's other 2 % tests are measured from the reference; "dated less than 30 days before" is
+ * `latest > A's observation day − 30`, an undated re-base at the latest date it may have. With
+ * only provider entries separating, the product is empty (1): the entry refuses `X` regardless.
+ */
+function explainedTogether(
+  revision: Statement,
+  anchor: Statement,
+  separating: readonly MeasuredShareChange[],
+): boolean {
+  const current = usableCount(revision);
+  const prior = usableCount(anchor);
+  if (current.kind !== "usable" || prior.kind !== "usable") {
+    return false;
+  }
+  let expected = prior.count;
+  for (const change of separating) {
+    if (change.latest <= anchor.observedDay - 30) {
+      return false;
+    }
+    expected = multiply(expected, change.ratio);
+  }
+  return within(current.count, expected, TWO_PERCENT, expected);
 }
 
 /**
@@ -1250,13 +1313,18 @@ export function createValuationOracle(
   // Rule 3: the share-changing events — plain measured re-bases, and plain provider entries no
   // measured re-base supersedes (history or forward alike).
   const shareChanges: ShareChange[] = [
-    ...measured
-      .filter((event) => event.plain)
-      .map((event) => ({
-        kind: "MEASURED" as const,
-        latest: event.latest,
-        detectedMs: event.detectedMs,
-      })),
+    ...measured.flatMap((event) =>
+      event.plain && event.ratio !== undefined
+        ? [
+            {
+              kind: "MEASURED" as const,
+              latest: event.latest,
+              detectedMs: event.detectedMs,
+              ratio: event.ratio,
+            },
+          ]
+        : [],
+    ),
     ...splits
       .filter((entry) => plainProviderEntry(entry) && !matched(entry))
       .map((entry) => ({ kind: "ENTRY" as const, day: entry.day })),

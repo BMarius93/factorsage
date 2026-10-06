@@ -781,6 +781,117 @@ describe("reference valuation ratios: rule 3's anchor", () => {
   });
 });
 
+describe("reference valuation ratios: rule 3 across separating re-bases", () => {
+  /** A revision of every base Income quarter with `count` diluted shares, observed `at` noon. */
+  const everyQuarterRestated = (
+    count: number,
+    at: string,
+  ): OracleValuationStatement[] =>
+    baseCompany.statements
+      .filter((statement) => statement.statementType === "INCOME")
+      .map((statement) => ({
+        ...statement,
+        availableFromDate: at,
+        observedAt: `${at}T12:00:00.000Z`,
+        contentHash: `${statement.contentHash}-x${count}`,
+        values: { ...statement.values, weightedAverageShsOutDil: count },
+      }));
+  /** A measured re-base dated `date`, detected at 06:00 the next day. */
+  const rebase = (
+    date: string,
+    priceRatio: string,
+    detectedAt: string,
+  ): OracleValuationSecurity["events"][number] => ({
+    kind: "MEASURED",
+    effectiveDate: date,
+    priceRatio,
+    detectedAt,
+  });
+  const AS_OF_2025Q2 = {
+    PE: "12/5",
+    PS: "60/209",
+    PB: "6/13",
+    PFCF: "20/9",
+    EV: "75/53",
+  };
+
+  it("explains a count across a 2:1 and a 3:1 only by their product", () => {
+    // 2025Q2's Income "a" (10) observed 2025-08-14. A 2:1 re-base dated 2025-09-15 (detected
+    // 2025-09-16 06:00) and a 3:1 dated 2025-10-01 (detected 2025-10-02 06:00): the stored closes
+    // before them are 2. Every Income quarter is restated on 2025-11-03 (so rule 2 holds whatever
+    // the count). Both re-bases separate the restatement from "a" (2025Q2 ended before them, "a"
+    // was observed before both detections, the restatement after both), and both are dated after
+    // "a" was observed — so less than 30 days before it. Only 10 x 2 x 3 = 60 explains a count:
+    // - x6 (60): within 2 % of 60, accepted. Observed after both detections, on a session after
+    //   both events, K = 1; both rule 5 months are past (to 2025-10-14 and 2025-10-30). MC = 2 x 60
+    //   = 120, the readings as of 2025Q2.
+    // - x2 (20) and x3 (30): each one ratio alone, not within 2 % of 60 (1.2): unexplained
+    //   restatements.
+    // - x1 (10): within 2 % of "a", not of 60: agreement across the splits, SHARE_BASIS_UNCONFIRMED.
+    const events = [
+      rebase("2025-09-15", "2", "2025-09-16T06:00:00.000Z"),
+      rebase("2025-10-01", "3", "2025-10-02T06:00:00.000Z"),
+    ];
+    const at = (count: number) =>
+      createValuationOracle(
+        withRevisions(
+          everyQuarterRestated(count, "2025-11-03"),
+          "2025-08-14T12:00:00.000Z",
+          events,
+        ),
+      ).reading("2025-11-03", "2");
+    expectReadings(at(60), AS_OF_2025Q2, true, false, "x6");
+    expectWithheld(at(20), ["SHARE_RESTATEMENT_UNEXPLAINED"]);
+    expectWithheld(at(30), ["SHARE_RESTATEMENT_UNEXPLAINED"]);
+    expectWithheld(at(10), ["SHARE_BASIS_UNCONFIRMED"]);
+  });
+
+  it("accepts an agreeing count across a split and its reversal", () => {
+    // As above with a 1:2 (0.5) instead of the 3:1: the product is 1, so 10 against "a"'s 10 is
+    // explained, and the stored closes after both events are 12 again: MC = 12 x 10 = 120.
+    const oracle = createValuationOracle(
+      withRevisions(
+        everyQuarterRestated(10, "2025-11-03"),
+        "2025-08-14T12:00:00.000Z",
+        [
+          rebase("2025-09-15", "2", "2025-09-16T06:00:00.000Z"),
+          rebase("2025-10-01", "0.5", "2025-10-02T06:00:00.000Z"),
+        ],
+      ),
+    );
+    expectReadings(
+      oracle.reading("2025-11-03", "12"),
+      AS_OF_2025Q2,
+      false,
+      false,
+      "x1",
+    );
+  });
+
+  it("refuses the exact ratio of a separating re-base dated 30 days before the anchor was observed", () => {
+    // 2025Q2's Income "a" (10) observed 2025-08-14 at noon. A 5:4 re-base (1.25) detected
+    // 2025-08-20 06:00, after "a" was observed; "r" (12.5 = 10 x 1.25, inside the level's 25 %)
+    // observed 2025-09-10. The re-base separates "r" from "a" (2025Q2 ended before it, "a" was
+    // observed before the detection, "r" after it).
+    // - Dated 2025-07-15, exactly 30 days before "a" was observed: not "less than 30 days before",
+    //   so it explains nothing, even at its exact ratio: an unexplained restatement. Nothing else
+    //   fails: rule 5's month after the event ended on 2025-08-13, "r" is its own first
+    //   observation, after the event, and K = 1 (observed after the detection, after the event).
+    // - Dated 2025-07-16, 29 days before: explained, accepted. The stored close after the 5:4 is
+    //   9.6: MC = 9.6 x 12.5 = 120, the readings as of 2025Q2.
+    const dated = (date: string) =>
+      createValuationOracle(
+        withRevisions(
+          [later("2025-09-10", "r", { weightedAverageShsOutDil: 12.5 })],
+          "2025-08-14T12:00:00.000Z",
+          [rebase(date, "1.25", "2025-08-20T06:00:00.000Z")],
+        ),
+      ).reading("2025-09-10", "9.6");
+    expectWithheld(dated("2025-07-15"), ["SHARE_RESTATEMENT_UNEXPLAINED"]);
+    expectReadings(dated("2025-07-16"), AS_OF_2025Q2, true, false, "29 days");
+  });
+});
+
 describe("reference valuation ratios: rule 5 before the event", () => {
   it("reads a Monitor provisional row's session on its own date", () => {
     // M3b: 2025Q2 first observed 2025-08-14, within the 30 days before the 2:1 entry listed for

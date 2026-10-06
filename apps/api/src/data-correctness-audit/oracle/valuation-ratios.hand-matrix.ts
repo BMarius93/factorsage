@@ -3406,6 +3406,124 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     ],
   },
   {
+    id: "M1i",
+    covers: [],
+    title:
+      "rule 3 across two measured splits: a count restated by both ratios together is accepted",
+    // Filings observed when available, verified 2025-06-01. A 2:1 re-base dated 2025-09-15
+    // (detected 2025-09-16 06:00) and a 3:1 dated 2025-10-01 (detected 2025-10-02 06:00): the stored
+    // closes before them are 2. Every Income quarter is restated on 2025-11-03 to 60 = 10 x 2 x 3.
+    // Both re-bases separate the restatement from the original counts (observed before both
+    // detections), and 60 is within 2 % of 10 x 6: accepted, K = 1, MC 2 x 60 = 120, as of 2025Q2.
+    // On 2025-08-29 "a" (first observed 2025-08-14, more than 30 days before either event) reads at
+    // K = 6: 2 x 6 x 10 = 120.
+    security: company({
+      statements: restateCounts(
+        baseStatements(observedWhenAvailable),
+        ALL_QUARTERS,
+        60,
+        "2025-11-03",
+        "x6",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-09-15" },
+          "2",
+          "2025-09-16T06:00:00.000Z",
+        ),
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "3",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-08-29", close: "2", expect: AS_OF_2025Q2 },
+      { session: "2025-11-03", close: "2", expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M1j",
+    covers: [],
+    title:
+      "rule 3 across two measured splits: a count restated by one ratio alone is not explained",
+    // M1i with every Income quarter restated on 2025-11-03 to 20 = 10 x 2, the 2:1 alone. Across
+    // both re-bases only their product, 6, explains a count: 20 is not within 2 % of 60, so the
+    // restatement is unexplained. (Under "any measured re-base explains it" the 2:1 explained it:
+    // MC 2 x 20 = 40, a third of the coherent 120.)
+    security: company({
+      statements: restateCounts(
+        baseStatements(observedWhenAvailable),
+        ALL_QUARTERS,
+        20,
+        "2025-11-03",
+        "x2",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-09-15" },
+          "2",
+          "2025-09-16T06:00:00.000Z",
+        ),
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "3",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-11-03",
+        close: "2",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+    ],
+  },
+  {
+    id: "M1k",
+    covers: [],
+    title:
+      "rule 3 across a split and its reversal: when the ratios cancel, an agreeing count is explained",
+    // A 2:1 re-base dated 2025-09-15 (detected 2025-09-16 06:00) and a 1:2 dated 2025-10-01
+    // (detected 2025-10-02 06:00). 2025Q2 revised on 2025-11-03 ("s", another field) still at 10:
+    // both separate it from "a", and 10 is within 2 % of 10 x 2 x 1/2. Accepted, K = 1: MC
+    // 12 x 10 = 120. On 2025-08-29 "a" reads at K = 2 x 1/2 = 1, also 120.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-11-03",
+          observedAt: "2025-11-03T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-09-15" },
+          "2",
+          "2025-09-16T06:00:00.000Z",
+        ),
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "0.5",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-08-29", close: CLOSE, expect: AS_OF_2025Q2 },
+      { session: "2025-11-03", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
     id: "M3a",
     covers: [],
     title:
