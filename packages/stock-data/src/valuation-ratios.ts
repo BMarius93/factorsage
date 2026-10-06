@@ -62,8 +62,8 @@ import {
  *   exclusive start; rule 2's 25 % band and rule 3's 2 % thresholds are judged exactly on the
  *   reported figures (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
  * - 3: the owner's rulings on the audit's gaps (2026-10-06): rule 2 confirms the walk's first count
- *   like any new level, and rule 3 compares a count with its anchor, the latest earlier revision of
- *   the quarter rule 3 accepted, rather than with the revision just before it.
+ *   like any new level, and rule 3 compares a count with its anchor — the latest revision of the
+ *   quarter observed before it that rule 3 accepted — rather than with the revision just before it.
  */
 export const VALUATION_RATIO_REVISION = 3;
 
