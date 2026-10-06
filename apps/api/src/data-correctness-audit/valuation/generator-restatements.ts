@@ -24,8 +24,8 @@ import {
  *
  * - **the restatement:** the provider restates every stored earlier quarter's count by the split's
  *   ratio at once — from 25 days before `E` to 90 days after it — each restated revision available
- *   and observed when published; or never, or (a first load after the event) before anything was
- *   stored;
+ *   and observed when published; or never, or (a first load, after the event or in the month
+ *   before it) before anything was stored;
  * - **revision chains:** later revisions of the newest quarters — another field, the same count, a
  *   count moved by up to 1 % or by exactly 2 %, or no count — and sometimes a count-less revision
  *   just before the restatement;
@@ -34,6 +34,11 @@ import {
  *   to the old counts;
  * - **a late-observed amendment:** sometimes a revision of the newest quarter dated from a filing
  *   before the restatement but first observed after it, so observation and availability disagree;
+ * - **never restated:** sometimes, when the provider never restates, a revision of the newest quarter
+ *   that ended before the event, still in the old units, observed after the event's month and its
+ *   detection;
+ * - **a first load before the event:** sometimes the first load comes in the month before the event,
+ *   with the history already restated ahead of the ex-date;
  * - **the split list** lists `E` (the plain ratio, or a distribution's factor; usually labelled a
  *   split), occasionally a few days off, or not at all; the history is verified before `E` (a
  *   forward entry) or after it (history);
@@ -198,6 +203,19 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
   if (firstLoad) {
     features.add("first-load");
   }
+  // The shapes added for the owner's rulings on the second review draw from a second stream, so
+  // every history drawn before them stays as it was.
+  const extra = new Random(seed * 6_151 + 3_571);
+  // A first load in the month before the event, the provider's history already restated ahead of the
+  // ex-date (the review's MAJOR-3): every count in the new units while the closes before the event
+  // are still in the old. Quarters filed after the load are observed when filed.
+  const loadedBeforeEvent = firstLoad && extra.chance(0.35);
+  const loadAt = loadedBeforeEvent
+    ? instant(addDays(eventDate, -extra.int(1, 30)), extra)
+    : firstLoadAt;
+  if (loadedBeforeEvent) {
+    features.add("first-load-before-event");
+  }
   const level = 4 * random.int(5_000_000, 900_000_000);
   let revenue = 10 ** random.int(6, 9) * (1 + random.next() * 3);
   const statements: OracleValuationStatement[] = [];
@@ -212,9 +230,11 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
     const count = Math.round(
       level * (newUnits ? shareFactor : 1) * (1 + (random.next() - 0.5) * 0.01),
     );
-    const observedAt = firstLoad
-      ? firstLoadAt
-      : instant(addDays(quarter.available, random.int(0, 2)), random);
+    const observedAt = !firstLoad
+      ? instant(addDays(quarter.available, random.int(0, 2)), random)
+      : quarter.available <= loadAt.slice(0, 10)
+        ? loadAt
+        : instant(addDays(quarter.available, extra.int(0, 2)), extra);
     const common = {
       fiscalDate: quarter.fiscalDate,
       fiscalYear: quarter.fiscalYear,
@@ -503,6 +523,38 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
         },
       });
       features.add("late-observed-amendment");
+    }
+  }
+
+  // ---- the provider never restating (the review's MAJOR-1): a revision of the newest quarter that
+  // ended before the event, still in the old units, observed once the event is known and its month
+  // has passed, while that quarter is still the latest. From the second stream.
+  if (!restates && !firstLoad && shareFactor !== 1 && extra.chance(0.5)) {
+    let newest = -1;
+    quarters.forEach((quarter, index) => {
+      if (quarter.fiscalDate < eventDate && quarter.available <= eventDate) {
+        newest = index;
+      }
+    });
+    const detected = events[0]?.detectedAt.slice(0, 10);
+    const settled = addDays(eventDate, extra.pick([31, 35, 45]));
+    const after = [settled, detected ?? settled].sort().at(-1)!;
+    const next = quarters[newest + 1]?.available;
+    const room =
+      next !== undefined && next > after
+        ? Math.round((Date.parse(next) - Date.parse(after)) / 86_400_000) - 1
+        : 25;
+    if (newest >= 0 && room > 0) {
+      const day = addDays(after, extra.int(1, Math.min(25, room)));
+      const at = instant(day, extra);
+      const base = latestBy(newest, at);
+      if (base !== undefined && base.observedAt < at) {
+        revise(base, day, at, {
+          ...base.values,
+          grossProfit: extra.int(1, 1_000),
+        });
+        features.add("late-revision-never-restated");
+      }
     }
   }
 

@@ -45,11 +45,12 @@ describe("valuation ratios: the product against the oracle over generated histor
   it("reaches the owner's rulings both ways: rule 3's anchor beyond the previous revision, rule 2's first level", () => {
     const restatement = result.families.get("restatement");
     // A count compared with an anchor past a withheld or count-less revision: read when a re-base
-    // explains it against the anchor — the ruled path's own positive case — or when it agrees with
-    // the anchor, withheld when nothing does.
+    // explains it against the anchor — the ruled path's own positive case — withheld when nothing
+    // does. (One that agrees with such an anchor is the provider taking a restatement back across
+    // the split, which the second review's ruling withholds: below.)
     expect(restatement?.explainedBeyondPreviousCells).toBeGreaterThan(100);
     expect(restatement?.anchorBeyondPreviousAvailableCells).toBeGreaterThan(
-      500,
+      100,
     );
     expect(restatement?.anchorBeyondPreviousWithheldCells).toBeGreaterThan(
       2_000,
@@ -57,5 +58,23 @@ describe("valuation ratios: the product against the oracle over generated histor
     for (const family of result.families.values()) {
       expect(family.firstLevelUnconfirmedCells).toBeGreaterThan(100_000);
     }
+  });
+
+  it("reaches the owner's rulings on the second review: agreement across a share change, and the month before an event", () => {
+    // A count that still agrees with an anchor observed before a split — never restated, or a
+    // restatement taken back — and a count first observed in the month before an event, each
+    // withheld by its rule alone on many cells.
+    expect(result.soleRuleCells.get("SHARE_BASIS_UNCONFIRMED")).toBeGreaterThan(
+      1_000,
+    );
+    expect(result.soleRuleCells.get("COUNT_BEFORE_EVENT")).toBeGreaterThan(
+      10_000,
+    );
+    expect(
+      result.features.get("restatement:late-revision-never-restated"),
+    ).toBeGreaterThan(5);
+    expect(
+      result.features.get("restatement:first-load-before-event"),
+    ).toBeGreaterThan(5);
   });
 });
