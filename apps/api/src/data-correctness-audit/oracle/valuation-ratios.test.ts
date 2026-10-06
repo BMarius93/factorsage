@@ -846,9 +846,12 @@ describe("reference valuation ratios: rule 3 across separating re-bases", () => 
     expectWithheld(at(10), ["SHARE_BASIS_UNCONFIRMED"]);
   });
 
-  it("accepts an agreeing count across a split and its reversal", () => {
-    // As above with a 1:2 (0.5) instead of the 3:1: the product is 1, so 10 against "a"'s 10 is
-    // explained, and the stored closes after both events are 12 again: MC = 12 x 10 = 120.
+  it("refuses an agreeing count even across a split and its reversal", () => {
+    // As above with a 1:2 (0.5) instead of the 3:1: the product is 1, and the count, 10, agrees
+    // with "a"'s 10. Across separating events a count within 2 % of the anchor "is never accepted,
+    // even where their ratios cancel: the anchor may itself have been restated ahead of one of
+    // them": SHARE_BASIS_UNCONFIRMED, and nothing else fails (both rule 5 months are past, the
+    // count is its own first observation, after both events, and K = 1).
     const oracle = createValuationOracle(
       withRevisions(
         everyQuarterRestated(10, "2025-11-03"),
@@ -859,13 +862,9 @@ describe("reference valuation ratios: rule 3 across separating re-bases", () => 
         ],
       ),
     );
-    expectReadings(
-      oracle.reading("2025-11-03", "12"),
-      AS_OF_2025Q2,
-      false,
-      false,
-      "x1",
-    );
+    expectWithheld(oracle.reading("2025-11-03", "12"), [
+      "SHARE_BASIS_UNCONFIRMED",
+    ]);
   });
 
   it("refuses the exact ratio of a separating re-base dated 30 days before the anchor was observed", () => {

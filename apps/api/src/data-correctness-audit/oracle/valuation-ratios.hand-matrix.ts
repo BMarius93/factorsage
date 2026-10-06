@@ -3487,11 +3487,12 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     id: "M1k",
     covers: [],
     title:
-      "rule 3 across a split and its reversal: when the ratios cancel, an agreeing count is explained",
+      "rule 3 across a split and its reversal: an agreeing count is not accepted, even where the ratios cancel",
     // A 2:1 re-base dated 2025-09-15 (detected 2025-09-16 06:00) and a 1:2 dated 2025-10-01
     // (detected 2025-10-02 06:00). 2025Q2 revised on 2025-11-03 ("s", another field) still at 10:
-    // both separate it from "a", and 10 is within 2 % of 10 x 2 x 1/2. Accepted, K = 1: MC
-    // 12 x 10 = 120. On 2025-08-29 "a" reads at K = 2 x 1/2 = 1, also 120.
+    // both separate it from "a", and across separating events a count within 2 % of the anchor is
+    // never accepted, even where the ratios cancel ("a" may itself have been restated ahead of the
+    // split). On 2025-08-29 "a" reads at K = 2 x 1/2 = 1: MC 12 x 10 = 120, as of 2025Q2.
     security: company({
       statements: revision(
         baseStatements(observedWhenAvailable),
@@ -3520,7 +3521,11 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
     }),
     observations: [
       { session: "2025-08-29", close: CLOSE, expect: AS_OF_2025Q2 },
-      { session: "2025-11-03", close: CLOSE, expect: AS_OF_2025Q2 },
+      {
+        session: "2025-11-03",
+        close: CLOSE,
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
     ],
   },
   {

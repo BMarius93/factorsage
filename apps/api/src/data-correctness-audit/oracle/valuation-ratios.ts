@@ -897,11 +897,13 @@ function observationOrder(a: Statement, b: Statement): number {
  * - With no separating share-changing event (`separation`), a restatement is explained by any
  *   measured re-base on the terms of `restatementStatus`. Across separating events those terms
  *   give way to `explainedTogether`: "a re-base that does not separate them explains nothing
- *   here". A revision across them is accepted only when no separating event is a provider entry
- *   ("so across a separating entry `X` is not accepted at all") and the separating measured
- *   re-bases explain it together — an agreeing count included ("never enough, unless the ratios
- *   cancel"). A count-less revision still has nothing to compare and is accepted; it anchors
- *   nothing either way.
+ *   here". Across them a count within 2 % of the anchor is never accepted, "even where their
+ *   ratios cancel: the anchor may itself have been restated ahead of one of them"; a differing one
+ *   is accepted only when no separating event is a provider entry ("so across a separating entry
+ *   `X` is not accepted at all") and the separating measured re-bases explain it together. So
+ *   rule 5's first-observation chain, which follows only accepted agreeing revisions, never
+ *   crosses a separating event. A count-less revision still has nothing to compare and is
+ *   accepted; it anchors nothing either way.
  * - Why a revision is not accepted: a count that differs from its anchor by more than 2 % and is
  *   not explained (by any re-base, or across separating events by the separating ones together) is
  *   an unexplained restatement, `SHARE_RESTATEMENT_UNEXPLAINED`; any other refusal is a separating
@@ -922,11 +924,17 @@ function restatementWalk(
         ? undefined
         : separation(revision, anchor, shareChanges);
     if (anchor !== undefined && separated !== undefined) {
-      const together = explainedTogether(revision, anchor, separated.measured);
-      if (status !== "agrees") {
+      if (status === "agrees") {
+        accepted = false;
+      } else {
+        const together = explainedTogether(
+          revision,
+          anchor,
+          separated.measured,
+        );
         status = together ? "explained" : "unexplained";
+        accepted = together && !separated.entry;
       }
-      accepted = together && !separated.entry;
     }
     const verdict: RestatementVerdict = {
       anchor,
@@ -1021,8 +1029,9 @@ function separation(
  * Whether the measured re-bases that separate `revision` from its `anchor` explain its count
  * together.
  *
- * "Across separating events, `X` is accepted only when the measured re-bases that separate it
- * explain it together: its count is within 2 % of the anchor's times the product of their ratios,
+ * "`X` differing by more [than 2 % from the anchor] is accepted only when the measured re-bases
+ * that separate it explain it together: its count is within 2 % of the anchor's times the product
+ * of their ratios,
  * and each of them is dated less than 30 days before the anchor was observed (the separation itself
  * puts each detection after the anchor's observation and no later than `X`'s, the other terms
  * above). One re-base's ratio does not explain a count across two, and a re-base that does not
@@ -1581,10 +1590,10 @@ export function createValuationOracle(
     // Rule 5, "And soon before it": a session before an event at E, for `R`'s count first observed
     // in [E − 30 days, E) and a quarter that ended before E, for any of rule 5's events.
     //
-    // **Reading:** for an undated re-base "E is each day it may lie on, so the window starts 30
-    // days before its first possible day and the sessions run up to its last" — taken as the
-    // window [first − 30 days, last), the sessions before its last possible day (exclusive, as
-    // "before E" is for E that day), and rule 5's quarter test on its last possible day.
+    // **Reading:** for an undated re-base "the window starts 30 days before its first possible
+    // day, and the sessions it withholds run up to its last possible day" — taken as the window
+    // [first − 30 days, last), the sessions before its last possible day (exclusive, as "before E"
+    // is for E that day), and rule 5's quarter test on its last possible day.
     const firstObserved = level.countFirstObservedDay;
     const countBeforeEvent =
       revision !== undefined &&
