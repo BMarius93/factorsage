@@ -428,14 +428,20 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
   // ---- after the restatement: a revision observed once the re-base is known and its month has
   // passed, or the provider taking the whole restatement back. Drawn last, so the history before it
   // is the same as without it.
-  if (restatedQuarters.length > 0 && random.chance(0.4)) {
+  if (restatedQuarters.length > 0 && random.chance(0.7)) {
     const detected = events[0]?.detectedAt.slice(0, 10);
     const settled = addDays(eventDate, random.pick([20, 31, 45]));
     const after = [restateDay, settled, detected ?? settled].sort().at(-1)!;
-    const day = addDays(after, random.int(1, 25));
+    // While the newest restated quarter is still the latest, when the next filing leaves room.
+    const newest = restatedQuarters.at(-1)!;
+    const next = quarters[newest + 1]?.available;
+    const room =
+      next !== undefined && next > after
+        ? Math.round((Date.parse(next) - Date.parse(after)) / 86_400_000) - 1
+        : 25;
+    const day = addDays(after, random.int(1, Math.max(1, Math.min(25, room))));
     const at = instant(day, random);
-    if (random.chance(0.5)) {
-      const newest = restatedQuarters.at(-1)!;
+    if (random.chance(0.7)) {
       const base = latestBy(newest, at);
       if (base !== undefined && base.observedAt < at) {
         revise(base, day, at, {

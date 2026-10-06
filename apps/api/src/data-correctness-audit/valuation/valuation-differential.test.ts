@@ -44,8 +44,10 @@ describe("valuation ratios: the product against the oracle over generated histor
 
   it("reaches the owner's rulings both ways: rule 3's anchor beyond the previous revision, rule 2's first level", () => {
     const restatement = result.families.get("restatement");
-    // A count compared with an anchor past a withheld or count-less revision: read when it agrees
-    // with the anchor or a re-base explains it, withheld when nothing does.
+    // A count compared with an anchor past a withheld or count-less revision: read when a re-base
+    // explains it against the anchor — the ruled path's own positive case — or when it agrees with
+    // the anchor, withheld when nothing does.
+    expect(restatement?.explainedBeyondPreviousCells).toBeGreaterThan(100);
     expect(restatement?.anchorBeyondPreviousAvailableCells).toBeGreaterThan(
       500,
     );

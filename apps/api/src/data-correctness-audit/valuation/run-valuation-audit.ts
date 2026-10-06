@@ -52,7 +52,10 @@ import {
  *
  * `http` asks a running API — started against the copy (`TEST_DATABASE_URL=<copy> pnpm
  * dev:api:e2e`, the hermetic launcher: fixture FMP, egress guard) — for every ratio of every security
- * over the range the `real` run served, and holds every row to the reference. `browser-expectations`
+ * over the range the `real` run served, and holds every row to the reference. On any day after the
+ * copy was frozen, start that API with its clock pinned to the copy's day
+ * (`NODE_OPTIONS=--require=<this folder>/pinned-clock.cjs VALUATION_AUDIT_NOW=<instant>`), or it
+ * asks the fixture provider for the sessions since and answers 503. `browser-expectations`
  * writes the reference's readings of the newest year of the named securities, to the git-ignored
  * `.debug/valuation-audit/`, for the Playwright audit spec
  * (`apps/web/e2e/audit/valuation-oracle.audit.spec.ts`) to hold the hover legend to.
@@ -140,6 +143,7 @@ async function generated(): Promise<void> {
               value.anchorBeyondPreviousAvailableCells,
             anchorBeyondPreviousWithheldCells:
               value.anchorBeyondPreviousWithheldCells,
+            explainedBeyondPreviousCells: value.explainedBeyondPreviousCells,
             firstLevelUnconfirmedCells: value.firstLevelUnconfirmedCells,
           },
         ];

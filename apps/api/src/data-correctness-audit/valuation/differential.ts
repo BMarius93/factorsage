@@ -41,6 +41,12 @@ export type DifferentialFamilyResult = {
    */
   anchorBeyondPreviousAvailableCells: number;
   anchorBeyondPreviousWithheldCells: number;
+  /**
+   * Of the available ones, those a measured re-base explained against an anchor past a withheld or
+   * count-less revision: the ruled path's own positive case. (The others agree with an anchor past
+   * a withheld restatement — the provider taking it back.)
+   */
+  explainedBeyondPreviousCells: number;
   /** Cells rule 2 withheld because the walk had not yet confirmed its first level (G3, as ruled). */
   firstLevelUnconfirmedCells: number;
 };
@@ -79,6 +85,7 @@ export function runDifferential(
       explainedRestatementCells: 0,
       anchorBeyondPreviousAvailableCells: 0,
       anchorBeyondPreviousWithheldCells: 0,
+      explainedBeyondPreviousCells: 0,
       firstLevelUnconfirmedCells: 0,
     };
     families.set(family, result);
@@ -129,6 +136,7 @@ function compareHistory(input: {
     | "explainedRestatementCells"
     | "anchorBeyondPreviousAvailableCells"
     | "anchorBeyondPreviousWithheldCells"
+    | "explainedBeyondPreviousCells"
     | "firstLevelUnconfirmedCells"
   >;
 }): void {
@@ -170,6 +178,9 @@ function compareHistory(input: {
         );
         input.diagnostics.anchorBeyondPreviousAvailableCells += Number(
           terms.anchorBeyondPrevious,
+        );
+        input.diagnostics.explainedBeyondPreviousCells += Number(
+          terms.anchorBeyondPrevious && terms.explainedRestatement,
         );
       } else {
         input.diagnostics.anchorBeyondPreviousWithheldCells += Number(
