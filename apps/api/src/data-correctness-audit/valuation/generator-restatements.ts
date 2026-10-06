@@ -32,6 +32,8 @@ import {
  * - **after the restatement:** sometimes a revision of the newest restated quarter observed once
  *   the re-base is known and its month has passed, or the provider taking the whole restatement back
  *   to the old counts;
+ * - **a late-observed amendment:** sometimes a revision of the newest quarter dated from a filing
+ *   before the restatement but first observed after it, so observation and availability disagree;
  * - **the split list** lists `E` (the plain ratio, or a distribution's factor; usually labelled a
  *   split), occasionally a few days off, or not at all; the history is verified before `E` (a
  *   forward entry) or after it (history);
@@ -428,7 +430,8 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
   // ---- after the restatement: a revision observed once the re-base is known and its month has
   // passed, or the provider taking the whole restatement back. Drawn last, so the history before it
   // is the same as without it.
-  if (restatedQuarters.length > 0 && random.chance(0.7)) {
+  const late = restatedQuarters.length > 0 && random.chance(0.7);
+  if (late) {
     const detected = events[0]?.detectedAt.slice(0, 10);
     const settled = addDays(eventDate, random.pick([20, 31, 45]));
     const after = [restateDay, settled, detected ?? settled].sort().at(-1)!;
@@ -464,6 +467,42 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
         }
       }
       features.add("restatement-taken-back");
+    }
+  }
+
+  // ---- a late-observed amendment: a revision of the newest quarter that the loader dates from a
+  // filing before the restatement (or the event) but first observes later, often after the
+  // re-base's detection, so the order of observation and the order of availability disagree. In the
+  // new units or the old. Drawn last, like the shapes above.
+  // Only where no late shape was drawn, so each keeps its own histories.
+  if (!late && random.chance(0.5)) {
+    const pivot = restates ? restateDay : eventDate;
+    const filedDay = addDays(pivot, -random.int(1, 10));
+    const newest = newestFiledBy(filedDay);
+    const available = addDays(filedDay, 1);
+    const at = instant(addDays(pivot, random.int(1, 45)), random);
+    const base = newest >= 0 ? latestBy(newest, at) : undefined;
+    if (
+      base !== undefined &&
+      available > quarters[newest]!.available &&
+      base.observedAt < at
+    ) {
+      const original = income[newest]!.values
+        .weightedAverageShsOutDil as number;
+      statements.push({
+        ...base,
+        availableFromDate: available,
+        observedAt: at,
+        contentHash: `r${(hash += 1)}`,
+        values: {
+          ...base.values,
+          grossProfit: random.int(1, 1_000),
+          weightedAverageShsOutDil: random.chance(0.5)
+            ? Math.round(original * shareFactor)
+            : original,
+        },
+      });
+      features.add("late-observed-amendment");
     }
   }
 
