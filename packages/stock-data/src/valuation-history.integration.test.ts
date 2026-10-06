@@ -444,7 +444,7 @@ describeInfrastructure(
     it("hydrated from durable state with no provider request, under the current valuation revision", () => {
       expect(provider.calls).toEqual([]);
       expect(requests).toEqual([]);
-      expect(VALUATION_RATIO_REVISION).toBe(2);
+      expect(VALUATION_RATIO_REVISION).toBe(3);
     });
 
     it("answers every trading session of the window and no other day, for every ratio", async () => {

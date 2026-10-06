@@ -997,6 +997,116 @@ describe("valuation ratios: each masking rule in isolation", () => {
       expect(pb(204.01, split)).toBeNaN();
     });
 
+    describe("its anchor, the latest earlier revision rule 3 accepted (owner, 2026-10-06)", () => {
+      const previous = quarters.map((quarter) => ({
+        ...quarter,
+        observedAt: PREVIOUS,
+      }));
+      /** A revision of `quarter`'s Income, public and observed on `on`. */
+      const income = (
+        quarter: Quarter,
+        on: string,
+        values: Record<string, number>,
+      ) =>
+        statement(
+          "INCOME",
+          {
+            ...quarter,
+            availableFromDate: on,
+            observedAt: `${on}T00:00:00.000Z`,
+          },
+          { netIncome: 5, revenue: 50, ebitda: 10, ...values },
+        );
+      const latestQuarter = quarters.at(-1) as Quarter;
+      const pbOn = (
+        statements: readonly FinancialStatement[],
+        sessions: readonly string[],
+        events: readonly PriceBasisEvent[] = [],
+      ) =>
+        ratiosOn(
+          inputs({
+            statements,
+            verifiedAt: "2024-01-02T00:00:00.000Z",
+            events,
+          }),
+          sessions,
+          10,
+          ["PRICE_TO_BOOK"],
+        ).PRICE_TO_BOOK;
+
+      it("keeps a restatement withheld through a later revision repeating it, until a re-base explains one", () => {
+        // Every quarter restated two-fold on 2025-06-20, unexplained; 2025Q1 revised again on
+        // 2025-06-25 with the same 200 and another figure. Its anchor is still the original 100.
+        const statements = [
+          ...company({ quarters: previous }),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-06-20", { weightedAverageShsOutDil: 200 }),
+          ),
+          income(latestQuarter, "2025-06-25", {
+            weightedAverageShsOutDil: 200,
+            netIncome: 6,
+          }),
+        ];
+        expect(pbOn(statements, ["2025-06-23", "2025-06-26"])).toEqual([
+          Number.NaN,
+          Number.NaN,
+        ]);
+        // A 2:1 re-base dated 2025-06-30, detected the next day: both revisions were observed
+        // before it was known, so it explains neither; a revision observed after it and after rule
+        // 5's month is explained, and read at K = 1 on a session after the event.
+        const rebase = [
+          twoForOne({
+            effectiveDate: "2025-06-30",
+            detectedAt: "2025-07-01T12:00:00.000Z",
+          }),
+        ];
+        const later = [
+          ...statements,
+          income(latestQuarter, "2025-08-04", {
+            weightedAverageShsOutDil: 200,
+            netIncome: 7,
+          }),
+        ];
+        const read = pbOn(
+          later,
+          ["2025-06-26", "2025-08-01", "2025-08-04"],
+          rebase,
+        );
+        expect(read[0]).toBeNaN();
+        expect(read[1]).toBeNaN();
+        expect(read[2]).toBeCloseTo((10 * 200) / 400, 12);
+      });
+
+      it("compares a restatement after a revision with no count with the last count", () => {
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-18", {}),
+          ...quarters.map((quarter) =>
+            income(quarter, "2025-06-20", { weightedAverageShsOutDil: 200 }),
+          ),
+        ];
+        expect(pbOn(statements, ["2025-06-23"])[0]).toBeNaN();
+      });
+
+      it("reads a restatement the provider took back against the anchor", () => {
+        // 2025Q1 alone restated to 200 on 2025-06-20, then back to 100 on 2025-06-25: the 200 was
+        // never accepted, so the 100 is compared with the original 100.
+        const statements = [
+          ...company({ quarters: previous }),
+          income(latestQuarter, "2025-06-20", {
+            weightedAverageShsOutDil: 200,
+          }),
+          income(latestQuarter, "2025-06-25", {
+            weightedAverageShsOutDil: 100,
+            netIncome: 6,
+          }),
+        ];
+        const read = pbOn(statements, ["2025-06-23", "2025-06-26"]);
+        expect(read[0]).toBeNaN();
+        expect(read[1]).toBeCloseTo((10 * 100) / 400, 12);
+      });
+    });
+
     it("needs a re-base even when it is too small for the share level to notice", () => {
       // An 11:10 stock dividend restated with no re-base behind it: within rule 2's 25 %.
       expect(pb(110, [])).toBeNaN();

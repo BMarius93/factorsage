@@ -61,14 +61,17 @@ import {
  * - 2: rules 4, 5 and 8 read an undated re-base on the days it may lie on, never on its interval's
  *   exclusive start; rule 2's 25 % band and rule 3's 2 % thresholds are judged exactly on the
  *   reported figures (the independent audit, `docs/valuation-ratios-audit/REPORT.md`).
+ * - 3: the owner's ruling on the audit's gaps G1 and G2 (2026-10-06): rule 3 compares a count with
+ *   its anchor, the latest earlier revision of the quarter rule 3 accepted, rather than with the
+ *   revision just before it.
  */
-export const VALUATION_RATIO_REVISION = 2;
+export const VALUATION_RATIO_REVISION = 3;
 
 /** Rule 2: a share count within this fraction of the last accepted one holds the level. */
 export const SHARE_LEVEL_TOLERANCE = 0.25;
 /** Rule 2: consecutive agreeing quarters before a count outside the level is accepted as a new one. */
 export const SHARE_LEVEL_CONFIRMATIONS = 3;
-/** Rule 3: a restated count further than this from the previous revision needs a measured re-base. */
+/** Rule 3: a restated count further than this from its anchor needs a measured re-base. */
 export const SHARE_RESTATEMENT_TOLERANCE = 0.02;
 /** Rules 5 and 8: calendar days after an event a count, or a session, is not trusted. */
 export const EVENT_SETTLING_DAYS = 30;
@@ -506,47 +509,10 @@ function usableShares(input: {
   if (!holdsShareLevel(input.income, latest)) {
     return undefined;
   }
-  // Rule 3: a restated count needs a new re-base, measured no later than the count was observed.
-  const previous = previousRevision(input.statements, latest, input.date);
-  const previousShares = previous
-    ? value(previous, "weightedAverageShsOutDil")
-    : undefined;
   if (
-    previousShares !== undefined &&
-    previousShares > 0 &&
-    !exactlyWithinFraction(
-      shares,
-      [previousShares],
-      SHARE_RESTATEMENT_TOLERANCE,
-    )
+    !passesRestatementRule(input.statements, latest, input.date, input.measured)
   ) {
-    // The re-base must be new to the previous revision — detected or dated after it was observed,
-    // and dated less than rule 5's month before it — and known by the time `R` was observed. An
-    // older re-base of the same ratio explains nothing, even when the first verification measures
-    // it after the previous revision was observed.
-    const previousObserved = previous!.observedAt;
-    const previousObservedDate = previousObserved.slice(0, 10);
-    const explained = input.measured.some((event) => {
-      // An undated re-base is taken at the latest date it may have.
-      const date = event.effectiveDate ?? event.effectiveTo;
-      const detected = Date.parse(event.detectedAt);
-      return (
-        date !== undefined &&
-        detected <= Date.parse(latest.observedAt) &&
-        (detected > Date.parse(previousObserved) ||
-          date > previousObservedDate) &&
-        previousObservedDate < addDays(date, EVENT_SETTLING_DAYS) &&
-        // The restatement within 2 % of the ratio: |shares − ratio × previous| <= 2 % of the latter.
-        exactlyWithinFraction(
-          shares,
-          [event.priceRatio as number, previousShares],
-          SHARE_RESTATEMENT_TOLERANCE,
-        )
-      );
-    });
-    if (!explained) {
-      return undefined;
-    }
+    return undefined;
   }
   const observedDate = latest.observedAt.slice(0, 10);
   // Rule 4.2: folded into the stored history before anything was measured, after the count.
@@ -627,32 +593,95 @@ function within(count: number, level: number): boolean {
 }
 
 /**
- * The revision of `latest`'s fiscal quarter that represented it before `latest` did, among those
- * visible on `date`. Matched by fiscal year and period, so a moved period end is still the same
- * quarter.
+ * Rule 3: whether `latest`'s count passes against its anchor — the latest earlier revision of its
+ * fiscal quarter that rule 3 accepted and that has a usable count (owner, 2026-10-06).
+ *
+ * The quarter's revisions visible on `date` are taken in the order that picks a quarter's
+ * representing revision, matched by fiscal year and period so a moved period end is still the same
+ * quarter. Each is judged against the anchor before it: within 2 % of the anchor's count, or a
+ * restatement a measured re-base explains, it is accepted and anchors the revisions after it; a
+ * restatement nothing explains is withheld and anchors nothing, so it stays withheld through every
+ * later revision repeating it, or with no count, until one observed after a matching re-base's
+ * detection is explained. A revision with no anchor passes.
  */
-function previousRevision(
+function passesRestatementRule(
   statements: readonly FinancialStatement[],
   latest: FinancialStatement,
   date: LocalDate,
-): FinancialStatement | undefined {
-  let previous: FinancialStatement | undefined;
-  for (const statement of statements) {
+  measured: readonly PriceBasisEvent[],
+): boolean {
+  const earlier = statements
+    .filter(
+      (statement) =>
+        statement !== latest &&
+        statement.statementType === latest.statementType &&
+        statement.fiscalYear === latest.fiscalYear &&
+        statement.period === latest.period &&
+        statement.availableFromDate <= date &&
+        representsFiscalPeriodOver(latest, statement),
+    )
+    .sort((left, right) =>
+      representsFiscalPeriodOver(left, right)
+        ? 1
+        : representsFiscalPeriodOver(right, left)
+          ? -1
+          : 0,
+    );
+  let anchor: { statement: FinancialStatement; shares: number } | undefined;
+  for (const revision of earlier) {
+    const shares = value(revision, "weightedAverageShsOutDil");
     if (
-      statement === latest ||
-      statement.statementType !== latest.statementType ||
-      statement.fiscalYear !== latest.fiscalYear ||
-      statement.period !== latest.period ||
-      statement.availableFromDate > date ||
-      !representsFiscalPeriodOver(latest, statement)
+      shares !== undefined &&
+      shares > 0 &&
+      (anchor === undefined ||
+        acceptedAgainst(revision, shares, anchor, measured))
     ) {
-      continue;
-    }
-    if (!previous || representsFiscalPeriodOver(statement, previous)) {
-      previous = statement;
+      anchor = { statement: revision, shares };
     }
   }
-  return previous;
+  const shares = value(latest, "weightedAverageShsOutDil") as number;
+  return (
+    anchor === undefined || acceptedAgainst(latest, shares, anchor, measured)
+  );
+}
+
+/**
+ * Rule 3 for one revision against its anchor: within 2 % of the anchor's count, or a restatement a
+ * measured re-base explains. The re-base must be new to the anchor — detected or dated after it was
+ * observed, and dated less than rule 5's month before it — and known by the time the revision was
+ * observed. An older re-base of the same ratio explains nothing, even when the first verification
+ * measures it after the anchor was observed.
+ */
+function acceptedAgainst(
+  revision: FinancialStatement,
+  shares: number,
+  anchor: { statement: FinancialStatement; shares: number },
+  measured: readonly PriceBasisEvent[],
+): boolean {
+  if (
+    exactlyWithinFraction(shares, [anchor.shares], SHARE_RESTATEMENT_TOLERANCE)
+  ) {
+    return true;
+  }
+  const anchorObserved = anchor.statement.observedAt;
+  const anchorObservedDate = anchorObserved.slice(0, 10);
+  return measured.some((event) => {
+    // An undated re-base is taken at the latest date it may have.
+    const date = event.effectiveDate ?? event.effectiveTo;
+    const detected = Date.parse(event.detectedAt);
+    return (
+      date !== undefined &&
+      detected <= Date.parse(revision.observedAt) &&
+      (detected > Date.parse(anchorObserved) || date > anchorObservedDate) &&
+      anchorObservedDate < addDays(date, EVENT_SETTLING_DAYS) &&
+      // The restatement within 2 % of the ratio: |shares − ratio × anchor| <= 2 % of the latter.
+      exactlyWithinFraction(
+        shares,
+        [event.priceRatio as number, anchor.shares],
+        SHARE_RESTATEMENT_TOLERANCE,
+      )
+    );
+  });
 }
 
 /** A line item as a finite number, or `undefined` when the provider did not supply one. */

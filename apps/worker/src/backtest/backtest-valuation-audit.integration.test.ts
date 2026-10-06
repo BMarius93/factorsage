@@ -366,10 +366,11 @@ describeInfrastructure(
     }, 240_000);
 
     it("records the valuation revision it ran under, and refuses a run queued under another", async () => {
-      expect(BACKTEST_DATA_REVISIONS.valuationRatioRevision).toBe(2);
+      expect(BACKTEST_DATA_REVISIONS.valuationRatioRevision).toBe(3);
       const backtest = VALUATION_AUDIT_BACKTESTS[0]!;
+      // Queued under revision 2, before the owner's rulings on rules 2 and 3.
       const stale = await execute(backtest, {
-        dataRevisions: { valuationRatioRevision: 1 },
+        dataRevisions: { valuationRatioRevision: 2 },
       });
       expect(stale.results).toEqual([]);
       expect(stale.failures).toHaveLength(1);
