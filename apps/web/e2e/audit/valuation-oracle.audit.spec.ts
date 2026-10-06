@@ -25,6 +25,11 @@ type Expectations = Record<
 >;
 
 const file = process.env.VALUATION_AUDIT_EXPECTATIONS;
+/**
+ * The day the audit copy was frozen, when the stack reads it later: the API runs on that clock
+ * (`pinned-clock.cjs`), and the page must too, or it asks for sessions the copy cannot hold.
+ */
+const pinnedNow = process.env.VALUATION_AUDIT_NOW;
 const expectations: Expectations = file
   ? (JSON.parse(readFileSync(resolve(file), "utf8")) as Expectations)
   : {};
@@ -111,6 +116,9 @@ test.describe("valuation ratios in the browser, against the audit oracle", () =>
         page,
       }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
+        if (pinnedNow) {
+          await page.clock.setFixedTime(new Date(pinnedNow));
+        }
         await page.goto(`/stocks/${symbol}`);
         await expect(priceChart(page, symbol)).toBeVisible();
         const wrapper = priceChart(page, symbol).locator("..").first();

@@ -15,6 +15,9 @@ import { e2eBaseUrl } from "../utils/env";
  * VALUATION_AUDIT_EXPECTATIONS=../../.debug/valuation-audit/browser-expectations.json \
  *   pnpm exec playwright test --config e2e/audit/playwright.audit.config.ts
  * ```
+ *
+ * On a later day than the copy's, pin the page's clock to the copy's day as well
+ * (`VALUATION_AUDIT_NOW=<instant>`), the instant the API was started with.
  */
 export default defineConfig({
   testDir: ".",
