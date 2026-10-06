@@ -29,6 +29,9 @@ import {
  * - **revision chains:** later revisions of the newest quarters — another field, the same count, a
  *   count moved by up to 1 % or by exactly 2 %, or no count — and sometimes a count-less revision
  *   just before the restatement;
+ * - **after the restatement:** sometimes a revision of the newest restated quarter observed once
+ *   the re-base is known and its month has passed, or the provider taking the whole restatement back
+ *   to the old counts;
  * - **the split list** lists `E` (the plain ratio, or a distribution's factor; usually labelled a
  *   split), occasionally a few days off, or not at all; the history is verified before `E` (a
  *   forward entry) or after it (history);
@@ -308,6 +311,7 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
   ]);
   const restateDay = addDays(eventDate, restateOffset);
   const restatedAt = instant(restateDay, random);
+  const restatedQuarters: number[] = [];
   if (restates) {
     features.add(`restated-offset${restateOffset}`);
     if (random.chance(0.2)) {
@@ -341,6 +345,7 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
         return;
       }
       const original = income[index]!.values.weightedAverageShsOutDil as number;
+      restatedQuarters.push(index);
       revise(base, restateDay, restatedAt, {
         ...base.values,
         weightedAverageShsOutDil: Math.round(original * shareFactor),
@@ -418,6 +423,42 @@ export function generateRestatementHistory(seed: number): GeneratedHistory {
     features.add(offset === 0 ? "entry-listed" : "entry-listed-off-by-days");
   } else {
     features.add("entry-unlisted");
+  }
+
+  // ---- after the restatement: a revision observed once the re-base is known and its month has
+  // passed, or the provider taking the whole restatement back. Drawn last, so the history before it
+  // is the same as without it.
+  if (restatedQuarters.length > 0 && random.chance(0.4)) {
+    const detected = events[0]?.detectedAt.slice(0, 10);
+    const settled = addDays(eventDate, random.pick([20, 31, 45]));
+    const after = [restateDay, settled, detected ?? settled].sort().at(-1)!;
+    const day = addDays(after, random.int(1, 25));
+    const at = instant(day, random);
+    if (random.chance(0.5)) {
+      const newest = restatedQuarters.at(-1)!;
+      const base = latestBy(newest, at);
+      if (base !== undefined && base.observedAt < at) {
+        revise(base, day, at, {
+          ...base.values,
+          grossProfit: random.int(1, 1_000),
+        });
+        features.add("late-revision-after-rebase");
+      }
+    } else {
+      for (const index of restatedQuarters) {
+        const base = latestBy(index, at);
+        const original = income[index]!.values
+          .weightedAverageShsOutDil as number;
+        if (base !== undefined && base.observedAt < at) {
+          revise(base, day, at, {
+            ...base.values,
+            weightedAverageShsOutDil: original,
+            weightedAverageShsOut: Math.round(original * 0.98),
+          });
+        }
+      }
+      features.add("restatement-taken-back");
+    }
   }
 
   return {

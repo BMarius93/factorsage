@@ -34,10 +34,15 @@ export type DifferentialFamilyResult = {
   tally: ComparisonTally;
   /** Available cells whose share count a measured re-base explained (rule 3's positive path). */
   explainedRestatementCells: number;
-  /** Available cells of the review's G1/G2 shape: rule 3 passed against a restated predecessor. */
-  restatedPredecessorGapCells: number;
-  /** Available cells read on the walk's first count, accepted unconfirmed (the review's G3). */
-  firstCountCells: number;
+  /**
+   * Cells whose share count rule 3 compared with an anchor beyond the revision just before it — that
+   * one a restatement rule 3 withheld, or count-less (the review's G1 and G2 shapes, as ruled) —
+   * available and withheld.
+   */
+  anchorBeyondPreviousAvailableCells: number;
+  anchorBeyondPreviousWithheldCells: number;
+  /** Cells rule 2 withheld because the walk had not yet confirmed its first level (G3, as ruled). */
+  firstLevelUnconfirmedCells: number;
 };
 
 export type DifferentialResult = {
@@ -72,8 +77,9 @@ export function runDifferential(
       sessions: 0,
       tally: new ComparisonTally(),
       explainedRestatementCells: 0,
-      restatedPredecessorGapCells: 0,
-      firstCountCells: 0,
+      anchorBeyondPreviousAvailableCells: 0,
+      anchorBeyondPreviousWithheldCells: 0,
+      firstLevelUnconfirmedCells: 0,
     };
     families.set(family, result);
     for (const seed of seeds) {
@@ -121,8 +127,9 @@ function compareHistory(input: {
   diagnostics: Pick<
     DifferentialFamilyResult,
     | "explainedRestatementCells"
-    | "restatedPredecessorGapCells"
-    | "firstCountCells"
+    | "anchorBeyondPreviousAvailableCells"
+    | "anchorBeyondPreviousWithheldCells"
+    | "firstLevelUnconfirmedCells"
   >;
 }): void {
   const { history, provisional } = input;
@@ -161,10 +168,16 @@ function compareHistory(input: {
         input.diagnostics.explainedRestatementCells += Number(
           terms.explainedRestatement,
         );
-        input.diagnostics.restatedPredecessorGapCells += Number(
-          terms.restatedPredecessorGap,
+        input.diagnostics.anchorBeyondPreviousAvailableCells += Number(
+          terms.anchorBeyondPrevious,
         );
-        input.diagnostics.firstCountCells += Number(terms.firstCountOfWalk);
+      } else {
+        input.diagnostics.anchorBeyondPreviousWithheldCells += Number(
+          outcome.anchorBeyondPrevious,
+        );
+        input.diagnostics.firstLevelUnconfirmedCells += Number(
+          outcome.firstLevelUnconfirmed,
+        );
       }
       if (!outcome.available && outcome.failing.length === 1) {
         input.soleRuleCells.set(

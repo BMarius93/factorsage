@@ -125,8 +125,9 @@ export async function retentionScope(
 
 /**
  * The review's G3 in the store: securities whose walk starts with a count the very next quarter
- * contradicts by more than 25 %, and the readings taken on that first count. Rule 2 accepts a
- * walk's first count unconfirmed, so every one of them is available.
+ * contradicts by more than 25 %, and the readings taken on that first count. Before the owner's
+ * ruling of 2026-10-06 rule 2 accepted a walk's first count unconfirmed and every one of them was
+ * available (408 P/B cells); now rule 2 confirms it like any new level, so none may be.
  */
 export async function firstCountExposure(
   prisma: PrismaClient,

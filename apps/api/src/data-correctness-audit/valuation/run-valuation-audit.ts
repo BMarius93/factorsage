@@ -136,8 +136,11 @@ async function generated(): Promise<void> {
             FALSE_UNAVAILABLE: familySummary.FALSE_UNAVAILABLE,
             VALUE_MISMATCH: familySummary.VALUE_MISMATCH,
             explainedRestatementCells: value.explainedRestatementCells,
-            restatedPredecessorGapCells: value.restatedPredecessorGapCells,
-            firstCountCells: value.firstCountCells,
+            anchorBeyondPreviousAvailableCells:
+              value.anchorBeyondPreviousAvailableCells,
+            anchorBeyondPreviousWithheldCells:
+              value.anchorBeyondPreviousWithheldCells,
+            firstLevelUnconfirmedCells: value.firstLevelUnconfirmedCells,
           },
         ];
       }),
