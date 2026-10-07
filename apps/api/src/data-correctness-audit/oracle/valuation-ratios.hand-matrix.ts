@@ -3681,6 +3681,393 @@ export const VALUATION_HAND_MATRIX: readonly HandCase[] = [
       { session: "2025-09-10", close: CLOSE, expect: AS_OF_2025Q2 },
     ],
   },
+  // -------------------------------------------------------------------------------------------
+  // Boundaries the revision-4 mutation pass found unpinned
+  // -------------------------------------------------------------------------------------------
+  {
+    id: "M1l",
+    covers: [],
+    title:
+      "rule 3 across a listed entry and a measured re-base: a count the re-base explains is still not accepted",
+    // A 2:1 forward entry dated 2025-09-15 (verified 2025-06-01) and a measured 2:1 dated 2025-10-01,
+    // detected 2025-10-02 06:00: sixteen days apart, so the re-base does not supersede the entry.
+    // Every Income quarter restated on 2025-11-03 to 20. Both separate the restatement from "a"
+    // (observed 2025-08-14); the re-base would explain 20 = 10 x 2, but a separating entry leaves it
+    // unaccepted. Rule 8's window ended 2025-10-15, rule 5's months on 2025-10-15 and 2025-10-31.
+    security: company({
+      statements: restateCounts(
+        baseStatements(observedWhenAvailable),
+        ALL_QUARTERS,
+        20,
+        "2025-11-03",
+        "x2",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-09-15", "2", "1")],
+      events: [
+        measured(
+          { effectiveDate: "2025-10-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-11-03",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1n",
+    covers: [],
+    title:
+      "rule 3: a measured re-base does not separate a revision of a quarter that ended after it",
+    // 2025Q2 filed fast: available and observed 2025-07-15 ("a"). A 2:1 re-base dated 2025-06-25 —
+    // before 2025Q2 ended — detected 2025-07-20 06:00, after "a" was observed. 2025Q2 revised on
+    // 2025-08-11 ("s", another field) at 10. The quarter ended after the event, so nothing separates
+    // "s" from "a": it agrees and is accepted; observed after the detection, K = 1: MC 12 x 10 = 120.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable).map((statement) =>
+          statement.fiscalDate === "2025-06-30"
+            ? {
+                ...statement,
+                availableFromDate: "2025-07-15",
+                observedAt: "2025-07-15T12:00:00.000Z",
+              }
+            : statement,
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-08-11",
+          observedAt: "2025-08-11T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-06-25" },
+          "2",
+          "2025-07-20T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      { session: "2025-08-11", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M1o",
+    covers: [],
+    title:
+      "rule 3: an undated re-base separates a quarter that ended inside its interval",
+    // A 2:1 re-base measured in (2025-06-27, 2025-07-02], detected 2025-08-20 06:00. 2025Q2 ended on
+    // 2025-06-30, inside the interval, so before its latest possible day: the re-base separates "a"
+    // (observed 2025-08-14, before the detection) from "s", 2025Q2 revised on 2025-09-10 still at 10.
+    // Agreeing is not acceptance. (Rule 5's month after the interval ended on 2025-08-01.)
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-09-10",
+          observedAt: "2025-09-10T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveFrom: "2025-06-27", effectiveTo: "2025-07-02" },
+          "2",
+          "2025-08-20T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-09-10",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1p",
+    covers: [],
+    title:
+      "rule 3 without a separation: a measured re-base explains a restatement of a quarter that ended after it",
+    // As M1n, with every Income quarter restated on 2025-08-11 to 20. 2025Q2 ended after the
+    // 2025-06-25 re-base, so nothing separates its restatement from "a" (observed 2025-07-15), and the
+    // re-base explains it on rule 3's terms: detected 2025-07-20, after "a" and before the
+    // restatement, dated less than 30 days before "a" was observed, ratio 2 = 20 / 10. K = 1: MC
+    // 6 x 20 = 120.
+    security: company({
+      statements: restateCounts(
+        baseStatements(observedWhenAvailable).map((statement) =>
+          statement.fiscalDate === "2025-06-30"
+            ? {
+                ...statement,
+                availableFromDate: "2025-07-15",
+                observedAt: "2025-07-15T12:00:00.000Z",
+              }
+            : statement,
+        ),
+        ALL_QUARTERS,
+        20,
+        "2025-08-11",
+        "x2",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-06-25" },
+          "2",
+          "2025-07-20T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [{ session: "2025-08-11", close: "6", expect: AS_OF_2025Q2 }],
+  },
+  {
+    id: "M1q",
+    covers: [],
+    title:
+      "rule 3 without a separation: a restatement by another ratio than the re-base's is unexplained",
+    // M1p restated to 30 instead: 30 / 10 = 3 is not the re-base's ratio 2 within 2 %, so the
+    // restatement is unexplained.
+    security: company({
+      statements: restateCounts(
+        baseStatements(observedWhenAvailable).map((statement) =>
+          statement.fiscalDate === "2025-06-30"
+            ? {
+                ...statement,
+                availableFromDate: "2025-07-15",
+                observedAt: "2025-07-15T12:00:00.000Z",
+              }
+            : statement,
+        ),
+        ALL_QUARTERS,
+        30,
+        "2025-08-11",
+        "x3",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-06-25" },
+          "2",
+          "2025-07-20T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-08-11",
+        close: "4",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+    ],
+  },
+  {
+    id: "M1r",
+    covers: [],
+    title:
+      "rule 3: a revision observed at the very instant of the detection is after it",
+    // A 2:1 re-base dated 2025-09-01, detected 2025-10-02 06:00 — 31 days later, so rule 5's month
+    // has passed. 2025Q2 revised ("s", still 10), public 2025-10-02 and observed at 06:00 exactly: no
+    // earlier than the detection, so the re-base separates it from "a" (2025-08-14) and agreeing is
+    // not acceptance.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-10-02",
+          observedAt: "2025-10-02T06:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-09-01" },
+          "2",
+          "2025-10-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-10-02",
+        close: "6",
+        expect: all("SHARE_BASIS_UNCONFIRMED", []),
+      },
+    ],
+  },
+  {
+    id: "M1s",
+    covers: [],
+    title:
+      "rule 3 across a split: the re-base must be dated less than 30 days before the anchor was observed",
+    // A 5:4 re-base dated 2025-07-15 and detected 2025-08-20 06:00, after "a" was observed on
+    // 2025-08-14 — exactly 30 days after the re-base's date, so it is not new to "a" (the provider
+    // may have restated "a" already). Every Income quarter restated on 2025-09-10 to 12.5 = 10 x 5/4
+    // is therefore unexplained, though its ratio is exact. (Dated 2025-07-16, it would be read.)
+    security: company({
+      statements: restateCounts(
+        baseStatements(observedWhenAvailable),
+        ALL_QUARTERS,
+        12.5,
+        "2025-09-10",
+        "x125",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-07-15" },
+          "1.25",
+          "2025-08-20T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [
+      {
+        session: "2025-09-10",
+        close: "9.6",
+        expect: all("SHARE_RESTATEMENT_UNEXPLAINED", []),
+      },
+    ],
+  },
+  {
+    id: "M3f",
+    covers: [],
+    title:
+      "rule 5 before the event: a count first observed on the event's own day is not first observed before it",
+    // A 2:1 history entry dated 2025-09-15 (verified 2026-10-02). 2025Q2 ("a") is public from
+    // 2025-08-14 but first observed on 2025-09-15, the entry's day. A revision "s" (another field,
+    // still 10) is dated 2025-08-20 but observed only 2025-10-25. On 2025-08-29 "s" represents the
+    // quarter; it agrees with "a" (observed on, not before, the entry date: nothing separates them),
+    // so the count was first observed on 2025-09-15 — not in the 30 days before the entry. Read at
+    // close 12: as of 2025Q2.
+    security: company({
+      statements: revision(
+        baseStatements(observedWhenAvailable).map((statement) =>
+          statement.fiscalDate === "2025-06-30"
+            ? { ...statement, observedAt: "2025-09-15T12:00:00.000Z" }
+            : statement,
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-08-20",
+          observedAt: "2025-10-25T12:00:00.000Z",
+          values: { grossProfit: 1 },
+        },
+        "s",
+      ),
+      splits: [split("2025-09-15", "2", "1")],
+    }),
+    observations: [
+      { session: "2025-08-29", close: CLOSE, expect: AS_OF_2025Q2 },
+    ],
+  },
+  {
+    id: "M3g",
+    covers: [],
+    title:
+      "rule 5 before the event: an explained restatement's count is first observed when it is",
+    // A 2:1 re-base dated 2025-09-01, detected 2025-09-02 06:00 (verified 2025-06-01). "a" (2025Q2)
+    // was first observed on 2025-08-14, in the 30 days before it. Every Income quarter is restated to
+    // 20 by revisions dated 2025-08-20 but observed only on 2025-10-05. The re-base explains them
+    // across it, so their count is new, first observed on 2025-10-05: not in the month before the
+    // event. On 2025-08-29 the restatement reads; observed after the re-base, K = 1 against the
+    // re-based close 6: MC 120.
+    security: company({
+      statements: ALL_QUARTERS.reduce(
+        (statements, quarter) =>
+          revision(
+            statements,
+            "INCOME",
+            quarter,
+            {
+              availableFromDate: "2025-08-20",
+              observedAt: "2025-10-05T12:00:00.000Z",
+              values: {
+                weightedAverageShsOutDil: 20,
+                weightedAverageShsOut: 20,
+              },
+            },
+            "x2-late",
+          ),
+        baseStatements(observedWhenAvailable),
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      events: [
+        measured(
+          { effectiveDate: "2025-09-01" },
+          "2",
+          "2025-09-02T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [{ session: "2025-08-29", close: "6", expect: AS_OF_2025Q2 }],
+  },
+  {
+    id: "M3h",
+    covers: [],
+    title:
+      "rule 5 before the event: a count agreeing with an explained restatement was first observed with it",
+    // A 2:1 re-base dated 2025-09-15, detected 2025-09-16 06:00; every Income quarter restated to 20
+    // on 2025-10-20 (explained, a new count first observed then). 2025Q2 revised on 2025-12-10 ("s",
+    // another field, 20): its anchor is the restatement, observed after the detection, so nothing
+    // separates them; it agrees, and its count was first observed on 2025-10-20. A listed
+    // distribution (1046:1000) on 2025-12-20, after verification, opens a window from 2025-11-20;
+    // the count is older than that, so 2025-12-15 reads: K = 1, MC 6 x 20 = 120.
+    security: company({
+      statements: revision(
+        restateCounts(
+          baseStatements(observedWhenAvailable),
+          ALL_QUARTERS,
+          20,
+          "2025-10-20",
+          "x2",
+        ),
+        "INCOME",
+        "2025Q2",
+        {
+          availableFromDate: "2025-12-10",
+          observedAt: "2025-12-10T12:00:00.000Z",
+          values: {
+            grossProfit: 1,
+            weightedAverageShsOutDil: 20,
+            weightedAverageShsOut: 20,
+          },
+        },
+        "s",
+      ),
+      verifiedAt: "2025-06-01T05:00:00.000Z",
+      splits: [split("2025-12-20", "1046", "1000")],
+      events: [
+        measured(
+          { effectiveDate: "2025-09-15" },
+          "2",
+          "2025-09-16T06:00:00.000Z",
+        ),
+      ],
+    }),
+    observations: [{ session: "2025-12-15", close: "6", expect: AS_OF_2025Q2 }],
+  },
 ];
 
 /**
