@@ -321,20 +321,27 @@ cloud_is_stripe_test_key() {
   esac
 }
 
+# cloud_add_refusal <variable> <reason>
 cloud_add_refusal() {
-  CLOUD_REFUSALS="${CLOUD_REFUSALS}- $1
+  CLOUD_REFUSALS="${CLOUD_REFUSALS}- $2
 "
+  case " $CLOUD_REFUSED_VARS " in
+    *" $1 "*) ;;
+    *) CLOUD_REFUSED_VARS="$CLOUD_REFUSED_VARS $1" ;;
+  esac
 }
 
-# Sets CLOUD_REFUSALS (newline-separated reasons) and CLOUD_NEUTRALIZE (variable names). Reads the
-# environment only; changes nothing. Never prints a value.
+# Sets CLOUD_REFUSALS (newline-separated reasons), CLOUD_REFUSED_VARS (the variables responsible,
+# which session-start.sh blanks so no later command can act on them) and CLOUD_NEUTRALIZE (names).
+# Reads the environment only; changes nothing. Never prints a value.
 cloud_evaluate_environment() {
   local name value host
   CLOUD_REFUSALS=""
+  CLOUD_REFUSED_VARS=""
   CLOUD_NEUTRALIZE=""
 
   if [ "${NODE_ENV:-}" = "production" ]; then
-    cloud_add_refusal "NODE_ENV is production. Cloud sessions are development/test only."
+    cloud_add_refusal NODE_ENV "NODE_ENV is production. Cloud sessions are development/test only."
   fi
 
   for name in $CLOUD_LOCAL_URL_VARS; do
@@ -342,23 +349,24 @@ cloud_evaluate_environment() {
     [ -n "$value" ] || continue
     host="$(cloud_url_field host "$value")"
     if ! cloud_is_loopback_host "$host"; then
-      cloud_add_refusal "$name does not point at this machine (host '${host:-unparseable}')."
+      cloud_add_refusal "$name" "$name does not point at this machine (host '${host:-unparseable}')."
     fi
   done
 
   if [ -n "${DATABASE_URL:-}" ] && [ "${DATABASE_URL:-}" = "${TEST_DATABASE_URL:-}" ]; then
-    cloud_add_refusal "DATABASE_URL and TEST_DATABASE_URL name the same database."
+    cloud_add_refusal TEST_DATABASE_URL "DATABASE_URL and TEST_DATABASE_URL name the same database."
   fi
 
   for name in STRIPE_SECRET_KEY STRIPE_API_KEY SANDBOX_STRIPE_SECRET_KEY; do
     value="${!name:-}"
     if cloud_is_stripe_live_key "$value"; then
-      cloud_add_refusal "$name is a LIVE-mode Stripe key. Only sandbox/test keys may exist here."
+      cloud_add_refusal "$name" "$name is a LIVE-mode Stripe key. Only sandbox/test keys may exist here."
     fi
   done
   value="${SANDBOX_STRIPE_SECRET_KEY:-}"
   if [ -n "$value" ] && ! cloud_is_stripe_test_key "$value"; then
-    cloud_add_refusal "SANDBOX_STRIPE_SECRET_KEY is not a test-mode key (sk_test_/rk_test_)."
+    cloud_add_refusal SANDBOX_STRIPE_SECRET_KEY \
+      "SANDBOX_STRIPE_SECRET_KEY is not a test-mode key (sk_test_/rk_test_)."
   fi
 
   for name in $CLOUD_NEUTRALIZED_VARS; do

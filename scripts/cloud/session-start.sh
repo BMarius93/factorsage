@@ -58,7 +58,9 @@ rm -f "$CLOUD_RUNTIME_DIR/REFUSED"
 if [ -n "$CLOUD_REFUSALS" ]; then
   printf '%s' "$CLOUD_REFUSALS" >"$CLOUD_RUNTIME_DIR/REFUSED"
 fi
-for name in $CLOUD_NEUTRALIZE; do
+# A refused variable is blanked as well, so no command later in the session — a seed, a reset, a
+# migration typed by hand — can act on the production database or live key it named.
+for name in $CLOUD_REFUSED_VARS $CLOUD_NEUTRALIZE; do
   export "$name="
   persist "export $name="
 done
@@ -77,8 +79,8 @@ step "pnpm $(cloud_pnpm_version)" cloud_install_pnpm
 if [ -n "$CLOUD_REFUSALS" ]; then
   echo "FactorSage cloud environment: REFUSED — nothing was provisioned."
   printf '%s' "$CLOUD_REFUSALS"
+  echo "Blanked for this session:$CLOUD_REFUSED_VARS$CLOUD_NEUTRALIZE"
   echo "Fix the Claude environment variables, then start a new session."
-  echo "scripts/cloud/stack.sh and with-stripe.sh refuse to run until then."
   exit 0
 fi
 
