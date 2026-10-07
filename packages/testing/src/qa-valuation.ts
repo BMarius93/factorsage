@@ -32,8 +32,10 @@
  *
  * What the rules make of it, per ratio (`QA_VALUATION_AVAILABILITY`):
  *
- * - P/E, P/S and EV/EBITDA need a trailing year: available from week 45. P/B needs one quarter:
- *   from week 6. P/FCF's free cash flow is never positive: unavailable on every session.
+ * - P/E, P/S and EV/EBITDA need a trailing year: available from week 45. P/B needs one quarter's
+ *   statements, but rule 2 confirms the walk's first count only on the third quarter agreeing with
+ *   it (owner, 2026-10-06): from week 32, when quarter 2 is public. P/FCF's free cash flow is never
+ *   positive: unavailable on every session.
  * - Every session before week 130 reads its count, observed before the re-base was detected, against
  *   the close restored to that basis (x1.05). From week 130 the counts observed before the detection
  *   cannot be placed (rule 6), and from week 136 — quarter 10, observed after it — the ratios still
@@ -55,7 +57,10 @@ export type QaValuationQuarter = {
 /** Weeks of seeded history: the same calendar as the price and fundamentals fixtures. */
 export const QA_VALUATION_HISTORY_WEEKS = 160;
 
-/** Diluted shares on every quarter: the count holds one level, so no quarter is withheld for it. */
+/**
+ * Diluted shares on every quarter: one level, confirmed on quarter 2 (rule 2's third agreeing
+ * quarter), so no later quarter is withheld for it.
+ */
 export const QA_VALUATION_SHARES = 1_000_000;
 
 /** The week whose Monday the history was first verified on. */
@@ -99,7 +104,7 @@ export function qaValuationPublicWeek(index: number): number {
 export const QA_VALUATION_AVAILABILITY = {
   PRICE_TO_EARNINGS_TTM: { fromWeek: 45 },
   PRICE_TO_SALES_TTM: { fromWeek: 45 },
-  PRICE_TO_BOOK: { fromWeek: 6 },
+  PRICE_TO_BOOK: { fromWeek: 32 },
   PRICE_TO_FCF_TTM: null,
   EV_TO_EBITDA_TTM: { fromWeek: 45 },
 } as const satisfies Readonly<Record<string, { fromWeek: number } | null>>;

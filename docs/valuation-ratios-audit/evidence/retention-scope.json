@@ -1,0 +1,1325 @@
+{
+  "database": "intrinsic_value_valaudit",
+  "retainedAvailableAllRowsWithheld": 0,
+  "retainedWithheldAllRowsAvailable": 13302,
+  "valuesDiffer": 0,
+  "bySecurity": {
+    "AAL": {
+      "retentionFrom": "2005-09-27",
+      "outsideRetention": 240,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 208,
+          "first": "2005-09-27",
+          "last": "2006-07-25",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 19,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 123,
+            "INCOMPLETE_WINDOW": 66
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 208,
+          "first": "2005-09-27",
+          "last": "2006-07-25",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 19,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 123,
+            "INCOMPLETE_WINDOW": 66
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 208,
+          "first": "2005-09-27",
+          "last": "2006-07-25",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 19,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 123,
+            "INCOMPLETE_WINDOW": 66
+          }
+        }
+      ]
+    },
+    "ABNB": {
+      "retentionFrom": "2020-12-10",
+      "outsideRetention": 20,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 229,
+          "first": "2020-12-10",
+          "last": "2021-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 53,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 117,
+            "INCOMPLETE_WINDOW": 59
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 170,
+          "first": "2020-12-10",
+          "last": "2021-08-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 53,
+            "SHARE_LEVEL_UNSAFE": 117
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 122,
+          "first": "2021-05-17",
+          "last": "2021-11-05",
+          "reasons": {
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 63,
+            "INCOMPLETE_WINDOW": 59
+          }
+        }
+      ]
+    },
+    "ALAB": {
+      "retentionFrom": "2024-03-20",
+      "outsideRetention": 19,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 228,
+          "first": "2024-03-20",
+          "last": "2025-02-14",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 127,
+            "INCOMPLETE_WINDOW": 61
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 132,
+          "first": "2024-05-09",
+          "last": "2024-11-14",
+          "reasons": {
+            "MISSING_SHARE_COUNT": 5,
+            "SHARE_LEVEL_UNSAFE": 127
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 131,
+          "first": "2024-08-08",
+          "last": "2025-02-14",
+          "reasons": {
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 70,
+            "INCOMPLETE_WINDOW": 61
+          }
+        }
+      ]
+    },
+    "AMZN": {
+      "retentionFrom": "1997-05-15",
+      "outsideRetention": 11,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 218,
+          "first": "1997-11-17",
+          "last": "1998-11-13",
+          "reasons": {
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 91,
+            "SHARE_LEVEL_UNSAFE": 127
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 218,
+          "first": "1997-11-17",
+          "last": "1998-11-13",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 218
+          }
+        }
+      ]
+    },
+    "ARM": {
+      "retentionFrom": "2023-09-14",
+      "outsideRetention": 19,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 221,
+          "first": "2023-09-15",
+          "last": "2024-08-01",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 137,
+            "INCOMPLETE_WINDOW": 44
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 221,
+          "first": "2023-09-15",
+          "last": "2024-08-01",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 137,
+            "INCOMPLETE_WINDOW": 44
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 177,
+          "first": "2023-09-15",
+          "last": "2024-05-29",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40,
+            "SHARE_LEVEL_UNSAFE": 137
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 221,
+          "first": "2023-09-15",
+          "last": "2024-08-01",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 137,
+            "INCOMPLETE_WINDOW": 44
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 221,
+          "first": "2023-09-15",
+          "last": "2024-08-01",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 137,
+            "INCOMPLETE_WINDOW": 44
+          }
+        }
+      ]
+    },
+    "CAVA": {
+      "retentionFrom": "2023-06-16",
+      "outsideRetention": 21,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2023-06-15",
+          "last": "2023-08-23",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2023-06-15",
+          "last": "2023-08-23",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        }
+      ]
+    },
+    "CRCL": {
+      "retentionFrom": "2025-06-04",
+      "outsideRetention": 27,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2025-06-04",
+          "last": "2025-08-12",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2025-06-04",
+          "last": "2025-08-12",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2025-06-04",
+          "last": "2025-08-12",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2025-06-04",
+          "last": "2025-08-12",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 48,
+          "first": "2025-06-04",
+          "last": "2025-08-12",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 48
+          }
+        }
+      ]
+    },
+    "CRM": {
+      "retentionFrom": "2004-06-23",
+      "outsideRetention": 18,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 231,
+          "first": "2004-06-23",
+          "last": "2005-05-20",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 45,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 146,
+            "INCOMPLETE_WINDOW": 40
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 231,
+          "first": "2004-06-23",
+          "last": "2005-05-20",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 45,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 146,
+            "INCOMPLETE_WINDOW": 40
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 146,
+          "first": "2004-08-26",
+          "last": "2005-03-24",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 146
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 40,
+          "first": "2005-03-28",
+          "last": "2005-05-20",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 40
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 40,
+          "first": "2005-03-28",
+          "last": "2005-05-20",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 40
+          }
+        }
+      ]
+    },
+    "CRWD": {
+      "retentionFrom": "2019-06-12",
+      "outsideRetention": 25,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 247,
+          "first": "2019-06-12",
+          "last": "2020-06-03",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 61,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 136,
+            "INCOMPLETE_WINDOW": 50
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 197,
+          "first": "2019-06-12",
+          "last": "2020-03-23",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 61,
+            "SHARE_LEVEL_UNSAFE": 136
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 50,
+          "first": "2020-03-24",
+          "last": "2020-06-03",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 50
+          }
+        }
+      ]
+    },
+    "CRWV": {
+      "retentionFrom": "2025-03-28",
+      "outsideRetention": 21,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 232,
+          "first": "2025-03-28",
+          "last": "2026-03-02",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 34,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 126,
+            "INCOMPLETE_WINDOW": 72
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 230,
+          "first": "2025-04-01",
+          "last": "2026-03-02",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 32,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 126,
+            "INCOMPLETE_WINDOW": 72
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 126,
+          "first": "2025-05-16",
+          "last": "2025-11-13",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 126
+          }
+        }
+      ]
+    },
+    "DDOG": {
+      "retentionFrom": "2019-09-19",
+      "outsideRetention": 22,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 40,
+          "first": "2019-09-19",
+          "last": "2019-11-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 40,
+          "first": "2019-09-19",
+          "last": "2019-11-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 40
+          }
+        }
+      ]
+    },
+    "FIG": {
+      "retentionFrom": "2025-07-31",
+      "outsideRetention": 24,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 255,
+          "first": "2025-07-31",
+          "last": "2026-08-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 69,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 130,
+            "INCOMPLETE_WINDOW": 56
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 199,
+          "first": "2025-07-31",
+          "last": "2026-05-14",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 69,
+            "SHARE_LEVEL_UNSAFE": 130
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 255,
+          "first": "2025-07-31",
+          "last": "2026-08-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 69,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 130,
+            "INCOMPLETE_WINDOW": 56
+          }
+        },
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 45,
+          "first": "2025-09-04",
+          "last": "2025-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 45
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 45,
+          "first": "2025-09-04",
+          "last": "2025-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 45
+          }
+        }
+      ]
+    },
+    "FTNT": {
+      "retentionFrom": "2009-11-18",
+      "outsideRetention": 21,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 244,
+          "first": "2009-11-18",
+          "last": "2010-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 73,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 107,
+            "INCOMPLETE_WINDOW": 64
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 244,
+          "first": "2009-11-18",
+          "last": "2010-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 73,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 107,
+            "INCOMPLETE_WINDOW": 64
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 180,
+          "first": "2009-11-18",
+          "last": "2010-08-06",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 73,
+            "SHARE_LEVEL_UNSAFE": 107
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 244,
+          "first": "2009-11-18",
+          "last": "2010-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 73,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 107,
+            "INCOMPLETE_WINDOW": 64
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 244,
+          "first": "2009-11-18",
+          "last": "2010-11-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 73,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 107,
+            "INCOMPLETE_WINDOW": 64
+          }
+        }
+      ]
+    },
+    "GS": {
+      "retentionFrom": "1999-05-04",
+      "outsideRetention": 2,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 89,
+          "first": "1999-10-08",
+          "last": "2000-02-14",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 89
+          }
+        },
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 38,
+          "first": "2000-02-15",
+          "last": "2000-04-07",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 38
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 38,
+          "first": "2000-02-15",
+          "last": "2000-04-07",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 38
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 38,
+          "first": "2000-02-15",
+          "last": "2000-04-07",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 38
+          }
+        }
+      ]
+    },
+    "HOOD": {
+      "retentionFrom": "2021-07-29",
+      "outsideRetention": 25,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 256,
+          "first": "2021-07-29",
+          "last": "2022-08-03",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 66,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 130,
+            "INCOMPLETE_WINDOW": 60
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 66,
+          "first": "2021-07-29",
+          "last": "2021-10-29",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 66
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 111,
+          "first": "2021-08-19",
+          "last": "2022-08-03",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 51,
+            "INCOMPLETE_WINDOW": 60
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 130,
+          "first": "2021-11-01",
+          "last": "2022-05-06",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 130
+          }
+        }
+      ]
+    },
+    "MBLY": {
+      "retentionFrom": "2022-10-26",
+      "outsideRetention": 26,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 262,
+          "first": "2022-10-26",
+          "last": "2023-11-09",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 92,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 106,
+            "INCOMPLETE_WINDOW": 64
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 198,
+          "first": "2022-10-26",
+          "last": "2023-08-10",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 92,
+            "SHARE_LEVEL_UNSAFE": 106
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 262,
+          "first": "2022-10-26",
+          "last": "2023-11-09",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 92,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 106,
+            "INCOMPLETE_WINDOW": 64
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 262,
+          "first": "2022-10-26",
+          "last": "2023-11-09",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 92,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 106,
+            "INCOMPLETE_WINDOW": 64
+          }
+        }
+      ]
+    },
+    "META": {
+      "retentionFrom": "2012-05-18",
+      "outsideRetention": 22,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 111,
+          "first": "2012-05-18",
+          "last": "2012-10-24",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 51,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 60
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 111,
+          "first": "2012-05-18",
+          "last": "2012-10-24",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 51,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 60
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 111,
+          "first": "2012-05-18",
+          "last": "2012-10-24",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 51,
+            "SHARE_LEVEL_UNSAFE": 60
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 111,
+          "first": "2012-05-18",
+          "last": "2012-10-24",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 51,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 60
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 111,
+          "first": "2012-05-18",
+          "last": "2012-10-24",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 51,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 60
+          }
+        }
+      ]
+    },
+    "MPWR": {
+      "retentionFrom": "2004-11-19",
+      "outsideRetention": 30,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 91,
+          "first": "2004-11-19",
+          "last": "2006-03-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 90,
+            "INCOMPLETE_WINDOW": 1
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 90,
+          "first": "2004-11-19",
+          "last": "2005-03-31",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 90
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 91,
+          "first": "2004-11-19",
+          "last": "2006-03-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 90,
+            "INCOMPLETE_WINDOW": 1
+          }
+        }
+      ]
+    },
+    "MRNA": {
+      "retentionFrom": "2018-12-07",
+      "outsideRetention": 25,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 231,
+          "first": "2018-12-07",
+          "last": "2019-11-06",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 65,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 103,
+            "INCOMPLETE_WINDOW": 63
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 168,
+          "first": "2018-12-07",
+          "last": "2019-08-08",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 65,
+            "SHARE_LEVEL_UNSAFE": 103
+          }
+        }
+      ]
+    },
+    "MSTR": {
+      "retentionFrom": "1998-06-11",
+      "outsideRetention": 4,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 88,
+          "first": "1998-11-17",
+          "last": "1999-03-25",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 88
+          }
+        },
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 35,
+          "first": "1999-03-26",
+          "last": "1999-05-14",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 35
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 35,
+          "first": "1999-03-26",
+          "last": "1999-05-14",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 35
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 35,
+          "first": "1999-03-26",
+          "last": "1999-05-14",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 35
+          }
+        }
+      ]
+    },
+    "PANW": {
+      "retentionFrom": "2012-07-20",
+      "outsideRetention": 21,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 218,
+          "first": "2012-07-20",
+          "last": "2013-06-04",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 54,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 101,
+            "INCOMPLETE_WINDOW": 63
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 155,
+          "first": "2012-07-20",
+          "last": "2013-03-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 54,
+            "SHARE_LEVEL_UNSAFE": 101
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 218,
+          "first": "2012-07-20",
+          "last": "2013-06-04",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 54,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 101,
+            "INCOMPLETE_WINDOW": 63
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 155,
+          "first": "2012-07-20",
+          "last": "2013-03-05",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 54,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 101
+          }
+        },
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 44,
+          "first": "2012-10-05",
+          "last": "2012-12-10",
+          "reasons": {
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 44
+          }
+        }
+      ]
+    },
+    "PLTR": {
+      "retentionFrom": "2020-09-30",
+      "outsideRetention": 18,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 103,
+          "first": "2020-09-30",
+          "last": "2021-02-26",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 33,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 70
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 70,
+          "first": "2020-11-16",
+          "last": "2021-02-26",
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 70
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 70,
+          "first": "2020-11-16",
+          "last": "2021-02-26",
+          "reasons": {
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 70
+          }
+        }
+      ]
+    },
+    "RDDT": {
+      "retentionFrom": "2024-03-21",
+      "outsideRetention": 46,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 226,
+          "first": "2024-03-21",
+          "last": "2025-02-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 34,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 121,
+            "INCOMPLETE_WINDOW": 71
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 155,
+          "first": "2024-03-21",
+          "last": "2024-10-30",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 34,
+            "SHARE_LEVEL_UNSAFE": 121
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 130,
+          "first": "2024-08-08",
+          "last": "2025-02-13",
+          "reasons": {
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 59,
+            "INCOMPLETE_WINDOW": 71
+          }
+        }
+      ]
+    },
+    "RIVN": {
+      "retentionFrom": "2021-11-10",
+      "outsideRetention": 25,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 71,
+          "first": "2021-12-20",
+          "last": "2022-03-31",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 71
+          }
+        }
+      ]
+    },
+    "ROP": {
+      "retentionFrom": "1992-02-13",
+      "outsideRetention": 9,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 95,
+          "first": "1992-12-16",
+          "last": "1993-05-03",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 95
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 95,
+          "first": "1992-12-16",
+          "last": "1993-05-03",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 95
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 95,
+          "first": "1992-12-16",
+          "last": "1993-05-03",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 95
+          }
+        }
+      ]
+    },
+    "UBER": {
+      "retentionFrom": "2019-05-10",
+      "outsideRetention": 26,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 17,
+          "first": "2019-05-10",
+          "last": "2019-06-04",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 17
+          }
+        },
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 191,
+          "first": "2019-05-10",
+          "last": "2020-05-08",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 64,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 127
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 191,
+          "first": "2019-05-10",
+          "last": "2020-05-08",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 64,
+            "SHARE_LEVEL_UNSAFE": 127
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 17,
+          "first": "2019-05-10",
+          "last": "2019-06-04",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 17
+          }
+        }
+      ]
+    },
+    "V": {
+      "retentionFrom": "2008-03-19",
+      "outsideRetention": 32,
+      "cells": [
+        {
+          "ratio": "PRICE_TO_SALES_TTM",
+          "change": "retained withheld, every row available",
+          "count": 226,
+          "first": "2008-03-19",
+          "last": "2009-02-09",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 39,
+            "INCOMPLETE_WINDOW,SHARE_LEVEL_UNSAFE": 135,
+            "INCOMPLETE_WINDOW": 52
+          }
+        },
+        {
+          "ratio": "PRICE_TO_BOOK",
+          "change": "retained withheld, every row available",
+          "count": 174,
+          "first": "2008-03-19",
+          "last": "2008-11-21",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 39,
+            "SHARE_LEVEL_UNSAFE": 135
+          }
+        },
+        {
+          "ratio": "PRICE_TO_FCF_TTM",
+          "change": "retained withheld, every row available",
+          "count": 39,
+          "first": "2008-03-19",
+          "last": "2008-05-13",
+          "reasons": {
+            "MISSING_SHARE_COUNT,INCOMPLETE_WINDOW": 39
+          }
+        },
+        {
+          "ratio": "PRICE_TO_EARNINGS_TTM",
+          "change": "retained withheld, every row available",
+          "count": 52,
+          "first": "2008-11-24",
+          "last": "2009-02-09",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 52
+          }
+        },
+        {
+          "ratio": "EV_TO_EBITDA_TTM",
+          "change": "retained withheld, every row available",
+          "count": 52,
+          "first": "2008-11-24",
+          "last": "2009-02-09",
+          "reasons": {
+            "INCOMPLETE_WINDOW": 52
+          }
+        }
+      ]
+    }
+  },
+  "firstCountExposure": {
+    "securities": 9,
+    "availableCells": 0,
+    "rows": [
+      {
+        "symbol": "AMZN",
+        "firstQuarter": "1997Q2",
+        "firstCount": 4466666667,
+        "nextQuarter": "1997Q3",
+        "nextCount": 5666666667,
+        "nextOverFirst": 1.2687,
+        "from": "1997-08-15",
+        "to": "1997-11-14",
+        "sessions": 65,
+        "availableCells": {}
+      },
+      {
+        "symbol": "CAVA",
+        "firstQuarter": "2023Q2",
+        "firstCount": 31279000,
+        "nextQuarter": "2023Q3",
+        "nextCount": 47363500,
+        "nextOverFirst": 1.5142,
+        "from": "2023-08-24",
+        "to": "2023-11-15",
+        "sessions": 59,
+        "availableCells": {}
+      },
+      {
+        "symbol": "CRCL",
+        "firstQuarter": "2025Q2",
+        "firstCount": 107514000,
+        "nextQuarter": "2025Q3",
+        "nextCount": 234200000,
+        "nextOverFirst": 2.1783,
+        "from": "2025-08-13",
+        "to": "2025-11-12",
+        "sessions": 65,
+        "availableCells": {}
+      },
+      {
+        "symbol": "META",
+        "firstQuarter": "2012Q2",
+        "firstCount": 1879000015,
+        "nextQuarter": "2012Q3",
+        "nextCount": 2420000019,
+        "nextOverFirst": 1.2879,
+        "from": "2012-08-01",
+        "to": "2012-10-24",
+        "sessions": 60,
+        "availableCells": {}
+      },
+      {
+        "symbol": "ODFL",
+        "firstQuarter": "1991Q4",
+        "firstCount": 147187092,
+        "nextQuarter": "1992Q1",
+        "nextCount": 194978696,
+        "nextOverFirst": 1.3247,
+        "sessions": 0,
+        "availableCells": {}
+      },
+      {
+        "symbol": "PLTR",
+        "firstQuarter": "2020Q3",
+        "firstCount": 905462010,
+        "nextQuarter": "2020Q4",
+        "nextCount": 1763513922,
+        "nextOverFirst": 1.9476,
+        "from": "2020-11-16",
+        "to": "2021-02-26",
+        "sessions": 70,
+        "availableCells": {}
+      },
+      {
+        "symbol": "RIVN",
+        "firstQuarter": "2021Q4",
+        "firstCount": 510000000,
+        "nextQuarter": "2022Q1",
+        "nextCount": 901000000,
+        "nextOverFirst": 1.7667,
+        "from": "2022-04-01",
+        "to": "2022-05-11",
+        "sessions": 28,
+        "availableCells": {}
+      },
+      {
+        "symbol": "UBER",
+        "firstQuarter": "2019Q2",
+        "firstCount": 1110704000,
+        "nextQuarter": "2019Q3",
+        "nextCount": 1700213000,
+        "nextOverFirst": 1.5308,
+        "from": "2019-08-12",
+        "to": "2019-11-05",
+        "sessions": 61,
+        "availableCells": {}
+      },
+      {
+        "symbol": "UNH",
+        "firstQuarter": "1989Q4",
+        "firstCount": 960000000,
+        "nextQuarter": "1990Q1",
+        "nextCount": 670000000,
+        "nextOverFirst": 0.6979,
+        "sessions": 0,
+        "availableCells": {}
+      }
+    ]
+  }
+}

@@ -607,8 +607,13 @@ enum PriceBasisEventKind {
 /// One measured re-base of one security's stored price history. Append-only.
 ///
 /// A `MEASURED` event is dated by `effectiveDate`, the first session of the new basis, or, when its
-/// ex-date fell between two reads, undated: the event lies in `(effectiveFrom, effectiveTo]`, with an
-/// open end when the provider had not yet published a session after it. `priceRatio` is the stored
+/// ex-date fell between two reads, undated: the event lies in `(effectiveFrom, effectiveTo]`. The
+/// writer always sets `effectiveTo` (`docs/decisions/historical-price-basis-v1.md` §8): for an event
+/// after the newest compared session, the newest session the provider had published after it or,
+/// with none, the later of the detection's date and the day after that session; between two runs of
+/// one ratio each, the first session of the newer run; after a stretch whose sessions admit both
+/// ratios, the first session that cannot be on the old one (or, when all can, as for an event after
+/// the newest compared session). `priceRatio` is the stored
 /// close over the new close of every row before the event. An `UNEXPLAINED` event carries no ratio;
 /// `effectiveFrom` and `effectiveTo` are then the first and last changed sessions, both inclusive.
 model PriceBasisEvent {

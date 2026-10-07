@@ -1,0 +1,1115 @@
+{
+  "database": "intrinsic_value_valaudit",
+  "securities": 2,
+  "storedSessions": 15471,
+  "durationMs": 12543,
+  "providerCalls": [],
+  "refusedReads": [],
+  "sessionMismatches": [],
+  "divergences": {},
+  "layers": {
+    "pure": {
+      "comparisons": 77355,
+      "AVAILABLE_MATCH": 66223,
+      "EXPECTED_UNAVAILABLE": 11132,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "exactValueMatches": 3,
+      "maxAbsoluteDifference": 2.8042909194600638e-14,
+      "maxRelativeDifference": 3.6702902498498334e-16,
+      "maxToleranceUsed": 0.009524376317290218,
+      "relativeToleranceBuckets": {
+        "<=1e-13": 66223,
+        "<=1e-9": 0,
+        "<=1e-6": 0,
+        "<=1e-3": 0,
+        ">1e-3": 0
+      },
+      "relativeDifferenceP50": 4.4899652547620927e-17,
+      "relativeDifferenceP95": 1.3821596736630025e-16,
+      "relativeDifferenceP99": 1.9385853494913738e-16,
+      "perRatio": {
+        "PRICE_TO_EARNINGS_TTM": {
+          "AVAILABLE_MATCH": 14744,
+          "EXPECTED_UNAVAILABLE": 727,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 14744,
+          "unavailableByReference": 727,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 490
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 490
+          }
+        },
+        "PRICE_TO_SALES_TTM": {
+          "AVAILABLE_MATCH": 14744,
+          "EXPECTED_UNAVAILABLE": 727,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 14744,
+          "unavailableByReference": 727,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 490
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 490
+          }
+        },
+        "PRICE_TO_BOOK": {
+          "AVAILABLE_MATCH": 14934,
+          "EXPECTED_UNAVAILABLE": 537,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 14934,
+          "unavailableByReference": 537,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "SHARE_LEVEL_UNSAFE": 490
+          },
+          "soleReasons": {
+            "SHARE_LEVEL_UNSAFE": 490
+          }
+        },
+        "PRICE_TO_FCF_TTM": {
+          "AVAILABLE_MATCH": 7057,
+          "EXPECTED_UNAVAILABLE": 8414,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 7057,
+          "unavailableByReference": 8414,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 8128,
+            "SHARE_LEVEL_UNSAFE": 49
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7687,
+            "SHARE_LEVEL_UNSAFE": 49
+          }
+        },
+        "EV_TO_EBITDA_TTM": {
+          "AVAILABLE_MATCH": 14744,
+          "EXPECTED_UNAVAILABLE": 727,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 14744,
+          "unavailableByReference": 727,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 490
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 490
+          }
+        }
+      },
+      "bitDisagreementsWithPure": 0,
+      "failures": []
+    },
+    "strategy-frame": {
+      "comparisons": 72215,
+      "AVAILABLE_MATCH": 61847,
+      "EXPECTED_UNAVAILABLE": 10368,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "exactValueMatches": 3,
+      "maxAbsoluteDifference": 2.8042909194600638e-14,
+      "maxRelativeDifference": 3.6702902498498334e-16,
+      "maxToleranceUsed": 0.009524376317290218,
+      "relativeToleranceBuckets": {
+        "<=1e-13": 61847,
+        "<=1e-9": 0,
+        "<=1e-6": 0,
+        "<=1e-3": 0,
+        ">1e-3": 0
+      },
+      "relativeDifferenceP50": 4.5348649073097135e-17,
+      "relativeDifferenceP95": 1.3959812703996327e-16,
+      "relativeDifferenceP99": 1.9579712029862877e-16,
+      "perRatio": {
+        "PRICE_TO_EARNINGS_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_SALES_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_BOOK": {
+          "AVAILABLE_MATCH": 13988,
+          "EXPECTED_UNAVAILABLE": 455,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13988,
+          "unavailableByReference": 455,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_FCF_TTM": {
+          "AVAILABLE_MATCH": 6465,
+          "EXPECTED_UNAVAILABLE": 7978,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 6465,
+          "unavailableByReference": 7978,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7741
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7333
+          }
+        },
+        "EV_TO_EBITDA_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        }
+      },
+      "bitDisagreementsWithPure": 0,
+      "failures": []
+    },
+    "backtest-window": {
+      "comparisons": 72215,
+      "AVAILABLE_MATCH": 61847,
+      "EXPECTED_UNAVAILABLE": 10368,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "exactValueMatches": 3,
+      "maxAbsoluteDifference": 2.8042909194600638e-14,
+      "maxRelativeDifference": 3.6702902498498334e-16,
+      "maxToleranceUsed": 0.009524376317290218,
+      "relativeToleranceBuckets": {
+        "<=1e-13": 61847,
+        "<=1e-9": 0,
+        "<=1e-6": 0,
+        "<=1e-3": 0,
+        ">1e-3": 0
+      },
+      "relativeDifferenceP50": 4.5348649073097135e-17,
+      "relativeDifferenceP95": 1.3959812703996327e-16,
+      "relativeDifferenceP99": 1.9579712029862877e-16,
+      "perRatio": {
+        "PRICE_TO_EARNINGS_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_SALES_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_BOOK": {
+          "AVAILABLE_MATCH": 13988,
+          "EXPECTED_UNAVAILABLE": 455,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13988,
+          "unavailableByReference": 455,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_FCF_TTM": {
+          "AVAILABLE_MATCH": 6465,
+          "EXPECTED_UNAVAILABLE": 7978,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 6465,
+          "unavailableByReference": 7978,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7741
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7333
+          }
+        },
+        "EV_TO_EBITDA_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        }
+      },
+      "bitDisagreementsWithPure": 0,
+      "failures": []
+    },
+    "monitor-closed": {
+      "comparisons": 4000,
+      "AVAILABLE_MATCH": 3278,
+      "EXPECTED_UNAVAILABLE": 722,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "exactValueMatches": 0,
+      "maxAbsoluteDifference": 3.750842386887473e-15,
+      "maxRelativeDifference": 2.679613693093187e-16,
+      "maxToleranceUsed": 0.009428052523211996,
+      "relativeToleranceBuckets": {
+        "<=1e-13": 3278,
+        "<=1e-9": 0,
+        "<=1e-6": 0,
+        "<=1e-3": 0,
+        ">1e-3": 0
+      },
+      "relativeDifferenceP50": 4.445510153229795e-17,
+      "relativeDifferenceP95": 1.5574521159225065e-16,
+      "relativeDifferenceP99": 2.1202022465803807e-16,
+      "perRatio": {
+        "PRICE_TO_EARNINGS_TTM": {
+          "AVAILABLE_MATCH": 800,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 800,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        },
+        "PRICE_TO_SALES_TTM": {
+          "AVAILABLE_MATCH": 800,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 800,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        },
+        "PRICE_TO_BOOK": {
+          "AVAILABLE_MATCH": 800,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 800,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        },
+        "PRICE_TO_FCF_TTM": {
+          "AVAILABLE_MATCH": 78,
+          "EXPECTED_UNAVAILABLE": 722,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 78,
+          "unavailableByReference": 722,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 722
+          },
+          "soleReasons": {
+            "NON_POSITIVE_DENOMINATOR": 722
+          }
+        },
+        "EV_TO_EBITDA_TTM": {
+          "AVAILABLE_MATCH": 800,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 800,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        }
+      },
+      "bitDisagreementsWithPure": 0,
+      "failures": []
+    },
+    "monitor-provisional": {
+      "comparisons": 10,
+      "AVAILABLE_MATCH": 8,
+      "EXPECTED_UNAVAILABLE": 2,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "exactValueMatches": 0,
+      "maxAbsoluteDifference": 6.95136870974323e-16,
+      "maxRelativeDifference": 6.148132595354264e-17,
+      "maxToleranceUsed": 0.0021631818488642082,
+      "relativeToleranceBuckets": {
+        "<=1e-13": 8,
+        "<=1e-9": 0,
+        "<=1e-6": 0,
+        "<=1e-3": 0,
+        ">1e-3": 0
+      },
+      "relativeDifferenceP50": 1.8892240309628048e-17,
+      "relativeDifferenceP95": 5.644618271956292e-17,
+      "relativeDifferenceP99": 5.644618271956292e-17,
+      "perRatio": {
+        "PRICE_TO_EARNINGS_TTM": {
+          "AVAILABLE_MATCH": 2,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 2,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        },
+        "PRICE_TO_SALES_TTM": {
+          "AVAILABLE_MATCH": 2,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 2,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        },
+        "PRICE_TO_BOOK": {
+          "AVAILABLE_MATCH": 2,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 2,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        },
+        "PRICE_TO_FCF_TTM": {
+          "AVAILABLE_MATCH": 0,
+          "EXPECTED_UNAVAILABLE": 2,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 0,
+          "unavailableByReference": 2,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 2
+          },
+          "soleReasons": {
+            "NON_POSITIVE_DENOMINATOR": 2
+          }
+        },
+        "EV_TO_EBITDA_TTM": {
+          "AVAILABLE_MATCH": 2,
+          "EXPECTED_UNAVAILABLE": 0,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 2,
+          "unavailableByReference": 0,
+          "reasons": {},
+          "soleReasons": {}
+        }
+      },
+      "bitDisagreementsWithPure": 0,
+      "failures": []
+    },
+    "stock-details": {
+      "comparisons": 72215,
+      "AVAILABLE_MATCH": 61847,
+      "EXPECTED_UNAVAILABLE": 10368,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "exactValueMatches": 3,
+      "maxAbsoluteDifference": 2.8042909194600638e-14,
+      "maxRelativeDifference": 3.6702902498498334e-16,
+      "maxToleranceUsed": 0.009524376317290218,
+      "relativeToleranceBuckets": {
+        "<=1e-13": 61847,
+        "<=1e-9": 0,
+        "<=1e-6": 0,
+        "<=1e-3": 0,
+        ">1e-3": 0
+      },
+      "relativeDifferenceP50": 4.5348649073097135e-17,
+      "relativeDifferenceP95": 1.3959812703996327e-16,
+      "relativeDifferenceP99": 1.9579712029862877e-16,
+      "perRatio": {
+        "PRICE_TO_EARNINGS_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_SALES_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_BOOK": {
+          "AVAILABLE_MATCH": 13988,
+          "EXPECTED_UNAVAILABLE": 455,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13988,
+          "unavailableByReference": 455,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        },
+        "PRICE_TO_FCF_TTM": {
+          "AVAILABLE_MATCH": 6465,
+          "EXPECTED_UNAVAILABLE": 7978,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 6465,
+          "unavailableByReference": 7978,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7741
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 7333
+          }
+        },
+        "EV_TO_EBITDA_TTM": {
+          "AVAILABLE_MATCH": 13798,
+          "EXPECTED_UNAVAILABLE": 645,
+          "FALSE_AVAILABLE": 0,
+          "FALSE_UNAVAILABLE": 0,
+          "VALUE_MISMATCH": 0,
+          "available": 13798,
+          "unavailableByReference": 645,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          },
+          "soleReasons": {
+            "INCOMPLETE_WINDOW": 190,
+            "SHARE_LEVEL_UNSAFE": 408
+          }
+        }
+      },
+      "bitDisagreementsWithPure": 0,
+      "failures": []
+    }
+  },
+  "perSecurity": {
+    "GS": {
+      "horizonSessions": 6896,
+      "available": {
+        "PRICE_TO_EARNINGS_TTM": 6659,
+        "PRICE_TO_SALES_TTM": 6659,
+        "PRICE_TO_BOOK": 6849,
+        "PRICE_TO_FCF_TTM": 2670,
+        "EV_TO_EBITDA_TTM": 6659
+      },
+      "serviceFrom": "1996-10-02",
+      "pureTimeline": "prepared",
+      "verified": true,
+      "retentionFrom": "1999-05-04",
+      "outsideRetention": 2
+    },
+    "JPM": {
+      "horizonSessions": 7547,
+      "available": {
+        "PRICE_TO_EARNINGS_TTM": 7139,
+        "PRICE_TO_SALES_TTM": 7139,
+        "PRICE_TO_BOOK": 7139,
+        "PRICE_TO_FCF_TTM": 3795,
+        "EV_TO_EBITDA_TTM": 7139
+      },
+      "serviceFrom": "1996-10-02",
+      "pureTimeline": "prepared",
+      "verified": true,
+      "retentionFrom": "1989-10-02",
+      "outsideRetention": 1
+    }
+  },
+  "intervals": {
+    "GS": {
+      "PRICE_TO_EARNINGS_TTM": [
+        {
+          "from": "1999-05-04",
+          "to": "2000-04-07",
+          "sessions": 237,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190
+          },
+          "resumed": "2000-04-10"
+        }
+      ],
+      "PRICE_TO_SALES_TTM": [
+        {
+          "from": "1999-05-04",
+          "to": "2000-04-07",
+          "sessions": 237,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190
+          },
+          "resumed": "2000-04-10"
+        }
+      ],
+      "PRICE_TO_BOOK": [
+        {
+          "from": "1999-05-04",
+          "to": "1999-07-09",
+          "sessions": 47,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47
+          },
+          "resumed": "1999-07-12"
+        }
+      ],
+      "PRICE_TO_FCF_TTM": [
+        {
+          "from": "1999-05-04",
+          "to": "2001-02-28",
+          "sessions": 461,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190,
+            "NON_POSITIVE_DENOMINATOR": 224
+          },
+          "resumed": "2001-03-01"
+        },
+        {
+          "from": "2002-03-01",
+          "to": "2009-05-06",
+          "sessions": 1809,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 1809
+          },
+          "resumed": "2009-05-07"
+        },
+        {
+          "from": "2011-04-01",
+          "to": "2011-05-10",
+          "sessions": 27,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 27
+          },
+          "resumed": "2011-05-11"
+        },
+        {
+          "from": "2011-11-10",
+          "to": "2012-02-28",
+          "sessions": 74,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 74
+          },
+          "resumed": "2012-02-29"
+        },
+        {
+          "from": "2014-08-08",
+          "to": "2015-05-05",
+          "sessions": 186,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 186
+          },
+          "resumed": "2015-05-06"
+        },
+        {
+          "from": "2015-08-04",
+          "to": "2015-11-03",
+          "sessions": 65,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 65
+          },
+          "resumed": "2015-11-04"
+        },
+        {
+          "from": "2016-05-09",
+          "to": "2016-08-04",
+          "sessions": 62,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 62
+          },
+          "resumed": "2016-08-05"
+        },
+        {
+          "from": "2017-08-07",
+          "to": "2019-02-26",
+          "sessions": 391,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 391
+          },
+          "resumed": "2019-02-27"
+        },
+        {
+          "from": "2019-05-07",
+          "to": "2020-02-21",
+          "sessions": 201,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 201
+          },
+          "resumed": "2020-02-24"
+        },
+        {
+          "from": "2020-08-10",
+          "to": "2020-11-02",
+          "sessions": 60,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 60
+          },
+          "resumed": "2020-11-03"
+        },
+        {
+          "from": "2021-02-23",
+          "to": "2021-05-04",
+          "sessions": 50,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 50
+          },
+          "resumed": "2021-05-05"
+        },
+        {
+          "from": "2021-11-02",
+          "to": "2022-08-04",
+          "sessions": 190,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 190
+          },
+          "resumed": "2022-08-05"
+        },
+        {
+          "from": "2023-11-06",
+          "to": "2025-10-31",
+          "sessions": 499,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 499
+          },
+          "resumed": "2025-11-03"
+        },
+        {
+          "from": "2026-02-26",
+          "to": "2026-10-01",
+          "sessions": 151,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 151
+          }
+        }
+      ],
+      "EV_TO_EBITDA_TTM": [
+        {
+          "from": "1999-05-04",
+          "to": "2000-04-07",
+          "sessions": 237,
+          "reasons": {
+            "MISSING_SHARE_COUNT": 47,
+            "INCOMPLETE_WINDOW": 190
+          },
+          "resumed": "2000-04-10"
+        }
+      ]
+    },
+    "JPM": {
+      "PRICE_TO_EARNINGS_TTM": [
+        {
+          "from": "1996-10-02",
+          "to": "1997-03-25",
+          "sessions": 121,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 121
+          },
+          "resumed": "1997-03-26"
+        },
+        {
+          "from": "2000-08-15",
+          "to": "2000-11-14",
+          "sessions": 65,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 65
+          },
+          "resumed": "2000-11-15"
+        },
+        {
+          "from": "2001-03-23",
+          "to": "2001-08-14",
+          "sessions": 100,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 100
+          },
+          "resumed": "2001-08-15"
+        },
+        {
+          "from": "2004-11-10",
+          "to": "2005-05-05",
+          "sessions": 122,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 122
+          },
+          "resumed": "2005-05-06"
+        }
+      ],
+      "PRICE_TO_SALES_TTM": [
+        {
+          "from": "1996-10-02",
+          "to": "1997-03-25",
+          "sessions": 121,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 121
+          },
+          "resumed": "1997-03-26"
+        },
+        {
+          "from": "2000-08-15",
+          "to": "2000-11-14",
+          "sessions": 65,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 65
+          },
+          "resumed": "2000-11-15"
+        },
+        {
+          "from": "2001-03-23",
+          "to": "2001-08-14",
+          "sessions": 100,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 100
+          },
+          "resumed": "2001-08-15"
+        },
+        {
+          "from": "2004-11-10",
+          "to": "2005-05-05",
+          "sessions": 122,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 122
+          },
+          "resumed": "2005-05-06"
+        }
+      ],
+      "PRICE_TO_BOOK": [
+        {
+          "from": "1996-10-02",
+          "to": "1997-03-25",
+          "sessions": 121,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 121
+          },
+          "resumed": "1997-03-26"
+        },
+        {
+          "from": "2000-08-15",
+          "to": "2000-11-14",
+          "sessions": 65,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 65
+          },
+          "resumed": "2000-11-15"
+        },
+        {
+          "from": "2001-03-23",
+          "to": "2001-08-14",
+          "sessions": 100,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 100
+          },
+          "resumed": "2001-08-15"
+        },
+        {
+          "from": "2004-11-10",
+          "to": "2005-05-05",
+          "sessions": 122,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 122
+          },
+          "resumed": "2005-05-06"
+        }
+      ],
+      "PRICE_TO_FCF_TTM": [
+        {
+          "from": "1996-10-02",
+          "to": "1997-05-15",
+          "sessions": 157,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 157
+          },
+          "resumed": "1997-05-16"
+        },
+        {
+          "from": "1998-05-18",
+          "to": "1998-11-16",
+          "sessions": 128,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 128
+          },
+          "resumed": "1998-11-17"
+        },
+        {
+          "from": "1999-11-09",
+          "to": "2002-11-14",
+          "sessions": 758,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 758
+          },
+          "resumed": "2002-11-15"
+        },
+        {
+          "from": "2003-03-20",
+          "to": "2003-05-14",
+          "sessions": 39,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 39
+          },
+          "resumed": "2003-05-15"
+        },
+        {
+          "from": "2004-05-11",
+          "to": "2008-11-07",
+          "sessions": 1134,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 1134
+          },
+          "resumed": "2008-11-10"
+        },
+        {
+          "from": "2011-03-01",
+          "to": "2011-08-05",
+          "sessions": 111,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 111
+          },
+          "resumed": "2011-08-08"
+        },
+        {
+          "from": "2016-11-02",
+          "to": "2017-02-28",
+          "sessions": 80,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 80
+          },
+          "resumed": "2017-03-01"
+        },
+        {
+          "from": "2018-02-28",
+          "to": "2018-08-01",
+          "sessions": 108,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 108
+          },
+          "resumed": "2018-08-02"
+        },
+        {
+          "from": "2019-05-03",
+          "to": "2020-08-03",
+          "sessions": 316,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 316
+          },
+          "resumed": "2020-08-04"
+        },
+        {
+          "from": "2021-02-24",
+          "to": "2022-02-22",
+          "sessions": 252,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 252
+          },
+          "resumed": "2022-02-23"
+        },
+        {
+          "from": "2023-08-04",
+          "to": "2023-11-01",
+          "sessions": 63,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 63
+          },
+          "resumed": "2023-11-02"
+        },
+        {
+          "from": "2024-05-02",
+          "to": "2026-10-01",
+          "sessions": 606,
+          "reasons": {
+            "NON_POSITIVE_DENOMINATOR": 606
+          }
+        }
+      ],
+      "EV_TO_EBITDA_TTM": [
+        {
+          "from": "1996-10-02",
+          "to": "1997-03-25",
+          "sessions": 121,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 121
+          },
+          "resumed": "1997-03-26"
+        },
+        {
+          "from": "2000-08-15",
+          "to": "2000-11-14",
+          "sessions": 65,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 65
+          },
+          "resumed": "2000-11-15"
+        },
+        {
+          "from": "2001-03-23",
+          "to": "2001-08-14",
+          "sessions": 100,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 100
+          },
+          "resumed": "2001-08-15"
+        },
+        {
+          "from": "2004-11-10",
+          "to": "2005-05-05",
+          "sessions": 122,
+          "reasons": {
+            "SHARE_LEVEL_UNSAFE": 122
+          },
+          "resumed": "2005-05-06"
+        }
+      ]
+    }
+  }
+}

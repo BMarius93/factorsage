@@ -1,0 +1,214 @@
+{
+  "api": "http://localhost:3001",
+  "statuses": {
+    "200": 300,
+    "503": 10
+  },
+  "refused": [
+    {
+      "symbol": "BRK-A",
+      "ratio": "PRICE_TO_EARNINGS_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "BRK-A",
+      "ratio": "PRICE_TO_SALES_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "BRK-A",
+      "ratio": "PRICE_TO_BOOK",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "BRK-A",
+      "ratio": "PRICE_TO_FCF_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "BRK-A",
+      "ratio": "EV_TO_EBITDA_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "GOOG",
+      "ratio": "PRICE_TO_EARNINGS_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "GOOG",
+      "ratio": "PRICE_TO_SALES_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "GOOG",
+      "ratio": "PRICE_TO_BOOK",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "GOOG",
+      "ratio": "PRICE_TO_FCF_TTM",
+      "status": 503,
+      "verified": false
+    },
+    {
+      "symbol": "GOOG",
+      "ratio": "EV_TO_EBITDA_TTM",
+      "status": 503,
+      "verified": false
+    }
+  ],
+  "rowsChecked": 1282770,
+  "responsesWithOtherSessions": 0,
+  "sessionDifferences": [],
+  "preListing": [
+    {
+      "symbol": "CAVA",
+      "listingDate": "2023-06-16",
+      "sessions": [
+        {
+          "date": "2023-06-15",
+          "availableRatios": []
+        }
+      ]
+    }
+  ],
+  "comparisons": 1282770,
+  "AVAILABLE_MATCH": 1029093,
+  "EXPECTED_UNAVAILABLE": 253677,
+  "FALSE_AVAILABLE": 0,
+  "FALSE_UNAVAILABLE": 0,
+  "VALUE_MISMATCH": 0,
+  "exactValueMatches": 209,
+  "maxAbsoluteDifference": 7.050111889839173e-12,
+  "maxRelativeDifference": 3.6702902498498334e-16,
+  "maxToleranceUsed": 0.010993650228509453,
+  "relativeToleranceBuckets": {
+    "<=1e-13": 1029093,
+    "<=1e-9": 0,
+    "<=1e-6": 0,
+    "<=1e-3": 0,
+    ">1e-3": 0
+  },
+  "relativeDifferenceP50": 4.357916040809523e-17,
+  "relativeDifferenceP95": 1.3684749244188144e-16,
+  "relativeDifferenceP99": 1.9973264241663122e-16,
+  "perRatio": {
+    "PRICE_TO_EARNINGS_TTM": {
+      "AVAILABLE_MATCH": 202170,
+      "EXPECTED_UNAVAILABLE": 54384,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "available": 202170,
+      "unavailableByReference": 54384,
+      "reasons": {
+        "MISSING_SHARE_COUNT": 968,
+        "INCOMPLETE_WINDOW": 3733,
+        "NON_POSITIVE_DENOMINATOR": 16939,
+        "SHARE_LEVEL_UNSAFE": 2116,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 30628
+      },
+      "soleReasons": {
+        "INCOMPLETE_WINDOW": 1125,
+        "SHARE_LEVEL_UNSAFE": 1988,
+        "NON_POSITIVE_DENOMINATOR": 13836,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 30628
+      }
+    },
+    "PRICE_TO_SALES_TTM": {
+      "AVAILABLE_MATCH": 216006,
+      "EXPECTED_UNAVAILABLE": 40548,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "available": 216006,
+      "unavailableByReference": 40548,
+      "reasons": {
+        "MISSING_SHARE_COUNT": 968,
+        "INCOMPLETE_WINDOW": 3733,
+        "SHARE_LEVEL_UNSAFE": 2801,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 33046
+      },
+      "soleReasons": {
+        "INCOMPLETE_WINDOW": 1125,
+        "SHARE_LEVEL_UNSAFE": 2515,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 33046
+      }
+    },
+    "PRICE_TO_BOOK": {
+      "AVAILABLE_MATCH": 207378,
+      "EXPECTED_UNAVAILABLE": 49176,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "available": 207378,
+      "unavailableByReference": 49176,
+      "reasons": {
+        "MISSING_SHARE_COUNT": 968,
+        "NON_POSITIVE_DENOMINATOR": 10561,
+        "SHARE_LEVEL_UNSAFE": 4668,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 32979
+      },
+      "soleReasons": {
+        "NON_POSITIVE_DENOMINATOR": 9682,
+        "SHARE_LEVEL_UNSAFE": 4289,
+        "MISSING_SHARE_COUNT": 5,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 32979
+      }
+    },
+    "PRICE_TO_FCF_TTM": {
+      "AVAILABLE_MATCH": 194662,
+      "EXPECTED_UNAVAILABLE": 61892,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "available": 194662,
+      "unavailableByReference": 61892,
+      "reasons": {
+        "MISSING_SHARE_COUNT": 968,
+        "INCOMPLETE_WINDOW": 3721,
+        "SHARE_LEVEL_UNSAFE": 1714,
+        "NON_POSITIVE_DENOMINATOR": 23974,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 31515
+      },
+      "soleReasons": {
+        "INCOMPLETE_WINDOW": 1113,
+        "SHARE_LEVEL_UNSAFE": 1586,
+        "NON_POSITIVE_DENOMINATOR": 21356,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 31515
+      }
+    },
+    "EV_TO_EBITDA_TTM": {
+      "AVAILABLE_MATCH": 208877,
+      "EXPECTED_UNAVAILABLE": 47677,
+      "FALSE_AVAILABLE": 0,
+      "FALSE_UNAVAILABLE": 0,
+      "VALUE_MISMATCH": 0,
+      "available": 208877,
+      "unavailableByReference": 47677,
+      "reasons": {
+        "MISSING_SHARE_COUNT": 968,
+        "INCOMPLETE_WINDOW": 3733,
+        "SHARE_LEVEL_UNSAFE": 2484,
+        "NON_POSITIVE_DENOMINATOR": 8289,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 32203
+      },
+      "soleReasons": {
+        "INCOMPLETE_WINDOW": 1125,
+        "SHARE_LEVEL_UNSAFE": 2356,
+        "NON_POSITIVE_DENOMINATOR": 7058,
+        "HISTORICAL_DISTRIBUTION_ENTRY": 32203
+      }
+    }
+  },
+  "failures": []
+}

@@ -70,9 +70,11 @@ const describeInfrastructure = redisUrl ? describe : describe.skip;
  * - FY2023 Q1-Q4, filed 2024-02-14 and observed 2024-03-01: net income 3M, revenue 1.5M, EBITDA 1M,
  *   operating cash flow 1M and capital expenditure -0.25M a quarter; equity 4M and net debt 30M.
  * - FY2024 Q1, filed Friday 2024-05-03 and observed 2024-06-15: the same quarter again.
- * - FY2024 Q2, filed 2024-08-07 and observed 2024-09-15: the same income and cash flow; equity 4M
- *   and **net cash** of 355.52M. At a close of 120 the market capitalisation is 133.32M, so P/E is
- *   11.11, P/S 22.22, P/B 33.33, P/FCF 44.44 and EV/EBITDA (133.32M - 355.52M) / 4M = -55.55.
+ * - FY2024 Q2, filed 2024-08-07 and observed 2024-08-20 — more than thirty days before the listed
+ *   event of 2024-10-01, so not a count rule 5 withholds before it: the same income and cash flow;
+ *   equity 4M and **net cash** of 355.52M. At a close of 120 the market capitalisation is 133.32M,
+ *   so P/E is 11.11, P/S 22.22, P/B 33.33, P/FCF 44.44 and EV/EBITDA (133.32M - 355.52M) / 4M =
+ *   -55.55.
  * - FY2024 Q3, filed 2024-11-04 and observed 2024-11-15: net income 6M, revenue 3M, EBITDA 2M,
  *   operating cash flow 2M and capital expenditure -0.5M; equity 5M and net debt 50M. The trailing
  *   year becomes 15M, 7.5M, 5M and 3.75M from Tuesday 2024-11-05.
@@ -347,7 +349,7 @@ describeInfrastructure(
           ...ordinary,
           balanceSheet: NET_CASH,
         }),
-        syncedAt: "2024-09-15T12:00:00.000Z",
+        syncedAt: "2024-08-20T12:00:00.000Z",
       });
       await store.saveFinancialStatements({
         securityId: row.id,
@@ -441,10 +443,10 @@ describeInfrastructure(
       await prisma?.$disconnect();
     });
 
-    it("hydrated from durable state with no provider request, under the first valuation revision", () => {
+    it("hydrated from durable state with no provider request, under the current valuation revision", () => {
       expect(provider.calls).toEqual([]);
       expect(requests).toEqual([]);
-      expect(VALUATION_RATIO_REVISION).toBe(1);
+      expect(VALUATION_RATIO_REVISION).toBe(4);
     });
 
     it("answers every trading session of the window and no other day, for every ratio", async () => {
@@ -755,7 +757,15 @@ describeInfrastructure(
       });
       const points = await history("PRICE_TO_EARNINGS_TTM");
       expect(valueOn(points, "2024-08-15")).toBe(22.22);
-      expect(valueOn(points, "2024-11-29")).toBeDefined();
+      expect(valueOn(points, "2024-11-04")).toBeDefined();
+      // FY2024 Q3's count, public from 2024-11-05, was first observed on 2024-11-15: in the month
+      // before the re-base, so it may already be restated and no session before it reads it (rule 5,
+      // before the event; owner, 2026-10-06).
+      for (const date of sessions.filter(
+        (day) => day >= "2024-11-05" && day < "2024-12-02",
+      )) {
+        expect(valueOn(points, date), date).toBeUndefined();
+      }
       for (const date of sessions.filter((day) => day >= "2024-12-02")) {
         expect(valueOn(points, date), date).toBeUndefined();
       }

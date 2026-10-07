@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exactDecimalSum } from "./exact-decimal-sum.js";
+import { exactDecimalSum, exactlyWithinFraction } from "./exact-decimal-sum.js";
 import { shuffled } from "./fundamental-metrics.test-helper.js";
 
 describe("exact sum of reported decimals", () => {
@@ -43,5 +43,41 @@ describe("exact sum of reported decimals", () => {
     expect(() => exactDecimalSum([Number.POSITIVE_INFINITY])).toThrow(
       "non-finite",
     );
+  });
+});
+
+describe("a relative threshold judged on reported decimals", () => {
+  it("holds a boundary its doubles would cross", () => {
+    // 102 / 100 - 1 is 0.020000000000000018 and 98 / 100 - 1 is -0.020000000000000018.
+    expect(Math.abs(102 / 100 - 1) > 0.02).toBe(true);
+    expect(exactlyWithinFraction(102, [100], 0.02)).toBe(true);
+    expect(exactlyWithinFraction(98, [100], 0.02)).toBe(true);
+    expect(exactlyWithinFraction(1_020_000_000, [1_000_000_000], 0.02)).toBe(
+      true,
+    );
+    // 0.825 / 1.1 - 1 is -0.2500000000000001.
+    expect(exactlyWithinFraction(0.825, [1.1], 0.25)).toBe(true);
+    expect(exactlyWithinFraction(1.375, [1.1], 0.25)).toBe(true);
+  });
+
+  it("refuses anything beyond the boundary, however close", () => {
+    expect(exactlyWithinFraction(102.0001, [100], 0.02)).toBe(false);
+    expect(exactlyWithinFraction(97.9999, [100], 0.02)).toBe(false);
+    expect(exactlyWithinFraction(0.8249999, [1.1], 0.25)).toBe(false);
+  });
+
+  it("takes the reference as a product of factors", () => {
+    // |204 − 2 × 100| = 4 = 2 % of 200; |204.01 − 200| is beyond it.
+    expect(exactlyWithinFraction(204, [2, 100], 0.02)).toBe(true);
+    expect(exactlyWithinFraction(196, [2, 100], 0.02)).toBe(true);
+    expect(exactlyWithinFraction(204.01, [2, 100], 0.02)).toBe(false);
+    expect(exactlyWithinFraction(12.5, [1.25, 10], 0)).toBe(true);
+    expect(exactlyWithinFraction(12.5, [1.25, 10.000001], 0)).toBe(false);
+  });
+
+  it("reads exponent notation exactly", () => {
+    expect(exactlyWithinFraction(1.02e21, [1e21], 0.02)).toBe(true);
+    expect(exactlyWithinFraction(1.0200001e21, [1e21], 0.02)).toBe(false);
+    expect(exactlyWithinFraction(1.25e-7, [1e-7], 0.25)).toBe(true);
   });
 });

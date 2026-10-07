@@ -14,13 +14,18 @@ export type OracleMetric =
   | { kind: "MOVING_AVERAGE"; seriesId: string }
   | { kind: "OSCILLATOR"; seriesId: string }
   | { kind: "MARGIN_OF_SAFETY"; sourceId: string }
+  /** Condition-only metric families whose readings the caller supplies per row. */
+  | { kind: "VALUATION_RATIO"; ratioId: string }
+  | { kind: "FUNDAMENTAL"; metricId: string }
+  | { kind: "RELATIVE_VOLUME"; period: number }
   | { kind: "GAIN" }
   | { kind: "LOSS" };
 
 export type OracleValue =
   | { kind: "SERIES"; seriesId: string }
   | { kind: "NUMBER"; value: number }
-  | { kind: "PERCENT"; value: number };
+  | { kind: "PERCENT"; value: number }
+  | { kind: "MULTIPLE"; value: number };
 
 export type OraclePredicate = {
   id: string;
@@ -90,6 +95,15 @@ function metric(value: unknown, path: string): OracleMetric {
       return { kind, seriesId: text(raw.seriesId, `${path}.seriesId`) };
     case "MARGIN_OF_SAFETY":
       return { kind, sourceId: text(raw.sourceId, `${path}.sourceId`) };
+    case "VALUATION_RATIO":
+      return { kind, ratioId: text(raw.ratioId, `${path}.ratioId`) };
+    case "FUNDAMENTAL":
+      return { kind, metricId: text(raw.metricId, `${path}.metricId`) };
+    case "RELATIVE_VOLUME":
+      if (typeof raw.period !== "number") {
+        throw new Error(`oracle: ${path}.period is not a number`);
+      }
+      return { kind, period: raw.period };
     default:
       throw new Error(`oracle: unknown metric kind ${kind} at ${path}`);
   }
@@ -101,7 +115,7 @@ function comparisonValue(value: unknown, path: string): OracleValue {
   if (kind === "SERIES") {
     return { kind, seriesId: text(raw.seriesId, `${path}.seriesId`) };
   }
-  if (kind === "NUMBER" || kind === "PERCENT") {
+  if (kind === "NUMBER" || kind === "PERCENT" || kind === "MULTIPLE") {
     if (typeof raw.value !== "number") {
       throw new Error(`oracle: ${path}.value is not a number`);
     }

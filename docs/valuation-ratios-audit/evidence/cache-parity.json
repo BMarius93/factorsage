@@ -1,0 +1,124 @@
+{
+  "securities": 10,
+  "reads": 365,
+  "digests": {
+    "AAPL": {
+      "cold": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "warm": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "evicted": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "flushed": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "concurrent-0": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "concurrent-1": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "concurrent-2": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a",
+      "after-lru-eviction": "7f5bf74028fc15bd3ca5e165e5aaafc90f3d391f8001ab78a845c023ac610c3a"
+    },
+    "AXP": {
+      "cold": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7",
+      "warm": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7",
+      "evicted": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7",
+      "flushed": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7",
+      "concurrent-0": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7",
+      "concurrent-1": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7",
+      "concurrent-2": "6125991dbad33654a8fcba1055f15576660d4356fee862a30685180046f2dae7"
+    },
+    "DIS": {
+      "cold": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28",
+      "warm": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28",
+      "evicted": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28",
+      "flushed": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28",
+      "concurrent-0": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28",
+      "concurrent-1": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28",
+      "concurrent-2": "bc8ceef0c7454a6b88cb997c0febaba3ca28fa315c3732180ba0d02ace17da28"
+    },
+    "GOOGL": {
+      "cold": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8",
+      "warm": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8",
+      "evicted": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8",
+      "flushed": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8",
+      "concurrent-0": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8",
+      "concurrent-1": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8",
+      "concurrent-2": "74c4ec89d9356979554d1586ded15301f161b783dd024533ff043199648cd2c8"
+    },
+    "HON": {
+      "cold": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9",
+      "warm": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9",
+      "evicted": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9",
+      "flushed": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9",
+      "concurrent-0": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9",
+      "concurrent-1": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9",
+      "concurrent-2": "a341fd0e9a71cfe92074befa72eea08ec2224020fe0b4593d66370fbfaf0dfe9"
+    },
+    "IBM": {
+      "cold": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec",
+      "warm": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec",
+      "evicted": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec",
+      "flushed": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec",
+      "concurrent-0": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec",
+      "concurrent-1": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec",
+      "concurrent-2": "0808d804969f2851a96dc40ff64dbdeaf4a60fedc994b37918659e63026870ec"
+    },
+    "MMM": {
+      "cold": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e",
+      "warm": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e",
+      "evicted": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e",
+      "flushed": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e",
+      "concurrent-0": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e",
+      "concurrent-1": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e",
+      "concurrent-2": "5440ae2d7e6cac93cd46a6f6c54f879cc97ba565c1b0267c54b3a6aec0b7ae8e"
+    },
+    "MRK": {
+      "cold": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406",
+      "warm": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406",
+      "evicted": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406",
+      "flushed": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406",
+      "concurrent-0": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406",
+      "concurrent-1": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406",
+      "concurrent-2": "6ba91068fc0508ddf60dbc01de0f6633b8c3bd1790e88a7ea7695e58d136a406"
+    },
+    "MSFT": {
+      "cold": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be",
+      "warm": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be",
+      "evicted": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be",
+      "flushed": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be",
+      "concurrent-0": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be",
+      "concurrent-1": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be",
+      "concurrent-2": "c76cb77e07a539fbe996a9a99abc0567f3bed1b39130b3d0faae11d65e11d3be"
+    },
+    "WDC": {
+      "cold": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43",
+      "warm": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43",
+      "evicted": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43",
+      "flushed": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43",
+      "concurrent-0": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43",
+      "concurrent-1": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43",
+      "concurrent-2": "026cd049696f4a7d69c1f24f45bdb39fd1d1b2807468e699f82e442b12924b43"
+    }
+  },
+  "mismatches": [],
+  "providerCalls": [],
+  "keyFamilies": [
+    ":access-sequence",
+    ":resident-stocks",
+    ":security:<security>:daily-state:v2:<year>",
+    ":security:<security>:financials:balance-sheet:annual:v1:<year>",
+    ":security:<security>:financials:balance-sheet:quarter:v1:<year>",
+    ":security:<security>:financials:cash-flow:annual:v1:<year>",
+    ":security:<security>:financials:cash-flow:quarter:v1:<year>",
+    ":security:<security>:financials:income:annual:v1:<year>",
+    ":security:<security>:financials:income:quarter:v1:<year>",
+    ":security:<security>:keys",
+    ":security:<security>:manifest",
+    ":security:<security>:prices:1D:<year>",
+    ":symbol:AAPL:security",
+    ":symbol:AXP:security",
+    ":symbol:DIS:security",
+    ":symbol:GOOGL:security",
+    ":symbol:HON:security",
+    ":symbol:IBM:security",
+    ":symbol:MMM:security",
+    ":symbol:MRK:security",
+    ":symbol:MSFT:security",
+    ":symbol:WDC:security"
+  ],
+  "valuationKeys": []
+}
