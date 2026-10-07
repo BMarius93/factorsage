@@ -22,6 +22,9 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
+In a Claude Code cloud session, read `../docs/development/claude-cloud-environment.md` first: it says
+what the VM provides, how its stacks are started and stopped, and how Stripe and FMP are reached.
+
 For commercial plans, capacity limits, guest behaviour or downgrade semantics, read
 `../docs/decisions/entitlements-v1.md` — the accepted product decision and the source of truth for
 every value — then `architecture/entitlements.md`, which is how it is implemented: where the one

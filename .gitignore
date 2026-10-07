@@ -26,6 +26,10 @@ docker-data/
 # Deterministic E2E stack runtime state (egress-guard log). See ai/workflows/auth-testing.md §7.
 .e2e-stack/
 
+# Claude cloud session runtime state: logs, stack process ids, the guard verdict.
+# See docs/development/claude-cloud-environment.md.
+.cloud/
+
 # Persistent QA browser profiles for the manual persona launcher. They hold live session
 # cookies. See docs/development/qa-personas.md.
 .qa/

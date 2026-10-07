@@ -26,6 +26,8 @@
     "infra:logs": "docker compose logs -f postgres redis",
     "stack:up": "docker compose --profile app up --build",
     "stack:down": "docker compose --profile app down",
+    "cloud:stack": "bash scripts/cloud/stack.sh",
+    "cloud:stripe": "bash scripts/cloud/with-stripe.sh",
     "db:generate": "pnpm --filter @intrinsic/database prisma:generate",
     "db:validate": "pnpm --filter @intrinsic/database prisma:validate",
     "db:migrate:dev": "pnpm --filter @intrinsic/database prisma:migrate:dev",

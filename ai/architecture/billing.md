@@ -485,6 +485,10 @@ stripe listen --forward-to localhost:3001/webhooks/stripe   # terminal 4
 
 Sign in as `PRO_USER` or any persona and open `/billing`.
 
+In a Claude cloud session the same flow runs against a dedicated cloud sandbox:
+`scripts/cloud/stack.sh up dev --stripe` starts the API and `stripe listen` with a signing secret
+derived for that session (`docs/development/claude-cloud-environment.md`).
+
 ## Manual sandbox runbook
 
 Hosted Checkout and Customer Portal are browser flows, so these are manual. Test cards:

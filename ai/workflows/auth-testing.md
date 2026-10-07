@@ -498,6 +498,9 @@ pnpm test:e2e
 pnpm test:entitlements:seed && pnpm test:e2e   # every further run
 ```
 
+In a Claude cloud session, `scripts/cloud/stack.sh up e2e` starts the four processes and
+`scripts/cloud/stack.sh down` stops them (`docs/development/claude-cloud-environment.md`).
+
 Market data never needs reseeding between runs: the second run finds exactly what the first left
 (verified: `SP500` still ends on its seeded close, no fixture security gained a row, only the
 pinned runs in flight). The **entitlement** fixtures do, and always have: the last case of
