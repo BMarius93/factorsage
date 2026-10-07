@@ -2,11 +2,16 @@
 
 ## Status
 
-**Accepted direction, decided by the product owner on 2026-10-01 (evening). The detailed rules
-below are this design's, written the same night; PR 1 (`historical-price-basis-v1.md`) implements
-the price-basis part and PR 2V the ratios. A clean-room review corrected them the same night
-("Review"). PR 2V implements them as written (`packages/stock-data/src/valuation-ratios.ts`), and
-"Measured coverage" reports what the implementation computes on the development store.**
+**Accepted.** Implemented by PR 1 (`historical-price-basis-v1.md`, the price basis) and PR 2V (the
+ratios, `packages/stock-data/src/valuation-ratios.ts`), consumed by Strategy, Backtest, Monitor
+and Stock Details (PR #80), and independently audited in PR #81
+(`docs/valuation-ratios-audit/REPORT.md`): every compared reading — generated histories, every
+stored session, every consumer, HTTP and the browser — matched a clean-room oracle, and the
+clean-room review left no BLOCKER or MAJOR. The owner's rulings of 2026-10-06 on the audit's
+findings are written into rules 2, 3 and 5 below (`VALUATION_RATIO_REVISION` 4). The direction was
+decided by the product owner on 2026-10-01 (evening); the detailed rules were written the same
+night and corrected by a clean-room review ("Review"); "Measured coverage" reports what the
+implementation computes on the development store.
 
 - **FactorSage V1 is FMP-only.** There is no second market-data provider, no purchased as-traded
   price series, no reconstruction of the historical distribution factor `Φ`, and no approximated
@@ -222,17 +227,16 @@ quarter) observed at `R.observedAt`, and "an event" meaning a provider entry or 
    passes. If `R`'s count differs by more than 2 % from the anchor's, a measured re-base must
    explain it (its ratio within 2 %): one new to the anchor — detected or dated after the anchor
    was observed, and dated less than 30 days before the anchor was observed (rule 5's month; an
-   undated re-base at the latest date it may have, for both
-   dates) — and detected no later than `R.observedAt`. Otherwise `R` is unavailable and not
-   accepted, so it never anchors a later revision. A restatement therefore stays withheld through
-   every later revision of the quarter that repeats it, or that has no count, until a revision
-   observed no earlier than a matching re-base's detection is explained by it on these terms; that
-   revision is accepted and anchors the ones after it. This keeps a restatement FMP publishes before
-   an ex-date from being read against old-basis closes once FactorSage has observed a count before
-   it, whatever the split's size and however often the provider revises the quarter before the
-   re-base ("What rule 3 cannot tell apart" lists what it cannot see). An older re-base of the same
-   ratio explains nothing, even when PR 1's first verification measures it only after the anchor was
-   observed.
+   undated re-base at the latest date it may have, for both dates) — and detected no later than
+   `R.observedAt`. Otherwise `R` is unavailable and not accepted, so it never anchors a later
+   revision. A restatement therefore stays withheld through every later revision of the quarter that
+   repeats it, or that has no count, until a revision observed no earlier than a matching re-base's
+   detection is explained by it on these terms; that revision is accepted and anchors the ones after
+   it. This keeps a restatement FMP publishes before an ex-date from being read against old-basis
+   closes once FactorSage has observed a count before it, whatever the split's size and however
+   often the provider revises the quarter before the re-base ("What rule 3 cannot tell apart" lists
+   what it cannot see). An older re-base of the same ratio explains nothing, even when PR 1's first
+   verification measures it only after the anchor was observed.
 
    **Agreement across a share change is not acceptance** (**owner**, 2026-10-06: rule 6's basis
    assumption made a check). A _share-changing event_ is a measured re-base whose ratio is a plain

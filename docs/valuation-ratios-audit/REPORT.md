@@ -1,33 +1,31 @@
 # Valuation Ratios V1 — independent audit
 
-**2026-10-02 to 2026-10-06.** Branch `audit/valuation-ratios-v1` (PR #81), from `main` at
+**2026-10-02 to 2026-10-07.** Branch `audit/valuation-ratios-v1` (PR #81), from `main` at
 `d3a06e8814e018b69143849c31371a4dc677d252` (PR #80 merged). The first verdict (2026-10-03) is in
-§1–§35 as first written; §0 is the owner's rulings of 2026-10-06 and everything re-run on them, and
-the sections it names are updated to that evidence.
+§1–§35 as first written; §0 is the owner's rulings of 2026-10-06 — two sets, revisions 3 and 4 —
+and everything re-run on them, and the sections it names are updated to that evidence.
 
-**Verdict (2026-10-06): not passed yet. Valuation Ratios V1 is not closed, and
-`valuation-ratios-v1.md` is not marked Accepted.**
+**Verdict (2026-10-07): passed. Valuation Ratios V1 is closed, and `valuation-ratios-v1.md` is
+marked Accepted.**
 
-- **The owner's rulings are implemented and hold everywhere the comparisons reach.** Rule 3
-  compares a count with its anchor; rule 2 confirms a walk's first count; interpretation 1 is
-  ratified; the undated-event comments say what the writer persists (§0). The clean-room oracle —
-  changed from the decision text by an engineer who never read the product — agrees with the
-  product on 95,074,870 generated cells, 1,816,465 real cells (62 securities, every stored
-  session), 3,950,655 real cells through the Strategy frame, the backtest's pinned windows, the
-  Monitor and the Stock Details service, 2,203,780 cells through the same layers over generated
-  stores, 1,282,770 HTTP rows and 30 browser checks: **0 false available, 0 false unavailable, 0
-  value mismatches**. All 23 mutants of the ruled rules are killed.
-- **The rulings close G1–G3.** The 408 listing-quarter P/B readings that read 21–54 % low are
-  withheld; in all 3,789 readings in 3,441 sessions of 29 securities go from available to withheld,
-  all through rule 2's first level; nothing becomes available and no value changes.
-  `VALUATION_RATIO_REVISION` is 3.
-- **It is not passed because the second clean-room review keeps two MAJOR findings against the
-  methodology** (§30, §31). Both are shapes the ruled rules still read wrong, product and oracle
-  alike, and neither occurs in the store: a count still in the old units observed after an event's
-  month — a restatement the provider takes back after the event among them (MAJOR-1), and a count
-  first observed already restated ahead of an ex-date (MAJOR-3). A third (MAJOR-2, ordering) was a
-  reading of the ruling and is fixed. MAJOR-1 and MAJOR-3 need the owner's ruling — a rule or an
-  accepted V1 limitation, as MMM is (§35).
+- **The owner's final rulings are implemented and hold everywhere the comparisons reach** (§0).
+  Rule 3 no longer accepts a count that only agrees with an anchor observed before a share change,
+  and explains one across separating re-bases only by their ratios together (MAJOR-1); rule 5
+  withholds a count first observed in the month before an event on every session before it
+  (MAJOR-3); rule 3's order of observation is confirmed. `VALUATION_RATIO_REVISION` is 4.
+- **0 false available, 0 false unavailable, 0 value mismatches on the final head** (`6da4354a`):
+  95,074,870 generated cells, 1,816,465 real cells (62 securities, every stored session), 3,950,655
+  real cells through the Strategy frame, the backtest's pinned windows, the Monitor and the Stock
+  Details service, 2,202,855 cells through the same layers over generated stores, 1,282,770 HTTP
+  rows and 30 browser checks. Of 55 mutants of the ruled rules, 49 are killed by the audit; the
+  other 6 are shown equivalent.
+- **The clean-room review holds no BLOCKER and no MAJOR.** A third fresh reviewer made four minor
+  findings over three rounds: three are fixed, and one, outside the rulings, is disclosed for the
+  owner (§30, §31). Its final round on the final head: 0 BLOCKER, 0 MAJOR, 0 MINOR, 0 NIT.
+- **Revision 4 changes no stored reading:** every stored session reads exactly as under revision
+  3, and neither new rule withholds anything in the store. Revision 3's change stands — 3,789
+  readings in 3,441 sessions of 29 securities withheld, the 408 listing-quarter P/B readings that
+  read 21–54 % low among them.
 - **MMM's Solventum distribution is the accepted V1 limitation**, confirmed exactly as documented
   and reported as accepted, not as correct (§28).
 
@@ -80,6 +78,94 @@ Appendices: [A. Coverage by rule](#appendix-a-coverage-by-rule) ·
 [B. Regression gates](#appendix-b-regression-gates)
 
 ## 0. The owner's rulings of 2026-10-06
+
+### The second set of rulings (revision 4)
+
+The second clean-room review (below) left two findings against the methodology. The owner ruled on
+both, and confirmed the reading of rule 3's "earlier", on 2026-10-06:
+
+| Ruling (owner, 2026-10-06)                                   | Rule as written                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Commits                                                                                                                            |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| MAJOR-1, option 1(a): rule 6's basis assumption made a check | A plain measured re-base (from its detection) or an unmeasured plain provider entry (from its date) separates a revision from its anchor when the revision's quarter ended before it, the anchor was observed before it and the revision after it. Across separating events a count within 2 % of the anchor is never accepted; one that differs is accepted only when the separating re-bases explain it together (within 2 % of the anchor times the product of their ratios); across an entry nothing is. Reason `SHARE_BASIS_UNCONFIRMED`. | decision `57545874`, `36fd0c9c`, `ece6684b`; product `5363a20e`, `68dc083d`, `71e2b6a8`; oracle `b4f28250`, `8476c31e`, `6da4354a` |
+| MAJOR-3, option 2(a): rule 5 before the event                | A count first observed in the 30 days before one of rule 5's events, for a quarter that ended before it, is withheld on every session before the event. "First observed" follows rule 3's anchors back through every agreeing, accepted revision. Reason `COUNT_BEFORE_EVENT`.                                                                                                                                                                                                                                                                 | decision `57545874`; product `5363a20e`; oracle `b4f28250`                                                                         |
+| Rule 3's order of observation, confirmed                     | "Earlier" is the order of observation among the revisions public on the statement date; a later-observed amendment never anchors a revision observed before it                                                                                                                                                                                                                                                                                                                                                                                 | `57545874` (decision; implemented since `154235eb`)                                                                                |
+
+`VALUATION_RATIO_REVISION` 3 → 4; a backtest queued under revision 3 is refused (`abcbf289`).
+
+**How it was implemented and checked.**
+
+- **Decision first** (`57545874`), then the product. Ten of the product's tests fail on the previous
+  head `28278242`: rule 3 across a measured split, across a listed entry, across two splits and
+  across a split and its reversal; rule 5 before the event in the calculation, the Monitor frame
+  and the Stock Details history; and the revision pins.
+- **The oracle** was changed from the decision text alone, three times, by the engineer who changed
+  it for the first rulings and has never read the product. It reproduces every literal (141 tests).
+- **Hand cases** written from the text: M1a–M1s (rule 3 across measured splits, listed and forward
+  entries, distributions, two splits, a split and its reversal, and the separation's own boundaries)
+  and M3a–M3h (rule 5 before the event: a first load, filings in the month, the window's edges, a
+  count only repeated in it, a count first observed on the event's day, an explained
+  restatement's first observation). G1a, G1b, G1e, G2, C25, C25b, C35 and C40 are re-derived where
+  the rulings move them. 100 cases; the product and the oracle are held to every literal.
+- **The generator** draws both shapes — a revision still in the old units observed after the event's
+  month (never restated), and a first load in the month before the event with the history already
+  restated — and the CI run asserts that each new rule withholds cells on its own.
+- **Two product fixtures** read a count first observed in the month before a listed event (the
+  Monitor frame test, the Stock Details history test): each now pins the withholding, and the
+  reading it was written for moved out of that month.
+
+**Readings changed in the store: none.** The copy reads the same before (`28278242`) and after the
+rulings on every stored session — 363,293 sessions × five ratios, 0 readings changed — and neither
+`SHARE_BASIS_UNCONFIRMED` nor `COUNT_BEFORE_EVENT` fails on any stored session, alone or with
+another rule: the store holds no measured re-base, and no count first observed in the month before a
+listed event.
+
+| Changed by                             | Readings | Sessions |
+| -------------------------------------- | -------- | -------- |
+| MAJOR-1 (rule 3 across a share change) | 0        | 0        |
+| MAJOR-3 (rule 5 before the event)      | 0        | 0        |
+
+On generated histories (seeds 1–5000) `COUNT_BEFORE_EVENT` alone withholds 1,030,745 cells and
+`SHARE_BASIS_UNCONFIRMED` alone 74,298.
+
+**Evidence on the final head (`6da4354a`).**
+
+| Comparison                                       | Cells or checks                                                   | False available | False unavailable | Mismatch |
+| ------------------------------------------------ | ----------------------------------------------------------------- | --------------- | ----------------- | -------- |
+| Generated, seeds 1–5000 of both families (§11)   | 95,074,870                                                        | 0               | 0                 | 0        |
+| Real, `pure` (§12)                               | 1,816,465                                                         | 0               | 0                 | 0        |
+| Real, Strategy, backtest, Monitor, Stock Details | 3,950,655, bit-identical to `pure`                                | 0               | 0                 | 0        |
+| Generated stores, every layer, seeds 1–40 (§12)  | 2,202,855, bit-identical to `pure`                                | 0               | 0                 | 0        |
+| HTTP, pinned clock (§23)                         | 1,282,770 rows; 300 × 200, 10 × 503                               | 0               | 0                 | 0        |
+| Browser (§23)                                    | 30 of 30                                                          | —               | —                 | —        |
+| CI differential, seeds 1–150                     | 2,898,690                                                         | 0               | 0                 | 0        |
+| Cache parity (§24)                               | 365 reads, 0 mismatches, 0 provider calls                         | —               | —                 | —        |
+| Retention scope                                  | unchanged: no cell made available that every stored row withholds | —               | —                 | —        |
+| Worker backtest and Monitor audits (§21, §22)    | 21 tests; revision 4 pinned                                       | —               | —                 | —        |
+
+The 10 answers of 503 are BRK-A and GOOG, never verified; the HTTP run's only provider traffic was
+the fixture provider's 10 price reads for them. The maximum relative difference is 3.7e-16 on real
+data and 1.15e-12 on generated data, inside its bound (§19).
+
+**Mutation pass** (§29): 55 mutants — of the second set of rulings, and the earlier ruled rule 2 and
+rule 3 mutants re-expressed on revision 4. 49 are killed, every one by the audit's own suites on an
+assertion or a failed comparison. The first run left 14 alive: revision 4 had moved almost every
+restatement onto the path across a share change, and the hand matrix did not yet pin all of that
+path's boundaries. Ten hand cases written from the text (M1l, M1n–M1s, M3f–M3h, `7876752b`) kill 8
+of them. The other 6 change no cell of the third reviewer's boundary sweep and truth fuzzer and have
+a reason in the text; they are equivalent (§29).
+
+**The third clean-room review** (§30). A fresh reviewer — who wrote neither side — reviewed revision
+4 read-only, with its own boundary sweeps and a truth fuzzer that models a coherent market
+capitalisation and the provider restating early, late, partially, never or taking a restatement
+back. Its first round held no BLOCKER or MAJOR, and found that "any measured re-base" explained a
+count across two separating splits (fixed: their ratios together) and that a placeholder-dated
+anchor is not in rule 3's walk until its date (disclosed for the owner). Its follow-up found that
+the clause "unless the ratios cancel", added with the first fix, reopened a false availability and
+cut rule 5's chain (fixed: an agreeing count is never accepted across separating events). Its final
+round on `6da4354a`: **0 BLOCKER, 0 MAJOR, 0 MINOR, 0 NIT**, the product and the oracle agreeing on
+every cell of its probes and fuzzers.
+
+The subsections below record the first set of rulings (revision 3) as they were written then.
 
 ### The first verdict
 
@@ -236,35 +322,42 @@ Not in scope, and why:
 
 ## 2. Base and final commits
 
-| Commit                                                     | What                                                                                                                              |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `d3a06e88`                                                 | `main`, the audited base (PR #80, Stock Details valuation ratios, merged)                                                         |
-| `6edd1d24`                                                 | `test(valuation): add independent valuation oracle`                                                                               |
-| `02bd1643`                                                 | `fix(valuation): read an undated re-base only on the days it may lie on` (D1)                                                     |
-| `2cafa3af`                                                 | `fix(valuation): judge a 2 % share restatement exactly` (D2)                                                                      |
-| `98048609`                                                 | `fix(valuation): judge the 25 % share level exactly` (D3)                                                                         |
-| `2a06a113`                                                 | `test(valuation): audit valuation ratios at full scale`                                                                           |
-| `62f40d50`                                                 | `test(valuation): audit valuation consumers and price basis`                                                                      |
-| `b6703048`                                                 | `test(valuation): file the audit's product rows a day before availability`                                                        |
-| `9b9d4404`                                                 | `test(valuation): pin the rules' reading where the review found it wrong` (G1–G3 hand cases, oracle diagnostics)                  |
-| `0e29fc14`                                                 | `test(valuation): generate share-basis restatements and their chains` (the second family)                                         |
-| `c0f882fe`                                                 | `test(valuation): hold every layer to the stored sessions, over generated stores too`                                             |
-| `8c45b791`, `33e653b3`, `b5a92f90`, `a96fa0e5`             | hand cases for the boundaries the mutation passes found unpinned                                                                  |
-| `5daaf3a5`, `32388357`, `41efde02`, `89fdc1b2`, `d8c3b6f8` | audit tooling: histogram percentiles, the Monitor quote's precision, progress logging, the HTTP refusal criterion, lock durations |
-| `cfe3305a`                                                 | `docs(valuation): record independent valuation audit`: this report and its evidence                                               |
-| `65a05594`                                                 | `docs(valuation): compare the gate's flakes with clean main`: Appendix B, and three table rows of §31–§32 repaired                |
-| `6a29eddc`                                                 | `docs(valuation): write the owner's rulings on rules 2 and 3 into the decisions` (§0)                                             |
-| `bc969288`                                                 | `fix(valuation): compare a restated count with its rule 3 anchor` (G1, G2; revision 3)                                            |
-| `6c056d57`                                                 | `fix(valuation): confirm the walk's first share count like any new level` (G3)                                                    |
-| `a180f532`                                                 | `test(valuation): hold the oracle and the hand matrix to the owner's rulings`                                                     |
-| `ec67731f`                                                 | `test(valuation): generate revisions after the re-base and restatements taken back`                                               |
-| `dd96cc0b`                                                 | `docs(valuation): answer the second clean-room review in the decisions`                                                           |
-| `154235eb`                                                 | `fix(valuation): judge rule 3 against what was observed before the revision` (the second review's MAJOR-2)                        |
-| `a0628b8e`                                                 | `test(valuation): hold the oracle to rule 3's order of observation`                                                               |
-| `51b67ab3`, `6ee55a7e`                                     | the generator reaches rule 3's explained path in CI and late-observed amendments; the HTTP run's pinned clock                     |
-| `919f58c5`, `8acdbd61`                                     | the browser audit's pinned page clock; a constant no ruled hand case reads, removed                                               |
-| `ea589494`, `4bd0feea`                                     | wording from the follow-up review; "Measured coverage" marked as measured before revision 3                                       |
-| (this commit)                                              | this report and its evidence, re-run on the rulings                                                                               |
+| Commit                                                     | What                                                                                                                                |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `d3a06e88`                                                 | `main`, the audited base (PR #80, Stock Details valuation ratios, merged)                                                           |
+| `6edd1d24`                                                 | `test(valuation): add independent valuation oracle`                                                                                 |
+| `02bd1643`                                                 | `fix(valuation): read an undated re-base only on the days it may lie on` (D1)                                                       |
+| `2cafa3af`                                                 | `fix(valuation): judge a 2 % share restatement exactly` (D2)                                                                        |
+| `98048609`                                                 | `fix(valuation): judge the 25 % share level exactly` (D3)                                                                           |
+| `2a06a113`                                                 | `test(valuation): audit valuation ratios at full scale`                                                                             |
+| `62f40d50`                                                 | `test(valuation): audit valuation consumers and price basis`                                                                        |
+| `b6703048`                                                 | `test(valuation): file the audit's product rows a day before availability`                                                          |
+| `9b9d4404`                                                 | `test(valuation): pin the rules' reading where the review found it wrong` (G1–G3 hand cases, oracle diagnostics)                    |
+| `0e29fc14`                                                 | `test(valuation): generate share-basis restatements and their chains` (the second family)                                           |
+| `c0f882fe`                                                 | `test(valuation): hold every layer to the stored sessions, over generated stores too`                                               |
+| `8c45b791`, `33e653b3`, `b5a92f90`, `a96fa0e5`             | hand cases for the boundaries the mutation passes found unpinned                                                                    |
+| `5daaf3a5`, `32388357`, `41efde02`, `89fdc1b2`, `d8c3b6f8` | audit tooling: histogram percentiles, the Monitor quote's precision, progress logging, the HTTP refusal criterion, lock durations   |
+| `cfe3305a`                                                 | `docs(valuation): record independent valuation audit`: this report and its evidence                                                 |
+| `65a05594`                                                 | `docs(valuation): compare the gate's flakes with clean main`: Appendix B, and three table rows of §31–§32 repaired                  |
+| `6a29eddc`                                                 | `docs(valuation): write the owner's rulings on rules 2 and 3 into the decisions` (§0)                                               |
+| `bc969288`                                                 | `fix(valuation): compare a restated count with its rule 3 anchor` (G1, G2; revision 3)                                              |
+| `6c056d57`                                                 | `fix(valuation): confirm the walk's first share count like any new level` (G3)                                                      |
+| `a180f532`                                                 | `test(valuation): hold the oracle and the hand matrix to the owner's rulings`                                                       |
+| `ec67731f`                                                 | `test(valuation): generate revisions after the re-base and restatements taken back`                                                 |
+| `dd96cc0b`                                                 | `docs(valuation): answer the second clean-room review in the decisions`                                                             |
+| `154235eb`                                                 | `fix(valuation): judge rule 3 against what was observed before the revision` (the second review's MAJOR-2)                          |
+| `a0628b8e`                                                 | `test(valuation): hold the oracle to rule 3's order of observation`                                                                 |
+| `51b67ab3`, `6ee55a7e`                                     | the generator reaches rule 3's explained path in CI and late-observed amendments; the HTTP run's pinned clock                       |
+| `919f58c5`, `8acdbd61`                                     | the browser audit's pinned page clock; a constant no ruled hand case reads, removed                                                 |
+| `ea589494`, `4bd0feea`                                     | wording from the follow-up review; "Measured coverage" marked as measured before revision 3                                         |
+| `28278242`                                                 | this report and its evidence, re-run on the rulings                                                                                 |
+| `57545874`                                                 | `docs(valuation): write the owner's rulings on the second review into the decision` (§0)                                            |
+| `5363a20e`                                                 | `fix(valuation): check rule 6's basis across a share change, and withhold the month before an event` (MAJOR-1, MAJOR-3; revision 4) |
+| `b4f28250`                                                 | `test(valuation): oracle and hand cases for the rulings on the second review`                                                       |
+| `67b4d59f`, `abcbf289`                                     | the generator's never-restated revisions and first loads before the event; revision 4 pinned in the worker audit                    |
+| `36fd0c9c`, `68dc083d`, `8476c31e`                         | the third review's MINOR-1: a count across two separating re-bases, explained by their ratios together                              |
+| `ece6684b`, `71e2b6a8`, `6da4354a`                         | its follow-up: an agreeing count never accepted across separating events                                                            |
+| (this commit)                                              | the decision Accepted, the correctness map, this report and its evidence on the final head                                          |
 
 ## 3. The methodology audited
 
@@ -401,16 +494,19 @@ decisions above.
 
 ## 6. Hand-computed matrix
 
-`apps/api/src/data-correctness-audit/oracle/valuation-ratios.hand-matrix.ts`: one base company
-(ten calendar quarters 2023Q1–2025Q2, every statement observed on 2026-08-31, history verified
-2026-10-02, close 12 and 10 diluted shares, so `MC = 120`) and its readings as of each quarter,
-then 74 cases that vary it (184 session observations, each with all five ratios), 14 share-level
-walks and 5 restatement thresholds. Every expected reading is a literal fraction, or the rule that
+`apps/api/src/data-correctness-audit/oracle/valuation-ratios.hand-matrix.ts`: one base company (ten
+calendar quarters 2023Q1–2025Q2, every statement observed on 2026-08-31, history verified
+2026-10-02, close 12 and 10 diluted shares, so `MC = 120`) and its readings as of each quarter, then
+74 cases that vary it (184 session observations, each with all five ratios), 14 share-level walks
+and 5 restatement thresholds. Every expected reading is a literal fraction, or the rule that
 withholds it. 57 cases were written before the first comparison; C25b, C18d, C31d, C39e, C39f, C40c
 and the non-integer walk were added for boundaries the mutation passes found unpinned. G1a, G1b, G2
 and G3 first pinned the methodology gaps (§31) and now hold the owner's rulings, each comment
 recording the reading before them; G1c, G1d, G1e, G1f, G1g, G1h and G3b were added with the rulings
-(§0), and every share-level walk now withholds its first two quarters.
+(§0), and every share-level walk now withholds its first two quarters. M1a–M1k and M3a–M3e were
+added with the second set of rulings (revision 4), M1l–M1s and M3f–M3h for the boundaries its
+mutation pass found unpinned (§29), and C25, C25b, C35 and C40 re-derived for rule 5 before the
+event: 100 cases in all.
 
 | Brief case                                           | Matrix cases                                        |
 | ---------------------------------------------------- | --------------------------------------------------- |
@@ -598,36 +694,43 @@ the oracle and through the product, all five ratios classified. Neither generato
   yet, with the stored closes re-based exactly when they are. Since the rulings (§0) it also draws,
   last, a revision of the newest restated quarter observed once the re-base is known (before the
   next filing when there is room), the provider taking a restatement back, and a late-observed
-  amendment dated before the restatement.
+  amendment dated before the restatement. Since the second set of rulings it also draws, from a
+  second random stream so that every earlier history stays as it was, a revision still in the old
+  units observed after the event's month and its detection when the provider never restates, and a
+  first load in the month before the event with the history already restated.
 
 | Family                                     | Seeds                | Histories  | Sessions      | Comparisons    | Available match | Expected unavailable | False available | False unavailable | Value mismatch |
 | ------------------------------------------ | -------------------- | ---------- | ------------- | -------------- | --------------- | -------------------- | --------------- | ----------------- | -------------- |
-| adversarial                                | 1–5000               | 5,000      | 5,173,597     | 51,735,970     | 10,355,502      | 41,380,468           | 0               | 0                 | 0              |
-| restatements                               | 1–5000               | 5,000      | 4,333,890     | 43,338,900     | 23,355,218      | 19,983,682           | 0               | 0                 | 0              |
-| **report run** (`evidence/generated.json`) | 1–5000               | **10,000** | **9,507,487** | **95,074,870** | **33,710,720**  | **61,364,150**       | **0**           | **0**             | **0**          |
+| adversarial                                | 1–5000               | 5,000      | 5,173,597     | 51,735,970     | 9,975,443       | 41,760,527           | 0               | 0                 | 0              |
+| restatements                               | 1–5000               | 5,000      | 4,333,890     | 43,338,900     | 22,500,617      | 20,838,283           | 0               | 0                 | 0              |
+| **report run** (`evidence/generated.json`) | 1–5000               | **10,000** | **9,507,487** | **95,074,870** | **32,476,060**  | **62,598,810**       | **0**           | **0**             | **0**          |
 | CI (`valuation-differential.test.ts`)      | 1–150, both families | 300        | 289,869       | 2,898,690      | —               | —                    | 0               | 0                 | 0              |
 
-The report run (revision 3, 2026-10-06) took 35 minutes on a loaded machine. What the cells reach:
+The report run (revision 4, on the final head, 2026-10-07) took 35 minutes on a loaded machine.
+What the cells reach:
 
-- **Rule 3 both ways.** 53,903 available cells read a restatement that a measured re-base
-  explains — 51,527 in the restatement family, 2,376 in the first — and rule 3 alone withholds
-  228,428 cells. The CI asserts both.
+- **Rule 3 both ways.** 54,313 available cells read a restatement that a measured re-base
+  explains — 51,937 in the restatement family, 2,376 in the first — and rule 3 alone withholds
+  209,054 cells. The CI asserts both.
 - **The rulings' paths, both ways.** In the restatement family rule 3 compares `R` with an anchor
-  past a withheld or count-less revision on 65,037 available cells — 25,907 of them a restatement
-  a re-base explains against the anchor, the rest agreeing with it (a restatement taken back,
-  among them; §0, MAJOR-1) — and on 209,563 withheld ones; 6,805 more are withheld in the first
-  family. Rule 2 withholds 15,371,440 cells before a walk's first level. The CI asserts each.
-  (Before the rulings the same diagnostics counted the gaps: at least 52,191 cells read through a
+  past a withheld or count-less revision on 45,437 available cells — 26,317 of them a restatement
+  a re-base explains against the anchor, the rest agreeing with it where no share change separates
+  them — and on 251,008 withheld ones; 8,015 more are withheld in the first family. Rule 2
+  withholds 15,377,840 cells before a walk's first level. Across a share change, agreement
+  (`SHARE_BASIS_UNCONFIRMED`) alone withholds 74,298 cells, and a count first observed in the month
+  before an event (`COUNT_BEFORE_EVENT`) alone 1,030,745. The CI asserts each. (Before the
+  first rulings the same diagnostics counted the gaps: at least 52,191 cells read through a
   restated or count-less predecessor, and 716,639 on a walk's first count.)
 - **Every rule alone.** Each reason in §15 is the sole reason for some cells, from
-  1,121 (`INVALID_CLOSE`) to 4,365,040 (`SHARE_LEVEL_UNSAFE`).
+  1,079 (`INVALID_CLOSE`) to 4,236,955 (`SHARE_LEVEL_UNSAFE`).
 - **Features** (histories carrying each, `generated.json` → `features`): for example
   `undated-measured` 1,357, `unexplained-bounded` 243, `forward-entry` 1,228,
   `revision-moved-period-end` 1,705, `shares-exact-boundary-down` 486; and in the second family
   `restatement:chain-no-count` 806, `restatement:count-less-predecessor` 495,
   `restatement:mismatched-rebase` 587, `restatement:measured-undated` 752,
-  `restatement:late-revision-after-rebase` 1,265, `restatement:restatement-taken-back` 574 and
-  `restatement:late-observed-amendment` 1,073.
+  `restatement:late-revision-after-rebase` 1,265, `restatement:restatement-taken-back` 574,
+  `restatement:late-observed-amendment` 1,243, `restatement:late-revision-never-restated` 305 and
+  `restatement:first-load-before-event` 342.
 
 ## 12. Real data, full scale
 
@@ -684,15 +787,15 @@ audit, since their first verification needs the provider), 97,418 stored session
 | `monitor-provisional` | 710         | 359             | 351                  | 0               | 0                 | 0        | n/a                     |
 | `stock-details`       | 487,090     | 156,552         | 330,538              | 0               | 0                 | 0        | yes                     |
 
-2,203,780 cells in all. Every rule reaches every service layer here — among the cells the `pure`
-layer withholds, by primary reason: `BASIS_WITHHELD` 20,089, `COUNT_PREDATES_HISTORICAL_ENTRY`
-21,216, `EVENT_SETTLING` 9,006, `SHARE_RESTATEMENT_UNEXPLAINED` 1,795,
-`POST_DISTRIBUTION_STATEMENTS_STALE` 1,706, `FORWARD_EVENT_UNMEASURED` 549, `CURRENCY_MISMATCH`
-9,321, `HISTORICAL_DISTRIBUTION_ENTRY` 16,052, `SHARE_LEVEL_UNSAFE` 40,216 (`stock-details` carries
-the same counts). No layer left out or added a session, none reached the provider, and no read of a
-verified security was refused: the 8 refusals of the first run — the audit's own Monitor quote
-rounded to 0 for four histories whose newest close is `0.00000001` — are gone with the quote that
-keeps the stored precision (`32388357`).
+2,202,855 cells in all on the final head (revision 4), 0 failed. Every rule reaches every service
+layer here — among the cells the `pure` layer withholds, by primary reason: `BASIS_WITHHELD` 20,089,
+`COUNT_PREDATES_HISTORICAL_ENTRY` 21,216, `EVENT_SETTLING` 9,006, `SHARE_RESTATEMENT_UNEXPLAINED`
+1,795, `POST_DISTRIBUTION_STATEMENTS_STALE` 1,706, `FORWARD_EVENT_UNMEASURED` 549,
+`CURRENCY_MISMATCH` 9,321, `HISTORICAL_DISTRIBUTION_ENTRY` 16,052, `SHARE_LEVEL_UNSAFE` 40,216
+(`stock-details` carries the same counts). No layer left out or added a session, none reached the
+provider, and no read of a verified security was refused: the 8 refusals of the first run — the
+audit's own Monitor quote rounded to 0 for four histories whose newest close is `0.00000001` — are
+gone with the quote that keeps the stored precision (`32388357`).
 
 ## 13. Comparisons per ratio
 
@@ -712,11 +815,11 @@ unavailable, 0 value mismatches.
 
 | Ratio     | Generated: available | Generated: withheld | Real `pure`: available | Real `pure`: withheld | Real service layers: available | Real service layers: withheld |
 | --------- | -------------------- | ------------------- | ---------------------- | --------------------- | ------------------------------ | ----------------------------- |
-| P/E       | 6,160,720            | 12,854,254          | 268,698                | 94,595                | 202,170                        | 54,384                        |
-| P/S       | 7,107,055            | 11,907,919          | 297,832                | 65,461                | 216,006                        | 40,548                        |
-| P/B       | 7,825,387            | 11,189,587          | 288,092                | 75,201                | 207,378                        | 49,176                        |
-| P/FCF     | 6,040,075            | 12,974,899          | 257,245                | 106,048               | 194,662                        | 61,892                        |
-| EV/EBITDA | 6,577,483            | 12,437,491          | 280,519                | 82,774                | 208,877                        | 47,677                        |
+| P/E       | 5,939,802            | 13,075,172          | 268,698                | 94,595                | 202,170                        | 54,384                        |
+| P/S       | 6,850,505            | 12,164,469          | 297,832                | 65,461                | 216,006                        | 40,548                        |
+| P/B       | 7,523,346            | 11,491,628          | 288,092                | 75,201                | 207,378                        | 49,176                        |
+| P/FCF     | 5,821,918            | 13,193,056          | 257,245                | 106,048               | 194,662                        | 61,892                        |
+| EV/EBITDA | 6,340,489            | 12,674,485          | 280,519                | 82,774                | 208,877                        | 47,677                        |
 
 The counts are the oracle's; the product's equal them cell for cell. The generated histories are
 adversarial by construction, so most of their cells are withheld (65 %), and 33.7 M are still
@@ -729,37 +832,41 @@ cash flow is common), P/S least (revenue is never negative).
 The audit's reason model (oracle only; the product reports absence, never a reason):
 `UNVERIFIED_PRICE_BASIS`, `INVALID_CLOSE`, `MISSING_SHARE_COUNT`, `NON_POSITIVE_SHARE_COUNT`,
 `INCOMPLETE_WINDOW`, `MISSING_INPUT`, `CURRENCY_MISMATCH`, `NON_POSITIVE_DENOMINATOR`,
-`SHARE_LEVEL_UNSAFE`, `SHARE_RESTATEMENT_UNEXPLAINED`, `HISTORICAL_DISTRIBUTION_ENTRY` (4.1),
-`COUNT_PREDATES_HISTORICAL_ENTRY` (4.2), `EVENT_SETTLING` (5), `BASIS_WITHHELD` (6),
+`SHARE_LEVEL_UNSAFE`, `SHARE_RESTATEMENT_UNEXPLAINED`, `SHARE_BASIS_UNCONFIRMED` (3, across a
+share change), `HISTORICAL_DISTRIBUTION_ENTRY` (4.1), `COUNT_PREDATES_HISTORICAL_ENTRY` (4.2),
+`EVENT_SETTLING` (5), `COUNT_BEFORE_EVENT` (5, before the event), `BASIS_WITHHELD` (6),
 `POST_DISTRIBUTION_STATEMENTS_STALE` (7), `FORWARD_EVENT_UNMEASURED` (8) and
 `UNREPRESENTABLE_RESULT`. The **primary** reason is the first failing rule in that order; a cell
 also records every failing rule, and the **sole-rule** count is the cells withheld by one rule and
 nothing else — what that rule alone decides, and so what a broken rule would turn into false
 availability.
 
-**Generated** (seeds 1–5000, both families, revision 3):
+**Generated** (seeds 1–5000, both families, revision 4):
 
 | Primary reason                       | P/E       | P/S       | P/B       | P/FCF     | EV/EBITDA | Sole rule, all ratios |
 | ------------------------------------ | --------- | --------- | --------- | --------- | --------- | --------------------- |
-| `UNVERIFIED_PRICE_BASIS`             | 2,078,936 | 2,078,936 | 2,078,936 | 2,078,936 | 2,078,936 | 3,226,154             |
-| `INVALID_CLOSE`                      | 514       | 514       | 514       | 514       | 514       | 1,121                 |
-| `MISSING_SHARE_COUNT`                | 1,455,604 | 1,455,604 | 1,455,604 | 1,455,604 | 1,455,604 | 285,553               |
-| `NON_POSITIVE_SHARE_COUNT`           | 48,036    | 48,036    | 48,036    | 48,036    | 48,036    | 81,448                |
-| `INCOMPLETE_WINDOW`                  | 3,900,498 | 3,900,498 | 11,024    | 3,911,370 | 3,900,498 | 3,935,639             |
-| `MISSING_INPUT`                      | 371,894   | 371,888   | 121,243   | 727,206   | 476,533   | 954,686               |
-| `CURRENCY_MISMATCH`                  | 496,225   | 496,055   | 551,854   | 556,968   | 603,132   | 1,105,243             |
-| `NON_POSITIVE_DENOMINATOR`           | 1,806,266 | 0         | 964,331   | 1,563,878 | 804,754   | 2,632,555             |
-| `SHARE_LEVEL_UNSAFE`                 | 776,529   | 1,054,545 | 3,203,842 | 772,060   | 897,142   | 4,365,040             |
-| `SHARE_RESTATEMENT_UNEXPLAINED`      | 96,660    | 101,798   | 102,569   | 94,879    | 96,911    | 228,428               |
-| `HISTORICAL_DISTRIBUTION_ENTRY`      | 412,736   | 596,515   | 704,030   | 410,342   | 500,299   | 583,740               |
-| `COUNT_PREDATES_HISTORICAL_ENTRY`    | 270,140   | 326,913   | 399,046   | 261,441   | 287,362   | 1,421,614             |
-| `EVENT_SETTLING`                     | 292,074   | 404,385   | 415,222   | 281,649   | 346,278   | 433,415               |
-| `BASIS_WITHHELD`                     | 740,833   | 949,250   | 1,008,777 | 718,191   | 831,571   | 3,872,803             |
-| `POST_DISTRIBUTION_STATEMENTS_STALE` | 65,135    | 85,262    | 86,114    | 64,758    | 77,140    | 376,679               |
-| `FORWARD_EVENT_UNMEASURED`           | 31,400    | 37,720    | 38,445    | 28,501    | 32,781    | 168,847               |
-| `UNREPRESENTABLE_RESULT`             | 10,774    | 0         | 0         | 566       | 0         | 11,340                |
+| `UNVERIFIED_PRICE_BASIS`             | 2,078,936 | 2,078,936 | 2,078,936 | 2,078,936 | 2,078,936 | 3,073,861             |
+| `INVALID_CLOSE`                      | 514       | 514       | 514       | 514       | 514       | 1,079                 |
+| `MISSING_SHARE_COUNT`                | 1,458,810 | 1,458,810 | 1,458,810 | 1,458,810 | 1,458,810 | 279,692               |
+| `NON_POSITIVE_SHARE_COUNT`           | 48,036    | 48,036    | 48,036    | 48,036    | 48,036    | 77,956                |
+| `INCOMPLETE_WINDOW`                  | 3,900,498 | 3,900,498 | 11,024    | 3,911,370 | 3,900,498 | 3,726,414             |
+| `MISSING_INPUT`                      | 371,894   | 371,888   | 121,243   | 727,206   | 476,533   | 922,772               |
+| `CURRENCY_MISMATCH`                  | 496,225   | 496,055   | 551,854   | 556,968   | 603,132   | 1,078,823             |
+| `NON_POSITIVE_DENOMINATOR`           | 1,806,266 | 0         | 964,331   | 1,563,878 | 804,754   | 2,531,379             |
+| `SHARE_LEVEL_UNSAFE`                 | 780,291   | 1,058,307 | 3,207,648 | 775,822   | 900,904   | 4,236,955             |
+| `SHARE_RESTATEMENT_UNEXPLAINED`      | 98,455    | 103,593   | 104,364   | 96,598    | 98,616    | 209,054               |
+| `SHARE_BASIS_UNCONFIRMED`            | 24,319    | 24,431    | 24,904    | 24,035    | 23,919    | 74,298                |
+| `HISTORICAL_DISTRIBUTION_ENTRY`      | 414,786   | 598,547   | 706,537   | 412,602   | 502,559   | 468,186               |
+| `COUNT_PREDATES_HISTORICAL_ENTRY`    | 281,955   | 338,728   | 415,663   | 273,256   | 299,177   | 1,391,161             |
+| `EVENT_SETTLING`                     | 302,438   | 414,699   | 426,535   | 292,157   | 356,663   | 421,587               |
+| `COUNT_BEFORE_EVENT`                 | 214,996   | 263,778   | 318,042   | 204,295   | 233,725   | 1,030,745             |
+| `BASIS_WITHHELD`                     | 701,328   | 897,540   | 941,752   | 685,168   | 790,174   | 3,642,421             |
+| `POST_DISTRIBUTION_STATEMENTS_STALE` | 55,274    | 74,165    | 74,733    | 55,801    | 66,362    | 324,823               |
+| `FORWARD_EVENT_UNMEASURED`           | 29,761    | 35,944    | 36,702    | 27,041    | 31,173    | 160,621               |
+| `UNREPRESENTABLE_RESULT`             | 10,390    | 0         | 0         | 563       | 0         | 10,953                |
 
-**Real data** (`pure` layer, every stored session, revision 3):
+**Real data** (`pure` layer, every stored session, revisions 3 and 4 alike; the two new reasons fail
+nowhere):
 
 | Primary reason                       | P/E    | P/S    | P/B    | P/FCF  | EV/EBITDA | Sole rule, all ratios |
 | ------------------------------------ | ------ | ------ | ------ | ------ | --------- | --------------------- |
@@ -1261,6 +1368,86 @@ killed since G1f and its product test. N10 and N11 are killed by their hand case
 the generated comparison, which reaches them through the late-observed amendments; N05 and N08 by
 the generated comparison alone.
 
+### Revision 4's pass (2026-10-07)
+
+The same runner, in a worktree of the final head `6da4354a`, against an unmutated baseline that
+passed every suite: mutants of the second set of rulings — rule 3 across a share change (P01–P18)
+and rule 5 before the event (Q01–Q12) — and the ruled rule 2 and rule 3 mutants of the previous
+pass, re-expressed on revision 4.
+
+| Id   | Mutant                                                                                  | Killed by the audit     | Killed by the product's suites | Result                                                                                                                                                                                                    |
+| ---- | --------------------------------------------------------------------------------------- | ----------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P01  | no event separates a revision from its anchor (MAJOR-1 reverted)                        | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P02  | agreement accepted across a separating event                                            | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P02b | any measured re-base explains across separation (MINOR-1 reverted)                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P15  | across separation, only the first separating ratio counts                               | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P16  | across separation, the 30-day newness term dropped                                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P17  | across separation, the 30-day newness term inclusive                                    | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P18  | an agreeing count accepted across separating re-bases whose ratios cancel               | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P03  | provider entries never separate                                                         | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P04  | a separating entry is skipped in the explanation                                        | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| P05  | measured re-bases never separate                                                        | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| P06  | non-plain measured re-bases separate too                                                | —                       | —                              | equivalent: rules 6 and 7 already withhold every session such a revision reaches (every ratio reads the Income quarter, which ends before the distribution)                                               |
+| P07  | measured: the anchor taken as before the event by its date, not its detection           | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| P08  | measured: the revision taken as after the event by its date, not its detection          | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| P09  | measured: the quarter test dropped                                                      | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| P10  | measured: the revision observed at the detection is not after it                        | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| P11  | entry: the quarter test dropped                                                         | —                       | —                              | equivalent: needs an anchor observed before its own quarter ended                                                                                                                                         |
+| P12  | entry: an anchor observed on the entry's date is before it                              | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| P13  | entry: a revision observed on the entry's date is not after it                          | —                       | —                              | equivalent: rule 5 withholds every count observed on an event's day                                                                                                                                       |
+| P14  | measured: the quarter test at the interval's first day, not its last                    | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| Q01  | rule 5 before the event removed (MAJOR-3 reverted)                                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| Q02  | the window's first day excluded                                                         | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| Q03  | the window 29 days                                                                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| Q04  | the window 31 days                                                                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| Q05  | a count first observed on the event's day counts as before it                           | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| Q06  | the quarter test dropped                                                                | —                       | —                              | equivalent: needs a count first observed before its quarter ended                                                                                                                                         |
+| Q07  | first observation = the latest revision's own observation (no chain)                    | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| Q08  | an agreeing revision's count first observed at its own observation                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| Q09  | an explained restatement inherits its anchor's first observation                        | —                       | —                              | equivalent: a restatement explained without a separation is of a quarter that ended after the event, which this rule's quarter test excludes, or across a possible distribution, which rules 6 and 7 mask |
+| Q09b | a restatement explained across a split inherits its anchor's first observation          | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| Q10  | undated: sessions withheld up to the interval's first day, not its last                 | —                       | —                              | equivalent: inside an undated interval a count first observed in the window is withheld by rule 6 (observed before the detection) or refused by rule 3 (across the separation)                            |
+| Q11  | undated: the window from the interval's last day                                        | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| Q12  | the earliest window's end, not the latest                                               | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| N01  | rule 3: any earlier counted revision anchors, accepted or not (G1 reverted)             | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N02  | rule 3: a count-less previous revision lets R pass (G2 reverted)                        | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N03  | rule 2: the walk's first count accepted unconfirmed (G3 reverted)                       | A-api, A-real           | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N04  | rule 2: the first level confirmed on its second quarter                                 | A-api, A-real           | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N05  | rule 3: an explained restatement never anchors                                          | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| N06  | rule 3: a revision with no anchor is withheld                                           | A-api, A-worker, A-real | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N07  | rule 3: the explanation timed from the previous revision, not the anchor                | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N08  | rule 3: the anchor is the earliest accepted revision, not the latest                    | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| N10  | rule 3 walks in the representing order, not the order of observation (MAJOR-2 reverted) | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| N11  | rule 3 walks revisions not yet public on the statement date                             | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| M18  | share level tolerance 25 % -> 20 %                                                      | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M19  | confirmations 3 -> 2                                                                    | A-api, A-real           | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M20  | non-consecutive quarters keep the agreement                                             | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M21  | 2 % restatement threshold removed                                                       | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M22  | an old re-base explains a new restatement (newness and month removed)                   | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M23  | rule 3 timing window removed                                                            | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M45  | any re-base ratio explains a restatement                                                | A-api                   | —                              | killed                                                                                                                                                                                                    |
+| M49  | the level does not follow accepted counts                                               | A-api, A-worker, A-real | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M40  | revert D2: rule 3's 2 % judged in doubles                                               | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M41  | revert D3: rule 2's 25 % judged in doubles                                              | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M58  | rule 3: a re-base detected after the count was observed explains it                     | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M63  | rule 3 never explains a restatement                                                     | A-api                   | P-stockdata                    | killed                                                                                                                                                                                                    |
+| M82  | rule 2 agrees with the newest candidate, not the first                                  | A-api                   | —                              | killed                                                                                                                                                                                                    |
+
+**Result: 49 of 55 killed, all by the audit's suites**, each on an assertion or a failed comparison,
+never a timeout; 6 equivalent.
+
+- **The first run** killed 40 of the 54 mutants then in the catalog, three of them (P16, P17, M63)
+  only by the product's own tests.
+- **The ten hand cases of `7876752b`** (re-run in a worktree of that commit, whose product is
+  `6da4354a`'s) kill 8 of the 14 survivors (P04, P09, P10, P14, Q05, N05, N08, M45) and put the
+  audit behind P16, P17 and M63. Q09's place, the explanation where nothing separates, no longer
+  reaches rule 5's window, so Q09b mutates the same thing on the separated path; M3g kills it.
+- **The 6 equivalent mutants** were each run against the reviewer's boundary sweep and truth fuzzer:
+  2,268,000 + 3,836,000 + 1,918,000 cells, closed and provisional rows. Product and oracle agreed on
+  every cell, and the fuzzer's false availabilities (the ruled residuals) did not move. As a
+  control, P01 gives 9,042 mismatched sessions in the sweep and 19,805 mismatched cells in the
+  fuzzer.
+
 ## 30. Clean-room review
 
 A fresh reviewer — an agent that did not write the oracle — was given the decisions, the product
@@ -1348,6 +1535,33 @@ build, and it re-derived every new hand case — and kept MAJOR-1 and MAJOR-3 as
 questions: "the decision should not be marked Accepted while these are open, unless the owner
 explicitly accepts them as V1 limitations, as was done for MMM."
 
+### The third clean-room review (revision 4, 2026-10-06 to 2026-10-07)
+
+A fresh reviewer — who wrote neither the product nor the oracle — reviewed revision 4 read-only
+against the owner's rulings, focused on the interaction of rules 2, 3, 5 and 6 and on
+corporate-action boundaries. Its probes: a boundary sweep (2,268,000 cells: dated and undated
+re-bases, history, forward and superseded entries, ratios 2, 0.5 and 1.046, first observations from
+32 days before an event to a day after, revisions at a detection instant ±1 ms, closed and
+provisional rows) and a truth fuzzer that models a coherent market capitalisation and a provider
+that restates early, late, partially, never or takes a restatement back (about 26 M cells over its
+three rounds). Product and oracle disagreed on 0 cells except where a finding below says so.
+
+| Round                  | Finding                                                                                                                                                                                                 | Severity | Disposition                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| first (`67b4d59f`)     | Across two separating plain re-bases, "any measured re-base explains" accepted a count restated by one of them and refused the fully restated one (a false available against the ruling's general rule) | Minor    | fixed: the separating re-bases explain together (`36fd0c9c`, `68dc083d`, `8476c31e`); M1i, M1j                                                                 |
+| first                  | An anchor observed before an event but public only from a later placeholder date is not in rule 3's walk before that date, so an old-units revision observed after the event passes for those days      | Minor    | disclosed for the owner ("What rule 3 cannot tell apart"): outside the rulings, which confirmed the walk as "among the revisions public on the statement date" |
+| first                  | Four stale passages and a broken wrap in the decision                                                                                                                                                   | Nit      | fixed (`36fd0c9c`)                                                                                                                                             |
+| follow-up (`8476c31e`) | "Unless the ratios cancel" accepted an agreeing count whose anchor had been restated ahead of the split (P/E 4.8 against a coherent 2.4)                                                                | Minor    | fixed: an agreeing count is never accepted across separating events (`ece6684b`, `71e2b6a8`, `6da4354a`); M1k                                                  |
+| follow-up              | Across cancelling ratios the product cut rule 5's first-observation chain at an agreeing count; the oracle followed it (0 mismatches elsewhere)                                                         | Minor    | gone with the clause: nothing agreeing is accepted across a separation, on either side                                                                         |
+| follow-up              | A parenthetical on undated intervals, revision 4's note, two wraps                                                                                                                                      | Nit      | fixed                                                                                                                                                          |
+| final (`6da4354a`)     | none                                                                                                                                                                                                    | —        | **0 BLOCKER, 0 MAJOR, 0 MINOR, 0 NIT**                                                                                                                         |
+
+Comparing the oracle before and after the last fix over the fuzzer's seeds 1–1000, the only cells
+that moved were 265 correct readings now withheld — agreeing counts across a split and its
+reversal, the stated cost — and no cell became a new false available. The residual false
+availabilities its fuzzer finds all fall in the classes the decision states the rules cannot see
+(§33).
+
 ## 31. Defects found
 
 ### Implementation defects
@@ -1392,16 +1606,17 @@ cell available that every stored row would withhold (`retention-scope.json`: 0, 
 
 ### Shapes the second clean-room review found (2026-10-06)
 
-| Id      | Shape                                                                                                                                                                                                                              | Status                                                                                              |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| MAJOR-2 | Rule 3 ordered by availability: a late-observed amendment, dated from an earlier filing and explained by a re-base detected before it was observed, anchored a restatement observed before the detection, read at `K = 2` (P/E ×2) | **Fixed** (`154235eb`, `a0628b8e`): rule 3 walks in the order of observation; hand cases G1e–G1h    |
-| MAJOR-1 | A count still in the old units observed after an event's month — the provider never restating it, or taking back a restatement it published ahead of the ex-date — agrees with its anchor and reads off by the event's ratio       | **Open, the owner's**: a methodology question (O-2 beyond rule 5's month); recorded in the decision |
-| MAJOR-3 | A count first observed already restated ahead of the ex-date has no anchor and passes rule 3; rule 2 sees no step                                                                                                                  | **Open, the owner's**: a methodology question older than the rulings; recorded in the decision      |
+| Id      | Shape                                                                                                                                                                                                                              | Status                                                                                                           |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| MAJOR-2 | Rule 3 ordered by availability: a late-observed amendment, dated from an earlier filing and explained by a re-base detected before it was observed, anchored a restatement observed before the detection, read at `K = 2` (P/E ×2) | **Fixed** (`154235eb`, `a0628b8e`): rule 3 walks in the order of observation; hand cases G1e–G1h                 |
+| MAJOR-1 | A count still in the old units observed after an event's month — the provider never restating it, or taking back a restatement it published ahead of the ex-date — agrees with its anchor and reads off by the event's ratio       | **Ruled and fixed** (owner, option 1(a); revision 4): agreement across a share change is not acceptance; M1a–M1k |
+| MAJOR-3 | A count first observed already restated ahead of the ex-date has no anchor and passes rule 3; rule 2 sees no step                                                                                                                  | **Ruled and fixed** (owner, option 2(a); revision 4): rule 5 before the event; M3a–M3e                           |
 
-Both open shapes reproduce, in the product and the oracle alike: MAJOR-1 reads P/E 1.5 against a
-coherent 3 (a 2:1 split, the restatement taken back after it); MAJOR-3 reads P/E 6 against a
-coherent 3 before the event. Neither occurs in the store, which holds no measured re-base and no
-count observed in the month before a listed event. §0 lists the owner's options.
+Both reproduced, in the product and the oracle alike, before revision 4: MAJOR-1 read P/E 1.5
+against a coherent 3 (a 2:1 split, the restatement taken back after it); MAJOR-3 read P/E 6 against
+a coherent 3 before the event. Both are withheld now. Neither occurs in the store, which holds no
+measured re-base and no count first observed in the month before a listed event, so the rulings
+change no stored reading (§0). The third review's findings are in §30.
 
 ### Not defects, after reproduction
 
@@ -1461,9 +1676,12 @@ What this audit cannot show, or chose not to:
   the defences; interpretation 1 (§5) is the one reading made after seeing the product's code.
 - **The second restatement by the same ratio** within one quarter is explained by the first
   re-base: a limit the decision states ("What rule 3 cannot tell apart").
-- **Two shapes open for the owner** (the second review's MAJOR-1 and MAJOR-3, §31): a count still
-  in the old units observed after an event's month, and a count first observed already restated
-  ahead of the ex-date. Both are recorded in the decision; neither occurs in the store.
+- **What the rules, as ruled, cannot see** (the decision's "What rule 3 cannot tell apart"; the
+  third review's truth fuzzer finds false availabilities only in these classes): a count first
+  observed after an event, with nothing observed before it to differ from; a provider that
+  pre-restated more than 30 days ahead of an ex-date; a second restatement by the same ratio within
+  one quarter (above); and an anchor not yet public on the statement date (the third review's
+  MINOR-2, open for the owner: a few days per occurrence). None occurs in the store.
 - **Numeric:** the comparison's bound is analytic (§19); in the few cells whose enterprise value
   nearly cancels, a logic error smaller than the bound would pass, and the bound there is up to
   `1e-9` of the value.
@@ -1506,42 +1724,29 @@ swap nearly full, other software holding the CPU):
 
 ## 35. Recommendation
 
-**Do not close Valuation Ratios V1 yet, and do not mark its decision Accepted yet.** The owner's
-rulings on G1–G3 are implemented on both sides and hold everywhere the comparisons reach (§0): 0
-false available, 0 false unavailable, 0 value mismatches, every mutant of the rulings killed. What
-remains is the owner's again: the second clean-room review found two shapes the rules, as ruled,
-still read wrong (§31), and its acceptance bar — no BLOCKER or MAJOR — is not met while they are
-open.
+**Close Valuation Ratios V1.** The acceptance bar is met on the final head `6da4354a`: 0 false
+available, 0 false unavailable and 0 value mismatches in every comparison (§0), every mutant of the
+ruled rules killed by the audit or shown equivalent (§29), and no BLOCKER or MAJOR from the
+clean-room review, whose final round found nothing (§30). On that evidence `valuation-ratios-v1.md`
+is marked Accepted, with this report and PR #81 as its evidence, and `CORRECTNESS_MAP.md` records
+the ratios as independently checked.
 
-1. **MAJOR-1, a count in the old units observed after an event's month.** Options:
-   - (a) make rule 6's assumption a check: a revision of a quarter that ended before an event,
-     observed after its detection (or after a listed entry's date), whose anchor was observed before
-     the event, must be explained by the event's ratio — agreeing with the anchor is no longer
-     enough. It withholds the never-restated count and the taken-back restatement alike, until a
-     quarter that ended after the event is the latest;
-   - (b) withhold only a revision whose step back from a withheld restatement is the inverse of a
-     known event's ratio (the taken-back restatement, nothing more);
-   - (c) accept and document it as a V1 limitation tied to open measurement O-2, as MMM is.
-2. **MAJOR-3, a count first observed already restated ahead of the ex-date.** Options:
-   - (a) mirror rule 5 before the event: a count first observed in the 30 days before a listed or
-     measured event, for a quarter that ended before it, is withheld on the sessions before the
-     event;
-   - (b) accept and document it as a V1 limitation (a first load, or a quarter first observed,
-     while the provider has pre-restated the history).
-3. **Confirm the reading of "earlier"** in the ruled rule 3: the order of observation, among the
-   revisions public on the statement date (§5, interpretation 5).
+For the owner, not blocking:
 
-Neither open shape occurs in the store today: it holds no measured re-base, and no count was first
-observed in the month before a listed event. Options 1(a) and 2(a) are therefore expected to change
-no stored reading, and 1(c) and 2(b) none by definition. After the rulings, implement them in the
-calculation and the oracle independently, add their hand cases, re-run `pnpm audit:valuation`
-(generated, real, synthetic-store, http) and the mutation pass, and have the clean-room reviewer
-confirm no BLOCKER or MAJOR remains; then mark `valuation-ratios-v1.md` Accepted with this report
-and PR #81 as its evidence.
+1. **An anchor not yet public** (§30, §33). Rule 3's walk is "among the revisions public on the
+   statement date", as confirmed, so a placeholder-dated revision observed before an event anchors
+   nothing until its date, and an old-units revision observed after the event reads for those days.
+   Options: let the separation test also see a revision observed before the event that is not yet
+   public (it only withholds; no value is read from it), or accept it as disclosed.
+2. **Open measurement O-2** (the provider's restatement lag after a re-base) stays what rule 5's
+   month and the separation check guard against; a confirming re-read after 30 days is the
+   follow-up the decision names.
 
-The earlier recommendations are done: the owner ruled on G1–G3 (rule 3's anchor, option (a); rule
-2's first level, option (a)), ratified interpretation 1, and the undated-event comments now say what
-the writer persists.
+PR #81 is ready to merge on the owner's decision. It has not been merged.
+
+The earlier recommendations are done: the owner ruled on G1–G3, ratified interpretation 1, ruled on
+MAJOR-1 and MAJOR-3 and confirmed the reading of "earlier"; the undated-event comments say what the
+writer persists.
 
 ## Appendix A. Coverage by rule
 
@@ -1550,31 +1755,45 @@ alone withholds there, its occurrence in the real data, the product's own tests,
 that break it, and the consumers that read it. No rule is covered only by a test derived from its
 implementation: every row has a hand case and an oracle comparison.
 
-| Rule                                                          | Hand cases                                                | Generated                                                                                                               | Real data                                            | Product tests                                                                                     | Mutations                                                      | Consumers                              |
-| ------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------- |
-| Formulas: `MC`, the five ratios                               | C01, C06–C06c, C43c                                       | every available cell (§11)                                                                                              | 1,392,386 available cells                            | `valuation-ratios.test.ts`, `valuation-history.integration.test.ts`, `stocks.integration.test.ts` | M01–M09, M38a, M75                                             | all (§20–§23)                          |
-| TTM: four consecutive quarters, no FY, no fallback            | C01, C14, C15, C15b                                       | `missing-quarter`, `fy-rows`; `INCOMPLETE_WINDOW` alone 10,077,689 cells                                                | `INCOMPLETE_WINDOW` (P/E 6,658)                      | `valuation-ratios.test.ts`, `fiscal-quarters`                                                     | M08, M11, M12, M17                                             | all                                    |
-| Inputs: positive denominator, share count, close              | C07–C12, C43                                              | `near-zero-denominator`, `zero-close`, `shares-non-positive-count`                                                      | `NON_POSITIVE_DENOMINATOR`, `MISSING_SHARE_COUNT`    | `valuation-ratios.test.ts`                                                                        | M14 (equivalent), M15, M47                                     | all                                    |
-| Currency                                                      | C19, C20, C20b                                            | `one-family-other-currency`, `all-statements-other-currency`, `empty-currency`                                          | none (proven synthetically)                          | `valuation-ratios.test.ts`                                                                        | M16, M50                                                       | all                                    |
-| Representability                                              | C43, C43b                                                 | `UNREPRESENTABLE_RESULT` alone                                                                                          | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                        | M48                                                            | all                                    |
-| Point in time: availability, revision order, moved period end | C16, C17, C18, C18b, C18c                                 | `revision-*`, `observation-*`                                                                                           | every session                                        | `valuation-ratios.test.ts`, `financial-statements.test.ts`                                        | M10, M10b, M10c, M10d, M13, M61                                | all                                    |
-| Monitor provisional row                                       | C42                                                       | every session read twice                                                                                                | 300 provisional cells; synthetic truncated copies    | `monitor-frame.test.ts`                                                                           | M44                                                            | Monitor                                |
-| Rule 0: verified history                                      | C37                                                       | `verified-null`                                                                                                         | BRK-A, GOOG                                          | `valuation-ratios.test.ts`                                                                        | M24                                                            | all                                    |
-| Rule 2: share level                                           | C21, C22, C23, C23b, G3, G3b, 14 walks                    | `shares-*`; 15.4 M cells before a first level                                                                           | 42 securities                                        | `valuation-ratios.test.ts`                                                                        | M18, M19, M20, M41, M49, M82, N03, N04                         | all                                    |
-| Rule 3: restatement                                           | C24, C25, C25b, C26, C27, C27b, G1a–G1h, G2, 5 thresholds | `revision-shares-*`, `explained-restatement-*`, the restatement family (anchor past a withheld revision: 274,600 cells) | none: no stored revision changes a count             | `valuation-ratios.test.ts`, `exact-decimal-sum.test.ts`                                           | M21, M22, M23, M40, M45, M58, M63, N01, N02, N05–N08, N10, N11 | all                                    |
-| Rule 4.1: non-plain history entry                             | C28, C30b                                                 | `non-plain-entry`; `HISTORICAL_DISTRIBUTION_ENTRY` alone                                                                | 8 securities (§27)                                   | `valuation-ratios.test.ts`, `valuation-history.integration.test.ts`                               | M25, M26, M26b, M51, M73, M74                                  | all                                    |
-| Rule 4.2: count before an entry                               | C39, C39b                                                 | `COUNT_PREDATES_HISTORICAL_ENTRY` alone                                                                                 | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                        | M42, M71                                                       | all                                    |
-| Rule 5: count soon after an event                             | C39b, C39c, C39d                                          | `observed-on-event-day`, `EVENT_SETTLING` alone                                                                         | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                        | M39, M43, M59, M72                                             | all                                    |
-| Rule 6: `K` and its withheld windows                          | C25, C35, C35b, C40, C41, C41b, C41c                      | `dated-measured`, `undated-measured`, `unexplained-*`; `BASIS_WITHHELD` alone                                           | none: no measured re-base                            | `price-basis.test.ts`, `valuation-ratios.test.ts`                                                 | M28, M30b, M55, M56, M64, M65, M66, M67                        | all; the worker anchor's 2024 split    |
-| Rule 7: after a measured distribution                         | C32, C32b, C40b                                           | `non-plain-measured`, `POST_DISTRIBUTION_STATEMENTS_STALE` alone                                                        | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                        | M29, M54                                                       | all                                    |
-| Rule 8: forward entry                                         | C31, C31b, C31c                                           | `forward-entry`, `entry-match-*`; `FORWARD_EVENT_UNMEASURED` alone                                                      | none: no forward entry of a security with statements | `valuation-ratios.test.ts`                                                                        | M27, M30a, M52, M53, M69, M70                                  | all; the worker anchor's 1:2           |
-| Plain-share predicate                                         | C29, C30, C30b                                            | `plain-entry`, `near-plain-measured`                                                                                    | every listed entry (§27)                             | `price-basis.test.ts`                                                                             | M26, M26b, M68                                                 | all                                    |
-| Generation bracket and revision pin                           | C38a, C38b                                                | —                                                                                                                       | —                                                    | `stocks.integration.test.ts`, `price-basis.integration.test.ts`                                   | M36a, M36b, M36c, M37                                          | backtest, Monitor, Stock Details (§26) |
-| Unavailable never matches                                     | —                                                         | —                                                                                                                       | —                                                    | `predicates.test.ts`, `monitor-transitions.fixture.test.ts`                                       | M34, M35, M77                                                  | backtest, Monitor (§21, §22)           |
-| Stock Details answer and chart                                | —                                                         | —                                                                                                                       | every served session; HTTP; browser                  | `StockPriceChart.test.tsx`, `valuation.user.spec.ts`                                              | M33, M33b, M38b, M78                                           | Stock Details (§23)                    |
-| Statement, event and split read                               | —                                                         | the synthetic store                                                                                                     | every served session                                 | `valuation-history.integration.test.ts`                                                           | M79, M80, M81                                                  | all                                    |
+| Rule                                                              | Hand cases                                                         | Generated                                                                                                                                                                                             | Real data                                            | Product tests                                                                                             | Mutations                                                               | Consumers                              |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------- |
+| Formulas: `MC`, the five ratios                                   | C01, C06–C06c, C43c                                                | every available cell (§11)                                                                                                                                                                            | 1,392,386 available cells                            | `valuation-ratios.test.ts`, `valuation-history.integration.test.ts`, `stocks.integration.test.ts`         | M01–M09, M38a, M75                                                      | all (§20–§23)                          |
+| TTM: four consecutive quarters, no FY, no fallback                | C01, C14, C15, C15b                                                | `missing-quarter`, `fy-rows`; `INCOMPLETE_WINDOW` alone 10,077,689 cells                                                                                                                              | `INCOMPLETE_WINDOW` (P/E 6,658)                      | `valuation-ratios.test.ts`, `fiscal-quarters`                                                             | M08, M11, M12, M17                                                      | all                                    |
+| Inputs: positive denominator, share count, close                  | C07–C12, C43                                                       | `near-zero-denominator`, `zero-close`, `shares-non-positive-count`                                                                                                                                    | `NON_POSITIVE_DENOMINATOR`, `MISSING_SHARE_COUNT`    | `valuation-ratios.test.ts`                                                                                | M14 (equivalent), M15, M47                                              | all                                    |
+| Currency                                                          | C19, C20, C20b                                                     | `one-family-other-currency`, `all-statements-other-currency`, `empty-currency`                                                                                                                        | none (proven synthetically)                          | `valuation-ratios.test.ts`                                                                                | M16, M50                                                                | all                                    |
+| Representability                                                  | C43, C43b                                                          | `UNREPRESENTABLE_RESULT` alone                                                                                                                                                                        | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                                | M48                                                                     | all                                    |
+| Point in time: availability, revision order, moved period end     | C16, C17, C18, C18b, C18c                                          | `revision-*`, `observation-*`                                                                                                                                                                         | every session                                        | `valuation-ratios.test.ts`, `financial-statements.test.ts`                                                | M10, M10b, M10c, M10d, M13, M61                                         | all                                    |
+| Monitor provisional row                                           | C42                                                                | every session read twice                                                                                                                                                                              | 300 provisional cells; synthetic truncated copies    | `monitor-frame.test.ts`                                                                                   | M44                                                                     | Monitor                                |
+| Rule 0: verified history                                          | C37                                                                | `verified-null`                                                                                                                                                                                       | BRK-A, GOOG                                          | `valuation-ratios.test.ts`                                                                                | M24                                                                     | all                                    |
+| Rule 2: share level                                               | C21, C22, C23, C23b, G3, G3b, 14 walks                             | `shares-*`; 15.4 M cells before a first level                                                                                                                                                         | 42 securities                                        | `valuation-ratios.test.ts`                                                                                | M18, M19, M20, M41, M49, M82, N03, N04                                  | all                                    |
+| Rule 3: restatement                                               | C24, C25, C25b, C26, C27, C27b, G1a–G1h, G2, M1a–M1s, 5 thresholds | `revision-shares-*`, `explained-restatement-*`, the restatement family (anchor past a withheld revision: 296,445 cells), `late-revision-never-restated`; `SHARE_BASIS_UNCONFIRMED` alone 74,298 cells | none: no stored revision changes a count             | `valuation-ratios.test.ts`, `exact-decimal-sum.test.ts`                                                   | M21, M22, M23, M40, M45, M58, M63, N01, N02, N05–N08, N10, N11, P01–P18 | all                                    |
+| Rule 4.1: non-plain history entry                                 | C28, C30b                                                          | `non-plain-entry`; `HISTORICAL_DISTRIBUTION_ENTRY` alone                                                                                                                                              | 8 securities (§27)                                   | `valuation-ratios.test.ts`, `valuation-history.integration.test.ts`                                       | M25, M26, M26b, M51, M73, M74                                           | all                                    |
+| Rule 4.2: count before an entry                                   | C39, C39b                                                          | `COUNT_PREDATES_HISTORICAL_ENTRY` alone                                                                                                                                                               | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                                | M42, M71                                                                | all                                    |
+| Rule 5: count soon after, or first observed soon before, an event | C25, C35, C39b, C39c, C39d, C40, M3a–M3h                           | `observed-on-event-day`, `first-load-before-event`; `EVENT_SETTLING` alone, `COUNT_BEFORE_EVENT` alone 1,030,745 cells                                                                                | none (synthetic)                                     | `valuation-ratios.test.ts`, `evaluation-frame.valuation.test.ts`, `valuation-history.integration.test.ts` | M39, M43, M59, M72, Q01–Q12                                             | all                                    |
+| Rule 6: `K` and its withheld windows                              | C25, C35, C35b, C40, C41, C41b, C41c                               | `dated-measured`, `undated-measured`, `unexplained-*`; `BASIS_WITHHELD` alone                                                                                                                         | none: no measured re-base                            | `price-basis.test.ts`, `valuation-ratios.test.ts`                                                         | M28, M30b, M55, M56, M64, M65, M66, M67                                 | all; the worker anchor's 2024 split    |
+| Rule 7: after a measured distribution                             | C32, C32b, C40b                                                    | `non-plain-measured`, `POST_DISTRIBUTION_STATEMENTS_STALE` alone                                                                                                                                      | none (synthetic)                                     | `valuation-ratios.test.ts`                                                                                | M29, M54                                                                | all                                    |
+| Rule 8: forward entry                                             | C31, C31b, C31c                                                    | `forward-entry`, `entry-match-*`; `FORWARD_EVENT_UNMEASURED` alone                                                                                                                                    | none: no forward entry of a security with statements | `valuation-ratios.test.ts`                                                                                | M27, M30a, M52, M53, M69, M70                                           | all; the worker anchor's 1:2           |
+| Plain-share predicate                                             | C29, C30, C30b                                                     | `plain-entry`, `near-plain-measured`                                                                                                                                                                  | every listed entry (§27)                             | `price-basis.test.ts`                                                                                     | M26, M26b, M68                                                          | all                                    |
+| Generation bracket and revision pin                               | C38a, C38b                                                         | —                                                                                                                                                                                                     | —                                                    | `stocks.integration.test.ts`, `price-basis.integration.test.ts`                                           | M36a, M36b, M36c, M37                                                   | backtest, Monitor, Stock Details (§26) |
+| Unavailable never matches                                         | —                                                                  | —                                                                                                                                                                                                     | —                                                    | `predicates.test.ts`, `monitor-transitions.fixture.test.ts`                                               | M34, M35, M77                                                           | backtest, Monitor (§21, §22)           |
+| Stock Details answer and chart                                    | —                                                                  | —                                                                                                                                                                                                     | every served session; HTTP; browser                  | `StockPriceChart.test.tsx`, `valuation.user.spec.ts`                                                      | M33, M33b, M38b, M78                                                    | Stock Details (§23)                    |
+| Statement, event and split read                                   | —                                                                  | the synthetic store                                                                                                                                                                                   | every served session                                 | `valuation-history.integration.test.ts`                                                                   | M79, M80, M81                                                           | all                                    |
 
 ## Appendix B. Regression gates
+
+### On revision 4 (2026-10-07, `6da4354a`)
+
+| Gate                                                                        | Result                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm db:validate`, `pnpm db:check-drift`                                   | passed (no schema change)                                                                                                                                                                                                                                                                                   |
+| `pnpm lint`                                                                 | passed (`--max-warnings=0`)                                                                                                                                                                                                                                                                                 |
+| `pnpm typecheck`                                                            | passed in all 13 workspaces                                                                                                                                                                                                                                                                                 |
+| `pnpm openapi:validate`                                                     | passed (62 paths)                                                                                                                                                                                                                                                                                           |
+| `pnpm build`                                                                | passed in all 13 workspaces                                                                                                                                                                                                                                                                                 |
+| `pnpm -r --no-bail --if-present test`                                       | every package passed and every file ran (stock-data 49 of 49 files), except stock-data's two "cross-process canonical hydration" 5 s timeouts (5,014 and 5,008 ms), the known flakes of that file under parallel load; api 2,117 of 2,117, worker 293 of 293, web 1,314 of 1,314, stock-data 1,101 of 1,103 |
+| `pnpm --filter @intrinsic/stock-data test:redis`                            | passed, 49 tests; the two cross-process cases in 2,111 and 4,831 ms                                                                                                                                                                                                                                         |
+| `pnpm test:e2e` (full hermetic Playwright, personas seeded, worker running) | 270 passed, 1 failed in 9.0 minutes, none in a valuation spec: `entitlements.admin.spec.ts:38`, the test-data leak found on clean `main` (the administrator persona now holds 104 lists, 93 of them `Forged role attempt …`, so its fixture list is off the 100-row page). It fails on any code.            |
+| `pnpm audit:valuation` and the worker audits                                | every comparison passed on the final head: §0                                                                                                                                                                                                                                                               |
 
 ### On the rulings (2026-10-06)
 

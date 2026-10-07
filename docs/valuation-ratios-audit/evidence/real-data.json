@@ -2,7 +2,7 @@
   "database": "intrinsic_value_valaudit",
   "securities": 62,
   "storedSessions": 363293,
-  "durationMs": 318497,
+  "durationMs": 420861,
   "providerCalls": [
     "prices BRK-A 1992-09-09..2026-09-22",
     "prices GOOG 2004-08-19..2026-09-22"
