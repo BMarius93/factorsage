@@ -145,12 +145,13 @@ busy_ports() {
   printf '%s' "$busy"
 }
 
-# The cloud image has lsof but not ss (iproute2); either answers.
+# The cloud image has no ss (iproute2), and its lsof 4.95 skips a process whose name contains a
+# space — `next-server (v16…)`, the web — so fuser (psmisc) answers there.
 listener_pids() {
   if command -v ss >/dev/null 2>&1; then
     ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | sort -u
   else
-    lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -u
+    fuser -n tcp "$1" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u
   fi
 }
 
