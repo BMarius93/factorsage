@@ -145,8 +145,13 @@ busy_ports() {
   printf '%s' "$busy"
 }
 
+# The cloud image has lsof but not ss (iproute2); either answers.
 listener_pids() {
-  ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | sort -u
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | sort -u
+  else
+    lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -u
+  fi
 }
 
 stack_down() {
