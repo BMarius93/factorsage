@@ -32,15 +32,21 @@ SETUP_LOG="$CLOUD_STATE_DIR/setup.log"
 : >"$SETUP_LOG"
 started_at="$(date +%s)"
 
+# A step returns this when it has nothing to do in this context; it is recorded as skipped.
+STEP_SKIPPED=3
+
 # run_step <name> <function>: runs one step with its output in the setup log, records the outcome.
 run_step() {
-  local name="$1" step_started
+  local name="$1" step_started status outcome
   step_started="$(date +%s)"
-  if "$2" >>"$SETUP_LOG" 2>&1; then
-    echo "ok $(($(date +%s) - step_started))s" >"$CLOUD_STATE_DIR/steps/$name"
-  else
-    echo "failed $(($(date +%s) - step_started))s" >"$CLOUD_STATE_DIR/steps/$name"
-  fi
+  "$2" >>"$SETUP_LOG" 2>&1
+  status=$?
+  case "$status" in
+    0) outcome=ok ;;
+    "$STEP_SKIPPED") outcome=skipped ;;
+    *) outcome=failed ;;
+  esac
+  echo "$outcome $(($(date +%s) - step_started))s" >"$CLOUD_STATE_DIR/steps/$name"
 }
 
 step_ok() {
@@ -61,6 +67,12 @@ step_tools() {
 }
 
 step_databases() {
+  # The environment's variables are not always visible to the setup script. Without them there is
+  # nothing to provision against; session-start.sh creates and migrates the databases instead.
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "DATABASE_URL is not visible to the setup script; session-start.sh provisions the databases."
+    return "$STEP_SKIPPED"
+  fi
   cloud_use_toolchain
   cloud_assert_safe &&
     cloud_start_postgres &&
