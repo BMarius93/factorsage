@@ -26,7 +26,13 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+# STRIPE_SANDBOX_SMOKE is blanked for the session, so a value here was set on this command line:
+# keep it through the guard, which would otherwise neutralize the opt-in this wrapper exists for.
+smoke="${STRIPE_SANDBOX_SMOKE:-}"
 cloud_use_toolchain
 cloud_assert_safe
 cloud_export_stripe_runtime
+if [ -n "$smoke" ]; then
+  export STRIPE_SANDBOX_SMOKE="$smoke"
+fi
 exec "$@"

@@ -32,6 +32,9 @@ FAKE_FMP_PORT="${E2E_FAKE_FMP_PORT:-3011}"
 STACK_PORTS="3000 3001 $FAKE_FMP_PORT"
 # Stopped in this order: consumers first, the processes they depend on last.
 ROLES_DOWN="web worker stripe api fmp"
+# The webhook types the API handles (HANDLED_EVENT_TYPES in apps/api/src/billing/stripe-webhook.controller.ts).
+# The Stripe CLI forwards nothing without an explicit list.
+STRIPE_WEBHOOK_EVENTS="checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.pending_update_applied,customer.subscription.pending_update_expired,invoice.paid,invoice.payment_failed,subscription_schedule.updated,subscription_schedule.released,subscription_schedule.aborted"
 
 usage() {
   sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -252,8 +255,9 @@ stack_up() {
   }
   if [ "$option" = "--stripe" ]; then
     # The listener prints this session's signing secret; it never reaches the log.
-    start_role stripe bash -c 'stripe listen --forward-to http://127.0.0.1:3001/webhooks/stripe 2>&1 |
-      sed -u "s/whsec_[A-Za-z0-9]*/whsec_[redacted]/g"' &&
+    # shellcheck disable=SC2016 # $0 belongs to the inner shell.
+    start_role stripe bash -c 'stripe listen --events "$0" --forward-to http://127.0.0.1:3001/webhooks/stripe 2>&1 |
+      sed -u "s/whsec_[A-Za-z0-9]*/whsec_[redacted]/g"' "$STRIPE_WEBHOOK_EVENTS" &&
       wait_role stripe 90 listener_ready || {
       stack_down
       exit 1

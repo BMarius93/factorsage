@@ -64,8 +64,10 @@ cloud_node_prefix() {
   printf '/opt/node-v%s' "$(cloud_node_version)"
 }
 
+# Always the cloud path: setup.sh does not see the environment's variables and inherits the image's
+# own PLAYWRIGHT_BROWSERS_PATH, so honouring it would install into a directory the hook never checks.
 cloud_playwright_browsers_path() {
-  printf '%s' "${PLAYWRIGHT_BROWSERS_PATH:-$CLOUD_DEFAULT_BROWSERS_PATH}"
+  printf '%s' "$CLOUD_DEFAULT_BROWSERS_PATH"
 }
 
 # Puts the pinned Node, its pnpm shim and the pinned tools first on PATH for this process.
