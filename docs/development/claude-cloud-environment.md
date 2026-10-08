@@ -109,7 +109,6 @@ Do **not** add `financialmodelingprep.com` until the live-FMP wrapper and its bu
 `.env` format. Values marked `<…>` are yours to fill in; everything else is literal.
 
 ```text
-NODE_ENV=development
 LOG_LEVEL=info
 DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/intrinsic_value
 TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/intrinsic_value_test
@@ -152,6 +151,9 @@ BASH_MAX_TIMEOUT_MS=14400000
 - `SANDBOX_STRIPE_*` are deliberately **not** the names the application reads. `pnpm test`, a plain
   `pnpm dev:api` and Playwright therefore run without Stripe, exactly as CI does; only
   `scripts/cloud/with-stripe.sh` and `stack.sh up dev --stripe` map them onto `STRIPE_*`.
+- Leave `NODE_ENV` unset: the application defaults to `development`, Vitest to `test`, and
+  `next build` must choose `production` itself — an ambient `NODE_ENV=development` makes `pnpm build`
+  fail while prerendering.
 - `BASH_MAX_TIMEOUT_MS` lets Claude give long commands (a full E2E run, the matrix) up to four hours.
 
 Secrets: `SANDBOX_STRIPE_SECRET_KEY` (test mode only). Low sensitivity, because they only protect
