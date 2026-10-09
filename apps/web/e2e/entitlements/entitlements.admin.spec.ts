@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { e2eDisposableAccountEmail } from "@intrinsic/testing/e2e-accounts";
 import { expect, test } from "../fixtures";
 import {
   addStockToOpenList,
@@ -101,7 +102,9 @@ test.describe("ADMIN entitlements", () => {
     // is the same neutral `202`, and no password — let alone a role — comes from the request.
     // The activation email this triggers goes to the stack's configured mail transport; run this
     // suite against a local capture relay or with SMTP unset (`ai/workflows/auth-testing.md`).
-    const email = `escalation-${Date.now()}@example.test`;
+    // The account it creates is a disposable one: the global teardown removes it, and the setup
+    // removes any a killed run left (`@intrinsic/testing/e2e-accounts`).
+    const email = e2eDisposableAccountEmail("escalation");
     const registered = await page.request.post(
       `${apiBaseUrl()}/auth/register`,
       {

@@ -24,6 +24,12 @@
       "require": "./dist/e2e-stack.js",
       "default": "./dist/e2e-stack.js"
     },
+    "./e2e-accounts": {
+      "types": "./dist/e2e-accounts.d.ts",
+      "import": "./dist/e2e-accounts.js",
+      "require": "./dist/e2e-accounts.js",
+      "default": "./dist/e2e-accounts.js"
+    },
     "./return-path-corpus": {
       "types": "./dist/return-path-corpus.d.ts",
       "import": "./dist/return-path-corpus.js",

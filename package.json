@@ -49,6 +49,7 @@
     "billing:verify-catalog": "pnpm build:packages && pnpm --filter @intrinsic/api billing:verify-catalog",
     "test:users:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-users",
     "test:entitlements:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:entitlement-fixtures",
+    "test:accounts:prune": "pnpm build:packages && pnpm --filter @intrinsic/api e2e:accounts:prune",
     "test:personas:seed": "pnpm test:users:seed && pnpm test:securities:seed && pnpm test:builtins:seed && pnpm test:entitlements:seed",
     "test:securities:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-securities",
     "test:builtins:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-builtins",

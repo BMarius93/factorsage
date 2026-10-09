@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { request } from "@playwright/test";
 import {
@@ -24,9 +25,16 @@ import { listenerPids } from "./utils/listener-pids";
  * - the fixture FMP server received any request it has no fixture for (it names each one);
  * - the egress guard blocked any outbound connection from an E2E process (host and pid named);
  * - any persona still has a backtest in flight other than the entitlement fixtures' pinned runs —
- *   a stuck run silently holds a concurrency slot the next run depends on.
+ *   a stuck run silently holds a concurrency slot the next run depends on;
+ * - the disposable accounts specs registered could not all be removed (below).
  *
- * It only reads. Nothing here writes to the database, Redis or the fixture server.
+ * **Disposable accounts, before and after.** A sign-up spec creates a real account the product
+ * offers no way to delete (`@intrinsic/testing/e2e-accounts`). Both ends of the run therefore call
+ * the API workspace's guarded cleanup — before, so whatever a killed or older run left is gone;
+ * after, so a run leaves nothing behind. That command is the only write made from here, and this
+ * process still holds no database client and decides nothing about what is deleted: the command
+ * resolves the test database itself and refuses anything else (`apps/api/src/e2e-stack/
+ * e2e-accounts.ts`). Otherwise this only reads; nothing here writes to Redis or the fixture server.
  */
 
 const PINNED_RUN_STRATEGY = "ENT-In Flight";
@@ -76,8 +84,21 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     );
   }
 
+  const stranded = pruneDisposableAccounts(root);
+  if (stranded !== null) {
+    throw new Error(
+      `${stranded}. The run did not start: the test database holds a disposable account the ` +
+        "cleanup will not delete, or the cleanup could not reach it.",
+    );
+  }
+
   return async () => {
     const problems: string[] = [];
+
+    const leftover = pruneDisposableAccounts(root);
+    if (leftover !== null) {
+      problems.push(leftover);
+    }
 
     const entries = (await readJournal(control, journal.last)).entries;
     const byEndpoint = new Map<string, number>();
@@ -122,6 +143,39 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       );
     }
   };
+}
+
+/**
+ * Runs `pnpm test:accounts:prune`'s command in the API workspace and reports a failure, or `null`.
+ *
+ * Without the root script's package build: the stack's launchers built them already. The command's
+ * own `[e2e-accounts]` lines are passed through, so a refusal names the account and the reason.
+ */
+function pruneDisposableAccounts(root: string): string | null {
+  const result = spawnSync(
+    "pnpm",
+    ["--silent", "--filter", "@intrinsic/api", "e2e:accounts:prune"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, npm_config_update_notifier: "false" },
+      timeout: 60_000,
+    },
+  );
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+  if (output !== "") {
+    process.stdout.write(`${output}\n`);
+  }
+  if (result.error !== undefined) {
+    return `the disposable-account cleanup could not run: ${result.error.message}`;
+  }
+  if (result.status !== 0) {
+    return (
+      `the disposable-account cleanup failed (${result.signal ?? `exit ${result.status}`}); ` +
+      "see the [e2e-accounts] lines above"
+    );
+  }
+  return null;
 }
 
 async function readJournal(
