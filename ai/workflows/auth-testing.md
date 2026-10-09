@@ -379,6 +379,7 @@ pnpm test:e2e:auth            # the auth suite (e2e/auth)
 pnpm test:e2e:smoke           # @smoke-tagged tests only
 pnpm test:e2e:headed          # headed browser
 pnpm test:e2e:report          # open the last HTML report
+pnpm test:accounts:prune      # remove disposable sign-up accounts (the run does this itself)
 ```
 
 Re-seed before running the entitlement projects — `pnpm test:e2e:entitlements` does it for you.
@@ -537,9 +538,34 @@ left holding a persona's concurrency slot; the teardown checks it. Afterwards th
 runs are the entitlement fixtures' pinned `ENT-In Flight` runs (lease 2099, never claimed). Lists and
 strategies a spec creates are deleted by that spec, and a spec whose cleanup a killed run could skip
 also deletes its own leftovers, matched by the name only it uses, before it starts
-(`backtests.user.spec.ts`, `entitlements.admin.spec.ts`). Stop the stack with Ctrl-C in each terminal (the
+(`backtests.user.spec.ts`, `entitlements.admin.spec.ts`). Accounts a spec registers are removed by
+the global setup and teardown (below). Stop the stack with Ctrl-C in each terminal (the
 worker supervisor first); `ps`, `lsof -nP -iTCP:3000,3001,3011 -sTCP:LISTEN` and
 `pg_stat_activity` should then show nothing attached to the test database.
+
+**Disposable accounts.** A spec that exercises sign-up creates a real account through
+`POST /auth/register`, and the product offers no way to delete one — least of all a pending account
+nobody can sign in to. Before this was handled, `entitlements.admin.spec.ts` left one
+`escalation-<ms>@example.test` per run (111 by 2026-10-09). Now:
+
+- The address comes from `@intrinsic/testing/e2e-accounts`: `e2eDisposableAccountEmail(kind)`
+  mints `<kind>-<ms>@example.test` for a kind declared in `E2E_DISPOSABLE_ACCOUNT_KINDS`. A future
+  sign-up or email spec **adds its kind there first**; the cleanup matches nothing else.
+- `pnpm test:accounts:prune` (`apps/api/src/e2e-stack/e2e-accounts.ts`) deletes those accounts. The
+  Playwright global setup runs the same command before a run (so a killed or older run's leftovers
+  go) and the teardown after it (so a run leaves none). Playwright holds no database client: it
+  runs the command as a child process, and the command decides on its own what it may touch.
+- It fails closed. It refuses `NODE_ENV=production`, anything but `TEST_DATABASE_URL`, a non-local
+  host, a database whose name has no `test` segment, and the development database — before
+  connecting — and then checks `current_database()` before reading a row. It matches only
+  `^<kind>-\d+@example\.test$`, and deletes only the state registration leaves: unverified,
+  `USER` on `FREE`, no Stripe customer, session version 0, nothing depending on the account but its
+  one activation link (which cascades). A password hash is allowed, because registration before
+  AUTH-003 stored one on the pending row.
+- An address of a declared kind in any other state is **refused, not deleted**, and the command
+  exits non-zero, so the run does not start (or the teardown fails). An `escalation` account holding
+  `ADMIN` or `PRO` would be the very escalation the spec rules out; investigate it, then remove it
+  by hand. `pnpm test:accounts:prune -- --dry-run` shows what would be removed and what is refused.
 
 **The shared Playwright infrastructure.** Every spec imports `test` from `e2e/fixtures.ts` (ESLint
 enforces it). It stubs logos and blocks provider image hosts in every browser context, and exposes
@@ -598,9 +624,13 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 
 - API integration tests create users with a randomized suffix and delete exactly those rows in
   `afterAll`. They never truncate tables and never touch `DATABASE_URL`.
-- Playwright signs in and reads. It creates no accounts, deletes nothing, and never talks to
-  PostgreSQL directly — the browser UI and the public API are its only access paths.
-- Do not give Playwright database credentials.
+- Playwright never talks to PostgreSQL directly — the browser UI and the public API are its only
+  access paths. Content a spec creates through them it deletes through them. The one thing it
+  cannot delete that way is an account it registered, so those are disposable accounts (section 7)
+  that the global setup and teardown remove by running `pnpm test:accounts:prune`'s command as a
+  child process; Playwright itself still holds no database client.
+- Do not give Playwright database credentials, and do not import Prisma or `@intrinsic/database`
+  into a spec or the harness.
 - Signing out inside a spec only affects that test's browser context; the stored state file is
   unchanged.
 
@@ -658,9 +688,9 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 - For manual local testing, point `SMTP_HOST`/`SMTP_PORT` at a local catch-all relay such as
   Mailpit. `SMTP_USER`/`SMTP_PASSWORD` may stay empty for an unauthenticated local relay.
 - The Playwright stack is a real API: `e2e/entitlements/entitlements.admin.spec.ts` registers an
-  `example.test` address. `pnpm dev:api:e2e` blanks the whole `SMTP_*` group, so that registration
-  reaches the unconfigured sender and no message is sent, whatever the developer's `.env` holds; the
-  egress guard would block an SMTP connection regardless.
+  `example.test` address (a disposable account, section 7). `pnpm dev:api:e2e` blanks the whole
+  `SMTP_*` group, so that registration reaches the unconfigured sender and no message is sent,
+  whatever the developer's `.env` holds; the egress guard would block an SMTP connection regardless.
 - Verification and password-reset tokens are single-use and only their SHA-256 hash is stored.
   Never log, print, or paste a plaintext token.
 - Playwright cannot read an inbox, so no browser test redeems a real reset or verification link.
