@@ -62,6 +62,26 @@ export async function createList(
   return (await response.json()) as ApiList;
 }
 
+export type ApiListSummary = {
+  readonly id: string;
+  readonly name: string;
+  readonly ownership: "USER" | "SYSTEM";
+};
+
+/**
+ * The signed-in persona's own lists. Built-ins are left out on purpose: an administrator may edit
+ * and delete those too, so a caller deciding what to clean up must never see one.
+ */
+export async function readOwnLists(page: Page): Promise<ApiListSummary[]> {
+  const response = await page.request.get(`${apiBaseUrl()}/lists`);
+  expect(response.ok(), `GET /lists failed with ${response.status()}`).toBe(
+    true,
+  );
+  return ((await response.json()) as ApiListSummary[]).filter(
+    (list) => list.ownership === "USER",
+  );
+}
+
 export async function readList(page: Page, listId: string): Promise<ApiList> {
   const response = await page.request.get(`${apiBaseUrl()}/lists/${listId}`);
   expect(response.ok()).toBe(true);

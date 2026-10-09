@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "../fixtures";
 import {
   addStockToOpenList,
@@ -7,6 +8,33 @@ import {
   readEntitlements,
   removeStockFromOpenList,
 } from "../utils/entitlements";
+import { deleteListIfPresent, readOwnLists } from "../utils/lists";
+
+/**
+ * The forging test below sends its forged fields with a real mutation; the API ignores them and
+ * creates the list. This persona has no list cap, so while nothing deleted those lists they piled
+ * up one per run until `ENT-Admin Wide`, the oldest list here, fell off the 100-row page
+ * `openFixtureList` widens to. Every list that test has ever created matches this name, and
+ * nothing else does.
+ */
+const FORGED_LIST_NAME = /^Forged role attempt \d+$/;
+
+/**
+ * Deletes the forging test's lists that an earlier run left behind: every one from before the test
+ * cleaned up after itself, and any from a run killed between its create and its cleanup. Only this
+ * persona's own lists — never a built-in, which an administrator may delete too — and only that
+ * test's names.
+ */
+async function deleteStrandedForgedLists(page: Page): Promise<void> {
+  for (const list of await readOwnLists(page)) {
+    if (FORGED_LIST_NAME.test(list.name)) {
+      const response = await page.request.delete(
+        `${apiBaseUrl()}/lists/${list.id}`,
+      );
+      expect([204, 404]).toContain(response.status());
+    }
+  }
+}
 
 /**
  * An administrator on the smallest commercial plan.
@@ -20,6 +48,12 @@ import {
  * browser.
  */
 test.describe("ADMIN entitlements", () => {
+  // Before every test, not only the forging one, so a run that inherits stranded lists heals
+  // before `ENT-Admin Wide` is looked for.
+  test.beforeEach(async ({ page }) => {
+    await deleteStrandedForgedLists(page);
+  });
+
   test("is an administrator and a FREE customer at the same time", async ({
     page,
   }) => {
@@ -92,30 +126,45 @@ test.describe("ADMIN entitlements", () => {
   test("cannot be granted to this session by forging the request", async ({
     page,
   }) => {
-    // The role travels in a signed HttpOnly cookie the page cannot read and the API reloads from
-    // PostgreSQL on every request. Sending a role, a plan, or a whole user alongside a mutation
-    // changes nothing.
-    const created = await page.request.post(`${apiBaseUrl()}/lists`, {
-      data: {
-        name: `Forged role attempt ${Date.now()}`,
-        role: "ADMIN",
-        plan: "PRO",
-        user: { role: "ADMIN" },
-      },
-    });
-    expect([201, 400]).toContain(created.status());
+    const listsBefore = (await readOwnLists(page)).map((list) => list.id);
 
-    const after = await readEntitlements(page);
-    expect(after.plan).toBe("FREE");
-    expect(after.role).toBe("ADMIN");
+    let createdId: string | null = null;
+    try {
+      // The role travels in a signed HttpOnly cookie the page cannot read and the API reloads
+      // from PostgreSQL on every request. Sending a role, a plan, or a whole user alongside a
+      // mutation changes nothing.
+      const created = await page.request.post(`${apiBaseUrl()}/lists`, {
+        data: {
+          name: `Forged role attempt ${Date.now()}`,
+          role: "ADMIN",
+          plan: "PRO",
+          user: { role: "ADMIN" },
+        },
+      });
+      expect([201, 400]).toContain(created.status());
+      if (created.status() === 201) {
+        createdId = ((await created.json()) as { id: string }).id;
+      }
 
-    // And a browser-side claim is presentation only: the server never reads it back.
-    await page.goto("/");
-    await page.evaluate(() => {
-      window.localStorage.setItem("role", "ADMIN");
-      window.localStorage.setItem("plan", "PRO");
-    });
-    const unchanged = await readEntitlements(page);
-    expect(unchanged.plan).toBe("FREE");
+      const after = await readEntitlements(page);
+      expect(after.plan).toBe("FREE");
+      expect(after.role).toBe("ADMIN");
+
+      // And a browser-side claim is presentation only: the server never reads it back.
+      await page.goto("/");
+      await page.evaluate(() => {
+        window.localStorage.setItem("role", "ADMIN");
+        window.localStorage.setItem("plan", "PRO");
+      });
+      const unchanged = await readEntitlements(page);
+      expect(unchanged.plan).toBe("FREE");
+    } finally {
+      await deleteListIfPresent(page, createdId);
+    }
+
+    // The attempt leaves this persona's lists exactly as it found them, so repeated runs cannot
+    // accumulate anything.
+    const listsAfter = (await readOwnLists(page)).map((list) => list.id);
+    expect(listsAfter.sort()).toEqual(listsBefore.sort());
   });
 });

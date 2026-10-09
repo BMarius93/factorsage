@@ -535,7 +535,9 @@ FMP `3011`, PostgreSQL `5432`, Redis `6379`.
 inline, for its runs to reach `COMPLETED` or `FAILED` (`e2e/utils/backtests.ts`), so a run is never
 left holding a persona's concurrency slot; the teardown checks it. Afterwards the only non-terminal
 runs are the entitlement fixtures' pinned `ENT-In Flight` runs (lease 2099, never claimed). Lists and
-strategies a spec creates are deleted by that spec. Stop the stack with Ctrl-C in each terminal (the
+strategies a spec creates are deleted by that spec, and a spec whose cleanup a killed run could skip
+also deletes its own leftovers, matched by the name only it uses, before it starts
+(`backtests.user.spec.ts`, `entitlements.admin.spec.ts`). Stop the stack with Ctrl-C in each terminal (the
 worker supervisor first); `ps`, `lsof -nP -iTCP:3000,3001,3011 -sTCP:LISTEN` and
 `pg_stat_activity` should then show nothing attached to the test database.
 
