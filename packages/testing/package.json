@@ -30,6 +30,12 @@
       "require": "./dist/e2e-accounts.js",
       "default": "./dist/e2e-accounts.js"
     },
+    "./mailpit": {
+      "types": "./dist/mailpit.d.ts",
+      "import": "./dist/mailpit.js",
+      "require": "./dist/mailpit.js",
+      "default": "./dist/mailpit.js"
+    },
     "./return-path-corpus": {
       "types": "./dist/return-path-corpus.d.ts",
       "import": "./dist/return-path-corpus.js",

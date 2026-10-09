@@ -2,12 +2,15 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { request } from "@playwright/test";
 import {
+  e2eArmedMode,
   e2eEgressLogPath,
   e2eFakeFmpControlUrl,
   isToleratedBlockedDestination,
   parseE2eEgressLog,
   type E2eEgressRecord,
+  type E2eStackMode,
 } from "@intrinsic/testing/e2e-stack";
+import { MailpitClient } from "@intrinsic/testing/mailpit";
 import { apiBaseUrl } from "./utils/entitlements";
 import { STORAGE_STATE, e2eBaseUrl, repositoryRoot } from "./utils/env";
 import { listenerPids } from "./utils/listener-pids";
@@ -35,6 +38,15 @@ import { listenerPids } from "./utils/listener-pids";
  * process still holds no database client and decides nothing about what is deleted: the command
  * resolves the test database itself and refuses anything else (`apps/api/src/e2e-stack/
  * e2e-accounts.ts`). Otherwise this only reads; nothing here writes to Redis or the fixture server.
+ *
+ * **Modes** (`E2eStackMode`). This file is the ordinary suite's setup (`pnpm test:e2e`), which
+ * refuses an API launched in mail mode: that suite runs with email switched off, and must not
+ * quietly start delivering it. `global-setup.mail.ts` is the email lifecycle suite's
+ * (`pnpm test:e2e:mail`), which demands the mail-mode API and additionally:
+ * - proves the local Mailpit answers on loopback and cannot relay anything to a real server;
+ * - before and after, deletes the Mailpit messages addressed only to `authmail` disposable
+ *   addresses — what a killed run left, or a finished one missed — and nothing else, and fails the
+ *   run if any remain.
  */
 
 const PINNED_RUN_STRATEGY = "ENT-In Flight";
@@ -49,7 +61,16 @@ type JournalEntry = {
   readonly detail: string;
 };
 
-export default async function globalSetup(): Promise<() => Promise<void>> {
+export default function globalSetup(): Promise<() => Promise<void>> {
+  return hermeticGlobalSetup("standard");
+}
+
+/** The kind of disposable account whose messages the mail suite owns in Mailpit. */
+const MAIL_SUITE_ACCOUNT_KIND = "authmail";
+
+export async function hermeticGlobalSetup(
+  mode: E2eStackMode,
+): Promise<() => Promise<void>> {
   const root = repositoryRoot();
   if (root === undefined) {
     throw new Error("Playwright must run inside the FactorSage repository");
@@ -69,7 +90,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const armed = readEgressLog(egressLog).filter(
     (record) => record.kind === "armed" && isAlive(record.pid),
   );
-  assertListenerGuarded("api", apiBaseUrl(), armed);
+  const api = assertListenerGuarded("api", apiBaseUrl(), armed);
+  assertListenerMode(api, armed, mode);
   assertListenerGuarded("web", e2eBaseUrl(), armed);
   if (
     !armed.some(
@@ -84,12 +106,17 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     );
   }
 
+  const mailpit = mode === "mail" ? await preflightMailpit() : null;
+
   const stranded = pruneDisposableAccounts(root);
   if (stranded !== null) {
     throw new Error(
       `${stranded}. The run did not start: the test database holds a disposable account the ` +
         "cleanup will not delete, or the cleanup could not reach it.",
     );
+  }
+  if (mailpit !== null) {
+    await sweepMailSuiteMessages(mailpit, "before");
   }
 
   return async () => {
@@ -98,6 +125,21 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     const leftover = pruneDisposableAccounts(root);
     if (leftover !== null) {
       problems.push(leftover);
+    }
+    if (mailpit !== null) {
+      const remaining = await sweepMailSuiteMessages(mailpit, "after").catch(
+        (error: unknown) => {
+          problems.push(
+            `the Mailpit cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return 0;
+        },
+      );
+      if (remaining > 0) {
+        problems.push(
+          `${remaining} ${MAIL_SUITE_ACCOUNT_KIND} message(s) are still in Mailpit after the cleanup`,
+        );
+      }
     }
 
     const entries = (await readJournal(control, journal.last)).entries;
@@ -202,11 +244,78 @@ function isAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Proves the local Mailpit is the one the mail mode delivers to: loopback (the client refuses any
+ * other origin), answering as Mailpit, and unable to relay.
+ */
+async function preflightMailpit(): Promise<MailpitClient> {
+  const mailpit = new MailpitClient();
+  try {
+    const { version } = await mailpit.preflight();
+    process.stdout.write(
+      `[e2e-mail] Mailpit ${version} at ${mailpit.baseUrl}\n`,
+    );
+  } catch (error) {
+    throw new Error(
+      `The local Mailpit at ${mailpit.baseUrl} is not usable for the email lifecycle suite. In a ` +
+        "Claude cloud session the SessionStart hook starts it; elsewhere run the pinned Mailpit with " +
+        "`--smtp 127.0.0.1:1025 --listen 127.0.0.1:8025` (ai/workflows/auth-testing.md §7).",
+      { cause: error },
+    );
+  }
+  return mailpit;
+}
+
+/**
+ * Deletes the messages the mail suite's disposable addresses received, and returns how many are
+ * left afterwards (zero unless a delete silently failed). Messages to anybody else are untouched.
+ */
+async function sweepMailSuiteMessages(
+  mailpit: MailpitClient,
+  when: "before" | "after",
+): Promise<number> {
+  const removed = await mailpit.sweepDisposableKind(MAIL_SUITE_ACCOUNT_KIND);
+  const remaining = (await mailpit.messagesOwnedBy(MAIL_SUITE_ACCOUNT_KIND))
+    .length;
+  process.stdout.write(
+    `[e2e-mail] removed ${removed} ${MAIL_SUITE_ACCOUNT_KIND} message(s) from Mailpit ${when} the run; ${remaining} remain\n`,
+  );
+  return remaining;
+}
+
+/**
+ * Refuses an API launched in the other mode. The ordinary suite must not run against an API that
+ * delivers email, and the mail suite would only wait out its timeouts against one that sends none.
+ */
+function assertListenerMode(
+  pids: readonly number[],
+  armed: readonly E2eEgressRecord[],
+  mode: E2eStackMode,
+): void {
+  const modes = new Set(
+    armed
+      .filter((record) => record.kind === "armed" && pids.includes(record.pid))
+      .map((record) => (record.kind === "armed" ? e2eArmedMode(record) : "")),
+  );
+  if (modes.size === 1 && modes.has(mode)) {
+    return;
+  }
+  throw new Error(
+    mode === "mail"
+      ? "The API on :3001 was not launched in mail mode, so no message would ever reach Mailpit. " +
+          "Stop it and start `pnpm dev:api:e2e:mail` for `pnpm test:e2e:mail` " +
+          "(ai/workflows/auth-testing.md §7)."
+      : "The API on :3001 was launched in mail mode (`pnpm dev:api:e2e:mail`): it delivers email " +
+          "to the local Mailpit, and the ordinary suite runs with email switched off. Stop it and " +
+          "start `pnpm dev:api:e2e`, or run the email lifecycle suite with `pnpm test:e2e:mail`.",
+  );
+}
+
 function assertListenerGuarded(
   role: "api" | "web",
   baseUrl: string,
   armed: readonly E2eEgressRecord[],
-): void {
+): readonly number[] {
   const url = new URL(baseUrl);
   const port = url.port || (url.protocol === "https:" ? "443" : "80");
   const { tool, pids } = listenerPids(port);
@@ -225,6 +334,7 @@ function assertListenerGuarded(
         "start the hermetic stack (ai/workflows/auth-testing.md §7).",
     );
   }
+  return pids;
 }
 
 /** Every persona's non-terminal runs other than the entitlement fixtures' pinned ones. */

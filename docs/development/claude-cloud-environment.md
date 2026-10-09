@@ -28,12 +28,13 @@ repository cloned. Nothing in it is production, and nothing in it can become pro
 
 The stacks you can run:
 
-| Mode                                     | Database | FMP                                                   | Stripe                                                            | Mail             |
-| ---------------------------------------- | -------- | ----------------------------------------------------- | ----------------------------------------------------------------- | ---------------- |
-| `pnpm test`                              | test     | fakes; live suites stay gated by `RUN_LIVE_FMP_TESTS` | fake gateway; sandbox smoke stays gated by `STRIPE_SANDBOX_SMOKE` | in-memory sender |
-| `scripts/cloud/stack.sh up e2e`          | test     | fixture server `:3011`                                | inert placeholders                                                | off              |
-| `scripts/cloud/stack.sh up dev`          | dev      | **none**                                              | none                                                              | Mailpit          |
-| `scripts/cloud/stack.sh up dev --stripe` | dev      | **none**                                              | cloud sandbox, webhooks through `stripe listen`                   | Mailpit          |
+| Mode                                     | Database | FMP                                                   | Stripe                                                            | Mail                                        |
+| ---------------------------------------- | -------- | ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------- |
+| `pnpm test`                              | test     | fakes; live suites stay gated by `RUN_LIVE_FMP_TESTS` | fake gateway; sandbox smoke stays gated by `STRIPE_SANDBOX_SMOKE` | in-memory sender                            |
+| `scripts/cloud/stack.sh up e2e`          | test     | fixture server `:3011`                                | inert placeholders                                                | off                                         |
+| `scripts/cloud/stack.sh up e2e --mail`   | test     | fixture server `:3011`                                | inert placeholders                                                | Mailpit, API only, for `pnpm test:e2e:mail` |
+| `scripts/cloud/stack.sh up dev`          | dev      | **none**                                              | none                                                              | Mailpit                                     |
+| `scripts/cloud/stack.sh up dev --stripe` | dev      | **none**                                              | cloud sandbox, webhooks through `stripe listen`                   | Mailpit                                     |
 
 **No live FMP access exists yet.** The runtime environment never holds an FMP key. The explicit
 `pnpm fmp:live -- <command>` wrapper and its request budget arrive with the FMP budget change; until
@@ -245,6 +246,11 @@ pnpm test:personas:seed
 pnpm test:e2e
 scripts/cloud/stack.sh down
 
+# The email lifecycle suite: the same stack with the API delivering to Mailpit
+scripts/cloud/stack.sh up e2e --mail
+pnpm test:e2e:mail
+scripts/cloud/stack.sh down
+
 # Development stack on the (empty) dev database
 pnpm qa:seed
 scripts/cloud/stack.sh up dev            # or: up dev --stripe
@@ -267,7 +273,10 @@ pnpm db:migrate:deploy && pnpm db:test:prepare
   (`down --force` stops it), and restores the `apps/web/next-env.d.ts` drift `next dev` leaves.
   Logs are in `.cloud/logs/stack-<role>.log`.
 - **Mail**: the dev stack sends to Mailpit. `curl -s 127.0.0.1:8025/api/v1/messages` lists what
-  arrived; never paste a token or link from a message into a document or log.
+  arrived; never paste a token or link from a message into a document or log. The ordinary E2E
+  stack sends nothing; `up e2e --mail` is the one E2E mode that delivers, and only to this Mailpit
+  (`ai/workflows/auth-testing.md` §7, _The email lifecycle suite_). Never delete the whole mailbox:
+  the suite removes only messages addressed to its own `authmail-<n>@example.test` addresses.
 - **`stack.sh up dev --stripe`** starts the API with the sandbox configured, then
   `stripe listen --forward-to 127.0.0.1:3001/webhooks/stripe`, which forwards every event of the
   sandbox. The API acknowledges unhandled types (`IGNORED_UNHANDLED_TYPE`), which is what makes a

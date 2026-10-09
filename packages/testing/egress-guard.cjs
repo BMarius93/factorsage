@@ -26,6 +26,9 @@ const path = require("node:path");
 
 const LOG = process.env.E2E_EGRESS_LOG;
 const ROLE = process.env.E2E_STACK_ROLE || "unknown";
+// `standard` or `mail` (`E2eStackMode`): the global setup checks the API was launched in the mode
+// the suite it is about to run expects.
+const MODE = process.env.E2E_STACK_MODE || "standard";
 const COMMAND = process.argv.slice(1, 3).join(" ");
 
 function isLoopbackHost(host) {
@@ -103,6 +106,6 @@ net.Socket.prototype.connect = function guardedConnect(...args) {
   return this;
 };
 
-record({ kind: "armed" });
+record({ kind: "armed", mode: MODE });
 
 module.exports = { isLoopbackHost };

@@ -376,6 +376,7 @@ Commands:
 pnpm test:e2e                 # full suite
 pnpm test:e2e:entitlements    # re-seeds the fixtures, then runs the entitlement projects
 pnpm test:e2e:auth            # the auth suite (e2e/auth)
+pnpm test:e2e:mail            # the email lifecycle suite, through the local Mailpit (below)
 pnpm test:e2e:smoke           # @smoke-tagged tests only
 pnpm test:e2e:headed          # headed browser
 pnpm test:e2e:report          # open the last HTML report
@@ -423,7 +424,7 @@ and checked rather than assumed.
 | API, worker, web | Real applications, ordinary dev commands (`dev:api`, `dev:worker`, `dev:web`) | `apps/api/src/e2e-stack/launch.ts` |
 | FMP (market data, profiles, statements, quotes, holidays) | **Faked**: fixture server on `127.0.0.1:3011` | `FMP_BASE_URL`, `FMP_API_KEY=e2e-fixture-provider` |
 | Company-logo CDN | **Faked in the browser**: every `/api/logo/*` answers the UX-005 miss (`204`) | `apps/web/e2e/fixtures.ts` |
-| SMTP / Mailtrap | **Off**: the `SMTP_*` group is blanked, so the API uses its unconfigured sender | launcher |
+| SMTP / Mailtrap | **Off**: the `SMTP_*` group is blanked, so the API uses its unconfigured sender. Only `pnpm dev:api:e2e:mail` (the email lifecycle suite) delivers, to the local Mailpit and nowhere else | launcher |
 | Google OAuth | **Off**: the `GOOGLE_*` group is blanked; `/auth/providers` reports no Google | launcher |
 | Stripe | **Inert**: test-mode placeholder key and price ids, so billing pages render; any SDK call is blocked by the guard | launcher |
 | Anything else | **Blocked** by the egress guard | `packages/testing/egress-guard.cjs` |
@@ -549,8 +550,10 @@ nobody can sign in to. Before this was handled, `entitlements.admin.spec.ts` lef
 `escalation-<ms>@example.test` per run (111 by 2026-10-09). Now:
 
 - The address comes from `@intrinsic/testing/e2e-accounts`: `e2eDisposableAccountEmail(kind)`
-  mints `<kind>-<ms>@example.test` for a kind declared in `E2E_DISPOSABLE_ACCOUNT_KINDS`. A future
-  sign-up or email spec **adds its kind there first**; the cleanup matches nothing else.
+  mints `<kind>-<ms>@example.test` for a kind declared in `E2E_DISPOSABLE_ACCOUNT_KINDS` —
+  `escalation` (`entitlements.admin.spec.ts`) and `authmail` (the email lifecycle suite). A new
+  sign-up spec **adds its kind there first, with its own cleanup policy**; the cleanup matches
+  nothing else.
 - `pnpm test:accounts:prune` (`apps/api/src/e2e-stack/e2e-accounts.ts`) deletes those accounts. The
   Playwright global setup runs the same command before a run (so a killed or older run's leftovers
   go) and the teardown after it (so a run leaves none). Playwright holds no database client: it
@@ -558,14 +561,75 @@ nobody can sign in to. Before this was handled, `entitlements.admin.spec.ts` lef
 - It fails closed. It refuses `NODE_ENV=production`, anything but `TEST_DATABASE_URL`, a non-local
   host, a database whose name has no `test` segment, and the development database — before
   connecting — and then checks `current_database()` before reading a row. It matches only
-  `^<kind>-\d+@example\.test$`, and deletes only the state registration leaves: unverified,
-  `USER` on `FREE`, no Stripe customer, session version 0, nothing depending on the account but its
-  one activation link (which cascades). A password hash is allowed, because registration before
-  AUTH-003 stored one on the pending row.
+  `^<kind>-\d+@example\.test$`, and deletes an account only in a state **its kind's policy**
+  allows (`CLEANUP_POLICIES` in `e2e-accounts.ts`), repeating that policy in the delete itself so
+  an account that changed after the read survives. For every kind, `ADMIN`, a paid plan, any
+  Stripe state, an OAuth identity, a legal request and any product content are never deletable.
+  - `escalation` — only the state registration leaves: unverified, `USER` on `FREE`, no Stripe
+    customer, session version 0, nothing depending on the account but its one activation link
+    (which cascades). A password hash is allowed, because registration before AUTH-003 stored one
+    on the pending row. Unchanged by the email lifecycle suite.
+  - `authmail` — each state the email lifecycle passes through, so a run killed at any step is
+    cleaned by the next: *pending* (no password, unverified, session version 0, at most its
+    activation link) or *activated* (a password, verified, session version 1 after activation or
+    2 after the one reset, no activation link, at most one reset link, and exactly the three
+    `EMAIL_ACTIVATION` legal records activation writes). Those links and records cascade with the
+    account. A mixture — a pending account with a password, a verified one still holding an
+    activation link, a third session version — is refused.
 - An address of a declared kind in any other state is **refused, not deleted**, and the command
   exits non-zero, so the run does not start (or the teardown fails). An `escalation` account holding
   `ADMIN` or `PRO` would be the very escalation the spec rules out; investigate it, then remove it
   by hand. `pnpm test:accounts:prune -- --dry-run` shows what would be removed and what is refused.
+
+**The email lifecycle suite (Mailpit).** `e2e/auth/email-lifecycle.mail.spec.ts` drives the real
+account lifecycle through real email: register on `/register`, read the activation message,
+follow its link to `/verify-email` and choose the password (with the Terms), prove the link is
+single-use, sign in and see `USER`/`FREE`; then `/forgot-password`, the reset message, a new
+password on `/reset-password`, the link single-use, the old password refused, the new one
+accepted, and a session signed in before the reset ended. The application's own `SmtpEmailSender`
+delivers to a local [Mailpit](https://mailpit.axllent.org) — the one the cloud session starts
+(`scripts/cloud/lib.sh`, v1.31.4, SMTP `127.0.0.1:1025`, API `127.0.0.1:8025`) — which is only the
+sink and the inbox the spec reads. It is a separate mode, never part of `pnpm test:e2e`:
+
+```bash
+pnpm dev:fmp:e2e        # terminal 1, as for the ordinary stack
+pnpm dev:api:e2e:mail   # terminal 2: the API in mail mode, instead of `pnpm dev:api:e2e`
+pnpm dev:worker:e2e     # terminal 3
+pnpm dev:web:e2e        # terminal 4
+pnpm test:e2e:mail      # needs no persona seed; in a cloud session: scripts/cloud/stack.sh up e2e --mail
+```
+
+- **Only the API changes**, and only through `e2eStackEnvironment({ mode: "mail" })`: the blanked
+  `SMTP_*` group becomes `SMTP_HOST`/`SMTP_PORT` from `E2E_MAILPIT_SMTP_URL` (default
+  `smtp://127.0.0.1:1025`), `SMTP_SECURE=false`, `SMTP_FROM=no-reply@factorsage.test`, and **blank
+  `SMTP_USER`/`SMTP_PASSWORD`**, so a developer's real relay credentials are never in the process.
+  The URL is refused before the launcher starts anything unless it is `smtp:` on a loopback host
+  (`127.0.0.1`, `localhost`, `[::1]`) with a port and no credentials, path or query, and the mode is
+  refused under `NODE_ENV=production`. Every other provider stays off or inert, and the egress
+  guard still blocks any non-loopback socket — SMTP included
+  (`e2e-stack-boundary.test.ts` sends through real `nodemailer` to a loopback server and to
+  TEST-NET).
+- **Modes cannot be mixed.** The guard records each process's `E2E_STACK_MODE`; the ordinary
+  setup refuses an API launched in mail mode, and the mail setup (`e2e/global-setup.mail.ts`,
+  config `playwright.mail.config.ts`) refuses one that is not. No project of the ordinary
+  configuration matches `*.mail.spec.ts`.
+- **The Mailpit client** (`@intrinsic/testing/mailpit`) talks to `E2E_MAILPIT_URL` (default
+  `http://127.0.0.1:8025`), refused unless loopback `http:`. Its preflight refuses a Mailpit whose
+  message relay is enabled. It never relies on inbox order: Mailpit's `to:` search is a
+  case-insensitive *substring* match, so it only narrows, and a message is chosen by its exact,
+  sole recipient and exact subject — two matches fail. The link is taken from the text part,
+  must be the only link to `E2E_BASE_URL` + the expected path, must match the HTML part, and must
+  carry exactly one token in the application's shape; anything else fails before the browser
+  navigates. Tokens are never printed: errors carry `…?token=[redacted]`. (The git-ignored HTML
+  report and traces still record navigations, like the persona passwords in snapshots.)
+- **Cleanup.** Each test deletes its own messages; the mail setup and teardown delete every
+  message whose recipients are all `authmail` disposable addresses — and nothing else — and the
+  teardown fails if any remain. Mailpit's `DELETE /api/v1/messages` without IDs deletes the whole
+  mailbox, so the client refuses an empty ID list before making a request. The accounts go
+  through `pnpm test:accounts:prune` like every other disposable account.
+- Outside a cloud session, run the pinned Mailpit yourself with exactly those flags
+  (`mailpit --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025`); never point either variable at a
+  shared or real mail service.
 
 **The shared Playwright infrastructure.** Every spec imports `test` from `e2e/fixtures.ts` (ESLint
 enforces it). It stubs logos and blocks provider image hosts in every browser context, and exposes
@@ -584,8 +648,8 @@ host). `submitSignInForm` in `e2e/utils/sign-in.ts` fills the form already on sc
 
 Current coverage: guest reaches sign-in, registration and password recovery — including the
 neutral response for an address with no account, and both ways a reset link can be unusable
-(`e2e/auth/password-recovery.guest.spec.ts`; the redeemable half needs the inbox and lives in the
-API integration suite instead) — a product route bounces an anonymous
+(`e2e/auth/password-recovery.guest.spec.ts`; the redeemable half needs an inbox and lives in the
+email lifecycle suite, `pnpm test:e2e:mail`, and the API integration suite) — a product route bounces an anonymous
 browser to `/login`, invalid credentials show the expected failure, `QA_USER` keeps a session
 across navigation and is denied the ADMIN route, `QA_ADMIN` reaches the ADMIN route, and signing
 out ends the session. `e2e/strategies` covers the Strategy Builder journey on desktop — create,
@@ -690,12 +754,14 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 - The Playwright stack is a real API: `e2e/entitlements/entitlements.admin.spec.ts` registers an
   `example.test` address (a disposable account, section 7). `pnpm dev:api:e2e` blanks the whole
   `SMTP_*` group, so that registration reaches the unconfigured sender and no message is sent,
-  whatever the developer's `.env` holds; the egress guard would block an SMTP connection regardless.
+  whatever the developer's `.env` holds; the egress guard would block a non-loopback SMTP
+  connection regardless.
 - Verification and password-reset tokens are single-use and only their SHA-256 hash is stored.
   Never log, print, or paste a plaintext token.
-- Playwright cannot read an inbox, so no browser test redeems a real reset or verification link.
-  Anything that needs the token is an API integration test, which reads it out of the message the
-  in-memory sender captured.
+- The one browser suite that redeems real links is the email lifecycle suite (`pnpm
+  test:e2e:mail`, section 7): its API delivers to the local Mailpit only, with no credentials, and
+  the spec reads the message from there. Everything else that needs a token is an API integration
+  test, which reads it out of the message the in-memory sender captured.
 
 ## 12. Never commit
 

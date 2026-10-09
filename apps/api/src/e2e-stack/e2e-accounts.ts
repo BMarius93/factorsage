@@ -1,4 +1,8 @@
+import { LEGAL_ACCEPTANCE_BUNDLE } from "@intrinsic/contracts";
 import {
+  LegalAcceptanceSurface,
+  type LegalDocumentKind,
+  type LegalRecordKind,
   type Prisma,
   type PrismaClient,
   UserPlan,
@@ -28,15 +32,27 @@ import {
  *    server it reached really is that database before it reads a row.
  * 2. *Which addresses* — exactly the kinds `@intrinsic/testing/e2e-accounts` declares, matched by
  *    the anchored `^<kind>-\d+@example\.test$` pattern and nothing looser.
- * 3. *Which state* — only the account registration leaves behind: never verified, `USER` on
- *    `FREE`, no Stripe customer, no revoked session, and nothing depending on it but its own
- *    activation link. An address of a declared kind in any other state is **refused**, not
- *    deleted, and the command exits non-zero: a disposable account holding `ADMIN` or `PRO` would be
- *    the exact escalation the spec exists to rule out, and deleting it would destroy the evidence.
+ * 3. *Which state* — decided **per kind** ({@link CLEANUP_POLICIES}): an account may be deleted only
+ *    in a state its own spec can legitimately leave behind, at any point that spec can be stopped.
+ *    Whatever the kind, `ADMIN`, a paid plan, any Stripe state, an OAuth identity and any product
+ *    content are never deletable. An address of a declared kind in any other state is **refused**,
+ *    not deleted, and the command exits non-zero: a disposable account holding `ADMIN` or `PRO`
+ *    would be the exact escalation a spec exists to rule out, and deleting it would destroy the
+ *    evidence.
  *
- * A password hash is allowed either way. Registration before AUTH-003 took a password and stored
- * its hash on the pending row; since AUTH-003 it stores none. Both are pending accounts nobody can
- * sign in to, and both are what this spec created in its time.
+ * The two policies, and why they differ:
+ *
+ * - `escalation` — only the state registration leaves: never verified, `USER` on `FREE`, no Stripe
+ *   customer, no revoked session, and nothing depending on it but its own activation link. A
+ *   password hash is allowed: registration before AUTH-003 stored one on the pending row, since
+ *   AUTH-003 it stores none, and both are pending accounts nobody can sign in to.
+ * - `authmail` — the email lifecycle suite goes further on purpose, so its policy names each state
+ *   that lifecycle passes through and nothing in between: *pending* (no password, never verified,
+ *   session version 0, at most its activation link) and *activated* (the password its link holder
+ *   chose, verified, session version 1 after activation or 2 after one reset, no activation link,
+ *   at most one reset link, and exactly the legal records activation writes). A mix of the two — a
+ *   pending account holding a password, a verified one holding an activation link — is not a state
+ *   the lifecycle produces, and is refused.
  */
 
 /** Why a cleanup did not run. Nothing has been read or written when this is thrown. */
@@ -148,12 +164,12 @@ export function resolveE2eAccountCleanupTarget(
 }
 
 /**
- * Relations that may hold nothing for a disposable account, and how a refusal names them.
+ * Every relation of `User` a cleanup decision has to account for, and how a refusal names it.
  *
- * Every relation of `User` except `verificationTokens` — registration issues exactly one activation
- * link, and it cascades with the account. `billingSubscription` (one-to-one) and
- * `StripeWebhookEvent.userId` (no foreign key) are checked separately. Each `SET NULL` relation
- * (`updated*`) is here too, so a delete never silently rewrites a row someone else owns.
+ * Every relation of `User` except `verificationTokens`, which each policy decides on its own.
+ * `billingSubscription` (one-to-one) and `StripeWebhookEvent.userId` (no foreign key) are checked
+ * separately. Each `SET NULL` relation (`updated*`) is here too, so a delete never silently
+ * rewrites a row someone else owns.
  */
 const DEPENDENTS = {
   oauthAccounts: "OAuth identities",
@@ -180,6 +196,26 @@ type Dependent = keyof typeof DEPENDENTS;
 const DEPENDENT_RELATIONS = Object.keys(DEPENDENTS) as Dependent[];
 
 /**
+ * The dependents the email lifecycle legitimately creates: a reset link, and the legal records
+ * activation writes. Each is allowed only in the state that produces it; every other dependent is
+ * never deletable for any kind.
+ */
+const AUTH_LIFECYCLE_DEPENDENTS = new Set<Dependent>([
+  "resetTokens",
+  "legalRecords",
+]);
+
+const FOREIGN_DEPENDENTS = DEPENDENT_RELATIONS.filter(
+  (relation) => !AUTH_LIFECYCLE_DEPENDENTS.has(relation),
+);
+
+function none(relations: readonly Dependent[]): Prisma.UserWhereInput {
+  return Object.fromEntries(
+    relations.map((relation) => [relation, { none: {} }]),
+  ) as Prisma.UserWhereInput;
+}
+
+/**
  * The state registration leaves an account in, as a filter.
  *
  * Repeated in the delete itself, so an account that changed between being read and being deleted
@@ -192,9 +228,214 @@ const REGISTRATION_STATE: Prisma.UserWhereInput = {
   stripeCustomerId: null,
   sessionVersion: 0,
   billingSubscription: { is: null },
-  ...(Object.fromEntries(
-    DEPENDENT_RELATIONS.map((relation) => [relation, { none: {} }]),
-  ) as Prisma.UserWhereInput),
+  ...none(DEPENDENT_RELATIONS),
+};
+
+/**
+ * Session versions an activated `authmail` account can hold: activation installs a password and
+ * increments once (0 → 1), and the suite's one reset increments again (1 → 2). Nothing in the
+ * lifecycle signs out everywhere, so a higher version is refused.
+ */
+const AUTH_LIFECYCLE_SESSION_VERSIONS: readonly number[] = [1, 2];
+
+/** Exactly the rows activation writes (`acceptanceRows`, surface `EMAIL_ACTIVATION`). */
+const ACTIVATION_LEGAL_RECORDS = LEGAL_ACCEPTANCE_BUNDLE.map(
+  ({ kind, record }) => ({
+    documentKind: kind as LegalDocumentKind,
+    record: record as LegalRecordKind,
+  }),
+);
+
+/** The two states of the email lifecycle, as one filter, repeated in the delete. */
+const AUTH_LIFECYCLE_STATE: Prisma.UserWhereInput = {
+  role: UserRole.USER,
+  plan: UserPlan.FREE,
+  stripeCustomerId: null,
+  billingSubscription: { is: null },
+  ...none(FOREIGN_DEPENDENTS),
+  OR: [
+    {
+      // Pending: registered, possibly mailed, never activated.
+      emailVerifiedAt: null,
+      passwordHash: null,
+      sessionVersion: 0,
+      resetTokens: { none: {} },
+      legalRecords: { none: {} },
+    },
+    {
+      // Activated: through the emailed link, and possibly reset once since.
+      emailVerifiedAt: { not: null },
+      passwordHash: { not: null },
+      sessionVersion: { in: [...AUTH_LIFECYCLE_SESSION_VERSIONS] },
+      verificationTokens: { none: {} },
+      legalRecords: {
+        every: {
+          surface: LegalAcceptanceSurface.EMAIL_ACTIVATION,
+          OR: ACTIVATION_LEGAL_RECORDS,
+        },
+      },
+    },
+  ],
+};
+
+/** What the cleanup reads about one candidate account. Never logged as a whole. */
+type Candidate = {
+  readonly id: string;
+  readonly email: string;
+  readonly emailVerifiedAt: Date | null;
+  readonly hasPassword: boolean;
+  readonly role: UserRole;
+  readonly plan: UserPlan;
+  readonly stripeCustomerId: string | null;
+  readonly sessionVersion: number;
+  readonly hasBillingSubscription: boolean;
+  readonly namedByWebhook: boolean;
+  readonly verificationTokens: number;
+  readonly counts: Readonly<Record<Dependent, number>>;
+  readonly legalRecords: readonly {
+    readonly documentKind: LegalDocumentKind;
+    readonly record: LegalRecordKind;
+    readonly surface: LegalAcceptanceSurface;
+  }[];
+};
+
+/**
+ * One kind's cleanup rule, twice: as the reasons an account is refused (empty when it may be
+ * deleted), and as the filter the delete repeats so a stale read can never remove a changed row.
+ */
+type CleanupPolicy = {
+  readonly refusals: (account: Candidate) => string[];
+  readonly deletable: Prisma.UserWhereInput;
+};
+
+function dependentRefusals(
+  account: Candidate,
+  relations: readonly Dependent[],
+): string[] {
+  return relations.flatMap((relation) =>
+    account.counts[relation] > 0
+      ? [`${DEPENDENTS[relation]}: ${account.counts[relation]}`]
+      : [],
+  );
+}
+
+/** What disqualifies an account of any kind: privilege, money, another identity, product data. */
+function neverDeletable(account: Candidate): string[] {
+  const reasons: string[] = [];
+  if (account.role !== UserRole.USER) {
+    reasons.push(`role ${account.role}`);
+  }
+  if (account.plan !== UserPlan.FREE) {
+    reasons.push(`plan ${account.plan}`);
+  }
+  if (account.stripeCustomerId !== null) {
+    reasons.push("has a Stripe customer");
+  }
+  if (account.hasBillingSubscription) {
+    reasons.push("has a billing subscription");
+  }
+  reasons.push(...dependentRefusals(account, FOREIGN_DEPENDENTS));
+  if (account.namedByWebhook) {
+    reasons.push("named by a Stripe webhook event");
+  }
+  return reasons;
+}
+
+/** Whether the legal records are exactly one activation's acceptance, and nothing else. */
+function isActivationAcceptance(records: Candidate["legalRecords"]): boolean {
+  return (
+    records.length === ACTIVATION_LEGAL_RECORDS.length &&
+    ACTIVATION_LEGAL_RECORDS.every(
+      (expected) =>
+        records.filter(
+          (row) =>
+            row.documentKind === expected.documentKind &&
+            row.record === expected.record &&
+            row.surface === LegalAcceptanceSurface.EMAIL_ACTIVATION,
+        ).length === 1,
+    )
+  );
+}
+
+const CLEANUP_POLICIES: Readonly<
+  Record<E2eDisposableAccountKind, CleanupPolicy>
+> = {
+  /** Unchanged since PR #86: the registration state and nothing else. */
+  escalation: {
+    refusals: (account) => {
+      const reasons: string[] = [];
+      if (account.emailVerifiedAt !== null) {
+        reasons.push("email verified");
+      }
+      if (account.role !== UserRole.USER) {
+        reasons.push(`role ${account.role}`);
+      }
+      if (account.plan !== UserPlan.FREE) {
+        reasons.push(`plan ${account.plan}`);
+      }
+      if (account.stripeCustomerId !== null) {
+        reasons.push("has a Stripe customer");
+      }
+      if (account.hasBillingSubscription) {
+        reasons.push("has a billing subscription");
+      }
+      if (account.sessionVersion !== 0) {
+        reasons.push(
+          `sessions revoked (session version ${account.sessionVersion})`,
+        );
+      }
+      reasons.push(...dependentRefusals(account, DEPENDENT_RELATIONS));
+      if (account.namedByWebhook) {
+        reasons.push("named by a Stripe webhook event");
+      }
+      return reasons;
+    },
+    deletable: REGISTRATION_STATE,
+  },
+
+  authmail: {
+    refusals: (account) => {
+      const reasons = neverDeletable(account);
+      if (account.emailVerifiedAt === null) {
+        if (account.hasPassword) {
+          reasons.push("pending with a password (registration sets none)");
+        }
+        if (account.sessionVersion !== 0) {
+          reasons.push(
+            `pending with sessions revoked (session version ${account.sessionVersion})`,
+          );
+        }
+        if (account.counts.resetTokens > 0) {
+          reasons.push("pending with a password-reset link");
+        }
+        if (account.counts.legalRecords > 0) {
+          reasons.push(
+            `pending with legal records: ${account.counts.legalRecords}`,
+          );
+        }
+        return reasons;
+      }
+
+      if (!account.hasPassword) {
+        reasons.push("verified without a password");
+      }
+      if (!AUTH_LIFECYCLE_SESSION_VERSIONS.includes(account.sessionVersion)) {
+        reasons.push(
+          `session version ${account.sessionVersion} (activation leaves 1, one reset 2)`,
+        );
+      }
+      if (account.verificationTokens > 0) {
+        reasons.push("verified with an outstanding activation link");
+      }
+      if (!isActivationAcceptance(account.legalRecords)) {
+        reasons.push(
+          `legal records other than its activation acceptance: ${account.legalRecords.length}`,
+        );
+      }
+      return reasons;
+    },
+    deletable: AUTH_LIFECYCLE_STATE,
+  },
 };
 
 /** What the cleanup needs of a client: a `PrismaClient`, or a transaction on one. */
@@ -217,16 +458,17 @@ export type E2eAccountPruneResult = {
   readonly dryRun: boolean;
   /** Removed — or, on a dry run, eligible to be. */
   readonly pruned: readonly E2eDisposableAccountOutcome[];
-  /** Disposable addresses in a state registration cannot produce; left untouched. */
+  /** Disposable addresses in a state their kind's policy does not allow; left untouched. */
   readonly refused: readonly E2eRefusedAccount[];
 };
 
 /**
- * Deletes every disposable E2E account still in its registration state, from `target` only.
+ * Deletes every disposable E2E account its kind's policy allows, from `target` only.
  *
  * Idempotent: a second call finds nothing to delete and refuses exactly what the first refused.
- * The only rows removed besides the accounts are their activation links, through the
- * `EmailVerificationToken` cascade; every other dependent makes the account ineligible.
+ * The only rows removed besides the accounts are what cascades from an allowed state — activation
+ * and reset links, and the legal records an `authmail` activation wrote; every other dependent
+ * makes the account ineligible.
  */
 export async function pruneE2eDisposableAccounts(
   prisma: E2eAccountCleanupClient,
@@ -260,15 +502,22 @@ export async function pruneE2eDisposableAccounts(
       id: true,
       email: true,
       emailVerifiedAt: true,
+      passwordHash: true,
       role: true,
       plan: true,
       stripeCustomerId: true,
       sessionVersion: true,
       billingSubscription: { select: { id: true } },
+      legalRecords: {
+        select: { documentKind: true, record: true, surface: true },
+      },
       _count: {
-        select: Object.fromEntries(
-          DEPENDENT_RELATIONS.map((relation) => [relation, true]),
-        ) as Record<Dependent, true>,
+        select: {
+          verificationTokens: true,
+          ...(Object.fromEntries(
+            DEPENDENT_RELATIONS.map((relation) => [relation, true]),
+          ) as Record<Dependent, true>),
+        },
       },
     },
     orderBy: { createdAt: "asc" },
@@ -292,36 +541,23 @@ export async function pruneE2eDisposableAccounts(
   const eligible: (E2eDisposableAccountOutcome & { readonly id: string })[] =
     [];
   for (const account of owned) {
-    const reasons: string[] = [];
-    if (account.emailVerifiedAt !== null) {
-      reasons.push("email verified");
-    }
-    if (account.role !== UserRole.USER) {
-      reasons.push(`role ${account.role}`);
-    }
-    if (account.plan !== UserPlan.FREE) {
-      reasons.push(`plan ${account.plan}`);
-    }
-    if (account.stripeCustomerId !== null) {
-      reasons.push("has a Stripe customer");
-    }
-    if (account.billingSubscription !== null) {
-      reasons.push("has a billing subscription");
-    }
-    if (account.sessionVersion !== 0) {
-      reasons.push(
-        `sessions revoked (session version ${account.sessionVersion})`,
-      );
-    }
-    for (const relation of DEPENDENT_RELATIONS) {
-      const count = account._count[relation];
-      if (count > 0) {
-        reasons.push(`${DEPENDENTS[relation]}: ${count}`);
-      }
-    }
-    if (webhookReferences.has(account.id)) {
-      reasons.push("named by a Stripe webhook event");
-    }
+    const { verificationTokens, ...counts } = account._count;
+    const reasons = CLEANUP_POLICIES[account.kind].refusals({
+      id: account.id,
+      email: account.email,
+      emailVerifiedAt: account.emailVerifiedAt,
+      // Only whether one exists is ever looked at.
+      hasPassword: account.passwordHash !== null,
+      role: account.role,
+      plan: account.plan,
+      stripeCustomerId: account.stripeCustomerId,
+      sessionVersion: account.sessionVersion,
+      hasBillingSubscription: account.billingSubscription !== null,
+      namedByWebhook: webhookReferences.has(account.id),
+      verificationTokens,
+      counts,
+      legalRecords: account.legalRecords,
+    });
 
     const outcome = { email: account.email, kind: account.kind };
     if (reasons.length > 0) {
@@ -341,9 +577,16 @@ export async function pruneE2eDisposableAccounts(
   }
 
   const ids = eligible.map((account) => account.id);
-  await prisma.user.deleteMany({
-    where: { id: { in: ids }, ...REGISTRATION_STATE },
-  });
+  for (const kind of E2E_DISPOSABLE_ACCOUNT_KINDS) {
+    const ofKind = eligible
+      .filter((account) => account.kind === kind)
+      .map((account) => account.id);
+    if (ofKind.length > 0) {
+      await prisma.user.deleteMany({
+        where: { id: { in: ofKind }, ...CLEANUP_POLICIES[kind].deletable },
+      });
+    }
+  }
   const survivors = new Set(
     (
       await prisma.user.findMany({
