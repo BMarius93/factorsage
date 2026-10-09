@@ -365,6 +365,15 @@ evaluator physically cannot read an ungated value.
 - Never commit credentials, session cookies, tokens, Playwright storage state, or the `.qa/`
   browser profiles.
 
+## Claude cloud sessions
+
+- A Claude Code cloud session is provisioned by `scripts/cloud/` (the environment's setup script and
+  the SessionStart hook in `.claude/settings.json`); `docs/development/claude-cloud-environment.md`
+  is the runbook. Start application stacks there with `scripts/cloud/stack.sh`, not by hand.
+- Provider credentials are never ambient in a cloud session: Stripe is reachable only through
+  `scripts/cloud/with-stripe.sh` or `stack.sh up dev --stripe`, in sandbox mode, and there is no live
+  FMP access. Do not export `FMP_API_KEY`, `STRIPE_*` or the per-run opt-ins for a whole session.
+
 ## Validation
 
 PostgreSQL-backed suites require `TEST_DATABASE_URL` pointing at a dedicated, migrated test database
