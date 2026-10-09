@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { request } from "@playwright/test";
 import {
@@ -10,6 +9,7 @@ import {
 } from "@intrinsic/testing/e2e-stack";
 import { apiBaseUrl } from "./utils/entitlements";
 import { STORAGE_STATE, e2eBaseUrl, repositoryRoot } from "./utils/env";
+import { listenerPids } from "./utils/listener-pids";
 
 /**
  * Proves the stack under test is the hermetic one before a run, and that nothing escaped it after.
@@ -155,27 +155,17 @@ function assertListenerGuarded(
 ): void {
   const url = new URL(baseUrl);
   const port = url.port || (url.protocol === "https:" ? "443" : "80");
-  let pids: number[];
-  try {
-    pids = execFileSync(
-      "lsof",
-      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
-      {
-        encoding: "utf8",
-      },
-    )
-      .split("\n")
-      .filter((line) => line.trim() !== "")
-      .map(Number);
-  } catch {
-    pids = [];
-  }
+  const { tool, pids } = listenerPids(port);
   const guarded = new Set(
     armed.filter((record) => record.role === role).map((record) => record.pid),
   );
   if (pids.length === 0 || !pids.every((pid) => guarded.has(pid))) {
+    const owner =
+      tool === undefined
+        ? "no listener found by lsof or fuser"
+        : `pid ${pids.join(", ")} per ${tool}`;
     throw new Error(
-      `The ${role} on port ${port} (pid ${pids.join(", ") || "none"}) was not started through ` +
+      `The ${role} on port ${port} (${owner}) was not started through ` +
         `\`pnpm dev:${role}:e2e\`: it has not armed the E2E egress guard, so it may be a stale ` +
         "development process, point at another database, or reach real providers. Stop it and " +
         "start the hermetic stack (ai/workflows/auth-testing.md §7).",

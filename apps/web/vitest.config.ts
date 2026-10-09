@@ -9,7 +9,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: false,
     setupFiles: ["./vitest.setup.ts"],
-    // `qa/` holds the manual QA-persona launcher; its argument parsing is unit-tested here.
-    include: ["src/**/*.test.{ts,tsx}", "qa/**/*.test.ts"],
+    // `qa/` holds the manual QA-persona launcher; its argument parsing is unit-tested here. No
+    // Playwright project matches `*.test.ts`, so under `e2e/` those are the harness's own unit tests.
+    include: ["src/**/*.test.{ts,tsx}", "qa/**/*.test.ts", "e2e/**/*.test.ts"],
   },
 });
