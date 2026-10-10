@@ -620,8 +620,9 @@ pnpm test:e2e:mail      # needs no persona seed; in a cloud session: scripts/clo
   sole recipient and exact subject — two matches fail. The link is taken from the text part,
   must be the only link to `E2E_BASE_URL` + the expected path, must match the HTML part, and must
   carry exactly one token in the application's shape; anything else fails before the browser
-  navigates. Tokens are never printed: errors carry `…?token=[redacted]`. (The git-ignored HTML
-  report and traces still record navigations, like the persona passwords in snapshots.)
+  navigates. Tokens are never printed: errors carry `…?token=[redacted]`. Nor are they persisted:
+  `playwright.mail.config.ts` uses the console reporter only — no HTML report, which would record
+  every navigated URL — and turns tracing off; failure screenshots and videos show only the viewport.
 - **Cleanup.** Each test deletes its own messages; the mail setup and teardown delete every
   message whose recipients are all `authmail` disposable addresses — and nothing else — and the
   teardown fails if any remain. Mailpit's `DELETE /api/v1/messages` without IDs deletes the whole
