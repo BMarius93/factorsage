@@ -36,6 +36,11 @@ pnpm dev:api
 pnpm dev:worker
 ```
 
+`pnpm dev:web` does not hand `next dev` your shell's environment: the dev server records its
+environment in `apps/web/.next/dev/cache`, so it is started with an allowlist — what a Node process
+needs, plus `NEXT_PUBLIC_*`. A variable you export and expect the web server to see has to be added
+to `apps/web/dev-server/next-dev-environment.ts`.
+
 For a manual release-testing pass, `pnpm qa:seed` creates one clean account per commercial plan
 (plus the administrator) in this same database, and `pnpm qa:personas` opens each in its own
 persistent, isolated browser window. They create no product content on purpose. See

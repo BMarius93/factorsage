@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseEnv } from "node:util";
-import { e2eStackEnvironment, type E2eStackRole } from "@intrinsic/testing";
+import { e2eChildEnvironment, type E2eStackRole } from "@intrinsic/testing";
 
 /**
  * Launches one process of the deterministic E2E stack: `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`
@@ -18,6 +18,11 @@ import { e2eStackEnvironment, type E2eStackRole } from "@intrinsic/testing";
  * is refused unless it is loopback, before the child exists.
  *
  * Only `TEST_DATABASE_URL` is read from `.env` here; everything else the child loads itself.
+ *
+ * **The child's environment is built by `e2eChildEnvironment`, never assembled here.** That
+ * function is where the test passwords are withheld from every process of the stack, and it is
+ * tested; `e2e-stack-boundary.test.ts` also reads this file to make sure the launcher keeps using
+ * it instead of handing a child its own `process.env`.
  */
 
 const COMMANDS: Record<E2eStackRole, readonly string[]> = {
@@ -63,18 +68,17 @@ function main(): void {
     throw new Error("Usage: launch.ts <api|worker|web> [--mail]");
   }
   const root = repositoryRoot(process.cwd());
-  const overlay = e2eStackEnvironment({
+  const environment = e2eChildEnvironment({
     role,
     repositoryRoot: root,
     testDatabaseUrl: testDatabaseUrl(root),
-    inheritedNodeOptions: process.env.NODE_OPTIONS,
     mode: options.includes("--mail") ? "mail" : "standard",
-    launcherEnvironment: process.env,
+    parentEnvironment: process.env,
   });
 
   const child = spawn("pnpm", [...COMMANDS[role]], {
     cwd: root,
-    env: { ...process.env, ...overlay },
+    env: environment,
     stdio: "inherit",
   });
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

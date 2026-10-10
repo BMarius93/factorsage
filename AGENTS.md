@@ -370,6 +370,12 @@ evaluator physically cannot read an ungated value.
   row or a paid `User.plan` for a billing persona — its tooling writes the account and its
   `stripeCustomerId` link only, and a test reads the source to keep it that way. The tooling is
   test-mode only and may delete nothing in Stripe but the Test Clocks it created.
+- Test passwords have two readers: the seeders and the Playwright runner. No stack process may
+  receive one. `next dev` records its whole environment in `apps/web/.next/dev/cache`, so it is
+  started only by `apps/web/dev-server/next-dev.ts` (`pnpm dev:web`) with an allowlisted
+  environment; do not start `next dev` any other way, do not add a credential to that allowlist,
+  and never give a credential a `NEXT_PUBLIC_` name. A launcher builds a child's environment with
+  `e2eChildEnvironment`, never by passing its own `process.env`.
 - Never commit credentials, session cookies, tokens, Playwright storage state, or the `.qa/`
   browser profiles.
 

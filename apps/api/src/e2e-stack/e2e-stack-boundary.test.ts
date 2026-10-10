@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -9,13 +15,16 @@ import {
   getSmtpConfig,
   getStockDataConfig,
   getStripeBillingConfig,
+  getTestPersonaCredentials,
 } from "@intrinsic/config";
 import {
   E2E_DATA_FRESHNESS_MS,
   E2E_FAKE_FMP_API_KEY,
   E2E_MAIL_FROM,
+  E2E_TEST_CREDENTIAL_VARIABLES,
   E2eMailBoundaryError,
   e2eArmedMode,
+  e2eChildEnvironment,
   e2eEgressGuardPath,
   e2eMailpitApiUrl,
   e2eMailpitSmtpEndpoint,
@@ -155,6 +164,184 @@ describe("E2E stack environment", () => {
       });
       expect(env.E2E_STACK_MODE).toBe("standard");
     }
+  });
+});
+
+/**
+ * Who holds the test passwords.
+ *
+ * The QA persona and billing persona passwords have two readers: the seeders, which hash them into
+ * the test database, and the Playwright runner, which types them into the sign-in form. No process
+ * of the stack needs one, and the web server must never receive one — `next dev` writes its
+ * environment into `.next/dev/cache/turbopack`, which is where `QA_BILLING_PASSWORD` was found.
+ *
+ * The cases below run against a launcher environment that has every one of them exported, which is
+ * what a Claude cloud session is: there each configured variable is ambient in every shell.
+ */
+describe("E2E test credentials", () => {
+  const PASSWORD_VARIABLES = [
+    "QA_FREE_PASSWORD",
+    "QA_STARTER_PASSWORD",
+    "QA_USER_PASSWORD",
+    "QA_ADMIN_PASSWORD",
+    "QA_DOWNGRADED_PASSWORD",
+    "QA_BILLING_PASSWORD",
+  ];
+  const leaked = (name: string) => `leak-${name.toLowerCase()}-71c2`;
+
+  /** The launcher's own `process.env`, with everything exported. */
+  function launcherEnvironment(): Record<string, string> {
+    return {
+      ...DEVELOPER_ENV,
+      PATH: "/usr/local/bin:/usr/bin:/bin",
+      NODE_OPTIONS: "--max-old-space-size=4096",
+      QA_FREE_EMAIL: "qa-free@factorsage.test",
+      ...Object.fromEntries(
+        PASSWORD_VARIABLES.map((name) => [name, leaked(name)]),
+      ),
+    };
+  }
+
+  const child = (role: "api" | "worker" | "web", mode?: "mail") =>
+    e2eChildEnvironment({
+      role,
+      repositoryRoot: REPOSITORY_ROOT,
+      testDatabaseUrl: "postgresql://localhost/intrinsic_value_test",
+      ...(mode ? { mode } : {}),
+      parentEnvironment: launcherEnvironment(),
+    });
+
+  it("are the persona passwords, read from the two registries", () => {
+    // Written out here; derived there, so a new persona is covered without anybody remembering.
+    expect([...E2E_TEST_CREDENTIAL_VARIABLES]).toEqual(PASSWORD_VARIABLES);
+  });
+
+  it.each(["api", "worker", "web"] as const)(
+    "never reach the %s, whatever the launcher itself was started with",
+    (role) => {
+      const environment = child(role);
+
+      for (const name of PASSWORD_VARIABLES) {
+        expect(environment[name], name).toBe("");
+        // Not under another name either.
+        expect(JSON.stringify(environment), name).not.toContain(leaked(name));
+      }
+      // Everything else the process legitimately inherits is still there…
+      expect(environment.PATH).toBe("/usr/local/bin:/usr/bin:/bin");
+      expect(environment.QA_FREE_EMAIL).toBe("qa-free@factorsage.test");
+      // …and the overlay still wins over what was inherited.
+      expect(environment.E2E_STACK_ROLE).toBe(role);
+      expect(environment.NODE_OPTIONS).toBe(
+        `--require=${e2eEgressGuardPath(REPOSITORY_ROOT)} --max-old-space-size=4096`,
+      );
+    },
+  );
+
+  it("never reach the mail-mode API either", () => {
+    const environment = child("api", "mail");
+    for (const name of PASSWORD_VARIABLES) {
+      expect(environment[name], name).toBe("");
+    }
+    expect(environment.E2E_STACK_MODE).toBe("mail");
+    expect(getSmtpConfig(environment)?.host).toBe("127.0.0.1");
+  });
+
+  it("leave the API and the worker everything else the hermetic overlay gives them", () => {
+    for (const role of ["api", "worker"] as const) {
+      const environment = child(role);
+      expect(environment.DATABASE_URL).toBe(
+        "postgresql://localhost/intrinsic_value_test",
+      );
+      expect(getFmpConfig(environment).apiKey).toBe(E2E_FAKE_FMP_API_KEY);
+      expect(getStripeBillingConfig(environment)?.secretKey).toMatch(
+        /placeholder/,
+      );
+    }
+  });
+
+  it("cannot be read back through the configuration loader", () => {
+    const environment = child("api");
+    for (const prefix of [
+      "QA_FREE",
+      "QA_STARTER",
+      "QA_USER",
+      "QA_ADMIN",
+      "QA_DOWNGRADED",
+    ]) {
+      expect(() => getTestPersonaCredentials(prefix, environment)).toThrow(
+        new RegExp(`${prefix}_PASSWORD`),
+      );
+    }
+  });
+
+  it("stay blank when the process then loads a .env that defines them", () => {
+    // The API and the worker load the repository-root `.env` themselves, and that file holds the
+    // persona passwords. The blank is what stops them coming back that way: Node's loader does
+    // not replace a variable that is already set, an empty one included. Proven with a real
+    // process and the real loader rather than assumed.
+    const directory = mkdtempSync(join(tmpdir(), "e2e-credentials-"));
+    try {
+      const envFile = join(directory, ".env");
+      writeFileSync(
+        envFile,
+        PASSWORD_VARIABLES.map((name) => `${name}=${leaked(name)}`).join("\n"),
+      );
+      const overlay = e2eStackEnvironment({
+        role: "api",
+        repositoryRoot: REPOSITORY_ROOT,
+        testDatabaseUrl: "postgresql://localhost/intrinsic_value_test",
+      });
+      const load = (environment: Record<string, string>) => {
+        const result = spawnSync(
+          process.execPath,
+          [
+            "-e",
+            "process.loadEnvFile(process.argv[1]);" +
+              "process.stdout.write(JSON.stringify(Object.fromEntries(" +
+              "Object.entries(process.env).filter(([name]) => name.startsWith('QA_')))))",
+            envFile,
+          ],
+          {
+            env: { PATH: process.env.PATH ?? "", ...environment },
+            encoding: "utf8",
+          },
+        );
+        expect(result.status).toBe(0);
+        return JSON.parse(result.stdout) as Record<string, string>;
+      };
+
+      // Without the overlay the loader does define them, so the case below is not vacuous.
+      expect(load({})).toEqual(
+        Object.fromEntries(
+          PASSWORD_VARIABLES.map((name) => [name, leaked(name)]),
+        ),
+      );
+      expect(
+        load(
+          Object.fromEntries(
+            PASSWORD_VARIABLES.map((name) => [name, overlay[name] as string]),
+          ),
+        ),
+      ).toEqual(
+        Object.fromEntries(PASSWORD_VARIABLES.map((name) => [name, ""])),
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reach no child through the launcher assembling an environment of its own", () => {
+    const launcher = readFileSync(resolve(__dirname, "launch.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+
+    // One spawn, and the environment it is given is the one the boundary module built.
+    expect(launcher.match(/\bspawn\(/g)).toHaveLength(1);
+    expect(launcher).toMatch(/e2eChildEnvironment\(/);
+    expect(launcher).toMatch(/env:\s*environment\b/);
+    // Never the launcher's own, whole or spread.
+    expect(launcher).not.toMatch(/\.\.\.process\.env/);
+    expect(launcher).not.toMatch(/env:\s*process\.env/);
   });
 });
 
