@@ -18,6 +18,12 @@
       "require": "./dist/personas.js",
       "default": "./dist/personas.js"
     },
+    "./billing-personas": {
+      "types": "./dist/billing-personas.d.ts",
+      "import": "./dist/billing-personas.js",
+      "require": "./dist/billing-personas.js",
+      "default": "./dist/billing-personas.js"
+    },
     "./e2e-stack": {
       "types": "./dist/e2e-stack.d.ts",
       "import": "./dist/e2e-stack.js",

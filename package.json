@@ -57,6 +57,9 @@
     "qa:reset": "pnpm build:packages && pnpm --filter @intrinsic/api qa:personas:reset",
     "qa:personas": "pnpm build:packages && pnpm --filter @intrinsic/web qa:personas",
     "qa:persona": "pnpm build:packages && pnpm --filter @intrinsic/web qa:personas",
+    "qa:billing:seed": "pnpm build:packages && pnpm --filter @intrinsic/api qa:billing:seed",
+    "qa:billing:status": "pnpm build:packages && pnpm --filter @intrinsic/api qa:billing:status",
+    "qa:billing:cleanup": "pnpm build:packages && pnpm --filter @intrinsic/api qa:billing:cleanup",
     "test:matrix:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-matrix",
     "qa:matrix:provision": "pnpm build:packages && pnpm --filter @intrinsic/api qa:matrix:provision",
     "qa:matrix:preflight": "pnpm build:packages && pnpm --filter @intrinsic/api qa:matrix:preflight",
@@ -74,10 +77,12 @@
     "test:e2e:mail": "pnpm --filter @intrinsic/web e2e:mail",
     "test:e2e:entitlements": "pnpm test:entitlements:seed && pnpm --filter @intrinsic/web e2e:entitlements",
     "test:e2e:billing": "pnpm --filter @intrinsic/web e2e:billing",
+    "test:e2e:billing:personas": "pnpm --filter @intrinsic/web e2e:billing:personas",
     "test:e2e:smoke": "pnpm --filter @intrinsic/web e2e:smoke",
     "test:e2e:headed": "pnpm --filter @intrinsic/web e2e:headed",
     "test:e2e:report": "pnpm --filter @intrinsic/web e2e:report",
-    "test:billing:sandbox": "pnpm --filter @intrinsic/api test:billing:sandbox"
+    "test:billing:sandbox": "pnpm --filter @intrinsic/api test:billing:sandbox",
+    "test:billing:personas": "pnpm --filter @intrinsic/api test:billing:personas"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

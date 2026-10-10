@@ -200,11 +200,40 @@ It creates Stripe test-mode Customers, one Checkout Session and one Portal Sessi
 nothing. Hosted Checkout and Portal are browser flows; the manual runbook for them, including Test
 Clocks, is in `../architecture/billing.md`.
 
-Two operator commands are not tests and are never part of the gate:
+### The billing QA personas
+
+A second opt-in suite, `apps/api/src/billing-personas/billing-personas.sandbox.test.ts`, proves the
+billing QA personas (`docs/development/billing-qa-personas.md`) against real Stripe test mode:
+real subscriptions on Test Clocks, reconciled by the real application, read back over HTTP. It is
+gated exactly like the smoke suite — `describe.skipIf` on `STRIPE_BILLING_PERSONAS=true`,
+`--exclude`d from `pnpm test`, and it refuses anything but a test-mode key, production, and a
+database that is not the local test one:
+
+```bash
+STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas
+```
+
+It takes about a minute, leaves the five personas seeded in the Stripe sandbox and the test
+database, and creates and removes a sixth, throwaway fixture to prove the cleanup.
+
+Everything else about the tooling is offline and runs inside the normal gate:
+`apps/api/src/billing-personas/*.test.ts` use the fake gateway, and
+`billing-persona-tooling.integration.test.ts` uses accounts of its own, so `pnpm test` never
+disturbs personas that were seeded for real in the same database.
+
+The browser half is `pnpm test:e2e:billing:personas`. It runs on the ordinary hermetic stack and
+only reads, so it needs the personas seeded first (`pnpm qa:billing:seed -- --database test`, with
+`QA_BILLING_PASSWORD` set) and no Stripe at run time. It has its own Playwright configuration and
+is never part of `pnpm test:e2e`.
+
+Operator commands are not tests and are never part of the gate:
 
 ```bash
 pnpm billing:verify-catalog          # the four prices, against the configured Stripe environment
 pnpm billing:reconcile -- --user x   # rebuild one user's billing state from Stripe
+pnpm qa:billing:seed                 # the billing QA personas, in Stripe test mode + reconciliation
+pnpm qa:billing:status               # inspect them
+pnpm qa:billing:cleanup              # remove only the Stripe fixtures that tooling created
 ```
 
 `pnpm billing:verify-catalog` is worth running whenever billing configuration changes: it is the only
@@ -384,6 +413,9 @@ or equal to `DATABASE_URL` (except in CI, where one database is the whole enviro
 | `pnpm monitors:scan-once`                                | `DATABASE_URL`             |
 | `pnpm test:matrix:seed`                                  | `TEST_DATABASE_URL`        |
 | `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`                | `TEST_DATABASE_URL`        |
+| `pnpm qa:billing:seed` / `status` / `cleanup`            | `DATABASE_URL`             |
+| the same, with `-- --database test`                      | `TEST_DATABASE_URL`        |
+| `pnpm test:billing:personas`                             | `TEST_DATABASE_URL`        |
 | `pnpm dev:fmp:e2e`, `pnpm dev:web:e2e`                   | none                       |
 
 ### Normal development, against real market data

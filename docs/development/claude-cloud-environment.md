@@ -135,6 +135,7 @@ QA_ADMIN_EMAIL=qa-admin@factorsage.test
 QA_ADMIN_PASSWORD=<at least 12 characters>
 QA_DOWNGRADED_EMAIL=qa-downgraded@factorsage.test
 QA_DOWNGRADED_PASSWORD=<at least 12 characters>
+QA_BILLING_PASSWORD=<at least 12 characters>
 SANDBOX_STRIPE_SECRET_KEY=<sk_test_… of the cloud sandbox>
 SANDBOX_STRIPE_PRICE_STARTER_MONTHLY=<price_…>
 SANDBOX_STRIPE_PRICE_STARTER_YEARLY=<price_…>
@@ -149,6 +150,9 @@ BASH_MAX_TIMEOUT_MS=14400000
 - The database password is the local-development default already committed in `.env.example`;
   PostgreSQL listens on loopback only.
 - `QA_USER_*` is `PRO_USER` (the historical name), as everywhere else.
+- `QA_BILLING_PASSWORD` is optional: the one password the billing QA personas sign in with
+  (`docs/development/billing-qa-personas.md`). Their addresses are fixed in the registry. Without
+  it they can still be seeded, inspected and removed; only the browser suite needs it.
 - `SANDBOX_STRIPE_*` are deliberately **not** the names the application reads. `pnpm test`, a plain
   `pnpm dev:api` and Playwright therefore run without Stripe, exactly as CI does; only
   `scripts/cloud/with-stripe.sh` and `stack.sh up dev --stripe` map them onto `STRIPE_*`.
@@ -164,7 +168,8 @@ reuse a real password. Everything else is not secret.
 **Never set** in this environment — the guard blanks or refuses each one:
 `NODE_ENV=production`, `CI`, `FMP_API_KEY`, `FMP_BASE_URL`, `STRIPE_SECRET_KEY`,
 `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*`, `STRIPE_API_KEY`, `RUN_LIVE_FMP_TESTS`,
-`STRIPE_SANDBOX_SMOKE`, `QA_PERSONA_ALLOW_REMOTE_HOST`, `QA_MATRIX_ALLOW_REMOTE_HOST`,
+`STRIPE_SANDBOX_SMOKE`, `STRIPE_BILLING_PERSONAS`, `QA_PERSONA_ALLOW_REMOTE_HOST`,
+`QA_MATRIX_ALLOW_REMOTE_HOST`,
 `FACTORSAGE_RELEASE_BUILD`, and any database or Redis URL that is not `localhost`/`127.0.0.1`.
 Google sign-in stays off: leave the `GOOGLE_*` group unset.
 
@@ -261,6 +266,13 @@ scripts/cloud/with-stripe.sh pnpm billing:verify-catalog
 STRIPE_SANDBOX_SMOKE=true scripts/cloud/with-stripe.sh pnpm test:billing:sandbox
 scripts/cloud/with-stripe.sh pnpm billing:reconcile -- --user qa-pro@factorsage.test --dry-run
 
+# The billing QA personas: real subscriptions in the sandbox, reconciled by the application
+scripts/cloud/with-stripe.sh pnpm qa:billing:seed -- --database test
+scripts/cloud/with-stripe.sh pnpm qa:billing:status -- --database test --check
+STRIPE_BILLING_PERSONAS=true scripts/cloud/with-stripe.sh pnpm test:billing:personas
+scripts/cloud/stack.sh up e2e && pnpm test:e2e:billing:personas; scripts/cloud/stack.sh down
+scripts/cloud/with-stripe.sh pnpm qa:billing:cleanup -- --database test --yes
+
 # Migrations: the dev database has no drift here, so `prisma migrate dev --create-only` is safe
 pnpm db:migrate:deploy && pnpm db:test:prepare
 ```
@@ -281,6 +293,11 @@ pnpm db:migrate:deploy && pnpm db:test:prepare
   `stripe listen --forward-to 127.0.0.1:3001/webhooks/stripe`, which forwards every event of the
   sandbox. The API acknowledges unhandled types (`IGNORED_UNHANDLED_TYPE`), which is what makes a
   harmless probe possible. The signing secret is redacted from the listener's log.
+- **Billing QA personas** (`docs/development/billing-qa-personas.md`) are the scripted form of the
+  Test Clock runbook: five accounts with real sandbox subscriptions. Seeding and the opt-in
+  validation suite go through `with-stripe.sh`; the browser suite runs on the ordinary `e2e` stack,
+  which has no Stripe in it, because it only reads what reconciliation already produced. Without
+  `--database test` the same commands target the development database, for `up dev --stripe`.
 - **Test cards only.** Stripe test mode moves no money; `4242 4242 4242 4242` succeeds,
   `4000 0000 0000 0341` attaches and fails on charge (`ai/architecture/billing.md`).
 - **Playwright artifacts** (`apps/web/test-results/`) can contain persona passwords in page

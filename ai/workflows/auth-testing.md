@@ -107,6 +107,15 @@ Personas are for Playwright and live API smoke testing **only**. API integration
 creating isolated randomized users inside `TEST_DATABASE_URL`; do not convert them to depend on
 persistent accounts.
 
+**Billing personas are a different set.** The five accounts above are *entitlement* personas: the
+plan is seeded, there is no Stripe object behind it, and they work with no Stripe configured. The
+`BILLING_*` personas (`packages/testing/src/billing-personas.ts`) are accounts whose subscription
+really exists in Stripe test mode and whose plan was produced by billing reconciliation. They have
+their own registry, their own commands (`pnpm qa:billing:seed` / `status` / `cleanup`), their own
+Playwright configuration, and one optional shared password, `QA_BILLING_PASSWORD`. Never turn an
+entitlement persona into one, and never seed a plan onto a billing persona.
+`docs/development/billing-qa-personas.md` is their runbook.
+
 ## 4. Seeding the QA personas
 
 ```bash
@@ -377,6 +386,7 @@ pnpm test:e2e                 # full suite
 pnpm test:e2e:entitlements    # re-seeds the fixtures, then runs the entitlement projects
 pnpm test:e2e:auth            # the auth suite (e2e/auth)
 pnpm test:e2e:mail            # the email lifecycle suite, through the local Mailpit (below)
+pnpm test:e2e:billing:personas  # the billing personas' pages; own config, needs them seeded first
 pnpm test:e2e:smoke           # @smoke-tagged tests only
 pnpm test:e2e:headed          # headed browser
 pnpm test:e2e:report          # open the last HTML report
@@ -683,6 +693,8 @@ and retry, and the choice resetting on reload.
 
 - `apps/web/playwright/.auth/user.json`
 - `apps/web/playwright/.auth/admin.json`
+- `apps/web/playwright/.auth/billing-<handle>.json` — the billing personas, written by
+  `e2e/setup/billing-personas.setup.ts` for `pnpm test:e2e:billing:personas` only
 - `.qa/browser/<handle>/` — the manual launcher's persistent Chromium profiles (section 4b)
 
 These hold live session cookies. They are git-ignored and must never be committed, pasted, or

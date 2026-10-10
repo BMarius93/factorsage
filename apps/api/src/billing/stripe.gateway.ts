@@ -2,6 +2,16 @@ import type { StripeBillingConfig } from "@intrinsic/config";
 import { BillingError } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
 import Stripe from "stripe";
+import {
+  StripeFixtureError,
+  assertStripeTestModeKey,
+  redactStripeCredentials,
+  type StripeFixtureClock,
+  type StripeFixtureCustomer,
+  type StripeFixtureGateway,
+  type StripeFixturePaymentBehavior,
+  type StripeFixtureSubscription,
+} from "./stripe-fixture-gateway";
 import { hasScheduledCancellation } from "./stripe-gateway";
 import type {
   CreateCheckoutSessionInput,
@@ -657,4 +667,403 @@ function readId(value: unknown): string | null {
     return typeof id === "string" ? id : null;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Test-mode fixtures
+// ---------------------------------------------------------------------------
+
+/**
+ * Stripe's own named test payment methods, by the behaviour a fixture needs from one.
+ *
+ * Tokens, not cards: `pm_card_visa` attaches and pays; `pm_card_chargeCustomerFail` attaches and
+ * then fails every charge, which is how a renewal reaches `past_due` without anything being
+ * fabricated. No card number, expiry or CVC exists in this repository.
+ */
+const FIXTURE_PAYMENT_METHOD_TOKENS: Readonly<
+  Record<StripeFixturePaymentBehavior, string>
+> = {
+  SUCCEEDS: "pm_card_visa",
+  FAILS_ON_CHARGE: "pm_card_chargeCustomerFail",
+};
+
+/**
+ * The Stripe half of the billing QA persona tooling. **Test mode only.**
+ *
+ * It lives in this file because this is the one place the Stripe SDK is imported, and it is a
+ * separate class — with its own SDK client — because nothing the running product does may be able
+ * to reach it: `StripeApiGateway` cannot create a subscription outside Checkout, and this cannot be
+ * constructed with a live key. `stripe-fixture-gateway.ts` states what the interface deliberately
+ * leaves out; the short version is that the only thing it can delete is a Test Clock, and it has no
+ * product or price operation at all.
+ *
+ * Two guards hold regardless of the caller:
+ *
+ * 1. the constructor refuses any key that is not `sk_test_`/`rk_test_`;
+ * 2. every object Stripe returns is checked for `livemode: false` before it is handed back, so even
+ *    a key this code misjudged could not have its objects acted on.
+ *
+ * Failures are raised as `StripeFixtureError` carrying Stripe's own message, because the reader is
+ * an operator running a test-mode command and "billing is temporarily unavailable" would tell them
+ * nothing. Anything shaped like a credential is redacted from that message first.
+ */
+export class StripeTestModeFixtureGateway implements StripeFixtureGateway {
+  private readonly stripe: Stripe;
+
+  /** The four configured catalog prices. A subscription on anything else is refused. */
+  private readonly catalogPriceIds: ReadonlySet<string>;
+
+  constructor(
+    config: StripeBillingConfig,
+    private readonly logger: StructuredLogger,
+  ) {
+    assertStripeTestModeKey(config);
+    this.catalogPriceIds = new Set(Object.values(config.priceIds));
+    this.stripe = new Stripe(config.secretKey, {
+      timeout: config.timeoutMs,
+      maxNetworkRetries: config.maxNetworkRetries,
+      appInfo: { name: "FactorSage QA fixtures", version: "1.0.0" },
+    });
+  }
+
+  async listTestClocks(): Promise<readonly StripeFixtureClock[]> {
+    return this.call("testClocks.list", async () => {
+      const clocks: StripeFixtureClock[] = [];
+      for await (const clock of this.stripe.testHelpers.testClocks.list({
+        limit: 100,
+      })) {
+        clocks.push(this.toClock("testClocks.list", clock));
+      }
+      return clocks;
+    });
+  }
+
+  async retrieveTestClock(clockId: string): Promise<StripeFixtureClock | null> {
+    return this.call("testClocks.retrieve", async () => {
+      try {
+        return this.toClock(
+          "testClocks.retrieve",
+          await this.stripe.testHelpers.testClocks.retrieve(clockId),
+        );
+      } catch (error: unknown) {
+        if (isResourceMissing(error)) {
+          return null;
+        }
+        throw error;
+      }
+    });
+  }
+
+  async createTestClock(input: {
+    readonly name: string;
+    readonly frozenTime: Date;
+    readonly idempotencyKey: string;
+  }): Promise<StripeFixtureClock> {
+    return this.call("testClocks.create", async () =>
+      this.toClock(
+        "testClocks.create",
+        await this.stripe.testHelpers.testClocks.create(
+          { name: input.name, frozen_time: toSeconds(input.frozenTime) },
+          { idempotencyKey: input.idempotencyKey },
+        ),
+      ),
+    );
+  }
+
+  async advanceTestClock(input: {
+    readonly clockId: string;
+    readonly frozenTime: Date;
+    readonly idempotencyKey: string;
+  }): Promise<StripeFixtureClock> {
+    return this.call("testClocks.advance", async () =>
+      this.toClock(
+        "testClocks.advance",
+        await this.stripe.testHelpers.testClocks.advance(
+          input.clockId,
+          { frozen_time: toSeconds(input.frozenTime) },
+          { idempotencyKey: input.idempotencyKey },
+        ),
+      ),
+    );
+  }
+
+  async deleteTestClock(clockId: string): Promise<void> {
+    await this.call("testClocks.del", async () => {
+      try {
+        await this.stripe.testHelpers.testClocks.del(clockId);
+      } catch (error: unknown) {
+        if (!isResourceMissing(error)) {
+          throw error;
+        }
+      }
+    });
+  }
+
+  async listTestClockCustomers(
+    clockId: string,
+  ): Promise<readonly StripeFixtureCustomer[]> {
+    return this.call("customers.list", async () => {
+      const customers: StripeFixtureCustomer[] = [];
+      for await (const customer of this.stripe.customers.list({
+        test_clock: clockId,
+        limit: 100,
+      })) {
+        customers.push(this.toCustomer("customers.list", customer));
+      }
+      return customers;
+    });
+  }
+
+  async retrieveCustomer(
+    customerId: string,
+  ): Promise<StripeFixtureCustomer | null> {
+    return this.call("customers.retrieve", async () => {
+      try {
+        const customer = await this.stripe.customers.retrieve(customerId);
+        if (customer.deleted) {
+          return null;
+        }
+        return this.toCustomer("customers.retrieve", customer);
+      } catch (error: unknown) {
+        if (isResourceMissing(error)) {
+          return null;
+        }
+        throw error;
+      }
+    });
+  }
+
+  async createTestClockCustomer(input: {
+    readonly clockId: string;
+    readonly email: string;
+    readonly name: string;
+    readonly metadata: Readonly<Record<string, string>>;
+    readonly idempotencyKey: string;
+  }): Promise<StripeFixtureCustomer> {
+    return this.call("customers.create", async () =>
+      this.toCustomer(
+        "customers.create",
+        await this.stripe.customers.create(
+          {
+            test_clock: input.clockId,
+            email: input.email,
+            name: input.name,
+            metadata: { ...input.metadata },
+          },
+          { idempotencyKey: input.idempotencyKey },
+        ),
+      ),
+    );
+  }
+
+  async attachTestPaymentMethod(input: {
+    readonly customerId: string;
+    readonly behavior: StripeFixturePaymentBehavior;
+    readonly metadata: Readonly<Record<string, string>>;
+    readonly idempotencyKey: string;
+  }): Promise<{ readonly id: string }> {
+    return this.call("paymentMethods.attach", async () => {
+      const paymentMethod = await this.stripe.paymentMethods.attach(
+        FIXTURE_PAYMENT_METHOD_TOKENS[input.behavior],
+        { customer: input.customerId },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      this.assertTestMode("paymentMethods.attach", paymentMethod);
+      // Attaching takes no metadata, so the tags are a second call. Setting them is declarative —
+      // running it twice changes nothing — which is why it carries no idempotency key.
+      await this.stripe.paymentMethods.update(paymentMethod.id, {
+        metadata: { ...input.metadata },
+      });
+      return { id: paymentMethod.id };
+    });
+  }
+
+  async listSubscriptions(
+    customerId: string,
+  ): Promise<readonly StripeFixtureSubscription[]> {
+    return this.call("subscriptions.list", async () => {
+      const subscriptions: StripeFixtureSubscription[] = [];
+      for await (const subscription of this.stripe.subscriptions.list({
+        customer: customerId,
+        status: "all",
+        limit: 100,
+      })) {
+        subscriptions.push(
+          this.toSubscription("subscriptions.list", subscription),
+        );
+      }
+      return subscriptions;
+    });
+  }
+
+  async createSubscription(input: {
+    readonly customerId: string;
+    readonly priceId: string;
+    readonly paymentMethodId: string;
+    readonly metadata: Readonly<Record<string, string>>;
+    readonly idempotencyKey: string;
+  }): Promise<StripeFixtureSubscription> {
+    if (!this.catalogPriceIds.has(input.priceId)) {
+      throw new StripeFixtureError(
+        "Refusing to create a fixture subscription on a price that is not one of the four " +
+          "configured FactorSage catalog prices.",
+      );
+    }
+    return this.call("subscriptions.create", async () =>
+      this.toSubscription(
+        "subscriptions.create",
+        await this.stripe.subscriptions.create(
+          {
+            customer: input.customerId,
+            items: [{ price: input.priceId, quantity: 1 }],
+            default_payment_method: input.paymentMethodId,
+            // A fixture is either a paid subscription or nothing: without this a declined first
+            // payment would leave an `incomplete` subscription holding the customer's paid slot.
+            payment_behavior: "error_if_incomplete",
+            metadata: { ...input.metadata },
+          },
+          { idempotencyKey: input.idempotencyKey },
+        ),
+      ),
+    );
+  }
+
+  async setSubscriptionPaymentMethod(input: {
+    readonly subscriptionId: string;
+    readonly paymentMethodId: string;
+  }): Promise<StripeFixtureSubscription> {
+    return this.call("subscriptions.update", async () =>
+      this.toSubscription(
+        "subscriptions.update",
+        await this.stripe.subscriptions.update(input.subscriptionId, {
+          default_payment_method: input.paymentMethodId,
+        }),
+      ),
+    );
+  }
+
+  /**
+   * `cancel_at: "min_period_end"` is the request Customer Portal makes on the pinned API version,
+   * and it is why the result comes back in Stripe's newer representation: `cancel_at` set, with
+   * `cancel_at_period_end` **false**. Sending the older `cancel_at_period_end: true` instead would
+   * build a fixture in a shape no FactorSage customer can produce.
+   */
+  async scheduleCancellationAtPeriodEnd(
+    subscriptionId: string,
+  ): Promise<StripeFixtureSubscription> {
+    return this.call("subscriptions.update", async () =>
+      this.toSubscription(
+        "subscriptions.update",
+        await this.stripe.subscriptions.update(subscriptionId, {
+          cancel_at: "min_period_end",
+        }),
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------------
+
+  private async call<T>(operation: string, run: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    try {
+      const result = await run();
+      this.logger.debug({
+        event: "billing.stripe.fixture.call.completed",
+        operation,
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (error: unknown) {
+      if (error instanceof StripeFixtureError) {
+        throw error;
+      }
+      const stripeError =
+        error instanceof Stripe.errors.StripeError ? error : null;
+      this.logger.debug({
+        event: "billing.stripe.fixture.call.failed",
+        operation,
+        durationMs: Date.now() - startedAt,
+        stripeErrorType: stripeError?.type ?? null,
+        stripeErrorCode: stripeError?.code ?? null,
+        stripeStatusCode: stripeError?.statusCode ?? null,
+      });
+      const detail =
+        error instanceof Error ? error.message : "an unknown error occurred";
+      throw new StripeFixtureError(
+        `Stripe ${operation} failed` +
+          (stripeError?.code ? ` (${stripeError.code})` : "") +
+          `: ${redactStripeCredentials(detail)}`,
+      );
+    }
+  }
+
+  private assertTestMode(operation: string, object: { livemode: boolean }): void {
+    if (object.livemode !== false) {
+      throw new StripeFixtureError(
+        `Stripe ${operation} returned a live-mode object. Billing QA fixtures are test-mode only; ` +
+          "nothing was done with it.",
+      );
+    }
+  }
+
+  private toClock(
+    operation: string,
+    clock: Stripe.TestHelpers.TestClock,
+  ): StripeFixtureClock {
+    this.assertTestMode(operation, clock);
+    return {
+      id: clock.id,
+      name: clock.name,
+      status: clock.status,
+      frozenTime: new Date(clock.frozen_time * 1000),
+      deletesAfter: secondsToDate(clock.deletes_after),
+      livemode: clock.livemode,
+    };
+  }
+
+  private toCustomer(
+    operation: string,
+    customer: Stripe.Customer,
+  ): StripeFixtureCustomer {
+    this.assertTestMode(operation, customer);
+    const clock = customer.test_clock ?? null;
+    return {
+      id: customer.id,
+      email: customer.email,
+      metadata: { ...customer.metadata },
+      testClockId: typeof clock === "string" ? clock : (clock?.id ?? null),
+      livemode: customer.livemode,
+    };
+  }
+
+  private toSubscription(
+    operation: string,
+    subscription: Stripe.Subscription,
+  ): StripeFixtureSubscription {
+    this.assertTestMode(operation, subscription);
+    // The period is read from the item, exactly as `toSubscriptionState` reads it.
+    const item = subscription.items.data[0] ?? null;
+    return {
+      id: subscription.id,
+      customerId:
+        typeof subscription.customer === "string"
+          ? subscription.customer
+          : subscription.customer.id,
+      status: subscription.status,
+      priceId: item?.price?.id ?? null,
+      metadata: { ...subscription.metadata },
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt: secondsToDate(subscription.cancel_at),
+      canceledAt: secondsToDate(subscription.canceled_at),
+      currentPeriodStart: secondsToDate(item?.current_period_start),
+      currentPeriodEnd: secondsToDate(item?.current_period_end),
+      livemode: subscription.livemode,
+    };
+  }
+}
+
+function toSeconds(value: Date): number {
+  return Math.floor(value.getTime() / 1000);
 }

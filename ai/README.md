@@ -43,6 +43,8 @@ CLI, the local `stripe listen` runbook and the Dashboard configuration checklist
 one-way — `Stripe billing state -> User.plan -> resolveEntitlements() -> guards` — and it is enforced
 by a test: billing may not hold an entitlement value, and entitlements may not depend on billing. Do
 not ask Stripe a permission question, and do not write `User.plan` anywhere but `changeUserPlan`.
+To see or test what the product makes of a _real_ subscription state — active, scheduled to cancel,
+past due, ended — use the billing QA personas: `../docs/development/billing-qa-personas.md`.
 
 Entitlement behaviour is tested through fixed **test personas**, one per plan, defined once in
 `packages/testing/src/personas.ts` and read by the seeders and the Playwright projects alike.
