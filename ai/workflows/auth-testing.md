@@ -437,6 +437,7 @@ and checked rather than assumed.
 | SMTP / Mailtrap | **Off**: the `SMTP_*` group is blanked, so the API uses its unconfigured sender. Only `pnpm dev:api:e2e:mail` (the email lifecycle suite) delivers, to the local Mailpit and nowhere else | launcher |
 | Google OAuth | **Off**: the `GOOGLE_*` group is blanked; `/auth/providers` reports no Google | launcher |
 | Stripe | **Inert**: test-mode placeholder key and price ids, so billing pages render; any SDK call is blocked by the guard | launcher |
+| Test passwords (`QA_*_PASSWORD`, `QA_BILLING_PASSWORD`) | **Withheld** from the API, the worker and the web: blanked for every role | launcher |
 | Anything else | **Blocked** by the egress guard | `packages/testing/egress-guard.cjs` |
 
 The overlay is one function, `e2eStackEnvironment` in `packages/testing/src/e2e-stack.ts`, laid
@@ -444,6 +445,26 @@ over the developer's `.env` (a shell value — even an empty one — beats `.env
 switches an integration off). No real provider credential is present in an E2E process. Production
 configuration is untouched: `FMP_BASE_URL` is unset there, and production refuses a loopback or
 plain-http value.
+
+**Who holds the test passwords.** Exactly two readers: the seeders, which hash them into the test
+database, and the Playwright runner, which types them into the sign-in form. No process of the
+stack needs one, so the launcher builds each child's environment with `e2eChildEnvironment` — what
+it inherited, with the overlay over it — and the overlay blanks every password variable the two
+persona registries define. That holds whether the value would have come from the launcher's own
+environment (in a Claude cloud session every variable is ambient) or from the `.env` the API and
+the worker load themselves.
+
+**What `next dev` receives.** `next dev` keeps a persistent Turbopack cache under
+`apps/web/.next/dev/cache`, and that cache records the environment the server was started with —
+every variable, read or not. So the dev server never inherits one: `pnpm dev:web` runs
+`apps/web/dev-server/next-dev.ts`, the only thing in the repository that starts `next dev`, which
+hands it an **allowlist** (`next-dev-environment.ts`): what a Node process needs to run in a
+terminal, the web app's public `NEXT_PUBLIC_*` configuration, and a few named switches, among them
+the three variables the egress guard reads. The hermetic launcher and `scripts/cloud/stack.sh`
+both start the web as `pnpm dev:web`, so no launcher can hand it more. To let another variable
+through, add it to that list. On its first start after this boundary was introduced the entry
+point deletes a Turbopack cache that predates it, once, because such a cache may still hold what
+an earlier server was given.
 
 **Where fixture responses live.** `apps/api/src/e2e-stack/fake-fmp.ts`. It answers only the fixture
 namespace (`apps/api/src/e2e-stack/fixture-boundary.ts`, derived from the seeds themselves):

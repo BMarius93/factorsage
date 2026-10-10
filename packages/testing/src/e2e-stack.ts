@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { BILLING_PERSONA_PASSWORD_ENV } from "./billing-personas.js";
+import { TEST_PERSONA_LIST, personaCredentialEnvNames } from "./personas.js";
 
 /**
  * The deterministic E2E stack's process boundary, defined once.
@@ -10,7 +12,8 @@ import { join } from "node:path";
  * lived in two of those places would be two definitions of "hermetic" that could drift apart.
  *
  * Deliberately free of workspace imports: the launcher runs before any package is built, and the
- * Playwright harness imports it through a dependency-free subpath exactly like `./personas`.
+ * Playwright harness imports it through a dependency-free subpath exactly like `./personas`. The
+ * two persona registries it reads are siblings in this package and equally dependency-free.
  *
  * `ai/workflows/auth-testing.md` §7 is the runbook this implements.
  */
@@ -205,6 +208,30 @@ export function e2eEgressGuardPath(repositoryRoot: string): string {
 }
 
 /**
+ * Every variable that holds a test account's password.
+ *
+ * Read from the two persona registries rather than listed, so a persona added to either is covered
+ * the day it exists. These belong to exactly two readers: the seeders, which hash them into the
+ * test database, and the Playwright runner, which types them into the sign-in form. **No process of
+ * the stack needs one** — the API verifies a password against a stored hash, the worker never
+ * authenticates anybody, and the web server only forwards what a browser submits.
+ */
+export const E2E_TEST_CREDENTIAL_VARIABLES: readonly string[] = [
+  ...TEST_PERSONA_LIST.map(
+    (persona) => personaCredentialEnvNames(persona).password,
+  ),
+  BILLING_PERSONA_PASSWORD_ENV,
+];
+
+/**
+ * Those variables, blanked. Laid over every role's environment, so a stack process holds no test
+ * password whether it would have come from the launcher's own environment — in a Claude cloud
+ * session every variable is ambient — or from the `.env` the API and the worker load themselves.
+ */
+const TEST_CREDENTIAL_BLANKS: Readonly<Record<string, string>> =
+  Object.fromEntries(E2E_TEST_CREDENTIAL_VARIABLES.map((name) => [name, ""]));
+
+/**
  * Every provider credential and endpoint an E2E process could use, replaced.
  *
  * Empty groups switch the optional integrations off the way `.env.example` does (both are
@@ -289,6 +316,7 @@ export function e2eStackEnvironment(
     E2E_STACK_MODE: mode,
     E2E_EGRESS_LOG: e2eEgressLogPath(input.repositoryRoot),
     NODE_OPTIONS: nodeOptions,
+    ...TEST_CREDENTIAL_BLANKS,
     // pnpm and Next both phone home by default; on this stack that would be a blocked connection
     // the teardown then reports as an escape attempt.
     npm_config_update_notifier: "false",
@@ -325,6 +353,46 @@ export function e2eStackEnvironment(
           RATE_LIMIT_ALLOWANCE_MULTIPLIER: "100",
         }
       : {}),
+  };
+}
+
+/**
+ * The **whole** environment of one E2E stack process: what the launcher was started with, and the
+ * role's overlay laid over it.
+ *
+ * The one function a launcher builds a child's environment with. It exists so that "what does this
+ * process receive" is decided here, beside the overlay, and tested here — a launcher that
+ * assembled the environment itself is how the test passwords reached the stack in the first place.
+ *
+ * Inheriting is still right for the API and the worker: they are the real applications, started by
+ * the ordinary development commands, and need whatever a developer's shell gives those. The
+ * overlay is what removes what they must not have. The web server is narrower still, and that is
+ * not decided here: `next dev` is started only through `apps/web/dev-server/next-dev.ts`, which
+ * hands it an allowlist of this environment and nothing else.
+ */
+export function e2eChildEnvironment(
+  input: Omit<
+    E2eStackEnvironmentInput,
+    "inheritedNodeOptions" | "launcherEnvironment"
+  > & {
+    /** The launcher's own `process.env`. */
+    readonly parentEnvironment: Environment;
+  },
+): Record<string, string> {
+  const { parentEnvironment, ...rest } = input;
+  const inherited: Record<string, string> = {};
+  for (const [name, value] of Object.entries(parentEnvironment)) {
+    if (value !== undefined) {
+      inherited[name] = value;
+    }
+  }
+  return {
+    ...inherited,
+    ...e2eStackEnvironment({
+      ...rest,
+      inheritedNodeOptions: parentEnvironment.NODE_OPTIONS,
+      launcherEnvironment: parentEnvironment,
+    }),
   };
 }
 
