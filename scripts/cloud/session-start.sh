@@ -126,7 +126,7 @@ echo "FactorSage cloud environment, prepared in $(($(date +%s) - STARTED_AT))s (
 echo "- toolchain: node $(node -v 2>/dev/null || echo missing), pnpm $(pnpm --version 2>/dev/null || echo missing), Playwright ${playwright_version:-missing} at $PLAYWRIGHT_BROWSERS_PATH"
 echo "- services: PostgreSQL 127.0.0.1:5432, Redis 127.0.0.1:6379, Mailpit SMTP 127.0.0.1:$CLOUD_MAILPIT_SMTP_PORT / UI+API 127.0.0.1:$CLOUD_MAILPIT_HTTP_PORT"
 echo "- databases: $databases_state; matrix database exists (pnpm qa:matrix:provision migrates it)"
-echo "- FMP: no key in the runtime environment (LIVE_FMP_API_KEY $(present LIVE_FMP_API_KEY); no live-FMP command exists yet)"
+echo "- FMP: no key in the runtime environment (LIVE_FMP_API_KEY $(present LIVE_FMP_API_KEY); used only by scripts/cloud/fmp-live.sh, at most 3 securities per run)"
 echo "- Stripe: $stripe_state"
 echo "- Google sign-in: $google_state"
 if [ -n "$CLOUD_NEUTRALIZE" ]; then

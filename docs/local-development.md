@@ -63,6 +63,15 @@ deliberately small AAPL verification suite with:
 pnpm --filter @intrinsic/stock-data test:live
 ```
 
+To hydrate real data for one to three securities on purpose — the whole supported history,
+through the ordinary loaders, inside a request budget — use the guarded live run. It reads
+`LIVE_FMP_API_KEY`, never `FMP_API_KEY`, and `--plan` shows what it would ask without asking
+(`development/fmp-live-hydration.md`):
+
+```bash
+RUN_LIVE_FMP_HYDRATION=1 pnpm fmp:live -- --symbols AAPL,MSFT,NVDA --full-history
+```
+
 Local browser authentication runs from web `:3000` to API `:3001`. Keep
 `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001` and
 `CORS_ORIGINS=http://localhost:3000`; the browser client sends credentialed requests. Use a

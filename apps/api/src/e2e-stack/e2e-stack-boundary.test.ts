@@ -23,6 +23,9 @@ import {
   E2E_MAIL_FROM,
   E2E_TEST_CREDENTIAL_VARIABLES,
   E2eMailBoundaryError,
+  LIVE_FMP_API_KEY_ENV,
+  LIVE_FMP_HYDRATION_OPT_IN_ENV,
+  LIVE_FMP_RUN_VARIABLES,
   e2eArmedMode,
   e2eChildEnvironment,
   e2eEgressGuardPath,
@@ -349,6 +352,52 @@ describe("E2E test credentials", () => {
  * The email lifecycle suite's mail mode (`pnpm dev:api:e2e:mail`): the API delivers to the local
  * Mailpit, and nowhere else, whatever the developer's `.env` configures.
  */
+describe("E2E stack and the live FMP run", () => {
+  const LIVE_KEY = "leak-live-fmp-key-8c41d09e7a2b";
+
+  const child = (role: "api" | "worker" | "web") =>
+    e2eChildEnvironment({
+      role,
+      repositoryRoot: REPOSITORY_ROOT,
+      testDatabaseUrl: "postgresql://localhost/intrinsic_value_test",
+      // A Claude cloud session: the live key is ambient in the shell that starts the stack, and
+      // somebody has exported the opt-in as well.
+      parentEnvironment: {
+        ...DEVELOPER_ENV,
+        PATH: "/usr/local/bin:/usr/bin:/bin",
+        [LIVE_FMP_API_KEY_ENV]: LIVE_KEY,
+        [LIVE_FMP_HYDRATION_OPT_IN_ENV]: "1",
+      },
+    });
+
+  it("names the live run's variables once, for every boundary to withhold", () => {
+    expect([...LIVE_FMP_RUN_VARIABLES]).toEqual([
+      "LIVE_FMP_API_KEY",
+      "RUN_LIVE_FMP_HYDRATION",
+    ]);
+  });
+
+  it.each(["api", "worker", "web"] as const)(
+    "gives the %s neither the live key nor the opt-in",
+    (role) => {
+      const environment = child(role);
+      for (const name of LIVE_FMP_RUN_VARIABLES) {
+        expect(environment[name], name).toBe("");
+      }
+      // Not under another name either: the key is nowhere in what the process receives.
+      expect(JSON.stringify(environment)).not.toContain(LIVE_KEY);
+    },
+  );
+
+  it("leaves the API and the worker on the fixture provider and nothing else", () => {
+    for (const role of ["api", "worker"] as const) {
+      const config = getFmpConfig(child(role));
+      expect(config.apiKey).toBe(E2E_FAKE_FMP_API_KEY);
+      expect(config.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/stable\/$/);
+    }
+  });
+});
+
 describe("E2E mail mode", () => {
   function mailOverlaid(
     launcherEnvironment: Record<string, string> = {},

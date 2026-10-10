@@ -43,6 +43,7 @@ import {
   type MappedFmpProfile,
   type MappedFmpSecurityListing,
 } from "./mapping.js";
+import type { FmpRequestDescriptor, FmpRequestGuard } from "./request-guard.js";
 
 export type FmpClientConfig = {
   apiKey: string;
@@ -103,6 +104,11 @@ export class FmpTransientError extends FmpProviderError {
 
 export type FmpClientDependencies = {
   gate?: FmpRequestGate;
+  /**
+   * Restricts what this client may ask and how often (`request-guard.ts`). Absent in every
+   * production composition; a client without one sends exactly what it always sent.
+   */
+  guard?: FmpRequestGuard;
   sleep?: (delayMs: number) => Promise<void>;
   now?: () => number;
   random?: () => number;
@@ -161,6 +167,7 @@ export class FmpClient
     FmpStockSplitPort
 {
   private readonly gate: FmpRequestGate;
+  private readonly guard: FmpRequestGuard | undefined;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly now: () => number;
   private readonly random: () => number;
@@ -171,6 +178,7 @@ export class FmpClient
     dependencies: FmpClientDependencies = {},
   ) {
     this.gate = dependencies.gate ?? directGate;
+    this.guard = dependencies.guard;
     this.sleep =
       dependencies.sleep ??
       ((delayMs) =>
@@ -444,6 +452,14 @@ export class FmpClient
     path: string,
     query: Record<string, string>,
   ): Promise<T> {
+    // Asked first, with a copy the guard cannot use to change the request: a refusal happens
+    // before the key is read, before the gate is entered and before anything is sent.
+    const guard = this.guard;
+    const guarded: FmpRequestDescriptor = Object.freeze({
+      path,
+      query: Object.freeze({ ...query }),
+    });
+    guard?.authorize(guarded);
     const config = this.getConfig();
     const maxRetries = config.maxRetries ?? 3;
     const retryBaseDelayMs = config.retryBaseDelayMs ?? 500;
@@ -464,6 +480,11 @@ export class FmpClient
       let cooldownPublished = false;
       try {
         return await this.gate.run(async () => {
+          if (guard) {
+            // Inside the slot, so a budget counts requests that are sent, not requests that
+            // were still queued when the gate gave up.
+            await guard.admitAttempt(guarded);
+          }
           const response = await this.fetchImplementation(url, {
             signal: AbortSignal.timeout(config.timeoutMs),
             headers: { accept: "application/json" },

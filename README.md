@@ -328,6 +328,10 @@ the keys it created, and never flushes.
   never authorization, and a placeholder key is never a credential. The API suite also needs a
   `TEST_DATABASE_URL` that differs from `DATABASE_URL`. Both assert invariants only, never
   exact provider values.
+- `RUN_LIVE_FMP_HYDRATION=1 pnpm fmp:live -- --symbols AAPL,MSFT,NVDA --full-history` — not a
+  test: the guarded live hydration of at most three securities into the development database
+  (`docs/development/fmp-live-hydration.md`). It reads `LIVE_FMP_API_KEY` only, and `--plan`
+  shows what it would ask without asking.
 - `pnpm test:e2e:smoke` / `pnpm test:e2e` — Playwright authentication suite. Not part of
   `pnpm test`: it drives an already-running stack and needs the QA personas seeded with
   `pnpm test:users:seed`. See `ai/workflows/auth-testing.md`.
