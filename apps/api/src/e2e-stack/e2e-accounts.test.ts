@@ -64,6 +64,38 @@ describe("disposable E2E account addresses", () => {
     expect(e2eDisposableAccountKindOf(email)).toBeNull();
   });
 
+  it("mints the email lifecycle suite's addresses as their own kind", () => {
+    expect(e2eDisposableAccountEmail("authmail", 1_791_567_155_319)).toBe(
+      "authmail-1791567155319@example.test",
+    );
+    expect(e2eDisposableAccountPattern("authmail").source).toBe(
+      /^authmail-\d+@example\.test$/.source,
+    );
+    expect(
+      e2eDisposableAccountKindOf("authmail-1791567155319@example.test"),
+    ).toBe("authmail");
+    for (const email of [
+      "xauthmail-1@example.test",
+      "Authmail-1@example.test",
+      "authmail-1@example.test.evil",
+      "authmail-@example.test",
+    ]) {
+      expect(e2eDisposableAccountKindOf(email)).toBeNull();
+    }
+  });
+
+  it("never lets one kind claim another kind's address", () => {
+    for (const kind of E2E_DISPOSABLE_ACCOUNT_KINDS) {
+      const email = e2eDisposableAccountEmail(kind, 1);
+      expect(e2eDisposableAccountKindOf(email)).toBe(kind);
+      for (const other of E2E_DISPOSABLE_ACCOUNT_KINDS) {
+        expect(e2eDisposableAccountPattern(other).test(email)).toBe(
+          other === kind,
+        );
+      }
+    }
+  });
+
   it("declares kinds that are plain lowercase words, never patterns", () => {
     for (const kind of E2E_DISPOSABLE_ACCOUNT_KINDS) {
       expect(kind).toMatch(/^[a-z]+$/);

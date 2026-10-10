@@ -4,6 +4,7 @@ export * from "./e2e-accounts.js";
 export * from "./e2e-stack.js";
 export * from "./legal-acceptance.js";
 export * from "./live-fmp.js";
+export * from "./mailpit.js";
 export * from "./persona-credentials.js";
 export * from "./personas.js";
 export * from "./fundamental-audit.js";

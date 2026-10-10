@@ -13,7 +13,12 @@ import {
 import {
   E2E_DATA_FRESHNESS_MS,
   E2E_FAKE_FMP_API_KEY,
+  E2E_MAIL_FROM,
+  E2eMailBoundaryError,
+  e2eArmedMode,
   e2eEgressGuardPath,
+  e2eMailpitApiUrl,
+  e2eMailpitSmtpEndpoint,
   e2eStackEnvironment,
   parseE2eEgressLog,
 } from "@intrinsic/testing";
@@ -140,6 +145,140 @@ describe("E2E stack environment", () => {
       e2eStackEnvironment({ role: "api", repositoryRoot: REPOSITORY_ROOT }),
     ).toThrow(/TEST_DATABASE_URL/);
   });
+
+  it("launches every role in standard mode unless told otherwise", () => {
+    for (const role of ["api", "worker", "web"] as const) {
+      const env = e2eStackEnvironment({
+        role,
+        repositoryRoot: REPOSITORY_ROOT,
+        testDatabaseUrl: "postgresql://localhost/intrinsic_value_test",
+      });
+      expect(env.E2E_STACK_MODE).toBe("standard");
+    }
+  });
+});
+
+/**
+ * The email lifecycle suite's mail mode (`pnpm dev:api:e2e:mail`): the API delivers to the local
+ * Mailpit, and nowhere else, whatever the developer's `.env` configures.
+ */
+describe("E2E mail mode", () => {
+  function mailOverlaid(
+    launcherEnvironment: Record<string, string> = {},
+  ): Record<string, string> {
+    return {
+      ...DEVELOPER_ENV,
+      ...e2eStackEnvironment({
+        role: "api",
+        repositoryRoot: REPOSITORY_ROOT,
+        testDatabaseUrl: "postgresql://localhost/intrinsic_value_test",
+        mode: "mail",
+        launcherEnvironment,
+      }),
+    };
+  }
+
+  it("points the API's SMTP at loopback Mailpit with no credentials, never the developer's relay", () => {
+    const env = mailOverlaid();
+
+    expect(getSmtpConfig(env)).toEqual({
+      host: "127.0.0.1",
+      port: 1025,
+      secure: false,
+      from: E2E_MAIL_FROM,
+      auth: null,
+    });
+    expect(env.SMTP_USER).toBe("");
+    expect(env.SMTP_PASSWORD).toBe("");
+    expect(env.E2E_STACK_MODE).toBe("mail");
+    // Everything else about the hermetic API is unchanged.
+    expect(env.DATABASE_URL).toBe(
+      "postgresql://localhost/intrinsic_value_test",
+    );
+    expect(getFmpConfig(env).apiKey).toBe(E2E_FAKE_FMP_API_KEY);
+    expect(getGoogleOAuthConfig(env)).toBeNull();
+    expect(getStripeBillingConfig(env)?.secretKey).toMatch(/placeholder/);
+    expect(env.NODE_OPTIONS).toContain(e2eEgressGuardPath(REPOSITORY_ROOT));
+  });
+
+  it("follows a loopback Mailpit on another port", () => {
+    expect(
+      getSmtpConfig(
+        mailOverlaid({ E2E_MAILPIT_SMTP_URL: "smtp://localhost:2525" }),
+      ),
+    ).toMatchObject({ host: "localhost", port: 2525, auth: null });
+    expect(
+      getSmtpConfig(
+        mailOverlaid({ E2E_MAILPIT_SMTP_URL: "smtp://[::1]:1025" }),
+      ),
+    ).toMatchObject({ host: "::1", port: 1025 });
+  });
+
+  it.each([
+    ["a remote host", "smtp://smtp.provider.example:587", /not loopback/],
+    ["a private address", "smtp://10.0.0.5:1025", /not loopback/],
+    [
+      "a loopback lookalike",
+      "smtp://localhost.provider.example:1025",
+      /not loopback/,
+    ],
+    [
+      "embedded credentials",
+      "smtp://user:secret@127.0.0.1:1025",
+      /credentials/,
+    ],
+    ["implicit TLS", "smtps://127.0.0.1:465", /must be a smtp:/],
+    ["no port", "smtp://127.0.0.1", /must name its port/],
+    ["a path", "smtp://127.0.0.1:1025/relay", /origin only/],
+    ["not a URL", "127.0.0.1:1025", /smtp:|not a valid URL/],
+  ])("refuses %s before building anything", (_label, url, message) => {
+    expect(() => mailOverlaid({ E2E_MAILPIT_SMTP_URL: url })).toThrow(
+      E2eMailBoundaryError,
+    );
+    expect(() => mailOverlaid({ E2E_MAILPIT_SMTP_URL: url })).toThrow(message);
+  });
+
+  it("refuses production", () => {
+    expect(() => mailOverlaid({ NODE_ENV: "production" })).toThrow(
+      /NODE_ENV is production/,
+    );
+    expect(() => e2eMailpitApiUrl({ NODE_ENV: "production" })).toThrow(
+      /NODE_ENV is production/,
+    );
+  });
+
+  it("exists for the API only", () => {
+    for (const role of ["worker", "web"] as const) {
+      expect(() =>
+        e2eStackEnvironment({
+          role,
+          repositoryRoot: REPOSITORY_ROOT,
+          testDatabaseUrl: "postgresql://localhost/intrinsic_value_test",
+          mode: "mail",
+        }),
+      ).toThrow(/Only the API has a mail mode/);
+    }
+  });
+
+  it("resolves the Mailpit HTTP API on loopback only", () => {
+    expect(e2eMailpitApiUrl({})).toBe("http://127.0.0.1:8025");
+    expect(
+      e2eMailpitApiUrl({ E2E_MAILPIT_URL: "http://localhost:9025/" }),
+    ).toBe("http://localhost:9025");
+    expect(e2eMailpitSmtpEndpoint({})).toEqual({
+      host: "127.0.0.1",
+      port: 1025,
+    });
+    for (const [url, message] of [
+      ["http://mail.provider.example:8025", /not loopback/],
+      ["https://127.0.0.1:8025", /must be a http:/],
+      ["http://admin:secret@127.0.0.1:8025", /credentials/],
+      ["http://127.0.0.1:8025/api/v1", /origin only/],
+      ["http://127.0.0.1:8025/?next=x", /origin only/],
+    ] as const) {
+      expect(() => e2eMailpitApiUrl({ E2E_MAILPIT_URL: url })).toThrow(message);
+    }
+  });
 });
 
 describe("E2E egress guard", () => {
@@ -214,6 +353,96 @@ describe("E2E egress guard", () => {
       "192.0.2.1:25",
     ]);
     expect(records.every((record) => record.role === "probe")).toBe(true);
+  });
+});
+
+describe("E2E egress guard and SMTP", () => {
+  const directory = mkdtempSync(join(tmpdir(), "e2e-egress-smtp-"));
+  const log = join(directory, "egress.jsonl");
+
+  afterAll(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /**
+   * The application's own SMTP library, under the guard: delivery to a loopback SMTP server (a
+   * minimal one, standing in for Mailpit) proceeds, and delivery to anything else is refused before
+   * a packet leaves. `192.0.2.1` is TEST-NET-1 (RFC 5737) — unreachable even if the guard broke, and
+   * a literal address, so not even a DNS query is made.
+   *
+   * Spawned rather than run in-process: this package's tests replace `nodemailer`
+   * (`no-real-email.setup.ts`), and the point here is the real library's sockets.
+   */
+  const PROBE = `
+    const net = require("node:net");
+    const nodemailer = require("nodemailer");
+    const received = [];
+    const server = net.createServer((socket) => {
+      let data = false;
+      socket.write("220 loopback ESMTP\\r\\n");
+      socket.on("data", (chunk) => {
+        for (const line of chunk.toString().split("\\r\\n").filter(Boolean)) {
+          if (data) {
+            if (line === ".") { data = false; socket.write("250 queued\\r\\n"); }
+            else if (line.startsWith("Subject:")) { received.push(line); }
+            continue;
+          }
+          const verb = line.slice(0, 4).toUpperCase();
+          if (verb === "EHLO" || verb === "HELO") socket.write("250 loopback\\r\\n");
+          else if (verb === "DATA") { data = true; socket.write("354 go\\r\\n"); }
+          else if (verb === "QUIT") { socket.end("221 bye\\r\\n"); }
+          else socket.write("250 ok\\r\\n");
+        }
+      });
+    }).listen(0, "127.0.0.1", async () => {
+      const message = { from: "no-reply@factorsage.test", to: "authmail-1@example.test", subject: "probe", text: "probe" };
+      const results = {};
+      const local = nodemailer.createTransport({ host: "127.0.0.1", port: server.address().port, secure: false });
+      results.loopback = await local.sendMail(message).then(() => "delivered", (e) => e.code);
+      const remote = nodemailer.createTransport({ host: "192.0.2.1", port: 587, secure: false, connectionTimeout: 5000 });
+      results.remote = await remote.sendMail(message).then(() => "delivered", (e) => e.message.includes("E2E egress guard") ? "E2E_EGRESS_BLOCKED" : e.code);
+      results.received = received;
+      server.close();
+      process.stdout.write(JSON.stringify(results));
+    });`;
+
+  it("lets the mail-mode API reach loopback SMTP and blocks SMTP to anywhere else", () => {
+    const child = spawnSync(process.execPath, ["-e", PROBE], {
+      cwd: join(REPOSITORY_ROOT, "apps", "api"),
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `--require=${e2eEgressGuardPath(REPOSITORY_ROOT)}`,
+        E2E_EGRESS_LOG: log,
+        E2E_STACK_ROLE: "api",
+        E2E_STACK_MODE: "mail",
+      },
+      encoding: "utf8",
+      timeout: 20_000,
+    });
+
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(child.stdout)).toEqual({
+      loopback: "delivered",
+      remote: "E2E_EGRESS_BLOCKED",
+      received: ["Subject: probe"],
+    });
+
+    const records = parseE2eEgressLog(readFileSync(log, "utf8"));
+    const armed = records.filter((record) => record.kind === "armed");
+    expect(armed).toHaveLength(1);
+    expect(e2eArmedMode(armed[0]!)).toBe("mail");
+    expect(
+      records
+        .filter((record) => record.kind === "blocked")
+        .map((record) =>
+          record.kind === "blocked" ? `${record.host}:${record.port}` : "",
+        ),
+    ).toEqual(["192.0.2.1:587"]);
+  });
+
+  it("reads a record written before modes existed as standard", () => {
+    expect(e2eArmedMode({})).toBe("standard");
+    expect(e2eArmedMode({ mode: "mail" })).toBe("mail");
   });
 });
 

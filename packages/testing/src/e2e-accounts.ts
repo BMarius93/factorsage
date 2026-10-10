@@ -24,10 +24,15 @@
 /**
  * Every kind of disposable account a spec may register.
  *
+ * Each kind has its own cleanup policy (`apps/api/src/e2e-stack/e2e-accounts.ts`): the states a
+ * kind may be deleted in are exactly the states its spec can legitimately leave behind.
+ *
  * - `escalation` — `e2e/entitlements/entitlements.admin.spec.ts` registers one per run with a
- *   forged role and plan, to prove registration ignores both.
+ *   forged role and plan, to prove registration ignores both. Never activated.
+ * - `authmail` — `e2e/auth/email-lifecycle.mail.spec.ts` registers, activates, signs in and resets
+ *   the password through real email delivered to the local Mailpit (`pnpm test:e2e:mail`).
  */
-export const E2E_DISPOSABLE_ACCOUNT_KINDS = ["escalation"] as const;
+export const E2E_DISPOSABLE_ACCOUNT_KINDS = ["escalation", "authmail"] as const;
 
 export type E2eDisposableAccountKind =
   (typeof E2E_DISPOSABLE_ACCOUNT_KINDS)[number];

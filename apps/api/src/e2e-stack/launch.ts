@@ -13,6 +13,10 @@ import { e2eStackEnvironment, type E2eStackRole } from "@intrinsic/testing";
  * database, the fixture FMP server, every other provider switched off or made inert, and the egress
  * guard preloaded into every Node process underneath. Nothing about the development stack changes.
  *
+ * `pnpm dev:api:e2e:mail` is the same API with `--mail`: its email goes to the local Mailpit instead
+ * of being switched off (`E2eStackMode`), for the email lifecycle suite alone. The Mailpit endpoint
+ * is refused unless it is loopback, before the child exists.
+ *
  * Only `TEST_DATABASE_URL` is read from `.env` here; everything else the child loads itself.
  */
 
@@ -48,9 +52,15 @@ function testDatabaseUrl(root: string): string | undefined {
 }
 
 function main(): void {
-  const role = process.argv[2] as E2eStackRole | undefined;
-  if (role === undefined || !(role in COMMANDS)) {
-    throw new Error("Usage: launch.ts <api|worker|web>");
+  const [role, ...options] = process.argv
+    .slice(2)
+    .filter((arg) => arg !== "--") as [E2eStackRole | undefined, ...string[]];
+  if (
+    role === undefined ||
+    !(role in COMMANDS) ||
+    options.some((option) => option !== "--mail")
+  ) {
+    throw new Error("Usage: launch.ts <api|worker|web> [--mail]");
   }
   const root = repositoryRoot(process.cwd());
   const overlay = e2eStackEnvironment({
@@ -58,6 +68,8 @@ function main(): void {
     repositoryRoot: root,
     testDatabaseUrl: testDatabaseUrl(root),
     inheritedNodeOptions: process.env.NODE_OPTIONS,
+    mode: options.includes("--mail") ? "mail" : "standard",
+    launcherEnvironment: process.env,
   });
 
   const child = spawn("pnpm", [...COMMANDS[role]], {

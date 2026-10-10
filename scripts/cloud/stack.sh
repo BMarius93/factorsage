@@ -5,6 +5,9 @@
 #   scripts/cloud/stack.sh up e2e           the hermetic Playwright stack on the test database:
 #                                           fixture FMP :3011, API :3001, worker, web :3000
 #                                           (the ordinary `pnpm dev:*:e2e` launchers)
+#   scripts/cloud/stack.sh up e2e --mail    the same, with the API in mail mode
+#                                           (`pnpm dev:api:e2e:mail`): its email goes to the
+#                                           local Mailpit, for `pnpm test:e2e:mail` only
 #   scripts/cloud/stack.sh up dev           the development stack on the dev database; no FMP key,
 #                                           no Stripe, mail to the local Mailpit
 #   scripts/cloud/stack.sh up dev --stripe  the same, with the cloud Stripe sandbox configured for
@@ -37,7 +40,7 @@ ROLES_DOWN="web worker stripe api fmp"
 STRIPE_WEBHOOK_EVENTS="checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.pending_update_applied,customer.subscription.pending_update_expired,invoice.paid,invoice.payment_failed,subscription_schedule.updated,subscription_schedule.released,subscription_schedule.aborted"
 
 usage() {
-  sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -192,9 +195,10 @@ stack_up() {
     e2e | dev) ;;
     *) usage ;;
   esac
-  if [ -n "$option" ] && { [ "$kind" != "dev" ] || [ "$option" != "--stripe" ]; }; then
-    usage
-  fi
+  case "$kind:$option" in
+    e2e: | e2e:--mail | dev: | dev:--stripe) ;;
+    *) usage ;;
+  esac
 
   cloud_use_toolchain
   cloud_assert_safe || exit 1
@@ -219,14 +223,27 @@ stack_up() {
     exit 1
   }
 
-  echo "$kind" >"$STACK_DIR/kind"
+  echo "$kind${option:+ $option}" >"$STACK_DIR/kind"
   cd "$CLOUD_REPO_ROOT" || exit 1
 
   if [ "$kind" = "e2e" ]; then
-    say "starting the hermetic E2E stack (test database, fixture FMP, no external provider)"
+    local api_script="dev:api:e2e" next="pnpm test:personas:seed && pnpm test:e2e"
+    if [ "$option" = "--mail" ]; then
+      # Mail mode delivers to the session's Mailpit and nowhere else; without it the suite would
+      # only wait out its timeouts.
+      cloud_port_open "$CLOUD_MAILPIT_SMTP_PORT" || {
+        say "Mailpit is not running; start a new session or run scripts/cloud/session-start.sh"
+        exit 1
+      }
+      api_script="dev:api:e2e:mail"
+      next="pnpm test:e2e:mail"
+      say "starting the hermetic E2E stack in mail mode (test database, fixture FMP, email to the local Mailpit only)"
+    else
+      say "starting the hermetic E2E stack (test database, fixture FMP, no external provider)"
+    fi
     start_role fmp pnpm dev:fmp:e2e &&
       wait_role fmp 300 http_ok "http://127.0.0.1:$FAKE_FMP_PORT/__e2e/health" &&
-      start_role api pnpm dev:api:e2e &&
+      start_role api pnpm "$api_script" &&
       wait_role api 600 http_ok "http://127.0.0.1:3001/health/ready" &&
       start_role worker pnpm dev:worker:e2e &&
       wait_role worker 300 sleep_then_alive worker &&
@@ -235,7 +252,7 @@ stack_up() {
       stack_down
       exit 1
     }
-    say "ready. Next: pnpm test:personas:seed && pnpm test:e2e   (then: scripts/cloud/stack.sh down)"
+    say "ready. Next: $next   (then: scripts/cloud/stack.sh down)"
     return 0
   fi
 

@@ -56,8 +56,8 @@ async function main(): Promise<void> {
     }
     if (result.refused.length > 0) {
       console.error(
-        "[e2e-accounts] A disposable E2E address is in a state registration cannot produce. It " +
-          "was left untouched for investigation — if it holds a role or plan, registration " +
+        "[e2e-accounts] A disposable E2E address is in a state its own spec cannot leave behind. " +
+          "It was left untouched for investigation — if it holds a role or plan, registration " +
           "honoured a forged claim.",
       );
       process.exitCode = 1;

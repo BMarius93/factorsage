@@ -14,9 +14,10 @@ function newPasswordField(page: Page) {
 /**
  * Anonymous password recovery, end to end through the real API.
  *
- * The one thing a browser suite cannot do is read the inbox, so the redeemable half of the flow
- * is covered by `apps/api/src/auth/password-reset.integration.test.ts`, which reads the token out
- * of the captured message. What is proven here is what a person actually sees: the route from
+ * The ordinary suite runs with email switched off, so the redeemable half of the flow — a real
+ * emailed link — is covered by the email lifecycle suite (`email-lifecycle.mail.spec.ts`, `pnpm
+ * test:e2e:mail`) and by `apps/api/src/auth/password-reset.integration.test.ts`, which reads the
+ * token out of the captured message. What is proven here is what a person actually sees: the route from
  * sign-in, the neutral response that refuses to confirm whether an address has an account, and
  * the two ways a link can be unusable.
  */
