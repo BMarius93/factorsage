@@ -362,6 +362,14 @@ evaluator physically cannot read an ungated value.
   `qa:personas`, against the development database. `docs/development/qa-personas.md` is the runbook.
   Those personas stay empty of product content on purpose; do not seed lists, strategies, monitors
   or backtests into them.
+- Billing QA personas (`BILLING_*`, `packages/testing/src/billing-personas.ts`) are a separate set
+  with a separate purpose: accounts whose subscription really exists in Stripe test mode and whose
+  mirror and plan were produced by `BillingReconciliationService`. `pnpm qa:billing:seed` /
+  `status` / `cleanup` own them; `docs/development/billing-qa-personas.md` is the runbook. Do not
+  turn an entitlement persona into a Stripe-backed one, and do not write a `BillingSubscription`
+  row or a paid `User.plan` for a billing persona — its tooling writes the account and its
+  `stripeCustomerId` link only, and a test reads the source to keep it that way. The tooling is
+  test-mode only and may delete nothing in Stripe but the Test Clocks it created.
 - Never commit credentials, session cookies, tokens, Playwright storage state, or the `.qa/`
   browser profiles.
 

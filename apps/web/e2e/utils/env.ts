@@ -53,6 +53,11 @@ function read(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+/** One variable from the environment or the repository-root `.env`, or `undefined` when unset. */
+export function e2eEnv(name: string): string | undefined {
+  return read(name);
+}
+
 /** The already-running stack under test; Playwright never starts one of its own. */
 export function e2eBaseUrl(): string {
   return read("E2E_BASE_URL") ?? "http://localhost:3000";

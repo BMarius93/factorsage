@@ -46,7 +46,10 @@ Four properties hold that together.
 3. **One Stripe adapter.** `apps/api/src/billing/stripe.gateway.ts` is the only file in the
    repository that imports `stripe`. Everything else speaks the FactorSage types in
    `stripe-gateway.ts`, which is what lets the deterministic suites swap in a fake and what keeps
-   Stripe objects out of entitlement and feature code.
+   Stripe objects out of entitlement and feature code. The same file holds a second, separate
+   class, `StripeTestModeFixtureGateway`, for the billing QA personas (below): test-mode only, with
+   its own narrow interface (`stripe-fixture-gateway.ts`), and unreachable from anything the product
+   does. `billing-persona-boundary.test.ts` enforces the single import.
 4. **One direction.** Billing depends on the plan enum and nothing else from entitlements;
    entitlements depend on nothing from billing. `BillingModule` does not import
    `EntitlementsModule`. `packages/contracts/src/billing.entitlements-boundary.test.ts` enforces
@@ -568,6 +571,21 @@ Alternatively, without a clock: cancel a subscription immediately in the Dashboa
 (`customer.subscription.deleted` arrives at once) to verify the FREE transition, and release a
 schedule to verify the pending mirror clearing.
 
+### Billing QA personas — the same thing, scripted
+
+The clock recipe above is what `pnpm qa:billing:seed` automates. It builds five accounts whose
+subscriptions really exist in Stripe test mode — two active, one scheduled to cancel, one
+`past_due` after a renewal Stripe itself failed, one ended at its period boundary — each on its own
+Test Clock, and then hands them to `reconcileUser`. `pnpm qa:billing:status` inspects them and
+`pnpm qa:billing:cleanup` removes exactly the Test Clocks the tooling created.
+
+They are a separate set from the entitlement personas and share nothing with them: an entitlement
+persona's plan is seeded and has no Stripe object behind it, a billing persona's plan is whatever
+reconciliation made of Stripe. The tooling writes the account row and its `stripeCustomerId` link
+and nothing else — never the mirror, never the plan. `docs/development/billing-qa-personas.md` is
+the runbook: the personas, the existing behaviour they are held to, the ownership tags, the
+refusals, and the exact commands for a Claude cloud session.
+
 ## Reconciliation and repair
 
 Webhooks are the normal path; this is the deterministic repair seam. It calls the **same**
@@ -817,10 +835,14 @@ and reuses the billing page's parts rather than copying them:
 | `apps/api/src/billing/billing.integration.test.ts` | HTTP → Nest → PostgreSQL with Stripe faked at the gateway: the twenty lifecycle acceptance cases, checkout allowlisting, customer reuse under concurrency, the one-subscription invariant, reconciliation/repair, and the webhook robustness list (duplicate, concurrent, stale, crash, unknown customer, unknown price, environment mismatch). |
 | `apps/api/src/billing/billing.sandbox.smoke.test.ts` | The real Stripe contract. Opt-in via `STRIPE_SANDBOX_SMOKE=true`, excluded from `pnpm test`, and refuses to run against a live key. |
 | `apps/api/src/billing/stripe-cancellation.test.ts` | That a scheduled cancellation is recognised in **both** of Stripe's representations. |
+| `apps/api/src/billing/catalog-verification.test.ts` | The catalog check behind `pnpm billing:verify-catalog`, which the billing persona seed also runs before creating anything. |
+| `apps/api/src/billing-personas/*.test.ts` | The billing QA persona tooling, offline: the registry against the status policy, the Stripe ownership and cleanup-refusal rules, every environment refusal, the source-level boundaries (no mirror or plan write, one SDK importer, no catalog mutation), and — on real PostgreSQL with the real reconciler and a fake Stripe — each persona end to end, convergence, recovery from an interrupted run, and cleanup. |
+| `apps/api/src/billing-personas/billing-personas.sandbox.test.ts` | The same personas against **real Stripe test mode**. Opt-in via `STRIPE_BILLING_PERSONAS=true`, excluded from `pnpm test`, and refuses anything but a test key and the local test database. |
 | `apps/web/src/features/billing/components/BillingPage.test.tsx` | What the page shows and refuses to show — three plan cards and never one per price, the cadence toggle re-pricing in place and carrying through to the price key the button sends, that `?checkout=success` grants nothing, that the return notice confirms only once the persisted plan is paid (and says "still confirming" when the settle window expires unconfirmed), and that an ended subscription is not a current price, so a lapsed customer can buy back the plan they left (UI-037, UI-046). |
 | `apps/web/src/features/billing/utils/plan-presentation.test.ts` | That every capacity on a card is read from `PLAN_ENTITLEMENTS` and every amount from `BILLING_CATALOG`, so the pricing page cannot drift from the matrix. |
 | `apps/web/src/features/billing/components/PricingPage.test.tsx` | The public page: a Guest sees the catalog, calls no billing endpoint and gets the prompt with `next=/pricing` from every card; a signed-in viewer gets `/billing`'s Checkout and change calls and honest loading/error/unconfigured states; and `/pricing` and `/billing` render identical prices, notes and limits in both cadences. `PricingPage.invalid-catalog.test.tsx` proves a missing catalog entry fails into the error boundary rather than rendering a price. |
 | `apps/web/src/features/billing/utils/plan-actions.test.ts` | What each card's button offers per billing state: upgrade/downgrade/switch labels from the shared classifier, Free only ever through Portal, and no action claimed for an unpaid or already-scheduled change. |
+| `apps/web/e2e/billing-personas/` | The billing page for each real subscription state, read on the hermetic stack (`pnpm test:e2e:billing:personas`; never part of `pnpm test:e2e`). |
 | `apps/web/e2e/billing/*.spec.ts` | The browser half, per persona: FREE sees the catalog, crafted requests are refused, returning from Checkout grants nothing, a paid-tier persona works with no Stripe subscription at all, and a guest is refused everywhere. `pricing.guest.spec.ts` / `pricing.free.spec.ts` cover `/pricing`: no redirect, no billing request and no external request for a Guest, the prompt and the return through sign-in, 1280/390 px layout, and (with status and Checkout stubbed in the browser) the signed-in Checkout call. |
 
 `FakeStripeGateway` (`stripe-gateway.test-helper.ts`) models Stripe's observable behaviour — statuses,

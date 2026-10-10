@@ -16,6 +16,7 @@
     "e2e:headed": "playwright test --headed",
     "e2e:report": "playwright show-report",
     "e2e:billing": "playwright test e2e/billing",
+    "e2e:billing:personas": "playwright test -c playwright.billing-personas.config.ts",
     "qa:personas": "tsx qa/personas.ts"
   },
   "dependencies": {

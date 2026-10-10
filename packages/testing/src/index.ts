@@ -1,5 +1,6 @@
 export const TESTING_PACKAGE_NAME = "@intrinsic/testing" as const;
 
+export * from "./billing-personas.js";
 export * from "./e2e-accounts.js";
 export * from "./e2e-stack.js";
 export * from "./legal-acceptance.js";

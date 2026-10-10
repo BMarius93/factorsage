@@ -57,6 +57,11 @@ and re-asserts the declared plan, but the next billing reconciliation is authori
 the plan again. `pnpm qa:reset` never writes billing state, because `BillingReconciliationService`
 is its only writer.
 
+For accounts whose plan really **does** come from Stripe — a paid subscription, a scheduled
+cancellation, a failed renewal, an ended one — use the separate billing QA personas
+(`docs/development/billing-qa-personas.md`, `pnpm qa:billing:seed`). They are a different set of
+accounts with their own tooling; these four stay exactly as described here.
+
 ## 3. Setup
 
 **Prerequisites**

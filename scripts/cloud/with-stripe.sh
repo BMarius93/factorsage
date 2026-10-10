@@ -5,6 +5,8 @@
 #   scripts/cloud/with-stripe.sh pnpm billing:verify-catalog
 #   scripts/cloud/with-stripe.sh pnpm billing:reconcile -- --user qa-pro@factorsage.test --dry-run
 #   STRIPE_SANDBOX_SMOKE=true scripts/cloud/with-stripe.sh pnpm test:billing:sandbox
+#   scripts/cloud/with-stripe.sh pnpm qa:billing:seed -- --database test
+#   STRIPE_BILLING_PERSONAS=true scripts/cloud/with-stripe.sh pnpm test:billing:personas
 #   scripts/cloud/with-stripe.sh stripe customers list --limit 3
 #
 # The Claude environment holds the sandbox under SANDBOX_STRIPE_*, which the application does not
@@ -26,13 +28,18 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-# STRIPE_SANDBOX_SMOKE is blanked for the session, so a value here was set on this command line:
-# keep it through the guard, which would otherwise neutralize the opt-in this wrapper exists for.
+# STRIPE_SANDBOX_SMOKE and STRIPE_BILLING_PERSONAS are blanked for the session, so a value here
+# was set on this command line: keep it through the guard, which would otherwise neutralize the
+# opt-ins this wrapper exists for.
 smoke="${STRIPE_SANDBOX_SMOKE:-}"
+personas="${STRIPE_BILLING_PERSONAS:-}"
 cloud_use_toolchain
 cloud_assert_safe
 cloud_export_stripe_runtime
 if [ -n "$smoke" ]; then
   export STRIPE_SANDBOX_SMOKE="$smoke"
+fi
+if [ -n "$personas" ]; then
+  export STRIPE_BILLING_PERSONAS="$personas"
 fi
 exec "$@"
