@@ -93,3 +93,48 @@ export function assertLiveFmpCredentials(
     );
   }
 }
+
+/**
+ * The guarded live hydration run (`pnpm fmp:live`, `docs/development/fmp-live-hydration.md`).
+ *
+ * Separate from the suite gate above on purpose: authorizing a test suite must never authorize a
+ * hydration run, and the reverse. The names live here, beside the other live-FMP gate, because the
+ * hermetic E2E stack and the web dev server both have to withhold them and neither may depend on
+ * application code.
+ */
+
+/**
+ * The only variable a live-run credential is ever held under.
+ *
+ * Deliberately **not** `FMP_API_KEY`, which is the name the application reads: a process that
+ * inherits this one cannot reach the provider with it, because nothing but the live launcher looks
+ * at it, and the launcher looks at it only after the opt-in and the argument checks have passed.
+ */
+export const LIVE_FMP_API_KEY_ENV = "LIVE_FMP_API_KEY";
+
+/** Environment variable that is the sole opt-in for a guarded live hydration run. */
+export const LIVE_FMP_HYDRATION_OPT_IN_ENV = "RUN_LIVE_FMP_HYDRATION";
+
+/** The only value of `RUN_LIVE_FMP_HYDRATION` that authorizes a run. */
+export const LIVE_FMP_HYDRATION_OPT_IN_VALUE = "1";
+
+/**
+ * Every variable that belongs to a live run and to nothing else. A process boundary that builds
+ * a child's environment blanks or withholds all of them.
+ */
+export const LIVE_FMP_RUN_VARIABLES: readonly string[] = [
+  LIVE_FMP_API_KEY_ENV,
+  LIVE_FMP_HYDRATION_OPT_IN_ENV,
+];
+
+/**
+ * Whether a live hydration run is authorized for this invocation.
+ *
+ * Exact, like {@link liveFmpTestsEnabled}: only the literal `"1"` opts in. A key being present
+ * authorizes nothing — this function does not look at one.
+ */
+export function liveFmpHydrationEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env[LIVE_FMP_HYDRATION_OPT_IN_ENV] === LIVE_FMP_HYDRATION_OPT_IN_VALUE;
+}

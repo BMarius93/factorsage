@@ -97,8 +97,12 @@ describe("shared FMP provider gate", () => {
     // history, or paging a decade of Form 4 filings for each of them is the job most likely to starve
     // a live Stock Details read, so all three go through the same Redis gate and spend the same
     // budget rather than opening a private lane beside it.
+    //
+    // The live hydration run (`pnpm fmp:live`) is here for the same reason, and it is the one
+    // entry whose client also carries a guard — see the last case in this suite.
     expect(files).toEqual([
       "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
+      "apps/api/src/fmp-live/fmp-live-runtime.ts",
       "apps/api/src/ingest-alternative-data.ts",
       "apps/api/src/resync-canonical-stock-data.ts",
       "apps/api/src/stocks/stocks.module.ts",
@@ -148,6 +152,23 @@ describe("shared FMP provider gate", () => {
         ).toBe(false);
       }
     }
+  });
+
+  it("restricts no client but the live hydration run's", () => {
+    // `FmpClient` takes an optional guard that refuses requests outside a security scope and
+    // beyond a request budget. It exists for the deliberate live run and for nothing else: a guard
+    // on a production client would refuse the catalog sync, a Monitor's quotes and every security
+    // nobody listed. So it is named in exactly one composition root, and that root still shares
+    // the gate like the rest (the cases above apply to it unchanged).
+    const guarded = files.filter((file) =>
+      /\bguard\b/.test(
+        readFileSync(join(REPO_ROOT, file), "utf8").replace(
+          /\/\*[\s\S]*?\*\/|\/\/.*$/gm,
+          "",
+        ),
+      ),
+    );
+    expect(guarded).toEqual(["apps/api/src/fmp-live/fmp-live-runtime.ts"]);
   });
 
   it("keeps the browser-facing logo proxy off the metered API", () => {

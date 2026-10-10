@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { BILLING_PERSONA_PASSWORD_ENV } from "./billing-personas.js";
+import { LIVE_FMP_RUN_VARIABLES } from "./live-fmp.js";
 import { TEST_PERSONA_LIST, personaCredentialEnvNames } from "./personas.js";
 
 /**
@@ -13,7 +14,8 @@ import { TEST_PERSONA_LIST, personaCredentialEnvNames } from "./personas.js";
  *
  * Deliberately free of workspace imports: the launcher runs before any package is built, and the
  * Playwright harness imports it through a dependency-free subpath exactly like `./personas`. The
- * two persona registries it reads are siblings in this package and equally dependency-free.
+ * two persona registries and the live-FMP names it reads are siblings in this package and equally
+ * dependency-free.
  *
  * `ai/workflows/auth-testing.md` §7 is the runbook this implements.
  */
@@ -232,6 +234,19 @@ const TEST_CREDENTIAL_BLANKS: Readonly<Record<string, string>> =
   Object.fromEntries(E2E_TEST_CREDENTIAL_VARIABLES.map((name) => [name, ""]));
 
 /**
+ * The live-FMP run's own variables, blanked for every role.
+ *
+ * Nothing in the stack reads them — the live credential is held under a name the application does
+ * not look at, and only `pnpm fmp:live` maps it — so this changes no behaviour. It makes "no stack
+ * process holds a live provider credential" true of the process itself rather than of what the
+ * process happens to read, for the same reason the test passwords are blanked: in a Claude cloud
+ * session every configured variable is ambient in the shell that starts the stack.
+ */
+const LIVE_FMP_BLANKS: Readonly<Record<string, string>> = Object.fromEntries(
+  LIVE_FMP_RUN_VARIABLES.map((name) => [name, ""]),
+);
+
+/**
  * Every provider credential and endpoint an E2E process could use, replaced.
  *
  * Empty groups switch the optional integrations off the way `.env.example` does (both are
@@ -317,6 +332,7 @@ export function e2eStackEnvironment(
     E2E_EGRESS_LOG: e2eEgressLogPath(input.repositoryRoot),
     NODE_OPTIONS: nodeOptions,
     ...TEST_CREDENTIAL_BLANKS,
+    ...LIVE_FMP_BLANKS,
     // pnpm and Next both phone home by default; on this stack that would be a blocked connection
     // the teardown then reports as an escape attempt.
     npm_config_update_notifier: "false",

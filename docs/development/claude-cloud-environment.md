@@ -36,13 +36,18 @@ The stacks you can run:
 | `scripts/cloud/stack.sh up dev`          | dev      | **none**                                              | none                                                              | Mailpit                                     |
 | `scripts/cloud/stack.sh up dev --stripe` | dev      | **none**                                              | cloud sandbox, webhooks through `stripe listen`                   | Mailpit                                     |
 
-**No live FMP access exists yet.** The runtime environment never holds an FMP key. The explicit
-`pnpm fmp:live -- <command>` wrapper and its request budget arrive with the FMP budget change; until
-then nothing reads `LIVE_FMP_API_KEY` and `financialmodelingprep.com` should stay off the network
-allowlist.
+**No stack ever holds an FMP key.** The runtime environment never has one under a name the
+application reads. Live provider data is reachable through exactly one command,
+`scripts/cloud/fmp-live.sh`, which hydrates the full supported history of **at most three
+securities** into the development database, inside a total request budget
+(`docs/development/fmp-live-hydration.md`). It is not a wrapper for other commands: it cannot start
+a stack, a worker or a test run with the provider configured. `financialmodelingprep.com` stays off
+the network allowlist except while that command is being used.
 
 The development database starts **empty** in every new session: no securities, no market data.
-Use the hermetic E2E stack for UI work; it seeds its own deterministic fixtures.
+Use the hermetic E2E stack for UI work; it seeds its own deterministic fixtures. To look at real
+data for a few securities, hydrate them with `scripts/cloud/fmp-live.sh` and then start
+`stack.sh up dev`, which reads what was stored and still has no provider key.
 
 ## 2. Configuring the Claude environment (once, by the owner)
 
@@ -103,7 +108,12 @@ Google's Docker Hub mirror (`mirror.gcr.io`, which has no anonymous pull limit) 
 itself. GitHub release assets are not used: the GitHub proxy serves them only for the repository
 attached to the session.
 
-Do **not** add `financialmodelingprep.com` until the live-FMP wrapper and its budget exist.
+`financialmodelingprep.com` is deliberately **not** on that list. Add it only immediately before
+using `scripts/cloud/fmp-live.sh`, and remove it afterwards. The allowlist is environment-level: a
+domain on it is reachable by every process in the VM, not by one command, so while it is there the
+network stops nothing and the boundary is the one `docs/development/fmp-live-hydration.md`
+describes — no key under a name the application reads, a per-command opt-in, a three-security
+scope, a request budget and the database guard.
 
 ### 2.3 Environment variables
 
@@ -161,14 +171,17 @@ BASH_MAX_TIMEOUT_MS=14400000
   fail while prerendering.
 - `BASH_MAX_TIMEOUT_MS` lets Claude give long commands (a full E2E run, the matrix) up to four hours.
 
-Secrets: `SANDBOX_STRIPE_SECRET_KEY` (test mode only). Low sensitivity, because they only protect
+Secrets: `SANDBOX_STRIPE_SECRET_KEY` (test mode only) and, only if live hydration is wanted,
+`LIVE_FMP_API_KEY` — a separate FMP key for the cloud if the plan allows one. Like the sandbox key
+it is held under a name the application does not read, so every ordinary command runs without a
+provider credential; `scripts/cloud/fmp-live.sh` is the only thing that uses it. Low sensitivity, because they only protect
 accounts and sessions inside a throwaway VM: `AUTH_JWT_SECRET` and the persona passwords — never
 reuse a real password. Everything else is not secret.
 
 **Never set** in this environment — the guard blanks or refuses each one:
 `NODE_ENV=production`, `CI`, `FMP_API_KEY`, `FMP_BASE_URL`, `STRIPE_SECRET_KEY`,
 `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*`, `STRIPE_API_KEY`, `RUN_LIVE_FMP_TESTS`,
-`STRIPE_SANDBOX_SMOKE`, `STRIPE_BILLING_PERSONAS`, `QA_PERSONA_ALLOW_REMOTE_HOST`,
+`RUN_LIVE_FMP_HYDRATION`, `STRIPE_SANDBOX_SMOKE`, `STRIPE_BILLING_PERSONAS`, `QA_PERSONA_ALLOW_REMOTE_HOST`,
 `QA_MATRIX_ALLOW_REMOTE_HOST`,
 `FACTORSAGE_RELEASE_BUILD`, and any database or Redis URL that is not `localhost`/`127.0.0.1`.
 Google sign-in stays off: leave the `GOOGLE_*` group unset.
@@ -302,22 +315,28 @@ pnpm db:migrate:deploy && pnpm db:test:prepare
   `4000 0000 0000 0341` attaches and fails on charge (`ai/architecture/billing.md`).
 - **Playwright artifacts** (`apps/web/test-results/`) can contain persona passwords in page
   snapshots: read the summary, then delete them. They are git-ignored.
-- **The QA matrix** needs real thirty-year history, which an empty cloud dev database does not
-  have. It becomes possible with the live-FMP wrapper; do not provision it before then.
+- **Live FMP hydration** (`docs/development/fmp-live-hydration.md`):
+  `RUN_LIVE_FMP_HYDRATION=1 scripts/cloud/fmp-live.sh --symbols AAPL,MSFT,NVDA --full-history`.
+  One to three securities, the opt-in on that command only, `--plan` to see what a run would ask
+  without asking. It needs `LIVE_FMP_API_KEY` in the environment and `financialmodelingprep.com`
+  on the allowlist for as long as it is used.
+- **The QA matrix** needs real thirty-year history for thirty-three securities, which an empty
+  cloud dev database does not have and live hydration, capped at three, does not provide. It is
+  still not possible in the cloud; do not provision it.
 - **Pull requests**: `gh pr create` works through the GitHub proxy. The proxy refuses tag pushes and
   branch deletion, so never push a branch you intend to delete.
 
 ## 5. Safety model
 
-| Threat                               | Stopped by                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Production or a remote database      | The guard refuses any database or Redis URL whose host is not loopback, `NODE_ENV=production` and a shared dev/test database, before anything is provisioned or started, and blanks the offending variable for the rest of the session so no hand-typed command can use it either; `pnpm qa:seed`/`qa:reset`, the test seeders, the matrix and `useTestDatabase` keep their own refusals |
-| Live Stripe                          | No live key may exist anywhere: the guard refuses `sk_live_`/`rk_live_` in any Stripe variable, `with-stripe.sh` accepts only `sk_test_`/`rk_test_`, and the application refuses a live key outside production                                                                                                                                                                           |
-| Ambient provider credentials         | `FMP_API_KEY`, `STRIPE_*`, `STRIPE_API_KEY` and the per-run opt-ins are blanked for the whole session; Stripe exists only inside `with-stripe.sh` and the API process of `stack.sh up dev --stripe`                                                                                                                                                                                      |
-| Live FMP                             | No FMP key in the runtime, FMP off the network allowlist, the hermetic stack's egress guard, and the `RUN_LIVE_FMP_TESTS` gate                                                                                                                                                                                                                                                           |
-| A webhook secret from somewhere else | Derived per session from `stripe listen --print-secret`; never stored in settings or on disk                                                                                                                                                                                                                                                                                             |
-| Secrets in the web build cache       | Every variable here is ambient in every shell, and `next dev` records its environment in `apps/web/.next/dev/cache`. It is therefore started only through `apps/web/dev-server/next-dev.ts`, with an allowlisted environment, in the `e2e` and `dev` stacks alike; the E2E launcher also blanks the persona passwords for the API and the worker                                         |
-| Leaking values                       | No script prints a variable's value; the Stripe listener's log is redacted                                                                                                                                                                                                                                                                                                               |
+| Threat                               | Stopped by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production or a remote database      | The guard refuses any database or Redis URL whose host is not loopback, `NODE_ENV=production` and a shared dev/test database, before anything is provisioned or started, and blanks the offending variable for the rest of the session so no hand-typed command can use it either; `pnpm qa:seed`/`qa:reset`, the test seeders, the matrix and `useTestDatabase` keep their own refusals                                                                                                                                                        |
+| Live Stripe                          | No live key may exist anywhere: the guard refuses `sk_live_`/`rk_live_` in any Stripe variable, `with-stripe.sh` accepts only `sk_test_`/`rk_test_`, and the application refuses a live key outside production                                                                                                                                                                                                                                                                                                                                  |
+| Ambient provider credentials         | `FMP_API_KEY`, `STRIPE_*`, `STRIPE_API_KEY` and the per-run opt-ins are blanked for the whole session; Stripe exists only inside `with-stripe.sh` and the API process of `stack.sh up dev --stripe`                                                                                                                                                                                                                                                                                                                                             |
+| Live FMP                             | No FMP key under a name the application reads; `LIVE_FMP_API_KEY` is used by one command only, after a per-command opt-in, for at most three securities, inside a request budget, with every other request refused at the client (`fmp-live-hydration.md`); the session guard blanks `FMP_API_KEY`, `FMP_BASE_URL` and both live opt-ins; `stack.sh` unsets the key and the hermetic launcher blanks it; the hermetic stack's egress guard; the `RUN_LIVE_FMP_TESTS` gate. FMP stays off the network allowlist except while the command is used |
+| A webhook secret from somewhere else | Derived per session from `stripe listen --print-secret`; never stored in settings or on disk                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Secrets in the web build cache       | Every variable here is ambient in every shell, and `next dev` records its environment in `apps/web/.next/dev/cache`. It is therefore started only through `apps/web/dev-server/next-dev.ts`, with an allowlisted environment, in the `e2e` and `dev` stacks alike; the E2E launcher also blanks the persona passwords for the API and the worker                                                                                                                                                                                                |
+| Leaking values                       | No script prints a variable's value; the Stripe listener's log is redacted                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 The scripts create and migrate local databases; they never drop, truncate or reset anything, and
 they never touch an external system except to download pinned tools.

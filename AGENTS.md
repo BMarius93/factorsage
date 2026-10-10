@@ -103,7 +103,8 @@ Read `ai/README.md` before substantial work.
     through it and nothing degrades to PostgreSQL-only when it is down — but its **contents are
     disposable**: everything in it is a projection of PostgreSQL or transient coordination, keyed
     by security/series id under `stock-data:v2:*` (cache chunks, manifests, the resident LRU, the
-    FMP gate), `stock-data:load:*` (Redlock hydration locks) and `benchmark:v1:*`, never by user.
+    FMP gate and, beside it, a live hydration run's request counter), `stock-data:load:*` (Redlock
+    hydration locks) and `benchmark:v1:*`, never by user.
     Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
     holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
@@ -385,8 +386,32 @@ evaluator physically cannot read an ungated value.
   the SessionStart hook in `.claude/settings.json`); `docs/development/claude-cloud-environment.md`
   is the runbook. Start application stacks there with `scripts/cloud/stack.sh`, not by hand.
 - Provider credentials are never ambient in a cloud session: Stripe is reachable only through
-  `scripts/cloud/with-stripe.sh` or `stack.sh up dev --stripe`, in sandbox mode, and there is no live
-  FMP access. Do not export `FMP_API_KEY`, `STRIPE_*` or the per-run opt-ins for a whole session.
+  `scripts/cloud/with-stripe.sh` or `stack.sh up dev --stripe`, in sandbox mode, and FMP only
+  through `scripts/cloud/fmp-live.sh`, which runs the guarded live hydration and nothing else. Do
+  not export `FMP_API_KEY`, `STRIPE_*` or the per-run opt-ins for a whole session.
+
+## Live FMP hydration
+
+- `pnpm fmp:live` (`docs/development/fmp-live-hydration.md`) is the guarded live hydration, and in
+  a cloud session the only way real provider data is reached: the full supported history of **at
+  most three securities**, into a local development database, through the canonical loaders,
+  inside a total request budget. It needs `RUN_LIVE_FMP_HYDRATION=1` on that command and reads its
+  key from `LIVE_FMP_API_KEY` only. A key being present authorizes nothing, and `FMP_API_KEY` is
+  never a fallback.
+- The limits live at the provider boundary, not in the command line. `FmpClient` takes an optional
+  **guard** (`packages/fmp/src/request-guard.ts`) asked before every request: the live run's guard
+  refuses anything that is not about one approved, catalog-resolved security, and anything beyond
+  the budget. Do not pass a guard in any other composition root, do not give the scope a way to add
+  a security, and do not raise `LIVE_FMP_MAX_SECURITIES` or the budget bounds without the owner.
+- It is orchestration only. Do not add loading logic, a database write or a new provider dataset
+  to `apps/api/src/fmp-live/`, and do not compose a benchmark loader, a trading calendar, quotes,
+  the exchange-wide catalog sync or a worker into it — those are the paths that widen the symbol
+  universe. A symbol the catalog lacks is admitted by `CanonicalSecurityCatalogService` fed that
+  symbol's own profile, never by the screener and never by a direct insert.
+- The run's child process is started with an allowlisted environment and does not load `.env`. Do
+  not hand it the launcher's `process.env`, and do not make another process read
+  `LIVE_FMP_API_KEY`. Never commit, log or copy provider payloads: the report prints names, counts
+  and dates only.
 
 ## Validation
 
