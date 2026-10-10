@@ -4,6 +4,7 @@ import {
   assertReleaseBuildConfig,
   isReleaseBuild,
 } from "./src/lib/release-build";
+import { webRequestLoggingConfig } from "./src/lib/request-logging";
 import { webRedirectRules } from "./src/lib/route-redirects";
 import { webHeaderRules } from "./src/lib/security-headers";
 
@@ -20,6 +21,10 @@ export default function nextConfig(phase: string): NextConfig {
   return {
     reactStrictMode: true,
     poweredByHeader: false,
+    // `next dev` logs every request URL, query string included. The emailed activation and reset
+    // links carry a one-time token there, so those two routes are kept out of the log; every
+    // other request is logged as before. See `src/lib/request-logging.ts`.
+    logging: webRequestLoggingConfig(),
     async headers() {
       return webHeaderRules({ hsts });
     },

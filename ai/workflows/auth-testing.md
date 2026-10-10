@@ -623,6 +623,9 @@ pnpm test:e2e:mail      # needs no persona seed; in a cloud session: scripts/clo
   navigates. Tokens are never printed: errors carry `…?token=[redacted]`. Nor are they persisted:
   `playwright.mail.config.ts` uses the console reporter only — no HTML report, which would record
   every navigated URL — and turns tracing off; failure screenshots and videos show only the viewport.
+  The web server's own log does not carry them either: `next dev` leaves `/verify-email` and
+  `/reset-password` out of its request log (`apps/web/src/lib/request-logging.ts`), in every
+  mode and outside E2E too.
 - **Cleanup.** Each test deletes its own messages; the mail setup and teardown delete every
   message whose recipients are all `authmail` disposable addresses — and nothing else — and the
   teardown fails if any remain. Mailpit's `DELETE /api/v1/messages` without IDs deletes the whole
