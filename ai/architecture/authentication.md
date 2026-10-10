@@ -777,6 +777,14 @@ allowed or refused without re-deriving it. Correlation uses the internal `actorU
 established; email is not used as a correlation key. Tokens, passwords, cookies, JWTs, SMTP
 credentials, Google secrets, reset tokens, and reset-token hashes are never logged.
 
+The web app holds to the same rule for the one place it could break it. `next dev` logs every
+request URL with its query string, and `/verify-email?token=…` and `/reset-password?token=…` carry
+the one-time token there, so `next.config.ts` excludes exactly those two routes through Next.js's
+`logging.incomingRequests.ignore` (`apps/web/src/lib/request-logging.ts`). Every other request is
+logged as before, and `next start` logs no requests at all. A new page that receives a credential
+in its URL must be added to that list; `request-logging.test.ts` fails for one that reads a
+`token` parameter and is not on it.
+
 ## Bootstrap admin and QA personas
 
 `pnpm db:seed` requires `ADMIN_EMAIL` and `ADMIN_PASSWORD`. It normalizes the email, hashes the
