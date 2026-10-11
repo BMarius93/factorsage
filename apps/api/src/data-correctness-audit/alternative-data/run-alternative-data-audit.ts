@@ -1,11 +1,19 @@
+import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import type { PrismaClient } from "@intrinsic/database";
 import {
   alternativeDataMeasureDefinition,
   type AlternativeDataMetric,
+  type CongressChamberFilter,
+  type CongressMeasure,
 } from "@intrinsic/contracts";
 import {
+  CanonicalAlternativeDataService,
+  PrismaAlternativeDataStore,
+} from "@intrinsic/stock-data";
+import {
   alternativeDataColumnRequest,
+  alternativeDataOperand,
   buildAlternativeDataColumn,
   type AlternativeDataObservation,
 } from "@intrinsic/strategy";
@@ -42,6 +50,14 @@ import {
  *    required to be the first session at or after publication + 1 day, and the session before that
  *    is required not to count it. That is asserted against the engine's own column, so it is a
  *    statement about what a backtest would have seen rather than about what a query returns.
+ *
+ * 4. **A rule scoped to selected members.** The battery above counts every member, so on its own it
+ *    says nothing about the filter a selection applies. For each security the audit therefore picks
+ *    the members who disclosed most in it and checks two more things: that the engine's column over
+ *    *their* disclosures equals the oracle's, exactly as in 2 and 3; and that the product's own read
+ *    — `PrismaAlternativeDataStore` with its `actorId IN (…)` filter, and the loader resolving a
+ *    legacy group to the same members — returns precisely the rows the oracle selected by walking
+ *    every persisted row itself. A scope that leaked a member, or dropped one, fails here.
  */
 
 export type AuditedSecurity = { securityId: string; symbol: string };
@@ -199,6 +215,84 @@ export const AUDIT_ALTERNATIVE_DATA_METRICS: readonly {
   },
 ];
 
+/**
+ * The scoped battery: a rule narrowed to the members who disclosed most in the security under audit.
+ *
+ * Templates rather than metrics, because a scope names this product's own actor ids and which
+ * members traded a security is a fact about that security — the selection is resolved per security
+ * from its persisted rows, most disclosures first and by id on a tie, so a re-run selects the same
+ * members. Three members exercise the pooling of several; one exercises the single-member rule; the
+ * Senate variant exercises a selection composed with a chamber filter.
+ */
+const AUDIT_SCOPED_CONGRESS_METRICS: readonly {
+  label: string;
+  measure: CongressMeasure;
+  lookback: AlternativeDataMetric["lookback"];
+  chamber: CongressChamberFilter;
+  members: number;
+}[] = [
+  {
+    label: "congress-purchases-30-selected-3",
+    measure: "PURCHASES",
+    lookback: 30,
+    chamber: "ANY",
+    members: 3,
+  },
+  {
+    label: "congress-sales-30-selected-1",
+    measure: "SALES",
+    lookback: 30,
+    chamber: "ANY",
+    members: 1,
+  },
+  {
+    label: "congress-buyers-90-selected-3",
+    measure: "BUYERS",
+    lookback: 90,
+    chamber: "ANY",
+    members: 3,
+  },
+  {
+    label: "congress-min-purchase-value-90-selected-3",
+    measure: "MINIMUM_PURCHASE_VALUE",
+    lookback: 90,
+    chamber: "ANY",
+    members: 3,
+  },
+  {
+    label: "congress-purchases-30-selected-3-senate",
+    measure: "PURCHASES",
+    lookback: 30,
+    chamber: "SENATE",
+    members: 3,
+  },
+];
+
+/** One battery entry as the loop runs it: a configured metric, and for a scoped one its members. */
+type AuditedMetric = {
+  label: string;
+  metric: AlternativeDataMetric;
+  /**
+   * The members a scoped entry selects, held beside the metric so the oracle's row selection reads
+   * them from the audit's own list and never through the product's scope handling.
+   */
+  selectedActorIds?: readonly string[];
+};
+
+/** A selection of rows as one comparable string: how many, and a digest of exactly which. */
+function selectionDigest(
+  rows: readonly {
+    availableFrom: string;
+    actorKey: string;
+    amount: number | null;
+  }[],
+): string {
+  const keys = rows
+    .map((row) => `${row.availableFrom}|${row.actorKey}|${row.amount ?? ""}`)
+    .sort();
+  return `${keys.length} row(s) ${createHash("sha256").update(keys.join("\n")).digest("hex").slice(0, 16)}`;
+}
+
 export type AlternativeDataSectionResult = {
   ledger: ComparisonLedger;
   rows: { insider: number; congress: number };
@@ -239,6 +333,16 @@ export type AlternativeDataSectionResult = {
     string,
     { insider: string | null; congress: string | null }
   >;
+  /**
+   * The scoped battery's reach: how many securities had a member to select, how many store and
+   * loader selections were compared with the oracle's, and how many of those disagreed.
+   */
+  scoped: {
+    securities: number;
+    securitiesWithoutMembers: string[];
+    selectionsCompared: number;
+    selectionMismatches: number;
+  };
 };
 
 export async function runAlternativeDataSection(input: {
@@ -257,6 +361,27 @@ export async function runAlternativeDataSection(input: {
   let lastPlaceRoundings = 0;
   let filedBeforeTransaction = 0;
   let observableSessionViolations = 0;
+  const scoped: AlternativeDataSectionResult["scoped"] = {
+    securities: 0,
+    securitiesWithoutMembers: [],
+    selectionsCompared: 0,
+    selectionMismatches: 0,
+  };
+  // The product's own read path, for the scoped battery. The provider is never asked: a selection
+  // is read from what is persisted, and an audit that reached the provider would not be an audit.
+  const store = new PrismaAlternativeDataStore(prisma);
+  const loader = new CanonicalAlternativeDataService(
+    store,
+    {
+      async getInsiderTrades() {
+        throw new Error("The audit must not reach the provider");
+      },
+      async getCongressTrades() {
+        throw new Error("The audit must not reach the provider");
+      },
+    },
+    { freshnessMs: Number.MAX_SAFE_INTEGER, maxPagesPerIngest: 1 },
+  );
 
   for (const security of input.securities) {
     const sessions = (
@@ -464,9 +589,56 @@ export async function runAlternativeDataSection(input: {
       congress: congressCoverage ? congressCoverage.from : null,
     };
 
+    // -- 4. the scoped battery's members, chosen from this security's own persisted rows ----------
+    const disclosuresByActor = new Map<string, number>();
+    for (const row of congress) {
+      const kind = oracleCongressKind(String(row.raw["type"] ?? ""));
+      if (
+        oracleCongressEligible(row.assetClass) &&
+        (kind === "PURCHASE" || kind === "SALE")
+      ) {
+        disclosuresByActor.set(
+          row.actorId,
+          (disclosuresByActor.get(row.actorId) ?? 0) + 1,
+        );
+      }
+    }
+    const rankedActors = [...disclosuresByActor.entries()]
+      .sort(
+        ([leftId, leftCount], [rightId, rightCount]) =>
+          rightCount - leftCount || (leftId < rightId ? -1 : 1),
+      )
+      .map(([actorId]) => actorId);
+    const scopedEntries: AuditedMetric[] =
+      rankedActors.length === 0
+        ? []
+        : AUDIT_SCOPED_CONGRESS_METRICS.map((template) => {
+            const selectedActorIds = rankedActors.slice(0, template.members);
+            return {
+              label: template.label,
+              selectedActorIds,
+              metric: {
+                kind: "CONGRESS_ACTIVITY",
+                measure: template.measure,
+                lookback: template.lookback,
+                scope: { kind: "ACTORS", actorIds: selectedActorIds },
+                chamber: template.chamber,
+              },
+            };
+          });
+    if (rankedActors.length === 0) {
+      scoped.securitiesWithoutMembers.push(security.symbol);
+    } else {
+      scoped.securities += 1;
+    }
+    const audited: readonly AuditedMetric[] = [
+      ...AUDIT_ALTERNATIVE_DATA_METRICS,
+      ...scopedEntries,
+    ];
+
     // -- 2 and 3. the engine's column against the reference, and the observable session ----------
     const perMetricSamples: Record<string, unknown>[] = [];
-    for (const entry of AUDIT_ALTERNATIVE_DATA_METRICS) {
+    for (const entry of audited) {
       const definition = alternativeDataMeasureDefinition(entry.metric);
       const isInsider = entry.metric.kind === "INSIDER_ACTIVITY";
       const cover = isInsider ? insiderCoverage : congressCoverage;
@@ -534,6 +706,14 @@ export async function runAlternativeDataSection(input: {
               if (owners && !(owners as readonly string[]).includes(row.owner)) {
                 return false;
               }
+              // A scoped entry counts its own members and nobody else. Read from the audit's list,
+              // not from the metric's scope, so this selection shares nothing with the product's.
+              if (
+                entry.selectedActorIds &&
+                !entry.selectedActorIds.includes(row.actorId)
+              ) {
+                return false;
+              }
               return true;
             })
             .map((row) => ({
@@ -544,6 +724,83 @@ export async function runAlternativeDataSection(input: {
                   ? null
                   : Number(row.amountLowerBound),
             }));
+
+      // The product's read for the same rule, against the rows the oracle just selected by hand.
+      // Two paths reach those rows in production and both are held to it: the store's own
+      // `actorId IN (…)` filter, which a selection uses directly, and the loader resolving a legacy
+      // group scope to the same members, which is how a group-scoped rule arrives at that filter.
+      if (entry.selectedActorIds && entry.metric.kind === "CONGRESS_ACTIVITY") {
+        const expectedSelection = selectionDigest(selected);
+        const fromStore = await store.getCongressObservations({
+          securityId: security.securityId,
+          from: "0001-01-01",
+          to: "9999-12-31",
+          kind:
+            definition.filter === "CONGRESS_PURCHASE" ? "PURCHASE" : "SALE",
+          actorIds: entry.selectedActorIds,
+          ...(entry.metric.chamber === "ANY"
+            ? {}
+            : { chamber: entry.metric.chamber }),
+        });
+        const groupMetric: AlternativeDataMetric = {
+          ...entry.metric,
+          scope: { kind: "GROUP", groupId: "audit-selected-members" },
+        };
+        const groupKey = alternativeDataOperand(groupMetric);
+        const fromGroup = (
+          await loader.loadFacts({
+            security: {
+              id: security.securityId,
+              symbol: security.symbol,
+              name: security.symbol,
+              exchangeCode: "",
+              currency: "USD",
+              type: "STOCK",
+              isAdr: false,
+              isActivelyTrading: true,
+            },
+            operands: [groupKey],
+            from: "0001-01-01",
+            to: "9999-12-31",
+            resolveGroupMembers: async () => entry.selectedActorIds ?? [],
+          })
+        ).get(groupKey);
+        for (const [path, actualSelection] of [
+          [
+            "store selection",
+            selectionDigest(
+              fromStore.map((row) => ({
+                availableFrom: row.availableFromDate,
+                actorKey: row.actorKey,
+                amount: row.amountLowerBound,
+              })),
+            ),
+          ],
+          [
+            "group-scope selection",
+            selectionDigest(
+              (fromGroup?.observations ?? []).map((row) => ({
+                availableFrom: row.observableFrom,
+                actorKey: row.actorKey,
+                amount: row.amount ?? null,
+              })),
+            ),
+          ],
+        ] as const) {
+          scoped.selectionsCompared += 1;
+          if (
+            !ledger.check(
+              "alternative-data",
+              `${security.symbol} ${entry.label} ${path}`,
+              expectedSelection,
+              actualSelection,
+              "exact-text",
+            )
+          ) {
+            scoped.selectionMismatches += 1;
+          }
+        }
+      }
 
       const expected = oracleAlternativeDataColumn({
         dates: sessions,
@@ -705,12 +962,15 @@ export async function runAlternativeDataSection(input: {
         }
       }
 
-      if (perMetricSamples.length < AUDIT_ALTERNATIVE_DATA_METRICS.length) {
+      if (perMetricSamples.length < audited.length) {
         const firstValued = actual.findIndex(
           (value) => !Number.isNaN(value) && value > 0,
         );
         perMetricSamples.push({
           metric: entry.label,
+          ...(entry.selectedActorIds
+            ? { selectedMembers: entry.selectedActorIds.length }
+            : {}),
           observations: selected.length,
           coverageFrom: cover?.from ?? null,
           coverageTo: cover?.to ?? null,
@@ -745,6 +1005,7 @@ export async function runAlternativeDataSection(input: {
     observableSessionViolations,
     perMetric,
     coverage,
+    scoped,
   };
 }
 

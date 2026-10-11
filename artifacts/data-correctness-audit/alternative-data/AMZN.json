@@ -1,7 +1,7 @@
 {
   "symbol": "AMZN",
   "securityId": "5dda07a0-4cab-413c-9186-a6b5bf3ddd32",
-  "sessions": 7387,
+  "sessions": 7391,
   "insiderRows": 8361,
   "congressRows": 552,
   "insiderCoverage": {
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2016-05-24",
       "firstValue": 15001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 79,
+      "coverageFrom": "2014-04-16",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2017-07-11",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 35,
+      "coverageFrom": "2014-04-16",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2022-02-09",
+      "firstValue": 3
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 79,
+      "coverageFrom": "2014-04-16",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2017-07-11",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 79,
+      "coverageFrom": "2014-04-16",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2017-07-11",
+      "firstValue": 1001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 14,
+      "coverageFrom": "2014-04-16",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2017-07-11",
+      "firstValue": 1
     }
   ]
 }

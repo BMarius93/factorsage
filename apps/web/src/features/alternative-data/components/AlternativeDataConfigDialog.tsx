@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ACTOR_SCOPE_MAX_ACTORS,
   ALTERNATIVE_DATA_LOOKBACKS,
   CONGRESS_CHAMBER_FILTERS,
   CONGRESS_CHAMBER_FILTER_LABELS,
@@ -8,14 +9,15 @@ import {
   INSIDER_ROLE_LABELS,
   SELECTABLE_CONGRESS_OWNERS,
   SELECTABLE_INSIDER_ROLES,
+  actorScopeActorIds,
   alternativeDataLookbackLabel,
   alternativeDataMeasureDefinition,
   alternativeDataScope,
   alternativeDataSupportsScope,
+  canonicalActorIds,
   strategyMetricLabel,
-  type ActorGroupSummaryResponse,
+  type ActorCatalogState,
   type ActorScope,
-  type AlternativeDataActorResponse,
   type AlternativeDataLookback,
   type AlternativeDataMetric,
   type CongressChamberFilter,
@@ -25,9 +27,14 @@ import {
 import { useEffect, useState } from "react";
 import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
+import { Notice } from "../../../components/ui/Notice";
 import { Select } from "../../../components/ui/Select";
-import { fetchActorGroups } from "../api/alternative-data-api";
-import { ActorCombobox } from "./ActorCombobox";
+import {
+  fetchActorCatalogStatus,
+  fetchActorGroup,
+  resolveActors,
+} from "../api/alternative-data-api";
+import { ActorCombobox, type ActorSelection } from "./ActorCombobox";
 import styles from "./AlternativeDataConfigDialog.module.css";
 
 /**
@@ -64,12 +71,77 @@ function withoutKey<T extends object, K extends keyof T>(value: T, key: K): T {
   return rest;
 }
 
-/** A scope's three shapes, as the dialog's own radio choice. */
+/**
+ * Whose activity a rule counts, as the dialog's own choice: every member, or the ones selected here.
+ *
+ * Two choices for the two scope shapes the product writes (`SELECTABLE_ACTOR_SCOPE_KINDS`). The
+ * legacy single-member and group shapes are never offered: a rule that still holds one opens on
+ * "Selected members" with that member, or that group's members, already chosen.
+ */
 const SCOPE_CHOICES = [
-  { kind: "ANY", label: "Anyone" },
-  { kind: "ACTOR", label: "A specific one" },
-  { kind: "GROUP", label: "A group" },
+  { mode: "ANY", label: "Anyone" },
+  { mode: "SELECTED", label: "Selected members" },
 ] as const;
+
+type ScopeMode = (typeof SCOPE_CHOICES)[number]["mode"];
+
+/** Chips shown before the rest fold away, so a long selection does not push Apply off the dialog. */
+const VISIBLE_CHIPS = 12;
+
+/**
+ * What the picker says about how complete its list is, by what the API reports about the catalog.
+ *
+ * The list is complete in one case only: the catalog has been filled from the provider's member
+ * directory, which holds current and former members whether or not they have traded. Otherwise it
+ * holds just the members some loaded disclosure named, and the picker says so — and says whether
+ * the directory was never loaded or could not be — rather than letting an empty search read as
+ * "this member does not exist". `UNKNOWN` is the moment before the answer, or an answer that did
+ * not arrive: nothing is claimed either way.
+ *
+ * Being listed is an identity, never a trading record, which the synchronized wording states: a
+ * member who is found may still have disclosed nothing.
+ */
+const CATALOG_COPY: Record<
+  ActorCatalogState | "UNKNOWN",
+  { readonly emptyHint: string; readonly note: string }
+> = {
+  SYNCHRONIZED: {
+    emptyHint:
+      "No current or former member of Congress matches. Try the surname alone.",
+    note: "The list covers current and former members of Congress, whether or not they have traded.",
+  },
+  NOT_SYNCHRONIZED: {
+    emptyHint:
+      "The member directory has not been loaded yet, so only members with disclosures FactorSage has already loaded can be found. Try the surname alone.",
+    note: "The member directory has not been loaded yet: the list holds only the members who appear in the disclosures FactorSage has loaded so far, so it is not every member of Congress.",
+  },
+  SYNCHRONIZATION_FAILED: {
+    emptyHint:
+      "The member directory could not be loaded, so only members with disclosures FactorSage has already loaded can be found. Try the surname alone.",
+    note: "The member directory could not be loaded: the list holds only the members who appear in the disclosures FactorSage has loaded so far, so it is not every member of Congress.",
+  },
+  UNKNOWN: { emptyHint: "Try the surname alone.", note: "" },
+};
+
+/**
+ * A Congress group a rule saved before 2026-10-11 still names, and what became of reading it.
+ *
+ * `LOADING` while its members are being fetched; `LOADED` once they are the dialog's selection;
+ * `MISSING` when the group can no longer be read, which leaves the selection empty for the user to
+ * fill — never silently "everyone", and never silently "nobody".
+ */
+type LegacyGroup =
+  | { status: "LOADING" }
+  | { status: "LOADED"; name: string; memberCount: number }
+  | { status: "MISSING" };
+
+function byName(left: ActorSelection, right: ActorSelection): number {
+  return left.displayName < right.displayName
+    ? -1
+    : left.displayName > right.displayName
+      ? 1
+      : 0;
+}
 
 export function AlternativeDataConfigDialog({
   metric,
@@ -77,34 +149,125 @@ export function AlternativeDataConfigDialog({
   onApply,
 }: AlternativeDataConfigDialogProps) {
   const [draft, setDraft] = useState<AlternativeDataMetric>(metric);
-  const [groups, setGroups] = useState<readonly ActorGroupSummaryResponse[]>([]);
-  const [selectedActor, setSelectedActor] = useState<
-    AlternativeDataActorResponse[]
-  >([]);
-
-  const scope = alternativeDataScope(draft);
+  const savedScope = alternativeDataScope(metric);
   const supportsScope = alternativeDataSupportsScope(draft.kind);
 
+  const [scopeMode, setScopeMode] = useState<ScopeMode>(
+    savedScope === undefined || savedScope.kind === "ANY" ? "ANY" : "SELECTED",
+  );
+  // The members chosen in this dialog. Kept apart from the draft's scope so that switching to
+  // "Anyone" and back does not throw a carefully built selection away.
+  const [selected, setSelected] = useState<readonly ActorSelection[]>(() =>
+    savedScope === undefined
+      ? []
+      : (actorScopeActorIds(savedScope) ?? []).map((id) => ({
+          id,
+          displayName: "Loading…",
+          status: "LOADING" as const,
+        })),
+  );
+  const [legacyGroup, setLegacyGroup] = useState<LegacyGroup | null>(
+    savedScope?.kind === "GROUP" ? { status: "LOADING" } : null,
+  );
+
+  // The saved rule holds ids; the names behind them are asked for once, when the dialog opens. An id
+  // the catalog does not answer for is shown as unavailable rather than dropped, because dropping it
+  // would change what the rule counts without anyone having decided that.
+  const savedActorIds =
+    savedScope === undefined ? undefined : actorScopeActorIds(savedScope);
+  const savedActorKey = savedActorIds?.join(",") ?? "";
   useEffect(() => {
-    if (!supportsScope) {
+    if (savedActorKey === "") {
       return;
     }
     const controller = new AbortController();
-    fetchActorGroups({ signal: controller.signal })
-      .then(setGroups)
-      // A group list that cannot be loaded leaves the picker empty rather than breaking the dialog: the
-      // rest of the configuration is still editable, and the scope keeps whatever it already had.
+    const ids = savedActorKey.split(",");
+    resolveActors(ids, { signal: controller.signal })
+      .then((actors) => {
+        const names = new Map(actors.map((actor) => [actor.id, actor.displayName]));
+        setSelected((current) =>
+          current
+            .map((entry): ActorSelection => {
+              if (entry.status !== "LOADING") {
+                return entry;
+              }
+              const name = names.get(entry.id);
+              return name === undefined
+                ? {
+                    id: entry.id,
+                    displayName: "Unavailable member",
+                    status: "UNAVAILABLE",
+                  }
+                : { id: entry.id, displayName: name };
+            })
+            // Alphabetical once the names are known: the saved order is by id, which means nothing
+            // to a reader. Members added afterwards go in front of these.
+            .sort(byName),
+        );
+      })
+      .catch(() => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        // The names could not be loaded. The selection itself is intact — it is the ids — so the
+        // chips say what they are and the rule stays applicable as it was saved.
+        setSelected((current) =>
+          current.map((entry) =>
+            entry.status === "LOADING"
+              ? { id: entry.id, displayName: "Selected member" }
+              : entry,
+          ),
+        );
+      });
+    return () => controller.abort();
+  }, [savedActorKey]);
+
+  // How complete the picker's list is. Asked once, and only when the picker is on screen: it is
+  // what an empty search and the note under the picker are worded from.
+  const [catalog, setCatalog] = useState<ActorCatalogState | "UNKNOWN">(
+    "UNKNOWN",
+  );
+  const showsPicker = supportsScope && scopeMode === "SELECTED";
+  useEffect(() => {
+    if (!showsPicker) {
+      return;
+    }
+    const controller = new AbortController();
+    fetchActorCatalogStatus({ signal: controller.signal })
+      .then((status) => setCatalog(status.state))
+      // Not knowing is not a reason to block a selection: the wording simply claims nothing.
       .catch(() => undefined);
     return () => controller.abort();
-  }, [supportsScope]);
+  }, [showsPicker]);
 
-  const setScope = (next: ActorScope): void => {
-    setDraft((current) =>
-      current.kind === "INSIDER_ACTIVITY"
-        ? current
-        : { ...current, scope: next },
-    );
-  };
+  // A rule that still names a group: its members become the selection, so applying the dialog
+  // converts the rule without the user having to rebuild the list by hand.
+  const savedGroupId = savedScope?.kind === "GROUP" ? savedScope.groupId : "";
+  useEffect(() => {
+    if (savedGroupId === "") {
+      return;
+    }
+    const controller = new AbortController();
+    fetchActorGroup(savedGroupId, { signal: controller.signal })
+      .then((group) => {
+        setSelected(
+          group.members
+            .map((member) => ({ id: member.id, displayName: member.displayName }))
+            .sort(byName),
+        );
+        setLegacyGroup({
+          status: "LOADED",
+          name: group.name,
+          memberCount: group.members.length,
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setLegacyGroup({ status: "MISSING" });
+        }
+      });
+    return () => controller.abort();
+  }, [savedGroupId]);
 
   const toggle = <T extends string>(
     values: readonly T[] | undefined,
@@ -122,7 +285,23 @@ export function AlternativeDataConfigDialog({
       : order.filter((entry) => next.includes(entry));
   };
 
-  const scopeKind = scope?.kind ?? "ANY";
+  const loadingGroup = legacyGroup?.status === "LOADING";
+  const unavailable = selected.filter(
+    (entry) => entry.status === "UNAVAILABLE",
+  ).length;
+  // What Apply would save. A selection is written as the canonical list of its ids; "Anyone" as
+  // itself. Nothing here can produce the legacy shapes.
+  const scopeToApply: ActorScope =
+    scopeMode === "ANY"
+      ? { kind: "ANY" }
+      : {
+          kind: "ACTORS",
+          actorIds: canonicalActorIds(selected.map((entry) => entry.id)),
+        };
+  const applyBlocked =
+    supportsScope &&
+    scopeMode === "SELECTED" &&
+    (loadingGroup || selected.length === 0 || unavailable > 0);
 
   return (
     <Modal
@@ -166,78 +345,80 @@ export function AlternativeDataConfigDialog({
             <div className={styles.checkboxes} role="radiogroup" aria-label="Scope">
               {SCOPE_CHOICES.map((choice) => (
                 <label
-                  key={choice.kind}
+                  key={choice.mode}
                   className={styles.checkbox}
-                  data-checked={scopeKind === choice.kind ? "true" : undefined}
+                  data-checked={scopeMode === choice.mode ? "true" : undefined}
                 >
                   <input
                     type="radio"
                     name="alt-scope"
-                    checked={scopeKind === choice.kind}
-                    onChange={() =>
-                      setScope(
-                        choice.kind === "ANY"
-                          ? { kind: "ANY" }
-                          : choice.kind === "ACTOR"
-                            ? {
-                                kind: "ACTOR",
-                                actorId: selectedActor[0]?.id ?? "",
-                              }
-                            : { kind: "GROUP", groupId: groups[0]?.id ?? "" },
-                      )
-                    }
+                    checked={scopeMode === choice.mode}
+                    onChange={() => setScopeMode(choice.mode)}
                   />
                   {choice.label}
                 </label>
               ))}
             </div>
 
-            {scopeKind === "ACTOR" ? (
+            {scopeMode === "SELECTED" ? (
               <div className={styles.scopePicker}>
-                <ActorCombobox
-                  mode="single"
-                  selected={selectedActor}
-                  onChange={(next) => {
-                    setSelectedActor(next);
-                    const picked = next[0];
-                    if (picked) {
-                      setScope({ kind: "ACTOR", actorId: picked.id });
+                {legacyGroup?.status === "LOADED" ? (
+                  <Notice tone="info" testId="alt-legacy-group">
+                    This rule used the group “{legacyGroup.name}”. Groups are no
+                    longer part of FactorSage, so its{" "}
+                    {legacyGroup.memberCount === 1
+                      ? "member is"
+                      : `${legacyGroup.memberCount} members are`}{" "}
+                    selected below. Apply to keep{" "}
+                    {legacyGroup.memberCount === 1 ? "that member" : "them"}.
+                  </Notice>
+                ) : null}
+                {legacyGroup?.status === "MISSING" ? (
+                  <Notice tone="warning" testId="alt-legacy-group">
+                    This rule used a group that is no longer available. Choose
+                    the members it should count.
+                  </Notice>
+                ) : null}
+                {loadingGroup ? (
+                  <p className={styles.fieldHint} role="status">
+                    Loading the members this rule counts…
+                  </p>
+                ) : (
+                  <ActorCombobox
+                    selected={selected}
+                    onChange={setSelected}
+                    maxSelected={ACTOR_SCOPE_MAX_ACTORS}
+                    collapseAfter={VISIBLE_CHIPS}
+                    label="Search members of Congress"
+                    placeholder={
+                      selected.length === 0
+                        ? "Search by name…"
+                        : "Add another member…"
                     }
-                  }}
-                  label="Search members of Congress"
-                  testId="alt-actor-picker"
-                />
-                <p className={styles.fieldHint}>
-                  Search by name or by the identifier the filings use.
-                </p>
-              </div>
-            ) : null}
-
-            {scopeKind === "GROUP" ? (
-              <div className={styles.scopePicker}>
-                <Select
-                  testId="alt-group-picker"
-                  aria-label="Group"
-                  value={scope?.kind === "GROUP" ? scope.groupId : ""}
-                  onValueChange={(groupId) =>
-                    setScope({ kind: "GROUP", groupId })
-                  }
-                  placeholder={
-                    groups.length === 0
-                      ? "No groups yet — create one in Lists"
-                      : "Choose a group…"
-                  }
-                  placeholderDisabled
-                  unavailableLabel="Unavailable group"
-                  options={groups.map((group) => ({
-                    value: group.id,
-                    label: `${group.name} · ${group.memberCount} ${group.memberCount === 1 ? "member" : "members"}`,
-                  }))}
-                />
-                <p className={styles.fieldHint}>
-                  A backtest freezes the group&apos;s membership when it is
-                  submitted, so editing the group later never changes a run that
-                  already exists.
+                    emptyHint={CATALOG_COPY[catalog].emptyHint}
+                    testId="alt-actor-picker"
+                  />
+                )}
+                {unavailable > 0 ? (
+                  <p
+                    className={styles.fieldError}
+                    role="alert"
+                    data-testid="alt-actor-unavailable"
+                  >
+                    {unavailable === 1
+                      ? "1 selected member is no longer available. Remove it to apply."
+                      : `${unavailable} selected members are no longer available. Remove them to apply.`}
+                  </p>
+                ) : null}
+                <p className={styles.fieldHint} data-testid="alt-actor-count">
+                  {selected.length === 0
+                    ? "Select at least one member."
+                    : `${selected.length} of ${ACTOR_SCOPE_MAX_ACTORS} selected.`}{" "}
+                  Their disclosures are counted together as one total, not as
+                  separate rules.{" "}
+                  <span data-testid="alt-actor-catalog" data-state={catalog}>
+                    {CATALOG_COPY[catalog].note}
+                  </span>
                 </p>
               </div>
             ) : null}
@@ -378,13 +559,17 @@ export function AlternativeDataConfigDialog({
             type="button"
             className={forms.primaryButton}
             data-testid="alternative-data-config-apply"
-            // A scope that names nothing would be rejected by the canonical validator, so it cannot be
-            // applied: the button waits for a choice rather than saving something that fails.
-            disabled={
-              (scope?.kind === "ACTOR" && scope.actorId === "") ||
-              (scope?.kind === "GROUP" && scope.groupId === "")
+            // A selection of nobody would be rejected by the canonical validator, and one holding a
+            // member the catalog no longer has by the API, so neither can be applied: the button
+            // waits for the selection to be fixed rather than saving something that fails.
+            disabled={applyBlocked}
+            onClick={() =>
+              onApply(
+                draft.kind === "CONGRESS_ACTIVITY"
+                  ? { ...draft, scope: scopeToApply }
+                  : draft,
+              )
             }
-            onClick={() => onApply(draft)}
           >
             Apply
           </button>

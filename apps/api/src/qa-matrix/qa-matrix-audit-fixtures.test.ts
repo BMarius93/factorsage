@@ -266,7 +266,10 @@ describe("QA-MATRIX audit strategy fixtures", () => {
           metric.kind === "CONGRESS_ACTIVITY" ? metric.scope.kind : "",
         ),
       ),
-    ).toEqual(new Set(["ANY", "ACTOR", "GROUP"]));
+      // Everyone, a selection of members, and — on purpose — the legacy group scope: no strategy
+      // write produces one any more, but stored versions and run snapshots still hold it and the
+      // matrix keeps one fixture executing that path (`A09`).
+    ).toEqual(new Set(["ANY", "ACTORS", "GROUP"]));
     expect(
       congress.some(
         (metric) =>

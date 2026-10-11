@@ -240,6 +240,15 @@ bioguide id, and the reserved group name `QA-MATRIX-congress-watchlist` — and 
 them against the database it is seeding. A strategy that named a display name instead would follow a
 member through a rename into somebody else's trades.
 
+`A09` names a group **on purpose**, and stays that way. Congress groups left the product on
+2026-10-11 and the API refuses to write a group scope, but strategy versions and run snapshots saved
+before then still hold one and must keep executing, so the matrix keeps one fixture on that legacy
+path: the seeder writes it straight to the tables, as such a version would already exist, and a run
+of it freezes the group's membership into its snapshot exactly as it always did. `A08`'s single
+member is stored as the one-entry selection normalization makes of it, under the same signature and
+hash as before. The equivalence of a group and a selection of its members is proven outside the
+matrix, by `packages/stock-data/src/alternative-data-scope-equivalence.integration.test.ts`.
+
 The named member is `K000389`, and the group is five members across both chambers. The choice is not
 arbitrary: in the matrix universe `K000389` has disclosed stock transactions in 32 of the 33
 securities over five years and in both directions, so a specific-actor scope produces real trades

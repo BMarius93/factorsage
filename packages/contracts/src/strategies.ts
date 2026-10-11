@@ -1,17 +1,22 @@
 import {
+  ACTOR_SCOPE_KINDS,
+  ACTOR_SCOPE_MAX_ACTORS,
   ALTERNATIVE_DATA_COUNT_MAX,
   ALTERNATIVE_DATA_LOOKBACKS,
   alternativeDataMeasureDefinition,
   alternativeDataMeasures,
+  alternativeDataMetricFingerprint,
   alternativeDataMetricSignature,
   alternativeDataScope,
   buildAlternativeDataMetric,
+  canonicalActorIds,
   CONGRESS_CHAMBER_FILTERS,
   CONGRESS_OWNERS,
   defaultAlternativeDataMetric,
   describeAlternativeDataConfiguration,
   findAlternativeDataMeasure,
   INSIDER_ROLES,
+  isActorScopeId,
   isAlternativeDataMetricKind,
   type ActorScope,
   type ActorScopeNames,
@@ -1419,7 +1424,7 @@ export type StrategyPreviewLine =
   /**
    * One Condition as {@link StrategyPredicateDescription}: `text` is the metric's identity, the
    * operator and the Value, and `configuration` is the metric's configuration summary —
-   * `180D · CEO, CFO`, `30D · Congress Watchlist · Senate` — present exactly when the metric has
+   * `180D · CEO, CFO`, `30D · Nancy Pelosi, Ro Khanna +3 · Senate` — present exactly when the metric has
    * configuration. The sidebar composes them exactly as {@link describeCondition} does.
    */
   | ({ kind: "CONDITION"; connector?: "AND" } & StrategyPredicateDescription)
@@ -1430,11 +1435,11 @@ export type StrategyPreviewLine =
 /**
  * Every alternative-data metric one definition names, in document order.
  *
- * The one walk that answers "which actors and groups does this strategy reference?", and it is shared
- * by three callers that must never disagree: strategy validation resolving the references, a backtest
- * submission freezing the groups it names, and any surface resolving display names. Duplicates are
- * kept — the same configured metric may appear in several levels — and `collectActorGroupIds` is what
- * deduplicates.
+ * The one walk that answers "which members — and, in a definition saved before 2026-10-11, which
+ * groups — does this strategy reference?", and it is shared by callers that must never disagree:
+ * the write boundary checking the members exist, a backtest submission freezing who they are, and
+ * any surface resolving display names. Duplicates are kept — the same configured metric may appear
+ * in several levels — and `collectActorIds` / `collectActorGroupIds` are what deduplicate.
  */
 export function collectAlternativeDataMetrics(
   definition: StrategyDefinition,
@@ -1466,6 +1471,101 @@ export function collectAlternativeDataMetrics(
   return metrics;
 }
 
+/** Why {@link embedActorGroupScopes} could not rewrite a definition. */
+export class ActorGroupScopeUnresolvedError extends Error {
+  constructor(
+    readonly groupId: string,
+    readonly reason: "MISSING" | "EMPTY",
+  ) {
+    super(
+      reason === "MISSING"
+        ? `Actor group ${groupId} has no supplied membership`
+        : `Actor group ${groupId} has no members`,
+    );
+    this.name = "ActorGroupScopeUnresolvedError";
+  }
+}
+
+/**
+ * The same definition with every legacy `GROUP` scope replaced by an `ACTORS` selection of that
+ * group's members.
+ *
+ * This is the whole of what "converting a strategy" means, and it is pure so the one rule is
+ * testable without a database: the caller reads the memberships and supplies them. Everything else
+ * — every id, level, operator, Value, lookback, chamber and owner filter, and the order of all of
+ * them — is carried over untouched, so the converted rule counts exactly the disclosures the group
+ * rule counted at the moment its membership was read.
+ *
+ * It never guesses. A group with no supplied membership, or with none at all, throws
+ * {@link ActorGroupScopeUnresolvedError}: an empty selection is not a rule, and embedding one would
+ * turn "the group this rule names" into "nobody" without anyone having decided that. The result is
+ * returned through {@link normalizeStrategyDefinition}, so a conversion that would produce an invalid
+ * definition — two conditions that become identical once their groups are embedded, say — throws
+ * `StrategyValidationError` instead of yielding a document the Builder could not open.
+ */
+export function embedActorGroupScopes(
+  definition: StrategyDefinition,
+  membersByGroupId: ReadonlyMap<string, readonly string[]>,
+): StrategyDefinition {
+  const embedMetric = (metric: StrategyMetric): StrategyMetric => {
+    const alternative = asAlternativeDataMetric(metric);
+    const scope = alternative ? alternativeDataScope(alternative) : undefined;
+    if (
+      alternative?.kind !== "CONGRESS_ACTIVITY" ||
+      scope?.kind !== "GROUP"
+    ) {
+      return metric;
+    }
+    const members = membersByGroupId.get(scope.groupId);
+    if (members === undefined) {
+      throw new ActorGroupScopeUnresolvedError(scope.groupId, "MISSING");
+    }
+    if (members.length === 0) {
+      throw new ActorGroupScopeUnresolvedError(scope.groupId, "EMPTY");
+    }
+    return {
+      ...alternative,
+      scope: { kind: "ACTORS", actorIds: canonicalActorIds(members) },
+    };
+  };
+  const embedSignal = (signal: StrategySignal): StrategySignal => ({
+    conditions: signal.conditions.map((condition) => ({
+      ...condition,
+      metric: embedMetric(condition.metric),
+    })),
+    ...(signal.trigger
+      ? {
+          trigger: {
+            ...signal.trigger,
+            metric: embedMetric(signal.trigger.metric),
+          },
+        }
+      : {}),
+  });
+  return normalizeStrategyDefinition({
+    ...definition,
+    buyLevels: definition.buyLevels.map((level) => ({
+      ...level,
+      signal: embedSignal(level.signal),
+    })),
+    sellLevels: definition.sellLevels.map((level) => ({
+      ...level,
+      signal: embedSignal(level.signal),
+    })),
+    ...(definition.finalExit
+      ? {
+          finalExit: {
+            ...definition.finalExit,
+            rules: definition.finalExit.rules.map((rule) => ({
+              ...rule,
+              signal: embedSignal(rule.signal),
+            })),
+          },
+        }
+      : {}),
+  });
+}
+
 /**
  * Display names for the actors and groups a definition references, keyed by identifier.
  *
@@ -1486,22 +1586,19 @@ function scopeNamesFor(
   if (!scope) {
     return {};
   }
-  if (scope.kind === "ACTOR") {
-    const actorName = names?.actors?.[scope.actorId];
-    return actorName === undefined ? {} : { actorName };
-  }
   if (scope.kind === "GROUP") {
     const groupName = names?.groups?.[scope.groupId];
     return groupName === undefined ? {} : { groupName };
   }
-  return {};
+  // The actor names are passed whole: which of them this scope selects is the describer's question.
+  return names?.actors === undefined ? {} : { actorNames: names.actors };
 }
 
 /**
  * The configuration of one metric in words, or `null` when the metric takes none.
  *
  * Only the alternative-data metrics are configured, and their summary always leads with the lookback
- * — `180D`, `180D · CEO, CFO`, `30D · Congress Watchlist · Senate · Self, Spouse` — because the
+ * — `180D`, `180D · CEO, CFO`, `30D · Nancy Pelosi, Ro Khanna +3 · Senate · Self, Spouse` — because the
  * lookback is configuration, not identity (`strategyMetricLabel` never carries it). This is the one
  * rendering of a metric's configuration: the condition row's summary line, the Strategy Logic
  * sidebar, the explanation panel, a backtest's trade reasons and the Dashboard all print this
@@ -1935,6 +2032,7 @@ export const STRATEGY_METRIC_HELP: Record<
       "Only common stock is counted. Bonds, options, funds and crypto are disclosed on the same filings, are kept, and are never counted as a share purchase.",
       "Disclosed amounts are **bands**, such as $15,001 - $50,000. A value measure sums the band's lower bound and is named for that; no midpoint is ever invented.",
       "Owner and chamber filters are optional. A filing that names no owner is counted by an unfiltered metric and never selected by an owner filter, because it has made no statement to filter on.",
+      "A rule can be narrowed to members you select. Their disclosures are counted **together**: two selected members with one purchase each read as two purchases, not as two separate rules.",
     ],
     notEvaluableWhen:
       "The full lookback window is not inside the disclosure history this product holds for the stock.",
@@ -2261,6 +2359,7 @@ const VALUE_KEYS: Record<StrategyValueKind, readonly string[]> = {
 
 const ACTOR_SCOPE_KEYS: Record<ActorScope["kind"], readonly string[]> = {
   ANY: ["kind"],
+  ACTORS: ["kind", "actorIds"],
   ACTOR: ["kind", "actorId"],
   GROUP: ["kind", "groupId"],
 };
@@ -2546,7 +2645,10 @@ function parseActorScope(
     return undefined;
   }
   const kind = raw.kind;
-  if (kind !== "ANY" && kind !== "ACTOR" && kind !== "GROUP") {
+  if (
+    typeof kind !== "string" ||
+    !(ACTOR_SCOPE_KINDS as readonly string[]).includes(kind)
+  ) {
     issues.add(
       "SCOPE_INVALID",
       path,
@@ -2554,25 +2656,73 @@ function parseActorScope(
     );
     return undefined;
   }
-  issues.rejectUnknownKeys(raw, ACTOR_SCOPE_KEYS[kind], path);
-  if (kind === "ANY") {
+  const scopeKind = kind as ActorScope["kind"];
+  issues.rejectUnknownKeys(raw, ACTOR_SCOPE_KEYS[scopeKind], path);
+  if (scopeKind === "ANY") {
     return { kind: "ANY" };
   }
-  const idField = kind === "ACTOR" ? "actorId" : "groupId";
+  if (scopeKind === "ACTORS") {
+    return parseActorSelection(raw.actorIds, path, issues);
+  }
+  const idField = scopeKind === "ACTOR" ? "actorId" : "groupId";
   const id = raw[idField];
   if (typeof id !== "string" || id.trim().length === 0) {
     issues.add(
       "SCOPE_INVALID",
       path,
-      kind === "ACTOR"
+      scopeKind === "ACTOR"
         ? "Choose the actor this rule counts."
         : "Choose the group this rule counts.",
     );
     return undefined;
   }
-  return kind === "ACTOR"
+  return scopeKind === "ACTOR"
     ? { kind: "ACTOR", actorId: id }
     : { kind: "GROUP", groupId: id };
+}
+
+/**
+ * Reads the list of an `ACTORS` scope.
+ *
+ * An empty list is refused rather than read as "anyone" or as "nobody". "Anyone" already has a
+ * shape (`ANY`), and a rule that selects nobody reads a confident zero on every session — so
+ * `Congress sales is below 1` would hold forever on activity the rule never looked at. That is the
+ * same reason an empty filter list is refused (`parseEnumFilter`).
+ *
+ * The bound is on the **distinct** ids, because a repeated id selects nobody new; the list is
+ * canonicalized on the way out so duplicate detection sees one selection however it was written.
+ */
+function parseActorSelection(
+  raw: unknown,
+  path: StrategyIssuePath,
+  issues: ValidationContext,
+): ActorScope | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    issues.add(
+      "SCOPE_INVALID",
+      path,
+      "Choose at least one member of Congress, or count every member.",
+    );
+    return undefined;
+  }
+  if (!raw.every(isActorScopeId)) {
+    issues.add(
+      "SCOPE_INVALID",
+      path,
+      "A selected member of Congress is not a valid identifier.",
+    );
+    return undefined;
+  }
+  const actorIds = canonicalActorIds(raw);
+  if (actorIds.length > ACTOR_SCOPE_MAX_ACTORS) {
+    issues.add(
+      "SCOPE_INVALID",
+      path,
+      `A rule can select at most ${ACTOR_SCOPE_MAX_ACTORS} members of Congress.`,
+    );
+    return undefined;
+  }
+  return { kind: "ACTORS", actorIds };
 }
 
 function parseMetric(
@@ -3755,8 +3905,12 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
     // exactly the two elements it always did. That is what keeps every persisted
     // `StrategyVersion.definitionHash` valid and every non-RVOL Monitor latch in place.
     //
-    // `alternativeDataMetricSignature` covers measure, lookback, scope and filters, so editing a
-    // lookback or a scope correctly appends a version and resets that level.
+    // `alternativeDataMetricFingerprint` covers measure, lookback, scope and filters, so editing a
+    // lookback or a scope correctly appends a version and resets that level. It reads exactly as
+    // the metric's signature does for every scope a document could hold before 2026-10-11 — which
+    // is what keeps those hashes and latches in place — and differs only for a selection of two or
+    // more actors, which contributes a digest of its ids rather than the ids: this string is
+    // persisted on every Monitor state row, and the list can run to hundreds of identifiers.
     //
     // Relative Volume carries its period for the same reason: the period *is* the metric's
     // identity, and leaving it out made `RVOL 10 is above 2` and `RVOL 20 is above 2` serialize
@@ -3780,7 +3934,7 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
         return [input.kind, null, input.ratioId];
       case "INSIDER_ACTIVITY":
       case "CONGRESS_ACTIVITY":
-        return [input.kind, null, alternativeDataMetricSignature(input)];
+        return [input.kind, null, alternativeDataMetricFingerprint(input)];
       case "MOVING_AVERAGE":
       case "OSCILLATOR":
         return [input.kind, input.seriesId];

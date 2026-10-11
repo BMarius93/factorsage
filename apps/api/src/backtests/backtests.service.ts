@@ -2,9 +2,12 @@ import { createHash } from "node:crypto";
 import {
   alternativeDataScope,
   collectActorGroupIds,
+  collectActorIds,
   collectAlternativeDataMetrics,
+  type BacktestSnapshotActor,
   type BacktestSnapshotActorGroup,
   type StrategyDefinition,
+  type StrategyScopeNames,
   backtestAnnualReturns,
   backtestPeriodYears,
   backtestSnapshotScopeNames,
@@ -15,7 +18,7 @@ import {
   BACKTEST_TRADES_MAX_PAGE_SIZE,
   BACKTEST_TRADES_PAGE_SIZE,
   BACKTEST_FAILURE_PHASES,
-  BACKTEST_SNAPSHOT_VERSION,
+  backtestSnapshotVersionFor,
   canonicalBacktestSnapshotDocument,
   isTerminalBacktestStatus,
   normalizeStrategyDefinition,
@@ -858,9 +861,16 @@ export class BacktestsService {
     // through the database, which is what makes "editing a group never changes an existing run" a
     // property of the data rather than a promise.
     const actorGroups = await this.freezeActorGroups(user, definition);
+    // The members a rule selects directly are already frozen — the selection is part of the
+    // definition below. What is frozen here is who they are: the bioguide id and the name each had
+    // today, so the completed run can still say whose activity it counted.
+    const actors = await this.freezeActors(definition);
 
     const snapshot: BacktestRunSnapshot = {
-      snapshotVersion: BACKTEST_SNAPSHOT_VERSION,
+      // The lowest version able to express this run. A strategy that selects no member directly is
+      // written exactly as it always was; one that does is written at a version a worker built
+      // before the selection existed refuses outright, instead of executing it as "nobody".
+      snapshotVersion: backtestSnapshotVersionFor(definition),
       submittedAt: new Date().toISOString(),
       strategy: {
         strategyId: strategy.id,
@@ -875,6 +885,7 @@ export class BacktestsService {
       // Omitted rather than written empty when the strategy references no group, so a snapshot only
       // carries the field when it means something.
       ...(actorGroups.length > 0 ? { actorGroups } : {}),
+      ...(actors.length > 0 ? { actors } : {}),
       period: { startDate: input.startDate, endDate: input.endDate },
       capital: {
         initialCapital: input.initialCapital,
@@ -1100,13 +1111,13 @@ export class BacktestsService {
       take: pageSize,
     });
     // The run's own frozen definition — never the strategy as it stands today — described once for
-    // the whole page, naming any actor group by the name the run froze.
+    // the whole page, naming any member or actor group by the name the run froze.
     const snapshot = withCanonicalStrategyDefinition(
       readSnapshot(run.snapshot),
     );
     const reasons = backtestTradeReasonIndex(
       snapshot.strategy.definition,
-      backtestSnapshotScopeNames(snapshot),
+      await this.snapshotScopeNames(snapshot),
     );
     return {
       items: rows.map((row) => tradeOf(row, reasons)),
@@ -1114,6 +1125,77 @@ export class BacktestsService {
       pageSize,
       totalCount,
       pageCount,
+    };
+  }
+
+  /**
+   * Freezes the identity and label of every member of Congress the strategy selects directly.
+   *
+   * A member the catalog no longer holds refuses the submission, for the reason a missing group
+   * does: the run would otherwise count nobody where its author named somebody. The catalog never
+   * deletes a member, so this is a corrupt or hand-written definition rather than a state a user
+   * reaches — which is exactly when a refusal is better than a result.
+   *
+   * Sorted by id, like the selection itself, so two submissions of one configuration produce
+   * byte-identical documents.
+   */
+  private async freezeActors(
+    definition: StrategyDefinition,
+  ): Promise<BacktestSnapshotActor[]> {
+    const actorIds = collectActorIds(collectAlternativeDataMetrics(definition));
+    if (actorIds.length === 0) {
+      return [];
+    }
+    const actors = await this.prisma.alternativeDataActor.findMany({
+      where: { id: { in: actorIds } },
+      select: { id: true, externalId: true, displayName: true },
+    });
+    if (actors.length !== actorIds.length) {
+      throw new BacktestConfigurationError(
+        "This strategy selects a member of Congress who is no longer available; edit the strategy before running it",
+      );
+    }
+    return actors
+      .map((actor) => ({
+        actorId: actor.id,
+        externalId: actor.externalId,
+        displayName: actor.displayName,
+      }))
+      .sort((left, right) => left.actorId.localeCompare(right.actorId));
+  }
+
+  /**
+   * The names a run's trade reasons print: the snapshot's own, completed from the actor catalog.
+   *
+   * The snapshot is the authority and always wins — a member is named as they were at submission.
+   * The catalog fills only what the snapshot never froze: a run submitted before 2026-10-11 whose
+   * rule was scoped to one member carries that member's id and no label, and would otherwise read
+   * `1 selected member` although who it was is known. The catalog is reference data keyed by a
+   * stable external identity and never deletes a member, and a name is presentation — it is never
+   * matched on and nothing about the run's result is read from it.
+   */
+  private async snapshotScopeNames(
+    snapshot: BacktestRunSnapshot,
+  ): Promise<StrategyScopeNames> {
+    const names = backtestSnapshotScopeNames(snapshot);
+    const unnamed = collectActorIds(
+      collectAlternativeDataMetrics(snapshot.strategy.definition),
+    ).filter((actorId) => names.actors?.[actorId] === undefined);
+    if (unnamed.length === 0) {
+      return names;
+    }
+    const actors = await this.prisma.alternativeDataActor.findMany({
+      where: { id: { in: unnamed } },
+      select: { id: true, displayName: true },
+    });
+    return {
+      ...names,
+      actors: {
+        ...Object.fromEntries(
+          actors.map((actor) => [actor.id, actor.displayName]),
+        ),
+        ...names.actors,
+      },
     };
   }
 

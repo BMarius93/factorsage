@@ -144,10 +144,11 @@ describe("FMP endpoint classification", () => {
       "holidays-by-exchange",
       "splits",
       "insider-trading/search",
+      "senate-profile",
     ]);
-    // Nine `this.request` calls in the client: the seven above and two with a computed path. A
-    // tenth is an endpoint somebody added without deciding what it is about.
-    expect(source.match(/this\.request</g)).toHaveLength(9);
+    // Ten `this.request` calls in the client: the eight above and two with a computed path. An
+    // eleventh is an endpoint somebody added without deciding what it is about.
+    expect(source.match(/this\.request</g)).toHaveLength(10);
     expect([...FMP_ENDPOINT_CLASSES.keys()].sort()).toEqual(
       [...literal, ...computed].sort(),
     );
@@ -307,6 +308,9 @@ describe("FMP security scope", () => {
     ["holidays-by-exchange", { exchange: "NYSE", from: "a", to: "b" }],
     ["batch-quote", { symbols: "AAPL" }],
     ["batch-quote", { symbols: "AAPL,MSFT,NVDA" }],
+    ["senate-profile", { active: "true", page: "0" }],
+    // A symbol on it changes nothing: the directory is about no security.
+    ["senate-profile", { active: "true", page: "0", symbol: "AAPL" }],
   ])(
     "refuses %s, which is not about one security, even for approved symbols",
     (path, query) => {
@@ -425,6 +429,12 @@ describe("a guarded FMP client", () => {
     await expect(
       client.getExchangeHolidays("NYSE", "2025-12-31", "2026-12-31"),
     ).rejects.toMatchObject({ reason: "NOT_A_SECURITY_ENDPOINT" });
+    // The member directory: reference data about no security, in office or not.
+    for (const inOffice of [true, false]) {
+      await expect(
+        client.getCongressMemberProfiles({ inOffice, page: 0 }),
+      ).rejects.toMatchObject({ reason: "NOT_A_SECURITY_ENDPOINT" });
+    }
     // A benchmark series: a per-security endpoint, asked about a symbol nobody approved.
     await expect(
       client.getBenchmarkDailyPrices("SPY", "series-1", {

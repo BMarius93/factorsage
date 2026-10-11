@@ -136,7 +136,10 @@ const congress = (
     | "MINIMUM_PURCHASE_VALUE",
   lookback: Lookback,
   options: {
-    scope?: { kind: "ANY" } | { kind: "ACTOR"; actorId: string } | { kind: "GROUP"; groupId: string };
+    scope?:
+      | { kind: "ANY" }
+      | { kind: "ACTORS"; actorIds: readonly string[] }
+      | { kind: "GROUP"; groupId: string };
     chamber?: "ANY" | "HOUSE" | "SENATE";
     owners?: readonly ("SELF" | "SPOUSE" | "JOINT")[];
   } = {},
@@ -485,7 +488,10 @@ function auditStrategySpecs(
             conditions: [
               when(
                 congress("PURCHASES", 60, {
-                  scope: { kind: "ACTOR", actorId: scopes.actorId },
+                  // The canonical shape of "this one member": a selection of one. It is what
+                  // normalization makes of the single-member scope this fixture was first written
+                  // with, under the same signature, so the strategy's hash did not move.
+                  scope: { kind: "ACTORS", actorIds: [scopes.actorId] },
                 }),
                 "IS_ABOVE",
                 number(0),

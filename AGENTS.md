@@ -233,13 +233,42 @@ Read `ai/README.md` before substantial work.
     ingested coverage interval a metric is `NOT_EVALUABLE`, never zero: absence of data and absence of
     activity are different statements. Provider rows are content-addressed and never destructively
     overwritten, so reingestion is idempotent and an amendment is a new row. Actors are identified by
-    stable external ids (a bioguide id) and never by display name, and `ActorGroup` follows
-    `StockList`'s ownership model exactly. A Strategy
-    referencing an actor group has that group's **membership frozen into the backtest snapshot**, so
-    editing or deleting the group can never change a run that already exists — the worker resolves a
-    group scope from the snapshot and never from the database. Do not add insider person groups, a
-    semantic or historical group, or a second FMP gate: ingestion goes through the one
-    `RedisFmpRequestGate` like every other provider read.
+    stable external ids (a bioguide id) and never by display name.
+    **A Congressional rule that narrows whose activity it counts selects the members itself**: its
+    scope holds a canonical list of actor ids (`ACTORS` — between 1 and 250, sorted, de-duplicated),
+    so the selection is part of the strategy version and nothing outside the strategy can change what
+    the rule counts. A selection is a **membership filter over one pooled metric**, never an OR
+    between separately evaluated rules: two selected members with one purchase each read as two
+    purchases. A one-member selection serializes exactly as the legacy single `ACTOR` scope did, and
+    a selection of several contributes a digest of its ids to the fingerprint rather than the ids, so
+    no stored `definitionHash` or Monitor latch moved and a Monitor state row stays short; do not
+    change either serialization. A scope kind the build does not define is **refused, never read as
+    nobody** — by the validator, by the signature, by the loader and by the worker's snapshot parse —
+    and a backtest snapshot holding a selection is written at snapshot version 2 so a worker built
+    before the selection existed refuses it instead of completing the run on zero activity.
+    **Congress groups are legacy (owner, 2026-10-11).** No surface manages them and the strategy
+    write boundary refuses a `GROUP` scope, but a stored strategy version or run snapshot naming one
+    must keep reading and executing: the validator keeps the shape, a backtest resolves it from the
+    **membership frozen in its own snapshot** and never from the database, a Monitor from the group
+    as it stands, and the tables and routes stay until nothing references them. Converting such a
+    strategy is the operator's deliberate act (`pnpm strategies:convert-group-scopes`,
+    `docs/development/congress-group-scope-conversion.md`), never a side effect of a deploy. Do not
+    add reusable groups, presets or saved selections, insider person groups, a semantic or historical
+    group, or a second FMP gate: ingestion goes through the one `RedisFmpRequestGate` like every
+    other provider read.
+    **The member catalog is an identity directory, synchronized with the provider's member
+    directory** (`docs/development/congress-member-catalog.md`): `pnpm data:congress-members:sync`
+    or `POST /admin/congress-members/sync` adds every member the directory lists, in office and
+    former, whether or not a disclosure of theirs has been loaded. Identity is the bioguide id —
+    never make an identity from a name — and a synchronization **never deletes, merges or re-keys**
+    a member, because strategies, snapshots and Monitors hold canonical ids. It reads the whole
+    directory before it writes and fails closed, writing nothing, when it cannot. It writes actor
+    labels only: no disclosure, no coverage, no dataset state, and no metric may ever read the
+    catalog — a member being listed says nothing about their trading. A member's label is their
+    disclosures' once one has been loaded and the directory's until then; do not make the
+    synchronization and ingestion both write one label. The picker never causes a provider request,
+    and says whether the catalog it searches has been synchronized. A duplicate of a strategy that
+    still names a group holds a selection of that group's members; the original is only read.
 24. Valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA) are correct or unavailable, from FMP's data
     alone: V1 has no second market-data provider and no historical distribution factor `Φ`, and
     `docs/decisions/valuation-ratios-v1.md` is the source of truth. A known or detected unsafe

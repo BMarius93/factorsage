@@ -1,21 +1,21 @@
 {
-  "generatedAt": "2026-09-30T07:48:03.836Z",
+  "generatedAt": "2026-10-11T16:52:45.195Z",
   "git": {
-    "commit": "207938fb",
-    "branch": "perf/redis-columnar-daily-state"
+    "commit": "d37a81ad",
+    "branch": "feat/remove-congress-list"
   },
-  "durationMs": 178833,
+  "durationMs": 14695,
   "context": {
     "database": "intrinsic_value_matrix",
-    "asOf": "2026-09-22",
+    "asOf": "2026-10-01",
     "securities": 33
   },
   "totals": {
-    "comparisons": 90922695,
-    "passed": 90922694,
+    "comparisons": 92224208,
+    "passed": 92224207,
     "failed": 1,
     "skipped": 25,
-    "tolerancePasses": 12249390
+    "tolerancePasses": 12255751
   },
   "status": "FAIL",
   "sections": [
@@ -936,11 +936,11 @@
     {
       "section": "alternative-data",
       "status": "PASS",
-      "comparisons": 4221571,
-      "passed": 4221571,
+      "comparisons": 5523084,
+      "passed": 5523084,
       "failed": 0,
       "skipped": 0,
-      "tolerancePasses": 220789,
+      "tolerancePasses": 227150,
       "independentOracle": true,
       "endToEnd": false,
       "detail": {
@@ -954,78 +954,110 @@
         "observableSessionViolations": 0,
         "perMetric": {
           "insider-buyers-20": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 11163
           },
           "insider-buyers-5": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 3100
           },
           "insider-sellers-20": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 85013
           },
           "insider-purchase-value-60": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
-            "sessionsWithValue": 52523
+            "sessionsWithValue": 59004
           },
           "insider-sale-value-20": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
-            "sessionsWithValue": 128111
+            "sessionsWithValue": 123908
           },
           "insider-buyers-20-ceo-cfo": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 938
           },
           "insider-buyers-20-director": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 9832
           },
           "congress-purchases-30": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 50868
           },
           "congress-sales-30": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 48112
           },
           "congress-buyers-90": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 73431
           },
           "congress-purchases-30-house": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 41339
           },
           "congress-purchases-30-senate": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 16367
           },
           "congress-purchases-30-self": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 3692
           },
           "congress-min-purchase-value-90": {
-            "compared": 259735,
+            "compared": 259867,
             "failed": 0,
             "sessionsWithValue": 73431
+          },
+          "congress-purchases-30-selected-3": {
+            "compared": 259867,
+            "failed": 0,
+            "sessionsWithValue": 23802
+          },
+          "congress-sales-30-selected-1": {
+            "compared": 259867,
+            "failed": 0,
+            "sessionsWithValue": 11502
+          },
+          "congress-buyers-90-selected-3": {
+            "compared": 259867,
+            "failed": 0,
+            "sessionsWithValue": 42648
+          },
+          "congress-min-purchase-value-90-selected-3": {
+            "compared": 259867,
+            "failed": 0,
+            "sessionsWithValue": 42648
+          },
+          "congress-purchases-30-selected-3-senate": {
+            "compared": 259867,
+            "failed": 0,
+            "sessionsWithValue": 3629
           }
+        },
+        "scoped": {
+          "securities": 33,
+          "securitiesWithoutMembers": [],
+          "selectionsCompared": 330,
+          "selectionMismatches": 0
         }
       },
       "notes": [
+        "Rules scoped to selected members were audited in 33 of 33 securities: 330 selections read through the store and through a group scope were compared with the oracle's own walk of every persisted row, with 0 mismatches.",
         "12 row(s) the provider dated as filed on or before the transaction they report. A provider anomaly: availability is still publication + 1 day on every one of them, which is the only rule the product states.",
         "11 stored transaction value(s) one unit in the last place below the exact product, from float64 multiplication before Decimal(24,4) quantization. Maximum absolute error $0.0001."
       ]

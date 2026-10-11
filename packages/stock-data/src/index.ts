@@ -41,3 +41,5 @@ export * from "./evaluation-frame.js";
 export * from "./alternative-data-ports.js";
 export * from "./alternative-data-prisma-store.js";
 export * from "./alternative-data-service.js";
+export * from "./congress-member-catalog.js";
+export * from "./congress-member-catalog-prisma-store.js";

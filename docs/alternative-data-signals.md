@@ -75,6 +75,13 @@ Examples of metadata:
 
 ## Actor groups
 
+> **Superseded on 2026-10-11 (owner).** Congress groups are no longer part of the product: a
+> Congressional rule selects the members it counts directly, in the Strategy Builder. This section,
+> **Group UI** and **Backtest snapshots** below describe what was first built and are kept because
+> strategy versions and backtest snapshots saved under it still exist and still execute. What
+> replaced them, and what must keep working, is in
+> [Direct member selection replaces Congress groups](#direct-member-selection-replaces-congress-groups-2026-10-11).
+
 Add reusable user-defined groups for Congress people.
 
 Do not add insider groups in V1.
@@ -154,7 +161,7 @@ Examples:
 ```text
 Insider activity      | Insider buyers     | is above | 1     Configure · 20D
 Congressional trading | Congress purchases | is above | 1     Configure · 30D
-Congressional trading | Congress buyers    | is above | 1     Configure · 30D · Congress Watchlist
+Congressional trading | Congress buyers    | is above | 1     Configure · 30D · Nancy Pelosi, Ro Khanna +3
 ```
 
 ### First-operand selector
@@ -176,8 +183,8 @@ Use the most natural existing UI primitive after inspecting the repo: popover, d
 Possible configuration:
 
 - lookback in trading sessions
-- scope: Any / Specific actor / Actor group
-- Congress person / Congress group
+- scope: anyone, or the members of Congress the rule selects (2026-10-11; originally Any / Specific
+  actor / Actor group)
 - chamber
 - owner
 - insider role, where supported
@@ -185,9 +192,12 @@ Possible configuration:
 After configuration, keep the condition row compact and render a subtle secondary summary below the first operand. It always leads with the lookback, because the lookback is configuration rather than part of the metric's name, and then names only what narrows the metric, e.g.:
 
 - `20D`
-- `30D · Congress Watchlist`
-- `30D · Congress Watchlist · Senate · Self, Spouse`
+- `30D · Nancy Pelosi`
+- `30D · Nancy Pelosi, Ro Khanna +3 · Senate · Self, Spouse`
 - `180D · CEO, CFO, Director`
+
+A selection is summarized by its first two members alphabetically and a count of the rest, so the
+line stays one line however many members are selected.
 
 ### Strategy Logic summary
 
@@ -196,8 +206,8 @@ Render readable natural-language summaries using the same semantics as the condi
 Examples:
 
 - `Insider buyers is above 1 (20D)`
-- `Congress purchases is above 1 (30D · Congress Watchlist)`
-- `Congress buyers is above 1 (30D · House leadership)`
+- `Congress purchases is above 1 (30D · Nancy Pelosi, Tommy Tuberville)`
+- `Congress buyers is above 1 (30D · Nancy Pelosi, Ro Khanna +3)`
 
 Do not make the sidebar noisy.
 
@@ -250,15 +260,19 @@ For configurable alternative-data metrics, support:
 ### Congress
 
 - Any member
-- Specific person
-- Congress group
+- The members the rule selects — one or many (2026-10-11; originally "Specific person" and
+  "Congress group", which stored versions may still hold)
 
 Optional Congress filters can include:
 
 - Chamber: Any / House / Senate
 - Owner: Any / self / spouse / joint / available provider values
 
-Specific actor and group selection are filters/scope over the same metric. Do not create bespoke strategy signal types for named actors.
+A selection is a filter/scope over the same metric. Do not create bespoke strategy signal types for named actors.
+
+The filter is on **membership**: the disclosures of every selected member are pooled, and the measure
+aggregates the pool. It is not an OR between the rule evaluated once per member — see
+[Direct member selection replaces Congress groups](#direct-member-selection-replaces-congress-groups-2026-10-11).
 
 ## Monitor compatibility
 
@@ -343,7 +357,8 @@ Avoid unrelated refactors and cosmetic redesigns.
 
 The product decisions above are unchanged except where a later decision is dated in place (the
 Category / Metric selector and the removal of the inclusive operators, 2026-09-28; the single Metric
-picker and the configuration kept across measures of one family, 2026-10-11). What follows are
+picker, the configuration kept across measures of one family, and direct member selection in place
+of Congress groups, 2026-10-11). What follows are
 semantics the implementation had to fix
 precisely, and provider facts verified live on 2026-09-25, recorded here so no surface has to
 rediscover them. Nothing in this section relaxes the point-in-time rule.
@@ -409,6 +424,121 @@ reason: a disclosure count is a state, and a Monitor's own not-matched -> matche
 raises a Signal on the session a Condition first holds. A `crosses above` form would be a second,
 differently latched way to say the same thing.
 
+### Direct member selection replaces Congress groups (2026-10-11)
+
+**Decision (owner).** Reusable Congress groups are removed from the product. A Congressional rule
+that narrows whose activity it counts selects the members itself, in its own configuration, and each
+rule has its own selection. There are no groups, presets or saved selections, and the Lists area is
+stock lists only.
+
+**Why it is safe.** The engine never read a group. It reads a list of actor ids and filters
+disclosures with it (`actorId IN (…)`); a group was one way to produce that list. A rule that holds
+the list itself feeds the same read, so the same members give the same number on every session —
+proven for every measure, lookback, chamber and owner filter, through a backtest and through a
+Monitor, by `alternative-data-scope-equivalence.integration.test.ts`.
+
+**What a selection means.** It is a membership filter, and the measure aggregates the pool:
+
+| Selected members disclosed | `Congress purchases` | `Congress buyers` | `…minimum disclosed purchase value` |
+| --- | --- | --- | --- |
+| A: one purchase, B: one purchase | 2 | 2 | A's band floor + B's |
+| A: two purchases, B: none | 2 | 1 | both of A's band floors |
+
+So `Congress purchases is above 1` holds in both rows. It would hold in neither if the rule were
+evaluated once per member and the results ORed, and `Congress sales is below 1` would hold whenever
+any one selected member had not sold. Pooled is what a group always did, and it is the only reading
+under which a threshold other than `is above 0` means what it says.
+
+**The stored shape.** `scope: { kind: "ACTORS", actorIds: [...] }` — this product's canonical actor
+ids, never display names; sorted, de-duplicated, between 1 and 250 (the bound a group had, so every
+group converts). A selection of nobody is refused: "anyone" already has a shape, and a rule that
+selects nobody reads a confident zero forever.
+
+**What did not move.** No stored `definitionHash`, no frame column and no Monitor latch:
+
+- A one-member selection serializes exactly as the old single-member scope did (`actor:<id>`), and
+  the old shape is rewritten to it at read time, as a schema version 1 FINAL EXIT is upgraded to one
+  Exit Rule.
+- A group scope serializes as it always did, because it is still read.
+- A selection of two or more contributes a **digest** of its ids to a fingerprint, not the ids. A
+  Monitor stores its level's fingerprint on every state row, Signal and transition, and 250 ids are
+  nine kilobytes; the digest keeps that string the size a group's was.
+
+**What must keep working.** Strategy versions and backtest snapshots saved before this still name a
+group or a single member, and they are re-read through the canonical validator on every path. So the
+validator keeps both legacy shapes; only the strategy **write** boundary refuses a group, including
+one carried over from the version being edited. A backtest still resolves a group from the
+membership frozen in its own snapshot, a Monitor still resolves it from the group as it stands, and
+the group tables and routes remain. The Builder opens a rule that names a group on that group's
+members, so one Apply turns it into a selection.
+
+**Duplicating a strategy that still names a group** gives the copy a selection of the members the
+group holds at that moment. A copy is a new strategy and nothing new may name a group, but refusing
+it left the user with a strategy they could run and not copy. The copy counts exactly the
+disclosures the original counts that day and stops following the group afterwards; the original is
+only read — same version, same hash, still naming its group. The group is read as a backtest
+submission reads it, so only a built-in group or the caller's own can be embedded. A group that is
+gone, not the caller's, or empty refuses the copy and says which: an empty selection is not a rule.
+
+**What an unknown scope does.** It is refused — by the validator, by the signature, by the loader
+and by the worker's snapshot parse — and is never read as nobody. A backtest snapshot holding a
+selection is written at snapshot version 2, which a worker built before the selection existed
+refuses at the parse; it would otherwise have serialized the unknown scope as a group with no id and
+completed the run reporting no congressional activity at all.
+
+**Converting what already exists** is the operator's deliberate act, never a side effect of a
+deploy: `pnpm strategies:convert-group-scopes` is a dry run unless told otherwise, appends a version
+and rewrites none, skips and names any strategy whose group is missing, empty or not its owner's,
+and will not convert a strategy that has a Monitor until told to — because the conversion resets
+that Monitor's affected levels once. `docs/development/congress-group-scope-conversion.md` is the
+runbook, including the deploy order.
+
+**The member catalog is synchronized with the provider's member directory** (owner, 2026-10-11;
+`docs/development/congress-member-catalog.md` is the runbook). The first version of this decision
+left the catalog holding only the members some loaded disclosure had named, which made the picker
+depend on which securities happened to have been opened. It no longer does:
+
+- **Where members come from.** `GET /stable/senate-profile` lists both chambers, in office and
+  former — 1,261 identities on 2026-10-11 — and carries the same bioguide id a disclosure carries.
+  A synchronization adds every member the catalog lacks and records the directory's spelling of
+  every member it holds. All 217 members that disclosures had already created were found in the
+  directory by that id, and kept their canonical ids.
+- **Identity is the bioguide id.** No identity is made from a name, a directory row whose id is not
+  a bioguide id is declined, and a member the directory stops listing is never removed.
+- **The whole directory or nothing.** A run reads every page of both halves before it writes, in
+  one transaction. A page that fails, an empty half, a filter the provider did not honour or paging
+  that does not advance fails the run and leaves the catalog as it was.
+- **An identity, never a trade.** A synchronization writes no disclosure and no coverage, and no
+  metric reads the catalog. A member it added has no disclosures; a rule selecting them counts
+  nothing where the security's coverage reaches and is still `NOT_EVALUABLE` where it does not.
+- **Whose label.** A member's displayed name, chamber and state are their disclosures' once one has
+  been loaded, as before, and the directory's until then. Ingestion is unchanged.
+- **It runs when somebody runs it**: `pnpm data:congress-members:sync` or
+  `POST /admin/congress-members/sync`, never on a page load and never beside another run. Nothing
+  schedules it; the runbook says when to.
+
+**What the catalog still does not hold, stated rather than hidden.**
+
+- **It is the provider's directory, not a guarantee.** A former member the directory does not list,
+  or a member sworn in since the last run, is in the catalog only once a disclosure of theirs is
+  loaded. Three people whose latest position is outside Congress and who have no loaded disclosure
+  are declined, because there is no chamber to file them under.
+- **The picker says which catalog it is searching.** `GET /alternative-data/actors/catalog` reports
+  `SYNCHRONIZED`, `NOT_SYNCHRONIZED` or `SYNCHRONIZATION_FAILED`, and an empty search is worded from
+  it: nobody matches, or the directory is not loaded and the member may simply not be here yet.
+- **A member has two spellings and no nicknames.** The directory spells 99 of those 217 members
+  differently from their disclosures — "Bill Cassidy" beside "William Cassidy" — and a search
+  matches either. Neither source holds a nickname: the senator people search for as "Ted Cruz" is
+  "Rafael E Cruz" in one and "Rafael Edward Cruz" in the other. A search whose whole term matches
+  nobody therefore still falls back to names sharing some of its words, those sharing more first
+  and, among equals, those sharing its last word first, so he is found by the surname. No alias is
+  invented and nothing is matched fuzzily.
+
+**Not changed, on purpose.** Which disclosures exist, when each becomes observable, how a window is
+measured, and what counts as coverage are exactly as they were. The data-quality questions the
+investigation raised — a trade disclosed again later, a disclosure dated before its trade, the
+absence of a provider-observation timestamp — are separate correctness work.
+
 ### Provider facts (verified live, 2026-09-25)
 
 - `insider-trading/search` takes `symbol`, `page` and `limit`. `limit` caps at **1000**; `page` is a
@@ -418,6 +548,13 @@ differently latched way to say the same thing.
   come newest-first by `disclosureDate`, and **ordering within one disclosure date is not stable
   between calls**. Both endpoints return the member's bioguide id in a field named `senateID`, and
   neither states the chamber — the endpoint asked is the only evidence.
+- `senate-profile` is the member directory and holds **both chambers** (verified live on
+  2026-10-11; `house-profile` answers HTTP 404). `active=true`, also the default, returns members
+  in office and `active=false` former ones; no row belongs to both. A page holds at most **500**
+  rows, `page` is a page index, and the page after the last is an empty array: 540 in office and
+  721 former that day, 1,261 distinct bioguide ids in the same `senateID` field the trade endpoints
+  use. `latestPosition` is the latest position only, and is an office outside Congress for a former
+  member who went on to hold one. There is no alias field.
 - Because the payloads carry no per-line identity, two genuinely separate same-day trades by one
   actor with identical size, price and amount band **collapse into one row**. Collapsing is the
   deterministic choice; the alternative is a row count that grows on every reingest.

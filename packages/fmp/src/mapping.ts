@@ -766,6 +766,17 @@ export type FmpStockProviderPort = {
 //   Rows come newest-first by `disclosureDate`, and **ordering within one disclosure date is not
 //   stable between calls**, which is why ingestion is keyed by content digest rather than by
 //   position. Both chambers return the member's bioguide id in a field named `senateID`.
+// - `senate-profile` is the member directory, and despite its name it holds **both chambers**
+//   (verified live on 2026-10-11; `house-profile` answers HTTP 404). It takes `active` and `page`:
+//   `active=true` — also the default — returns the members in office, `active=false` the former
+//   ones, and no row belongs to both. A page holds at most **500** rows and `page` is a page index;
+//   the page after the last is an empty array. That day it held 540 members in office (500 + 40)
+//   and 721 former ones (500 + 221): 1,261 distinct identities in four requests. Each row carries
+//   the bioguide id in the same `senateID` field the trade endpoints use, so a directory row and a
+//   disclosure name one identity. `latestPosition` is the **latest** position only — there is no
+//   history — and is `Representative`, `Senator`, or an office outside Congress (`Vice President`,
+//   `President`) for somebody who has since left it. There is no nickname or alias field: the
+//   directory spells the senator people call Ted Cruz "Rafael Edward" "Cruz".
 //
 // Form 13F is deliberately absent. Every `institutional-ownership/*` endpoint answered **HTTP 402
 // "Restricted Endpoint"** on this account, so an institutional integration could never have been
@@ -778,6 +789,9 @@ export const FMP_INSIDER_TRADING_MAX_PAGE_SIZE = 1000;
 
 /** Rows per congressional-trading page. Verified cap: a larger `limit` still returns 250 rows. */
 export const FMP_CONGRESS_TRADING_MAX_PAGE_SIZE = 250;
+
+/** Rows per member-directory page. A page shorter than this is the last one. */
+export const FMP_CONGRESS_MEMBER_PROFILE_PAGE_SIZE = 500;
 
 /** One row of `insider-trading/search`. */
 export type FmpInsiderTradeDto = {
@@ -826,6 +840,21 @@ export type FmpCongressTradeDto = {
 };
 
 /**
+ * One row of `senate-profile`: a member of either chamber, in office or not.
+ *
+ * `birthDate`, `latestParty`, `image` and `yearsActive` are sent too and deliberately not read:
+ * nothing in this product selects, labels or counts by them.
+ */
+export type FmpCongressMemberProfileDto = {
+  senateID?: unknown;
+  firstName?: unknown;
+  lastName?: unknown;
+  latestState?: unknown;
+  latestPosition?: unknown;
+  active?: unknown;
+};
+
+/**
  * One normalized insider transaction, still carrying the provider's raw row.
  *
  * A mapped row is deliberately **not** a `Security`-keyed domain fact yet: the provider answers by
@@ -856,6 +885,29 @@ export type MappedFmpInsiderTrade = {
   transactionValue?: number;
   sourceUrl?: string;
   raw: Record<string, unknown>;
+};
+
+/**
+ * One member of Congress as the directory describes them.
+ *
+ * An identity and a label, nothing else: a directory row says who somebody is, never that they
+ * traded. Only the identifier is required. A row whose name or position this product cannot use is
+ * still returned, with that field absent, so the caller can report what it declined and why rather
+ * than have it vanish in the mapper.
+ */
+export type MappedFmpCongressMember = {
+  /** The member's bioguide id: the same identity a disclosure row carries in `senateID`. */
+  externalId: string;
+  /** `firstName lastName`, spelled as the directory spells them. */
+  name?: string;
+  /** The chamber of the latest position; absent when that position is not a seat in Congress. */
+  chamber?: CongressChamber;
+  /** The provider's own `latestPosition`, e.g. `Vice President`. */
+  positionRaw?: string;
+  /** The two-letter state of the latest position. */
+  state?: string;
+  /** The provider's `active` flag; absent when the row does not state one. */
+  inOffice?: boolean;
 };
 
 export type MappedFmpCongressTrade = {
@@ -1074,6 +1126,48 @@ export function mapFmpCongressTrades(
   return mapped;
 }
 
+/** The provider's position titles that are a seat in Congress, and the chamber each sits in. */
+const CONGRESS_POSITION_CHAMBERS: Readonly<Record<string, CongressChamber>> = {
+  representative: "HOUSE",
+  senator: "SENATE",
+};
+
+/**
+ * Normalizes one page of the member directory.
+ *
+ * A row is dropped only when it carries no identifier, because nothing can be keyed without one.
+ * Everything else is kept and described: a position that is not a seat in Congress leaves `chamber`
+ * absent rather than guessed, and a state is read only as two letters.
+ */
+export function mapFmpCongressMemberProfiles(
+  rows: readonly FmpCongressMemberProfileDto[],
+): MappedFmpCongressMember[] {
+  const mapped: MappedFmpCongressMember[] = [];
+  for (const row of rows) {
+    const externalId = optionalString(row.senateID);
+    if (!externalId) {
+      continue;
+    }
+    const name = [optionalString(row.firstName), optionalString(row.lastName)]
+      .filter((part) => part)
+      .join(" ");
+    const positionRaw = optionalString(row.latestPosition);
+    const chamber = positionRaw
+      ? CONGRESS_POSITION_CHAMBERS[positionRaw.toLowerCase()]
+      : undefined;
+    const state = optionalString(row.latestState)?.toUpperCase();
+    mapped.push({
+      externalId,
+      ...(name ? { name } : {}),
+      ...(chamber ? { chamber } : {}),
+      ...(positionRaw ? { positionRaw } : {}),
+      ...(state && /^[A-Z]{2}$/.test(state) ? { state } : {}),
+      ...(typeof row.active === "boolean" ? { inOffice: row.active } : {}),
+    });
+  }
+  return mapped;
+}
+
 /**
  * One page of provider rows, and how many rows the provider actually sent.
  *
@@ -1097,6 +1191,7 @@ export type FmpProviderPage<T> = {
 
 export type FmpInsiderTradePage = FmpProviderPage<MappedFmpInsiderTrade>;
 export type FmpCongressTradePage = FmpProviderPage<MappedFmpCongressTrade>;
+export type FmpCongressMemberPage = FmpProviderPage<MappedFmpCongressMember>;
 
 /**
  * Insider Form 4 activity, kept as its own port.
@@ -1120,4 +1215,19 @@ export type FmpCongressTradingPort = {
     page: number;
     limit: number;
   }): Promise<FmpCongressTradePage>;
+};
+
+/**
+ * The member directory, kept as its own port.
+ *
+ * Separate from `FmpCongressTradingPort` on purpose: a directory page is asked for no security and
+ * says nothing about a trade, so the loader that ingests disclosures has no way to reach it and the
+ * directory synchronization has no way to reach a disclosure.
+ */
+export type FmpCongressMemberDirectoryPort = {
+  /** One page of members who are (`inOffice`) or are no longer in office. */
+  getCongressMemberProfiles(input: {
+    inOffice: boolean;
+    page: number;
+  }): Promise<FmpCongressMemberPage>;
 };

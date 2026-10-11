@@ -1821,10 +1821,20 @@ enum CongressAssetClass {
 /// insider person groups, and an insider metric counts distinct reporting CIKs straight off
 /// `InsiderTransaction` — so a discriminator would have exactly one value, which is a distinction the
 /// product does not make. A second kind adds the column back.
+///
+/// A row comes into existence in one of two ways, and neither says anything about the other: a
+/// disclosure names the member (ingestion), or the provider's member directory lists them
+/// (`CongressMemberCatalogSync`). A row is therefore **an identity, never a statement about
+/// trading**: a member the directory added has no `CongressTrade` and no coverage, and no metric
+/// reads this table.
 model AlternativeDataActor {
   id              String             @id @default(uuid())
   externalId      String             @unique
   displayName     String
+  /// The member directory's own spelling of the name, where the directory knows the member — "Bill
+  /// Cassidy" beside a disclosure's "William Cassidy". A second spelling the picker searches, never
+  /// the identity and never a label a disclosure has to agree with.
+  profileName     String?
   chamber         CongressChamber
   /// The two-letter state, where the provider reports one.
   state           String?
@@ -1839,6 +1849,38 @@ model AlternativeDataActor {
 
   /// Backs the searchable actor picker.
   @@index([displayName])
+}
+
+/// The member catalog's synchronization with the provider's directory: one row, id
+/// `CONGRESS_MEMBER_CATALOG_SYNC_ID` (`docs/development/congress-member-catalog.md`).
+///
+/// It answers two questions nothing else can. **Has the directory ever been loaded whole?** —
+/// `lastCompletedAt`, which is what lets the picker tell "nobody matches" from "the directory is
+/// not here yet". And **is a synchronization running?** — the claim columns, which carry the same
+/// meaning as `MonitorScanSchedule`'s: a run holds the row until it finishes or its lease expires,
+/// so two runs never ask the provider for the same directory at once and a crashed one does not
+/// block the next for longer than its lease.
+///
+/// It is not a schedule: nothing here says when the next run is due. A run is started by an
+/// operator or an administrator, and is safe to start at any time.
+model CongressMemberCatalogSync {
+  id                  String    @id
+  claimedBy           String?
+  claimedAt           DateTime?
+  leaseExpiresAt      DateTime?
+  /// Monotonic run counter, so two runs are distinguishable in logs without comparing clocks.
+  runSequence         Int       @default(0)
+  lastStartedAt       DateTime?
+  /// When a run last read the provider's whole directory and wrote it. Null until one has.
+  lastCompletedAt     DateTime?
+  lastFailedAt        DateTime?
+  /// Consecutive failed runs. Reset by a run that completes.
+  consecutiveFailures Int       @default(0)
+  /// Why the last failed run failed: a code and a sentence, never a provider payload.
+  lastError           String?
+  /// The counts of the last completed run. Diagnostics only, never read by a query.
+  lastSummary         Json?
+  updatedAt           DateTime  @updatedAt
 }
 
 /// A reusable, explicit collection of actors, owned by a user or by the system (built-in).

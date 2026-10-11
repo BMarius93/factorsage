@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mapFmpCongressTrades, mapFmpInsiderTrades } from "./mapping.js";
+import {
+  mapFmpCongressMemberProfiles,
+  mapFmpCongressTrades,
+  mapFmpInsiderTrades,
+} from "./mapping.js";
 
 /**
  * Mapping the alternative-data provider payloads.
@@ -225,5 +229,167 @@ describe("mapFmpCongressTrades", () => {
       { ...SENATE_SALE, office: "", firstName: "", lastName: "" },
     ]);
     expect(mapped?.actorDisplayName).toBe("T000278");
+  });
+});
+
+// Captured live on 2026-10-11: single rows of `senate-profile`, which holds both chambers.
+const PROFILE_REPRESENTATIVE = {
+  senateID: "P000197",
+  firstName: "Nancy",
+  lastName: "Pelosi",
+  birthDate: "1940-03-26",
+  latestParty: "Democrat",
+  latestState: "CA",
+  latestPosition: "Representative",
+  image: "https://images.financialmodelingprep.com/senate/P000197.jpg",
+  active: true,
+  yearsActive: 39.8,
+};
+
+const PROFILE_SENATOR = {
+  senateID: "C001098",
+  firstName: "Rafael Edward",
+  lastName: "Cruz",
+  birthDate: "1970-12-22",
+  latestParty: "Republican",
+  latestState: "TX",
+  latestPosition: "Senator",
+  image: "https://images.financialmodelingprep.com/senate/C001098.jpg",
+  active: true,
+  yearsActive: 13.8,
+};
+
+// `senate-profile?active=false`: a former senator.
+const PROFILE_FORMER_SENATOR = {
+  senateID: "C000174",
+  firstName: "Thomas Richard",
+  lastName: "Carper",
+  birthDate: "1947-01-23",
+  latestParty: "Democrat",
+  latestState: "DE",
+  latestPosition: "Senator",
+  image: "https://images.financialmodelingprep.com/senate/C000174.jpg",
+  active: false,
+  yearsActive: 34,
+};
+
+// A former senator whose latest position is an office outside Congress.
+const PROFILE_VICE_PRESIDENT = {
+  senateID: "V000137",
+  firstName: "James David",
+  lastName: "Vance",
+  birthDate: "1984-08-02",
+  latestParty: "Republican",
+  latestState: "US",
+  latestPosition: "Vice President",
+  image: "https://images.financialmodelingprep.com/senate/V000137.jpg",
+  active: true,
+  yearsActive: 3.7,
+};
+
+describe("mapFmpCongressMemberProfiles", () => {
+  it("maps a live member of each chamber to an identity and a label", () => {
+    expect(
+      mapFmpCongressMemberProfiles([PROFILE_REPRESENTATIVE, PROFILE_SENATOR]),
+    ).toEqual([
+      {
+        externalId: "P000197",
+        name: "Nancy Pelosi",
+        chamber: "HOUSE",
+        positionRaw: "Representative",
+        state: "CA",
+        inOffice: true,
+      },
+      {
+        externalId: "C001098",
+        name: "Rafael Edward Cruz",
+        chamber: "SENATE",
+        positionRaw: "Senator",
+        state: "TX",
+        inOffice: true,
+      },
+    ]);
+  });
+
+  it("carries the same identifier a disclosure of the same member carries", () => {
+    // The whole reconciliation rests on this: `senateID` is the bioguide id on both sources.
+    const [profile] = mapFmpCongressMemberProfiles([
+      { ...PROFILE_SENATOR, senateID: SENATE_SALE.senateID },
+    ]);
+    const [trade] = mapFmpCongressTrades("SENATE", [SENATE_SALE]);
+    expect(profile?.externalId).toBe(trade?.actorExternalId);
+  });
+
+  it("says a former member is not in office", () => {
+    expect(mapFmpCongressMemberProfiles([PROFILE_FORMER_SENATOR])).toEqual([
+      {
+        externalId: "C000174",
+        name: "Thomas Richard Carper",
+        chamber: "SENATE",
+        positionRaw: "Senator",
+        state: "DE",
+        inOffice: false,
+      },
+    ]);
+  });
+
+  it("gives no chamber to a position that is not a seat in Congress", () => {
+    // Kept, so the caller can report it — and never guessed into a chamber.
+    const [member] = mapFmpCongressMemberProfiles([PROFILE_VICE_PRESIDENT]);
+    expect(member).toEqual({
+      externalId: "V000137",
+      name: "James David Vance",
+      positionRaw: "Vice President",
+      state: "US",
+      inOffice: true,
+    });
+    expect(member).not.toHaveProperty("chamber");
+  });
+
+  it("reads none of the fields nothing selects, labels or counts by", () => {
+    const [member] = mapFmpCongressMemberProfiles([PROFILE_REPRESENTATIVE]);
+    expect(Object.keys(member ?? {}).sort()).toEqual([
+      "chamber",
+      "externalId",
+      "inOffice",
+      "name",
+      "positionRaw",
+      "state",
+    ]);
+  });
+
+  it("drops only a row with no identifier, and never invents one from a name", () => {
+    expect(
+      mapFmpCongressMemberProfiles([
+        { ...PROFILE_SENATOR, senateID: "" },
+        { ...PROFILE_SENATOR, senateID: null },
+        { firstName: "Nancy", lastName: "Pelosi" },
+        PROFILE_REPRESENTATIVE,
+      ]).map((member) => member.externalId),
+    ).toEqual(["P000197"]);
+  });
+
+  it("leaves out what a row does not state rather than defaulting it", () => {
+    expect(
+      mapFmpCongressMemberProfiles([
+        {
+          senateID: "X000001",
+          firstName: " ",
+          lastName: null,
+          latestState: "Texas",
+          latestPosition: "",
+          active: "true",
+        },
+      ]),
+    ).toEqual([{ externalId: "X000001" }]);
+  });
+
+  it("joins the name from whichever part the directory sent", () => {
+    expect(
+      mapFmpCongressMemberProfiles([
+        { senateID: "X000002", lastName: "Cassidy" },
+        { senateID: "X000003", firstName: " Bill ", lastName: " Cassidy " },
+      ]).map((member) => member.name),
+    ).toEqual(["Cassidy", "Bill Cassidy"]);
   });
 });

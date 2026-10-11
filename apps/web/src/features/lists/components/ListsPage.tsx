@@ -5,7 +5,7 @@ import {
   type StockListSummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import actions from "../../../components/ui/actions.module.css";
@@ -23,12 +23,10 @@ import {
   partitionByOwnership,
 } from "../../../components/ui/OwnedCollection";
 import { PageHeader } from "../../../components/ui/PageHeader";
-import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
-import { ActorGroupsCollection } from "../../alternative-data/components/ActorGroupsCollection";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStockList, duplicateStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
@@ -104,31 +102,8 @@ const LIST_SORTS: readonly CollectionSort<StockListSummaryResponse>[] = [
   },
 ];
 
-/**
- * The collections the Lists area holds.
- *
- * `docs/alternative-data-signals.md` asks for Stock Lists and Congress Groups inside this one area
- * rather than as new top-level navigation, so they are views of this page. The choice is in the URL
- * (`?view=`) so a view is linkable and survives a reload, and it is a `SegmentedControl` — the
- * product's one component for "narrow what this page shows".
- */
-const LIST_VIEWS = [
-  { value: "stocks", label: "Stock lists" },
-  { value: "congress", label: "Congress groups" },
-] as const;
-
-type ListsView = (typeof LIST_VIEWS)[number]["value"];
-
-function viewFromParam(value: string | null): ListsView {
-  return LIST_VIEWS.some((entry) => entry.value === value)
-    ? (value as ListsView)
-    : "stocks";
-}
-
 export function ListsPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const view = viewFromParam(searchParams.get("view"));
   const { status, lists, retry, applyCreated, applyUpdated, applyDeleted } =
     useStockLists();
   const gate = useSignInPrompt();
@@ -141,15 +116,22 @@ export function ListsPage() {
   // `/lists?new=1` is the "Create a stock list" destination for other surfaces (a monitor with no
   // list to watch), so that link lands on the create dialog rather than on a page to search.
   // Read once, after the session resolves, and removed from the URL so a reload does not reopen it.
+  //
+  // `/lists?view=congress` is handled here too. It used to select the Congress groups view, which
+  // left the product on 2026-10-11; a bookmark or an old link carrying it shows the stock lists,
+  // and the dead parameter is dropped so the address says what the page is.
   const newRequestHandled = useRef(false);
   useEffect(() => {
     if (!gate.resolved || newRequestHandled.current) {
       return;
     }
     newRequestHandled.current = true;
-    if (new URLSearchParams(window.location.search).get("new") === "1") {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("new") === "1") {
       router.replace("/lists");
       create();
+    } else if (query.has("view")) {
+      router.replace("/lists");
     }
   });
 
@@ -279,53 +261,38 @@ export function ListsPage() {
   // "New list" lives in the header in every state — loading, empty, error, populated — so it
   // never moves or changes weight (UI-030). It waits only for the session to resolve, because a
   // Guest's click asks for an account instead.
-  const headerAction =
-    view === "stocks" ? (
-      <button
-        type="button"
-        className={forms.tintedButton}
-        data-testid="new-list-button"
-        disabled={!gate.resolved}
-        onClick={create}
-      >
-        New list
-      </button>
-    ) : undefined;
+  const headerAction = (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-list-button"
+      disabled={!gate.resolved}
+      onClick={create}
+    >
+      New list
+    </button>
+  );
 
   return (
     <PageContainer>
       <div className={styles.page} data-testid="lists-page">
         <PageHeader
           title="Lists"
-          lead="Reusable universes and actor groups for strategies, backtests, and monitors."
-          {...(headerAction ? { actions: headerAction } : {})}
+          lead="Reusable stock universes for strategies, backtests, and monitors."
+          actions={headerAction}
         />
 
-        <SegmentedControl
-          label="Choose a collection"
-          testId="lists-view"
-          options={LIST_VIEWS.map((entry) => ({ ...entry }))}
-          value={view}
-          onChange={(next) =>
-            // Replace rather than push: switching a view is not a step a user expects the back button
-            // to walk through one at a time.
-            router.replace(next === "stocks" ? "/lists" : `/lists?view=${next}`)
-          }
-        />
-
-        {view === "congress" ? <ActorGroupsCollection /> : null}
-
-        {view === "stocks" && status === "ready" && gate.signedIn ? (
+        {status === "ready" && gate.signedIn ? (
           <ListComplianceNotice own={own} />
         ) : null}
 
-        {view === "stocks" && status === "loading" ? (
+        {status === "loading" ? (
           <SectionCard ariaLabel="Loading lists">
             <SkeletonList rows={4} />
           </SectionCard>
         ) : null}
 
-        {view === "stocks" && status === "error" ? (
+        {status === "error" ? (
           <EmptyState
             variant="error"
             title="Your lists could not be loaded"
@@ -374,7 +341,7 @@ export function ListsPage() {
           />
         ) : null}
 
-        {view === "stocks" && status === "ready" && builtIn.length > 0 ? (
+        {status === "ready" && builtIn.length > 0 ? (
           <CollectionSection
             title="Built-in lists"
             caption="FactorSage's own universes. Everyone can read and backtest them; only FactorSage changes them."

@@ -1,5 +1,7 @@
 import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
+import { alternativeDataScope } from "./alternative-data.js";
 import {
+  collectAlternativeDataMetrics,
   describeCondition,
   describeTrigger,
   normalizeStrategyDefinition,
@@ -362,17 +364,27 @@ function reasonBodyOf(
 }
 
 /**
- * The display names a run's own snapshot can vouch for: every actor group it froze, by the name the
- * group had at submission.
+ * The display names a run's own snapshot can vouch for: every actor it selected and every actor
+ * group it froze, by the name each had at submission.
  *
- * Passed to {@link backtestTradeReasonIndex} so a group-scoped rule reads
- * `Congress buyers is above 1 (30D · House leadership)` in the trade log, from the snapshot rather
- * than from the group as it stands today — or `Selected group` if the run froze none.
+ * Passed to {@link backtestTradeReasonIndex} so a scoped rule reads
+ * `Congress buyers is above 1 (30D · Nancy Pelosi, Tommy Tuberville)` in the trade log from the
+ * snapshot rather than from the catalog as it stands today, and a legacy group-scoped one
+ * `(30D · House leadership)` — or `Selected group` if the run froze none.
+ *
+ * A run submitted before 2026-10-11 froze no actor labels, so a rule of its scoped to one member
+ * finds no name here; the API fills those from the actor catalog, which never deletes a member.
  */
 export function backtestSnapshotScopeNames(
-  snapshot: Pick<BacktestRunSnapshot, "actorGroups">,
+  snapshot: Pick<BacktestRunSnapshot, "actorGroups" | "actors">,
 ): StrategyScopeNames {
   return {
+    actors: Object.fromEntries(
+      (snapshot.actors ?? []).map((actor) => [
+        actor.actorId,
+        actor.displayName,
+      ]),
+    ),
     groups: Object.fromEntries(
       (snapshot.actorGroups ?? []).map((group) => [group.groupId, group.name]),
     ),
@@ -851,7 +863,48 @@ export const BACKTEST_PENDING_POLL_INTERVAL_MS = 2_500;
 // The immutable submission snapshot
 // ---------------------------------------------------------------------------
 
+/**
+ * The snapshot document's versions.
+ *
+ * A snapshot is written at the **lowest version able to express it**, so the version is a statement
+ * about what a worker must understand to execute this run rather than about when it was submitted:
+ *
+ * - `1` — everything a run could hold before 2026-10-11. Still written for every run whose strategy
+ *   selects no member of Congress directly, so those snapshots, and their `snapshotHash`, are
+ *   byte-for-byte what they always were.
+ * - `2` — the frozen definition holds an `ACTORS` scope. A worker built before that scope existed
+ *   refuses any version but `1` at the parse, which is the point: it would otherwise serialize the
+ *   unknown scope as a group with no id, resolve it to nobody, and complete the run reporting zero
+ *   congressional activity. A refusal is a failed run someone can re-submit; that would have been a
+ *   wrong result nobody could see.
+ *
+ * {@link backtestSnapshotVersionFor} is the one place the choice is made.
+ */
 export const BACKTEST_SNAPSHOT_VERSION = 1;
+export const BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION = 2;
+export const BACKTEST_SNAPSHOT_VERSIONS = [
+  BACKTEST_SNAPSHOT_VERSION,
+  BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION,
+] as const;
+export type BacktestSnapshotVersion =
+  (typeof BACKTEST_SNAPSHOT_VERSIONS)[number];
+
+export function isBacktestSnapshotVersion(
+  value: unknown,
+): value is BacktestSnapshotVersion {
+  return (BACKTEST_SNAPSHOT_VERSIONS as readonly unknown[]).includes(value);
+}
+
+/** The lowest snapshot version that can carry one frozen strategy definition. */
+export function backtestSnapshotVersionFor(
+  definition: StrategyDefinition,
+): BacktestSnapshotVersion {
+  return collectAlternativeDataMetrics(definition).some(
+    (metric) => alternativeDataScope(metric)?.kind === "ACTORS",
+  )
+    ? BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION
+    : BACKTEST_SNAPSHOT_VERSION;
+}
 
 /**
  * One resolved list member, frozen at submission.
@@ -880,6 +933,20 @@ export type BacktestSnapshotActorGroup = {
   groupId: string;
   name: string;
   members: { actorId: string; externalId: string; displayName: string }[];
+};
+
+/**
+ * One member of Congress a run's strategy selects directly, as the run froze them.
+ *
+ * `actorId` is the identity and is what the frozen definition's `ACTORS` scope already holds — this
+ * entry adds nothing execution reads. It exists for reporting: `externalId` (the bioguide id) says
+ * who the member is independently of this database, and `displayName` is the label the member had at
+ * submission, so a completed run names who it counted however the catalog reads later.
+ */
+export type BacktestSnapshotActor = {
+  actorId: string;
+  externalId: string;
+  displayName: string;
 };
 
 /**
@@ -961,7 +1028,7 @@ export function revisionMismatches(
 }
 
 export type BacktestRunSnapshot = {
-  snapshotVersion: typeof BACKTEST_SNAPSHOT_VERSION;
+  snapshotVersion: BacktestSnapshotVersion;
   submittedAt: string;
   strategy: {
     strategyId: string;
@@ -993,6 +1060,18 @@ export type BacktestRunSnapshot = {
    * also means no existing snapshot changes, and `BACKTEST_SNAPSHOT_VERSION` does not move.
    */
   actorGroups?: BacktestSnapshotActorGroup[];
+  /**
+   * Every member of Congress the frozen definition selects directly, with identity and label.
+   *
+   * The selection itself is in `strategy.definition` — an `ACTORS` scope holds its own ids — so
+   * execution reads nothing here. This is the reporting half: who those ids were, by bioguide id and
+   * by the name they had at submission.
+   *
+   * **Optional, absent on every run submitted before 2026-10-11** and on every run whose strategy
+   * selects nobody directly, sorted by `actorId` so two submissions of one configuration are
+   * byte-identical.
+   */
+  actors?: BacktestSnapshotActor[];
   period: {
     startDate: string;
     endDate: string;

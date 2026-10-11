@@ -299,6 +299,7 @@ async function main(): Promise<void> {
         filedBeforeTransaction: result.filedBeforeTransaction,
         observableSessionViolations: result.observableSessionViolations,
         perMetric: result.perMetric,
+        scoped: result.scoped,
         coverage: result.coverage,
         differences: result.ledger.differences,
       });
@@ -313,10 +314,17 @@ async function main(): Promise<void> {
             filedBeforeTransaction: result.filedBeforeTransaction,
             observableSessionViolations: result.observableSessionViolations,
             perMetric: result.perMetric,
+            scoped: result.scoped,
           },
           failures:
-            result.availabilityViolations + result.observableSessionViolations,
+            result.availabilityViolations +
+            result.observableSessionViolations +
+            result.scoped.selectionMismatches,
           notes: [
+            `Rules scoped to selected members were audited in ${result.scoped.securities} of ` +
+              `${securities.length} securities: ${result.scoped.selectionsCompared} selections read ` +
+              "through the store and through a group scope were compared with the oracle's own walk " +
+              `of every persisted row, with ${result.scoped.selectionMismatches} mismatches.`,
             `${result.filedBeforeTransaction} row(s) the provider dated as filed on or before the ` +
               "transaction they report. A provider anomaly: availability is still publication + 1 " +
               "day on every one of them, which is the only rule the product states.",
