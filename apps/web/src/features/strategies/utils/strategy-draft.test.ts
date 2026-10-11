@@ -711,7 +711,9 @@ describe("category and metric", () => {
     expect(firstCondition(price.definition)?.metric).toEqual({ kind: "PRICE" });
   });
 
-  it("starts a newly chosen metric of the same category at its own default configuration", () => {
+  it("installs exactly the metric `setMetric` is given, at the configuration it carries", () => {
+    // `setMetric` is the Configure dialog's path and installs what it is handed; carrying a
+    // configuration across measures is the picker's rule (`chooseMetric`, below).
     const configured = apply(withOneBuyLevel(), {
       type: "setMetric",
       ref: BUY_ROW,
@@ -838,5 +840,239 @@ describe("category and metric", () => {
     });
     expect(draft.definition).toBe(definition);
     expect(draftPayload(draft).definition).toBe(definition);
+  });
+});
+
+describe("the Metric picker's choice", () => {
+  const INSIDER_SELLERS_180D: StrategyMetric = {
+    kind: "INSIDER_ACTIVITY",
+    measure: "SELLERS",
+    lookback: 180,
+    roles: ["CEO", "CFO"],
+  };
+  const CONGRESS_SALES_CONFIGURED: StrategyMetric = {
+    kind: "CONGRESS_ACTIVITY",
+    measure: "SALES",
+    lookback: 90,
+    scope: { kind: "GROUP", groupId: "group-1" },
+    chamber: "SENATE",
+    owners: ["SELF", "SPOUSE"],
+  };
+
+  /** The option the registry offers for an identity: what the picker hands `chooseMetric`. */
+  function offered(
+    key: string,
+    levelKind: "BUY" | "SELL" = "BUY",
+  ): StrategyMetric {
+    const option = strategyMetricOptions(levelKind).find(
+      (candidate) => strategyMetricKey(candidate.metric) === key,
+    );
+    expect(option, `${key} is offered`).toBeDefined();
+    return option!.metric;
+  }
+
+  function choose(state: StrategyDraftState, key: string): StrategyDraftState {
+    return apply(state, {
+      type: "chooseMetric",
+      ref: BUY_ROW,
+      metric: offered(key),
+    });
+  }
+
+  it("installs a metric of another category directly, on that metric's own starting rule", () => {
+    // One choice, not the category's first metric followed by a second edit.
+    const below = apply(withOneBuyLevel(), {
+      type: "setOperator",
+      ref: BUY_ROW,
+      operator: "IS_BELOW",
+    });
+    const rsi = choose(below, "OSCILLATOR:RSI_14D");
+    expect(firstCondition(rsi.definition)).toMatchObject({
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 50 },
+    });
+    // A threshold that would still type-check in the new family is not carried across a category:
+    // an RSI level of 30 is not an insider count of 30.
+    const thirty = apply(rsi, {
+      type: "setValue",
+      ref: BUY_ROW,
+      value: { kind: "NUMBER", value: 30 },
+    });
+    expect(
+      firstCondition(choose(thirty, "INSIDER_ACTIVITY:BUYERS").definition),
+    ).toMatchObject({
+      metric: { kind: "INSIDER_ACTIVITY", measure: "BUYERS", lookback: 20 },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 0 },
+    });
+  });
+
+  it("keeps operator and threshold across metrics of one category when they still fit", () => {
+    const rsi = apply(
+      choose(withOneBuyLevel(), "OSCILLATOR:RSI_7D"),
+      { type: "setOperator", ref: BUY_ROW, operator: "IS_BELOW" },
+      { type: "setValue", ref: BUY_ROW, value: { kind: "NUMBER", value: 30 } },
+    );
+    expect(
+      firstCondition(choose(rsi, "OSCILLATOR:RSI_21D").definition),
+    ).toMatchObject({
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_21D" },
+      operator: "IS_BELOW",
+      value: { kind: "NUMBER", value: 30 },
+    });
+  });
+
+  it("carries an Insider configuration to another Insider measure", () => {
+    const configured = apply(withOneBuyLevel(), {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: INSIDER_SELLERS_180D,
+    });
+    const buyers = choose(configured, "INSIDER_ACTIVITY:BUYERS");
+    expect(firstCondition(buyers.definition)?.metric).toEqual({
+      kind: "INSIDER_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 180,
+      roles: ["CEO", "CFO"],
+    });
+    // A measure in another unit keeps the configuration and starts its own threshold.
+    const value = choose(buyers, "INSIDER_ACTIVITY:PURCHASE_VALUE");
+    expect(firstCondition(value.definition)).toMatchObject({
+      metric: {
+        kind: "INSIDER_ACTIVITY",
+        measure: "PURCHASE_VALUE",
+        lookback: 180,
+        roles: ["CEO", "CFO"],
+      },
+      operator: "IS_ABOVE",
+      value: { kind: "MONEY", value: 0 },
+    });
+    expect(
+      validateStrategy(
+        draftPayload(
+          apply(value, {
+            type: "setName",
+            name: "Carried",
+          }),
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("carries a Congressional configuration to another Congressional measure", () => {
+    const configured = apply(withOneBuyLevel(), {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: CONGRESS_SALES_CONFIGURED,
+    });
+    expect(
+      firstCondition(choose(configured, "CONGRESS_ACTIVITY:BUYERS").definition)
+        ?.metric,
+    ).toEqual({ ...CONGRESS_SALES_CONFIGURED, measure: "BUYERS" });
+  });
+
+  it("never carries a configuration into another family", () => {
+    const configured = apply(withOneBuyLevel(), {
+      type: "setMetric",
+      ref: BUY_ROW,
+      metric: INSIDER_SELLERS_180D,
+    });
+    expect(
+      firstCondition(
+        choose(configured, "CONGRESS_ACTIVITY:PURCHASES").definition,
+      )?.metric,
+    ).toEqual({
+      kind: "CONGRESS_ACTIVITY",
+      measure: "PURCHASES",
+      lookback: 30,
+      scope: { kind: "ANY" },
+      chamber: "ANY",
+    });
+    const back = choose(
+      choose(configured, "PRICE:"),
+      "INSIDER_ACTIVITY:SELLERS",
+    );
+    expect(firstCondition(back.definition)?.metric).toEqual({
+      kind: "INSIDER_ACTIVITY",
+      measure: "SELLERS",
+      lookback: 20,
+    });
+  });
+
+  it("changes nothing when the row's own metric is chosen again", () => {
+    const configured = apply(
+      withOneBuyLevel(),
+      { type: "setMetric", ref: BUY_ROW, metric: INSIDER_SELLERS_180D },
+      { type: "setOperator", ref: BUY_ROW, operator: "IS_BELOW" },
+      { type: "setValue", ref: BUY_ROW, value: { kind: "NUMBER", value: 4 } },
+    );
+    expect(choose(configured, "INSIDER_ACTIVITY:SELLERS")).toBe(configured);
+  });
+
+  it("ignores a metric the row's level kind or half of a Signal does not offer", () => {
+    const state = withOneBuyLevel();
+    expect(
+      apply(state, {
+        type: "chooseMetric",
+        ref: BUY_ROW,
+        metric: { kind: "GAIN" },
+      }),
+    ).toBe(state);
+    const withTrigger = apply(state, {
+      type: "addTrigger",
+      ref: { levelKind: "BUY", levelIndex: 0 },
+    });
+    expect(
+      apply(withTrigger, {
+        type: "chooseMetric",
+        ref: { levelKind: "BUY", levelIndex: 0, part: "TRIGGER" },
+        metric: offered("INSIDER_ACTIVITY:BUYERS"),
+      }),
+    ).toBe(withTrigger);
+  });
+
+  it("keeps the row's identity and every other row untouched", () => {
+    const state = apply(withOneBuyLevel(), {
+      type: "addCondition",
+      ref: { levelKind: "BUY", levelIndex: 0 },
+    });
+    const [first, second] = state.definition.buyLevels[0]!.signal.conditions;
+    const next = choose(state, "VALUATION_RATIO:PRICE_TO_EARNINGS_TTM");
+    const [after, untouched] = next.definition.buyLevels[0]!.signal.conditions;
+    expect(after?.id).toBe(first?.id);
+    expect(next.definition.buyLevels[0]?.id).toBe(
+      state.definition.buyLevels[0]?.id,
+    );
+    expect(untouched).toBe(second);
+  });
+
+  it("reaches a valid rule from every metric to every other one the level offers", () => {
+    for (const from of strategyMetricOptions("SELL")) {
+      for (const to of strategyMetricOptions("SELL")) {
+        const ref = {
+          levelKind: "SELL",
+          levelIndex: 0,
+          part: "CONDITION",
+          conditionIndex: 0,
+        } as const;
+        const state = apply(
+          withOneBuyLevel(),
+          { type: "setName", name: "Every pair" },
+          { type: "addLevel", levelKind: "SELL" },
+          { type: "chooseMetric", ref, metric: from.metric },
+          { type: "chooseMetric", ref, metric: to.metric },
+        );
+        const row = state.definition.sellLevels[0]!.signal.conditions[0]!;
+        expect(strategyMetricKey(row.metric)).toBe(
+          strategyMetricKey(to.metric),
+        );
+        expect(
+          validateStrategy(draftPayload(state)).filter(
+            (issue) => issue.path.levelKind === "SELL",
+          ),
+        ).toEqual([]);
+      }
+    }
   });
 });

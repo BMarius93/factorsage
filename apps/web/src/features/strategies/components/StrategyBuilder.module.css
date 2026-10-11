@@ -392,11 +392,12 @@
 /*
  * One rule, on a phone.
  *
- * The fields read as two short lines — Category and Metric, then Condition and Value — because a
- * predicate is one sentence, four selects side by side do not fit a phone, and four stacked selects
- * per rule made a two-condition level taller than the screen. What also gives way is the desktop's
- * reserved `AND` column: on a phone the connector is a small line above the rule it joins, which is
- * the same relationship in a fifth of the width.
+ * The fields read as two short lines — the Metric, then Condition and Value — because a predicate is
+ * one sentence, three controls side by side do not fit a phone, and three stacked controls per rule
+ * made a two-condition level taller than the screen. The Metric has the line to itself because its
+ * labels are the longest. What also gives way is the desktop's reserved `AND` column: on a phone the
+ * connector is a small line above the rule it joins, which is the same relationship in a fifth of the
+ * width.
  */
 .predicateRow {
   display: grid;
@@ -420,15 +421,23 @@
 }
 
 /*
- * Category, Metric, Condition and Value, in document order: two to a line in a narrow list, all four
- * on one line once the list is wide enough (below). A truncated label stays whole in `title`, in the
- * native picker and in the control's accessible value.
+ * Metric, Condition and Value, in document order: the Metric on a line of its own and the other two
+ * beside each other in a narrow list, all three on one line once the list is wide enough (below). A
+ * truncated label stays whole in `title`, in the native picker and in the control's accessible name.
+ *
+ * Positioned, because it is what the Metric and Value pickers' popovers anchor to: they open as wide
+ * as the rule's fields rather than as narrow as the control that opened them.
  */
 .predicateFields {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 4px;
   min-width: 0;
+}
+
+.predicateFields > :first-child {
+  grid-column: 1 / -1;
 }
 
 /*
@@ -722,16 +731,18 @@
 }
 
 /*
- * Category / Metric / Condition / Value read as one sentence once the list has room for all four.
- * Sized to the vocabulary rather than split evenly: the operator's longest label is `crosses above`,
- * and the Metric gets the most because catalog labels ("Margin of Safety · DCF (FCFF)") are the
- * longest. Below this width the two-line layout above keeps every control readable.
+ * Metric / Condition / Value read as one sentence once the list has room for all three. Sized to the
+ * vocabulary rather than split evenly: the operator's longest label is `crosses above`, and the
+ * Metric gets the most because catalog labels ("Margin of Safety · DCF (FCFF)") are the longest.
+ * Below this width the two-line layout above keeps every control readable.
  */
-@container predicate-list (min-width: 680px) {
+@container predicate-list (min-width: 560px) {
   .predicateFields {
-    grid-template-columns:
-      minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 0.95fr)
-      minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.95fr) minmax(0, 1fr);
+  }
+
+  .predicateFields > :first-child {
+    grid-column: auto;
   }
 }
 

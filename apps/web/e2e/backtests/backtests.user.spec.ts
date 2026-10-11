@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { runIdFromUrl, waitForRunsToSettle } from "../utils/backtests";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
+import { chooseMetric, chooseSeriesValue } from "../utils/strategy-builder";
 
 /**
  * Full backtest journey for PRO_USER against an already-running stack.
@@ -107,9 +108,10 @@ async function createStrategy(page: Page, name: string) {
   await page.getByLabel("Name").fill(name);
   await page.getByTestId("add-level-BUY").click();
   const buyCard = page.getByTestId("level-card-BUY").first();
-  await buyCard.getByTestId("metric-select").first().selectOption("PRICE:");
-  await buyCard.getByTestId("operator-select").first().selectOption("IS_BELOW");
-  await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
+  const row = buyCard.getByTestId("predicate-row").first();
+  await chooseMetric(row, "PRICE", "PRICE:");
+  await row.getByTestId("operator-select").selectOption("IS_BELOW");
+  await chooseSeriesValue(row, "EMA_200D");
   await page.getByTestId("save-strategy").click();
   // Saving navigates to the new strategy, and the dev server compiles that route on first use.
   await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/, {

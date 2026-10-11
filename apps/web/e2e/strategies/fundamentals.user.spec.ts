@@ -1,7 +1,11 @@
 import type { StrategyDetailResponse } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
-import { chooseMetric } from "../utils/strategy-builder";
+import {
+  categoryLabels,
+  chooseMetric,
+  openPicker,
+} from "../utils/strategy-builder";
 
 /**
  * Fundamental Metrics in the Strategy Builder, for PRO_USER, against the real API.
@@ -63,14 +67,9 @@ async function expectRow(
     unit: string;
   },
 ): Promise<void> {
-  const category = row.getByTestId("metric-category-select");
-  await expect(category).toHaveValue("FUNDAMENTALS");
-  await expect(category.locator("option:checked")).toHaveText("Fundamentals");
-  const metric = row.getByTestId("metric-select");
-  await expect(metric).toHaveValue(expected.metric.value);
-  await expect(metric.locator("option:checked")).toHaveText(
-    expected.metric.label,
-  );
+  const metric = row.getByTestId("metric-picker");
+  await expect(metric).toHaveAttribute("data-value", expected.metric.value);
+  await expect(metric).toHaveText(expected.metric.label);
   await expect(row.getByTestId("operator-select")).toHaveValue(
     expected.operator,
   );
@@ -131,7 +130,7 @@ test.describe("Fundamental Metrics in the Strategy Builder", () => {
         await expect(preview).toContainText("Debt / Equity is below 1.0x");
 
         // The explanation follows the metric in hand, from the catalog.
-        await buyRows(page).first().getByTestId("metric-select").focus();
+        await buyRows(page).first().getByTestId("metric-picker").focus();
         const panel = page.getByTestId("explanation-panel");
         await expect(panel.getByRole("heading")).toHaveText("ROIC TTM");
         await expect(panel.getByTestId("help-category")).toHaveText(
@@ -207,9 +206,7 @@ test.describe("Fundamental Metrics in the Strategy Builder", () => {
     await chooseMetric(row, "FUNDAMENTALS", "FUNDAMENTAL:ROIC_TTM");
     await row.getByTestId("value-control").fill("15");
     // A ratio cannot keep a percentage: the Value starts over at its own neutral 1x.
-    await row
-      .getByTestId("metric-select")
-      .selectOption("FUNDAMENTAL:CURRENT_RATIO");
+    await chooseMetric(row, "FUNDAMENTALS", "FUNDAMENTAL:CURRENT_RATIO");
     await expect(row.getByTestId("value-control")).toHaveValue("1");
     await expect(row.getByText("x", { exact: true })).toBeVisible();
 
@@ -219,9 +216,13 @@ test.describe("Fundamental Metrics in the Strategy Builder", () => {
       .getByTestId("add-trigger")
       .click();
     const trigger = buyRows(page).last();
-    await expect(
-      trigger.getByTestId("metric-category-select").locator("option"),
-    ).toHaveText(["Price", "Moving averages", "Oscillators", "Valuation"]);
+    expect(await categoryLabels(await openPicker(trigger))).toEqual([
+      "Price",
+      "Moving averages",
+      "Oscillators",
+      "Valuation",
+    ]);
+    await page.keyboard.press("Escape");
     await expect(
       trigger.getByTestId("operator-select").locator("option"),
     ).toHaveText(["crosses above", "crosses below"]);
@@ -243,9 +244,9 @@ test.describe("Fundamental Metrics on a phone", () => {
       "FUNDAMENTALS",
       "FUNDAMENTAL:NET_DEBT_TO_EBITDA_TTM",
     );
-    await expect(
-      row.getByTestId("metric-select").locator("option:checked"),
-    ).toHaveText("Net Debt / EBITDA TTM");
+    await expect(row.getByTestId("metric-picker")).toHaveText(
+      "Net Debt / EBITDA TTM",
+    );
     await expect(page.getByTestId("logic-preview")).toContainText(
       "Net Debt / EBITDA TTM is above 1.0x",
     );

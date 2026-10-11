@@ -192,7 +192,7 @@ export type StrategyMetricDefinition = {
   kind: StrategyMetric["kind"];
   /** Catalog-backed metrics carry no label here; theirs comes from the catalog. */
   label?: string;
-  /** The first of the Builder's two metric controls; see "Categories" below. */
+  /** The first step of the Builder's Metric picker; see "Categories" below. */
   category: StrategyMetricCategoryId;
   /** Catalog ids this metric may be instantiated with (moving averages, RSI periods, MOS sources). */
   parameterSeriesIds?: readonly SelectableSeriesId[];
@@ -290,9 +290,9 @@ INSIDER_ACTIVITY → CONGRESSIONAL_TRADING` (`STRATEGY_METRIC_CATEGORIES`, label
 `STRATEGY_METRIC_CATEGORY_LABELS`), and inside the catalog-backed categories the order is the
 catalog's own (daily moving averages before weekly; the fifteen Fundamental Metrics in the order of
 `FUNDAMENTAL_METRIC_CATALOG`). That top-level categorization is Strategy metadata the catalog does not define, so it lives
-here once. The Builder names a metric with two selects over it — the category, then the metric within
-it — and `strategyMetricCategories` is what both read; a category with nothing to offer a level kind
-or a half of a Signal is absent rather than empty. A metric's category is a property of its kind, so
+here once. The Builder names a metric with one picker over it — every category at once, then the
+metrics of the category being shown (§ 8) — and `strategyMetricCategories` is all it reads; a category
+with nothing to offer a level kind or a half of a Signal is absent rather than empty. A metric's category is a property of its kind, so
 it is never stored and a row can never hold a category and a metric that disagree.
 
 The legacy builder prioritized a "Most used" section that was reordered per BUY/SELL tone
@@ -572,8 +572,9 @@ apps/web/src/features/strategies/
     LevelCard.tsx            # one BUY/SELL level: tone, ordinal, percentage, remove, reorder
     FinalExitCard.tsx        # FINAL EXIT: one card, its Exit Rules, the OR dividers, + Add exit rule
     SignalEditor.tsx         # Conditions block + optional Trigger block
-    PredicateRow.tsx         # Category / Metric / operator / Value — one component, two modes
-    CategorySelect.tsx  MetricSelect.tsx  OperatorSelect.tsx  ValueControl.tsx
+    PredicateRow.tsx         # Metric / operator / Value — one component, two modes
+    OperandPicker.tsx        # category tiles + a two-column option grid, in one popover
+    MetricPicker.tsx  OperatorSelect.tsx  ValueControl.tsx  # Value: OperandPicker for a series
     LevelPercentageSelect.tsx
     ExplanationPanel.tsx     # desktop right column
     LogicPreview.tsx         # renders StrategyPreviewLine[]
@@ -593,15 +594,20 @@ State boundaries, each owning exactly one thing:
   first is reported as a duplicate once touched or saved, never removed. The reducer lives in
   `utils/strategy-draft.ts` as a pure function so it is unit-testable without React. Actions:
   `addLevel`, `removeLevel`, `moveLevel`, `setPercentage`, `addCondition`, `removeCondition`,
-  `setCategory`, `setMetric`, `setOperator`, `setValue`, `addTrigger`, `removeTrigger`,
-  `addExitRule`, `removeExitRule`, `setName`, `setDescription`, `reset`.
+  `setCategory`, `setMetric`, `chooseMetric`, `setOperator`, `setValue`, `addTrigger`,
+  `removeTrigger`, `addExitRule`, `removeExitRule`, `setName`, `setDescription`, `reset`.
+  `chooseMetric` is what the Metric picker dispatches; `setMetric` is the Configure dialog's apply.
 - **Cascading resets belong in the reducer, not in components.** `setMetric` must clear an operator
   the new metric does not support and replace the Value with `defaultValueFor(...)`; `setOperator`
   must do the same for the Value; `setCategory` installs the category's first metric through the
-  same path. A newly chosen metric always starts at its own default configuration, so nothing of the
-  previous metric's lookback, scope or filters can survive a change of metric or category. Doing
-  this in the reducer is what makes an invalid intermediate state unreachable rather than merely
-  flagged.
+  same path. `chooseMetric` — the picker's one edit, which may cross a category — applies the
+  category-change rule when the category changes (the chosen metric's own starting rule: default
+  operator, Value and configuration) and `setMetric`'s reconciliation when it does not; within one
+  alternative-data family it also carries the configuration, because every measure of that family
+  takes the same lookback and filters (owner decision, 2026-10-11, `ai/product/strategies.md`).
+  Nothing of a configuration ever crosses a family, and choosing the row's own metric again is a
+  no-op. Doing this in the reducer is what makes an invalid intermediate state unreachable rather
+  than merely flagged.
 - **Validation** — derived, never stored:
   `useMemo(() => validateStrategyDefinition(draft), [draft])`. No component holds a rule.
 - **Touched fields** — a `Set<string>` of issue-path keys, for the "show errors after touch"
@@ -675,15 +681,28 @@ else; there is no Stock List, period, capital or `maximumPositions` control anyw
 └─────────────────────────────────────────────────────────┘
 ```
 
-Predicate row fields: **Category, Metric, Condition, Value**, in that order. The list is a size
-container (`container: predicate-list / inline-size`), so the fields lay out by the width the list
-actually has — full-width below 960px, two-thirds of the page beside the explanation panel above it:
-two to a line (Category and Metric, then Condition and Value) in a narrow list, all four on one line
-once the list is at least 680px wide. The two metric controls together take about the space the
-single Metric control used to, so the row gets no wider. A configurable metric adds one line beneath
-the fields: `Configure` and its configuration summary. `AND` connectors render between condition
-rows, not as a control — the product forbids exposing boolean-expression vocabulary as an editable
-operator.
+Predicate row fields: **Metric, Condition, Value**, in that order (owner decision, 2026-10-11: the
+Category and Metric selects became one Metric picker). The list is a size container
+(`container: predicate-list / inline-size`), so the fields lay out by the width the list actually
+has — full-width below 960px, two-thirds of the page beside the explanation panel above it: the
+Metric on a line of its own with Condition and Value beside each other beneath it in a narrow list,
+all three on one line once the list is at least 560px wide. A configurable metric adds one line
+beneath the fields: `Configure` and its configuration summary. `AND` connectors render between
+condition rows, not as a control — the product forbids exposing boolean-expression vocabulary as an
+editable operator.
+
+**The Metric picker** (`OperandPicker`, wrapped by `MetricPicker`) is a trigger that reads like the
+product's select and a popover anchored to the row's fields (`.predicateFields` is positioned): every
+category the registry offers is a tile, four to a row where the popover is at least 440px wide — so a
+BUY condition's eight categories read as two rows of four — and the category being shown lists its
+metrics beneath in a two-column grid. Only that grid scrolls. There is no search. Browsing a
+category changes nothing; choosing a metric dispatches `chooseMetric` and closes the popover;
+reopening starts on the chosen metric's category with it marked. Escape (focus returns to the
+trigger), a press outside and tabbing away close it. It opens beneath the row unless the viewport has
+more room above, decided once per opening from the height its longest category needs, and above the
+row it is held at that height so switching categories never moves the tiles. A series Value uses the
+same component, its categories the series catalog's own groups and its options exactly
+`valueSpecFor(metric).seriesIds`; a numeric Value stays an input.
 
 **Tone.** BUY = `--color-positive` / `--color-positive-soft`, SELL = `--color-negative` /
 `--color-negative-soft`, FINAL EXIT = `--color-warning` / `--color-warning-soft`, drawn as a 3px
@@ -704,8 +723,8 @@ band.
 A dedicated composition, not the desktop grid narrowed. Single column below 1280px; the treatments
 below apply below 600px unless stated.
 
-**Predicate row — two lines, never clipped, never horizontally scrolled** (as implemented:
-Category and Metric on the first line, Condition and Value on the second):
+**Predicate row — two lines, never clipped, never horizontally scrolled** (as implemented: the
+Metric on the first line, Condition and Value on the second):
 
 ```text
 ┌───────────────────────────────────────┐
@@ -731,6 +750,11 @@ Category and Metric on the first line, Condition and Value on the second):
   legacy mobile preset-select because `is close to` has no tolerance control (the 2% tolerance is a
   fixed product constant) and RSI is a free 1…100 value.
 - The remove control is a trailing icon on line 1, so it never claims a row of its own.
+- The Metric and series-Value pickers open as a **bottom sheet** over a scrim rather than a popover:
+  the full width, three category tiles to a row, the options two to a row beneath and the only part
+  that scrolls, with a title and a close button. A press reports its focus with its click rather than
+  on the way down, so the explanation moving under the row can never shift the trigger between press
+  and release and swallow the tap.
 - Section labels (`CONDITIONS`, `TRIGGER (OPTIONAL)`) stay visible on mobile: they are what keeps
   the Condition/Trigger distinction legible without a right-hand panel.
 
@@ -952,7 +976,10 @@ families, an empty level and a level with a trigger.
   `setOperator` to a trigger operator keeps a compatible Value and replaces an incompatible one;
 - `PredicateRow`: switching Metric swaps the Value control from a series select to a numeric input
   and narrows the operator list;
-- `MetricSelect` inside a BUY level offers no `Gain`/`Loss`;
+- `MetricPicker` inside a BUY level offers no `Position` category (`Gain`/`Loss`);
+- `OperandPicker` (`OperandPicker.test.tsx`): every category at once, opening on the chosen metric's
+  category with it marked, browsing without an edit, choose-and-close, reopen-restores, Escape /
+  outside / Tab-out, and the series Value grouped by catalog group;
 - an inline error is absent before touch and present after;
 - `LogicPreview` renders `AND` connectors, marks the trigger line, and shows a placeholder for an
   empty level;

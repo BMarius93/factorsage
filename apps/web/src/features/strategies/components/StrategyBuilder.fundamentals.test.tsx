@@ -4,11 +4,20 @@ import {
   type StrategyDefinition,
   type StrategyDetailResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStrategy } from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
+import {
+  categoryLabels,
+  chooseMetric,
+  openPicker,
+  optionLabels,
+  pickerText,
+  pickerTrigger,
+  showCategory,
+} from "./__testing__/operand-picker";
 
 /**
  * Fundamentals in the Strategy Builder.
@@ -100,32 +109,31 @@ describe("the Fundamentals category", () => {
   it("is offered once, after Valuation, in a Condition row and never in a Trigger row", async () => {
     const user = userEvent.setup();
     const row = await newBuyRow(user);
-    const categories = optionTexts(
-      within(row).getByTestId("metric-category-select"),
-    );
+    const categories = categoryLabels(await openPicker(user, row));
     expect(categories.filter((label) => label === "Fundamentals")).toHaveLength(
       1,
     );
     expect(categories.indexOf("Fundamentals")).toBe(
       categories.indexOf("Valuation") + 1,
     );
+    await user.keyboard("{Escape}");
 
     await user.click(screen.getByTestId("add-trigger"));
-    const trigger = screen.getAllByTestId("metric-category-select").at(-1)!;
-    expect(optionTexts(trigger)).not.toContain("Fundamentals");
+    const trigger = screen.getAllByTestId("predicate-row").at(-1)!;
+    expect(categoryLabels(await openPicker(user, trigger))).not.toContain(
+      "Fundamentals",
+    );
   });
 
   it("lists the fifteen metrics in catalog order, each by its one label", async () => {
     const user = userEvent.setup();
     const row = await newBuyRow(user);
-    await user.selectOptions(
-      within(row).getByTestId("metric-category-select"),
-      "FUNDAMENTALS",
-    );
-    expect(optionTexts(within(row).getByTestId("metric-select"))).toEqual(
+    const panel = await openPicker(user, row);
+    await showCategory(user, panel, "FUNDAMENTALS");
+    expect(optionLabels(panel)).toEqual(
       FUNDAMENTAL_METRIC_CATALOG.map((entry) => entry.label),
     );
-    expect(optionTexts(within(row).getByTestId("metric-select"))).toEqual([
+    expect(optionLabels(panel)).toEqual([
       "Revenue Growth TTM YoY",
       "EPS Growth TTM YoY",
       "FCF Growth TTM YoY",
@@ -143,6 +151,12 @@ describe("the Fundamentals category", () => {
       "Asset Turnover TTM",
     ]);
     // Only the strict pair, and no Configure: the metric is the whole rule's identity.
+    await chooseMetric(
+      user,
+      row,
+      "FUNDAMENTALS",
+      "FUNDAMENTAL:REVENUE_GROWTH_TTM_YOY",
+    );
     expect(optionTexts(within(row).getByTestId("operator-select"))).toEqual([
       "is above",
       "is below",
@@ -155,9 +169,11 @@ describe("a Fundamental row's Value", () => {
   it("takes percentage points for a percentage metric and a raw multiple for a ratio", async () => {
     const user = userEvent.setup();
     const row = await newBuyRow(user);
-    await user.selectOptions(
-      within(row).getByTestId("metric-category-select"),
+    await chooseMetric(
+      user,
+      row,
       "FUNDAMENTALS",
+      "FUNDAMENTAL:REVENUE_GROWTH_TTM_YOY",
     );
 
     // Revenue Growth TTM YoY: a percentage, floored at -100, starting at the neutral 0%.
@@ -175,10 +191,7 @@ describe("a Fundamental row's Value", () => {
     ).toBeDefined();
 
     // ROIC TTM: another percentage, so the threshold the user typed stays.
-    await user.selectOptions(
-      within(row).getByTestId("metric-select"),
-      "FUNDAMENTAL:ROIC_TTM",
-    );
+    await chooseMetric(user, row, "FUNDAMENTALS", "FUNDAMENTAL:ROIC_TTM");
     value = within(row).getByTestId("value-control") as HTMLInputElement;
     expect(value.value).toBe("12.5");
     expect(value.getAttribute("min")).toBeNull();
@@ -189,10 +202,7 @@ describe("a Fundamental row's Value", () => {
     ).toBeDefined();
 
     // Debt / Equity: a raw multiple, so 12.5% cannot come along — it starts at 1.0x.
-    await user.selectOptions(
-      within(row).getByTestId("metric-select"),
-      "FUNDAMENTAL:DEBT_TO_EQUITY",
-    );
+    await chooseMetric(user, row, "FUNDAMENTALS", "FUNDAMENTAL:DEBT_TO_EQUITY");
     value = within(row).getByTestId("value-control") as HTMLInputElement;
     expect(value.value).toBe("1");
     expect(unitBeside(value)).toBe("x");
@@ -212,8 +222,10 @@ describe("a Fundamental row's Value", () => {
     ).toBeDefined();
 
     // Net Debt / EBITDA is signed: net cash is a real threshold, so no floor is offered.
-    await user.selectOptions(
-      within(row).getByTestId("metric-select"),
+    await chooseMetric(
+      user,
+      row,
+      "FUNDAMENTALS",
       "FUNDAMENTAL:NET_DEBT_TO_EBITDA_TTM",
     );
     value = within(row).getByTestId("value-control") as HTMLInputElement;
@@ -234,14 +246,7 @@ describe("a Fundamental row's Value", () => {
     await user.type(screen.getByLabelText("Name"), "Quality compounders");
     await user.click(screen.getByTestId("add-level-BUY"));
     const row = screen.getByTestId("predicate-row");
-    await user.selectOptions(
-      within(row).getByTestId("metric-category-select"),
-      "FUNDAMENTALS",
-    );
-    await user.selectOptions(
-      within(row).getByTestId("metric-select"),
-      "FUNDAMENTAL:ROIC_TTM",
-    );
+    await chooseMetric(user, row, "FUNDAMENTALS", "FUNDAMENTAL:ROIC_TTM");
     const value = within(row).getByTestId("value-control");
     await user.clear(value);
     await user.type(value, "15");
@@ -290,13 +295,26 @@ describe("a saved Fundamental strategy in the Builder", () => {
     sellLevels: [],
   });
 
-  it("reads back exactly as it was saved, in every control and in the Strategy logic", () => {
+  it("reads back exactly as it was saved, in every control and in the Strategy logic", async () => {
+    const user = userEvent.setup();
     render(<StrategyBuilder strategy={SAVED} />);
     const [roic, leverage] = screen.getAllByTestId("predicate-row");
-    expect(shown(within(roic!).getByTestId("metric-category-select"))).toBe(
-      "Fundamentals",
-    );
-    expect(shown(within(roic!).getByTestId("metric-select"))).toBe("ROIC TTM");
+    expect(pickerText(roic!)).toBe("ROIC TTM");
+    // Reopening the picker lands on the metric's own category, with the metric marked.
+    const panel = await openPicker(user, roic!);
+    expect(
+      within(panel)
+        .getAllByTestId("metric-picker-category")
+        .find((tile) => tile.getAttribute("aria-pressed") === "true")
+        ?.textContent,
+    ).toBe("Fundamentals");
+    expect(
+      within(panel)
+        .getAllByTestId("metric-picker-option")
+        .filter((option) => option.getAttribute("aria-pressed") === "true")
+        .map((option) => option.textContent),
+    ).toEqual(["ROIC TTM"]);
+    await user.keyboard("{Escape}");
     expect(shown(within(roic!).getByTestId("operator-select"))).toBe(
       "is above",
     );
@@ -306,9 +324,7 @@ describe("a saved Fundamental strategy in the Builder", () => {
     expect(roicValue.value).toBe("15");
     expect(unitBeside(roicValue)).toBe("%");
 
-    expect(shown(within(leverage!).getByTestId("metric-select"))).toBe(
-      "Debt / Equity",
-    );
+    expect(pickerText(leverage!)).toBe("Debt / Equity");
     expect(shown(within(leverage!).getByTestId("operator-select"))).toBe(
       "is below",
     );
@@ -337,7 +353,7 @@ describe("a saved Fundamental strategy in the Builder", () => {
       (entry) => entry.id === "ROIC_TTM",
     )!;
 
-    await user.click(within(roic!).getByTestId("metric-select"));
+    await user.click(pickerTrigger(roic!));
     let panel = screen.getByTestId("explanation-panel");
     expect(within(panel).getByRole("heading").textContent).toBe("ROIC TTM");
     expect(within(panel).getByTestId("help-category").textContent).toBe(
@@ -354,7 +370,7 @@ describe("a saved Fundamental strategy in the Builder", () => {
       within(panel).getByTestId("help-not-evaluable").textContent,
     ).toContain("never zero");
 
-    await user.click(within(leverage!).getByTestId("metric-select"));
+    await user.click(pickerTrigger(leverage!));
     panel = screen.getByTestId("explanation-panel");
     expect(within(panel).getByRole("heading").textContent).toBe(
       "Debt / Equity",
@@ -391,13 +407,13 @@ describe("a saved Fundamental strategy in the Builder", () => {
     );
     const trigger = screen.getByTestId("predicate-row");
     // The Trigger row offers no Fundamentals, so the stored metric reads as unavailable rather
-    // than silently as some other category.
-    expect(shown(within(trigger).getByTestId("metric-category-select"))).toBe(
-      "Unavailable category",
-    );
+    // than silently as some other metric.
+    expect(pickerText(trigger)).toBe("Unavailable metric");
     // A loaded document stays quiet until a field is touched (UI-013); touching the metric reveals
     // the validator's own words for the refusal.
-    await user.click(within(trigger).getByTestId("metric-category-select"));
+    act(() => {
+      pickerTrigger(trigger).focus();
+    });
     await user.tab();
     expect(within(trigger).getByRole("alert").textContent).toBe(
       "ROIC TTM cannot be used as a trigger. Use it as a condition instead.",
