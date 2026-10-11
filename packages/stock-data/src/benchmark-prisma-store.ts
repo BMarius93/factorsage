@@ -509,6 +509,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
     tailDate: LocalDate;
     freshThrough?: LocalDate;
     assertOwned?: () => void;
+    beforeCommit?: (generation: number) => Promise<void>;
   }): Promise<{ generation: number }> {
     return this.prisma.$transaction(async (transaction) => {
       await this.lockBenchmarkWrite(transaction, input.seriesId);
@@ -600,7 +601,26 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
         update: { generation, replacedAt: new Date(input.syncedAt) },
       });
       input.assertOwned?.();
+      // Last, still holding the series write lock: anything that must be in place before the new
+      // generation is — the Redis generation fence — and whose failure must roll it back.
+      await input.beforeCommit?.(generation);
       return { generation };
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
+  }
+
+  async withPriceBasisLock<T>(
+    seriesId: string,
+    work: (generation: number) => Promise<T>,
+  ): Promise<T> {
+    // The same transaction-scoped advisory lock a replacement holds from its first write to its
+    // commit, so this waits out a replacement in flight and then reads what it committed. Read
+    // committed is enough: the generation is read after the lock is held.
+    return this.prisma.$transaction(async (transaction) => {
+      await this.lockBenchmarkWrite(transaction, seriesId);
+      const basis = await transaction.benchmarkSeriesPriceBasis.findUnique({
+        where: { seriesId },
+      });
+      return work(basis?.generation ?? 0);
     }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 

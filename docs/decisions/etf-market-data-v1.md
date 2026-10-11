@@ -90,6 +90,7 @@ provider. Three tables are added (migration `20261011120000_etf_market_data`, ad
 benchmark:v1:benchmark:<seriesId>:head                               JSON head
 benchmark:v1:benchmark:<seriesId>:chunks                             registry set
 benchmark:v1:benchmark:<seriesId>:daily-price:v1:<year>:<digest16>  columnar year chunk
+benchmark:v1:benchmark:<seriesId>:generation                         generation fence
 ```
 
 - **A chunk is immutable and content-addressed.** Its key carries the year's digest — PostgreSQL's
@@ -126,6 +127,24 @@ benchmark:v1:benchmark:<seriesId>:daily-price:v1:<year>:<digest16>  columnar yea
 - **Bounded memory.** Each series holds one publication's chunks plus, briefly, one stage's. Nothing
   grows with the number of publications, and the old layout is deleted on the first commit.
 - **No TTL on anything committed.** Residency is a property of the data, never a timer.
+- **The generation fence.** A head commits only when its price-basis generation equals the
+  series' fence; with no fence, nothing commits. The fence is written in exactly two places, both
+  holding PostgreSQL's series write lock — the transaction-scoped advisory lock under which every
+  generation change happens:
+  1. a re-base replacement raises it to the new generation inside its transaction, after its last
+     write and immediately before its commit, and in the same atomic step removes every head,
+     registry and chunk of another generation;
+  2. a publisher that finds the fence missing (Redis lost it) or not equal to its snapshot's
+     generation re-establishes it from the generation PostgreSQL has committed, waiting out a
+     replacement in flight, then reads a new snapshot if its own is older.
+
+  Why this is enough: the lock orders every fence write with every generation change, so the fence
+  is never behind a committed generation, and a raise removes the old generation's projection
+  before the new generation commits. A head of the old generation committed before the raise is
+  removed by it; one attempted after it is refused, however stale its publisher and whether or not
+  that process still holds its hydration lease. A replacement that rolls back after raising leaves
+  the fence one ahead, which the next publisher repairs under the lock. Readers never consult the
+  fence: a warm read is still one `GET` and one `MGET`, with no PostgreSQL call.
 
 ### 4. Full residency, and why eviction policy matters
 
@@ -186,17 +205,13 @@ unaffected.
   state, the freshness watermark, the measured events, and a generation bump by compare-and-set
   (`PriceBasisConflictError` on a race). An answer missing more than 1 % of the stored sessions is
   refused, nothing is saved, and the next run asks again (`REBASE_REFUSED`).
-- **Redis before PostgreSQL.** Once the lock is confirmed held, the head, the registry and every
-  chunk are removed atomically before the replacement begins. A reader holding the old head then
-  finds its chunks gone and falls back to PostgreSQL, which moves in one transaction, so nothing of
-  the old basis is served from Redis once the new one is committed. The head then republishes
-  under the new generation.
-- **One narrow window remains.** If the hydration lock expired between the replacement's last
-  ownership check and its commit, a second process could publish a head built from the old basis
-  after the commit. Readers do not compare generations, so that head would be served until the
-  next residency check — the refresh child's next run, at most 10 minutes later — finds its
-  generation behind PostgreSQL's and republishes. The lock's renewal makes this improbable; it is
-  recorded rather than engineered away.
+- **Redis before PostgreSQL, fenced.** Inside the replacement's transaction, just before it
+  commits, the generation fence is raised and the old generation's head, registry and chunks are
+  removed in one atomic step (§3). Until then readers are served the old generation, which is
+  still what PostgreSQL holds; from then on a reader without a head reads PostgreSQL, which moves
+  in one transaction, and no publisher can commit the old generation again — including one whose
+  snapshot predates the commit and whose hydration lease has expired. The replacer then
+  republishes under the new generation; if it lost its lease and cannot, the next publisher does.
 - **The ex-date hold** (§7, rule 3). Bars newer than the newest stored one are compared with the bar
   before them; a move below 0.7 or above 1.4 holds that bar and every later one while fewer than four
   sessions stand from it. `USO`'s 1:8 reverse split (×8) is exactly that move. Once four sessions

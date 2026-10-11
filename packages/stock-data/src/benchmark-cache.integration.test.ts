@@ -182,6 +182,9 @@ describeCache("benchmark cache publication protocol", () => {
 
   beforeEach(async () => {
     await clear();
+    // The series' generation fence, as a publisher establishes it from PostgreSQL. Every head in
+    // this suite is on generation 0.
+    await cache.fenceGeneration(SERIES, 0);
     client.mgets.length = 0;
     unreadable.length = 0;
   });
@@ -200,6 +203,7 @@ describeCache("benchmark cache publication protocol", () => {
         `${prefix}:chunks`,
         `${prefix}:daily-price:v1:2019:m1000y2019`,
         `${prefix}:daily-price:v1:2020:m1000y2020`,
+        `${prefix}:generation`,
         `${prefix}:head`,
       ].sort(),
     );
@@ -389,7 +393,9 @@ describeCache("benchmark cache publication protocol", () => {
 
     expect(await cache.discardProjection(SERIES)).toBe(2);
 
-    expect(await redis.keys(`${prefix}*`)).toEqual([]);
+    // Only the generation fence stays: it is coordination, not projection, and the next
+    // publication must still respect it.
+    expect(await redis.keys(`${prefix}*`)).toEqual([`${prefix}:generation`]);
     expect(await cache.getHead(SERIES)).toBeNull();
     expect(await redis.get(`${otherPrefix}:head`)).toBe("kept");
     // Idempotent: discarding nothing is not an error.
@@ -406,6 +412,62 @@ describeCache("benchmark cache publication protocol", () => {
     expect(await redis.exists(`${prefix}:manifest`)).toBe(0);
     expect(await redis.exists(`${prefix}:daily-price:1999`)).toBe(0);
     expect(await redis.exists(`${prefix}:daily-price:2020`)).toBe(0);
+  });
+
+  it("commits a head only on the generation fence, and nothing at all without one", async () => {
+    const onZero = headFor({ 2020: "m1000y2020" });
+    const onOne = { ...onZero, basisGeneration: 1 };
+
+    // A head on another generation than the fence is refused, and changes nothing.
+    await expect(
+      cache.publish({
+        expected: null,
+        head: onOne,
+        stage: history(1000, [2020]),
+      }),
+    ).resolves.toBe("FENCED");
+    expect(await redis.exists(`${prefix}:head`)).toBe(0);
+
+    // Without a fence nothing commits, whatever its generation: a Redis that lost the fence must
+    // have it re-established from PostgreSQL first.
+    await redis.del(`${prefix}:generation`);
+    await expect(
+      cache.publish({
+        expected: null,
+        head: onZero,
+        stage: history(1000, [2020]),
+      }),
+    ).resolves.toBe("FENCED");
+    await expect(cache.getGenerationFence(SERIES)).resolves.toBeNull();
+
+    await cache.fenceGeneration(SERIES, 0);
+    await expect(
+      cache.publish({
+        expected: null,
+        head: onZero,
+        stage: history(1000, [2020]),
+      }),
+    ).resolves.toBe("COMMITTED");
+  });
+
+  it("raising the fence removes a head on any other generation, chunks included, and keeps one on its own", async () => {
+    await commit(1000, [2019, 2020]);
+
+    // Re-established on the generation the head is on: nothing changes.
+    await cache.fenceGeneration(SERIES, 0);
+    expect(await cache.getHead(SERIES)).not.toBeNull();
+
+    // Raised past it: the head, the registry and every chunk go in the same step as the fence.
+    await cache.fenceGeneration(SERIES, 1);
+    expect((await redis.keys(`${prefix}*`)).sort()).toEqual([
+      `${prefix}:generation`,
+    ]);
+    await expect(cache.getGenerationFence(SERIES)).resolves.toBe(1);
+
+    // An unreadable head is removed too: it cannot show which generation it is on.
+    await redis.set(`${prefix}:head`, "not json");
+    await cache.fenceGeneration(SERIES, 1);
+    expect(await redis.exists(`${prefix}:head`)).toBe(0);
   });
 
   it("removes old-layout years left behind without their manifest, on the first commit", async () => {
@@ -493,7 +555,8 @@ describeCache("benchmark cache publication protocol", () => {
       ).toBeNull();
 
       // Every benchmark key is untouched.
-      expect((await redis.keys(`${prefix}*`)).length).toBe(4);
+      // The head, the registry, two chunks and the generation fence.
+      expect((await redis.keys(`${prefix}*`)).length).toBe(5);
       const read = await cache.readDailyPrices(SERIES, {
         from: "2019-01-01",
         to: "2020-12-31",

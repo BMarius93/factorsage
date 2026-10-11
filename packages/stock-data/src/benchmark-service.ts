@@ -70,7 +70,9 @@ export type BenchmarkCacheObservation = {
     /** A chunk the head would reuse was gone; the publication is retried with every year. */
     | "MISSING_CHUNKS"
     /** No publication could be committed; reads fall back to PostgreSQL. */
-    | "FAILED";
+    | "FAILED"
+    /** The publication's generation was not the fence's; it was re-established and retried. */
+    | "FENCED";
   stagedYears?: number;
   years?: number;
   bars?: number;
@@ -138,6 +140,12 @@ const ALL_DATES: Required<DateRange> = { from: "1900-01-01", to: "9999-12-31" };
 
 /** Calendar days of the earliest stored bars re-read to confirm the history was not re-based. */
 const EARLIEST_BARS_WINDOW_CALENDAR_DAYS = 30;
+
+/**
+ * Attempts at one publication: a fence re-established, a race lost and a missing chunk can each
+ * cost one before the commit lands.
+ */
+const PUBLISH_ATTEMPTS = 4;
 
 /** Series read at once by `readBenchmarkHistories`. */
 const HISTORY_READ_CONCURRENCY = 4;
@@ -689,9 +697,11 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    * Reads the whole covered history again and, when it measures as re-based, replaces the stored
    * one in one transaction under the next generation (§8–§9).
    *
-   * The head is dropped **before** PostgreSQL moves, so from that moment no reader is served the
-   * old basis from Redis: a reader waits on the hydration lock this call holds, or reads PostgreSQL,
-   * which the replacement changes atomically. The caller republishes the whole history afterwards.
+   * The generation fence is raised, and the old generation's projection removed with it, inside the
+   * replacement's transaction just before it commits. Until then readers are served the old
+   * generation, which is still what PostgreSQL holds; from then on the old generation can never be
+   * published again, and a reader without a head reads PostgreSQL, which the replacement changes
+   * atomically. The caller republishes the whole history afterwards.
    *
    * Refused, and nothing written, when the provider no longer returns more than 1 % of the stored
    * sessions: the old history then stays, consistent with itself, and the next refresh asks again.
@@ -751,11 +761,6 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
           ? undefined
           : fresh.filter((bar) => bar.date <= newestStoredDate).at(-1);
       const hold = benchmarkExDateHold({ newestStored: base, loaded: fresh });
-      assertOwned();
-      // Head and chunks both go before PostgreSQL moves: a reader holding the old head then finds
-      // its chunks gone and falls back to PostgreSQL, which changes atomically, so nothing of the
-      // old basis is served from Redis once the new one is committed.
-      await this.cache.discardProjection(series.id);
       const replaced = await this.store.replaceDailyPriceHistory({
         seriesId: series.id,
         expectedGeneration: generation,
@@ -772,6 +777,12 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
         tailDate: today,
         ...(hold.heldFrom === undefined ? { freshThrough: today } : {}),
         assertOwned,
+        // Inside the transaction, holding the series write lock, just before the commit: the
+        // fence moves to the new generation and, atomically, the old generation's projection goes.
+        // From then on no head of the old generation can be committed — however stale its
+        // publisher, whether or not this process still holds its lease — so nothing of the old basis
+        // is visible from Redis once the new one is committed. A failure rolls the replacement back.
+        beforeCommit: (next) => this.cache.fenceGeneration(series.id, next),
       });
       this.onPriceBasisEvent({
         securityId: series.id,
@@ -826,17 +837,18 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       });
       return null;
     };
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // Reuse unchanged years unless a commit just found a chunk missing or lost a race: the retry
+    // is then rebuilt from PostgreSQL year by year.
+    let reuse = true;
+    for (let attempt = 0; attempt < PUBLISH_ATTEMPTS; attempt += 1) {
       let observed: ObservedBenchmarkHead | null;
       let snapshot: Awaited<
         ReturnType<BenchmarkDataStore["readPublicationSnapshot"]>
       >;
       try {
         observed = await this.cache.getHead(series.id);
-        // Only the first attempt reuses: a retry follows a missing chunk or a lost race, and is
-        // rebuilt from PostgreSQL year by year.
         const reusable =
-          attempt === 0 && observed && isCurrentBenchmarkHead(observed.head)
+          reuse && observed && isCurrentBenchmarkHead(observed.head)
             ? new Map(
                 Object.entries(observed.head.chunks).map(
                   ([year, digest]) => [Number(year), digest] as const,
@@ -853,6 +865,22 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
             await this.cache.invalidateManifest(series.id);
           }
           return null;
+        }
+        // A head commits only under the series' generation fence. Checked before anything is
+        // staged, so a publication that would be refused writes nothing: when the fence is missing
+        // (Redis lost it) or differs (a replacement is committing, or committed after this snapshot
+        // was read), it is re-established from PostgreSQL under the series write lock — which
+        // waits out a replacement in flight — and a snapshot older than that generation is read
+        // again. The commit re-checks the fence atomically; this only saves the wasted work.
+        if (
+          (await this.cache.getGenerationFence(series.id)) !==
+          snapshot.basisGeneration
+        ) {
+          const committed = await this.establishGenerationFence(series);
+          if (committed !== snapshot.basisGeneration) {
+            this.onCacheEvent({ seriesId: series.id, outcome: "FENCED" });
+            continue;
+          }
         }
       } catch (err) {
         return failed(err);
@@ -884,8 +912,37 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
         return head;
       }
       this.onCacheEvent({ seriesId: series.id, outcome });
+      if (outcome === "FENCED") {
+        // The fence moved between the check and the commit: a replacement raised it. Wait for it
+        // under the lock and publish what it committed.
+        try {
+          await this.establishGenerationFence(series);
+        } catch (err) {
+          return failed(err);
+        }
+      } else {
+        reuse = false;
+      }
     }
     return failed(undefined);
+  }
+
+  /**
+   * Sets the generation fence to what PostgreSQL has committed, holding the series write lock, and
+   * returns it.
+   *
+   * Every fence write happens under that lock — a replacement raises it inside its transaction,
+   * this re-establishes it — so the writes are ordered with the generation changes themselves: a
+   * replacement in flight is waited for, and the fence is never set behind a generation that has
+   * committed. It also repairs a fence a replacement raised and then rolled back.
+   */
+  private async establishGenerationFence(
+    series: BenchmarkSeries,
+  ): Promise<number> {
+    return this.store.withPriceBasisLock(series.id, async (generation) => {
+      await this.cache.fenceGeneration(series.id, generation);
+      return generation;
+    });
   }
 
   private headFor(

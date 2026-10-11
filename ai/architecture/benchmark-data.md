@@ -144,6 +144,7 @@ The worker **never** calls FMP around this infrastructure.
 benchmark:v1:benchmark:<seriesId>:head                               JSON head: the publication
 benchmark:v1:benchmark:<seriesId>:chunks                             registry of the series' chunks
 benchmark:v1:benchmark:<seriesId>:daily-price:v1:<year>:<digest16>  immutable columnar year chunk
+benchmark:v1:benchmark:<seriesId>:generation                         generation fence
 ```
 
 Keyed by the immutable series, so a new version projects into its own keys and can never read a
@@ -168,6 +169,10 @@ a benchmark can never occupy a stock residency slot, and a Redis flush costs one
 - a reader `GET`s the head and `MGET`s only the years it needs, re-reading the head when a chunk is
   gone (the head moved), so it sees exactly one publication; the head answers any range, reporting
   what its coverage does not hold as missing, so a resident read never touches PostgreSQL;
+- a head commits only on the series' generation fence, which is written only under PostgreSQL's
+  series write lock — raised by a re-base replacement just before it commits, re-established by a
+  publisher from what PostgreSQL committed — so a stale publisher can never make an older price
+  generation visible after a newer one committed;
 - nothing committed has a TTL. Redis's own `maxmemory-policy` must not be an unaccepted `allkeys-*`
   policy, which readiness refuses (`REDIS_ACCEPTED_EVICTION_POLICY` is the explicit override).
 

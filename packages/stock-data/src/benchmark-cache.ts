@@ -172,12 +172,14 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
     );
     const result = await this.redis.eval(
       COMMIT_HEAD,
-      2 + referenced.length,
+      3 + referenced.length,
       this.headKey(seriesId),
       this.registryKey(seriesId),
+      this.fenceKey(seriesId),
       ...referenced,
       input.expected?.raw ?? "",
       JSON.stringify(head),
+      String(head.basisGeneration),
     );
     if (result === 1) {
       // A commit over no head is the first in this layout, or the first after an invalidation that
@@ -185,7 +187,36 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
       await this.removeLegacyLayout(seriesId, input.expected === null);
       return "COMMITTED";
     }
+    if (result === -2) {
+      return "FENCED";
+    }
     return result === -1 ? "MISSING_CHUNKS" : "CONFLICT";
+  }
+
+  async getGenerationFence(seriesId: string): Promise<number | null> {
+    const raw = await this.redis.get(this.fenceKey(seriesId));
+    if (raw === null) {
+      return null;
+    }
+    const generation = Number(raw);
+    return Number.isInteger(generation) && generation >= 0 ? generation : null;
+  }
+
+  async fenceGeneration(seriesId: string, generation: number): Promise<void> {
+    if (!Number.isInteger(generation) || generation < 0) {
+      throw new Error(
+        `A generation fence must be a non-negative integer, not ${generation}`,
+      );
+    }
+    await this.redis.eval(
+      FENCE_GENERATION,
+      4,
+      this.fenceKey(seriesId),
+      this.headKey(seriesId),
+      this.registryKey(seriesId),
+      this.legacyManifestKey(seriesId),
+      String(generation),
+    );
   }
 
   async invalidateManifest(seriesId: string): Promise<void> {
@@ -411,6 +442,15 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
     return `${this.namespace}:benchmark:${seriesId}`;
   }
 
+  /**
+   * The generation fence: the only generation a head may be committed under. Coordination state,
+   * not a projection, and as disposable as the rest — without it nothing commits until a
+   * publisher re-establishes it from PostgreSQL under the series write lock.
+   */
+  private fenceKey(seriesId: string): string {
+    return `${this.seriesPrefix(seriesId)}:generation`;
+  }
+
   private headKey(seriesId: string): string {
     return `${this.seriesPrefix(seriesId)}:head`;
   }
@@ -473,16 +513,19 @@ return #KEYS - 1
 /**
  * Commits a head atomically.
  *
- * Refuses (0) when the stored head is not the expected one, and (-1) when a chunk the new head names
+ * Refuses (-2) when the head's generation is not the series' generation fence, or there is no
+ * fence; (0) when the stored head is not the expected one; and (-1) when a chunk the new head names
  * does not exist. Otherwise makes every named chunk permanent, swaps the head, and deletes every
  * registered chunk the new head does not name — the previous publication's and any abandoned
  * stage's. A reader holding the previous head then finds its chunks gone and re-reads the head.
  *
- * KEYS[1] head, KEYS[2] registry, KEYS[3..] chunks the new head names; ARGV[1] expected head ('' for
- * none), ARGV[2] new head.
+ * KEYS[1] head, KEYS[2] registry, KEYS[3] generation fence, KEYS[4..] chunks the new head names;
+ * ARGV[1] expected head ('' for none), ARGV[2] new head, ARGV[3] the new head's generation.
  */
 const COMMIT_HEAD = `
 -- benchmark-commit-head
+local fence = redis.call('GET', KEYS[3])
+if fence == false or tonumber(fence) ~= tonumber(ARGV[3]) then return -2 end
 local current = redis.call('GET', KEYS[1])
 if ARGV[1] == '' then
   if current ~= false then return 0 end
@@ -490,11 +533,11 @@ elseif current ~= ARGV[1] then
   return 0
 end
 local keep = {}
-for i = 3, #KEYS do
+for i = 4, #KEYS do
   if redis.call('EXISTS', KEYS[i]) == 0 then return -1 end
   keep[KEYS[i]] = true
 end
-for i = 3, #KEYS do
+for i = 4, #KEYS do
   redis.call('PERSIST', KEYS[i])
   redis.call('SADD', KEYS[2], KEYS[i])
 end
@@ -522,6 +565,30 @@ for _, key in ipairs(members) do
 end
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
 return #members
+`;
+
+/**
+ * Sets the generation fence and removes the whole projection when its head is on any other
+ * generation — or cannot be read — so nothing of another generation stays visible.
+ *
+ * KEYS[1] fence, KEYS[2] head, KEYS[3] registry, KEYS[4] legacy manifest; ARGV[1] the generation.
+ * Returns 1 when a projection was removed, else 0.
+ */
+const FENCE_GENERATION = `
+-- benchmark-fence-generation
+redis.call('SET', KEYS[1], ARGV[1])
+local head = redis.call('GET', KEYS[2])
+if head == false then return 0 end
+local ok, decoded = pcall(cjson.decode, head)
+if ok and type(decoded) == 'table' and tonumber(decoded['basisGeneration']) == tonumber(ARGV[1]) then
+  return 0
+end
+local members = redis.call('SMEMBERS', KEYS[3])
+for _, key in ipairs(members) do
+  redis.call('DEL', key)
+end
+redis.call('DEL', KEYS[2], KEYS[3], KEYS[4])
+return 1
 `;
 
 /** Counts how many of KEYS exist. */
@@ -559,6 +626,12 @@ export class NullBenchmarkDataCache implements BenchmarkDataCache {
   async chunksPresent(): Promise<boolean> {
     return true;
   }
+
+  async getGenerationFence(): Promise<number | null> {
+    return null;
+  }
+
+  async fenceGeneration(): Promise<void> {}
 
   async readDailyPrices(): Promise<BenchmarkCacheRead | null> {
     return null;

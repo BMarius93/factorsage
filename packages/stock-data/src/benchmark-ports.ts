@@ -152,7 +152,23 @@ export interface BenchmarkDataStore {
     tailDate: LocalDate;
     freshThrough?: LocalDate;
     assertOwned?: () => void;
+    /**
+     * Runs inside the transaction, holding the series write lock, after every write and the last
+     * ownership check and immediately before the commit, with the generation being committed. A
+     * failure rolls the replacement back. It is where the Redis generation fence is raised, so the
+     * fence is ahead of PostgreSQL before PostgreSQL moves.
+     */
+    beforeCommit?: (generation: number) => Promise<void>;
   }): Promise<{ generation: number }>;
+  /**
+   * Runs `work` with the series write lock held — the advisory lock every replacement holds while
+   * it changes the generation — and the generation PostgreSQL has committed. A replacement in
+   * flight is waited for, so `work` never sees a generation that is about to change.
+   */
+  withPriceBasisLock<T>(
+    seriesId: string,
+    work: (generation: number) => Promise<T>,
+  ): Promise<T>;
 }
 
 /** The digest of one calendar year of a series' stored bars. */
@@ -212,7 +228,13 @@ export type BenchmarkPublishOutcome =
   /** Another publication committed since the expected head was read; nothing changed. */
   | "CONFLICT"
   /** A chunk the head would name is gone (an expired stage, an eviction); nothing changed. */
-  | "MISSING_CHUNKS";
+  | "MISSING_CHUNKS"
+  /**
+   * The head's generation is not the series' generation fence, or there is no fence; nothing
+   * changed. The publisher re-establishes the fence from PostgreSQL under the series write lock and
+   * publishes again from a new snapshot.
+   */
+  | "FENCED";
 
 /** A read answered from one publication, with the head that answered it. */
 export type BenchmarkCacheRead = {
@@ -242,6 +264,15 @@ export interface BenchmarkDataCache {
   discardProjection(seriesId: string): Promise<number>;
   /** Whether every chunk `head` names exists. */
   chunksPresent(head: BenchmarkCacheHead): Promise<boolean>;
+  /** The series' generation fence, or null when Redis holds none. */
+  getGenerationFence(seriesId: string): Promise<number | null>;
+  /**
+   * Sets the series' generation fence and, atomically, removes the whole projection when its head
+   * is on any other generation. Called **only** with the PostgreSQL series write lock held: by a
+   * replacement just before it commits the next generation, and by a publisher re-establishing the
+   * fence from the generation PostgreSQL committed. That lock is what orders every fence write.
+   */
+  fenceGeneration(seriesId: string, generation: number): Promise<void>;
   /**
    * Every bar inside `range` from one publication, or null when there is no current head or its
    * chunks cannot be read. A head is a complete image of PostgreSQL — every stored bar and every

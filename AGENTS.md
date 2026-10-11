@@ -114,7 +114,8 @@ Read `ai/README.md` before substantial work.
     Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
     Benchmark histories are **fully resident** under `benchmark:v1:*`: immutable content-addressed
     year chunks behind a compare-and-set head that always describes all durable coverage, with no
-    TTL and outside the stock LRU (`docs/decisions/etf-market-data-v1.md`). Redis's own
+    TTL and outside the stock LRU, committed only on a generation fence that is written only under
+    PostgreSQL's series write lock (`docs/decisions/etf-market-data-v1.md`). Redis's own
     `maxmemory-policy` must therefore never be an `allkeys-*` policy nobody accepted: readiness
     fails on one, and `REDIS_ACCEPTED_EVICTION_POLICY` is the only, explicit override.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it

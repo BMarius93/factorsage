@@ -9,19 +9,26 @@ import type {
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { decodeBenchmarkChunk } from "./benchmark-chunk.js";
+import {
+  BENCHMARK_CHUNK_ENCODING_VERSION,
+  decodeBenchmarkChunk,
+} from "./benchmark-chunk.js";
 import { RedisBenchmarkDataCache } from "./benchmark-cache.js";
 import { PrismaBenchmarkDataStore } from "./benchmark-prisma-store.js";
-import type {
-  BenchmarkDataCache,
-  BenchmarkDataStore,
+import {
+  BENCHMARK_PRICE_DATASET_VERSION,
+  type BenchmarkDataCache,
+  type BenchmarkDataStore,
 } from "./benchmark-ports.js";
 import {
   CanonicalBenchmarkDataService,
   type BenchmarkCacheObservation,
 } from "./benchmark-service.js";
 import type { RedisCacheClient } from "./cache.js";
-import { InMemoryLoadCoordinator } from "./coordination.js";
+import {
+  InMemoryLoadCoordinator,
+  type LoadCoordinator,
+} from "./coordination.js";
 import { addDays } from "./dates.js";
 import {
   createStockDataRedisClient,
@@ -142,13 +149,17 @@ describeResidency("benchmark history residency, reads and refresh", () => {
   function serviceWith(
     provider: FmpBenchmarkProviderPort,
     now = NOW,
-    overrides: { store?: BenchmarkDataStore; cache?: BenchmarkDataCache } = {},
+    overrides: {
+      store?: BenchmarkDataStore;
+      cache?: BenchmarkDataCache;
+      coordinator?: LoadCoordinator;
+    } = {},
   ) {
     return new CanonicalBenchmarkDataService(
       overrides.store ?? store,
       provider,
       overrides.cache ?? cache,
-      new InMemoryLoadCoordinator(),
+      overrides.coordinator ?? new InMemoryLoadCoordinator(),
       {
         now: () => now,
         onCacheEvent: (event) => cacheEvents.push(event),
@@ -761,32 +772,36 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       expect(basisEvents.map((event) => event.outcome)).toEqual(["REPLACED"]);
     });
 
-    it("removes the old basis from Redis before PostgreSQL moves", async () => {
+    it("removes the old basis from Redis before PostgreSQL commits the new one", async () => {
       await bootstrap(
         Object.assign(new HistoryProvider(), {
           publishedThrough: "2026-10-05",
         }),
       );
-      let keysAtReplacement: string[] | undefined;
-      const watching = watched(store, [], {
-        replaceDailyPriceHistory: async (original, ...args) => {
-          keysAtReplacement = await redis.keys(
+      let keysAtCommit: string[] | undefined;
+      const watching = watched(cache, [], {
+        fenceGeneration: async (original, ...args) => {
+          const result = await original(...args);
+          keysAtCommit = await redis.keys(
             `${namespace}:benchmark:${series.id}*`,
           );
-          return original(...args);
+          return result;
         },
       });
       const provider = new HistoryProvider();
       provider.rebaseAt = { date: EX_DATE, ratio: 4 };
 
       const result = await serviceWith(provider, NOW, {
-        store: watching,
+        cache: watching,
       }).refreshBenchmarkSeries(series, { expectedSession: TODAY });
 
       expect(result.status).toBe("REBASED");
-      // Head, registry and every chunk were gone when the replacement began, so a reader that
-      // held the old head could only fall back to PostgreSQL, which moves atomically.
-      expect(keysAtReplacement).toEqual([]);
+      // At the commit, only the raised fence was left: the head, the registry and every chunk of
+      // the old basis were gone, so a reader that held the old head could only fall back to
+      // PostgreSQL, which moves atomically.
+      expect(keysAtCommit).toEqual([
+        `${namespace}:benchmark:${series.id}:generation`,
+      ]);
     });
 
     it("catches a re-base the provider folds in long after the ex-date, once the move has stood", async () => {
@@ -918,6 +933,287 @@ describeResidency("benchmark history residency, reads and refresh", () => {
         "HELD",
         "REPLACED",
       ]);
+    });
+  });
+
+  /**
+   * A publication must never make an older price generation visible once a newer one has
+   * committed (`docs/decisions/etf-market-data-v1.md` §3, "Generation fence").
+   *
+   * Every interleaving here is forced, not raced: each process is a separate service with its own
+   * coordinator — which is exactly what two processes are once the first one's hydration lock has
+   * expired — and the steps that matter wait on explicit gates.
+   */
+  describe("generation fence", () => {
+    const EX_DATE = "2026-10-06";
+
+    /** A promise and the function that settles it. */
+    function gate(): { opened: Promise<void>; open: () => void } {
+      let open = (): void => {};
+      const opened = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { opened, open };
+    }
+
+    /** A coordinator whose lease can be lost from the outside, as an expired Redlock lease is. */
+    function losableLease(): {
+      coordinator: LoadCoordinator;
+      lose: () => void;
+    } {
+      let lost = false;
+      return {
+        lose: () => {
+          lost = true;
+        },
+        coordinator: {
+          run: (_resource, work) =>
+            work({
+              assertOwned: () => {
+                if (lost) {
+                  throw new Error("The hydration lease expired");
+                }
+              },
+            }),
+        },
+      };
+    }
+
+    function rebasedProvider(): HistoryProvider {
+      const provider = new HistoryProvider();
+      provider.rebaseAt = { date: EX_DATE, ratio: 4 };
+      return provider;
+    }
+
+    async function headGeneration(): Promise<number | undefined> {
+      return (await cache.getHead(series.id))?.head.basisGeneration;
+    }
+
+    async function expectNewBasisEverywhere(provider: HistoryProvider) {
+      await expect(store.getPriceBasisGeneration(series.id)).resolves.toBe(1);
+      const full = await serviceWith(provider).readFullBenchmarkHistory(series);
+      expect(full).toMatchObject({ basisGeneration: 1, source: "REDIS" });
+      for (const row of full.rows) {
+        expect(row.close).toBeCloseTo(provider.close(row.date), 6);
+      }
+    }
+
+    it("refuses a stale publisher that read the old generation, after a replacer that lost its lease committed the new one", async () => {
+      // The race as reported: B read its snapshot before A's replacement committed and publishes
+      // after it, while A — whose lease expired around its commit — never publishes at all.
+      await bootstrap(
+        Object.assign(new HistoryProvider(), {
+          publishedThrough: "2026-10-05",
+        }),
+      );
+      await cache.invalidateManifest(series.id);
+
+      const snapshotTaken = gate();
+      const publishAllowed = gate();
+      const staleReader = watched(store, [], {
+        readPublicationSnapshot: async (original, ...args) => {
+          const snapshot = await original(...args);
+          snapshotTaken.open();
+          return snapshot;
+        },
+      });
+      const stalePublisher = watched(cache, [], {
+        publish: async (original, ...args) => {
+          await publishAllowed.opened;
+          return original(...args);
+        },
+      });
+      const b = serviceWith(new HistoryProvider(), NOW, {
+        store: staleReader,
+        cache: stalePublisher,
+      }).ensureBenchmarkResident(series);
+      await snapshotTaken.opened;
+
+      const a = losableLease();
+      const replacer = watched(store, [], {
+        replaceDailyPriceHistory: async (original, ...args) => {
+          const replaced = await original(...args);
+          a.lose();
+          return replaced;
+        },
+      });
+      const provider = rebasedProvider();
+      await expect(
+        serviceWith(provider, NOW, {
+          store: replacer,
+          coordinator: a.coordinator,
+        }).refreshBenchmarkSeries(series, { expectedSession: TODAY }),
+      ).rejects.toThrow(/lease expired/);
+      await expect(store.getPriceBasisGeneration(series.id)).resolves.toBe(1);
+
+      publishAllowed.open();
+      await b;
+
+      // Never the old generation: B's gen-0 head was refused, and B published gen 1 instead.
+      expect(await headGeneration()).toBe(1);
+      expect(cacheEvents.map((event) => event.outcome)).toContain("FENCED");
+      await expectNewBasisEverywhere(provider);
+    });
+
+    it("serves the old generation until the replacement commits, and drops it with the fence just before", async () => {
+      await bootstrap(
+        Object.assign(new HistoryProvider(), {
+          publishedThrough: "2026-10-05",
+        }),
+      );
+      const aboutToRaise = gate();
+      const raiseAllowed = gate();
+      const afterRaise: {
+        head?: number | undefined;
+        fence?: number | null;
+        committed?: number;
+      } = {};
+      const pausing = watched(cache, [], {
+        fenceGeneration: async (original, ...args) => {
+          aboutToRaise.open();
+          await raiseAllowed.opened;
+          const result = await original(...args);
+          afterRaise.head = await headGeneration();
+          afterRaise.fence = await cache.getGenerationFence(series.id);
+          afterRaise.committed = await store.getPriceBasisGeneration(series.id);
+          return result;
+        },
+      });
+      const provider = rebasedProvider();
+      const a = serviceWith(provider, NOW, {
+        cache: pausing,
+      }).refreshBenchmarkSeries(series, { expectedSession: TODAY });
+      await aboutToRaise.opened;
+
+      // Every bar is written, uncommitted. PostgreSQL still holds generation 0, and so does the
+      // head, which is correct: nothing newer has committed. A publisher on generation 0 still
+      // commits, because the fence has not moved.
+      await expect(store.getPriceBasisGeneration(series.id)).resolves.toBe(0);
+      expect(await headGeneration()).toBe(0);
+      const current = await cache.getHead(series.id);
+      await expect(
+        cache.publish({
+          expected: current,
+          head: { ...current!.head, materializedAt: NOW.toISOString() },
+          stage: new Map(),
+        }),
+      ).resolves.toBe("COMMITTED");
+
+      raiseAllowed.open();
+      await expect(a).resolves.toMatchObject({
+        status: "REBASED",
+        basisGeneration: 1,
+      });
+      // The raise removed the generation-0 head and moved the fence to 1 while generation 1 was
+      // still uncommitted: the old generation was gone from Redis before the new one existed.
+      expect(afterRaise).toEqual({ head: undefined, fence: 1, committed: 0 });
+      expect(await headGeneration()).toBe(1);
+      await expectNewBasisEverywhere(provider);
+    });
+
+    it("makes a publisher that meets a pending replacement wait for its commit, then publish the new generation", async () => {
+      await bootstrap(
+        Object.assign(new HistoryProvider(), {
+          publishedThrough: "2026-10-05",
+        }),
+      );
+      const raised = gate();
+      const commitAllowed = gate();
+      const waiting = gate();
+      const pausing = watched(cache, [], {
+        fenceGeneration: async (original, ...args) => {
+          const result = await original(...args);
+          raised.open();
+          await commitAllowed.opened;
+          return result;
+        },
+      });
+      const provider = rebasedProvider();
+      const a = serviceWith(provider, NOW, {
+        cache: pausing,
+      }).refreshBenchmarkSeries(series, { expectedSession: TODAY });
+      await raised.opened;
+
+      // B finds no head (A's fence removed it) and reads the old generation from PostgreSQL, which
+      // A has not committed yet. It must not publish that: it waits on the series write lock.
+      const lockWatcher = watched(store, [], {
+        withPriceBasisLock: async (original, ...args) => {
+          waiting.open();
+          return original(...args);
+        },
+      });
+      const b = serviceWith(new HistoryProvider(), NOW, {
+        store: lockWatcher,
+      }).ensureBenchmarkResident(series);
+      await waiting.opened;
+      expect(await headGeneration()).toBeUndefined();
+
+      commitAllowed.open();
+      await expect(a).resolves.toMatchObject({ status: "REBASED" });
+      await expect(b).resolves.toMatchObject({ basisGeneration: 1 });
+      expect(await headGeneration()).toBe(1);
+      await expectNewBasisEverywhere(provider);
+    });
+
+    it("recovers residency when a replacement aborts after raising its fence", async () => {
+      await bootstrap(
+        Object.assign(new HistoryProvider(), {
+          publishedThrough: "2026-10-05",
+        }),
+      );
+      // A raises the fence to generation 1, then crashes before committing: PostgreSQL rolls the
+      // whole replacement back and stays at generation 0.
+      const crashing = watched(cache, [], {
+        fenceGeneration: async (original, ...args) => {
+          await original(...args);
+          throw new Error("process killed");
+        },
+      });
+      await expect(
+        serviceWith(rebasedProvider(), NOW, {
+          cache: crashing,
+        }).refreshBenchmarkSeries(series, { expectedSession: TODAY }),
+      ).rejects.toThrow(/process killed/);
+      await expect(store.getPriceBasisGeneration(series.id)).resolves.toBe(0);
+      expect(await headGeneration()).toBeUndefined();
+
+      // The next publisher finds a fence ahead of PostgreSQL, re-establishes it under the series
+      // lock from what PostgreSQL committed, and publishes generation 0 again.
+      const provider = new HistoryProvider();
+      await expect(
+        serviceWith(provider).ensureBenchmarkResident(series),
+      ).resolves.toMatchObject({ status: "REPUBLISHED", basisGeneration: 0 });
+      expect(await headGeneration()).toBe(0);
+      expect(provider.requests).toEqual([]);
+    });
+
+    it("re-establishes the fence from PostgreSQL after Redis loses it, and never publishes without one", async () => {
+      await bootstrap();
+      await clearRedis();
+      await expect(cache.getGenerationFence(series.id)).resolves.toBeNull();
+
+      // Without a fence, nothing commits — not even a head on the right generation.
+      const head = {
+        seriesId: series.id,
+        chunkEncodingVersion: BENCHMARK_CHUNK_ENCODING_VERSION,
+        priceDatasetVersion: BENCHMARK_PRICE_DATASET_VERSION,
+        basisGeneration: 0,
+        residentRanges: [{ from: "2015-06-01", to: TODAY }],
+        chunks: {},
+        bars: 0,
+        materializedAt: NOW.toISOString(),
+      };
+      await expect(
+        cache.publish({ expected: null, head, stage: new Map() }),
+      ).resolves.toBe("FENCED");
+
+      const provider = new HistoryProvider();
+      await expect(
+        serviceWith(provider).ensureBenchmarkResident(series),
+      ).resolves.toMatchObject({ status: "REPUBLISHED" });
+      await expect(cache.getGenerationFence(series.id)).resolves.toBe(0);
+      expect(await headGeneration()).toBe(0);
+      expect(provider.requests).toEqual([]);
     });
   });
 });
