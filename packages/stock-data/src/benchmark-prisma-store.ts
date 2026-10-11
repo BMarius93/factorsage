@@ -282,9 +282,25 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
     tailDate: string;
     freshThrough?: string;
     assertOwned?: () => void;
+    expectedGeneration?: number;
   }): Promise<void> {
     await this.prisma.$transaction(async (transaction) => {
       await this.lockBenchmarkWrite(transaction, input.seriesId);
+      if (input.expectedGeneration !== undefined) {
+        // Under the lock every replacement holds while it changes the generation, so this sees the
+        // generation that is committed and cannot change before this transaction ends.
+        const basis = await transaction.benchmarkSeriesPriceBasis.findUnique({
+          where: { seriesId: input.seriesId },
+        });
+        const generation = basis?.generation ?? 0;
+        if (generation !== input.expectedGeneration) {
+          throw new PriceBasisConflictError(
+            input.seriesId,
+            input.expectedGeneration,
+            generation,
+          );
+        }
+      }
 
       const affectedDates = [
         ...new Set(input.prices.map((price) => price.date)),

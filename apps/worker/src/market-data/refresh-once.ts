@@ -11,7 +11,7 @@ import {
   logRedisEvictionPolicy,
 } from "./composition.js";
 import { MarketDataRefreshLoop } from "./refresh-loop.js";
-import { MarketDataRefreshRun } from "./refresh-run.js";
+import { MarketDataRefreshRun, type EtfRefreshOutcome } from "./refresh-run.js";
 
 /**
  * `pnpm market-data:refresh-once` — run one market-data refresh now, through the normal claim.
@@ -21,6 +21,18 @@ import { MarketDataRefreshRun } from "./refresh-run.js";
  * worker child does, so it never runs beside a refresh already in flight: if one is, that refresh is
  * the run and this exits saying so. It never bootstraps a series.
  */
+/**
+ * Outcomes that mean a series is not current after the run, so the command exits non-zero: the
+ * validation procedure in `docs/decisions/etf-market-data-v1.md` §6 relies on the exit status.
+ */
+const UNHEALTHY_OUTCOMES = new Set<EtfRefreshOutcome["outcome"]>([
+  "FAILED",
+  "REBASE_REFUSED",
+  "NOT_BOOTSTRAPPED",
+  "DEFERRED",
+  "BACKING_OFF",
+]);
+
 loadRootEnv();
 const appConfig = getWorkerConfig();
 const config = getMarketDataWorkerConfig();
@@ -54,12 +66,38 @@ try {
       retryBackoffMs: config.retryBackoffMs,
     },
   );
-  const ran = await loop.runOnce();
-  logger.info({
-    event: ran
-      ? "market-data.refresh-once.completed"
-      : "market-data.refresh-once.busy",
-  });
+  const result = await loop.runOnce();
+  if (result === null) {
+    // Another process holds the claim: its run is the refresh, and this one saw none of it.
+    logger.warn({ event: "market-data.refresh-once.busy" });
+    console.log(
+      "A refresh run is already in flight; run this again once it finishes to see an outcome.",
+    );
+    process.exitCode = 1;
+  } else if (result.outcome === "COMPLETED") {
+    for (const item of result.summary.outcomes) {
+      console.log(
+        `${item.outcome.padEnd(20)} ${item.ticker.padEnd(5)} ${item.latestBar ?? "-"}` +
+          (item.error ? ` — ${item.error}` : ""),
+      );
+    }
+    const unhealthy = result.summary.outcomes.filter((item) =>
+      UNHEALTHY_OUTCOMES.has(item.outcome),
+    );
+    logger.info({
+      event: "market-data.refresh-once.completed",
+      runSequence: result.summary.runSequence,
+      providerReads: result.summary.providerReads,
+      unhealthy: unhealthy.map((item) => `${item.ticker}:${item.outcome}`),
+    });
+    if (unhealthy.length > 0) {
+      process.exitCode = 1;
+    }
+  } else {
+    logger.error({ event: "market-data.refresh-once.failed", ...result });
+    console.error(`The refresh run did not complete: ${result.outcome}`);
+    process.exitCode = 1;
+  }
 } catch (err) {
   logger.fatal({ event: "market-data.refresh-once.failed", err });
   process.exitCode = 1;

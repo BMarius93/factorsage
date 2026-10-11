@@ -117,6 +117,13 @@ export class MarketDataRefreshRun {
     string,
     { until: number; attempts: number }
   >();
+  /**
+   * When each series last came back `AWAITING_PUBLICATION`, in this process. A session the
+   * provider has not published advances the durable tail watermark, which spaces the next read;
+   * one whose newest bars were held at a possible ex-date does not, and would otherwise be read on
+   * every run until the hold resolved. Losing this on a restart costs one early read.
+   */
+  private readonly awaitingSince = new Map<string, number>();
 
   constructor(
     private readonly benchmarks: MarketDataRefreshService,
@@ -262,12 +269,19 @@ export class MarketDataRefreshRun {
       const benchmark = await this.benchmarks.getBenchmark(etf.benchmarkCode);
       const series = benchmark.series;
       const state = await this.benchmarks.benchmarkRefreshState(series);
-      const decision = decideBenchmarkRefresh({
+      const decided = decideBenchmarkRefresh({
         state,
         expected,
         now: this.now(),
         retryMs: this.options.seriesRetryMs,
       });
+      const awaitingSince = this.awaitingSince.get(etf.benchmarkCode);
+      const decision =
+        decided.action === "REFRESH" &&
+        awaitingSince !== undefined &&
+        this.now().getTime() - awaitingSince < this.options.seriesRetryMs
+          ? ({ action: "SKIP", reason: "RECENTLY_ASKED" } as const)
+          : decided;
 
       if (decision.action === "SKIP") {
         if (decision.reason === "NOT_BOOTSTRAPPED") {
@@ -312,6 +326,11 @@ export class MarketDataRefreshRun {
       const result = await this.benchmarks.refreshBenchmarkSeries(series, {
         ...(expected ? { expectedSession: expected.session } : {}),
       });
+      if (result.status === "AWAITING_PUBLICATION") {
+        this.awaitingSince.set(etf.benchmarkCode, this.now().getTime());
+      } else {
+        this.awaitingSince.delete(etf.benchmarkCode);
+      }
       const outcome: EtfRefreshOutcome = {
         ...base,
         outcome:

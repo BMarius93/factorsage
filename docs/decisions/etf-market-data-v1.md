@@ -212,6 +212,12 @@ unaffected.
   in one transaction, and no publisher can commit the old generation again — including one whose
   snapshot predates the commit and whose hydration lease has expired. The replacer then
   republishes under the new generation; if it lost its lease and cannot, the next publisher does.
+- **Ordinary saves are pinned to their generation.** Every refresh and hydration reads the
+  generation before it asks the provider and saves with it; the save compares it under the series
+  write lock and writes nothing (`PriceBasisConflictError`) when a replacement committed another
+  generation meanwhile. A writer that stalled past its lease therefore cannot put bars read on the
+  old basis beside the new one in PostgreSQL, even when its own earliest-bars check — made after
+  the provider rewrote the history — finds nothing changed.
 - **The ex-date hold** (§7, rule 3). Bars newer than the newest stored one are compared with the bar
   before them; a move below 0.7 or above 1.4 holds that bar and every later one while fewer than four
   sessions stand from it. `USO`'s 1:8 reverse split (×8) is exactly that move. Once four sessions
@@ -255,7 +261,9 @@ pnpm benchmarks:prewarm --group market-overview --report artifacts/market-overvi
   3. check every report line is `OK`, or that each `WARN` is understood (a late start, a provider
      gap), and that `failed` is 0;
   4. run it again: it must report 0 provider HTTP requests;
-  5. run `pnpm market-data:refresh-once` and check every series is `UP_TO_DATE` or `REFRESHED`.
+  5. run `pnpm market-data:refresh-once`. It prints each series' outcome and exits non-zero when
+     the run did not complete, another run was in flight, or any series is `FAILED`,
+     `REBASE_REFUSED`, `NOT_BOOTSTRAPPED`, `DEFERRED` or `BACKING_OFF`.
 
 ### 7. The refresh, and who owns it
 
@@ -273,9 +281,11 @@ pnpm benchmarks:prewarm --group market-overview --report artifacts/market-overvi
   `CachedTradingCalendar`) whose close plus a publication delay (`MARKET_DATA_EOD_PUBLICATION_DELAY_MS`,
   30 minutes) has passed; weekdays are the fallback when the calendar cannot be read, and that is
   logged. A series is read only when PostgreSQL does not already hold that session, read after it
-  was final. One the provider has not published yet, or whose newest bars are held at a possible
-  ex-date, is asked again no more often than `MARKET_DATA_SERIES_RETRY_MS` (30 minutes), spaced by
-  the last time the provider answered a saved read.
+  was final. One the provider has not published yet is asked again no more often than
+  `MARKET_DATA_SERIES_RETRY_MS` (30 minutes), spaced by the durable tail watermark — which only a
+  read reaching today advances, so a backtest's backfill of old years never delays it. One whose
+  newest bars are held at a possible ex-date advances no watermark; the child spaces it by the same
+  interval in its own memory.
 - **Never the full history.** One bounded tail read (`STOCK_RECENT_TAIL_CALENDAR_DAYS`, 10) from the
   oldest of: that window, the day after coverage ends, and any unsettled session, plus the
   earliest-bars check when it adds a session: two small requests per ETF per session. The full
@@ -303,8 +313,11 @@ the child.
 `BenchmarkHistoryReader` (`@intrinsic/stock-data`) never calls the provider. It reads the resident
 projection, rebuilds it from PostgreSQL once when Redis lost it, and falls back to PostgreSQL when
 Redis cannot answer — reading the rows, the generation and the coverage in one `REPEATABLE READ`
-snapshot. Every read is bounded by an explicit end date, clamped to today, and never returns a bar
-after it. An end before the history begins returns an empty history.
+snapshot. A rebuild that fails (the hydration lock not had in time, a lease lost while
+republishing) still falls back; a Redis that cannot be read at all is an outage and fails the read,
+as `AGENTS.md` invariant 16 requires. Every read is bounded by an explicit end date, clamped to
+today, and never returns a bar after it. An end before the history begins returns an empty
+history.
 
 | Need             | Method                                                 |
 | ---------------- | ------------------------------------------------------ |
@@ -344,6 +357,25 @@ no provider call: one `GET` of the head and one `MGET` of the years it needs.
   but needless rebuilds.
 - **Changing production Redis from code.** Not this PR's to do; the guard reports and blocks
   readiness instead.
+
+## Limitations
+
+- **Redis that loses acknowledged writes.** The fence assumes Redis keeps what it acknowledged. A
+  failover to a lagging replica, or a restart from a snapshot taken before a replacement, can bring
+  back an old fence with an old head; readers do not compare generations with PostgreSQL, so that
+  head is served until the next residency check — the refresh child's next run for the twenty ETFs
+  and `SP500`. After restoring Redis from a backup, delete the `benchmark:v1:*` keys or run
+  `pnpm market-data:refresh-once`.
+- **A fence write delayed past its transaction.** Every fence write is issued under the series
+  lock but not bounded by it: one stalled in transit for longer than the 120-second transaction
+  timeout could land after a later one. It can only leave the fence behind PostgreSQL with the head
+  removed; an old head would need a second publisher stalled the same way.
+- **In-process spacing.** The per-series backoff and the held-series spacing live in the child's
+  memory; a restart costs at most one early read per series.
+- **Budget order.** Under persistent slowness the 4-minute budget defers the same series — the last
+  in display order — on every run.
+- **A re-base during a hydration** replaces the history and ends that hydration, so an older range
+  the same target was missing is read by the next attempt rather than this one.
 
 ## Pre-deployment checklist
 

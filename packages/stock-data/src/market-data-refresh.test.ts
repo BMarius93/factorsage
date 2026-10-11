@@ -153,23 +153,17 @@ describe("decideBenchmarkRefresh", () => {
     ).toEqual({ action: "REFRESH", reason: "SESSION_MISSING" });
   });
 
-  it("spaces the reads of a series whose newest bars are held at a possible ex-date", () => {
-    // The hold saved the older bars (so the provider was asked after the close) but no tail
-    // watermark, and the held session is not stored.
-    const held = {
-      coverageEnd: "2026-10-08",
-      latestBar: "2026-10-08",
-      lastTailSyncAt: "2026-10-08T21:00:00.000Z",
-      lastAskedAt: "2026-10-09T20:45:00.000Z",
-    };
-    expect(
-      decideBenchmarkRefresh({ state: held, expected, now, retryMs }),
-    ).toEqual({ action: "SKIP", reason: "RECENTLY_ASKED" });
+  it("is not delayed by a saved read that never reached the recent sessions", () => {
+    // A backtest backfilled 1995-1999 after the close: the base coverage synced, the tail did not.
     expect(
       decideBenchmarkRefresh({
-        state: held,
+        state: {
+          coverageEnd: "2026-10-08",
+          latestBar: "2026-10-08",
+          lastTailSyncAt: "2026-10-08T21:00:00.000Z",
+        },
         expected,
-        now: new Date("2026-10-09T21:16:00.000Z"),
+        now,
         retryMs,
       }),
     ).toEqual({ action: "REFRESH", reason: "SESSION_MISSING" });

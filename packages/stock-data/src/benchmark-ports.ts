@@ -96,6 +96,13 @@ export interface BenchmarkDataStore {
     tailDate: string;
     freshThrough?: string;
     assertOwned?: () => void;
+    /**
+     * The price-basis generation the saved bars were read under. Compared under the series write
+     * lock: when a replacement committed another generation since, nothing is written and
+     * `PriceBasisConflictError` is raised, so bars read on an old basis never land beside a new
+     * one — whatever the writer's lease says.
+     */
+    expectedGeneration?: number;
   }): Promise<void>;
   /** The first stored bar's date, or null when the series holds none. */
   getEarliestDailyPriceDate(seriesId: string): Promise<LocalDate | null>;
@@ -363,11 +370,6 @@ export type BenchmarkRefreshState = {
   latestBar?: LocalDate;
   /** When the bounded tail last synced successfully: a read that reached today and saved. */
   lastTailSyncAt?: Instant;
-  /**
-   * When the provider last answered a read that was saved, whatever it reached — including one whose
-   * newest bars were held back at a possible ex-date. What spaces repeated reads of one session.
-   */
-  lastAskedAt?: Instant;
 };
 
 export type BenchmarkRefreshStatus =

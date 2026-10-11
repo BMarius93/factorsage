@@ -120,29 +120,25 @@ export function decideBenchmarkRefresh(input: {
   if (state.coverageEnd === undefined) {
     return { action: "SKIP", reason: "NOT_BOOTSTRAPPED" };
   }
+  // Only the tail watermark says the provider was asked about the recent sessions: a backfill of an
+  // older range saves too, but tells nothing about today's bar. A read whose newest bars were held
+  // at a possible ex-date advances no watermark; the refresh run spaces those itself.
   const lastSync = instant(state.lastTailSyncAt);
-  // The last time the provider answered a read that was saved, whatever it reached. A read whose
-  // newest bars were held back at a possible ex-date saves no tail watermark, and spacing on the
-  // watermark alone would ask again on every run until the hold resolved.
-  const lastAsked = [lastSync, instant(state.lastAskedAt)]
-    .filter((value): value is number => value !== undefined)
-    .sort((left, right) => right - left)[0];
   const recentlyAsked =
-    lastAsked !== undefined && input.now.getTime() - lastAsked < input.retryMs;
+    lastSync !== undefined && input.now.getTime() - lastSync < input.retryMs;
   if (expected === undefined) {
     return recentlyAsked
       ? { action: "SKIP", reason: "RECENTLY_ASKED" }
       : { action: "REFRESH", reason: "TAIL_STALE" };
   }
-  const finalizedAt = Date.parse(expected.finalizedAt);
-  const readAfterFinal = lastSync !== undefined && lastSync >= finalizedAt;
-  const askedAfterFinal = lastAsked !== undefined && lastAsked >= finalizedAt;
+  const readAfterFinal =
+    lastSync !== undefined && lastSync >= Date.parse(expected.finalizedAt);
   const holdsSession =
     state.latestBar !== undefined && state.latestBar >= expected.session;
   if (holdsSession && readAfterFinal) {
     return { action: "SKIP", reason: "UP_TO_DATE" };
   }
-  if (askedAfterFinal && recentlyAsked) {
+  if (readAfterFinal && recentlyAsked) {
     return { action: "SKIP", reason: "RECENTLY_ASKED" };
   }
   return {

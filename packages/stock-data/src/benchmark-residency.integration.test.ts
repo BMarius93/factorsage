@@ -34,6 +34,7 @@ import {
   createStockDataRedisClient,
   IoredisCacheClient,
 } from "./redis-client.js";
+import { PriceBasisConflictError } from "./price-basis.js";
 import type { PriceBasisObservation } from "./service.js";
 
 loadRootEnv();
@@ -507,6 +508,28 @@ describeResidency("benchmark history residency, reads and refresh", () => {
           cache: offline,
         }).readFullBenchmarkHistory(series, "2014-01-01"),
       ).resolves.toMatchObject({ rows: [], missing: [], source: "POSTGRESQL" });
+    });
+
+    it("falls back to PostgreSQL when the repair cannot take the hydration lock", async () => {
+      await bootstrap();
+      await clearRedis();
+      cacheEvents = [];
+      const busy: LoadCoordinator = {
+        run: async () => {
+          throw new Error(
+            "The operation was unable to achieve a quorum during its retry window.",
+          );
+        },
+      };
+
+      const history = await serviceWith(new HistoryProvider(), NOW, {
+        coordinator: busy,
+      }).readBenchmarkHistory(series, { from: "2026-10-01", to: TODAY });
+
+      // The read still has an answer; only the republication failed, and it is reported.
+      expect(history).toMatchObject({ source: "POSTGRESQL", missing: [] });
+      expect(history.rows.at(-1)?.date).toBe(TODAY);
+      expect(cacheEvents.map((event) => event.outcome)).toContain("FAILED");
     });
 
     it("reads a single session, and nothing for a day the market did not trade", async () => {
@@ -1185,6 +1208,52 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       ).resolves.toMatchObject({ status: "REPUBLISHED", basisGeneration: 0 });
       expect(await headGeneration()).toBe(0);
       expect(provider.requests).toEqual([]);
+    });
+
+    it("refuses an ordinary save read on the old generation, once a replacement has committed a new one", async () => {
+      await bootstrap(
+        Object.assign(new HistoryProvider(), {
+          publishedThrough: "2026-10-05",
+        }),
+      );
+      // A's tail read is answered on the old basis. Before A gets to save it, the provider rewrites
+      // the history and another process — B, holding its own lease — replaces it as generation 1.
+      const rewritten = rebasedProvider();
+      const stalled = new HistoryProvider();
+      const answer = stalled.getBenchmarkDailyPrices.bind(stalled);
+      let rewrittenSince = false;
+      stalled.getBenchmarkDailyPrices = async (symbol, seriesId, range) => {
+        const rows = await answer(symbol, seriesId, range);
+        if (!rewrittenSince) {
+          rewrittenSince = true;
+          await expect(
+            serviceWith(rewritten).refreshBenchmarkSeries(series, {
+              expectedSession: TODAY,
+            }),
+          ).resolves.toMatchObject({ status: "REBASED", basisGeneration: 1 });
+          // From now on A's provider answers on the new basis too, so A's earliest-bars check
+          // finds nothing changed: only the generation tells A that its tail is stale.
+          stalled.rebaseAt = { date: EX_DATE, ratio: 4 };
+        }
+        return rows;
+      };
+
+      await expect(
+        serviceWith(stalled).refreshBenchmarkSeries(series, {
+          expectedSession: TODAY,
+        }),
+      ).rejects.toBeInstanceOf(PriceBasisConflictError);
+
+      // A's old-basis tail never landed: PostgreSQL is wholly on generation 1's basis.
+      await expect(store.getPriceBasisGeneration(series.id)).resolves.toBe(1);
+      const stored = await store.getDailyPrices(series.id, {
+        from: "2015-06-01",
+        to: TODAY,
+      });
+      expect(stored).toHaveLength(DATES.length);
+      for (const row of stored) {
+        expect(row.close).toBeCloseTo(rewritten.close(row.date), 6);
+      }
     });
 
     it("re-establishes the fence from PostgreSQL after Redis loses it, and never publishes without one", async () => {

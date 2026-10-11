@@ -57,6 +57,7 @@ class FakeBenchmarks implements MarketDataRefreshService {
   failing = new Set<string>();
   absent = new Set<string>();
   refused = new Set<string>();
+  awaiting = new Set<string>();
 
   async getBenchmark(code: string): Promise<BenchmarkWithSeries> {
     if (this.failing.has(code)) {
@@ -101,6 +102,14 @@ class FakeBenchmarks implements MarketDataRefreshService {
     id: string;
   }): Promise<BenchmarkRefreshResult> {
     this.refreshed.push(series.id);
+    if (this.awaiting.has(series.id.replace("series-", ""))) {
+      return {
+        status: "AWAITING_PUBLICATION",
+        latestBar: "2026-10-08",
+        basisGeneration: 0,
+        providerReads: 2,
+      };
+    }
     if (this.refused.has(series.id.replace("series-", ""))) {
       return { status: "REBASE_REFUSED", basisGeneration: 0, providerReads: 3 };
     }
@@ -315,6 +324,28 @@ describe("market-data refresh run", () => {
       // Recovered: no backoff remains.
       at(95);
       expect(gld(await run.run(25, () => false))).not.toBe("BACKING_OFF");
+    });
+
+    it("asks again for a session the provider has not published no more often than the retry spacing", async () => {
+      // A series whose newest bars were held advances no tail watermark, so the durable state
+      // alone would have it read on every run.
+      const benchmarks = new FakeBenchmarks();
+      benchmarks.awaiting.add("ETF_GLD");
+      const { run, at } = clockedRun(benchmarks);
+      const gld = (summary: {
+        outcomes: { ticker: string; outcome: string }[];
+      }) =>
+        summary.outcomes.find((outcome) => outcome.ticker === "GLD")?.outcome;
+
+      expect(gld(await run.run(50, () => false))).toBe("AWAITING_PUBLICATION");
+      at(10);
+      expect(gld(await run.run(51, () => false))).toBe("RECENTLY_ASKED");
+      expect(
+        benchmarks.refreshed.filter((id) => id === "series-ETF_GLD"),
+      ).toHaveLength(1);
+      at(31);
+      benchmarks.awaiting.delete("ETF_GLD");
+      expect(gld(await run.run(52, () => false))).toBe("REFRESHED");
     });
 
     it("backs off a series that fails alone, but not when every series fails together", async () => {

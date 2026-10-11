@@ -419,18 +419,13 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   async benchmarkRefreshState(
     series: BenchmarkSeries,
   ): Promise<BenchmarkRefreshState> {
-    const [coverage, latestBar, tail, asked] = await Promise.all([
+    const [coverage, latestBar, tail] = await Promise.all([
       this.allCoverage(series),
       this.store.getLatestDailyPriceDate(series.id),
       this.store.getDatasetState(
         series.id,
         "DAILY_PRICE",
         BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
-      ),
-      this.store.getDatasetState(
-        series.id,
-        "DAILY_PRICE",
-        BENCHMARK_DAILY_PRICE_VARIANT,
       ),
     ]);
     const coverageEnd = coverage.at(-1)?.to;
@@ -439,9 +434,6 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       ...(latestBar ? { latestBar } : {}),
       ...(tail?.lastSuccessfulSyncAt
         ? { lastTailSyncAt: tail.lastSuccessfulSyncAt }
-        : {}),
-      ...(asked?.lastSuccessfulSyncAt
-        ? { lastAskedAt: asked.lastSuccessfulSyncAt }
         : {}),
     };
   }
@@ -478,6 +470,9 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       from = minDate(maxDate(from, first.from), today);
       const range = { from, to: today };
 
+      // Read before the provider is: the save is refused if a replacement commits another
+      // generation while this read is in flight, so bars on the old basis cannot land beside it.
+      const generation = await this.store.getPriceBasisGeneration(series.id);
       const prices = await this.read(series, range, "SCHEDULED_REFRESH");
       lease.assertOwned();
       const saved = await this.saveRange(series, {
@@ -487,6 +482,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
         tailDate: today,
         freshThrough: today,
         assertOwned: lease.assertOwned,
+        expectedGeneration: generation,
       });
       await this.publishWithinLease(series, lease.assertOwned);
 
@@ -550,6 +546,8 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     const ranges = tail ? [...missing, tail] : missing;
 
     const syncedAt = this.nowInstant();
+    // Read before the provider is, for the reason `refreshBenchmarkSeries` gives.
+    const generation = await this.store.getPriceBasisGeneration(series.id);
     for (const range of ranges) {
       const prices = await this.read(
         series,
@@ -572,6 +570,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
           ? { freshThrough: target.to }
           : {}),
         assertOwned,
+        expectedGeneration: generation,
       });
       // A replacement read and saved the whole history; a refused one saves nothing beside it.
       if (saved.outcome !== "SAVED") {
@@ -601,6 +600,8 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       tailDate: LocalDate;
       freshThrough?: LocalDate;
       assertOwned: () => void;
+      /** The generation the provider read was made under; see `saveDailyPriceSync`. */
+      expectedGeneration: number;
     },
   ): Promise<SaveOutcome> {
     let prices = [...input.prices];
@@ -658,6 +659,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       tailDate: input.tailDate,
       ...(freshThrough !== undefined ? { freshThrough } : {}),
       assertOwned: input.assertOwned,
+      expectedGeneration: input.expectedGeneration,
     });
     return { outcome: "SAVED", providerReads };
   }
@@ -1024,11 +1026,21 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     series: BenchmarkSeries,
     read: () => Promise<T | null>,
   ): Promise<T | null> {
+    // A Redis that cannot be read at all is an outage and fails the read (`AGENTS.md` invariant
+    // 16): nothing degrades to PostgreSQL-only then.
     const first = await read();
     if (first) {
       return first;
     }
-    const residency = await this.ensureBenchmarkResident(series);
+    let residency: BenchmarkResidency;
+    try {
+      residency = await this.ensureBenchmarkResident(series);
+    } catch (err) {
+      // The repair failed — the hydration lock was not had in time, or its lease was lost while
+      // republishing — but the read still has an answer: PostgreSQL's, which the caller reads.
+      this.onCacheEvent({ seriesId: series.id, outcome: "FAILED", err });
+      return null;
+    }
     if (residency.status !== "REPUBLISHED") {
       return null;
     }

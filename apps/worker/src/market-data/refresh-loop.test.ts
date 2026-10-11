@@ -78,7 +78,10 @@ describe("market-data refresh loop", () => {
       run: async (runSequence) => ({ ...summary, runSequence }),
     }).runOnce();
 
-    expect(ran).toBe(true);
+    expect(ran).toMatchObject({
+      outcome: "COMPLETED",
+      summary: { runSequence: 1 },
+    });
     expect(schedule.completed).toEqual([new Date(NOW.getTime() + INTERVAL)]);
   });
 
@@ -86,11 +89,14 @@ describe("market-data refresh loop", () => {
     const schedule = new RecordingSchedule([
       { runSequence: 2, claimedAt: NOW },
     ]);
-    await loopWith(schedule, {
-      run: async () => {
-        throw new Error("provider unavailable");
-      },
-    }).runOnce();
+    // Reported as failed, so an operator command can exit non-zero on it.
+    await expect(
+      loopWith(schedule, {
+        run: async () => {
+          throw new Error("provider unavailable");
+        },
+      }).runOnce(),
+    ).resolves.toEqual({ outcome: "FAILED", error: "provider unavailable" });
 
     expect(schedule.failed).toEqual([
       {
@@ -113,7 +119,7 @@ describe("market-data refresh loop", () => {
         return { ...summary, runSequence };
       },
     });
-    await loop.runOnce();
+    await expect(loop.runOnce()).resolves.toEqual({ outcome: "RELEASED" });
 
     expect(schedule.released).toEqual([NOW]);
     expect(schedule.completed).toEqual([]);
@@ -125,6 +131,6 @@ describe("market-data refresh loop", () => {
       loopWith(schedule, {
         run: async () => ({ ...summary, runSequence: 0 }),
       }).runOnce(),
-    ).resolves.toBe(false);
+    ).resolves.toBeNull();
   });
 });

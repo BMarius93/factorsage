@@ -8,6 +8,16 @@ import type {
   MarketDataRefreshScheduleRepository,
 } from "./schedule-repository.js";
 
+/** How one claimed run ended. */
+export type MarketDataRefreshRunResult =
+  | { outcome: "COMPLETED"; summary: MarketDataRefreshSummary }
+  /** It threw; the run is recorded as failed and retried with backoff. */
+  | { outcome: "FAILED"; error: string }
+  /** Its lease was lost, so another process owns the run now. */
+  | { outcome: "ABANDONED" }
+  /** It was asked to stop and handed the claim back unfinished. */
+  | { outcome: "RELEASED" };
+
 /** What the loop runs once per claim. `MarketDataRefreshRun` in production. */
 export type MarketDataRefreshWork = {
   run(
@@ -73,16 +83,15 @@ export class MarketDataRefreshLoop {
     }
   }
 
-  /** Claims and runs at most one due run, then returns. `false`: nothing was due or claimable. */
-  async runOnce(): Promise<boolean> {
+  /** Claims and runs at most one due run, then says how it ended; null when none was claimable. */
+  async runOnce(): Promise<MarketDataRefreshRunResult | null> {
     await this.repository.ensureSchedule(this.now());
     await this.recoverExpiredRun();
     const claim = await this.claimDueRun();
     if (!claim) {
-      return false;
+      return null;
     }
-    await this.execute(claim);
-    return true;
+    return this.execute(claim);
   }
 
   stop(): void {
@@ -93,7 +102,9 @@ export class MarketDataRefreshLoop {
     this.wake?.();
   }
 
-  private async execute(claim: ClaimedMarketDataRefresh): Promise<void> {
+  private async execute(
+    claim: ClaimedMarketDataRefresh,
+  ): Promise<MarketDataRefreshRunResult> {
     const { runSequence, takenOverFrom } = claim;
     this.leaseLost = false;
     this.startHeartbeat();
@@ -119,11 +130,11 @@ export class MarketDataRefreshLoop {
           event: "market-data.refresh.abandoned",
           runSequence,
         });
-        return;
+        return { outcome: "ABANDONED" };
       }
       if (this.stopping) {
         await this.releaseUnfinished(runSequence);
-        return;
+        return { outcome: "RELEASED" };
       }
       this.logger.info({
         event: "market-data.refresh.completed",
@@ -136,6 +147,7 @@ export class MarketDataRefreshLoop {
         runSequence,
         new Date(this.now().getTime() + this.options.refreshIntervalMs),
       );
+      return { outcome: "COMPLETED", summary };
     } catch (err) {
       this.logger.error({
         event: "market-data.refresh.failed",
@@ -144,6 +156,10 @@ export class MarketDataRefreshLoop {
         err,
       });
       await this.fail(runSequence, err);
+      return {
+        outcome: "FAILED",
+        error: err instanceof Error ? err.message : String(err),
+      };
     } finally {
       this.stopHeartbeat();
     }
