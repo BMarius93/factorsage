@@ -242,6 +242,28 @@ The key exists under the name the application reads in exactly one process.
    target and the credential's shape, so running that file directly gets no further than running
    the launcher.
 
+Two things about how the child reaches the network:
+
+- **`NODE_EXTRA_CA_CERTS` is passed on** when the launcher has it. It is the path of a bundle of
+  certificate authorities to trust, not a credential, and Node reads it once, when a process
+  starts, so it can only be inherited. An environment whose outbound TLS is inspected sets it for
+  every process; without it the child cannot verify the provider's certificate there, and every
+  request fails. Nothing else about TLS is passed: not `SSL_CERT_FILE`, and never
+  `NODE_TLS_REJECT_UNAUTHORIZED`.
+- **No proxy configuration is passed on**, in any spelling: `HTTPS_PROXY`, `http_proxy`,
+  `ALL_PROXY`, `NO_PROXY`, `NODE_USE_ENV_PROXY` and anything else with `proxy` in its name. A proxy
+  URL routinely embeds a credential. The child also refuses to start if it finds one.
+
+Every report, a plan's included, ends with what the process that produced it actually holds, by
+name and never by value:
+
+```text
+Process environment of this run (names only): 14 variables, every one from the launcher's allowlist.
+  provider credential (FMP_API_KEY): present, in this process only
+  extra CA certificates (NODE_EXTRA_CA_CERTS): present
+  proxy variables: none
+```
+
 Nothing else reads `LIVE_FMP_API_KEY`: not `getFmpConfig`, not the API, the worker or the web app.
 A process that merely inherits the variable has no provider credential. On top of that:
 
@@ -271,55 +293,162 @@ command, and remove it afterwards.
 2. Add `financialmodelingprep.com` to the network allowlist immediately before validating.
 3. Start a new session, so the environment change and this branch are both in effect.
 
+If the session sets `NODE_EXTRA_CA_CERTS`, its outbound TLS is inspected, and whatever inspects it
+can read each request, the key in its query string included. That is a property of the
+environment, not of this command, and one more reason to give the cloud a key of its own.
+
 ### Validation sequence
 
-Run each step and keep its report. Stop at the first one that is not as described.
+Nine steps. Run each and keep its output. Stop at the first one that is not as described.
+
+Before them, the offline proof on the cloud VM:
 
 ```bash
-# 0. The offline proof, on the cloud VM.
 pnpm build:packages
 pnpm --filter @intrinsic/fmp test
 pnpm --filter @intrinsic/api exec vitest run src/fmp-live/
 pnpm --filter @intrinsic/stock-data exec vitest run \
   src/fmp-request-budget.integration.test.ts src/fmp-gate-coverage.test.ts src/live-fmp-gate.test.ts
+```
 
-# 1. A key alone does nothing: expect exit 2 and "needs RUN_LIVE_FMP_HYDRATION=1".
-scripts/cloud/fmp-live.sh --symbols AAPL --full-history
+**1. No opt-in: exit 2, no provider request.**
 
-# 2. A fourth security is refused before anything else: expect exit 2.
-RUN_LIVE_FMP_HYDRATION=1 scripts/cloud/fmp-live.sh --symbols AAPL,MSFT,NVDA,GOOGL --full-history
+```bash
+scripts/cloud/fmp-live.sh --symbols AAPL --full-history; echo "exit=$?"
+```
 
-# 3. The plan: no request. AAPL is "not in the security catalog" on a fresh database.
+Expect `needs RUN_LIVE_FMP_HYDRATION=1` and `exit=2`. The launcher stopped before it looked for
+the key, and no process that could ask the provider was started: there is no `Live FMP hydration:`
+report.
+
+**2. Four securities: exit 2, no provider request.**
+
+```bash
+RUN_LIVE_FMP_HYDRATION=1 scripts/cloud/fmp-live.sh --symbols AAPL,MSFT,NVDA,GOOGL --full-history; echo "exit=$?"
+```
+
+Expect `at most 3 distinct securities; 4 were given` and `exit=2`. The command line is refused
+before any variable is read.
+
+**3. A plan: no provider request.**
+
+```bash
 scripts/cloud/fmp-live.sh --symbols AAPL --full-history --plan
+```
 
-# 4. One security.
+Expect `PLAN ONLY — nothing was asked of the provider`. On a fresh database AAPL is
+`not in the security catalog`. The process section must read `provider credential (FMP_API_KEY):
+absent`, `extra CA certificates (NODE_EXTRA_CA_CERTS): present` and `proxy variables: none`. If the
+CA line says `not set`, the session has no CA bundle variable to pass and step 4 will show whether
+one is needed.
+
+**4. AAPL, for real. It must succeed.**
+
+```bash
 RUN_LIVE_FMP_HYDRATION=1 scripts/cloud/fmp-live.sh --symbols AAPL --full-history
+```
 
-# 5. The same again: expect "0 sent", every dataset "nothing asked".
+Expect `Live FMP hydration: SUCCEEDED`, `admitted to the security catalog from its provider
+profile`, `Refused requests: none`, and all three hydration steps `completed`. Record
+`Provider requests: N sent of a budget of 200` and the per-dataset counts, in particular the
+insider and congressional page counts: they are the unmeasured part of the budget.
+
+A cold security takes from a few seconds to about half a minute. The time is mostly the shared
+gate, not the provider: a request that finds the gate full waits until the oldest holder's lease
+would expire.
+
+**5. AAPL again, immediately: no provider request.**
+
+```bash
 RUN_LIVE_FMP_HYDRATION=1 scripts/cloud/fmp-live.sh --symbols AAPL --full-history
+```
 
-# 6. Only if 4 and 5 succeeded: three securities.
+Expect `Provider requests: 0 sent`, `resolved from the security catalog`, and every dataset
+`0  (nothing asked: stored data was fresh or already covered)`.
+
+**6. AAPL, MSFT and NVDA. It must succeed inside the budget.** Only if 4 and 5 did.
+
+```bash
 RUN_LIVE_FMP_HYDRATION=1 scripts/cloud/fmp-live.sh --symbols AAPL,MSFT,NVDA --full-history
 ```
 
-What to record from steps 4 and 6:
+Expect `SUCCEEDED`, `Approved securities: 3 of at most 3`, each with its security id,
+`Refused requests: none`, and `N sent of a budget of 200` with N well below 200. AAPL is already
+stored, so its datasets show `0`.
 
-- the verdict on the first line, and the duration;
-- `Provider requests: N sent of a budget of 200`, and the per-dataset counts, in particular the
-  insider and congressional page counts, which are the unmeasured part of the budget;
-- `Approved securities: 3 of at most 3`, each with its security id, and `Refused requests: none`;
-- under `Stored`, the row count and date bounds of every dataset. Daily prices should begin near
-  the retained horizon (or the listing date) and end at the latest session; each statement family
-  should hold quarterly and annual rows; the ratios should carry values on most sessions;
-- any step that is `FAILED` or `NOT RUN`, with its reason.
+**7. PostgreSQL coverage, and no fourth security.**
 
-Then start the development stack and look at the result: `scripts/cloud/stack.sh up dev`, sign in
-as a QA persona (`pnpm qa:seed`) and open `/stocks/AAPL`. The stack has no provider key; it reads
-what the run stored.
+The step 6 report already answers both. Under `Stored`, every dataset has a row count and date
+bounds: daily prices should begin near the retained horizon (or the listing date) and end at the
+latest session, each statement family should hold quarterly and annual rows, and the ratios should
+carry values on most sessions. Then, for the database as a whole:
 
-Expect a cold security to take from a few seconds to about half a minute. The time is mostly the
-shared gate, not the provider: a request that finds the gate full waits until the oldest holder's
-lease would expire.
+```text
+Database intrinsic_value as a whole: 3 securities in the catalog, 3 with synchronized provider data (AAPL, MSFT, NVDA).
+  None outside the securities approved for this run.
+```
+
+Independently of the command, straight from PostgreSQL. On a fresh database this returns exactly
+three rows:
+
+```bash
+psql "$DATABASE_URL" -X -c '
+SELECT s."providerSymbol" AS symbol,
+       (SELECT count(*) FROM "DailyPrice" p WHERE p."securityId" = s.id) AS bars,
+       (SELECT min(p.date) FROM "DailyPrice" p WHERE p."securityId" = s.id) AS first_bar,
+       (SELECT max(p.date) FROM "DailyPrice" p WHERE p."securityId" = s.id) AS last_bar,
+       (SELECT count(*) FROM "FinancialStatement" f WHERE f."securityId" = s.id) AS statements,
+       (SELECT count(*) FROM "StockSplit" x WHERE x."securityId" = s.id) AS splits,
+       (SELECT count(*) FROM "InsiderTransaction" i WHERE i."securityId" = s.id) AS insider,
+       (SELECT count(*) FROM "CongressTrade" c WHERE c."securityId" = s.id) AS congress
+FROM "Security" s ORDER BY 1;'
+```
+
+**8. Secret and process isolation.**
+
+From the reports of steps 3, 4 and 6, the process section: every variable from the launcher's
+allowlist, the credential `present, in this process only` for a run and `absent` for the plan,
+`NODE_EXTRA_CA_CERTS: present`, `proxy variables: none`.
+
+Then that no stack process holds the key. The shell you type in does hold `LIVE_FMP_API_KEY` —
+that is where the launcher reads it from — so this looks at the stack: with one up
+(`scripts/cloud/stack.sh up dev`), it prints the name of any provider-key variable that is set to
+something in any process of any role. Expect no output:
+
+```bash
+for role in api worker web; do
+  for pid in $(pgrep -g "$(cat .cloud/stack/$role.pid)"); do
+    tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
+      grep -E '^(FMP_API_KEY|LIVE_FMP_API_KEY)=.' | cut -d= -f1
+  done
+done
+```
+
+And that the key is nowhere in the checkout. This prints a count, never the value, and keeps the
+value out of the process list. Expect `0`:
+
+```bash
+[ -n "$LIVE_FMP_API_KEY" ] && grep -rlF -f <(printf '%s' "$LIVE_FMP_API_KEY") \
+  --exclude-dir=node_modules --exclude-dir=.git . | wc -l
+```
+
+A byte search can miss a value inside a compressed cache file, so the process listing is the
+authoritative check and this one corroborates it.
+
+**9. A clean state afterwards.**
+
+```bash
+scripts/cloud/stack.sh down                                         # if a stack was started
+pgrep -fl fmp-live || echo "no live-run process"
+redis-cli --scan --pattern 'stock-data:v2:fmp:budget:*' | wc -l     # expect 0
+git status --short | wc -l                                          # expect 0
+```
+
+Then take `financialmodelingprep.com` off the network allowlist again.
+
+To look at the result in the product, before step 9: `scripts/cloud/stack.sh up dev`, sign in as a
+QA persona (`pnpm qa:seed`) and open `/stocks/AAPL`. The stack has no provider key; it reads what
+the run stored.
 
 ## 10. Cleaning up
 

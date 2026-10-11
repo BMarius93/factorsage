@@ -5,10 +5,14 @@ import {
   LiveFmpUsageError,
   parseLiveFmpArguments,
 } from "./fmp-live-arguments";
-import { readLiveFmpStoredCoverage } from "./fmp-live-coverage";
+import {
+  readLiveFmpDatabaseFootprint,
+  readLiveFmpStoredCoverage,
+} from "./fmp-live-coverage";
 import {
   LiveFmpEnvironmentError,
   assertLiveFmpChildEnvironment,
+  describeLiveFmpProcessEnvironment,
 } from "./fmp-live-environment";
 import { admitApprovedSecurities } from "./fmp-live-identity";
 import {
@@ -71,9 +75,12 @@ async function main(): Promise<number> {
       runId: environment.runId,
       databaseName: environment.target.databaseName,
       databaseHost: environment.target.databaseHost,
+      processEnvironment: describeLiveFmpProcessEnvironment(process.env),
       dependencies: {
         readStoredCoverage: (securityId) =>
           readLiveFmpStoredCoverage(runtime.prisma, securityId),
+        readDatabaseFootprint: () =>
+          readLiveFmpDatabaseFootprint(runtime.prisma),
         scope: runtime.scope,
         budget: runtime.budget,
         guard: runtime.guard,

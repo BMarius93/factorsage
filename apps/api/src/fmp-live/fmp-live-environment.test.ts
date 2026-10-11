@@ -12,10 +12,13 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   LIVE_FMP_CHILD_INHERITED_VARIABLES,
+  LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV,
   LIVE_FMP_RUN_ID_ENV,
   LiveFmpEnvironmentError,
   assertLiveFmpChildEnvironment,
   assertLiveFmpOptIn,
+  describeLiveFmpProcessEnvironment,
+  isLiveFmpProxyVariable,
   liveFmpChildEnvironment,
   resolveLiveFmpKey,
   resolveLiveFmpTarget,
@@ -267,6 +270,23 @@ describe("live FMP target", () => {
 });
 
 describe("live FMP child environment", () => {
+  const CA_BUNDLE = "/usr/local/share/ca-certificates/inspection-ca.pem";
+
+  /** Proxy configuration in every spelling a shell or a sandbox uses, credentials included. */
+  const PROXY_ENVIRONMENT: Record<string, string> = {
+    HTTPS_PROXY: "http://agent:leak-proxy-token@proxy.internal:3128",
+    HTTP_PROXY: "http://agent:leak-proxy-token@proxy.internal:3128",
+    ALL_PROXY: "socks5://agent:leak-proxy-token@proxy.internal:1080",
+    NO_PROXY: "localhost,127.0.0.1,leak-internal-host",
+    https_proxy: "http://agent:leak-proxy-token@proxy.internal:3128",
+    http_proxy: "http://agent:leak-proxy-token@proxy.internal:3128",
+    no_proxy: "localhost,leak-internal-host",
+    NODE_USE_ENV_PROXY: "1",
+    npm_config_https_proxy: "http://agent:leak-proxy-token@proxy.internal:3128",
+    GLOBAL_AGENT_HTTP_PROXY:
+      "http://agent:leak-proxy-token@proxy.internal:3128",
+  };
+
   /** A launcher's environment as a developer machine or a cloud session really has it. */
   const PARENT: Record<string, string> = {
     ...DEV,
@@ -277,9 +297,16 @@ describe("live FMP child environment", () => {
     FMP_MAX_CONCURRENT_REQUESTS: "4",
     STOCK_HISTORY_YEARS: "30",
     ALT_DATA_MAX_PAGES_PER_INGEST: "12",
+    // A sandbox whose outbound TLS is inspected: the CA to trust is a path, and it is inherited.
+    [LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]: CA_BUNDLE,
     [LIVE_FMP_API_KEY_ENV]: LIVE_KEY,
     [LIVE_FMP_HYDRATION_OPT_IN_ENV]: "1",
     // Everything below must stay behind.
+    ...PROXY_ENVIRONMENT,
+    // Trust settings for other tools, and the one switch that turns verification off.
+    SSL_CERT_FILE: "/etc/ssl/certs/leak-other-bundle.pem",
+    REQUESTS_CA_BUNDLE: "/etc/ssl/certs/leak-other-bundle.pem",
+    NODE_TLS_REJECT_UNAUTHORIZED: "0",
     FMP_API_KEY: ORDINARY_KEY,
     FMP_BASE_URL: "http://127.0.0.1:3011/stable/",
     RUN_LIVE_FMP_TESTS: "1",
@@ -314,6 +341,7 @@ describe("live FMP child environment", () => {
       FMP_MAX_CONCURRENT_REQUESTS: "4",
       STOCK_HISTORY_YEARS: "30",
       ALT_DATA_MAX_PAGES_PER_INGEST: "12",
+      [LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]: CA_BUNDLE,
       FMP_API_KEY: LIVE_KEY,
       [LIVE_FMP_HYDRATION_OPT_IN_ENV]: "1",
       [LIVE_FMP_RUN_ID_ENV]: "run-1234",
@@ -339,6 +367,57 @@ describe("live FMP child environment", () => {
     expect(child).not.toHaveProperty(LIVE_FMP_HYDRATION_OPT_IN_ENV);
     expect(JSON.stringify(child)).not.toContain(LIVE_KEY);
     expect(JSON.stringify(child)).not.toContain(ORDINARY_KEY);
+  });
+
+  it("passes on the extra CA bundle, and no proxy configuration at all", () => {
+    for (const key of [LIVE_KEY, null]) {
+      const child = liveFmpChildEnvironment({
+        parentEnvironment: PARENT,
+        key,
+        runId: "run-1234",
+      });
+      // Node reads it once, at start: a child that did not inherit it cannot be given it later.
+      expect(child[LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]).toBe(CA_BUNDLE);
+      expect(Object.keys(child).filter(isLiveFmpProxyVariable)).toEqual([]);
+      for (const name of Object.keys(PROXY_ENVIRONMENT)) {
+        expect(child, name).not.toHaveProperty(name);
+      }
+      // Not the proxy's host, not its credential, not under any name.
+      expect(JSON.stringify(child)).not.toContain("proxy.internal");
+      expect(JSON.stringify(child)).not.toContain("leak-proxy-token");
+      // Verification is never switched off for the child, and no other tool's bundle rides along.
+      expect(child).not.toHaveProperty("NODE_TLS_REJECT_UNAUTHORIZED");
+      expect(child).not.toHaveProperty("SSL_CERT_FILE");
+      expect(child).not.toHaveProperty("REQUESTS_CA_BUNDLE");
+    }
+  });
+
+  it("does not invent a CA bundle the launcher did not have", () => {
+    const { [LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]: _bundle, ...withoutBundle } =
+      PARENT;
+    expect(_bundle).toBe(CA_BUNDLE);
+    expect(
+      liveFmpChildEnvironment({
+        parentEnvironment: withoutBundle,
+        key: LIVE_KEY,
+        runId: "run-1234",
+      }),
+    ).not.toHaveProperty(LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV);
+  });
+
+  it("recognises a proxy variable however it is spelled", () => {
+    for (const name of Object.keys(PROXY_ENVIRONMENT)) {
+      expect(isLiveFmpProxyVariable(name), name).toBe(true);
+    }
+    for (const name of LIVE_FMP_CHILD_INHERITED_VARIABLES) {
+      expect(isLiveFmpProxyVariable(name), name).toBe(false);
+    }
+    // The CA bundle is the only thing about TLS the child is told.
+    expect(
+      LIVE_FMP_CHILD_INHERITED_VARIABLES.filter((name) =>
+        /TLS|SSL|CERT|CA_BUNDLE/i.test(name),
+      ),
+    ).toEqual([LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]);
   });
 
   it("inherits nothing that names a credential, and nothing it was not told to", () => {
@@ -392,7 +471,8 @@ describe("live FMP child environment", () => {
         "process.stdout.write(JSON.stringify(process.env))",
       ],
       cwd: API_ROOT,
-      stdio: ["ignore", "pipe", "inherit"],
+      // The bundle path in this test names no file, which Node reports on stderr and ignores.
+      stdio: ["ignore", "pipe", "ignore"],
     });
     let output = "";
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -406,6 +486,11 @@ describe("live FMP child environment", () => {
 
     expect(seen.FMP_API_KEY).toBe(LIVE_KEY);
     expect(seen[LIVE_FMP_HYDRATION_OPT_IN_ENV]).toBe("1");
+    // The process really holds the CA bundle path, and really holds no proxy configuration.
+    expect(seen[LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]).toBe(CA_BUNDLE);
+    expect(Object.keys(seen).filter(isLiveFmpProxyVariable)).toEqual([]);
+    expect(Object.keys(seen)).not.toContain("NODE_TLS_REJECT_UNAUTHORIZED");
+    expect(output).not.toContain("proxy.internal");
     expect(Object.keys(seen)).not.toContain(LIVE_FMP_API_KEY_ENV);
     expect(Object.keys(seen)).not.toContain("FMP_BASE_URL");
     expect(output).not.toContain("leak");
@@ -474,6 +559,21 @@ describe("the process that performs a live run", () => {
       /FMP_BASE_URL is set/,
     ],
     [
+      "handed a proxy",
+      { HTTPS_PROXY: "http://agent:leak-proxy-token@proxy.internal:3128" },
+      /Proxy configuration reached the process that performs the run \(HTTPS_PROXY\)/,
+    ],
+    [
+      "handed a proxy in lower case",
+      { https_proxy: "http://proxy.internal:3128", no_proxy: "localhost" },
+      /Proxy configuration reached the process that performs the run \(https_proxy, no_proxy\)/,
+    ],
+    [
+      "told to read proxies from its environment",
+      { NODE_USE_ENV_PROXY: "1" },
+      /Proxy configuration reached the process/,
+    ],
+    [
       "holding the cloud-only variable",
       { [LIVE_FMP_API_KEY_ENV]: LIVE_KEY },
       /reached the process that performs the run/,
@@ -502,6 +602,95 @@ describe("the process that performs a live run", () => {
       ).toThrowError(message);
     },
   );
+
+  it("accepts the extra CA bundle, and names a refused proxy without its value", () => {
+    expect(
+      assertLiveFmpChildEnvironment(
+        { ...RUN, [LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]: "/etc/ssl/ca.pem" },
+        { plan: false },
+      ).runId,
+    ).toBe("run-1234");
+
+    let message = "";
+    try {
+      assertLiveFmpChildEnvironment(
+        {
+          ...RUN,
+          HTTPS_PROXY: "http://agent:leak-proxy-token@proxy.internal:3128",
+        },
+        { plan: false },
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("HTTPS_PROXY");
+    expect(message).not.toContain("leak-proxy-token");
+    expect(message).not.toContain("proxy.internal");
+    // An empty proxy variable configures nothing and is not a reason to refuse.
+    expect(() =>
+      assertLiveFmpChildEnvironment(
+        { ...RUN, HTTPS_PROXY: "", NO_PROXY: " " },
+        { plan: false },
+      ),
+    ).not.toThrow();
+  });
+
+  it("describes what it holds by name, and never by value", () => {
+    const launched = liveFmpChildEnvironment({
+      parentEnvironment: {
+        ...DEV,
+        PATH: "/usr/bin:/bin",
+        HOME: "/home/dev",
+        [LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]: "/etc/ssl/inspection-ca.pem",
+        HTTPS_PROXY: "http://agent:leak-proxy-token@proxy.internal:3128",
+        AUTH_JWT_SECRET: "leak-jwt-secret",
+      },
+      key: LIVE_KEY,
+      runId: "run-1234",
+    });
+    const described = describeLiveFmpProcessEnvironment({
+      ...launched,
+      // What macOS adds to every process it starts.
+      __CF_USER_TEXT_ENCODING: "0x1F5:0x0:0x0",
+    });
+    expect(described).toEqual({
+      names: [
+        "DATABASE_URL",
+        "FMP_API_KEY",
+        "HOME",
+        "LIVE_FMP_RUN_ID",
+        "NODE_EXTRA_CA_CERTS",
+        "PATH",
+        "REDIS_URL",
+        "RUN_LIVE_FMP_HYDRATION",
+        "__CF_USER_TEXT_ENCODING",
+      ],
+      unaccounted: [],
+      providerCredential: true,
+      extraCaCertificates: true,
+      proxyVariables: [],
+    });
+    const text = JSON.stringify(described);
+    expect(text).not.toContain(LIVE_KEY);
+    expect(text).not.toContain("inspection-ca.pem");
+    expect(text).not.toContain("secret-db-pass");
+
+    // A process started some other way: everything the allowlist does not account for is named.
+    expect(
+      describeLiveFmpProcessEnvironment({
+        PATH: "/usr/bin",
+        AUTH_JWT_SECRET: "leak-jwt-secret",
+        https_proxy: "http://agent:leak-proxy-token@proxy.internal:3128",
+        NO_PROXY: "",
+      }),
+    ).toEqual({
+      names: ["AUTH_JWT_SECRET", "NO_PROXY", "PATH", "https_proxy"],
+      unaccounted: ["AUTH_JWT_SECRET", "NO_PROXY", "https_proxy"],
+      providerCredential: false,
+      extraCaCertificates: false,
+      proxyVariables: ["https_proxy"],
+    });
+  });
 
   it("refuses a plan that was handed a credential", () => {
     expect(() =>

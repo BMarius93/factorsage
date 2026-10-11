@@ -1,4 +1,8 @@
-import type { LiveFmpStoredDataset } from "./fmp-live-coverage";
+import type {
+  LiveFmpDatabaseFootprint,
+  LiveFmpStoredDataset,
+} from "./fmp-live-coverage";
+import type { LiveFmpProcessEnvironment } from "./fmp-live-environment";
 import type { LiveFmpLedger } from "./fmp-live-guard";
 import type { LiveFmpSecurityResult, LiveFmpStep } from "./fmp-live-hydration";
 import type {
@@ -58,6 +62,10 @@ export type LiveFmpRunReport = {
   readonly ceiling: LiveFmpRequestCeiling;
   readonly productHistoryYears: number;
   readonly range: { readonly from: string; readonly to: string };
+  /** The database as a whole, after the run: is anything in it beyond what was approved? */
+  readonly footprint: LiveFmpDatabaseFootprint;
+  /** What the process that produced this report holds in its environment. Names only. */
+  readonly processEnvironment: LiveFmpProcessEnvironment;
   readonly durationMs: number;
 };
 
@@ -225,6 +233,57 @@ function storedLines(report: LiveFmpRunReport): string[] {
   return lines;
 }
 
+function footprintLines(report: LiveFmpRunReport): string[] {
+  const { footprint } = report;
+  const securities = (value: number) =>
+    `${count(value)} ${value === 1 ? "security" : "securities"}`;
+  const head =
+    `Database ${report.databaseName} as a whole: ${securities(footprint.catalogSecurities)} ` +
+    `in the catalog, ${count(footprint.synchronizedSecurities)} with synchronized provider data`;
+  if (footprint.synchronizedSymbols === null) {
+    return [
+      `${head}.`,
+      "  Too many to list: this database held provider data before this run.",
+    ];
+  }
+  const outside = footprint.synchronizedSymbols.filter(
+    (symbol) => !report.approved.includes(symbol),
+  );
+  return [
+    `${head}${
+      footprint.synchronizedSymbols.length > 0
+        ? ` (${footprint.synchronizedSymbols.join(", ")})`
+        : ""
+    }.`,
+    outside.length === 0
+      ? "  None outside the securities approved for this run."
+      : `  Not approved for this run: ${outside.join(", ")} — synchronized earlier or by another process.`,
+  ];
+}
+
+function processLines(report: LiveFmpRunReport): string[] {
+  const environment = report.processEnvironment;
+  return [
+    `Process environment of this run (names only): ${environment.names.length} variables` +
+      (environment.unaccounted.length === 0
+        ? ", every one from the launcher's allowlist."
+        : `. NOT from the launcher's allowlist: ${environment.unaccounted.join(", ")}.`),
+    `  provider credential (FMP_API_KEY): ${
+      environment.providerCredential
+        ? "present, in this process only"
+        : "absent"
+    }`,
+    `  extra CA certificates (NODE_EXTRA_CA_CERTS): ${
+      environment.extraCaCertificates ? "present" : "not set"
+    }`,
+    `  proxy variables: ${
+      environment.proxyVariables.length === 0
+        ? "none"
+        : environment.proxyVariables.join(", ")
+    }`,
+  ];
+}
+
 export function formatLiveFmpReport(report: LiveFmpRunReport): string {
   const lines: string[] = [
     `Live FMP hydration: ${headline(report)}`,
@@ -284,6 +343,8 @@ export function formatLiveFmpReport(report: LiveFmpRunReport): string {
       );
     }
   }
+
+  lines.push("", ...footprintLines(report), "", ...processLines(report));
 
   lines.push(
     "",

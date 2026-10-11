@@ -10,7 +10,11 @@ import {
   LIVE_FMP_MAX_SECURITIES,
   type LiveFmpArguments,
 } from "./fmp-live-arguments";
-import type { LiveFmpStoredDataset } from "./fmp-live-coverage";
+import type {
+  LiveFmpDatabaseFootprint,
+  LiveFmpStoredDataset,
+} from "./fmp-live-coverage";
+import type { LiveFmpProcessEnvironment } from "./fmp-live-environment";
 import type { LiveFmpRunGuard } from "./fmp-live-guard";
 import {
   runLiveFmpHydration,
@@ -38,6 +42,8 @@ export type LiveFmpRunDependencies = {
   readonly readStoredCoverage: (
     securityId: string,
   ) => Promise<readonly LiveFmpStoredDataset[]>;
+  /** The database as a whole: how many securities hold provider data, and which. */
+  readonly readDatabaseFootprint: () => Promise<LiveFmpDatabaseFootprint>;
   readonly scope: Pick<FmpSecurityScope, "bind">;
   readonly budget: Pick<FmpRequestBudget, "used">;
   readonly guard: Pick<LiveFmpRunGuard, "ledger" | "refused">;
@@ -67,6 +73,8 @@ export async function executeLiveFmpRun(input: {
   readonly runId: string;
   readonly databaseName: string;
   readonly databaseHost: string;
+  /** What this process holds in its environment, described by name. */
+  readonly processEnvironment: LiveFmpProcessEnvironment;
   readonly dependencies: LiveFmpRunDependencies;
 }): Promise<LiveFmpRunReport> {
   const { dependencies: deps, runId } = input;
@@ -155,6 +163,8 @@ export async function executeLiveFmpRun(input: {
     ceiling,
     productHistoryYears: deps.productHistoryYears,
     range,
+    footprint: await deps.readDatabaseFootprint(),
+    processEnvironment: input.processEnvironment,
     durationMs: now() - startedAt,
   };
 

@@ -13,7 +13,11 @@ import {
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLiveFmpArguments } from "./fmp-live-arguments";
-import { readLiveFmpStoredCoverage } from "./fmp-live-coverage";
+import {
+  readLiveFmpDatabaseFootprint,
+  readLiveFmpStoredCoverage,
+} from "./fmp-live-coverage";
+import { describeLiveFmpProcessEnvironment } from "./fmp-live-environment";
 import { admitApprovedSecurities } from "./fmp-live-identity";
 import { formatLiveFmpReport } from "./fmp-live-report";
 import { executeLiveFmpRun, liveFmpHistoryRange } from "./fmp-live-run";
@@ -241,9 +245,12 @@ describeInfrastructure("a live FMP run through the real loaders", () => {
       runId: runtime.runId,
       databaseName: "test",
       databaseHost: "localhost",
+      processEnvironment: describeLiveFmpProcessEnvironment({}),
       dependencies: {
         readStoredCoverage: (securityId) =>
           readLiveFmpStoredCoverage(runtime.prisma, securityId),
+        readDatabaseFootprint: () =>
+          readLiveFmpDatabaseFootprint(runtime.prisma),
         scope: runtime.scope,
         budget: runtime.budget,
         guard: runtime.guard,
@@ -528,6 +535,39 @@ describeInfrastructure("a live FMP run through the real loaders", () => {
       }),
     ).toBe(0);
   }, 120_000);
+
+  it("shows no synchronized data for a security the loaders were refused", async () => {
+    // The database-wide question a run's own coverage cannot answer: is there a fourth? Read from
+    // the loaders' dataset state, for the whole database rather than for the approved securities.
+    const synchronized = await prisma.stockDatasetState.findMany({
+      where: { security: { providerSymbol: { in: ALL } } },
+      distinct: ["securityId"],
+      select: { security: { select: { providerSymbol: true } } },
+    });
+    expect(
+      synchronized.map((row) => row.security.providerSymbol).sort(),
+    ).toEqual([A, B]);
+    // The outsider is in the catalog — the previous case put it there — and holds nothing.
+    expect(
+      await prisma.security.count({ where: { providerSymbol: OUTSIDER } }),
+    ).toBe(1);
+
+    const footprint = await readLiveFmpDatabaseFootprint(prisma);
+    expect(footprint.catalogSecurities).toBeGreaterThanOrEqual(3);
+    expect(footprint.synchronizedSecurities).toBeGreaterThanOrEqual(2);
+    expect(footprint.synchronizedSecurities).toBeLessThanOrEqual(
+      footprint.catalogSecurities,
+    );
+    if (footprint.synchronizedSymbols !== null) {
+      expect(footprint.synchronizedSymbols).toEqual(
+        expect.arrayContaining([A, B]),
+      );
+      expect(footprint.synchronizedSymbols).not.toContain(OUTSIDER);
+      expect(footprint.synchronizedSymbols).toHaveLength(
+        footprint.synchronizedSecurities,
+      );
+    }
+  });
 
   it("refuses the real catalog synchronization its exchange-wide request", async () => {
     const provider = offlineProvider(new Set([A]));

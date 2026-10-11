@@ -10,6 +10,7 @@ import { createLogger } from "@intrinsic/observability";
 import { StockDataNotFoundError } from "@intrinsic/stock-data";
 import { describe, expect, it, vi } from "vitest";
 import { parseLiveFmpArguments } from "./fmp-live-arguments";
+import { describeLiveFmpProcessEnvironment } from "./fmp-live-environment";
 import { LiveFmpRunGuard } from "./fmp-live-guard";
 import type { LiveFmpLoaders } from "./fmp-live-hydration";
 import { LIVE_FMP_EXIT_CODES, formatLiveFmpReport } from "./fmp-live-report";
@@ -136,6 +137,12 @@ function harness(options: {
           lastSyncedAt: "2026-10-10T09:00:00.000Z",
         },
       ],
+      // Whatever the catalog holds is what the harness calls synchronized.
+      readDatabaseFootprint: async () => ({
+        catalogSecurities: rows.size,
+        synchronizedSecurities: rows.size,
+        synchronizedSymbols: [...rows.keys()].sort(),
+      }),
       scope,
       budget,
       guard,
@@ -163,6 +170,16 @@ function run(harnessed: Harness, ...argv: string[]) {
     runId: "6f2c1d3e-0000-4000-8000-000000000001",
     databaseName: "intrinsic_value",
     databaseHost: "localhost",
+    processEnvironment: describeLiveFmpProcessEnvironment({
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/dev",
+      DATABASE_URL: "postgresql://u:p@localhost:5432/intrinsic_value",
+      REDIS_URL: "redis://localhost:6379",
+      FMP_API_KEY: "live9f3c1a7e5b2d4f6a8c0e1b3d5f7a9c2e",
+      RUN_LIVE_FMP_HYDRATION: "1",
+      LIVE_FMP_RUN_ID: "6f2c1d3e-0000-4000-8000-000000000001",
+      NODE_EXTRA_CA_CERTS: "/usr/local/share/ca-certificates/inspection-ca.pem",
+    }),
     dependencies: harnessed.dependencies,
   });
 }
@@ -446,6 +463,62 @@ describe("a live FMP run", () => {
   });
 });
 
+describe("the live FMP report on a database that held more", () => {
+  it("names a synchronized security the run was not approved for", async () => {
+    const h = harness({ symbols: ["AAPL"], catalogued: ["AAPL", "GOOGL"] });
+    const text = formatLiveFmpReport(
+      await run(h, "--symbols", "AAPL", "--full-history"),
+    );
+    expect(text).toContain(
+      "2 securities in the catalog, 2 with synchronized provider data (AAPL, GOOGL).",
+    );
+    expect(text).toContain(
+      "Not approved for this run: GOOGL — synchronized earlier or by another process.",
+    );
+  });
+
+  it("gives a count alone when there are too many to list", async () => {
+    const h = harness({ symbols: ["AAPL"] });
+    const report = await run(h, "--symbols", "AAPL", "--full-history");
+    const text = formatLiveFmpReport({
+      ...report,
+      footprint: {
+        catalogSecurities: 10_412,
+        synchronizedSecurities: 347,
+        synchronizedSymbols: null,
+      },
+    });
+    expect(text).toContain(
+      "10,412 securities in the catalog, 347 with synchronized provider data.",
+    );
+    expect(text).toContain(
+      "Too many to list: this database held provider data before this run.",
+    );
+  });
+
+  it("says so when the process holds something the allowlist does not account for", async () => {
+    const h = harness({ symbols: ["AAPL"] });
+    const report = await run(h, "--symbols", "AAPL", "--full-history");
+    const text = formatLiveFmpReport({
+      ...report,
+      processEnvironment: describeLiveFmpProcessEnvironment({
+        PATH: "/usr/bin",
+        AUTH_JWT_SECRET: "leak-jwt",
+        HTTPS_PROXY: "http://user:leak-proxy@proxy.internal:3128",
+      }),
+    });
+    expect(text).toContain(
+      "NOT from the launcher's allowlist: AUTH_JWT_SECRET, HTTPS_PROXY.",
+    );
+    expect(text).toContain("proxy variables: HTTPS_PROXY");
+    expect(text).toContain(
+      "extra CA certificates (NODE_EXTRA_CA_CERTS): not set",
+    );
+    expect(text).toContain("provider credential (FMP_API_KEY): absent");
+    expect(text).not.toContain("leak");
+  });
+});
+
 describe("the live FMP report", () => {
   it("says what was approved, asked, reused, stored and left out", async () => {
     const h = harness({
@@ -483,6 +556,28 @@ describe("the live FMP report", () => {
     expect(text).toMatch(
       /ratio PRICE_TO_EARNINGS_TTM \(computed on read\)\s+2 of 3 session\(s\)/,
     );
+    // The database as a whole: nothing in it beyond what the run was approved for.
+    expect(text).toContain(
+      "Database intrinsic_value as a whole: 1 security in the catalog, 1 with synchronized provider data (AAPL).",
+    );
+    expect(text).toContain(
+      "None outside the securities approved for this run.",
+    );
+    // What the process holds, by name: the credential and the CA bundle are stated as present,
+    // and neither their values nor the bundle's path appear anywhere in the report.
+    expect(text).toContain(
+      "Process environment of this run (names only): 8 variables, every one from the launcher's allowlist.",
+    );
+    expect(text).toContain(
+      "provider credential (FMP_API_KEY): present, in this process only",
+    );
+    expect(text).toContain(
+      "extra CA certificates (NODE_EXTRA_CA_CERTS): present",
+    );
+    expect(text).toContain("proxy variables: none");
+    expect(text).not.toContain("live9f3c1a7e5b2d4f6a8c0e1b3d5f7a9c2e");
+    expect(text).not.toContain("inspection-ca.pem");
+    expect(text).not.toContain("postgresql://");
     expect(text).toContain("Never hydrated by this command:");
     expect(text).toContain("Benchmark series");
   });

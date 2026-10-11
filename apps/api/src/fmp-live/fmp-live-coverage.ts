@@ -173,3 +173,48 @@ export async function readLiveFmpStoredCoverage(
     ),
   ];
 }
+
+/**
+ * Which securities the database holds provider data for at all — not just the ones a run named.
+ *
+ * A run's own report says what it stored for the securities it was approved for. This answers the
+ * other question: is there anything else? On a database only this command has written to, the
+ * securities with synchronized data are exactly the approved ones, and a fourth would show here.
+ * "Synchronized" is read from the loaders' own dataset state, which every loader this command
+ * calls records, so it is a few rows per security rather than a scan of their history.
+ */
+export type LiveFmpDatabaseFootprint = {
+  readonly catalogSecurities: number;
+  /** Securities with at least one synchronized provider dataset. */
+  readonly synchronizedSecurities: number;
+  /** Their symbols, when there are few enough to list; otherwise `null`. */
+  readonly synchronizedSymbols: readonly string[] | null;
+};
+
+/** Beyond this many, a database clearly held provider data before; the count alone is printed. */
+export const LIVE_FMP_FOOTPRINT_LISTED_SECURITIES = 12;
+
+export async function readLiveFmpDatabaseFootprint(
+  prisma: PrismaClient,
+): Promise<LiveFmpDatabaseFootprint> {
+  const [catalogSecurities, synchronized] = await Promise.all([
+    prisma.security.count(),
+    prisma.stockDatasetState.findMany({
+      distinct: ["securityId"],
+      select: { securityId: true },
+    }),
+  ]);
+  const listed =
+    synchronized.length <= LIVE_FMP_FOOTPRINT_LISTED_SECURITIES
+      ? await prisma.security.findMany({
+          where: { id: { in: synchronized.map((row) => row.securityId) } },
+          select: { symbol: true },
+          orderBy: { symbol: "asc" },
+        })
+      : null;
+  return {
+    catalogSecurities,
+    synchronizedSecurities: synchronized.length,
+    synchronizedSymbols: listed?.map((row) => row.symbol) ?? null,
+  };
+}

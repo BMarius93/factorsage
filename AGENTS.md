@@ -410,8 +410,11 @@ evaluator physically cannot read an ungated value.
   symbol's own profile, never by the screener and never by a direct insert.
 - The run's child process is started with an allowlisted environment and does not load `.env`. Do
   not hand it the launcher's `process.env`, and do not make another process read
-  `LIVE_FMP_API_KEY`. Never commit, log or copy provider payloads: the report prints names, counts
-  and dates only.
+  `LIVE_FMP_API_KEY`. The allowlist passes `NODE_EXTRA_CA_CERTS` — a trust bundle's path, which a
+  process can only inherit and which a TLS-inspected environment needs — and never proxy
+  configuration or `NODE_TLS_REJECT_UNAUTHORIZED`; the child refuses to start with a proxy
+  variable set. Never commit, log or copy provider payloads: the report prints names, counts and
+  dates only.
 
 ## Validation
 

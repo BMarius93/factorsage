@@ -179,6 +179,22 @@ export function resolveLiveFmpKey(env: Environment = process.env): string {
   return key as string;
 }
 
+/** Node's own variable for additional trusted certificate authorities: a file path. */
+export const LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV = "NODE_EXTRA_CA_CERTS";
+
+/**
+ * Whether a variable configures a proxy, by name.
+ *
+ * Deliberately broad — `HTTPS_PROXY`, `http_proxy`, `ALL_PROXY`, `NO_PROXY`, `NODE_USE_ENV_PROXY`,
+ * `npm_config_https_proxy`, `GLOBAL_AGENT_HTTP_PROXY` and whatever comes next all carry the word.
+ * A proxy URL routinely embeds a credential, and a process that was handed one sends its traffic
+ * wherever that URL says. The live run's process is given none of them, and refuses to start if
+ * it finds one.
+ */
+export function isLiveFmpProxyVariable(name: string): boolean {
+  return /proxy/i.test(name);
+}
+
 /**
  * What the child inherits from the launcher: how to run a process, and the configuration the
  * loaders it composes actually read. An allowlist, so a variable added to a developer's `.env` or
@@ -200,6 +216,12 @@ export const LIVE_FMP_CHILD_INHERITED_VARIABLES: readonly string[] = [
   "TERM",
   "NO_COLOR",
   "FORCE_COLOR",
+  // Which certificate authorities the process trusts, as the path of a bundle. Not a credential,
+  // and it can only be inherited: Node reads it once, when the process starts. An environment
+  // whose outbound TLS is inspected sets it for every process, and without it this child could
+  // not verify the provider's certificate there. Proxy configuration is a different matter and
+  // is never passed on (`isLiveFmpProxyVariable`).
+  LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV,
   // The application's own mode and verbosity.
   "NODE_ENV",
   "LOG_LEVEL",
@@ -282,6 +304,7 @@ export function liveFmpChildEnvironment(
  * - a real run needs the opt-in and a real key; a plan must have neither a key nor the cloud-only
  *   variable in its environment;
  * - `FMP_BASE_URL` must be unset;
+ * - no proxy configuration may be present;
  * - the target is resolved again from this process's own environment.
  */
 export function assertLiveFmpChildEnvironment(
@@ -299,6 +322,16 @@ export function assertLiveFmpChildEnvironment(
     throw new LiveFmpEnvironmentError(
       `${LIVE_FMP_API_KEY_ENV} reached the process that performs the run. Start it through ` +
         "`pnpm fmp:live`, which maps the credential for this process and withholds the rest.",
+    );
+  }
+  const proxies = Object.keys(env)
+    .filter((name) => isLiveFmpProxyVariable(name) && env[name]?.trim())
+    .sort();
+  if (proxies.length > 0) {
+    // Names only: a proxy URL is very often a credential.
+    throw new LiveFmpEnvironmentError(
+      `Proxy configuration reached the process that performs the run (${proxies.join(", ")}). ` +
+        "It is started without any: start it through `pnpm fmp:live`.",
     );
   }
   if (mode.plan) {
@@ -322,4 +355,56 @@ export function assertLiveFmpChildEnvironment(
     );
   }
   return { target, runId };
+}
+
+/** Variables an operating system adds to every process it starts, whatever it was given. */
+const PLATFORM_VARIABLES = new Set(["__CF_USER_TEXT_ENCODING"]);
+
+/** What the launcher lays over the allowlist. */
+const LAUNCHER_VARIABLES = new Set([
+  "FMP_API_KEY",
+  LIVE_FMP_HYDRATION_OPT_IN_ENV,
+  LIVE_FMP_RUN_ID_ENV,
+]);
+
+/**
+ * What the process that performs a run actually holds, described without a single value.
+ *
+ * Printed with every report, a plan's included, so "what did that process receive?" is answered
+ * by the process itself rather than inferred from the launcher's source: how many variables, any
+ * the allowlist does not account for, whether the credential and the extra CA bundle are present,
+ * and any proxy variable by name.
+ */
+export type LiveFmpProcessEnvironment = {
+  /** Every variable the process holds, by name. */
+  readonly names: readonly string[];
+  /** Names neither the allowlist, the launcher nor the platform accounts for. */
+  readonly unaccounted: readonly string[];
+  readonly providerCredential: boolean;
+  readonly extraCaCertificates: boolean;
+  readonly proxyVariables: readonly string[];
+};
+
+export function describeLiveFmpProcessEnvironment(
+  env: Environment,
+): LiveFmpProcessEnvironment {
+  const names = Object.keys(env)
+    .filter((name) => env[name] !== undefined)
+    .sort();
+  return {
+    names,
+    unaccounted: names.filter(
+      (name) =>
+        !LIVE_FMP_CHILD_INHERITED_VARIABLES.includes(name) &&
+        !LAUNCHER_VARIABLES.has(name) &&
+        !PLATFORM_VARIABLES.has(name),
+    ),
+    providerCredential: Boolean(env.FMP_API_KEY?.trim()),
+    extraCaCertificates: Boolean(
+      env[LIVE_FMP_EXTRA_CA_CERTIFICATES_ENV]?.trim(),
+    ),
+    proxyVariables: names.filter(
+      (name) => isLiveFmpProxyVariable(name) && Boolean(env[name]?.trim()),
+    ),
+  };
 }
