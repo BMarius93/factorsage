@@ -202,6 +202,9 @@ stack_up() {
 
   cloud_use_toolchain
   cloud_assert_safe || exit 1
+  # No stack process holds the live-FMP credential, under any name. It belongs to
+  # scripts/cloud/fmp-live.sh, whose launcher maps it into the one process that performs a run.
+  unset LIVE_FMP_API_KEY
   mkdir -p "$STACK_DIR" "$LOG_DIR"
 
   running="$(running_roles)"

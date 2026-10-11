@@ -299,6 +299,32 @@ point `FMP_BASE_URL` at a local fixture server and run under an egress guard,
 and the QA seeds write deterministic data and coverage watermarks that keep the
 loader off even that (`auth-testing.md` §7).
 
+## The guarded live hydration run is not a test, and is never part of the gate
+
+`pnpm fmp:live` (`docs/development/fmp-live-hydration.md`) reaches the real provider for at most
+three securities. It has its own opt-in, `RUN_LIVE_FMP_HYDRATION=1`, deliberately separate from
+`RUN_LIVE_FMP_TESTS`: authorizing a suite never authorizes a hydration run, and the reverse. No
+script, workflow or session hook sets it.
+
+Everything about it is proven **offline**, and those suites are part of `pnpm test`:
+
+| Suite                                                            | Needs              | Proves                                                                                                                                            |
+| ---------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/fmp/src/request-guard.test.ts`                         | nothing            | The scope: one to three securities, never a fourth, identity over spelling, every bulk endpoint refused; the client asks its guard before the key |
+| `packages/stock-data/src/fmp-request-budget.integration.test.ts` | Redis              | The budget is atomic: concurrent callers on separate connections cannot overshoot it, through the shared gate                                     |
+| `packages/stock-data/src/fmp-gate-coverage.test.ts`              | nothing            | The live run shares the gate, and is the only client with a guard                                                                                 |
+| `apps/api/src/fmp-live/fmp-live-arguments.test.ts`               | nothing            | The command line: normalization, de-duplication before counting, every malformed or unknown argument refused                                      |
+| `apps/api/src/fmp-live/fmp-live-environment.test.ts`             | nothing            | Opt-in, key, target database and the child's allowlisted environment, including a real child process and the real launcher refusing               |
+| `apps/api/src/fmp-live/fmp-live-guard.test.ts`                   | nothing            | Fail-closed behaviour, the ledger, deterministic retry accounting                                                                                 |
+| `apps/api/src/fmp-live/fmp-live-identity.test.ts`                | nothing            | Symbols resolve to catalog securities; at most one profile per unknown symbol                                                                     |
+| `apps/api/src/fmp-live/fmp-live-plan.test.ts`                    | nothing            | The budget constants against the loaders' real ceiling; every endpoint classified                                                                 |
+| `apps/api/src/fmp-live/fmp-live-run.test.ts`                     | nothing            | A refused or exhausted run is never reported as a success                                                                                         |
+| `apps/api/src/fmp-live/fmp-live-boundary.test.ts`                | nothing            | Read from source: one reader of the key, no `.env` in the child, no write, no universe-widening loader, no script or workflow that opts in        |
+| `apps/api/src/fmp-live/fmp-live.integration.test.ts`             | PostgreSQL + Redis | The real composition and loaders against a provider that is a function: exact request counts, reuse on a second run, refusals before the network  |
+
+The test files are named `fmp-live-*`, not `live-fmp-*`, on purpose: `live-fmp-gate.test.ts` treats
+every `*live-fmp*.test.ts` as a suite that reaches the provider and requires it to be gated.
+
 The `@intrinsic/stock-data` live suite also asserts that a 30-year `AAPL`
 daily-price request paginates past FMP's 5000-row per-response cap
 (`FMP_EOD_MAX_ROWS_PER_RESPONSE` in `packages/fmp/src/client.ts`) and reaches

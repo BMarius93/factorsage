@@ -76,6 +76,11 @@ function emptySummary(): SecurityCatalogSyncSummary {
  * fundamentals, no derived state, no Redis history — admitting a stock to the catalog says the
  * product supports it, not that its history has been loaded.
  *
+ * The guarded live hydration run is not an exception. It may not ask for an exchange-wide
+ * universe, so it runs this service with a provider port that lists only the securities it was
+ * approved for, each read from its own profile (`apps/api/src/fmp-live/fmp-live-identity.ts`):
+ * the same classification and the same writer, fed at most three listings.
+ *
  * Persistence is deliberately incremental rather than one transaction. A universe sync touches
  * thousands of unrelated rows, and a single malformed listing must not roll back every other
  * correction; each row's outcome is reported instead.

@@ -25,6 +25,11 @@ For authentication and role authorization work, also read
 In a Claude Code cloud session, read `../docs/development/claude-cloud-environment.md` first: it says
 what the VM provides, how its stacks are started and stopped, and how Stripe and FMP are reached.
 
+For anything that asks the real FMP provider on purpose — hydrating real data for a few securities,
+the request budget, the provider guard — read `../docs/development/fmp-live-hydration.md`. In a
+cloud session real provider data is reachable through `pnpm fmp:live` only: at most three
+securities per run.
+
 For commercial plans, capacity limits, guest behaviour or downgrade semantics, read
 `../docs/decisions/entitlements-v1.md` — the accepted product decision and the source of truth for
 every value — then `architecture/entitlements.md`, which is how it is implemented: where the one

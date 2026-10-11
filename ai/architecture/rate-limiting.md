@@ -407,8 +407,16 @@ process spends one allowance:
 `FmpClient` accepts the gate optionally, which means a composition root that forgets one still works
 and quietly doubles provider traffic. `packages/stock-data/src/fmp-gate-coverage.test.ts` now makes
 that impossible: it reads the repository as source text and requires every production
-`new FmpClient(...)` — there are exactly three — to pass a `RedisFmpRequestGate` sized from `FMP_*`
+`new FmpClient(...)` — the suite lists them — to pass a `RedisFmpRequestGate` sized from `FMP_*`
 configuration rather than from a literal.
+
+**A request budget is not a second gate.** The guarded live hydration run
+(`docs/development/fmp-live-hydration.md`) adds a hard cap on the requests one run may send. It is
+a counter beside the gate's keys (`stock-data:v2:fmp:budget:<run>`), consumed by one Lua script from
+inside the gate's slot immediately before a request is sent, so it counts requests that reached the
+network and concurrent callers cannot overshoot it. The run still waits in this gate and spends this
+allowance. It is carried by an optional `FmpClient` guard that no other composition root passes,
+which the same suite asserts.
 
 **No plan allowance is hard-coded.** `FMP_MAX_CONCURRENT_REQUESTS`, `FMP_RATE_LIMIT_PER_WINDOW`,
 `FMP_RATE_WINDOW_MS`, `FMP_MAX_QUEUE_DEPTH` and `FMP_MAX_QUEUE_WAIT_MS` are configuration with
