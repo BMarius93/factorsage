@@ -41,7 +41,7 @@ export interface FmpRequestGuard {
 export const FMP_REQUEST_REFUSAL_REASONS = [
   /** The endpoint is not one this client is known to call. */
   "UNKNOWN_ENDPOINT",
-  /** The endpoint answers for an exchange or a caller-supplied list, never for one security. */
+  /** The endpoint answers for an exchange, a caller-supplied list or a directory, never for one security. */
   "NOT_A_SECURITY_ENDPOINT",
   /** A per-security endpoint asked without exactly one well-formed symbol. */
   "MALFORMED_REQUEST",
@@ -103,9 +103,11 @@ export interface FmpRequestBudget {
  *
  * - `SECURITY` — exactly one symbol, named by the `symbol` parameter;
  * - `SYMBOL_LIST` — as many symbols as the caller puts in one parameter;
- * - `EXCHANGE` — a whole venue: its listings or its calendar.
+ * - `EXCHANGE` — a whole venue: its listings or its calendar;
+ * - `DIRECTORY` — reference data about no security at all: the members of Congress.
  */
-export type FmpEndpointSubject = "SECURITY" | "SYMBOL_LIST" | "EXCHANGE";
+export type FmpEndpointSubject =
+  "SECURITY" | "SYMBOL_LIST" | "EXCHANGE" | "DIRECTORY";
 
 export type FmpEndpointClass = {
   readonly subject: FmpEndpointSubject;
@@ -147,6 +149,10 @@ export const FMP_ENDPOINT_CLASSES: ReadonlyMap<string, FmpEndpointClass> =
     ],
     ["senate-trades", { subject: "SECURITY", dataset: "CONGRESS_TRADES" }],
     ["house-trades", { subject: "SECURITY", dataset: "CONGRESS_TRADES" }],
+    [
+      "senate-profile",
+      { subject: "DIRECTORY", dataset: "CONGRESS_MEMBER_DIRECTORY" },
+    ],
     ["company-screener", { subject: "EXCHANGE", dataset: "SECURITY_CATALOG" }],
     [
       "holidays-by-exchange",
@@ -154,6 +160,15 @@ export const FMP_ENDPOINT_CLASSES: ReadonlyMap<string, FmpEndpointClass> =
     ],
     ["batch-quote", { subject: "SYMBOL_LIST", dataset: "CURRENT_QUOTE" }],
   ]);
+
+/** What an endpoint that is not about one security answers for, as a refusal says it. */
+const NON_SECURITY_SUBJECTS: Readonly<
+  Record<Exclude<FmpEndpointSubject, "SECURITY">, string>
+> = {
+  EXCHANGE: "a whole exchange",
+  SYMBOL_LIST: "a caller-supplied list of symbols",
+  DIRECTORY: "a directory that names no security",
+};
 
 /** The endpoint that resolves a symbol to an identity, and so the only one an unresolved symbol may ask. */
 export const FMP_IDENTITY_ENDPOINT = "profile";
@@ -298,11 +313,7 @@ export class FmpSecurityScope {
     if (endpoint.subject !== "SECURITY") {
       throw new FmpRequestRefusedError(
         "NOT_A_SECURITY_ENDPOINT",
-        `'${request.path}' answers for ${
-          endpoint.subject === "EXCHANGE"
-            ? "a whole exchange"
-            : "a caller-supplied list of symbols"
-        }, not for one approved security; refused`,
+        `'${request.path}' answers for ${NON_SECURITY_SUBJECTS[endpoint.subject]}, not for one approved security; refused`,
       );
     }
     for (const parameter of WIDENING_PARAMETERS) {

@@ -103,12 +103,17 @@ describe("shared FMP provider gate", () => {
     //
     // The market-data worker child refreshes the market-overview ETF histories on a schedule; it
     // shares the gate so its reads queue behind the same allowance as every live read.
+    //
+    // The member catalog command (`pnpm data:congress-members:sync`) reads the provider's member
+    // directory — a handful of requests — through the same gate, like the administrator route that
+    // does the same from `stocks.module.ts`.
     expect(files).toEqual([
       "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
       "apps/api/src/fmp-live/fmp-live-runtime.ts",
       "apps/api/src/ingest-alternative-data.ts",
       "apps/api/src/resync-canonical-stock-data.ts",
       "apps/api/src/stocks/stocks.module.ts",
+      "apps/api/src/sync-congress-members.ts",
       "apps/worker/src/backtest/composition.ts",
       "apps/worker/src/market-data/composition.ts",
       "apps/worker/src/monitor/composition.ts",

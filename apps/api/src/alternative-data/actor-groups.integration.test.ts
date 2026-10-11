@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
   ACTOR_GROUP_MAX_MEMBERS,
+  ACTOR_RESOLVE_MAX_IDS,
+  normalizeStrategyDefinition,
   type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
   type AlternativeDataActorResponse,
   type StrategyDefinition,
-  type StrategyDetailResponse,
 } from "@intrinsic/contracts";
+import type { Prisma } from "@intrinsic/database";
 import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -19,6 +21,7 @@ import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
 import { StrategiesModule } from "../strategies/strategies.module";
+import { definitionHashOf } from "../strategies/strategy-versions";
 import { ActorGroupsService } from "./actor-groups.service";
 import { AlternativeDataModule } from "./alternative-data.module";
 
@@ -30,8 +33,13 @@ useTestDatabase();
  *
  * It exercises the rules that cannot be proven in a unit test: ownership scoping, the catalog guard on
  * membership, the structural member bound under a concurrent add, and the refusal to delete a group a
- * strategy still references. `StrategiesModule` is compiled alongside so the last one is exercised
- * through the real strategy write path rather than against a hand-written definition row.
+ * strategy still references.
+ *
+ * Congress groups left the product on 2026-10-11 and no surface manages them any more. These routes
+ * stay because strategies saved before then still name groups, and the suite stays with them: a
+ * legacy route that silently broke would take those strategies' names and their one-step conversion
+ * with it. `StrategiesModule` is compiled alongside so the write boundary's refusal of a new group
+ * reference is exercised through the real strategy path.
  */
 describe("actor groups", () => {
   const suffix = randomUUID();
@@ -206,6 +214,69 @@ describe("actor groups", () => {
     expect(actors[0]?.state).toBe("AL");
   });
 
+  it("still finds a member whose stored name differs from the one typed, by the words they share", async () => {
+    // The catalog holds whichever spelling the provider last sent: "Rafael E Cruz" for the senator
+    // everybody searches for as "Ted Cruz". Matched whole, that term finds nobody.
+    const surname = `Cruzfixture${suffix.slice(0, 8)}`;
+    const others = [
+      {
+        externalId: `CONG-D-${suffix}`,
+        displayName: `Rafael E ${surname}`,
+        chamber: "SENATE" as const,
+        state: "TX",
+      },
+      {
+        externalId: `CONG-E-${suffix}`,
+        displayName: `Ted Elsewhere${suffix.slice(0, 8)}`,
+        chamber: "HOUSE" as const,
+        state: "CA",
+      },
+    ];
+    await prisma.alternativeDataActor.createMany({ data: others });
+    try {
+      const response = await guest
+        .get("/alternative-data/actors")
+        .query({ q: `Ted ${surname}`, limit: 50 })
+        .expect(200);
+      const names = (response.body as AlternativeDataActorResponse[]).map(
+        (actor) => actor.displayName,
+      );
+      expect(names).toContain(`Rafael E ${surname}`);
+
+      // The member sharing the surname ranks ahead of nobody who shares more of the term, and the
+      // one sharing only the first name is offered too: the reader recognizes the right row by its
+      // chamber and state.
+      expect(names).toContain(`Ted Elsewhere${suffix.slice(0, 8)}`);
+
+      // It is a fallback only. A term that matches somebody whole returns exactly that, never
+      // diluted with names that merely share a word with it.
+      const exact = await guest
+        .get("/alternative-data/actors")
+        .query({ q: `Rafael E ${surname}`, limit: 50 })
+        .expect(200);
+      expect(
+        (exact.body as AlternativeDataActorResponse[]).map(
+          (actor) => actor.displayName,
+        ),
+      ).toEqual([`Rafael E ${surname}`]);
+
+      // And a one-word term is exactly the search it always was.
+      const single = await guest
+        .get("/alternative-data/actors")
+        .query({ q: surname })
+        .expect(200);
+      expect(
+        (single.body as AlternativeDataActorResponse[]).map(
+          (actor) => actor.displayName,
+        ),
+      ).toEqual([`Rafael E ${surname}`]);
+    } finally {
+      await prisma.alternativeDataActor.deleteMany({
+        where: { externalId: { in: others.map((actor) => actor.externalId) } },
+      });
+    }
+  });
+
   it("resolves actors by id so a saved scope can be labelled", async () => {
     const response = await guest
       .get("/alternative-data/actors/resolve")
@@ -214,6 +285,31 @@ describe("actor groups", () => {
     const actors = response.body as AlternativeDataActorResponse[];
     // An unknown id is absent rather than an error: ids are opaque and a stale one must not break a page.
     expect(actors.map((actor) => actor.id)).toEqual([congressIds[0]]);
+  });
+
+  it("resolves a whole batch, counts a repeated id once, and refuses more than one batch", async () => {
+    const batch = await guest
+      .get("/alternative-data/actors/resolve")
+      .query({ ids: [...congressIds, ...congressIds].join(",") })
+      .expect(200);
+    expect(
+      (batch.body as AlternativeDataActorResponse[]).map((actor) => actor.id).sort(),
+    ).toEqual([...congressIds].sort());
+
+    const atTheBound = Array.from({ length: ACTOR_RESOLVE_MAX_IDS }, () =>
+      randomUUID(),
+    );
+    await guest
+      .get("/alternative-data/actors/resolve")
+      .query({ ids: atTheBound.join(",") })
+      .expect(200);
+    const refusal = await guest
+      .get("/alternative-data/actors/resolve")
+      .query({ ids: [...atTheBound, randomUUID()].join(",") })
+      .expect(400);
+    expect(String(refusal.body.message)).toContain(
+      `at most ${ACTOR_RESOLVE_MAX_IDS} actors`,
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -389,29 +485,53 @@ describe("actor groups", () => {
   // Strategy references
   // -------------------------------------------------------------------------
 
-  it("refuses to delete a group a strategy still references", async () => {
+  /**
+   * A strategy as it was saved before groups left the product, written straight to the tables.
+   *
+   * The API refuses to write a group scope now, so the only way one exists is that it already did.
+   */
+  async function createLegacyGroupStrategy(
+    email: string,
+    name: string,
+    groupId: string,
+  ): Promise<string> {
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const definition = normalizeStrategyDefinition(congressStrategy(groupId));
+    const strategy = await prisma.strategy.create({
+      data: {
+        userId: user.id,
+        name,
+        versions: {
+          create: {
+            versionNumber: 1,
+            definition: definition as unknown as Prisma.InputJsonValue,
+            definitionHash: definitionHashOf(definition),
+          },
+        },
+      },
+    });
+    return strategy.id;
+  }
+
+  it("refuses to delete a group a strategy saved earlier still references", async () => {
     const group = await createGroup(owner, {
       name: "Referenced",
       actorIds: [congressIds[0] as string],
     });
-    const strategy = (
-      await owner
-        .post("/strategies")
-        .send({
-          name: `Congressional strategy ${suffix}`,
-          definition: congressStrategy(group.id),
-        })
-        .expect(201)
-    ).body as StrategyDetailResponse;
+    const strategyId = await createLegacyGroupStrategy(
+      ownerEmail,
+      `Congressional strategy ${suffix}`,
+      group.id,
+    );
 
     const refusal = await owner.delete(`/actor-groups/${group.id}`).expect(409);
     expect(String(refusal.body.message)).toContain(
       `Congressional strategy ${suffix}`,
     );
 
-    // Once the strategy stops referencing it the group deletes normally.
+    // Once the strategy selects the members itself the group deletes normally.
     await owner
-      .put(`/strategies/${strategy.id}/definition`)
+      .put(`/strategies/${strategyId}/definition`)
       .send({
         definition: {
           schemaVersion: 2,
@@ -423,9 +543,18 @@ describe("actor groups", () => {
                 conditions: [
                   {
                     id: randomUUID(),
-                    metric: { kind: "PRICE" },
-                    operator: "IS_BELOW",
-                    value: { kind: "SERIES", seriesId: "SMA_200D" },
+                    metric: {
+                      kind: "CONGRESS_ACTIVITY",
+                      measure: "PURCHASES",
+                      lookback: 30,
+                      scope: {
+                        kind: "ACTORS",
+                        actorIds: [congressIds[0] as string],
+                      },
+                      chamber: "ANY",
+                    },
+                    operator: "IS_ABOVE",
+                    value: { kind: "NUMBER", value: 1 },
                   },
                 ],
               },
@@ -436,37 +565,34 @@ describe("actor groups", () => {
       })
       .expect(200);
     await owner.delete(`/actor-groups/${group.id}`).expect(204);
-    await owner.delete(`/strategies/${strategy.id}`).expect(204);
+    await owner.delete(`/strategies/${strategyId}`).expect(204);
   });
 
-  it("refuses a strategy that references a group the caller cannot use", async () => {
-    const mine = await createGroup(owner, { name: "Mine" });
-    // Another customer's group is not resolvable, so the strategy is invalid rather than silently
-    // counting every member of Congress.
-    const refusal = await other
-      .post("/strategies")
-      .send({
-        name: `Borrowed group ${suffix}`,
-        definition: congressStrategy(mine.id),
-      })
-      .expect(400);
-    expect(refusal.body.code).toBe("STRATEGY_INVALID");
-    expect(
-      (refusal.body.issues as { code: string }[]).map((issue) => issue.code),
-    ).toContain("SCOPE_INVALID");
+  it("refuses to write a strategy that references a group, the caller's own included", async () => {
+    const mine = await createGroup(owner, {
+      name: "Mine",
+      actorIds: [congressIds[0] as string],
+    });
+    for (const agent of [owner, other]) {
+      const refusal = await agent
+        .post("/strategies")
+        .send({
+          name: `Group strategy ${suffix}`,
+          definition: congressStrategy(mine.id),
+        })
+        .expect(400);
+      expect(refusal.body.code).toBe("STRATEGY_INVALID");
+      expect(
+        (refusal.body.issues as { code: string; message: string }[]).map(
+          (issue) => [issue.code, issue.message],
+        ),
+      ).toEqual([
+        [
+          "SCOPE_INVALID",
+          "Congress purchases uses a Congress group, and groups are no longer supported. Open its configuration and choose the members it counts.",
+        ],
+      ]);
+    }
     await owner.delete(`/actor-groups/${mine.id}`).expect(204);
-  });
-
-  it("refuses a strategy whose scope names an actor that does not exist", async () => {
-    const refusal = await owner
-      .post("/strategies")
-      .send({
-        name: `Missing actor ${suffix}`,
-        definition: congressStrategy(randomUUID()),
-      })
-      .expect(400);
-    expect(
-      (refusal.body.issues as { message: string }[])[0]?.message,
-    ).toContain("references a group that is not available");
   });
 });

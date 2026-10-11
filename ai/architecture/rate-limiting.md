@@ -169,7 +169,7 @@ number; changing a limit is one edit there.
 | `backtest-execution` | 60 / hr    | 180 / hr             | user→IP | allow            | `POST /backtests`                                                                                         |
 | `billing-mutation`   | 20 / 5 min | 60 / 5 min           | user→IP | **deny**         | checkout, portal, change                                                                                  |
 | `billing-refresh`    | 60 / 5 min | 180 / 5 min          | user→IP | **deny**         | `POST /billing/refresh`, which the client polls                                                           |
-| `admin-operation`    | 10 / hr    | —                    | user→IP | **deny**         | `POST /admin/securities/sync`                                                                             |
+| `admin-operation`    | 10 / hr    | —                    | user→IP | **deny**         | `POST /admin/securities/sync`, `POST /admin/congress-members/sync`                                        |
 
 Sizing is from how the product's own UI calls each endpoint, plus headroom, so ordinary use never
 reaches one:

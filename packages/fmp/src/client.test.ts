@@ -888,3 +888,109 @@ describe("FMP split list", () => {
     expect(url.searchParams.get("symbol")).toBe("IBM");
   });
 });
+
+describe("FMP member directory", () => {
+  const member = (id: string, active: boolean) => ({
+    senateID: id,
+    firstName: "Given",
+    lastName: `Family ${id}`,
+    latestState: "CA",
+    latestPosition: "Representative",
+    active,
+  });
+
+  it("asks one page of the half it was asked for, through the gate like every read", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response([member("A000001", true)]));
+    const gate: FmpRequestGate = {
+      run: vi.fn((operation) => operation()),
+      publishCooldown: vi.fn(async () => {}),
+    };
+    const client = new FmpClient(config, fetchMock, { gate });
+
+    const page = await client.getCongressMemberProfiles({
+      inOffice: true,
+      page: 0,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(gate.run).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0]?.[0] as URL;
+    expect(url.pathname).toBe("/stable/senate-profile");
+    expect(url.searchParams.get("active")).toBe("true");
+    expect(url.searchParams.get("page")).toBe("0");
+    // No symbol and no name: the directory is asked for no security and searched for nobody.
+    expect([...url.searchParams.keys()].sort()).toEqual([
+      "active",
+      "apikey",
+      "page",
+    ]);
+    expect(page).toEqual({
+      providerRowCount: 1,
+      rows: [
+        {
+          externalId: "A000001",
+          name: "Given Family A000001",
+          chamber: "HOUSE",
+          positionRaw: "Representative",
+          state: "CA",
+          inOffice: true,
+        },
+      ],
+    });
+  });
+
+  it("always states which half it wants rather than relying on the provider's default", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => response([]));
+    const client = new FmpClient(config, fetchMock);
+
+    await client.getCongressMemberProfiles({ inOffice: false, page: 3 });
+
+    const url = fetchMock.mock.calls[0]?.[0] as URL;
+    expect(url.searchParams.get("active")).toBe("false");
+    expect(url.searchParams.get("page")).toBe("3");
+  });
+
+  it("reports the provider's own row count beside the rows it could identify", async () => {
+    // The caller decides "was this the last page?" on the payload, never on what survived mapping.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        response([
+          member("A000001", true),
+          { firstName: "No", lastName: "Identifier" },
+          member("A000002", true),
+        ]),
+      );
+    const client = new FmpClient(config, fetchMock);
+
+    const page = await client.getCongressMemberProfiles({
+      inOffice: true,
+      page: 0,
+    });
+
+    expect(page.providerRowCount).toBe(3);
+    expect(page.rows.map((row) => row.externalId)).toEqual([
+      "A000001",
+      "A000002",
+    ]);
+  });
+
+  it("never puts the API key in a provider error", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ error: "nope" }, 402));
+    const client = new FmpClient(config, fetchMock);
+
+    const failure = await client
+      .getCongressMemberProfiles({ inOffice: true, page: 0 })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(FmpProviderError);
+    expect(String((failure as Error).message)).not.toContain("test-secret-key");
+    expect(JSON.stringify(failure)).not.toContain("test-secret-key");
+  });
+});

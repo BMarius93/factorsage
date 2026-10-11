@@ -299,9 +299,10 @@ export const RATE_LIMIT_POLICIES = {
   },
 
   /**
-   * Privileged operator actions. The catalog synchronization behind this reconciles the whole
-   * supported universe against the provider; a handful an hour is generous for something normally
-   * run on a schedule or by hand.
+   * Privileged operator actions. The two catalog synchronizations behind this each reconcile a
+   * whole catalog against the provider — the supported securities, and the members of Congress a
+   * rule may select — and share the allowance; a handful an hour is generous for something
+   * normally run on a schedule or by hand.
    */
   "admin-operation": {
     description: "Privileged administrative operations.",

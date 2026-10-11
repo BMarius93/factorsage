@@ -1,5 +1,6 @@
 import {
   STRATEGY_SCHEMA_VERSION,
+  type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
   type AlternativeDataActorResponse,
   type StrategyDefinition,
@@ -9,6 +10,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchActorCatalogStatus,
+  fetchActorGroup,
   fetchActorGroups,
   resolveActors,
   searchActors,
@@ -62,13 +65,17 @@ vi.mock("../api/strategies-api", async () => {
 vi.mock("../../alternative-data/api/alternative-data-api", () => ({
   searchActors: vi.fn(),
   resolveActors: vi.fn(),
+  fetchActorCatalogStatus: vi.fn(),
   fetchActorGroups: vi.fn(),
+  fetchActorGroup: vi.fn(),
 }));
 
 const replaceDefinitionMock = vi.mocked(replaceStrategyDefinition);
 const searchActorsMock = vi.mocked(searchActors);
 const resolveActorsMock = vi.mocked(resolveActors);
+const fetchActorCatalogStatusMock = vi.mocked(fetchActorCatalogStatus);
 const fetchActorGroupsMock = vi.mocked(fetchActorGroups);
+const fetchActorGroupMock = vi.mocked(fetchActorGroup);
 
 const LEADERSHIP: ActorGroupSummaryResponse = {
   ownership: "USER",
@@ -87,6 +94,33 @@ const PELOSI: AlternativeDataActorResponse = {
   chamber: "HOUSE",
   state: "CA",
   district: "CA11",
+};
+
+const TUBERVILLE: AlternativeDataActorResponse = {
+  id: "actor-2",
+  externalId: "T000278",
+  displayName: "Tommy Tuberville",
+  chamber: "SENATE",
+  state: "AL",
+};
+
+const KHANNA: AlternativeDataActorResponse = {
+  id: "actor-3",
+  externalId: "K000389",
+  displayName: "Ro Khanna",
+  chamber: "HOUSE",
+  state: "CA",
+  district: "CA17",
+};
+
+/** The members the mocked catalog holds. */
+const CATALOG = [PELOSI, TUBERVILLE, KHANNA] as const;
+
+/** The legacy group as its detail route answers: the summary plus its members. */
+const LEADERSHIP_DETAIL: ActorGroupDetailResponse = {
+  ...LEADERSHIP,
+  memberCount: 2,
+  members: [TUBERVILLE, PELOSI],
 };
 
 function strategyWith(
@@ -114,7 +148,37 @@ function strategyWith(
   };
 }
 
-/** A saved strategy whose only condition is a congressional one scoped to a group. */
+/** A congressional condition scoped to members the rule selects itself. */
+function selectionCondition(
+  id: string,
+  actorIds: readonly string[],
+): StrategyDefinition["buyLevels"][number]["signal"]["conditions"][number] {
+  return {
+    id,
+    metric: {
+      kind: "CONGRESS_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 60,
+      scope: { kind: "ACTORS", actorIds: [...actorIds] },
+      chamber: "ANY",
+    },
+    operator: "IS_ABOVE",
+    value: { kind: "NUMBER", value: 2 },
+  };
+}
+
+/** A saved strategy whose only condition selects members directly. */
+function selectionStrategy(
+  actorIds: readonly string[] = [PELOSI.id, TUBERVILLE.id],
+): StrategyDetailResponse {
+  return strategyWith("Follow the Hill", selectionCondition("c1", actorIds));
+}
+
+/**
+ * A strategy saved before 2026-10-11, whose only condition still names a Congress group.
+ *
+ * Nothing writes this shape any more; it is what an older strategy version reads back as.
+ */
 function congressStrategy(): StrategyDetailResponse {
   return strategyWith("Follow the Hill", {
     id: "c1",
@@ -127,6 +191,22 @@ function congressStrategy(): StrategyDetailResponse {
     },
     operator: "IS_ABOVE",
     value: { kind: "NUMBER", value: 2 },
+  });
+}
+
+/** A congressional strategy that counts every member: no selection, so no picker on screen. */
+function anyoneStrategy(): StrategyDetailResponse {
+  return strategyWith("The whole Hill", {
+    id: "c1",
+    metric: {
+      kind: "CONGRESS_ACTIVITY",
+      measure: "PURCHASES",
+      lookback: 30,
+      scope: { kind: "ANY" },
+      chamber: "ANY",
+    },
+    operator: "IS_ABOVE",
+    value: { kind: "NUMBER", value: 1 },
   });
 }
 
@@ -210,10 +290,66 @@ async function configure(
   );
 }
 
+/** The saved scope of the nth condition of the first BUY level, as the Builder last submitted it. */
+function savedScope(conditionIndex = 0): unknown {
+  const saved = replaceDefinitionMock.mock.calls.at(-1)?.[1];
+  const metric = saved?.buyLevels[0]?.signal.conditions[conditionIndex]?.metric;
+  return metric?.kind === "CONGRESS_ACTIVITY" ? metric.scope : undefined;
+}
+
+function chipNames(scope: HTMLElement): string[] {
+  return within(scope)
+    .queryAllByTestId("actor-chip")
+    .map((chip) => chip.firstChild?.textContent ?? "");
+}
+
+async function openConfiguration(
+  user: ReturnType<typeof userEvent.setup>,
+  row?: HTMLElement,
+): Promise<HTMLElement> {
+  const scope = row ?? (await screen.findByTestId("predicate-row"));
+  await user.click(within(scope).getByTestId("operand-config-button"));
+  return screen.findByTestId("alternative-data-config");
+}
+
+async function pickMember(
+  user: ReturnType<typeof userEvent.setup>,
+  dialog: HTMLElement,
+  term: string,
+  name: string,
+): Promise<void> {
+  await user.type(
+    within(dialog).getByLabelText("Search members of Congress"),
+    term,
+  );
+  await user.click(
+    await within(within(dialog).getByRole("listbox")).findByText(name),
+  );
+}
+
+function applyButton(dialog: HTMLElement): HTMLButtonElement {
+  return within(dialog).getByTestId(
+    "alternative-data-config-apply",
+  ) as HTMLButtonElement;
+}
+
 beforeEach(() => {
-  searchActorsMock.mockResolvedValue([PELOSI]);
-  resolveActorsMock.mockResolvedValue([]);
+  // A catalog of three, searched the way the API searches it: by a case-insensitive part of the name.
+  searchActorsMock.mockImplementation(async (input = {}) =>
+    CATALOG.filter((actor) =>
+      actor.displayName.toLowerCase().includes((input.term ?? "").toLowerCase()),
+    ),
+  );
+  resolveActorsMock.mockImplementation(async (actorIds) =>
+    CATALOG.filter((actor) => actorIds.includes(actor.id)),
+  );
+  // The catalog as a deployment normally has it: filled from the provider's member directory.
+  fetchActorCatalogStatusMock.mockResolvedValue({
+    state: "SYNCHRONIZED",
+    synchronizedAt: "2026-10-11T12:00:00.000Z",
+  });
   fetchActorGroupsMock.mockResolvedValue([LEADERSHIP]);
+  fetchActorGroupMock.mockResolvedValue(LEADERSHIP_DETAIL);
   replaceDefinitionMock.mockImplementation(async (_id, definition) => ({
     ...congressStrategy(),
     definition,
@@ -258,7 +394,42 @@ describe("the alternative-data condition row", () => {
     }
   });
 
-  it("summarizes the lookback and the group on the row and on the Strategy Logic line", async () => {
+  it("summarizes the lookback and the selected members on the row and on the Strategy Logic line", async () => {
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("operand-configuration-summary").textContent,
+      ).toBe("60D · Nancy Pelosi, Tommy Tuberville"),
+    );
+    expect(representations().logic).toContain(
+      "Congress buyers is above 2 (60D · Nancy Pelosi, Tommy Tuberville)",
+    );
+  });
+
+  it("names the first two of a longer selection and counts the rest", async () => {
+    render(
+      <StrategyBuilder
+        strategy={selectionStrategy([PELOSI.id, TUBERVILLE.id, KHANNA.id])}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("operand-configuration-summary").textContent,
+      ).toBe("60D · Nancy Pelosi, Ro Khanna +1"),
+    );
+  });
+
+  it("says how many members are selected while their names are unresolved", async () => {
+    resolveActorsMock.mockRejectedValue(new Error("offline"));
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("operand-configuration-summary").textContent,
+      ).toBe("60D · 2 selected members"),
+    );
+  });
+
+  it("still names the group behind a rule saved before groups left the product", async () => {
     render(<StrategyBuilder strategy={congressStrategy()} />);
     await waitFor(() =>
       expect(
@@ -410,25 +581,29 @@ describe("identity and configuration agree everywhere", () => {
     await expectEverywhere180();
   });
 
-  it("B: Congressional trading -> Congress purchases keeps its group, configured to 180D + House agrees everywhere, saved and reloaded", async () => {
+  it("B: Congressional trading -> Congress purchases keeps its members, configured to 180D + House agrees everywhere, saved and reloaded", async () => {
     const user = userEvent.setup();
     const { unmount } = render(
-      <StrategyBuilder strategy={congressStrategy()} />,
+      <StrategyBuilder strategy={selectionStrategy()} />,
     );
     const row = await screen.findByTestId("predicate-row");
     await waitFor(() =>
-      expect(representations().summary).toBe("60D · House leadership"),
+      expect(representations().summary).toBe(
+        "60D · Nancy Pelosi, Tommy Tuberville",
+      ),
     );
 
     // Every congressional measure takes the same configuration, so another measure keeps it: the
-    // lookback and the group scope follow the choice rather than silently resetting.
+    // lookback and the selected members follow the choice rather than silently resetting.
     await chooseMetric(
       user,
       row,
       "CONGRESSIONAL_TRADING",
       "CONGRESS_ACTIVITY:PURCHASES",
     );
-    expect(representations().summary).toBe("60D · House leadership");
+    expect(representations().summary).toBe(
+      "60D · Nancy Pelosi, Tommy Tuberville",
+    );
 
     await configure(user, async (dialog) => {
       expect(within(dialog).getByRole("heading").textContent).toBe(
@@ -451,12 +626,16 @@ describe("identity and configuration agree everywhere", () => {
       const view = representations();
       expect(view.metricKey).toBe("CONGRESS_ACTIVITY:PURCHASES");
       expect(view.metricLabel).toBe("Congress purchases");
-      expect(view.summary).toBe("180D · House leadership · House");
+      expect(view.summary).toBe(
+        "180D · Nancy Pelosi, Tommy Tuberville · House",
+      );
       expect(view.logic).toContain(
-        "Congress purchases is above 2 (180D · House leadership · House)",
+        "Congress purchases is above 2 (180D · Nancy Pelosi, Tommy Tuberville · House)",
       );
       expect(view.helpTitle).toBe("Congress purchases");
-      expect(view.helpConfiguration).toBe("180D · House leadership · House");
+      expect(view.helpConfiguration).toBe(
+        "180D · Nancy Pelosi, Tommy Tuberville · House",
+      );
     };
     await expectEverywhere();
 
@@ -467,7 +646,7 @@ describe("identity and configuration agree everywhere", () => {
       kind: "CONGRESS_ACTIVITY",
       measure: "PURCHASES",
       lookback: 180,
-      scope: { kind: "GROUP", groupId: "group-1" },
+      scope: { kind: "ACTORS", actorIds: [PELOSI.id, TUBERVILLE.id] },
       chamber: "HOUSE",
     });
 
@@ -475,7 +654,7 @@ describe("identity and configuration agree everywhere", () => {
     render(
       <StrategyBuilder
         strategy={{
-          ...congressStrategy(),
+          ...selectionStrategy(),
           definition: saved as StrategyDefinition,
         }}
       />,
@@ -483,9 +662,35 @@ describe("identity and configuration agree everywhere", () => {
     await screen.findByTestId("predicate-row");
     focusMetric(screen.getByTestId("predicate-row"));
     await waitFor(() =>
-      expect(representations().summary).toBe("180D · House leadership · House"),
+      expect(representations().summary).toBe(
+        "180D · Nancy Pelosi, Tommy Tuberville · House",
+      ),
     );
     await expectEverywhere();
+  });
+
+  it("keeps the group of a rule saved before groups left the product when only its measure changes", async () => {
+    // Choosing another congressional measure is not a configuration: the scope the rule was saved
+    // with follows it untouched. It is the Configure dialog that turns a group into its members.
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={congressStrategy()} />);
+    const row = await screen.findByTestId("predicate-row");
+    await waitFor(() =>
+      expect(representations().summary).toBe("60D · House leadership"),
+    );
+
+    await chooseMetric(
+      user,
+      row,
+      "CONGRESSIONAL_TRADING",
+      "CONGRESS_ACTIVITY:PURCHASES",
+    );
+    const view = representations();
+    expect(view.metricLabel).toBe("Congress purchases");
+    expect(view.summary).toBe("60D · House leadership");
+    expect(view.logic).toContain(
+      "Congress purchases is above 2 (60D · House leadership)",
+    );
   });
 
   it("C: a configured Insider metric leaks nothing into the category chosen after it", async () => {
@@ -605,52 +810,20 @@ describe("the configuration surface", () => {
 
   it("abandoning the dialog changes nothing", async () => {
     const user = userEvent.setup();
-    render(<StrategyBuilder strategy={congressStrategy()} />);
-    const row = await screen.findByTestId("predicate-row");
-    await user.click(within(row).getByTestId("operand-config-button"));
-    const dialog = await screen.findByTestId("alternative-data-config");
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    const dialog = await openConfiguration(user);
     await user.selectOptions(within(dialog).getByLabelText("Lookback"), "250");
+    await pickMember(user, dialog, "Khan", "Ro Khanna");
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     await waitFor(() =>
-      expect(representations().summary).toBe("60D · House leadership"),
+      expect(representations().summary).toBe(
+        "60D · Nancy Pelosi, Tommy Tuberville",
+      ),
     );
     expect(
       (screen.getByTestId("save-strategy") as HTMLButtonElement).disabled,
     ).toBe(true);
-  });
-
-  it("switches a scope from a group to a specific member through the combobox", async () => {
-    const user = userEvent.setup();
-    render(<StrategyBuilder strategy={congressStrategy()} />);
-    const row = await screen.findByTestId("predicate-row");
-    await user.click(within(row).getByTestId("operand-config-button"));
-    const dialog = await screen.findByTestId("alternative-data-config");
-
-    await user.click(within(dialog).getByRole("radio", { name: "A specific one" }));
-    // The Apply button waits for a choice: a scope naming nothing would be rejected by the validator.
-    expect(
-      (
-        within(dialog).getByTestId(
-          "alternative-data-config-apply",
-        ) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-
-    await user.type(
-      within(dialog).getByLabelText("Search members of Congress"),
-      "Pelo",
-    );
-    await user.click(await within(dialog).findByText("Nancy Pelosi"));
-    await user.click(within(dialog).getByTestId("alternative-data-config-apply"));
-
-    await user.click(screen.getByTestId("save-strategy"));
-    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
-    const saved = replaceDefinitionMock.mock.calls[0]?.[1];
-    expect(saved?.buyLevels[0]?.signal.conditions[0]?.metric).toMatchObject({
-      lookback: 60,
-      scope: { kind: "ACTOR", actorId: "actor-1" },
-    });
   });
 
   it("offers an insider role filter and no scope, because V1 has no insider groups", async () => {
@@ -831,5 +1004,508 @@ describe("the Metric picker", () => {
     expect(representations().logic).toContain(
       "Insider buyers is above 0 (20D)",
     );
+  });
+});
+
+describe("selecting members of Congress", () => {
+  it("offers anyone or selected members, and never a group", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    const dialog = await openConfiguration(user);
+    expect(
+      within(dialog)
+        .getAllByRole("radio")
+        .map((radio) => radio.parentElement?.textContent),
+    ).toEqual(["Anyone", "Selected members"]);
+    expect(within(dialog).queryByTestId("alt-group-picker")).toBeNull();
+    expect(fetchActorGroupMock).not.toHaveBeenCalled();
+  });
+
+  it("adds members as chips and saves their ids, sorted, in the condition", async () => {
+    const user = userEvent.setup();
+    const strategy = strategyWith("Follow the Hill", {
+      id: "c1",
+      metric: {
+        kind: "CONGRESS_ACTIVITY",
+        measure: "PURCHASES",
+        lookback: 30,
+        scope: { kind: "ANY" },
+        chamber: "ANY",
+      },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 1 },
+    });
+    render(<StrategyBuilder strategy={strategy} />);
+    const dialog = await openConfiguration(user);
+
+    await user.click(
+      within(dialog).getByRole("radio", { name: "Selected members" }),
+    );
+    // Nobody chosen yet: a selection of nobody is not a rule, so it cannot be applied.
+    expect(applyButton(dialog).disabled).toBe(true);
+    expect(within(dialog).getByTestId("alt-actor-count").textContent).toContain(
+      "Select at least one member.",
+    );
+
+    await pickMember(user, dialog, "Tub", "Tommy Tuberville");
+    await pickMember(user, dialog, "Pelo", "Nancy Pelosi");
+    // Newest first, and each exactly once.
+    expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]);
+    expect(within(dialog).getByTestId("alt-actor-count").textContent).toContain(
+      "2 of 250 selected.",
+    );
+    expect(applyButton(dialog).disabled).toBe(false);
+    await user.click(applyButton(dialog));
+
+    await waitFor(() =>
+      expect(representations().summary).toBe(
+        "30D · Nancy Pelosi, Tommy Tuberville",
+      ),
+    );
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
+    // The ids, never the names, and in canonical order whatever order they were picked in.
+    expect(savedScope()).toEqual({
+      kind: "ACTORS",
+      actorIds: ["actor-1", "actor-2"],
+    });
+  });
+
+  it("keeps the chosen members in view while the search changes", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    const dialog = await openConfiguration(user);
+    await waitFor(() =>
+      expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]),
+    );
+
+    const search = within(dialog).getByLabelText("Search members of Congress");
+    await user.type(search, "Khan");
+    const listbox = within(dialog).getByRole("listbox");
+    await within(listbox).findByText("Ro Khanna");
+    // The list now holds only the match; the chips are untouched by what is being searched for.
+    expect(within(listbox).queryByText("Nancy Pelosi")).toBeNull();
+    expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]);
+
+    await user.clear(search);
+    await user.type(search, "zzz");
+    await within(listbox).findByText(/No matches\./);
+    expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]);
+  });
+
+  /** Opens the picker, searches for somebody the catalog does not hold, and reads what it says. */
+  async function searchForNobody(): Promise<{ empty: string; note: string }> {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    const dialog = await openConfiguration(user);
+    await user.type(
+      within(dialog).getByLabelText("Search members of Congress"),
+      "Nobody Here",
+    );
+    const empty = await within(dialog).findByText(/No matches\./);
+    return {
+      empty: empty.textContent ?? "",
+      note: within(dialog).getByTestId("alt-actor-count").textContent ?? "",
+    };
+  }
+
+  it("says nobody matches, and warns of nothing, once the member directory is loaded", async () => {
+    const { empty, note } = await searchForNobody();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("alt-actor-catalog").getAttribute("data-state"),
+      ).toBe("SYNCHRONIZED"),
+    );
+    const after = screen.getByTestId("alt-actor-count").textContent ?? "";
+
+    expect(empty).toContain(
+      "No current or former member of Congress matches. Try the surname alone.",
+    );
+    expect(after).toContain(
+      "The list covers current and former members of Congress, whether or not they have traded.",
+    );
+    // The warning about a list grown from loaded disclosures is gone, because it is no longer true.
+    for (const text of [empty, note, after]) {
+      expect(text).not.toContain("not every member of Congress");
+      expect(text).not.toContain("already loaded");
+    }
+  });
+
+  it("says the directory has not been loaded yet, so an empty search is not read as nobody", async () => {
+    fetchActorCatalogStatusMock.mockResolvedValue({ state: "NOT_SYNCHRONIZED" });
+    const { empty } = await searchForNobody();
+
+    expect(empty).toContain(
+      "The member directory has not been loaded yet, so only members with disclosures FactorSage has already loaded can be found.",
+    );
+    expect(screen.getByTestId("alt-actor-count").textContent).toContain(
+      "The member directory has not been loaded yet: the list holds only the members who appear in the disclosures FactorSage has loaded so far, so it is not every member of Congress.",
+    );
+  });
+
+  it("says the directory could not be loaded, which is a different statement from not yet", async () => {
+    fetchActorCatalogStatusMock.mockResolvedValue({
+      state: "SYNCHRONIZATION_FAILED",
+    });
+    const { empty } = await searchForNobody();
+
+    expect(empty).toContain(
+      "The member directory could not be loaded, so only members with disclosures FactorSage has already loaded can be found.",
+    );
+    const note = screen.getByTestId("alt-actor-count").textContent ?? "";
+    expect(note).toContain("The member directory could not be loaded:");
+    expect(note).toContain("it is not every member of Congress");
+    expect(note).not.toContain("has not been loaded yet");
+  });
+
+  it("claims nothing about the list while it does not know, and still lets a member be chosen", async () => {
+    fetchActorCatalogStatusMock.mockRejectedValue(new Error("offline"));
+    const { empty, note } = await searchForNobody();
+
+    expect(empty).toBe("No matches.Try the surname alone.");
+    expect(note).not.toContain("current and former members");
+    expect(note).not.toContain("not every member of Congress");
+    expect(
+      screen.getByTestId("alt-actor-catalog").getAttribute("data-state"),
+    ).toBe("UNKNOWN");
+    // Not knowing blocks nothing: the saved selection is intact and Apply is available.
+    expect(chipNames(screen.getByTestId("alternative-data-config"))).toEqual([
+      "Nancy Pelosi",
+      "Tommy Tuberville",
+    ]);
+    expect(
+      (screen.getByTestId("alternative-data-config-apply") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("asks about the catalog once, and only when the picker is on screen", async () => {
+    const user = userEvent.setup();
+    // "Anyone": no picker, so nothing to word.
+    const { unmount } = render(<StrategyBuilder strategy={anyoneStrategy()} />);
+    const anyone = await openConfiguration(user);
+    expect(fetchActorCatalogStatusMock).not.toHaveBeenCalled();
+
+    // Choosing "Selected members" shows the picker, and asks.
+    await user.click(
+      within(anyone).getByRole("radio", { name: "Selected members" }),
+    );
+    await waitFor(() =>
+      expect(fetchActorCatalogStatusMock).toHaveBeenCalledTimes(1),
+    );
+    // Searching does not ask again: the answer is about the catalog, not about a term.
+    await user.type(
+      within(anyone).getByLabelText("Search members of Congress"),
+      "Pelosi",
+    );
+    await within(anyone).findByRole("option", { name: /Nancy Pelosi/ });
+    expect(fetchActorCatalogStatusMock).toHaveBeenCalledTimes(1);
+    unmount();
+
+    // An insider metric has no members to select and never asks.
+    fetchActorCatalogStatusMock.mockClear();
+    render(<StrategyBuilder strategy={insiderStrategy()} />);
+    await openConfiguration(user);
+    expect(fetchActorCatalogStatusMock).not.toHaveBeenCalled();
+  });
+
+  it("loads every saved member when an existing condition is reopened", async () => {
+    const user = userEvent.setup();
+    render(
+      <StrategyBuilder
+        strategy={selectionStrategy([KHANNA.id, PELOSI.id, TUBERVILLE.id])}
+      />,
+    );
+    const dialog = await openConfiguration(user);
+    expect(
+      (
+        within(dialog).getByRole("radio", {
+          name: "Selected members",
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    // Alphabetical once resolved: the saved order is by id and means nothing to a reader.
+    await waitFor(() =>
+      expect(chipNames(dialog)).toEqual([
+        "Nancy Pelosi",
+        "Ro Khanna",
+        "Tommy Tuberville",
+      ]),
+    );
+    // Asked for by id, in the selection's canonical order, never by name.
+    expect(resolveActorsMock).toHaveBeenCalledWith(
+      [PELOSI.id, TUBERVILLE.id, KHANNA.id],
+      expect.anything(),
+    );
+  });
+
+  it("removes a member by its chip, and by picking it again, without recreating the condition", async () => {
+    const user = userEvent.setup();
+    render(
+      <StrategyBuilder
+        strategy={selectionStrategy([KHANNA.id, PELOSI.id, TUBERVILLE.id])}
+      />,
+    );
+    const dialog = await openConfiguration(user);
+    await waitFor(() => expect(chipNames(dialog)).toHaveLength(3));
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Remove Ro Khanna" }),
+    );
+    expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]);
+
+    // Picking a member who is already chosen removes them: nobody can be selected twice.
+    await pickMember(user, dialog, "Pelo", "Nancy Pelosi");
+    expect(chipNames(dialog)).toEqual(["Tommy Tuberville"]);
+
+    await user.click(applyButton(dialog));
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
+    const saved = replaceDefinitionMock.mock.calls.at(-1)?.[1];
+    // The same condition, edited in place: its id, operator, value and lookback are as they were.
+    expect(saved?.buyLevels[0]?.signal.conditions[0]).toMatchObject({
+      id: "c1",
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 2 },
+      metric: {
+        measure: "BUYERS",
+        lookback: 60,
+        scope: { kind: "ACTORS", actorIds: ["actor-2"] },
+      },
+    });
+  });
+
+  it("will not apply an empty selection, and keeps the members if the user goes to Anyone and back", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={selectionStrategy([PELOSI.id])} />);
+    const dialog = await openConfiguration(user);
+    await waitFor(() => expect(chipNames(dialog)).toEqual(["Nancy Pelosi"]));
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Remove Nancy Pelosi" }),
+    );
+    expect(applyButton(dialog).disabled).toBe(true);
+
+    await pickMember(user, dialog, "Tub", "Tommy Tuberville");
+    expect(applyButton(dialog).disabled).toBe(false);
+
+    await user.click(within(dialog).getByRole("radio", { name: "Anyone" }));
+    expect(within(dialog).queryByTestId("alt-actor-picker")).toBeNull();
+    expect(applyButton(dialog).disabled).toBe(false);
+    await user.click(
+      within(dialog).getByRole("radio", { name: "Selected members" }),
+    );
+    expect(chipNames(dialog)).toEqual(["Tommy Tuberville"]);
+
+    await user.click(within(dialog).getByRole("radio", { name: "Anyone" }));
+    await user.click(applyButton(dialog));
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
+    expect(savedScope()).toEqual({ kind: "ANY" });
+  });
+
+  it("shows a saved member the catalog no longer holds, and waits for it to be removed", async () => {
+    const user = userEvent.setup();
+    render(
+      <StrategyBuilder strategy={selectionStrategy([PELOSI.id, "actor-gone"])} />,
+    );
+    const dialog = await openConfiguration(user);
+    await waitFor(() =>
+      expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Unavailable member"]),
+    );
+    expect(
+      within(dialog).getByTestId("alt-actor-unavailable").textContent,
+    ).toBe("1 selected member is no longer available. Remove it to apply.");
+    expect(applyButton(dialog).disabled).toBe(true);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Remove Unavailable member" }),
+    );
+    expect(within(dialog).queryByTestId("alt-actor-unavailable")).toBeNull();
+    expect(applyButton(dialog).disabled).toBe(false);
+  });
+
+  it("keeps the saved selection applicable when the names cannot be loaded", async () => {
+    const user = userEvent.setup();
+    resolveActorsMock.mockRejectedValue(new Error("offline"));
+    render(<StrategyBuilder strategy={selectionStrategy()} />);
+    const dialog = await openConfiguration(user);
+    await waitFor(() =>
+      expect(chipNames(dialog)).toEqual(["Selected member", "Selected member"]),
+    );
+    // The selection is the ids, and those are intact; only the labels are missing.
+    expect(applyButton(dialog).disabled).toBe(false);
+    await user.selectOptions(within(dialog).getByLabelText("Lookback"), "90");
+    await user.click(applyButton(dialog));
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
+    expect(savedScope()).toEqual({
+      kind: "ACTORS",
+      actorIds: ["actor-1", "actor-2"],
+    });
+  });
+
+  it("gives two congressional conditions their own selections", async () => {
+    const user = userEvent.setup();
+    const strategy = selectionStrategy([PELOSI.id]);
+    render(
+      <StrategyBuilder
+        strategy={{
+          ...strategy,
+          definition: {
+            ...strategy.definition,
+            buyLevels: [
+              {
+                id: "buy-1",
+                percentage: 100,
+                signal: {
+                  conditions: [
+                    selectionCondition("c1", [PELOSI.id]),
+                    selectionCondition("c2", [TUBERVILLE.id]),
+                  ],
+                },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    const [first, second] = await screen.findAllByTestId("predicate-row");
+    await waitFor(() =>
+      expect(
+        within(second!).getByTestId("operand-configuration-summary").textContent,
+      ).toBe("60D · Tommy Tuberville"),
+    );
+
+    // Editing the second condition's members…
+    const dialog = await openConfiguration(user, second);
+    await waitFor(() => expect(chipNames(dialog)).toEqual(["Tommy Tuberville"]));
+    await pickMember(user, dialog, "Khan", "Ro Khanna");
+    await user.click(applyButton(dialog));
+
+    // …changes the second and leaves the first exactly as it was.
+    await waitFor(() =>
+      expect(
+        within(second!).getByTestId("operand-configuration-summary").textContent,
+      ).toBe("60D · Ro Khanna, Tommy Tuberville"),
+    );
+    expect(
+      within(first!).getByTestId("operand-configuration-summary").textContent,
+    ).toBe("60D · Nancy Pelosi");
+
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
+    expect(savedScope(0)).toEqual({ kind: "ACTORS", actorIds: ["actor-1"] });
+    expect(savedScope(1)).toEqual({
+      kind: "ACTORS",
+      actorIds: ["actor-2", "actor-3"],
+    });
+  });
+
+  it("folds a long selection so the dialog stays one page, and unfolds it on request", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      id: `actor-many-${String(index).padStart(2, "0")}`,
+      externalId: `M0000${String(index).padStart(2, "0")}`,
+      displayName: `Member ${String(index).padStart(2, "0")}`,
+      chamber: "HOUSE" as const,
+    }));
+    resolveActorsMock.mockResolvedValue(many);
+    render(
+      <StrategyBuilder strategy={selectionStrategy(many.map((m) => m.id))} />,
+    );
+    const dialog = await openConfiguration(user);
+    await waitFor(() => expect(chipNames(dialog)[0]).toBe("Member 00"));
+
+    expect(chipNames(dialog)).toHaveLength(12);
+    expect(within(dialog).getByTestId("actor-chips-expand").textContent).toBe(
+      "+28 more",
+    );
+    expect(within(dialog).getByTestId("alt-actor-count").textContent).toContain(
+      "40 of 250 selected.",
+    );
+
+    await user.click(within(dialog).getByTestId("actor-chips-expand"));
+    expect(chipNames(dialog)).toHaveLength(40);
+    await user.click(within(dialog).getByTestId("actor-chips-collapse"));
+    expect(chipNames(dialog)).toHaveLength(12);
+  });
+});
+
+describe("a rule saved with a Congress group", () => {
+  it("opens on the group's members, and one Apply turns the rule into a selection", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={congressStrategy()} />);
+    const dialog = await openConfiguration(user);
+
+    expect(fetchActorGroupMock).toHaveBeenCalledWith(
+      "group-1",
+      expect.anything(),
+    );
+    await waitFor(() =>
+      expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]),
+    );
+    expect(within(dialog).getByTestId("alt-legacy-group").textContent).toContain(
+      "This rule used the group “House leadership”.",
+    );
+    expect(
+      (
+        within(dialog).getByRole("radio", {
+          name: "Selected members",
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+
+    await user.click(applyButton(dialog));
+    await waitFor(() =>
+      expect(representations().summary).toBe(
+        "60D · Nancy Pelosi, Tommy Tuberville",
+      ),
+    );
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
+    // What is saved names the members and no group: nothing writes a group reference any more.
+    expect(savedScope()).toEqual({
+      kind: "ACTORS",
+      actorIds: ["actor-1", "actor-2"],
+    });
+  });
+
+  it("asks for the members when the group can no longer be read, rather than guessing", async () => {
+    const user = userEvent.setup();
+    fetchActorGroupMock.mockRejectedValue(new Error("not found"));
+    render(<StrategyBuilder strategy={congressStrategy()} />);
+    const dialog = await openConfiguration(user);
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByTestId("alt-legacy-group").textContent,
+      ).toContain("This rule used a group that is no longer available."),
+    );
+    expect(chipNames(dialog)).toEqual([]);
+    // Neither "everyone" nor "nobody" is assumed: the rule cannot be applied until someone is chosen.
+    expect(applyButton(dialog).disabled).toBe(true);
+
+    await pickMember(user, dialog, "Khan", "Ro Khanna");
+    expect(applyButton(dialog).disabled).toBe(false);
+  });
+
+  it("does not let the rule be applied before the group's members have loaded", async () => {
+    const user = userEvent.setup();
+    let release: (group: ActorGroupDetailResponse) => void = () => undefined;
+    fetchActorGroupMock.mockReturnValue(
+      new Promise<ActorGroupDetailResponse>((resolve) => {
+        release = resolve;
+      }),
+    );
+    render(<StrategyBuilder strategy={congressStrategy()} />);
+    const dialog = await openConfiguration(user);
+
+    expect(applyButton(dialog).disabled).toBe(true);
+    expect(within(dialog).queryByTestId("alt-actor-picker")).toBeNull();
+    await act(async () => {
+      release(LEADERSHIP_DETAIL);
+    });
+    await waitFor(() => expect(applyButton(dialog).disabled).toBe(false));
   });
 });

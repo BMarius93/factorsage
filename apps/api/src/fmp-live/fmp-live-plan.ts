@@ -125,6 +125,16 @@ export const LIVE_FMP_EXCLUSIONS: readonly LiveFmpExclusion[] = [
       "catalog lacks is admitted from its own profile instead",
   },
   {
+    operation:
+      "Member catalog synchronization (pnpm data:congress-members:sync, POST /admin/congress-members/sync)",
+    classification: "PROVIDER_WIDE",
+    endpoints: ["senate-profile"],
+    reason:
+      "returns the provider's whole directory of members of Congress, which is about no " +
+      "security; the scope refuses the endpoint, and a member an approved security's " +
+      "disclosures name still enters the catalog through those disclosures",
+  },
+  {
     operation: "Current quotes (the Monitor cycle's current observation)",
     classification: "WIDENS_UNIVERSE",
     endpoints: ["batch-quote"],

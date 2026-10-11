@@ -30,6 +30,14 @@
   line-height: 1.5;
 }
 
+/* A problem with the selection itself, said beside it rather than as a field hint. */
+.fieldError {
+  margin: 0;
+  color: var(--color-negative);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .checkboxes {
   display: flex;
   flex-wrap: wrap;

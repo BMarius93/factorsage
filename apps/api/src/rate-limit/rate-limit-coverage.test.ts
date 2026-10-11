@@ -165,7 +165,10 @@ describe("rate-limit coverage", () => {
 
     // The point of a catalog is that classes with different costs do not share one number.
     expect(byPolicy.get("backtest-execution")).toEqual(["POST /backtests"]);
-    expect(byPolicy.get("admin-operation")).toEqual([
+    // The two provider-backed catalog synchronizations: the supported securities, and the members
+    // of Congress a rule may select.
+    expect(byPolicy.get("admin-operation")?.sort()).toEqual([
+      "POST /admin/congress-members/sync",
       "POST /admin/securities/sync",
     ]);
     expect(byPolicy.get("progress-poll")).toEqual([

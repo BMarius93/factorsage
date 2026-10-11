@@ -1,5 +1,6 @@
 import {
   ACTOR_SCOPE_KINDS,
+  ACTOR_SCOPE_MAX_ACTORS,
   ALTERNATIVE_DATA_LOOKBACKS,
   BUY_LEVEL_PERCENTAGES,
   CONDITION_OPERATORS,
@@ -202,6 +203,8 @@ const VALUE_KINDS: Record<StrategyValueKind, true> = {
 };
 
 const A_GROUP_ID = "4b8d0f3e-2c1a-4e7b-9a6d-5f0c3b2a1e9d";
+const AN_ACTOR_ID = "6f1b0a1e-8a6c-4c1a-9f0e-2b6c4d8e1a33";
+const ANOTHER_ACTOR_ID = "0c2d7b1a-5e4f-4a3b-8c9d-1e2f3a4b5c6d";
 
 /** The metric at its fullest configuration: every optional filter present, and a narrowed scope. */
 function fullest(metric: StrategyMetric): StrategyMetric {
@@ -212,13 +215,35 @@ function fullest(metric: StrategyMetric): StrategyMetric {
       return {
         ...metric,
         lookback: 180,
-        scope: { kind: "GROUP", groupId: A_GROUP_ID },
+        scope: { kind: "ACTORS", actorIds: [AN_ACTOR_ID, ANOTHER_ACTOR_ID] },
         chamber: "HOUSE",
         owners: [...CONGRESS_OWNERS],
       };
     default:
       return metric;
   }
+}
+
+/**
+ * The congressional metric under each scope shape a stored document can hold.
+ *
+ * The two legacy shapes are no longer written, but a strategy version or a backtest run saved before
+ * 2026-10-11 still carries one and the API still serves it, so the document has to describe them.
+ */
+function everyStoredScope(): StrategyMetric[] {
+  const scopes = [
+    { kind: "ANY" },
+    { kind: "ACTORS", actorIds: [AN_ACTOR_ID] },
+    { kind: "ACTORS", actorIds: [AN_ACTOR_ID, ANOTHER_ACTOR_ID] },
+    { kind: "GROUP", groupId: A_GROUP_ID },
+  ] as const;
+  return scopes.map((scope) => ({
+    kind: "CONGRESS_ACTIVITY",
+    measure: "BUYERS",
+    lookback: 30,
+    scope,
+    chamber: "ANY",
+  }));
 }
 
 /** A canonical document carrying `metric` in `levelKind`, as a Condition or as the Trigger. */
@@ -362,6 +387,63 @@ describe("OpenAPI Strategy schemas describe the canonical Strategy model", () =>
         `${levelKind} ${part} ${JSON.stringify(candidate)}`,
       ).toBe(true);
     }
+  });
+
+  it("describes a congressional rule under every scope shape a stored document can hold", () => {
+    const definition = schema("StrategyDefinition");
+    for (const candidate of everyStoredScope()) {
+      for (const levelKind of STRATEGY_LEVEL_KINDS) {
+        expect(
+          describes(
+            definition,
+            documentWith(levelKind, "CONDITION", candidate),
+          ),
+          `${levelKind} ${JSON.stringify(candidate)}`,
+        ).toBe(true);
+      }
+    }
+    // The legacy single-member shape, exactly as an old version stores it — unnormalized, because
+    // the read path rewrites it and what a client receives is the selection.
+    const stored = documentWith("BUY", "CONDITION", {
+      kind: "PRICE",
+    }) as {
+      buyLevels: {
+        signal: { conditions: { metric: unknown; value: unknown }[] };
+      }[];
+    };
+    stored.buyLevels[0]!.signal.conditions[0]!.metric = {
+      kind: "CONGRESS_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 30,
+      scope: { kind: "ACTOR", actorId: AN_ACTOR_ID },
+      chamber: "ANY",
+    };
+    stored.buyLevels[0]!.signal.conditions[0]!.value = {
+      kind: "NUMBER",
+      value: 1,
+    };
+    expect(describes(definition, stored)).toBe(true);
+  });
+
+  it("documents the selection's bounds, and refuses one that names nobody", () => {
+    const selection = variants(
+      property(
+        variants(schema("StrategyMetric")).get("CONGRESS_ACTIVITY")!,
+        "scope",
+      ),
+    ).get("ACTORS")!;
+    const actorIds = property(selection, "actorIds");
+    expect(actorIds.minItems).toBe(1);
+    expect(actorIds.maxItems).toBe(ACTOR_SCOPE_MAX_ACTORS);
+
+    const definition = schema("StrategyDefinition");
+    const empty = documentWith("BUY", "CONDITION", everyStoredScope()[1]!) as {
+      buyLevels: {
+        signal: { conditions: { metric: { scope: { actorIds: string[] } } }[] };
+      }[];
+    };
+    empty.buyLevels[0]!.signal.conditions[0]!.metric.scope.actorIds = [];
+    expect(describes(definition, empty)).toBe(false);
   });
 
   it("describes a signed multiple the model accepts: net cash is a legitimate threshold", () => {

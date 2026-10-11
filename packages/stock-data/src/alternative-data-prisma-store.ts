@@ -46,6 +46,29 @@ import {
 /** Bind-parameter-safe chunk for a bulk insert of provider rows. */
 const WRITE_CHUNK = 500;
 
+/**
+ * How many partially matching actors a search reads before ranking them.
+ *
+ * A bound on one read of a small reference table, not a page size: the ranked result is cut to the
+ * caller's own limit afterwards. It is deliberately larger than the catalog — about 1,260 members
+ * once the provider's directory is loaded — because candidates are read in name order, and a bound
+ * below the number of names sharing a short word ("ed", "al") would drop the later half of the
+ * alphabet before anything had been ranked.
+ */
+const PARTIAL_MATCH_CANDIDATES = 2_000;
+
+/** Words of a search term long enough to be worth matching on their own. */
+function searchWords(term: string): string[] {
+  return [
+    ...new Set(
+      term
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((word) => word.length >= 2),
+    ),
+  ];
+}
+
 function toDatabaseDate(value: LocalDate): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -149,24 +172,99 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
     return ids;
   }
 
+  /**
+   * Actors matching a term — and, when the whole term matches nobody, the names that match some of
+   * its words.
+   *
+   * A member has up to two spellings, both the provider's own: the one their disclosures use
+   * (`displayName`) and the one the member directory uses (`profileName`). They differ more often
+   * than not — "William Cassidy" and "Bill Cassidy", "Richard W. Allen" and "Rick W. Allen" — so a
+   * term is matched against both, and either one finds the member. Nothing here is a guess: an
+   * alias is a spelling the provider sent for that bioguide id, never one this product made up.
+   *
+   * The fallback exists because neither spelling is always what a person types: the provider has
+   * no nickname field, and holds "Rafael E Cruz" and "Rafael Edward Cruz" for the senator everybody
+   * searches for as "Ted Cruz". Matched whole, that term finds nobody, and an empty result reads as
+   * "this member is not here". Matching the words separately still surfaces him — by surname, with
+   * the chamber and state beside the name to recognize him by.
+   *
+   * Partial matches are ordered by how many of the term's words a spelling shares, and among equals
+   * the ones sharing its **last** word come first. People type a given name and then a family name,
+   * and the family name is the part that identifies: with the whole directory loaded, "ted" alone
+   * is inside "Husted" and in front of "Lieu", and the senator belongs above both.
+   *
+   * It is a fallback and nothing more: a term that matches anybody whole returns exactly what it
+   * always returned, so a search that works is never diluted with near misses. It reads only the
+   * actor table and never a disclosure, so it changes nothing about what a metric counts.
+   */
   async searchActors(input: {
     term?: string;
     limit: number;
   }): Promise<PersistedAlternativeDataActor[]> {
     const term = input.term?.trim();
-    const rows = await this.prisma.alternativeDataActor.findMany({
+    const order = [
+      { displayName: "asc" as const },
+      { externalId: "asc" as const },
+    ];
+    const whole = await this.prisma.alternativeDataActor.findMany({
       where: term
         ? {
             OR: [
               { displayName: { contains: term, mode: "insensitive" } },
+              { profileName: { contains: term, mode: "insensitive" } },
               { externalId: { startsWith: term, mode: "insensitive" } },
             ],
           }
         : {},
-      orderBy: [{ displayName: "asc" }, { externalId: "asc" }],
+      orderBy: order,
       take: input.limit,
     });
-    return rows.map(actorResponse);
+    const words = term ? searchWords(term) : [];
+    if (whole.length > 0 || words.length < 2) {
+      return whole.map(actorResponse);
+    }
+
+    const partial = await this.prisma.alternativeDataActor.findMany({
+      where: {
+        OR: words.flatMap((word) => [
+          { displayName: { contains: word, mode: "insensitive" as const } },
+          { profileName: { contains: word, mode: "insensitive" as const } },
+        ]),
+      },
+      orderBy: order,
+      take: PARTIAL_MATCH_CANDIDATES,
+    });
+    // Ranked by the spelling that shares most words with the term, whichever of the two it is, and
+    // then by whether either spelling holds the term's last word.
+    const lastWord = words[words.length - 1] as string;
+    const rank = (row: {
+      displayName: string;
+      profileName: string | null;
+    }): { matched: number; family: number } => {
+      const spellings = [row.displayName, row.profileName ?? ""].map(
+        (spelling) => spelling.toLowerCase(),
+      );
+      return {
+        matched: Math.max(
+          ...spellings.map(
+            (name) => words.filter((word) => name.includes(word)).length,
+          ),
+        ),
+        family: spellings.some((name) => name.includes(lastWord)) ? 1 : 0,
+      };
+    };
+    return (
+      partial
+        .map((row) => ({ row, ...rank(row) }))
+        // The read is already in name order and the sort is stable, so equal ranks stay
+        // alphabetical.
+        .sort(
+          (left, right) =>
+            right.matched - left.matched || right.family - left.family,
+        )
+        .slice(0, input.limit)
+        .map((entry) => actorResponse(entry.row))
+    );
   }
 
   async findActorsByIds(

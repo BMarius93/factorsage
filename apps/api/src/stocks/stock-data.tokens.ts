@@ -17,6 +17,16 @@ export const ALTERNATIVE_DATA_STORE = Symbol("ALTERNATIVE_DATA_STORE");
 export const ALTERNATIVE_DATA_SERVICE = Symbol("ALTERNATIVE_DATA_SERVICE");
 
 /**
+ * The member catalog's synchronization with the provider's directory.
+ *
+ * Provided by `StocksModule` so it is built from the same gated `FmpClient` as every other provider
+ * read: a synchronization spends the shared provider allowance rather than a lane of its own.
+ */
+export const CONGRESS_MEMBER_CATALOG_SERVICE = Symbol(
+  "CONGRESS_MEMBER_CATALOG_SERVICE",
+);
+
+/**
  * Retained years of history this deployment can serve, as the Stock Details surface sees it.
  *
  * Provided rather than read from configuration inside the controller so the HTTP layer stays a

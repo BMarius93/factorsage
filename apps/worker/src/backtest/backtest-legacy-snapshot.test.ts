@@ -1,5 +1,6 @@
 import {
   BACKTEST_SNAPSHOT_VERSION,
+  BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION,
   STRATEGY_SCHEMA_VERSION,
   type BacktestLiveSnapshotResponse,
 } from "@intrinsic/contracts";
@@ -319,7 +320,9 @@ class FixtureBenchmarks implements BacktestBenchmarkLoader {
   }
 }
 
-function processorWith() {
+function processorWith(
+  stockData: BacktestFrameLoader = new FixtureFrameLoader(),
+) {
   const repository = new RecordingRepository();
   const processor = new BacktestProcessor(
     {
@@ -342,7 +345,7 @@ function processorWith() {
             ],
           ]),
       },
-      stockData: new FixtureFrameLoader(),
+      stockData,
       benchmarks: new FixtureBenchmarks(),
       logger,
     },
@@ -498,5 +501,205 @@ describe("a run snapshot naming a removed operator", () => {
     });
     // Refused, never rewritten: the stored document still says exactly what was submitted.
     expect(stored).toEqual(frozen);
+  });
+});
+
+/**
+ * A snapshot whose rule is scoped to members of Congress, in each shape a stored run can hold.
+ *
+ * Three shapes exist. A run submitted before 2026-10-11 holds a single member (`ACTOR`) or a group
+ * (`GROUP`) with the group's membership frozen beside it, at snapshot version 1. A run submitted
+ * since holds a selection (`ACTORS`) at version 2. All three must execute, and anything else must be
+ * refused before a single row is read — because the alternative to a refusal here is a run that
+ * counts nobody and completes.
+ */
+describe("a run snapshot scoping a rule to members of Congress", () => {
+  const ACTOR_A = "0a000000-0000-4000-8000-00000000000a";
+  const ACTOR_B = "0b000000-0000-4000-8000-00000000000b";
+  const GROUP_ID = "9f000000-0000-4000-8000-00000000000f";
+
+  /** The fixture's document with its BUY rule replaced by a congressional one on `scope`. */
+  function scopedSnapshot(scope: unknown, extra: Record<string, unknown> = {}) {
+    const document = legacySnapshotDocument() as unknown as {
+      snapshotVersion: number;
+      strategy: {
+        definition: {
+          schemaVersion: number;
+          buyLevels: { signal: { conditions: unknown[] } }[];
+          finalExit?: unknown;
+        };
+      };
+    } & Record<string, unknown>;
+    document.strategy.definition.schemaVersion = STRATEGY_SCHEMA_VERSION;
+    delete document.strategy.definition.finalExit;
+    document.strategy.definition.buyLevels[0]!.signal.conditions = [
+      {
+        id: "buy-condition-1",
+        metric: {
+          kind: "CONGRESS_ACTIVITY",
+          measure: "PURCHASES",
+          lookback: 30,
+          scope,
+          chamber: "ANY",
+        },
+        operator: "IS_ABOVE",
+        value: { kind: "NUMBER", value: 0 },
+      },
+    ];
+    return Object.assign(document, extra);
+  }
+
+  /** Records what the processor asked the loader for, and how a group scope would resolve. */
+  class RecordingFrameLoader extends FixtureFrameLoader {
+    readonly operands = new Set<OperandKey>();
+    readonly resolved = new Map<string, readonly string[]>();
+
+    override async readDailyEvaluationFrame(
+      security: Security,
+      range: Required<DateRange>,
+      operands: readonly OperandKey[],
+      options?: {
+        resolveGroupMembers?: (groupId: string) => Promise<readonly string[]>;
+      },
+    ): Promise<EvaluationFrame> {
+      for (const operand of operands) {
+        this.operands.add(operand);
+      }
+      if (options?.resolveGroupMembers) {
+        this.resolved.set(GROUP_ID, await options.resolveGroupMembers(GROUP_ID));
+      }
+      return super.readDailyEvaluationFrame(security, range, operands);
+    }
+  }
+
+  it("executes a selection, at the snapshot version written for one", async () => {
+    const stored = scopedSnapshot(
+      { kind: "ACTORS", actorIds: [ACTOR_A, ACTOR_B] },
+      { snapshotVersion: BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION },
+    );
+    const frozen = structuredClone(stored);
+    const loader = new RecordingFrameLoader();
+    const { processor, repository } = processorWith(loader);
+
+    await processor.process(claimOf(stored), lease);
+
+    expect(repository.failures).toEqual([]);
+    expect(repository.results).toHaveLength(1);
+    // The selection reaches the loader inside the column's own key: nothing else has to carry it.
+    expect([...loader.operands]).toContain(
+      `alt:CONGRESS_ACTIVITY|PURCHASES|30|actors:${ACTOR_A}+${ACTOR_B}|ANY|-`,
+    );
+    expect(stored).toEqual(frozen);
+  });
+
+  it("still executes a version 1 run that froze a group, from the membership it froze", async () => {
+    const stored = scopedSnapshot(
+      { kind: "GROUP", groupId: GROUP_ID },
+      {
+        actorGroups: [
+          {
+            groupId: GROUP_ID,
+            name: "House leadership",
+            members: [
+              { actorId: ACTOR_B, externalId: "P000197", displayName: "B" },
+              { actorId: ACTOR_A, externalId: "T000278", displayName: "A" },
+            ],
+          },
+        ],
+      },
+    );
+    const frozen = structuredClone(stored);
+    const loader = new RecordingFrameLoader();
+    const { processor, repository } = processorWith(loader);
+
+    await processor.process(claimOf(stored), lease);
+
+    expect(repository.failures).toEqual([]);
+    expect(repository.results).toHaveLength(1);
+    expect([...loader.operands]).toContain(
+      `alt:CONGRESS_ACTIVITY|PURCHASES|30|group:${GROUP_ID}|ANY|-`,
+    );
+    // Resolved from the snapshot, in the order it froze them — never from a database.
+    expect(loader.resolved.get(GROUP_ID)).toEqual([ACTOR_B, ACTOR_A]);
+    expect(stored).toEqual(frozen);
+  });
+
+  it("still executes a version 1 run scoped to a single member", async () => {
+    const stored = scopedSnapshot({ kind: "ACTOR", actorId: ACTOR_A });
+    const loader = new RecordingFrameLoader();
+    const { processor, repository } = processorWith(loader);
+
+    await processor.process(claimOf(stored), lease);
+
+    expect(repository.failures).toEqual([]);
+    expect(repository.results).toHaveLength(1);
+    // The very column a one-member selection addresses.
+    expect([...loader.operands]).toContain(
+      `alt:CONGRESS_ACTIVITY|PURCHASES|30|actor:${ACTOR_A}|ANY|-`,
+    );
+  });
+
+  it("refuses a snapshot version it does not know", () => {
+    for (const version of [0, 3, "2", null]) {
+      const stored = scopedSnapshot(
+        { kind: "ANY" },
+        { snapshotVersion: version },
+      );
+      expect(() => parseRunSnapshot(stored), String(version)).toThrow(
+        `Unsupported backtest snapshot version ${String(version)}`,
+      );
+    }
+    // Both versions this build writes are read.
+    for (const version of [
+      BACKTEST_SNAPSHOT_VERSION,
+      BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION,
+    ]) {
+      expect(() =>
+        parseRunSnapshot(
+          scopedSnapshot(
+            { kind: "ACTORS", actorIds: [ACTOR_A] },
+            { snapshotVersion: version },
+          ),
+        ),
+      ).not.toThrow();
+    }
+  });
+
+  it("refuses a scope it does not define, and a selection of nobody, naming the rule", () => {
+    expect(() =>
+      parseRunSnapshot(scopedSnapshot({ kind: "COMMITTEE", committeeId: "c1" })),
+    ).toThrow(
+      "snapshot.strategy.definition.buyLevels[0].signal.conditions[0].metric.scope COMMITTEE " +
+        "is not a scope this engine defines",
+    );
+    expect(() => parseRunSnapshot(scopedSnapshot(undefined))).toThrow(
+      BacktestSnapshotError,
+    );
+    for (const actorIds of [[], undefined, "a", [ACTOR_A, ""], [ACTOR_A, 7]]) {
+      expect(
+        () => parseRunSnapshot(scopedSnapshot({ kind: "ACTORS", actorIds })),
+        JSON.stringify(actorIds),
+      ).toThrow(
+        "snapshot.strategy.definition.buyLevels[0].signal.conditions[0].metric.scope " +
+          "selects no readable actor",
+      );
+    }
+  });
+
+  it("fails such a run before any data is prepared, instead of completing it on nobody", async () => {
+    const stored = scopedSnapshot({ kind: "COMMITTEE", committeeId: "c1" });
+    const loader = new RecordingFrameLoader();
+    const { processor, repository } = processorWith(loader);
+
+    await processor.process(claimOf(stored), lease);
+
+    expect(repository.results).toEqual([]);
+    expect(repository.progress).toEqual([]);
+    expect(loader.operands.size).toBe(0);
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.detail).toMatchObject({
+      phase: "SNAPSHOT",
+      name: "BacktestSnapshotError",
+    });
   });
 });

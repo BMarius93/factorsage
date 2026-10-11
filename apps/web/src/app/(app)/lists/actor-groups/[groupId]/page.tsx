@@ -1,20 +1,12 @@
-import type { Metadata } from "next";
-import { ActorGroupDetail } from "../../../../../features/alternative-data/components/ActorGroupDetail";
-
-export const metadata: Metadata = { title: "Group · FactorSage" };
-
-type ActorGroupPageProps = {
-  readonly params: Promise<{ readonly groupId: string }>;
-};
+import { redirect } from "next/navigation";
 
 /**
- * Thin route boundary for one actor group.
+ * Where a Congress group used to be.
  *
- * Nested under `/lists` because that is the product area the groups belong to — the segmented views on
- * the Lists page are the way in, and the back link points there. A static segment, so it can never be
- * confused with `/lists/[id]`.
+ * Groups left the product on 2026-10-11: a rule now selects the members it counts in the Strategy
+ * Builder. A bookmark or an old link to a group lands on the Lists page instead of on a 404,
+ * because the link was good when it was made and the reader did nothing wrong.
  */
-export default async function ActorGroupRoute({ params }: ActorGroupPageProps) {
-  const { groupId } = await params;
-  return <ActorGroupDetail groupId={groupId} />;
+export default function RetiredActorGroupRoute(): never {
+  redirect("/lists");
 }

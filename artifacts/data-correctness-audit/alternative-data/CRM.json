@@ -1,7 +1,7 @@
 {
   "symbol": "CRM",
   "securityId": "4af63f12-4914-4111-bf15-5bceb001a72c",
-  "sessions": 5601,
+  "sessions": 5605,
   "insiderRows": 11968,
   "congressRows": 190,
   "insiderCoverage": {
@@ -51,7 +51,7 @@
       "coverageFrom": "2019-08-24",
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2019-09-23",
-      "firstValue": 20900602.137100004
+      "firstValue": 20900602.1371
     },
     {
       "metric": "insider-buyers-20-ceo-cfo",
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2014-06-11",
       "firstValue": 2002
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 41,
+      "coverageFrom": "2014-02-01",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2020-10-14",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 23,
+      "coverageFrom": "2014-02-01",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2022-02-09",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 41,
+      "coverageFrom": "2014-02-01",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2020-10-14",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 41,
+      "coverageFrom": "2014-02-01",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2020-10-14",
+      "firstValue": 1001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 0,
+      "coverageFrom": "2014-02-01",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": null,
+      "firstValue": null
     }
   ]
 }

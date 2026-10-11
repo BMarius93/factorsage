@@ -9,6 +9,7 @@ import type {
 import {
   FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
   FMP_INSIDER_TRADING_MAX_PAGE_SIZE,
+  mapFmpCongressMemberProfiles,
   mapFmpCongressTrades,
   mapFmpDailyPrices,
   mapFmpInsiderTrades,
@@ -23,6 +24,9 @@ import {
   type FmpCurrentQuote,
   type FmpCurrentQuoteProviderPort,
   type FmpExchangeCalendarPort,
+  type FmpCongressMemberDirectoryPort,
+  type FmpCongressMemberPage,
+  type FmpCongressMemberProfileDto,
   type FmpCongressTradeDto,
   type FmpCongressTradingPort,
   type FmpExchangeHoliday,
@@ -164,6 +168,7 @@ export class FmpClient
     FmpExchangeCalendarPort,
     FmpInsiderTradingPort,
     FmpCongressTradingPort,
+    FmpCongressMemberDirectoryPort,
     FmpStockSplitPort
 {
   private readonly gate: FmpRequestGate;
@@ -445,6 +450,30 @@ export class FmpClient
     return {
       providerRowCount: Array.isArray(payload) ? payload.length : 0,
       rows: mapFmpCongressTrades(input.chamber, payload),
+    };
+  }
+
+  /**
+   * One page of the member directory: the members in office, or the former ones.
+   *
+   * `senate-profile` holds both chambers despite its name. `active` is always sent rather than left
+   * to the provider's default, so the request says which half it asked for and the caller can hold
+   * the answer to it. The page size is the provider's own cap; nothing is gained by asking for less.
+   */
+  async getCongressMemberProfiles(input: {
+    inOffice: boolean;
+    page: number;
+  }): Promise<FmpCongressMemberPage> {
+    const payload = await this.request<FmpCongressMemberProfileDto[]>(
+      "senate-profile",
+      {
+        active: input.inOffice ? "true" : "false",
+        page: String(Math.max(0, Math.trunc(input.page))),
+      },
+    );
+    return {
+      providerRowCount: Array.isArray(payload) ? payload.length : 0,
+      rows: mapFmpCongressMemberProfiles(payload),
     };
   }
 

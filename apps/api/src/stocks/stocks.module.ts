@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { STOCK_DETAILS_MAX_HISTORY_YEARS } from "@intrinsic/contracts";
 import {
   getAlternativeDataConfig,
@@ -12,10 +13,12 @@ import { FmpClient } from "@intrinsic/fmp";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import {
   CanonicalAlternativeDataService,
+  CanonicalCongressMemberCatalogService,
   CanonicalSecurityCatalogService,
   CanonicalStockDataService,
   DEFAULT_HYDRATION_TTL_MS,
   PrismaAlternativeDataStore,
+  PrismaCongressMemberCatalogStore,
   STOCK_DATA_CACHE_NAMESPACE,
   createStockDataRedisClient,
   IoredisCacheClient,
@@ -26,6 +29,7 @@ import {
   inspectRedisEvictionPolicy,
   logPriceBasisEvent,
   type AlternativeDataStore,
+  type CongressMemberCatalogService,
   type LoadCoordinator,
   type SecurityCatalogService,
   type StockDataCache,
@@ -40,11 +44,13 @@ import {
   type OnApplicationShutdown,
 } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { LoggedCongressMemberCatalogService } from "./logged-congress-member-catalog.service";
 import { LoggedSecurityCatalogService } from "./logged-security-catalog.service";
 import { LoggedStockDataService } from "./logged-stock-data.service";
 import {
   ALTERNATIVE_DATA_SERVICE,
   ALTERNATIVE_DATA_STORE,
+  CONGRESS_MEMBER_CATALOG_SERVICE,
   REDIS_ACCEPTED_EVICTION_POLICY,
   SECURITY_CATALOG_SERVICE,
   STOCK_DATA_CACHE,
@@ -300,6 +306,28 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
         ),
     },
     {
+      provide: CONGRESS_MEMBER_CATALOG_SERVICE,
+      inject: [PrismaService, STOCK_DATA_PROVIDER, STOCK_DATA_LOGGER],
+      // The same gated `FmpClient` as every other read, and its own small store: it writes actor
+      // labels and its state row, never a disclosure, so it shares nothing with the loader above
+      // but the provider allowance.
+      useFactory: (
+        prisma: PrismaService,
+        provider: FmpClient,
+        logger: StructuredLogger,
+      ): CongressMemberCatalogService =>
+        new LoggedCongressMemberCatalogService(
+          new CanonicalCongressMemberCatalogService(
+            new PrismaCongressMemberCatalogStore(prisma),
+            provider,
+            // Names this process's claim on the singleton state row, so a second API instance —
+            // or the operator command — cannot run beside it.
+            { owner: `api-${process.pid}-${randomUUID()}` },
+          ),
+          logger.child({ component: "congress-member-catalog" }),
+        ),
+    },
+    {
       provide: REDIS_ACCEPTED_EVICTION_POLICY,
       useFactory: (): string | null =>
         getRedisEvictionPolicyConfig().acceptedPolicy ?? null,
@@ -316,6 +344,7 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
   exports: [
     STOCK_DATA_SERVICE,
     SECURITY_CATALOG_SERVICE,
+    CONGRESS_MEMBER_CATALOG_SERVICE,
     STOCK_DATA_REDIS,
     REDIS_ACCEPTED_EVICTION_POLICY,
     STOCK_DATA_PROVIDER,

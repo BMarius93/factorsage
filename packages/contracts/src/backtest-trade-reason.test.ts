@@ -304,4 +304,100 @@ describe("backtestTradeReason", () => {
       ],
     });
   });
+  it("names the members a run's strategy selected, from the labels the run froze", () => {
+    const definition: StrategyDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 100,
+          signal: {
+            conditions: [
+              {
+                id: "c1",
+                metric: {
+                  kind: "CONGRESS_ACTIVITY",
+                  measure: "PURCHASES",
+                  lookback: 30,
+                  scope: { kind: "ACTORS", actorIds: ["a1", "a2", "a3"] },
+                  chamber: "ANY",
+                },
+                operator: "IS_ABOVE",
+                value: { kind: "NUMBER", value: 1 },
+              },
+            ],
+          },
+        },
+      ],
+      sellLevels: [
+        {
+          id: "s1",
+          percentage: 50,
+          signal: {
+            conditions: [
+              {
+                id: "c2",
+                metric: {
+                  kind: "CONGRESS_ACTIVITY",
+                  measure: "SELLERS",
+                  lookback: 30,
+                  // A run submitted before the selection existed holds the single-actor shape.
+                  scope: { kind: "ACTOR", actorId: "a2" },
+                  chamber: "ANY",
+                },
+                operator: "IS_ABOVE",
+                value: { kind: "NUMBER", value: 0 },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const names = backtestSnapshotScopeNames({
+      actors: [
+        {
+          actorId: "a1",
+          externalId: "T000278",
+          displayName: "Tommy Tuberville",
+        },
+        { actorId: "a2", externalId: "P000197", displayName: "Nancy Pelosi" },
+        { actorId: "a3", externalId: "K000389", displayName: "Ro Khanna" },
+      ],
+    });
+    const index = backtestTradeReasonIndex(definition, names);
+    expect(
+      backtestTradeReason(index, {
+        source: "STRATEGY",
+        action: "BUY",
+        levelId: "b1",
+        exitRuleId: null,
+      }),
+    ).toEqual({
+      kind: "STRATEGY",
+      conditions: [
+        "Congress purchases is above 1 (30D · Nancy Pelosi, Ro Khanna +1)",
+      ],
+    });
+    expect(
+      backtestTradeReason(index, {
+        source: "STRATEGY",
+        action: "SELL",
+        levelId: "s1",
+        exitRuleId: null,
+      }),
+    ).toEqual({
+      kind: "STRATEGY",
+      conditions: ["Congress sellers is above 0 (30D · Nancy Pelosi)"],
+    });
+    // With no label frozen the rule still says how many members it was scoped to.
+    expect(
+      backtestTradeReason(
+        backtestTradeReasonIndex(definition, backtestSnapshotScopeNames({})),
+        { source: "STRATEGY", action: "BUY", levelId: "b1", exitRuleId: null },
+      ),
+    ).toEqual({
+      kind: "STRATEGY",
+      conditions: ["Congress purchases is above 1 (30D · 3 selected members)"],
+    });
+  });
 });

@@ -53,6 +53,38 @@
   background: var(--color-surface);
 }
 
+/* A saved member whose name is still in flight reads quietly; one the catalog no longer holds reads
+   as the problem it is, because the rule cannot be applied until it is removed. */
+.chip[data-status="LOADING"] {
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  font-weight: 400;
+}
+
+.chip[data-status="UNAVAILABLE"] {
+  border-color: var(--color-negative);
+  color: var(--color-negative);
+  background: var(--color-surface);
+}
+
+/* "+N more" / "Show fewer": shaped like a chip so it sits in the same row, coloured like a control. */
+.fold {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+
+.fold:hover {
+  border-color: var(--color-primary);
+}
+
 .input {
   flex: 1;
   min-width: 140px;
@@ -99,6 +131,11 @@
   background: var(--color-primary-soft);
 }
 
+.option[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .option[data-selected="true"] .name::after {
   content: " ✓";
   color: var(--color-primary);
@@ -120,4 +157,20 @@
   padding: 10px;
   color: var(--color-text-secondary);
   font-size: 13px;
+}
+
+.emptyHint {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }

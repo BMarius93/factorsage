@@ -14,15 +14,17 @@ import {
 } from "../api/alternative-data-api";
 
 /**
- * Resolves the display names behind the actor and group ids a strategy definition references.
+ * Resolves the display names behind the members — and, for a rule saved before groups left the
+ * product, the group — a strategy definition references.
  *
- * The stored rule names an **id**, because that is the identity; the name is presentation and is
+ * The stored rule names **ids**, because that is the identity; the name is presentation and is
  * resolved here. Two consequences that are the whole point:
  *
- * - A renamed group or member reads correctly everywhere the next time it is loaded, without touching
- *   a single saved strategy.
+ * - A renamed member reads correctly everywhere the next time it is loaded, without touching a
+ *   single saved strategy.
  * - A name that cannot be resolved — the reference has gone, or the request failed — simply stays
- *   unresolved, and every surface falls back to a neutral `Selected group`. Nothing invents a label.
+ *   unresolved, and every surface falls back to a neutral count (`3 selected members`) or to
+ *   `Selected group`. Nothing invents a label.
  *
  * It re-requests only when the **set of referenced ids** changes, not on every keystroke in the
  * builder: the ids are joined into a stable key, so editing a threshold does not refetch anything.
@@ -54,9 +56,9 @@ export function useStrategyScopeNames(
       wantedActors.length === 0
         ? Promise.resolve([])
         : resolveActors(wantedActors, { signal: controller.signal }),
-      // Groups are fetched as the viewer's whole collection rather than by id: there is no by-id batch
-      // route, the collection is small, and it is the same request the configuration dialog makes — so
-      // the two share a browser cache entry instead of issuing two shapes of request.
+      // Only a rule saved before groups left the product names one. They are fetched as the viewer's
+      // whole collection rather than by id: there is no by-id batch route and the collection is
+      // small.
       wantedGroups.length === 0
         ? Promise.resolve([])
         : fetchActorGroups({ signal: controller.signal }),
