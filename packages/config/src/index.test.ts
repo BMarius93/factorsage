@@ -9,6 +9,9 @@ import {
   getBacktestWorkerConfig,
   getFmpConfig,
   getGoogleOAuthConfig,
+  getMarketDataWorkerConfig,
+  getRedisConfig,
+  getRedisEvictionPolicyConfig,
   getMonitorWorkerConfig,
   getTestPersonaCredentials,
   getSmtpConfig,
@@ -500,7 +503,47 @@ describe("production API configuration", () => {
     expect(getWorkerConfig(workerEnv).environment).toBe("production");
     expect(() => getBacktestWorkerConfig(workerEnv)).not.toThrow();
     expect(() => getMonitorWorkerConfig(workerEnv)).not.toThrow();
+    expect(() => getMarketDataWorkerConfig(workerEnv)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(workerEnv).enabled).toBe(false);
+  });
+});
+
+describe("market-data worker configuration", () => {
+  it("runs one refresh child by default, after a half-hour publication delay", () => {
+    const config = getMarketDataWorkerConfig({});
+    expect(config.processes).toBe(1);
+    expect(config.publicationDelayMs).toBe(30 * 60_000);
+    expect(config.refreshIntervalMs).toBe(10 * 60_000);
+    // A run must fit inside its own lease, or another child would take it over mid-run.
+    expect(config.runBudgetMs).toBeLessThan(config.leaseMs);
+  });
+
+  it("can be disabled, and refuses a process count that buys nothing", () => {
+    expect(
+      getMarketDataWorkerConfig({ MARKET_DATA_WORKER_PROCESSES: "0" })
+        .processes,
+    ).toBe(0);
+    for (const value of ["3", "-1", "1.5", "many"]) {
+      expect(() =>
+        getMarketDataWorkerConfig({ MARKET_DATA_WORKER_PROCESSES: value }),
+      ).toThrow(/MARKET_DATA_WORKER_PROCESSES/);
+    }
+  });
+
+  it("names an accepted Redis eviction policy only when an operator set one", () => {
+    expect(getRedisEvictionPolicyConfig({})).toEqual({});
+    expect(
+      getRedisEvictionPolicyConfig({
+        REDIS_ACCEPTED_EVICTION_POLICY: "allkeys-lru",
+      }).acceptedPolicy,
+    ).toBe("allkeys-lru");
+    // The connection settings never carry it.
+    expect(
+      getRedisConfig({
+        REDIS_URL: "redis://localhost:6379",
+        REDIS_ACCEPTED_EVICTION_POLICY: "allkeys-lru",
+      }),
+    ).toEqual({ url: "redis://localhost:6379" });
   });
 });
 
@@ -786,6 +829,7 @@ describe(".env.example template", () => {
     expect(() => getApiConfig(template)).not.toThrow();
     expect(() => getBacktestWorkerConfig(template)).not.toThrow();
     expect(() => getMonitorWorkerConfig(template)).not.toThrow();
+    expect(() => getMarketDataWorkerConfig(template)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(template).enabled).toBe(false);
     // Billing must be genuinely off in the template: a placeholder that parsed as "configured"
     // would make every fresh checkout fail at startup.

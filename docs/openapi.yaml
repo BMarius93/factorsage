@@ -2194,6 +2194,11 @@ paths:
         by a timeout so a hung dependency reports as failed rather than hanging the probe. The
         market-data provider is deliberately **not** probed: a provider outage or rate limit is
         absorbed by the shared provider gate and must never take an instance out of rotation.
+
+        Redis's `maxmemory-policy` is read too. An `allkeys-*` policy that no operator accepted makes
+        the instance unavailable: it may evict any key, which would silently break the residency of
+        the benchmark histories and the hydration locks. A policy that cannot be read is reported
+        and never fails the probe.
       x-rate-limit:
         exempt: true
         reason: >-
@@ -5794,6 +5799,23 @@ components:
         error:
           { type: string, description: Present only when the probe failed. }
 
+    RedisEvictionPolicyCheck:
+      allOf:
+        - { $ref: "#/components/schemas/ReadinessCheck" }
+        - type: object
+          required: [verdict]
+          properties:
+            verdict:
+              type: string
+              enum: [SAFE, TOLERATED, ACCEPTED, UNSAFE, UNKNOWN]
+              description: |
+                How Redis evicts. `UNSAFE` — an `allkeys-*` policy no operator accepted with
+                `REDIS_ACCEPTED_EVICTION_POLICY` — fails readiness: it may evict any key, including the
+                always-resident benchmark histories and the hydration locks. Every other verdict is
+                `ok`; `UNKNOWN` means the policy could not be read.
+            policy: { type: string, examples: [noeviction] }
+            detail: { type: string }
+
     ReadinessResponse:
       type: object
       required: [status, checks]
@@ -5801,7 +5823,9 @@ components:
         status: { type: string, enum: [ok, unavailable] }
         checks:
           type: object
-          required: [postgres, redis]
+          required: [postgres, redis, redisEvictionPolicy]
           properties:
             postgres: { $ref: "#/components/schemas/ReadinessCheck" }
             redis: { $ref: "#/components/schemas/ReadinessCheck" }
+            redisEvictionPolicy:
+              { $ref: "#/components/schemas/RedisEvictionPolicyCheck" }

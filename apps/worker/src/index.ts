@@ -3,6 +3,7 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   getBacktestWorkerConfig,
+  getMarketDataWorkerConfig,
   getMonitorWorkerConfig,
   getWorkerConfig,
   loadRootEnv,
@@ -12,7 +13,7 @@ import { createLogger } from "@intrinsic/observability";
 /**
  * The worker supervisor.
  *
- * It owns no business logic: it forks children of two kinds and keeps them alive.
+ * It owns no business logic: it forks children of three kinds and keeps them alive.
  *
  * `BACKTEST_WORKER_PROCESSES` backtest children each claim and execute at most one backtest at a
  * time. One backtest is never split across processes — the day loop is sequential in time and stays
@@ -25,6 +26,12 @@ import { createLogger } from "@intrinsic/observability";
  * process entirely, which is what a deployment that runs backtests elsewhere — or the QA matrix,
  * whose provider-request assertions must see only its own traffic — sets.
  *
+ * `MARKET_DATA_WORKER_PROCESSES` market-data children each claim at most one refresh of the
+ * market-overview ETF histories (`docs/decisions/etf-market-data-v1.md`). Like the Monitor cycle the
+ * refresh is a singleton durable claim, and it runs in its own process precisely so that it can
+ * never delay a Monitor cycle. `0` disables it, which is what the deterministic E2E stack and the QA
+ * matrix set.
+ *
  * Supervision is what makes the deployment self-healing: a child that dies is replaced with a
  * bounded backoff, and any work it was holding is recovered through its expired lease. A signal is
  * forwarded to every child and the supervisor waits for them, so a graceful stop releases claims
@@ -34,6 +41,7 @@ loadRootEnv();
 const appConfig = getWorkerConfig();
 const backtestConfig = getBacktestWorkerConfig();
 const monitorConfig = getMonitorWorkerConfig();
+const marketDataConfig = getMarketDataWorkerConfig();
 
 const logger = createLogger({
   service: "worker",
@@ -69,6 +77,15 @@ const CHILD_KINDS = [
       `monitor-process${childExtension}`,
     ),
   },
+  {
+    kind: "market-data",
+    processes: marketDataConfig.processes,
+    module: join(
+      dirname(supervisorPath),
+      "market-data",
+      `market-data-process${childExtension}`,
+    ),
+  },
 ] as const;
 
 type ChildKind = (typeof CHILD_KINDS)[number];
@@ -90,7 +107,7 @@ type SupervisedChild = {
   failures: number;
 };
 
-/** Keyed by `<kind>-<index>`, so the two kinds cannot collide on a bare ordinal. */
+/** Keyed by `<kind>-<index>`, so the kinds cannot collide on a bare ordinal. */
 const children = new Map<string, SupervisedChild>();
 const restartTimers = new Set<NodeJS.Timeout>();
 let stopping = false;
@@ -250,6 +267,7 @@ logger.info(
     event: "worker.supervisor.started",
     backtestProcesses: backtestConfig.processes,
     monitorProcesses: monitorConfig.processes,
+    marketDataProcesses: marketDataConfig.processes,
   },
   "workers started",
 );

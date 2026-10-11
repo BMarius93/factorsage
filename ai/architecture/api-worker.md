@@ -52,12 +52,26 @@ are guarded separately by `MonitorSignalState.stateVersion`, which is what makes
 cycle harmless. Cadence, lease, heartbeat and backoff are `MONITOR_SCAN_*` configuration
 (`packages/config`), never user input. See `monitor-engine.md`.
 
+## Durable market-data refresh
+
+The third instance of the protocol. `MarketDataRefreshSchedule` is one row (id `ETF_MARKET_DATA`)
+in its own table, claimed exactly as `MonitorScanSchedule` is — `FOR UPDATE SKIP LOCKED`, a
+renewable lease, `claimedBy`-guarded writes, the next `dueAt` set from the end of a run, doubling
+backoff capped at the interval. It is deliberately **not** part of the Monitor worker or its row: a
+slow or failing provider read must never hold, delay or back off the Monitor cycle. A run refreshes
+the twenty market-overview ETFs one at a time through the shared provider gate — one bounded tail
+read per series, after the NYSE session is final — isolates a failing series, verifies each Redis
+projection against PostgreSQL, and never bootstraps. Cadence, delay, budget and lease are
+`MARKET_DATA_*` configuration. See `../../docs/decisions/etf-market-data-v1.md` §7.
+
 ## Worker processes
 
-`apps/worker` is one supervisor forking two kinds of child. `BACKTEST_WORKER_PROCESSES` backtest
+`apps/worker` is one supervisor forking three kinds of child. `BACKTEST_WORKER_PROCESSES` backtest
 children each execute at most one backtest at a time; `MONITOR_WORKER_PROCESSES` Monitor children
 each claim at most one scan cycle, and because the cycle is a singleton claim a second Monitor
-child buys availability, not throughput (`0` disables scanning in that deployment). A child that
+child buys availability, not throughput (`0` disables scanning in that deployment);
+`MARKET_DATA_WORKER_PROCESSES` market-data children (default 1, at most 2, `0` disables it) keep
+the market-overview ETF histories current, under the same singleton-claim rule. A child that
 exits is restarted with a bounded backoff, and a stop signal is forwarded to every child with a
 30-second grace before it is killed. That grace is shorter than the budget a large backtest's
 result transaction may need, so a deploy that lands during a run's final write can cost that run

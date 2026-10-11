@@ -24,7 +24,9 @@ import {
   DEFAULT_HYDRATION_TTL_MS,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
+  logBenchmarkCacheEvent,
   logPriceBasisEvent,
+  logUnreadableBenchmarkChunk,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
 import type { ProviderRequestCounts } from "./debug/backtest-debug-archive.js";
@@ -167,7 +169,9 @@ export function createBacktestRuntime(
   const benchmarks = new CanonicalBenchmarkDataService(
     new PrismaBenchmarkDataStore(prisma),
     provider,
-    new RedisBenchmarkDataCache(new IoredisCacheClient(redis)),
+    new RedisBenchmarkDataCache(new IoredisCacheClient(redis), {
+      observer: { onUnreadableChunk: logUnreadableBenchmarkChunk(logger) },
+    }),
     coordinator,
     {
       // The product horizon, not the stock loader's raw-price retention. A benchmark carries no
@@ -178,6 +182,8 @@ export function createBacktestRuntime(
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
+      onPriceBasisEvent: logPriceBasisEvent(logger),
+      onCacheEvent: logBenchmarkCacheEvent(logger),
     },
   );
 

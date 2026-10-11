@@ -66,6 +66,7 @@ import { BENCHMARK_DATA_SERVICE, BENCHMARKS_LOGGER } from "./benchmarks.tokens";
           onProviderRequest: (request) => {
             logger.debug({ event: "benchmark.provider.request", ...request });
           },
+          logger,
         }),
     },
     BenchmarkCatalogService,

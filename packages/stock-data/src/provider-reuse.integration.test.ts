@@ -717,9 +717,22 @@ describeReuse("provider reuse across repeated reads", () => {
       );
 
       expect(provider.requests.length).toBeGreaterThan(0);
-      // Nothing already covered is asked for again, and nothing past the new end either.
+      // Nothing already covered is asked for again, and nothing past the new end either. The one
+      // exception is the short window at the start of the stored history, re-read before the new
+      // suffix is saved beside it so an ETF series cannot mix price bases
+      // (`historical-price-basis-v1.md` §7, rule 2 — the stock loader's rule).
+      const earliestStored = rowsFor().find(
+        (row) => row.date >= HISTORICAL.from,
+      )?.date as string;
+      const probes = provider.requests.filter(
+        (request) => request.from <= HISTORICAL.to,
+      );
+      expect(probes.length).toBeLessThanOrEqual(1);
+      for (const probe of probes) {
+        expect(probe.from).toBe(earliestStored);
+        expect(probe.to < HISTORICAL.to).toBe(true);
+      }
       for (const request of provider.requests) {
-        expect(request.from > HISTORICAL.to).toBe(true);
         expect(request.to <= wider.to).toBe(true);
       }
     });

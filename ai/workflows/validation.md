@@ -75,6 +75,7 @@ list was last corrected by E2E-007, when it had fallen seventeen suites behind):
 - `apps/api/src/auth/registration-enumeration.integration.test.ts`
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/backtests/backtests.integration.test.ts`
+- `apps/api/src/benchmarks/market-overview-bootstrap.integration.test.ts` (also Redis)
 - `apps/api/src/benchmarks/prune-fixture-benchmarks.integration.test.ts`
 - `apps/api/src/billing/billing.integration.test.ts`
 - `apps/api/src/builtins/builtins.integration.test.ts`
@@ -97,11 +98,13 @@ list was last corrected by E2E-007, when it had fallen seventeen suites behind):
 - `apps/api/src/strategies/strategies.integration.test.ts`
 - `apps/worker/src/backtest/claim-entitlements.integration.test.ts`
 - `apps/worker/src/backtest/job-repository.integration.test.ts`
+- `apps/worker/src/market-data/schedule-repository.integration.test.ts`
 - `apps/worker/src/monitor/monitor-cycle.integration.test.ts`
 - `apps/worker/src/monitor/monitor-eligibility.integration.test.ts`
 - `apps/worker/src/monitor/scan-repository.integration.test.ts`
 - `packages/stock-data/src/benchmark-data.integration.test.ts`
 - `packages/stock-data/src/benchmark-market-references.integration.test.ts`
+- `packages/stock-data/src/benchmark-residency.integration.test.ts` (also Redis)
 - `packages/stock-data/src/benchmark-retention.integration.test.ts`
 - `packages/stock-data/src/benchmark-series.integration.test.ts`
 - `packages/stock-data/src/derived-state.integration.test.ts`

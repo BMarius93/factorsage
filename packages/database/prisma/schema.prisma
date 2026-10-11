@@ -854,6 +854,8 @@ model BenchmarkSeries {
   datasetCoverage       BenchmarkDatasetCoverage[]
   comparisonRuns        BacktestRun[]              @relation("BacktestRunComparisonSeries")
   executionCalendarRuns BacktestRun[]              @relation("BacktestRunExecutionCalendarSeries")
+  priceBasis            BenchmarkSeriesPriceBasis?
+  priceBasisEvents      BenchmarkPriceBasisEvent[]
 
   @@unique([benchmarkId, version])
 }
@@ -907,6 +909,69 @@ model BenchmarkDatasetCoverage {
 // ---------------------------------------------------------------------------
 // Backtest runs, durable jobs, progress and results
 // ---------------------------------------------------------------------------
+
+/// The price basis of one benchmark series (`docs/decisions/etf-market-data-v1.md`).
+///
+/// It mirrors `SecurityPriceBasis` for the ETF series a provider can re-base after a split:
+/// `generation` increases on every replacement of the stored history after a measured re-base, and
+/// it is what the Redis projection's head records and a reproducible backtest can pin, so one
+/// generation is one consistent price basis. No row means generation 0: the history as first
+/// loaded, never replaced. Index series cannot split and never get a row.
+model BenchmarkSeriesPriceBasis {
+  seriesId   String          @id
+  generation Int
+  /// When the stored history was last replaced.
+  replacedAt DateTime
+  updatedAt  DateTime        @updatedAt
+  series     BenchmarkSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+}
+
+/// One measured re-base of one benchmark series' stored history. Append-only, with exactly the
+/// meaning of `PriceBasisEvent` (`docs/decisions/historical-price-basis-v1.md` §8), keyed by series
+/// rather than by security because a benchmark is never a `Security`.
+model BenchmarkPriceBasisEvent {
+  id            String              @id @default(uuid())
+  seriesId      String
+  /// The replacement that recorded it.
+  generation    Int
+  kind          PriceBasisEventKind
+  effectiveDate DateTime?           @db.Date
+  effectiveFrom DateTime?           @db.Date
+  effectiveTo   DateTime?           @db.Date
+  priceRatio    Decimal?            @db.Decimal(24, 12)
+  detectedAt    DateTime
+  /// Run lengths and the sessions compared; diagnostics only, never read by a calculation.
+  evidence      Json
+  series        BenchmarkSeries     @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@index([seriesId, generation])
+}
+
+/// The market-data refresh schedule (`docs/decisions/etf-market-data-v1.md`): the third instance of
+/// the durable claim idiom of `BacktestJob` and `MonitorScanSchedule` (`AGENTS.md` invariant 15).
+///
+/// One row, id `MARKET_DATA_REFRESH_SCHEDULE_ID`, claimed with `FOR UPDATE SKIP LOCKED` and a
+/// renewable lease by the worker's market-data child, so exactly one process refreshes the ETF
+/// histories at a time and a crashed one is replaced. Columns match `MonitorScanSchedule` exactly.
+model MarketDataRefreshSchedule {
+  id                  String    @id
+  /// Earliest instant the next run may start.
+  dueAt               DateTime  @default(now())
+  claimedBy           String?
+  claimedAt           DateTime?
+  leaseExpiresAt      DateTime?
+  heartbeatAt         DateTime?
+  /// Monotonic run counter, so two runs are distinguishable in logs without comparing clocks.
+  runSequence         Int       @default(0)
+  lastStartedAt       DateTime?
+  lastCompletedAt     DateTime?
+  /// Consecutive failed runs, for backoff and alerting. Reset by a run that completes.
+  consecutiveFailures Int       @default(0)
+  lastError           String?
+  updatedAt           DateTime  @updatedAt
+
+  @@index([dueAt])
+}
 
 enum BacktestRunStatus {
   QUEUED

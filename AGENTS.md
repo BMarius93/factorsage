@@ -82,6 +82,10 @@ Read `ai/README.md` before substantial work.
     calendar** — a funded comparison must be able to buy what it is compared against, and completed
     runs pinned that meaning — so `SP500_INDEX` is a separate series, never a re-pointing of it. Do
     not add a second market cache, a second price table or a second hydration path for index data.
+    The market-overview ETFs follow the same rule: `MARKET_OVERVIEW_ETF_GROUPS` is the one list of
+    twenty, `SPY` is `SP500`, and the other nineteen are `ETF_*` series that are active and never
+    selectable. Every `ETF_PROXY` series carries the re-base protection and generation of
+    `docs/decisions/historical-price-basis-v1.md`; see `docs/decisions/etf-market-data-v1.md`.
 14. Backtest work is claimed from PostgreSQL (`BacktestJob`, `FOR UPDATE SKIP LOCKED`, renewable
     lease, ownership-guarded writes). Do not add a queue library, and do not make Redis the queue.
     One backtest is never internally parallelized: its simulation stays sequential and
@@ -97,8 +101,10 @@ Read `ai/README.md` before substantial work.
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
     PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP
-    LOCKED` + renewable-lease protocol as `BacktestJob`; that idiom now has two instances, and a
-    third durable claim must match them rather than add a queue, a cron or a Redis lock.
+    LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has three instances — the third
+    is the market-data refresh's `MarketDataRefreshSchedule`, owned by its own worker child so it
+    can never delay the Monitor cycle — and any further durable claim must match them rather than
+    add a queue, a cron or a Redis lock.
 16. Redis is **required at runtime** — every stock-data read, hydration lock and provider gate goes
     through it and nothing degrades to PostgreSQL-only when it is down — but its **contents are
     disposable**: everything in it is a projection of PostgreSQL or transient coordination, keyed
@@ -106,6 +112,11 @@ Read `ai/README.md` before substantial work.
     FMP gate and, beside it, a live hydration run's request counter), `stock-data:load:*` (Redlock
     hydration locks) and `benchmark:v1:*`, never by user.
     Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
+    Benchmark histories are **fully resident** under `benchmark:v1:*`: immutable content-addressed
+    year chunks behind a compare-and-set head that always describes all durable coverage, with no
+    TTL and outside the stock LRU (`docs/decisions/etf-market-data-v1.md`). Redis's own
+    `maxmemory-policy` must therefore never be an `allkeys-*` policy nobody accepted: readiness
+    fails on one, and `REDIS_ACCEPTED_EVICTION_POLICY` is the only, explicit override.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
     holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
     state — losing one grants allowance rather than destroying anything — so it is keyed by actor,
@@ -421,8 +432,8 @@ evaluator physically cannot read an ungated value.
 PostgreSQL-backed suites require `TEST_DATABASE_URL` pointing at a dedicated, migrated test database
 (`pnpm db:test:prepare`); they never fall back to `DATABASE_URL`. `apps/api`, `apps/worker` and
 `packages/stock-data` serialize their test files for that reason. `apps/worker` is one supervisor
-with two child kinds — backtest children and Monitor children — so a worker change must be tested
-against the kind it affects. See `ai/workflows/validation.md`.
+with three child kinds — backtest, Monitor and market-data children — so a worker change must be
+tested against the kind it affects. See `ai/workflows/validation.md`.
 
 During implementation, prefer the smallest relevant test/typecheck command. Once the implementation is settled, run the full validation gate once before marking the task complete:
 

@@ -7,14 +7,23 @@ import type {
   BenchmarkSourceKind,
   BenchmarkWithSeries,
   DateRange,
+  Instant,
+  LocalDate,
 } from "@intrinsic/domain";
-import type { PrismaClient } from "@intrinsic/database";
+import type { Prisma, PrismaClient } from "@intrinsic/database";
 import {
   BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
   BENCHMARK_DAILY_PRICE_VARIANT,
   type BenchmarkDataStore,
   type BenchmarkDatasetStateRecord,
+  type BenchmarkHistorySnapshot,
+  type BenchmarkPublicationSnapshot,
+  type BenchmarkYearDigest,
 } from "./benchmark-ports.js";
+import {
+  PriceBasisConflictError,
+  type PriceBasisEvent,
+} from "./price-basis.js";
 
 type PrismaTransaction = Parameters<
   Parameters<PrismaClient["$transaction"]>[0]
@@ -262,15 +271,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
       },
       orderBy: { date: "asc" },
     });
-    return rows.map((row) => ({
-      seriesId: row.seriesId,
-      date: fromDatabaseDate(row.date),
-      open: (row.open as DecimalLike).toNumber(),
-      high: (row.high as DecimalLike).toNumber(),
-      low: (row.low as DecimalLike).toNumber(),
-      close: (row.close as DecimalLike).toNumber(),
-      volume: Number(row.volume),
-    }));
+    return rows.map(toBenchmarkDailyPrice);
   }
 
   async saveDailyPriceSync(input: {
@@ -333,6 +334,273 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
       // The lease is asserted immediately before the transaction commits: a worker that lost its
       // hydration lock must not land a write recorded as complete coverage.
       input.assertOwned?.();
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
+  }
+
+  async getEarliestDailyPriceDate(seriesId: string): Promise<LocalDate | null> {
+    const bounds = await this.prisma.benchmarkDailyPrice.aggregate({
+      where: { seriesId },
+      _min: { date: true },
+    });
+    return bounds._min.date ? fromDatabaseDate(bounds._min.date) : null;
+  }
+
+  async getLatestDailyPriceDate(seriesId: string): Promise<LocalDate | null> {
+    const bounds = await this.prisma.benchmarkDailyPrice.aggregate({
+      where: { seriesId },
+      _max: { date: true },
+    });
+    return bounds._max.date ? fromDatabaseDate(bounds._max.date) : null;
+  }
+
+  async getDailyPricesThrough(
+    seriesId: string,
+    through: LocalDate,
+    limit: number,
+  ): Promise<BenchmarkDailyPrice[]> {
+    if (!Number.isInteger(limit) || limit <= 0) {
+      return [];
+    }
+    const rows = await this.prisma.benchmarkDailyPrice.findMany({
+      where: { seriesId, date: { lte: toDatabaseDate(through) } },
+      orderBy: { date: "desc" },
+      take: limit,
+    });
+    return rows.reverse().map(toBenchmarkDailyPrice);
+  }
+
+  async getDailyPriceYearDigests(
+    seriesId: string,
+  ): Promise<BenchmarkYearDigest[]> {
+    return yearDigests(this.prisma, seriesId);
+  }
+
+  async readPublicationSnapshot(
+    seriesId: string,
+    held: ReadonlyMap<number, string>,
+  ): Promise<BenchmarkPublicationSnapshot> {
+    // Repeatable read: the digests, the coverage, the generation and the bars all come from one
+    // snapshot, so a chunk named by a digest is built from exactly the rows that digest describes.
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const years = await yearDigests(transaction, seriesId);
+        const coverage = await transaction.benchmarkDatasetCoverage.findMany({
+          where: {
+            seriesId,
+            dataset: "DAILY_PRICE",
+            variant: BENCHMARK_DAILY_PRICE_VARIANT,
+          },
+          orderBy: { fromDate: "asc" },
+        });
+        const basis = await transaction.benchmarkSeriesPriceBasis.findUnique({
+          where: { seriesId },
+        });
+        const changed = years
+          .filter((year) => held.get(year.year) !== year.digest)
+          .map((year) => year.year);
+        const rows = new Map<number, BenchmarkDailyPrice[]>();
+        if (changed.length > 0) {
+          const loaded = await transaction.benchmarkDailyPrice.findMany({
+            where: {
+              seriesId,
+              OR: changed.map((year) => ({
+                date: {
+                  gte: toDatabaseDate(`${year}-01-01`),
+                  lte: toDatabaseDate(`${year}-12-31`),
+                },
+              })),
+            },
+            orderBy: { date: "asc" },
+          });
+          for (const row of loaded) {
+            const price = toBenchmarkDailyPrice(row);
+            const year = Number(price.date.slice(0, 4));
+            const bucket = rows.get(year);
+            if (bucket) {
+              bucket.push(price);
+            } else {
+              rows.set(year, [price]);
+            }
+          }
+        }
+        return {
+          basisGeneration: basis?.generation ?? 0,
+          coverage: coverage.map((interval) => ({
+            from: fromDatabaseDate(interval.fromDate),
+            to: fromDatabaseDate(interval.toDate),
+          })),
+          years,
+          rows,
+        };
+      },
+      { isolationLevel: "RepeatableRead", ...BULK_WRITE_TRANSACTION_OPTIONS },
+    );
+  }
+
+  async readHistorySnapshot(
+    seriesId: string,
+    query:
+      { range: Required<DateRange> } | { through: LocalDate; sessions: number },
+  ): Promise<BenchmarkHistorySnapshot> {
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const rows =
+          "range" in query
+            ? await transaction.benchmarkDailyPrice.findMany({
+                where: {
+                  seriesId,
+                  date: {
+                    gte: toDatabaseDate(query.range.from),
+                    lte: toDatabaseDate(query.range.to),
+                  },
+                },
+                orderBy: { date: "asc" },
+              })
+            : Number.isInteger(query.sessions) && query.sessions > 0
+              ? (
+                  await transaction.benchmarkDailyPrice.findMany({
+                    where: {
+                      seriesId,
+                      date: { lte: toDatabaseDate(query.through) },
+                    },
+                    orderBy: { date: "desc" },
+                    take: query.sessions,
+                  })
+                ).reverse()
+              : [];
+        const coverage = await transaction.benchmarkDatasetCoverage.findMany({
+          where: {
+            seriesId,
+            dataset: "DAILY_PRICE",
+            variant: BENCHMARK_DAILY_PRICE_VARIANT,
+          },
+          orderBy: { fromDate: "asc" },
+        });
+        const basis = await transaction.benchmarkSeriesPriceBasis.findUnique({
+          where: { seriesId },
+        });
+        return {
+          rows: rows.map(toBenchmarkDailyPrice),
+          basisGeneration: basis?.generation ?? 0,
+          coverage: coverage.map((interval) => ({
+            from: fromDatabaseDate(interval.fromDate),
+            to: fromDatabaseDate(interval.toDate),
+          })),
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  async getPriceBasisGeneration(seriesId: string): Promise<number> {
+    const row = await this.prisma.benchmarkSeriesPriceBasis.findUnique({
+      where: { seriesId },
+    });
+    return row?.generation ?? 0;
+  }
+
+  async replaceDailyPriceHistory(input: {
+    seriesId: string;
+    expectedGeneration: number;
+    prices: readonly BenchmarkDailyPrice[];
+    events: readonly PriceBasisEvent[];
+    coverage: Required<DateRange>;
+    syncedAt: Instant;
+    tailDate: LocalDate;
+    freshThrough?: LocalDate;
+    assertOwned?: () => void;
+  }): Promise<{ generation: number }> {
+    return this.prisma.$transaction(async (transaction) => {
+      await this.lockBenchmarkWrite(transaction, input.seriesId);
+      const current = await transaction.benchmarkSeriesPriceBasis.findUnique({
+        where: { seriesId: input.seriesId },
+      });
+      if ((current?.generation ?? 0) !== input.expectedGeneration) {
+        throw new PriceBasisConflictError(
+          input.seriesId,
+          input.expectedGeneration,
+          current?.generation ?? 0,
+        );
+      }
+      const generation = (current?.generation ?? 0) + 1;
+
+      // Every bar was read again on the new basis, so every stored bar goes and the read replaces
+      // them; one transaction, so no reader of PostgreSQL ever sees the two bases side by side.
+      await transaction.benchmarkDailyPrice.deleteMany({
+        where: { seriesId: input.seriesId },
+      });
+      if (input.prices.length > 0) {
+        await transaction.benchmarkDailyPrice.createMany({
+          data: input.prices.map((price) => ({
+            seriesId: input.seriesId,
+            date: toDatabaseDate(price.date),
+            open: price.open,
+            high: price.high,
+            low: price.low,
+            close: price.close,
+            volume: BigInt(Math.round(price.volume)),
+          })),
+        });
+      }
+
+      // The replacement asked for one complete range: exactly that is the coverage now.
+      const variant = {
+        seriesId: input.seriesId,
+        dataset: "DAILY_PRICE" as const,
+        variant: BENCHMARK_DAILY_PRICE_VARIANT,
+      };
+      await transaction.benchmarkDatasetCoverage.deleteMany({ where: variant });
+      await transaction.benchmarkDatasetState.deleteMany({ where: variant });
+      await this.advanceState(transaction, {
+        ...variant,
+        from: input.coverage.from,
+        to: input.coverage.to,
+        syncedAt: input.syncedAt,
+      });
+      if (input.freshThrough) {
+        await this.advanceState(transaction, {
+          seriesId: input.seriesId,
+          dataset: "DAILY_PRICE",
+          variant: BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+          from: input.freshThrough,
+          to: input.freshThrough,
+          syncedAt: input.syncedAt,
+        });
+      }
+
+      if (input.events.length > 0) {
+        await transaction.benchmarkPriceBasisEvent.createMany({
+          data: input.events.map((event) => ({
+            seriesId: input.seriesId,
+            // The replacement that recorded it, whatever the caller assumed.
+            generation,
+            kind: event.kind,
+            effectiveDate: event.effectiveDate
+              ? toDatabaseDate(event.effectiveDate)
+              : null,
+            effectiveFrom: event.effectiveFrom
+              ? toDatabaseDate(event.effectiveFrom)
+              : null,
+            effectiveTo: event.effectiveTo
+              ? toDatabaseDate(event.effectiveTo)
+              : null,
+            priceRatio: event.priceRatio ?? null,
+            detectedAt: new Date(event.detectedAt),
+            evidence: event.evidence as unknown as Prisma.InputJsonValue,
+          })),
+        });
+      }
+      await transaction.benchmarkSeriesPriceBasis.upsert({
+        where: { seriesId: input.seriesId },
+        create: {
+          seriesId: input.seriesId,
+          generation,
+          replacedAt: new Date(input.syncedAt),
+        },
+        update: { generation, replacedAt: new Date(input.syncedAt) },
+      });
+      input.assertOwned?.();
+      return { generation };
     }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 
@@ -501,6 +769,71 @@ function toBenchmarkWithSeries(row: BenchmarkRow): BenchmarkWithSeries | null {
     displayOrder: row.displayOrder,
     series: toSeries(series),
   };
+}
+
+type BenchmarkDailyPriceRow = {
+  seriesId: string;
+  date: Date;
+  open: unknown;
+  high: unknown;
+  low: unknown;
+  close: unknown;
+  volume: bigint;
+};
+
+function toBenchmarkDailyPrice(
+  row: BenchmarkDailyPriceRow,
+): BenchmarkDailyPrice {
+  return {
+    seriesId: row.seriesId,
+    date: fromDatabaseDate(row.date),
+    open: (row.open as DecimalLike).toNumber(),
+    high: (row.high as DecimalLike).toNumber(),
+    low: (row.low as DecimalLike).toNumber(),
+    close: (row.close as DecimalLike).toNumber(),
+    volume: Number(row.volume),
+  };
+}
+
+/**
+ * One digest per year that holds a bar: the md5 of every stored field of every bar, in date order,
+ * as PostgreSQL itself prints them (`numeric(20,8)` always to eight places), so any added, removed
+ * or changed bar changes it. Sixteen hex digits are kept: they name a chunk among one series' years.
+ */
+async function yearDigests(
+  client: Pick<PrismaClient, "$queryRaw">,
+  seriesId: string,
+): Promise<BenchmarkYearDigest[]> {
+  const rows = await client.$queryRaw<
+    {
+      year: number;
+      bars: number;
+      firstDate: Date;
+      lastDate: Date;
+      digest: string;
+    }[]
+  >`
+    SELECT EXTRACT(YEAR FROM "date")::int AS "year",
+           COUNT(*)::int AS "bars",
+           MIN("date") AS "firstDate",
+           MAX("date") AS "lastDate",
+           md5(string_agg(
+             "date"::text || '|' || "open"::text || '|' || "high"::text || '|' ||
+             "low"::text || '|' || "close"::text || '|' || "volume"::text,
+             ';' ORDER BY "date"
+           )) AS "digest"
+    FROM "BenchmarkDailyPrice"
+    WHERE "seriesId" = ${seriesId}
+    GROUP BY 1
+    ORDER BY 1
+  `;
+  return rows.map((row) => ({
+    year: row.year,
+    bars: row.bars,
+    firstDate: fromDatabaseDate(row.firstDate),
+    lastDate: fromDatabaseDate(row.lastDate),
+    digest: row.digest.slice(0, 16),
+  }));
 }
 
 function toDatabaseDate(value: string): Date {

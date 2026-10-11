@@ -463,6 +463,9 @@ happens. Three rules:
   loader unchanged. A benchmark series that can split (another ETF proxy) needs this detector, a
   generation and an atomic read before it is added: `BenchmarkDataCache` has no `HYDRATING`/`READY`
   manifest today.
+  - _Since `etf-market-data-v1.md` (§3, §5):_ every `ETF_PROXY` benchmark series has this detector,
+    a `BenchmarkSeriesPriceBasis` generation, single-transaction replacement and a compare-and-set
+    Redis head, which the market-overview ETFs required. `INDEX` series are unchanged.
 - **Weekly prices** stay research-only and are rebuilt with the daily ones.
 - **Stock Details** keeps the research close; its intrinsic-value overlays and chips read the stored
   values, which carry `K` after a measured re-base. Valuation ratios get their own series

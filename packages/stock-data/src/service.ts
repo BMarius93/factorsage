@@ -331,7 +331,9 @@ export type ProviderRequestReason =
   /** One batched current-quote read for a whole Monitor evaluation cycle. */
   | "MONITOR_CURRENT_DATA"
   /** The split list a valuation ratio's price-basis rules read, when the stored one is a day old. */
-  | "VALUATION_SPLIT_LIST";
+  | "VALUATION_SPLIT_LIST"
+  /** The scheduled refresh of a market-data benchmark series: one bounded tail read. */
+  | "SCHEDULED_REFRESH";
 
 export type ProviderRequestEvent = {
   symbol: string;
