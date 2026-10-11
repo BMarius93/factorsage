@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTOR_SCOPE_KINDS,
+  ACTOR_SCOPE_MAX_ACTORS,
   ALTERNATIVE_DATA_LOOKBACKS,
+  alternativeDataMetricFingerprint,
   alternativeDataMetricSignature,
   CONGRESS_MEASURES,
   collectActorGroupIds,
@@ -9,9 +12,12 @@ import {
   describeAlternativeDataConfiguration,
   INSIDER_MEASURES,
   parseAlternativeDataMetricSignature,
+  SELECTABLE_ACTOR_SCOPE_KINDS,
+  type ActorScope,
   type AlternativeDataMetric,
 } from "./alternative-data.js";
 import {
+  ActorGroupScopeUnresolvedError,
   asAlternativeDataMetric,
   defaultConditionOperatorFor,
   defaultStrategyMetric,
@@ -19,6 +25,7 @@ import {
   describeCondition,
   describeMetricConfiguration,
   describeStrategy,
+  embedActorGroupScopes,
   normalizeStrategyDefinition,
   rekeyStrategyDefinition,
   STRATEGY_METRIC_DEFINITIONS,
@@ -32,6 +39,7 @@ import {
   strategyMetricOptions,
   strategySignalFingerprint,
   strategyValueLabel,
+  StrategyValidationError,
   validateStrategyDefinition,
   valueSpecFor,
   type StrategyCondition,
@@ -811,11 +819,12 @@ describe("alternative-data rendering", () => {
         congress({ scope: { kind: "GROUP", groupId: "g1" } }),
       ),
     ).toBe("30D · Selected group");
+    // A legacy single-actor scope is described exactly as the one-entry selection it means.
     expect(
       describeMetricConfiguration(
         congress({ scope: { kind: "ACTOR", actorId: "a1" } }),
       ),
-    ).toBe("30D · Selected actor");
+    ).toBe("30D · 1 selected member");
   });
 
   it("carries the configuration onto the Strategy Logic line as its own part", () => {
@@ -1168,13 +1177,31 @@ describe("parseAlternativeDataMetricSignature", () => {
     }) as AlternativeDataMetric,
   ];
 
-  it("round-trips every configured metric", () => {
+  it("round-trips every configured metric to its canonical form", () => {
     for (const metric of configured) {
       const signature = alternativeDataMetricSignature(metric);
+      // Canonical, because a legacy single `ACTOR` reads back as the one-entry selection it means;
+      // every other shape here is already canonical and reads back unchanged.
+      const canonical = asAlternativeDataMetric(
+        normalizeStrategyDefinition(
+          definitionWith({
+            id: "c1",
+            metric,
+            operator: "IS_ABOVE",
+            value:
+              metric.measure === "MINIMUM_PURCHASE_VALUE" ||
+              metric.measure === "PURCHASE_VALUE" ||
+              metric.measure === "SALE_VALUE"
+                ? { kind: "MONEY", value: 1_000 }
+                : { kind: "NUMBER", value: 1 },
+          }),
+        ).buyLevels[0]!.signal.conditions[0]!.metric,
+      );
       expect(
         parseAlternativeDataMetricSignature(signature),
         signature,
-      ).toEqual(metric);
+      ).toEqual(canonical);
+      expect(alternativeDataMetricSignature(canonical!)).toBe(signature);
     }
   });
 
@@ -1194,5 +1221,608 @@ describe("parseAlternativeDataMetricSignature", () => {
     ]) {
       expect(parseAlternativeDataMetricSignature(text), text).toBeUndefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direct selection: the ACTORS scope
+// ---------------------------------------------------------------------------
+
+/** Canonical-looking actor ids, deliberately not in sorted order as written. */
+const ACTOR_A = "0a000000-0000-4000-8000-00000000000a";
+const ACTOR_B = "0b000000-0000-4000-8000-00000000000b";
+const ACTOR_C = "0c000000-0000-4000-8000-00000000000c";
+
+function selection(...actorIds: string[]): ActorScope {
+  return { kind: "ACTORS", actorIds };
+}
+
+function conditionOn(
+  metric: StrategyMetric,
+  id = "c1",
+  value = 2,
+): StrategyCondition {
+  return {
+    id,
+    metric,
+    operator: "IS_ABOVE",
+    value: { kind: "NUMBER", value },
+  };
+}
+
+function scopeOf(definition: StrategyDefinition): ActorScope | undefined {
+  const metric = definition.buyLevels[0]!.signal.conditions[0]!.metric;
+  return metric.kind === "CONGRESS_ACTIVITY" ? metric.scope : undefined;
+}
+
+describe("the scope vocabulary", () => {
+  it("keeps the legacy shapes readable beside the current ones", () => {
+    expect(ACTOR_SCOPE_KINDS).toEqual(["ANY", "ACTORS", "ACTOR", "GROUP"]);
+    for (const scope of [
+      { kind: "ANY" },
+      selection(ACTOR_A),
+      { kind: "ACTOR", actorId: ACTOR_A },
+      { kind: "GROUP", groupId: "g1" },
+    ] as ActorScope[]) {
+      expect(
+        codesOf(definitionWith(conditionOn(congress({ scope })))),
+        scope.kind,
+      ).toEqual([]);
+    }
+  });
+
+  it("offers the Builder only the current shapes", () => {
+    expect(SELECTABLE_ACTOR_SCOPE_KINDS).toEqual(["ANY", "ACTORS"]);
+  });
+
+  it("refuses a scope kind it does not define", () => {
+    expect(
+      codesOf(
+        definitionWith(
+          conditionOn(
+            congress({ scope: { kind: "COMMITTEE" } as unknown as ActorScope }),
+          ),
+        ),
+      ),
+    ).toEqual(["SCOPE_INVALID"]);
+  });
+});
+
+describe("validating a selection", () => {
+  const codesFor = (scope: unknown): StrategyValidationCode[] =>
+    codesOf(
+      definitionWith(conditionOn(congress({ scope: scope as ActorScope }))),
+    );
+
+  it("accepts one member and accepts the maximum", () => {
+    expect(codesFor(selection(ACTOR_A))).toEqual([]);
+    const most = Array.from(
+      { length: ACTOR_SCOPE_MAX_ACTORS },
+      (_, index) => `actor-${String(index).padStart(3, "0")}`,
+    );
+    expect(codesFor(selection(...most))).toEqual([]);
+  });
+
+  it("refuses an empty selection rather than reading it as anyone or as nobody", () => {
+    expect(codesFor({ kind: "ACTORS", actorIds: [] })).toEqual([
+      "SCOPE_INVALID",
+    ]);
+    expect(codesFor({ kind: "ACTORS" })).toEqual(["SCOPE_INVALID"]);
+    expect(codesFor({ kind: "ACTORS", actorIds: "a1" })).toEqual([
+      "SCOPE_INVALID",
+    ]);
+  });
+
+  it("refuses more distinct members than the bound, and counts a repeat once", () => {
+    const tooMany = Array.from(
+      { length: ACTOR_SCOPE_MAX_ACTORS + 1 },
+      (_, index) => `actor-${String(index).padStart(3, "0")}`,
+    );
+    expect(codesFor(selection(...tooMany))).toEqual(["SCOPE_INVALID"]);
+    // 251 entries naming 250 members is 250 members.
+    expect(
+      codesFor(selection(...tooMany.slice(0, -1), tooMany[0] as string)),
+    ).toEqual([]);
+  });
+
+  it("refuses an identifier that could never be one", () => {
+    for (const bad of [
+      "",
+      "has space",
+      "a|b",
+      "a+b",
+      42,
+      null,
+      { id: "a1" },
+    ]) {
+      expect(
+        codesFor({ kind: "ACTORS", actorIds: [ACTOR_A, bad] }),
+        String(bad),
+      ).toEqual(["SCOPE_INVALID"]);
+    }
+  });
+
+  it("refuses a field belonging to another scope shape", () => {
+    expect(
+      codesFor({ kind: "ACTORS", actorIds: [ACTOR_A], groupId: "g1" }),
+    ).toEqual(["UNKNOWN_FIELD"]);
+    expect(
+      codesFor({ kind: "ACTORS", actorIds: [ACTOR_A], actorId: ACTOR_A }),
+    ).toEqual(["UNKNOWN_FIELD"]);
+  });
+
+  it("says what to do about an empty selection", () => {
+    expect(
+      validateStrategyDefinition(
+        definitionWith(
+          conditionOn(congress({ scope: { kind: "ACTORS", actorIds: [] } })),
+        ),
+      ).map((issue) => issue.message),
+    ).toEqual([
+      "Choose at least one member of Congress, or count every member.",
+    ]);
+  });
+});
+
+describe("normalizing a selection", () => {
+  const normalizedScope = (scope: ActorScope) =>
+    scopeOf(
+      normalizeStrategyDefinition(
+        definitionWith(conditionOn(congress({ scope }))),
+      ),
+    );
+
+  it("sorts and de-duplicates, so one selection persists once however it was written", () => {
+    expect(normalizedScope(selection(ACTOR_C, ACTOR_A, ACTOR_B, ACTOR_A))).toEqual(
+      selection(ACTOR_A, ACTOR_B, ACTOR_C),
+    );
+  });
+
+  it("is idempotent", () => {
+    const once = normalizeStrategyDefinition(
+      definitionWith(
+        conditionOn(congress({ scope: selection(ACTOR_B, ACTOR_A) })),
+      ),
+    );
+    expect(normalizeStrategyDefinition(once)).toEqual(once);
+  });
+
+  it("rewrites a legacy single actor to the one-entry selection it means", () => {
+    expect(normalizedScope({ kind: "ACTOR", actorId: ACTOR_A })).toEqual(
+      selection(ACTOR_A),
+    );
+  });
+
+  it("keeps a legacy group exactly as stored", () => {
+    expect(normalizedScope({ kind: "GROUP", groupId: "g1" })).toEqual({
+      kind: "GROUP",
+      groupId: "g1",
+    });
+  });
+});
+
+/**
+ * Serializations captured from the build of `main` **before** the selection scope existed
+ * (commit b3529476), for one definition written three ways. They are literals on purpose: a stored
+ * `StrategyVersion.definitionHash` is a digest of the third string, and a Monitor's durable level
+ * state is keyed by the second, so if either moves for a document that already exists, every such
+ * strategy silently gains a version and every such Monitor level resets.
+ */
+const LEGACY_ACTOR_ID = "6f1b0a1e-8a6c-4c1a-9f0e-2b6c4d8e1a33";
+const LEGACY_GROUP_ID = "4b8d0f3e-2c1a-4e7b-9a6d-5f0c3b2a1e9d";
+
+const LEGACY_SERIALIZATIONS = [
+  {
+    scope: { kind: "ANY" },
+    signature: "CONGRESS_ACTIVITY|PURCHASES|30|any|ANY|-",
+    signal:
+      '[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|PURCHASES|30|any|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]',
+    definition:
+      '[1,[[100,[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|PURCHASES|30|any|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]]],[[50,[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|SALES|30|any|SENATE|SELF+SPOUSE"],"IS_ABOVE",["NUMBER",2]]],null]]],[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|SELLERS|250|any|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]]',
+  },
+  {
+    scope: { kind: "ACTOR", actorId: LEGACY_ACTOR_ID },
+    signature: `CONGRESS_ACTIVITY|PURCHASES|30|actor:${LEGACY_ACTOR_ID}|ANY|-`,
+    signal: `[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|PURCHASES|30|actor:${LEGACY_ACTOR_ID}|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]`,
+    definition: `[1,[[100,[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|PURCHASES|30|actor:${LEGACY_ACTOR_ID}|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]]],[[50,[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|SALES|30|actor:${LEGACY_ACTOR_ID}|SENATE|SELF+SPOUSE"],"IS_ABOVE",["NUMBER",2]]],null]]],[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|SELLERS|250|actor:${LEGACY_ACTOR_ID}|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]]`,
+  },
+  {
+    scope: { kind: "GROUP", groupId: LEGACY_GROUP_ID },
+    signature: `CONGRESS_ACTIVITY|PURCHASES|30|group:${LEGACY_GROUP_ID}|ANY|-`,
+    signal: `[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|PURCHASES|30|group:${LEGACY_GROUP_ID}|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]`,
+    definition: `[1,[[100,[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|PURCHASES|30|group:${LEGACY_GROUP_ID}|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]]],[[50,[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|SALES|30|group:${LEGACY_GROUP_ID}|SENATE|SELF+SPOUSE"],"IS_ABOVE",["NUMBER",2]]],null]]],[[[["CONGRESS_ACTIVITY",null,"CONGRESS_ACTIVITY|SELLERS|250|group:${LEGACY_GROUP_ID}|ANY|-"],"IS_ABOVE",["NUMBER",2]]],null]]`,
+  },
+] as const satisfies readonly {
+  scope: ActorScope;
+  signature: string;
+  signal: string;
+  definition: string;
+}[];
+
+/** One definition using a scope in a BUY level, a SELL level and FINAL EXIT, each configured differently. */
+function threeLevelDefinition(scope: ActorScope): StrategyDefinition {
+  return {
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
+    buyLevels: [
+      {
+        id: "b1",
+        percentage: 100,
+        signal: { conditions: [conditionOn(congress({ scope }), "c-buy")] },
+      },
+    ],
+    sellLevels: [
+      {
+        id: "s1",
+        percentage: 50,
+        signal: {
+          conditions: [
+            conditionOn(
+              congress({
+                scope,
+                measure: "SALES",
+                chamber: "SENATE",
+                owners: ["SELF", "SPOUSE"],
+              }),
+              "c-sell",
+            ),
+          ],
+        },
+      },
+    ],
+    finalExit: {
+      id: "f1",
+      rules: [
+        {
+          id: "f1",
+          signal: {
+            conditions: [
+              conditionOn(
+                congress({ scope, measure: "SELLERS", lookback: 250 }),
+                "c-exit",
+              ),
+            ],
+          },
+        },
+      ],
+    },
+  };
+}
+
+describe("no stored hash moves", () => {
+  it.each(LEGACY_SERIALIZATIONS)(
+    "serializes a stored $scope.kind scope exactly as main did",
+    ({ scope, signature, signal, definition }) => {
+      const metric = congress({ scope }) as AlternativeDataMetric;
+      expect(alternativeDataMetricSignature(metric)).toBe(signature);
+      expect(alternativeDataMetricFingerprint(metric)).toBe(signature);
+      expect(
+        strategySignalFingerprint({ conditions: [conditionOn(metric)] }),
+      ).toBe(signal);
+      expect(strategyDefinitionFingerprint(threeLevelDefinition(scope))).toBe(
+        definition,
+      );
+      // And the same once the document has been through the read path, which rewrites a legacy
+      // single actor to a one-entry selection: the fingerprint must not notice.
+      expect(
+        strategyDefinitionFingerprint(
+          normalizeStrategyDefinition(threeLevelDefinition(scope)),
+        ),
+      ).toBe(definition);
+    },
+  );
+
+  it("gives a one-member selection the single-actor serialization it replaces", () => {
+    const legacy = LEGACY_SERIALIZATIONS[1];
+    const selected = selection(LEGACY_ACTOR_ID);
+    const metric = congress({ scope: selected }) as AlternativeDataMetric;
+    expect(alternativeDataMetricSignature(metric)).toBe(legacy.signature);
+    expect(
+      strategySignalFingerprint({ conditions: [conditionOn(metric)] }),
+    ).toBe(legacy.signal);
+    expect(strategyDefinitionFingerprint(threeLevelDefinition(selected))).toBe(
+      legacy.definition,
+    );
+  });
+});
+
+describe("the identity of a multi-member selection", () => {
+  const metricFor = (scope: ActorScope) =>
+    congress({ scope }) as AlternativeDataMetric;
+
+  it("serializes the canonical list, whatever order and repeats it was written with", () => {
+    const canonical = `CONGRESS_ACTIVITY|PURCHASES|30|actors:${ACTOR_A}+${ACTOR_B}+${ACTOR_C}|ANY|-`;
+    for (const scope of [
+      selection(ACTOR_A, ACTOR_B, ACTOR_C),
+      selection(ACTOR_C, ACTOR_B, ACTOR_A),
+      selection(ACTOR_B, ACTOR_A, ACTOR_C, ACTOR_A, ACTOR_B),
+    ]) {
+      expect(alternativeDataMetricSignature(metricFor(scope))).toBe(canonical);
+    }
+  });
+
+  it("round-trips the signature to the canonical metric", () => {
+    const metric = metricFor(selection(ACTOR_C, ACTOR_A));
+    expect(
+      parseAlternativeDataMetricSignature(alternativeDataMetricSignature(metric)),
+    ).toEqual(metricFor(selection(ACTOR_A, ACTOR_C)));
+  });
+
+  it("refuses a multi-member key that is not the canonical one", () => {
+    const key = (scope: string) => `CONGRESS_ACTIVITY|PURCHASES|30|${scope}|ANY|-`;
+    for (const text of [
+      key("actors:"),
+      key(`actors:${ACTOR_A}`),
+      key(`actors:${ACTOR_B}+${ACTOR_A}`),
+      key(`actors:${ACTOR_A}+${ACTOR_A}`),
+      key(`actors:${ACTOR_A}+`),
+      key("actor:"),
+      key("actors:a b+c"),
+    ]) {
+      expect(parseAlternativeDataMetricSignature(text), text).toBeUndefined();
+    }
+  });
+
+  it("fingerprints a digest rather than the list, so the persisted string stays short", () => {
+    const fingerprint = alternativeDataMetricFingerprint(
+      metricFor(selection(ACTOR_A, ACTOR_B, ACTOR_C)),
+    );
+    expect(fingerprint).toMatch(
+      /^CONGRESS_ACTIVITY\|PURCHASES\|30\|actors:3:[0-9a-f]{64}\|ANY\|-$/,
+    );
+    expect(fingerprint).not.toContain(ACTOR_A);
+
+    const most = Array.from(
+      { length: ACTOR_SCOPE_MAX_ACTORS },
+      (_, index) =>
+        `${index.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`,
+    );
+    const widest = metricFor(selection(...most));
+    // The key a frame column is addressed by holds every id; the string a Monitor persists per
+    // state row does not.
+    expect(alternativeDataMetricSignature(widest).length).toBeGreaterThan(9_000);
+    expect(alternativeDataMetricFingerprint(widest).length).toBeLessThan(120);
+    expect(
+      strategySignalFingerprint({ conditions: [conditionOn(widest)] }).length,
+    ).toBeLessThan(200);
+  });
+
+  it("fingerprints one selection one way and two selections two ways", () => {
+    const fingerprintOf = (scope: ActorScope) =>
+      strategySignalFingerprint({
+        conditions: [conditionOn(metricFor(scope))],
+      });
+    expect(fingerprintOf(selection(ACTOR_B, ACTOR_A, ACTOR_A))).toBe(
+      fingerprintOf(selection(ACTOR_A, ACTOR_B)),
+    );
+    const distinct = new Set(
+      [
+        { kind: "ANY" } as ActorScope,
+        selection(ACTOR_A),
+        selection(ACTOR_B),
+        selection(ACTOR_A, ACTOR_B),
+        selection(ACTOR_A, ACTOR_C),
+        selection(ACTOR_B, ACTOR_C),
+        selection(ACTOR_A, ACTOR_B, ACTOR_C),
+      ].map(fingerprintOf),
+    );
+    expect(distinct.size).toBe(7);
+  });
+
+  it("refuses to serialize a scope it cannot interpret instead of reading it as nobody", () => {
+    expect(() =>
+      alternativeDataMetricSignature(
+        metricFor({ kind: "COMMITTEE" } as unknown as ActorScope),
+      ),
+    ).toThrow(/Unsupported actor scope kind 'COMMITTEE'/);
+    expect(() =>
+      alternativeDataMetricFingerprint(
+        metricFor({ kind: "COMMITTEE" } as unknown as ActorScope),
+      ),
+    ).toThrow(/Unsupported actor scope kind/);
+    expect(() =>
+      alternativeDataMetricSignature(metricFor({ kind: "ACTORS", actorIds: [] })),
+    ).toThrow(/at least one actor/);
+  });
+});
+
+describe("independent selections in one signal", () => {
+  const twoConditions = (
+    first: ActorScope,
+    second: ActorScope,
+  ): StrategyDefinition => ({
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
+    buyLevels: [
+      {
+        id: "b1",
+        percentage: 100,
+        signal: {
+          conditions: [
+            conditionOn(congress({ scope: first }), "c1", 0),
+            conditionOn(congress({ scope: second }), "c2", 0),
+          ],
+        },
+      },
+    ],
+    sellLevels: [],
+  });
+
+  it("lets two rules of one metric select different members", () => {
+    expect(codesOf(twoConditions(selection(ACTOR_A), selection(ACTOR_B)))).toEqual(
+      [],
+    );
+    expect(
+      codesOf(
+        twoConditions(selection(ACTOR_A, ACTOR_B), selection(ACTOR_A, ACTOR_C)),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still sees one selection written twice as one rule written twice", () => {
+    expect(
+      codesOf(
+        twoConditions(selection(ACTOR_A, ACTOR_B), selection(ACTOR_B, ACTOR_A)),
+      ),
+    ).toEqual(["DUPLICATE_CONDITION"]);
+    // A legacy single actor and the selection that replaces it are the same rule too.
+    expect(
+      codesOf(
+        twoConditions({ kind: "ACTOR", actorId: ACTOR_A }, selection(ACTOR_A)),
+      ),
+    ).toEqual(["DUPLICATE_CONDITION"]);
+  });
+});
+
+describe("describing a selection", () => {
+  const names = {
+    actors: {
+      [ACTOR_A]: "Tommy Tuberville",
+      [ACTOR_B]: "Nancy Pelosi",
+      [ACTOR_C]: "Ro Khanna",
+    },
+  };
+  /** `null` for a surface that has resolved no name at all. */
+  const describe_ = (scope: ActorScope, known: typeof names | null = names) =>
+    describeMetricConfiguration(congress({ scope }), known ?? undefined);
+
+  it("names one member and two members outright", () => {
+    expect(describe_(selection(ACTOR_A))).toBe("30D · Tommy Tuberville");
+    expect(describe_(selection(ACTOR_A, ACTOR_B))).toBe(
+      "30D · Nancy Pelosi, Tommy Tuberville",
+    );
+  });
+
+  it("names the first two alphabetically and counts the rest", () => {
+    expect(describe_(selection(ACTOR_A, ACTOR_B, ACTOR_C))).toBe(
+      "30D · Nancy Pelosi, Ro Khanna +1",
+    );
+  });
+
+  it("counts a member whose name is not resolved rather than inventing one", () => {
+    expect(describe_(selection(ACTOR_A, "unknown-1", "unknown-2"))).toBe(
+      "30D · Tommy Tuberville +2",
+    );
+    expect(describe_(selection(ACTOR_A, ACTOR_B), null)).toBe(
+      "30D · 2 selected members",
+    );
+    expect(describe_(selection(ACTOR_A), null)).toBe("30D · 1 selected member");
+  });
+
+  it("describes a legacy single actor by name, like the selection it means", () => {
+    expect(describe_({ kind: "ACTOR", actorId: ACTOR_B })).toBe(
+      "30D · Nancy Pelosi",
+    );
+  });
+
+  it("puts the selection before the chamber and owner filters", () => {
+    expect(
+      describeCondition(
+        conditionOn(
+          congress({
+            scope: selection(ACTOR_A, ACTOR_B),
+            chamber: "SENATE",
+            owners: ["SPOUSE", "SELF"],
+          }),
+          "c1",
+          1,
+        ),
+        names,
+      ),
+    ).toBe(
+      "Congress purchases is above 1 (30D · Nancy Pelosi, Tommy Tuberville · Senate · Self, Spouse)",
+    );
+  });
+
+  it("collects every directly selected member, from both shapes, once", () => {
+    const metrics = [
+      congress({ scope: selection(ACTOR_C, ACTOR_A) }),
+      congress({ scope: { kind: "ACTOR", actorId: ACTOR_B } }),
+      congress({ scope: selection(ACTOR_A) }),
+      congress({ scope: { kind: "GROUP", groupId: "g1" } }),
+      congress(),
+    ].map((metric) => asAlternativeDataMetric(metric) as AlternativeDataMetric);
+    expect(collectActorIds(metrics)).toEqual([ACTOR_A, ACTOR_B, ACTOR_C]);
+    expect(collectActorGroupIds(metrics)).toEqual(["g1"]);
+  });
+});
+
+describe("embedding a group's members into a definition", () => {
+  const group = (groupId: string): ActorScope => ({ kind: "GROUP", groupId });
+
+  it("replaces the group in every level and leaves everything else as written", () => {
+    const converted = embedActorGroupScopes(
+      threeLevelDefinition(group("g1")),
+      new Map([["g1", [ACTOR_C, ACTOR_A, ACTOR_B]]]),
+    );
+    expect(converted).toEqual(
+      normalizeStrategyDefinition(
+        threeLevelDefinition(selection(ACTOR_A, ACTOR_B, ACTOR_C)),
+      ),
+    );
+    // Row identities survive: it is the same strategy with one scope rewritten.
+    expect(converted.buyLevels[0]!.id).toBe("b1");
+    expect(converted.buyLevels[0]!.signal.conditions[0]!.id).toBe("c-buy");
+    expect(converted.finalExit!.rules[0]!.signal.conditions[0]!.id).toBe(
+      "c-exit",
+    );
+  });
+
+  it("changes the logic fingerprint, which is what appends a version and resets a Monitor level", () => {
+    const before = threeLevelDefinition(group("g1"));
+    const after = embedActorGroupScopes(before, new Map([["g1", [ACTOR_A]]]));
+    expect(strategyDefinitionFingerprint(after)).not.toBe(
+      strategyDefinitionFingerprint(before),
+    );
+  });
+
+  it("leaves a definition with no group scope untouched", () => {
+    const definition = normalizeStrategyDefinition(
+      threeLevelDefinition(selection(ACTOR_A, ACTOR_B)),
+    );
+    expect(embedActorGroupScopes(definition, new Map())).toEqual(definition);
+  });
+
+  it("never embeds an unresolved or an empty group as nobody", () => {
+    const definition = threeLevelDefinition(group("g1"));
+    expect(() => embedActorGroupScopes(definition, new Map())).toThrow(
+      ActorGroupScopeUnresolvedError,
+    );
+    try {
+      embedActorGroupScopes(definition, new Map([["g1", []]]));
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActorGroupScopeUnresolvedError);
+      expect((error as ActorGroupScopeUnresolvedError).reason).toBe("EMPTY");
+      expect((error as ActorGroupScopeUnresolvedError).groupId).toBe("g1");
+    }
+  });
+
+  it("refuses a conversion that would leave an invalid definition", () => {
+    // Two rules that differ only in the group they name, where both groups hold the same members:
+    // embedded, they are one rule written twice.
+    const definition: StrategyDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 100,
+          signal: {
+            conditions: [
+              conditionOn(congress({ scope: group("g1") }), "c1"),
+              conditionOn(congress({ scope: group("g2") }), "c2"),
+            ],
+          },
+        },
+      ],
+      sellLevels: [],
+    };
+    expect(() =>
+      embedActorGroupScopes(
+        definition,
+        new Map([
+          ["g1", [ACTOR_A, ACTOR_B]],
+          ["g2", [ACTOR_B, ACTOR_A]],
+        ]),
+      ),
+    ).toThrow(StrategyValidationError);
   });
 });

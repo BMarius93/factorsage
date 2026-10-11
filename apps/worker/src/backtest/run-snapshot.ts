@@ -1,11 +1,15 @@
 import {
-  BACKTEST_SNAPSHOT_VERSION,
+  ACTOR_SCOPE_KINDS,
+  asAlternativeDataMetric,
   CONDITION_OPERATORS,
+  isActorScopeId,
+  isBacktestSnapshotVersion,
   TRIGGER_OPERATORS,
   withExecutableStrategyDefinition,
   type BacktestRunSnapshot,
   type BacktestSnapshotSecurity,
   type StrategyDefinition,
+  type StrategyMetric,
   type StrategySignal,
 } from "@intrinsic/contracts";
 import type { BuyWindowConfiguration } from "@intrinsic/domain";
@@ -43,12 +47,18 @@ export class BacktestSnapshotError extends Error {
  * worker has always executed start being refused because a later release tightened a rule — the
  * retroactive reinterpretation invariant 12 exists to prevent. The one thing it reads in a rule is
  * whether the engine still defines its operator (`refuseUndefinedOperators`), because a snapshot
- * whose meaning the engine no longer has cannot be executed faithfully under any reading.
+ * whose meaning the engine no longer has cannot be executed faithfully under any reading. The same
+ * goes for an actor scope the engine does not define (`refuseUndefinedScopes`).
+ *
+ * Both snapshot versions are read. Version 1 is everything submitted before a rule could select
+ * members of Congress directly and is still what a run without such a rule is written as; version 2
+ * carries a selection. They execute through the same code — the version exists so a worker built
+ * *before* the selection refuses a run it would otherwise misread (`BACKTEST_SNAPSHOT_VERSIONS`).
  */
 export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
   const document = record(value, "snapshot");
 
-  if (document.snapshotVersion !== BACKTEST_SNAPSHOT_VERSION) {
+  if (!isBacktestSnapshotVersion(document.snapshotVersion)) {
     throw new BacktestSnapshotError(
       `Unsupported backtest snapshot version ${String(document.snapshotVersion)}`,
     );
@@ -119,20 +129,63 @@ export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
     value as BacktestRunSnapshot,
   );
   refuseUndefinedOperators(executable.strategy.definition);
+  refuseUndefinedScopes(executable.strategy.definition);
   return executable;
 }
 
 /**
- * Refuses a definition naming an operator this engine does not define.
+ * Refuses a definition whose alternative-data rule is scoped in a way this engine does not define.
  *
- * The same kind of refusal as an unknown snapshot version, not a product rule judged again: the
- * product removed `is at least` / `is at most` on 2026-09-28, and `>= 2` is not `> 2`, so a snapshot
- * still naming one has no meaning the engine may assume and is never mapped onto a neighbour. The
- * evaluator would refuse it too, but only once it reached the rule; here the run stops before any
- * data is prepared, whatever that data would have been.
+ * The worker does not revalidate a snapshot, so without this an actor scope written by a newer
+ * build would reach the loader as whatever its unknown shape happened to serialize to. That is how
+ * a run comes to count nobody and still complete: the rule reads zero on every session, and
+ * `Congress sales is below 1` buys everything. Refusing here stops the run before any data is
+ * prepared and says which rule it could not read.
+ *
+ * A selection that names nobody is refused for the same reason. The API never writes one — an empty
+ * selection is not a valid rule — so a snapshot holding one is corrupt, not a quiet strategy.
  */
-function refuseUndefinedOperators(definition: StrategyDefinition): void {
-  const signals: [string, StrategySignal][] = [
+function refuseUndefinedScopes(definition: StrategyDefinition): void {
+  const refuse = (metric: StrategyMetric, at: string): void => {
+    const alternative = asAlternativeDataMetric(metric);
+    if (alternative?.kind !== "CONGRESS_ACTIVITY") {
+      return;
+    }
+    const scope = alternative.scope as { kind?: unknown; actorIds?: unknown };
+    if (
+      typeof scope?.kind !== "string" ||
+      !(ACTOR_SCOPE_KINDS as readonly string[]).includes(scope.kind)
+    ) {
+      throw new BacktestSnapshotError(
+        `snapshot.strategy.definition.${at}.metric.scope ${String(scope?.kind)} is not a scope this engine defines`,
+      );
+    }
+    if (
+      scope.kind === "ACTORS" &&
+      (!Array.isArray(scope.actorIds) ||
+        scope.actorIds.length === 0 ||
+        !scope.actorIds.every(isActorScopeId))
+    ) {
+      throw new BacktestSnapshotError(
+        `snapshot.strategy.definition.${at}.metric.scope selects no readable actor`,
+      );
+    }
+  };
+  for (const [at, signal] of definitionSignals(definition)) {
+    signal.conditions.forEach((condition, index) =>
+      refuse(condition.metric, `${at}.signal.conditions[${index}]`),
+    );
+    if (signal.trigger) {
+      refuse(signal.trigger.metric, `${at}.signal.trigger`);
+    }
+  }
+}
+
+/** Every Signal of a definition with the path it sits at, for a refusal that names its rule. */
+function definitionSignals(
+  definition: StrategyDefinition,
+): [string, StrategySignal][] {
+  return [
     ...definition.buyLevels.map((level, index): [string, StrategySignal] => [
       `buyLevels[${index}]`,
       level.signal,
@@ -148,7 +201,19 @@ function refuseUndefinedOperators(definition: StrategyDefinition): void {
       ],
     ),
   ];
-  for (const [at, signal] of signals) {
+}
+
+/**
+ * Refuses a definition naming an operator this engine does not define.
+ *
+ * The same kind of refusal as an unknown snapshot version, not a product rule judged again: the
+ * product removed `is at least` / `is at most` on 2026-09-28, and `>= 2` is not `> 2`, so a snapshot
+ * still naming one has no meaning the engine may assume and is never mapped onto a neighbour. The
+ * evaluator would refuse it too, but only once it reached the rule; here the run stops before any
+ * data is prepared, whatever that data would have been.
+ */
+function refuseUndefinedOperators(definition: StrategyDefinition): void {
+  for (const [at, signal] of definitionSignals(definition)) {
     signal.conditions.forEach((condition, index) =>
       refuseUndefinedOperator(
         CONDITION_OPERATORS,

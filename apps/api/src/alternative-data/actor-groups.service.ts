@@ -28,7 +28,15 @@ import {
 } from "./alternative-data.tokens";
 
 /**
- * Congress groups: the Lists product area's second collection.
+ * Congress groups — **legacy** — and the actor catalog every Congressional rule selects from.
+ *
+ * Groups left the product on 2026-10-11: a rule selects its members itself, no surface manages a
+ * group, and `StrategiesService` refuses a strategy write naming one. This service and its routes
+ * stay for the strategies saved before then, which still name a group until they are edited or
+ * converted: the Builder reads a legacy group's name and members here to offer that conversion, and
+ * the delete guard below still protects a group such a strategy depends on.
+ * `docs/development/congress-group-scope-conversion.md` says when the group half can be removed. The
+ * catalog half — `searchActors`, `findActors` — is current and is what the selector searches.
  *
  * It follows `StockListsService` deliberately — the same ownership helpers, the same
  * indistinguishable "missing or not yours" 404, the same administrator rule for built-in content —

@@ -29,9 +29,6 @@ const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
-  // The page reads `?view=` to choose between its three collections; the default view is the stock
-  // lists this suite is about.
-  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({
@@ -166,6 +163,41 @@ describe("ListsPage", () => {
     expect(await screen.findByTestId("list-form-dialog")).toBeDefined();
     // The request is consumed, so a reload lands on the plain collection.
     expect(replace).toHaveBeenCalledWith("/lists");
+    window.history.replaceState(null, "", "/lists");
+  });
+
+  it("is stock lists and nothing else: there is no Congress groups view", async () => {
+    fetchStockListsMock.mockResolvedValue([
+      summary("list-1", "Dividend picks", { itemCount: 3 }),
+    ]);
+
+    render(<ListsPage />);
+
+    await screen.findByTestId("your-lists");
+    expect(screen.queryByTestId("lists-view")).toBeNull();
+    expect(screen.queryByRole("radio", { name: /congress/i })).toBeNull();
+    expect(screen.queryByText(/congress/i)).toBeNull();
+    expect(
+      screen.getByText(
+        "Reusable stock universes for strategies, backtests, and monitors.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("shows the stock lists for an old /lists?view=congress link, and drops the dead parameter", async () => {
+    window.history.replaceState(null, "", "/lists?view=congress");
+    fetchStockListsMock.mockResolvedValue([
+      summary("list-1", "Dividend picks", { itemCount: 3 }),
+    ]);
+
+    render(<ListsPage />);
+
+    const own = await screen.findByTestId("your-lists");
+    expect(own.textContent).toContain("Dividend picks");
+    expect(screen.getAllByTestId("new-list-button")).toHaveLength(1);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/lists"));
+    // It is a landing, not a request: no dialog opens.
+    expect(screen.queryByRole("dialog")).toBeNull();
     window.history.replaceState(null, "", "/lists");
   });
 

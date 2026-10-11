@@ -1,8 +1,9 @@
-import type {
-  ActorGroupDetailResponse,
-  ActorGroupSummaryResponse,
-  AlternativeDataActorResponse,
-  AuthUser,
+import {
+  ACTOR_RESOLVE_MAX_IDS,
+  type ActorGroupDetailResponse,
+  type ActorGroupSummaryResponse,
+  type AlternativeDataActorResponse,
+  type AuthUser,
 } from "@intrinsic/contracts";
 import {
   BadRequestException,
@@ -77,9 +78,13 @@ export class AlternativeDataController {
   /**
    * Actors by id.
    *
-   * It exists so the Strategy Builder can render the name behind a saved `ACTOR` scope without
-   * guessing or searching for it. Ids are opaque, so an unknown one is simply absent from the result
-   * rather than an error.
+   * It exists so the Strategy Builder can render the names behind a saved selection without
+   * guessing or searching for them. Ids are opaque, so an unknown one is simply absent from the
+   * result rather than an error — which is also how a caller learns that a member it holds is no
+   * longer in the catalog.
+   *
+   * At most `ACTOR_RESOLVE_MAX_IDS` distinct ids per request: they travel in the query string, and
+   * a caller with more asks in batches.
    */
   @RateLimit("standard-read")
   @Get("actors/resolve")
@@ -87,23 +92,32 @@ export class AlternativeDataController {
   async resolveActors(
     @Query("ids") ids?: string,
   ): Promise<AlternativeDataActorResponse[]> {
-    const requested = (ids ?? "")
-      .split(",")
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0);
+    const requested = [
+      ...new Set(
+        (ids ?? "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+      ),
+    ];
     if (requested.length === 0) {
       return [];
+    }
+    if (requested.length > ACTOR_RESOLVE_MAX_IDS) {
+      throw new BadRequestException(
+        `Invalid request: ids may name at most ${ACTOR_RESOLVE_MAX_IDS} actors`,
+      );
     }
     return this.groups.findActors(requested);
   }
 }
 
 /**
- * Congress groups.
+ * Congress groups — **legacy** since 2026-10-11.
  *
- * A separate controller because they are a collection in their own right, mounted on their own path —
- * while the *product* presents them inside the Lists area rather than as a new top-level section, which
- * is a web-app composition decision and not an API one.
+ * No surface manages a group any more and a strategy write naming one is refused; the routes remain
+ * for strategies saved before then, whose rules still name a group and are converted through the
+ * Builder with the group's name and members read from here.
  *
  * Every rule here is the one `ListsController` follows: a Guest reads built-ins, a write needs a
  * session, another customer's group reads as missing, and a built-in is administrator-only and never

@@ -4,6 +4,7 @@ import type {
   AlternativeDataMetric,
 } from "@intrinsic/contracts";
 import {
+  actorScopeActorIds,
   alternativeDataMeasureDefinition,
   alternativeDataScope,
 } from "@intrinsic/contracts";
@@ -105,11 +106,13 @@ export type AlternativeDataServiceOptions = {
 };
 
 /**
- * Resolves an actor group's membership to canonical actor ids.
+ * Resolves a **legacy** actor group's membership to canonical actor ids.
  *
- * Injected rather than always read from the database, because a backtest must resolve a group from the
- * **frozen membership in its own snapshot**: editing a group later may never change a run that already
- * exists. A live surface passes nothing and gets the database-backed default.
+ * Only a `GROUP` scope needs it — a rule written since 2026-10-11 selects its actors itself and
+ * resolves nothing. Injected rather than always read from the database, because a backtest must
+ * resolve a group from the **frozen membership in its own snapshot**: editing a group later may never
+ * change a run that already exists. A live surface passes nothing and gets the database-backed
+ * default.
  */
 export type ActorGroupMembershipResolver = (
   groupId: string,
@@ -296,11 +299,11 @@ export class CanonicalAlternativeDataService {
       const coverage = coverageByDomain.get(domain) ?? null;
       const definition = alternativeDataMeasureDefinition(metric);
 
+      // Whose disclosures this column counts. `undefined` means every member; a list is a
+      // membership filter, and the disclosures of everyone in it are pooled into the one metric.
       let actorIds: readonly string[] | undefined;
       const scope = alternativeDataScope(metric);
-      if (scope?.kind === "ACTOR") {
-        actorIds = [scope.actorId];
-      } else if (scope?.kind === "GROUP") {
+      if (scope?.kind === "GROUP") {
         const cached = groupCache.get(scope.groupId);
         if (cached) {
           actorIds = cached;
@@ -309,6 +312,17 @@ export class CanonicalAlternativeDataService {
           groupCache.set(scope.groupId, members);
           actorIds = members;
         }
+      } else if (scope !== undefined && scope.kind !== "ANY") {
+        // A selection the rule holds itself. `actorScopeActorIds` refuses a scope kind this build
+        // does not define rather than answering for it, and a selection of nobody is refused here:
+        // either would otherwise read as "no member matched", a confident zero on every session.
+        const selected = actorScopeActorIds(scope);
+        if (selected === undefined || selected.length === 0) {
+          throw new Error(
+            `Alternative-data operand '${key}' selects no actor and cannot be evaluated`,
+          );
+        }
+        actorIds = selected;
       }
 
       const observations = await this.readObservations({

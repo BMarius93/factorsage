@@ -284,6 +284,24 @@ default instance, read `Insider sellers 20D` while the rest of the page read `18
 `describeMetricConfiguration` is the one rendering of configuration (lookback first, then whatever
 narrows the metric, filters in canonical order), and every surface prints the two side by side.
 
+A Congressional metric's scope is `ANY` or `ACTORS` — the members the rule selects, as a canonical
+(sorted, de-duplicated, 1–250) list of actor ids. The configuration dialog edits it with the shared
+`ActorCombobox`: a searchable multi-select whose chosen members are removable chips, folded past
+twelve so a long selection does not push Apply off the dialog. The dialog loads the names behind a
+saved selection when it opens (`GET /alternative-data/actors/resolve`, in batches of fifty), shows an
+id the catalog no longer holds as an unavailable chip that must be removed, and will not apply a
+selection of nobody. The summary names the first two members alphabetically and counts the rest
+(`30D · Nancy Pelosi, Ro Khanna +3`), and says `3 selected members` until the names resolve.
+
+Two shapes are **legacy** and never offered: `ACTOR` (one member), which normalization rewrites to a
+one-entry `ACTORS` under the same signature, and `GROUP` (a Congress group), which a stored version
+may still hold. A rule opened with a group scope shows the group's members as the selection, so one
+Apply converts it; the write boundary (`StrategiesService.assertScopesWritable`) refuses a `GROUP`
+on create, on edit and on duplicate, because the validator itself must keep accepting the shape for
+the stored versions and run snapshots that are re-read through it. The fingerprint a level persists
+uses `alternativeDataMetricFingerprint`, which is the signature for every shape that predates the
+selection and a digest of the ids for a selection of two or more.
+
 **Categories and ordering.** Metric options are categorized
 `PRICE → MOVING_AVERAGES → OSCILLATORS → VOLUME → VALUATION → FUNDAMENTALS → POSITION →
 INSIDER_ACTIVITY → CONGRESSIONAL_TRADING` (`STRATEGY_METRIC_CATEGORIES`, labels in

@@ -11,6 +11,7 @@ import {
   RedisStockDataCache,
 } from "@intrinsic/stock-data";
 import { pruneOrphanedFixtureBenchmarks } from "./benchmarks/seed-qa-benchmark-data";
+import { seedQaCongressMembers } from "./e2e-stack/seed-congress-members";
 import { seedQaMarketFixtures } from "./e2e-stack/seed-market-fixtures";
 import {
   assertQaSecuritySeedingAllowed,
@@ -22,7 +23,8 @@ import {
  * first of them needs so Stock Details can be exercised without a market-data provider, plus the
  * benchmark history a backtest compares against — the V1 benchmark is sourced from a real provider
  * symbol, so without it an E2E run would reach FMP — plus the market-reference index history the
- * Dashboard's overview cards read.
+ * Dashboard's overview cards read — plus three fictional members of Congress, so a Congressional
+ * Trading rule has somebody to select in a stack that ingests no disclosure.
  *
  * Targets **TEST_DATABASE_URL**, explicitly and only. These are fictional catalog rows and
  * synthetic market data — including S&P 500 bars written into the real benchmark series — so
@@ -78,6 +80,8 @@ async function seed(): Promise<void> {
         `${series.code} ready: ${series.tradingDays} sessions, ${series.from} to ${series.to}.`,
       );
     }
+    const members = await seedQaCongressMembers(prisma);
+    console.log(`${members.length} fixture members of Congress ready.`);
   } finally {
     redis.disconnect();
     await prisma.$disconnect();

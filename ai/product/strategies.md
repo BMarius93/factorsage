@@ -586,6 +586,16 @@ because a name that carried a lookback would be invalidated the moment the lookb
 point-in-time rule (a window is measured on the session a disclosure became _observable_, never on the
 transaction date) is not restated here.
 
+A Congressional rule counts **anyone**, or the **members it selects**: a searchable multi-select in
+the metric's configuration, stored in the rule as a canonical list of actor ids (1 to 250). Each rule
+has its own selection, so two rules of one metric may select different members and are different
+conditions. The selection is a **membership filter over one metric** — the selected members'
+disclosures are pooled and the measure aggregates the pool — and never an OR between rules evaluated
+per member: with one purchase each from two selected members, `Congress purchases is above 1` holds.
+A selection of nobody is refused, not read as "anyone" or as a rule that never matches. There are no
+reusable groups, presets or saved selections; Congress groups left the product on 2026-10-11 and
+survive only as a legacy scope that stored versions and run snapshots may still hold.
+
 The fifteen **Fundamental Metrics** of `../../docs/decisions/fundamental-metrics-v1.md` are the third
 condition-only family: that decision makes them Condition metrics only in V1. A value that changes
 only when a statement is published is a state, and a Monitor's not-matched -> matched transition

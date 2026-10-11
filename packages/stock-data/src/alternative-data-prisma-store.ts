@@ -46,6 +46,26 @@ import {
 /** Bind-parameter-safe chunk for a bulk insert of provider rows. */
 const WRITE_CHUNK = 500;
 
+/**
+ * How many partially matching actors a search reads before ranking them.
+ *
+ * A bound on one indexed read of a small reference table, not a page size: the ranked result is cut
+ * to the caller's own limit afterwards.
+ */
+const PARTIAL_MATCH_CANDIDATES = 200;
+
+/** Words of a search term long enough to be worth matching on their own. */
+function searchWords(term: string): string[] {
+  return [
+    ...new Set(
+      term
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((word) => word.length >= 2),
+    ),
+  ];
+}
+
 function toDatabaseDate(value: LocalDate): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -149,12 +169,30 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
     return ids;
   }
 
+  /**
+   * Actors matching a term — and, when the whole term matches nobody, the names that match some of
+   * its words.
+   *
+   * The fallback exists because a member's stored display name is whichever spelling the provider
+   * last sent, and that is not always the one a person types: the catalog holds "Rafael E Cruz" for
+   * the senator everybody searches for as "Ted Cruz". Matched whole, that term finds nobody, and an
+   * empty result reads as "this member is not here". Matching the words separately still surfaces
+   * him — by surname, with the chamber and state beside the name to recognize him by.
+   *
+   * It is a fallback and nothing more: a term that matches anybody whole returns exactly what it
+   * always returned, so a search that works is never diluted with near misses. It reads only the
+   * actor table and never a disclosure, so it changes nothing about what a metric counts.
+   */
   async searchActors(input: {
     term?: string;
     limit: number;
   }): Promise<PersistedAlternativeDataActor[]> {
     const term = input.term?.trim();
-    const rows = await this.prisma.alternativeDataActor.findMany({
+    const order = [
+      { displayName: "asc" as const },
+      { externalId: "asc" as const },
+    ];
+    const whole = await this.prisma.alternativeDataActor.findMany({
       where: term
         ? {
             OR: [
@@ -163,10 +201,36 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
             ],
           }
         : {},
-      orderBy: [{ displayName: "asc" }, { externalId: "asc" }],
+      orderBy: order,
       take: input.limit,
     });
-    return rows.map(actorResponse);
+    const words = term ? searchWords(term) : [];
+    if (whole.length > 0 || words.length < 2) {
+      return whole.map(actorResponse);
+    }
+
+    const partial = await this.prisma.alternativeDataActor.findMany({
+      where: {
+        OR: words.map((word) => ({
+          displayName: { contains: word, mode: "insensitive" as const },
+        })),
+      },
+      orderBy: order,
+      take: PARTIAL_MATCH_CANDIDATES,
+    });
+    const matchedWords = (displayName: string): number => {
+      const name = displayName.toLowerCase();
+      return words.filter((word) => name.includes(word)).length;
+    };
+    return (
+      partial
+        .map((row) => ({ row, matched: matchedWords(row.displayName) }))
+        // The read is already in name order and the sort is stable, so equal ranks stay
+        // alphabetical: the names sharing most words with the term come first.
+        .sort((left, right) => right.matched - left.matched)
+        .slice(0, input.limit)
+        .map((entry) => actorResponse(entry.row))
+    );
   }
 
   async findActorsByIds(

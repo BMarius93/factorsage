@@ -1,4 +1,5 @@
 import type { ContentOwnershipResponse } from "./builtins.js";
+import { sha256Hex } from "./digest.js";
 
 /**
  * The alternative-data product vocabulary: Insider Activity and Congressional Trading.
@@ -146,24 +147,100 @@ export function alternativeDataLookbackLabel(
 // Actor scope
 // ---------------------------------------------------------------------------
 
-export const ACTOR_SCOPE_KINDS = ["ANY", "ACTOR", "GROUP"] as const;
+/**
+ * Every scope shape a stored document may hold, current shapes first.
+ *
+ * `ACTOR` and `GROUP` are **legacy**: they are read and executed for as long as a strategy version
+ * or a backtest snapshot holds one, and nothing writes a new one (see {@link ActorScope}).
+ */
+export const ACTOR_SCOPE_KINDS = ["ANY", "ACTORS", "ACTOR", "GROUP"] as const;
 export type ActorScopeKind = (typeof ACTOR_SCOPE_KINDS)[number];
+
+/** The scope shapes the Builder offers. The legacy two are never offered, only read. */
+export const SELECTABLE_ACTOR_SCOPE_KINDS = [
+  "ANY",
+  "ACTORS",
+] as const satisfies readonly ActorScopeKind[];
+
+/**
+ * The most actors one `ACTORS` scope may select.
+ *
+ * A structural bound on the model, like `STRATEGY_MAX_BUY_LEVELS`, and deliberately **not** an
+ * entitlement. It equals {@link ACTOR_GROUP_MAX_MEMBERS}, so every group a legacy rule references can
+ * be embedded without losing a member.
+ */
+export const ACTOR_SCOPE_MAX_ACTORS = 250;
 
 /**
  * Whose activity a metric counts.
  *
- * Scope is a **filter over one metric**, never a metric of its own: there is no named-member signal,
- * only `Congress buyers` scoped to one member or to a group. That is what keeps the catalog small and
- * what lets a group be swapped without rewriting a strategy.
+ * Scope is a **membership filter over one metric**, never a metric of its own and never an OR
+ * between separately evaluated rules: the disclosures of every selected actor are pooled, and the
+ * measure aggregates the pool. `Congress purchases is above 1` scoped to two members who each
+ * disclosed one purchase is therefore true — the count is two.
  *
- * `actorId` and `groupId` are this product's own identifiers, resolved at the API boundary the same
- * way a Monitor's stock-list reference is. A backtest freezes a referenced group's membership into
- * its snapshot, so editing the group later cannot change a run that already exists.
+ * - `ANY` — every member of Congress.
+ * - `ACTORS` — the members the rule itself selects, by this product's own canonical actor ids. The
+ *   list is the rule: it is part of the strategy version, so nothing outside the strategy can change
+ *   what the rule counts. Canonically it is sorted and de-duplicated, holding between one and
+ *   {@link ACTOR_SCOPE_MAX_ACTORS} ids.
+ * - `ACTOR` — **legacy**: one member. It means exactly what a one-entry `ACTORS` means, and
+ *   normalization rewrites it to that; the two serialize identically, so no stored
+ *   `definitionHash` and no Monitor latch moves.
+ * - `GROUP` — **legacy**: a reusable Congress group, by id. Groups left the product on 2026-10-11.
+ *   A stored version or snapshot naming one still reads and still executes — a backtest from the
+ *   membership frozen in its snapshot, a Monitor from the group as it stands — but the write
+ *   boundary refuses a new one.
  */
 export type ActorScope =
   | { kind: "ANY" }
+  | { kind: "ACTORS"; actorIds: readonly string[] }
   | { kind: "ACTOR"; actorId: string }
   | { kind: "GROUP"; groupId: string };
+
+/**
+ * A list of actor ids in canonical form: de-duplicated and sorted by code unit.
+ *
+ * Deterministic on every runtime — no locale is consulted — so one selection written in any order
+ * persists, serializes and fingerprints once.
+ */
+export function canonicalActorIds(actorIds: readonly string[]): string[] {
+  return [...new Set(actorIds)].sort();
+}
+
+/**
+ * The canonical actor ids a scope selects, or `undefined` when it selects by something else — every
+ * member (`ANY`) or a group (`GROUP`), whose membership is not in the document.
+ *
+ * The one place `ACTOR` and `ACTORS` are read as the same thing.
+ */
+export function actorScopeActorIds(scope: ActorScope): string[] | undefined {
+  switch (scope.kind) {
+    case "ACTORS":
+      return canonicalActorIds(scope.actorIds);
+    case "ACTOR":
+      return [scope.actorId];
+    case "ANY":
+    case "GROUP":
+      return undefined;
+    default:
+      return refuseUnknownScope(scope);
+  }
+}
+
+/**
+ * Refuses a scope whose kind this build does not define.
+ *
+ * Reached only by a document a newer build wrote. It throws rather than falling through to a
+ * neighbouring shape, because the alternative is the failure this function exists to prevent: an
+ * unknown scope read as a group with no id resolves to nobody, and the rule then reports a
+ * confident zero for activity it never looked at.
+ */
+function refuseUnknownScope(scope: never): never {
+  throw new Error(
+    `Unsupported actor scope kind '${String((scope as { kind?: unknown }).kind)}'`,
+  );
+}
 
 export const CONGRESS_CHAMBER_FILTERS = ["ANY", "HOUSE", "SENATE"] as const;
 export type CongressChamberFilter =
@@ -478,10 +555,11 @@ export function alternativeDataScope(
 }
 
 /**
- * Every actor-group id a strategy definition references, deduplicated and sorted.
+ * Every **legacy** actor-group id a strategy definition references, deduplicated and sorted.
  *
- * The one place that question is answered: strategy validation resolves these against the caller's
- * groups, and a backtest submission freezes exactly these groups' membership into its snapshot.
+ * The one place that question is answered. A definition written since 2026-10-11 references none;
+ * for one saved before, a backtest submission freezes exactly these groups' membership into its
+ * snapshot, and the conversion command embeds exactly these groups' members into the rule.
  */
 export function collectActorGroupIds(
   metrics: Iterable<AlternativeDataMetric>,
@@ -496,15 +574,20 @@ export function collectActorGroupIds(
   return [...ids].sort();
 }
 
-/** Every specific actor id a strategy definition references, deduplicated and sorted. */
+/**
+ * Every actor id a strategy definition selects directly, deduplicated and sorted.
+ *
+ * Covers both the `ACTORS` list and the legacy single `ACTOR`; a group's members are not in the
+ * document and are not collected here.
+ */
 export function collectActorIds(
   metrics: Iterable<AlternativeDataMetric>,
 ): string[] {
   const ids = new Set<string>();
   for (const metric of metrics) {
     const scope = alternativeDataScope(metric);
-    if (scope?.kind === "ACTOR") {
-      ids.add(scope.actorId);
+    for (const actorId of scope ? (actorScopeActorIds(scope) ?? []) : []) {
+      ids.add(actorId);
     }
   }
   return [...ids].sort();
@@ -529,17 +612,84 @@ export function collectActorIds(
 export function alternativeDataMetricSignature(
   metric: AlternativeDataMetric,
 ): string {
+  return metricSignature(metric, scopeSignature);
+}
+
+/**
+ * The same serialization for a **fingerprint**: identical for every scope but a selection of two or
+ * more actors, which contributes its size and a digest of its ids instead of the ids themselves.
+ *
+ * A fingerprint is persisted — it becomes `StrategyVersion.definitionHash`, and a Monitor writes its
+ * level's fingerprint on every state row, Signal and transition — while a frame column's key lives
+ * only in memory. A selection of two hundred and fifty members would otherwise put about nine
+ * kilobytes into each of those rows. The digest is over the canonical id list, so it changes exactly
+ * when the selection does, which is the whole requirement: a different selection is different logic.
+ *
+ * It must **not** change what an existing document serializes to, and it does not: `ANY`, a group
+ * and a single actor read exactly as {@link alternativeDataMetricSignature} reads them. Nothing
+ * parses this string back; the parseable form is the signature.
+ */
+export function alternativeDataMetricFingerprint(
+  metric: AlternativeDataMetric,
+): string {
+  return metricSignature(metric, (scope) => {
+    const actorIds = actorScopeActorIds(scope);
+    return actorIds !== undefined && actorIds.length > 1
+      ? `${ACTORS_SIGNATURE_PREFIX}${actorIds.length}:${sha256Hex(actorIds.join(ACTOR_ID_SEPARATOR))}`
+      : scopeSignature(scope);
+  });
+}
+
+const ACTOR_SIGNATURE_PREFIX = "actor:";
+const ACTORS_SIGNATURE_PREFIX = "actors:";
+const GROUP_SIGNATURE_PREFIX = "group:";
+/** Joins the ids of a multi-actor scope. `isActorScopeId` keeps it, and `|`, out of every id. */
+const ACTOR_ID_SEPARATOR = "+";
+
+/**
+ * Whether a string may be an actor id inside an `ACTORS` scope.
+ *
+ * The signature joins fields with `|` and ids with `+`, so an id carrying either — or whitespace —
+ * could not be read back out of a frame column's key. A canonical actor id is a UUID and carries
+ * none of them; this only refuses text that could never have been one.
+ */
+export function isActorScopeId(value: unknown): value is string {
+  return typeof value === "string" && /^[^\s|+]+$/.test(value);
+}
+
+/**
+ * One scope's part of a signature.
+ *
+ * A selection of exactly one actor serializes as the legacy `actor:<id>` whichever shape holds it,
+ * for the same reason a single-rule FINAL EXIT fingerprints as schema version 1 did: the two mean
+ * the same thing, so a strategy saved before the multi-select existed keeps its `definitionHash`,
+ * its frame column and every Monitor latch keyed to it.
+ */
+function scopeSignature(scope: ActorScope): string {
+  if (scope.kind === "ANY") {
+    return "any";
+  }
+  if (scope.kind === "GROUP") {
+    return `${GROUP_SIGNATURE_PREFIX}${scope.groupId}`;
+  }
+  const actorIds = actorScopeActorIds(scope);
+  if (actorIds === undefined || actorIds.length === 0) {
+    // An `ACTORS` scope selecting nobody is not a rule the validator admits, and serializing it
+    // would give it a column — one that reads zero forever. Refused, like an unknown kind.
+    throw new Error("An actor scope must select at least one actor");
+  }
+  return actorIds.length === 1
+    ? `${ACTOR_SIGNATURE_PREFIX}${actorIds[0]}`
+    : `${ACTORS_SIGNATURE_PREFIX}${actorIds.join(ACTOR_ID_SEPARATOR)}`;
+}
+
+function metricSignature(
+  metric: AlternativeDataMetric,
+  serializeScope: (scope: ActorScope) => string,
+): string {
   const parts: string[] = [metric.kind, metric.measure, String(metric.lookback)];
   const scope = alternativeDataScope(metric);
-  parts.push(
-    scope === undefined
-      ? "-"
-      : scope.kind === "ANY"
-        ? "any"
-        : scope.kind === "ACTOR"
-          ? `actor:${scope.actorId}`
-          : `group:${scope.groupId}`,
-  );
+  parts.push(scope === undefined ? "-" : serializeScope(scope));
   if (metric.kind === "CONGRESS_ACTIVITY") {
     parts.push(metric.chamber);
     parts.push(
@@ -634,17 +784,37 @@ export function parseAlternativeDataMetricSignature(
   let scope: ActorScope;
   if (rawScope === "any") {
     scope = { kind: "ANY" };
-  } else if (rawScope.startsWith("actor:")) {
-    scope = { kind: "ACTOR", actorId: rawScope.slice("actor:".length) };
-  } else if (rawScope.startsWith("group:")) {
-    scope = { kind: "GROUP", groupId: rawScope.slice("group:".length) };
+  } else if (rawScope.startsWith(ACTOR_SIGNATURE_PREFIX)) {
+    // A single actor reads back in the canonical shape, whichever shape wrote it.
+    const actorId = rawScope.slice(ACTOR_SIGNATURE_PREFIX.length);
+    if (actorId.length === 0) {
+      return undefined;
+    }
+    scope = { kind: "ACTORS", actorIds: [actorId] };
+  } else if (rawScope.startsWith(ACTORS_SIGNATURE_PREFIX)) {
+    const actorIds = rawScope
+      .slice(ACTORS_SIGNATURE_PREFIX.length)
+      .split(ACTOR_ID_SEPARATOR);
+    // Exactly the canonical multi-actor form and nothing else: two or more ids, within the bound,
+    // already sorted and distinct. A key that is not what the serializer would have written is
+    // refused rather than repaired, so a drifted key can never address a column.
+    if (
+      actorIds.length < 2 ||
+      actorIds.length > ACTOR_SCOPE_MAX_ACTORS ||
+      !actorIds.every(isActorScopeId) ||
+      canonicalActorIds(actorIds).join(ACTOR_ID_SEPARATOR) !==
+        actorIds.join(ACTOR_ID_SEPARATOR)
+    ) {
+      return undefined;
+    }
+    scope = { kind: "ACTORS", actorIds };
+  } else if (rawScope.startsWith(GROUP_SIGNATURE_PREFIX)) {
+    const groupId = rawScope.slice(GROUP_SIGNATURE_PREFIX.length);
+    if (groupId.length === 0) {
+      return undefined;
+    }
+    scope = { kind: "GROUP", groupId };
   } else {
-    return undefined;
-  }
-  if (
-    (scope.kind === "ACTOR" && scope.actorId.length === 0) ||
-    (scope.kind === "GROUP" && scope.groupId.length === 0)
-  ) {
     return undefined;
   }
 
@@ -682,12 +852,19 @@ export function parseAlternativeDataMetricSignature(
 export function buildAlternativeDataMetric(
   metric: AlternativeDataMetric,
 ): AlternativeDataMetric {
-  const scope = (input: ActorScope): ActorScope =>
-    input.kind === "ANY"
-      ? { kind: "ANY" }
-      : input.kind === "ACTOR"
-        ? { kind: "ACTOR", actorId: input.actorId }
-        : { kind: "GROUP", groupId: input.groupId };
+  const scope = (input: ActorScope): ActorScope => {
+    if (input.kind === "ANY") {
+      return { kind: "ANY" };
+    }
+    if (input.kind === "GROUP") {
+      // Legacy, and kept exactly as stored: its membership is not in the document, so there is
+      // nothing here it could be rewritten to.
+      return { kind: "GROUP", groupId: input.groupId };
+    }
+    // A legacy single `ACTOR` becomes the one-entry selection it always meant. The signature — and
+    // therefore the fingerprint — is the same for both, so this moves no stored hash.
+    return { kind: "ACTORS", actorIds: actorScopeActorIds(input) ?? [] };
+  };
 
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
@@ -729,13 +906,23 @@ export function buildAlternativeDataMetric(
  * How a scope reads in the row's secondary line, given the names a surface has resolved.
  *
  * Names are a parameter rather than something this function looks up, because the identifier is the
- * identity and the label is presentation: the same stored metric renders "Superinvestors" in the
- * Builder and the frozen snapshot name in a completed backtest, from one function.
+ * identity and the label is presentation: the same stored metric renders the members' current names
+ * in the Builder and the names a completed backtest froze, from one function.
  */
 export type ActorScopeNames = {
-  actorName?: string;
+  /** Display names by actor id, for whichever of the scope's actors a surface has resolved. */
+  actorNames?: Readonly<Record<string, string>>;
   groupName?: string;
 };
+
+/**
+ * How many selected actors a summary names before it counts the rest.
+ *
+ * Two, because the line it sits on already carries a lookback and often a chamber and an owner list,
+ * and the Strategy Logic sidebar prints it for every rule. The dialog is where the whole selection is
+ * read; the summary only has to say whose activity this is.
+ */
+const ACTOR_SCOPE_NAMED_LIMIT = 2;
 
 export function describeActorScope(
   scope: ActorScope,
@@ -744,11 +931,44 @@ export function describeActorScope(
   switch (scope.kind) {
     case "ANY":
       return null;
+    case "ACTORS":
     case "ACTOR":
-      return names.actorName ?? "Selected actor";
+      return describeSelectedActors(
+        actorScopeActorIds(scope) ?? [],
+        names.actorNames,
+      );
     case "GROUP":
       return names.groupName ?? "Selected group";
+    default:
+      return refuseUnknownScope(scope);
   }
+}
+
+/**
+ * A selection in words: `Nancy Pelosi`, `Nancy Pelosi, Tommy Tuberville`,
+ * `Nancy Pelosi, Tommy Tuberville +3` — the first names alphabetically, then how many more.
+ *
+ * Names are sorted here rather than taken in id order, because an id is opaque and its order means
+ * nothing to a reader; sorted by code unit so the same selection reads the same on every runtime.
+ * A name that has not been resolved is counted, never invented: with none resolved the summary is
+ * `5 selected members`, which stays true while names are in flight and when one has gone.
+ */
+function describeSelectedActors(
+  actorIds: readonly string[],
+  actorNames: Readonly<Record<string, string>> | undefined,
+): string {
+  const resolved = actorIds
+    .map((actorId) => actorNames?.[actorId])
+    .filter((name): name is string => name !== undefined && name.length > 0)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  if (resolved.length === 0) {
+    return `${actorIds.length} selected ${actorIds.length === 1 ? "member" : "members"}`;
+  }
+  const named = resolved.slice(0, ACTOR_SCOPE_NAMED_LIMIT);
+  const remaining = actorIds.length - named.length;
+  return remaining > 0
+    ? `${named.join(", ")} +${remaining}`
+    : named.join(", ");
 }
 
 /**
@@ -759,7 +979,7 @@ export function describeActorScope(
  * `Insider sellers` reads `20D` or `180D` here and nowhere else. A scope, chamber, owner or role
  * filter appears only when one narrows the metric; "anyone" and "any chamber" add nothing.
  *
- * Examples: `20D`, `180D · CEO, CFO`, `30D · Congress Watchlist · Senate · Self, Spouse`.
+ * Examples: `20D`, `180D · CEO, CFO`, `30D · Nancy Pelosi, Ro Khanna +3 · Senate · Self, Spouse`.
  */
 export function describeAlternativeDataConfiguration(
   metric: AlternativeDataMetric,
@@ -823,6 +1043,25 @@ export type AlternativeDataActorResponse = {
 export const ACTOR_SEARCH_MIN_TERM_LENGTH = 2;
 export const ACTOR_SEARCH_DEFAULT_LIMIT = 20;
 export const ACTOR_SEARCH_MAX_LIMIT = 50;
+/**
+ * Actor ids one `GET /alternative-data/actors/resolve` request may name.
+ *
+ * The ids travel in the query string, and a selection can hold {@link ACTOR_SCOPE_MAX_ACTORS} of
+ * them — about nine kilobytes of URL, more than a proxy in front of the API need accept. A client
+ * resolving a larger set asks in batches of this size; the bound keeps one request around two
+ * kilobytes.
+ */
+export const ACTOR_RESOLVE_MAX_IDS = 50;
+
+// ---------------------------------------------------------------------------
+// Congress groups — legacy
+//
+// Groups left the product on 2026-10-11: a rule selects its members itself (`ActorScope` `ACTORS`),
+// no surface manages a group and a strategy write naming one is refused. The contracts below stay
+// because the routes do, and the routes stay because strategy versions saved before then still name
+// groups: the Builder reads a legacy group's name and members through them to offer the rule's
+// conversion. `docs/development/congress-group-scope-conversion.md` says when they can go.
+// ---------------------------------------------------------------------------
 
 export const ACTOR_GROUP_NAME_MAX_LENGTH = 120;
 export const ACTOR_GROUP_DESCRIPTION_MAX_LENGTH = 500;
@@ -865,10 +1104,3 @@ export type UpdateActorGroupRequest = {
 export type AddActorGroupMembersRequest = {
   actorIds: string[];
 };
-
-/**
- * The one product label for the actor-group collection, used as the Lists area's section heading.
- *
- * A constant rather than a per-kind map: V1 has one kind of group.
- */
-export const ACTOR_GROUP_COLLECTION_LABEL = "Congress groups" as const;

@@ -156,17 +156,20 @@ Strategy or Stock List — a configuration boundary, fenced against an in-flight
 `Monitor.configVersion`; `product/monitors.md` and `architecture/monitor-engine.md` own the
 semantics.
 
-For insider activity, congressional trading, actor groups or anything that scopes a strategy rule to
-a named actor, read `../docs/alternative-data-signals.md`: it is the accepted product decision **and**
+For insider activity, congressional trading or anything that scopes a strategy rule to named
+members of Congress, read `../docs/alternative-data-signals.md`: it is the accepted product decision **and**
 the record of the implementation clarifications and provider limitations found while building it — why
 a lookback is measured on the session a disclosure became observable rather than on the transaction
 date, why a metric outside ingested coverage is `NOT_EVALUABLE` rather than zero, which FMP endpoints
 accept no date range, and why Institutional Form 13F is out of V1 entirely (every
 `institutional-ownership/*` endpoint is restricted on the current subscription). Then read
 `product/strategies.md` for where the two metric families sit in the compatibility matrix, and
-`AGENTS.md` invariant 23 for the rules a change must not break. The groups live in the Lists product
-area rather than in new top-level navigation, and a backtest freezes a referenced group's membership
-into its snapshot.
+`AGENTS.md` invariant 23 for the rules a change must not break. A Congressional rule selects the
+members it counts directly, in the Strategy Builder; the selection is stored in the rule as actor ids
+and pooled into one metric. Congress groups are **legacy** since 2026-10-11 — nothing manages or
+writes one, while stored strategy versions and run snapshots that name one still read and execute.
+`../docs/development/congress-group-scope-conversion.md` is the runbook for that compatibility: what
+must keep working, the deploy order, and the operator's conversion command.
 
 For anything to do with HTTP rate limiting, `429` responses, client-IP or proxy assumptions, the
 Redis-failure policy, or outbound FMP provider throttling, read `architecture/rate-limiting.md`. It

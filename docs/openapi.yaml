@@ -2413,7 +2413,7 @@ paths:
               schema: { $ref: "#/components/schemas/BillingError" }
 
   # -----------------------------------------------------------------------------------------------
-  # Alternative data: the canonical actor catalog and the groups over it
+  # Alternative data: the canonical actor catalog, and the legacy groups over it
   # -----------------------------------------------------------------------------------------------
   /alternative-data/actors:
     get:
@@ -2427,6 +2427,15 @@ paths:
 
         A term shorter than two characters is treated as no term rather than as an error, and returns
         the first page in name order so the picker opens on something.
+
+        When a term of several words matches nobody whole, the members whose names share some of its
+        words are returned instead, those sharing most first. A member's stored name is whichever
+        spelling the provider last sent, which is not always the one a person types; a term that
+        matches anybody whole returns exactly those matches and nothing else.
+
+        **The catalog is not every member of Congress.** It holds the members who appear in the
+        disclosures FactorSage has loaded so far, and it grows as more securities' disclosure history
+        is loaded. An empty result does not mean the member does not exist.
       x-rate-limit: { policy: stock-search }
       parameters:
         - name: q
@@ -2456,13 +2465,17 @@ paths:
       summary: Actors by id.
       description: |
         Labels the actors a saved strategy references without searching for them. Ids are opaque, so an
-        unknown id is simply absent from the result rather than an error.
+        unknown id is simply absent from the result rather than an error — which is also how a client
+        learns that a member a rule selects is no longer in the catalog.
+
+        One request names at most 50 distinct ids; a repeated id counts once. A rule can select up to
+        250 members, so a client resolving a larger set asks in batches.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: ids
           in: query
-          description: Comma-separated actor ids.
-          schema: { type: string, maxLength: 4096 }
+          description: Comma-separated actor ids, at most 50 distinct.
+          schema: { type: string, maxLength: 2048 }
       responses:
         "200":
           description: The actors that exist, in name order.
@@ -2472,6 +2485,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/AlternativeDataActor" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -2479,10 +2493,16 @@ paths:
     get:
       tags: [Alternative data]
       operationId: listActorGroups
+      deprecated: true
       summary: The built-in actor groups, then the caller's own.
       description: |
-        Readable without a session: a Guest receives the built-in (`SYSTEM`) groups only. The product
-        presents them as the Congress groups collection inside the Lists area.
+        **Legacy.** Congress groups left the product on 2026-10-11: a rule now selects the members it
+        counts (`ActorScope` `ACTORS`), no surface manages groups, and a strategy write naming one is
+        refused. The group routes remain for strategies saved before then, which still name a group
+        until they are edited or converted — this one supplies the group's name, and the detail route
+        its members so the rule can be turned into a selection.
+
+        Readable without a session: a Guest receives the built-in (`SYSTEM`) groups only.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
@@ -2500,8 +2520,12 @@ paths:
     post:
       tags: [Alternative data]
       operationId: createActorGroup
+      deprecated: true
       summary: Create an actor group.
       description: |
+        **Legacy** — see `listActorGroups`. A group created now can be referenced by no new strategy
+        write.
+
         A group is an explicit list of members of Congress. Membership is never inferred from a
         committee or a ranking, and a backtest freezes it at submission.
       security: [{ cookieAuth: [] }]
@@ -2535,6 +2559,7 @@ paths:
     get:
       tags: [Alternative data]
       operationId: getActorGroup
+      deprecated: true
       summary: One actor group with its members.
       description: Readable without a session for a built-in group; a customer group needs its owner.
       x-rate-limit: { policy: standard-read }
@@ -2552,6 +2577,7 @@ paths:
     patch:
       tags: [Alternative data]
       operationId: updateActorGroup
+      deprecated: true
       summary: Rename a group or change its description.
       description: |
         At least one of `name` or `description` must be present. `description: null` clears it. The
@@ -2580,6 +2606,7 @@ paths:
     delete:
       tags: [Alternative data]
       operationId: deleteActorGroup
+      deprecated: true
       summary: Delete an actor group.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
@@ -2606,6 +2633,7 @@ paths:
     post:
       tags: [Alternative data]
       operationId: addActorGroupMembers
+      deprecated: true
       summary: Add actors to a group.
       description: |
         Idempotent — actors already in the group are skipped — so the handler reconciles state rather
@@ -2638,6 +2666,7 @@ paths:
     delete:
       tags: [Alternative data]
       operationId: removeActorGroupMember
+      deprecated: true
       summary: Remove one actor from a group.
       description: Removing an actor that is not a member is a no-op, so a retry is harmless.
       security: [{ cookieAuth: [] }]
@@ -4229,13 +4258,38 @@ components:
 
     ActorScope:
       description: |
-        Whose activity a congressional metric counts. `ACTOR` and `GROUP` name this product's own
-        canonical ids; one that does not exist, or a group the caller may not read, is refused with
-        `SCOPE_INVALID`. A backtest freezes a referenced group's membership at submission.
+        Whose activity a congressional metric counts. A scope is a **membership filter over one
+        metric**, never an OR between separately evaluated rules: the disclosures of every selected
+        member are pooled and the measure aggregates the pool, so `Congress purchases is above 1`
+        scoped to two members who each disclosed one purchase is true.
+
+        - `ANY` — every member of Congress.
+        - `ACTORS` — the members the rule selects, by this product's own canonical actor ids
+          (`GET /alternative-data/actors`). Between 1 and 250; duplicates are collapsed and the list
+          is stored sorted. An id the catalog does not hold is refused with `SCOPE_INVALID`.
+        - `ACTOR` — **legacy**, read only: one member. It means exactly what a one-entry `ACTORS`
+          means and is returned as that; a write naming it is stored as that.
+        - `GROUP` — **legacy**, read only: a Congress group, by id. A strategy version or a backtest
+          run saved before 2026-10-11 may still hold one and is still served and executed — a
+          backtest from the membership frozen in its snapshot. A strategy **write** holding one is
+          refused with `SCOPE_INVALID`, whether typed, carried over from the version being edited or
+          copied by a duplicate.
       oneOf:
         - type: object
           required: [kind]
           properties: { kind: { type: string, const: ANY } }
+        - type: object
+          required: [kind, actorIds]
+          properties:
+            kind: { type: string, const: ACTORS }
+            actorIds:
+              type: array
+              minItems: 1
+              maxItems: 250
+              description: |
+                Canonical actor ids. Never empty: every member is `ANY`, and a rule that selects
+                nobody is refused rather than read as a rule that never matches.
+              items: { type: string, format: uuid }
         - type: object
           required: [kind, actorId]
           properties:

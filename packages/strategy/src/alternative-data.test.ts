@@ -623,3 +623,133 @@ describe("chunked windows agree with the whole period", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Directly selected members
+// ---------------------------------------------------------------------------
+
+describe("a selection of members", () => {
+  const scopedTo = (
+    scope: Extract<AlternativeDataMetric, { kind: "CONGRESS_ACTIVITY" }>["scope"],
+  ): AlternativeDataMetric => ({
+    kind: "CONGRESS_ACTIVITY",
+    measure: "PURCHASES",
+    lookback: 30,
+    scope,
+    chamber: "ANY",
+  });
+
+  it("addresses one column however the selection was written", () => {
+    const key = alternativeDataOperand(
+      scopedTo({ kind: "ACTORS", actorIds: ["m-2", "m-1", "m-2"] }),
+    );
+    expect(key).toBe(
+      alternativeDataOperand(
+        scopedTo({ kind: "ACTORS", actorIds: ["m-1", "m-2"] }),
+      ),
+    );
+    // The key carries the selection, so the loader needs nothing but the key to know whom to read.
+    expect(operandAlternativeDataMetric(key)).toEqual(
+      scopedTo({ kind: "ACTORS", actorIds: ["m-1", "m-2"] }),
+    );
+  });
+
+  it("shares its column with the legacy single-actor rule it replaces", () => {
+    const legacy = alternativeDataOperand(
+      scopedTo({ kind: "ACTOR", actorId: "m-1" }),
+    );
+    const selected = alternativeDataOperand(
+      scopedTo({ kind: "ACTORS", actorIds: ["m-1"] }),
+    );
+    expect(selected).toBe(legacy);
+    expect(operandAlternativeDataMetric(legacy)).toEqual(
+      scopedTo({ kind: "ACTORS", actorIds: ["m-1"] }),
+    );
+  });
+
+  it("gives two different selections two columns", () => {
+    const keys = new Set(
+      [
+        scopedTo({ kind: "ANY" }),
+        scopedTo({ kind: "ACTORS", actorIds: ["m-1"] }),
+        scopedTo({ kind: "ACTORS", actorIds: ["m-2"] }),
+        scopedTo({ kind: "ACTORS", actorIds: ["m-1", "m-2"] }),
+        scopedTo({ kind: "GROUP", groupId: "group-1" }),
+      ].map(alternativeDataOperand),
+    );
+    expect(keys.size).toBe(5);
+  });
+
+  it("refuses to build a key for a scope it cannot interpret", () => {
+    expect(() =>
+      alternativeDataOperand(
+        scopedTo({ kind: "COMMITTEE" } as unknown as { kind: "ANY" }),
+      ),
+    ).toThrow(/Unsupported actor scope kind/);
+  });
+
+  it("is collected and requested like any other configured metric", () => {
+    const metric = scopedTo({ kind: "ACTORS", actorIds: ["m-2", "m-1"] });
+    const operands = collectOperands({
+      schemaVersion: 2,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 100,
+          signal: {
+            conditions: [
+              {
+                id: "c1",
+                metric,
+                operator: "IS_ABOVE",
+                value: { kind: "NUMBER", value: 1 },
+              },
+            ],
+          },
+        },
+      ],
+      sellLevels: [],
+    });
+    expect(operands).toContain(alternativeDataOperand(metric));
+    expect(requiredAlternativeDataLeadingSessions(operands)).toBe(30);
+    expect(
+      alternativeDataRequests(operands).map((request) => request.metric),
+    ).toEqual([scopedTo({ kind: "ACTORS", actorIds: ["m-1", "m-2"] })]);
+  });
+
+  /**
+   * The selection is a membership filter and the measure aggregates the pool. With one purchase
+   * each from two selected members, `Congress purchases is above 1` holds — the count is two — where
+   * an OR between two separately evaluated rules would never hold, each side being one.
+   */
+  it("pools the selected members' disclosures into one metric", () => {
+    const pooled: AlternativeDataObservation[] = [
+      { observableFrom: "2026-03-03", actorKey: "m-1", amount: 1_001 },
+      { observableFrom: "2026-03-04", actorKey: "m-2", amount: 15_001 },
+    ];
+    const read = (
+      aggregation: "EVENT_COUNT" | "DISTINCT_ACTORS" | "SUM_AMOUNT",
+      observations: readonly AlternativeDataObservation[],
+    ) => column({ aggregation, observations, lookbackSessions: 5 });
+
+    const events = read("EVENT_COUNT", pooled);
+    expect(events.slice(4, 6)).toEqual([2, 2]);
+    expect(read("DISTINCT_ACTORS", pooled).slice(4, 6)).toEqual([2, 2]);
+    expect(read("SUM_AMOUNT", pooled).slice(4, 6)).toEqual([16_002, 16_002]);
+
+    const isAboveOne = (values: number[]) =>
+      values.map((value) =>
+        evaluateConditionValues("IS_ABOVE", value, 1),
+      );
+    // Pooled: true once both disclosures are inside the window.
+    expect(isAboveOne(events)[4]).toBe(Evaluability.TRUE);
+    // Each member alone never clears the threshold, so ORing the two would never be true.
+    for (const alone of [[pooled[0]!], [pooled[1]!]]) {
+      expect(
+        isAboveOne(read("EVENT_COUNT", alone)).filter(
+          (result) => result === Evaluability.TRUE,
+        ),
+      ).toEqual([]);
+    }
+  });
+});

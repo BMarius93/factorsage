@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  actorScopeActorIds,
   alternativeDataScope,
-  collectActorGroupIds,
   collectActorIds,
   collectAlternativeDataMetrics,
   emptyStrategyDefinition,
@@ -161,44 +161,41 @@ export class StrategiesService {
     return rows.map((row) => summaryOf(row, readDefinition(row), viewer));
   }
 
-  /** The Strategy a viewer asked to change: 404 when unreadable, 403 when a read-only built-in. */
   /**
-   * Every actor and actor group an alternative-data rule references must exist and be readable.
+   * What a definition must satisfy to be **written**, beyond being well-formed.
    *
    * The canonical validator in `@intrinsic/contracts` is pure, so it can check that a scope is
-   * *well-formed* but never that the thing it names is real — exactly as it can check a `Value` but not
-   * whether a `Security` exists. This is that second half, and it lives at the write boundary for the
-   * same reason `assertSecuritiesSupported` does.
+   * well-formed but never that the members it names are real — exactly as it can check a `Value`
+   * but not whether a `Security` exists. This is that second half, and it lives at the write
+   * boundary for the same reason `assertSecuritiesSupported` does. Two rules:
    *
-   * Reported as an invalid strategy with the canonical `SCOPE_INVALID` code and a path, so the Builder
-   * renders it inline against the row that carries it rather than as a banner.
+   * 1. **Every selected member exists in the actor catalog.** The catalog is platform reference
+   *    data with no owner, so there is nothing to be "accessible" beyond existing in it.
+   * 2. **No Congress group.** Groups left the product on 2026-10-11. A stored version naming one
+   *    still reads and still executes, which is why the validator itself keeps accepting the
+   *    shape — but nothing may write another, whether typed into a request, carried over from the
+   *    version being edited, or copied from a strategy being duplicated. The Builder's
+   *    configuration dialog offers the group's members as a selection, so the way forward is one
+   *    Apply rather than a dead end.
+   *
+   * Reported as an invalid strategy with the canonical `SCOPE_INVALID` code and a path, so the
+   * Builder renders it as a validation issue rather than as a failed request.
    */
-  private async assertScopeReferencesResolvable(
-    user: AuthUser,
+  private async assertScopesWritable(
     definition: StrategyDefinition,
   ): Promise<void> {
     const metrics = collectAlternativeDataMetrics(definition);
-    const groupIds = collectActorGroupIds(metrics);
     const actorIds = collectActorIds(metrics);
-    if (groupIds.length === 0 && actorIds.length === 0) {
-      return;
-    }
-    const [groups, actors] = await Promise.all([
-      groupIds.length === 0
-        ? Promise.resolve([])
-        : this.prisma.actorGroup.findMany({
-            where: { id: { in: groupIds }, ...readableWhere(user) },
-            select: { id: true, name: true },
-          }),
+    const known = new Set(
       actorIds.length === 0
-        ? Promise.resolve([])
-        : this.prisma.alternativeDataActor.findMany({
-            where: { id: { in: actorIds } },
-            select: { id: true },
-          }),
-    ]);
-    const groupById = new Map(groups.map((group) => [group.id, group]));
-    const actorById = new Map(actors.map((actor) => [actor.id, actor]));
+        ? []
+        : (
+            await this.prisma.alternativeDataActor.findMany({
+              where: { id: { in: actorIds } },
+              select: { id: true },
+            })
+          ).map((actor) => actor.id),
+    );
 
     const issues: StrategyValidationIssue[] = [];
     for (const metric of metrics) {
@@ -207,20 +204,24 @@ export class StrategiesService {
         continue;
       }
       if (scope.kind === "GROUP") {
-        if (!groupById.has(scope.groupId)) {
-          issues.push({
-            code: "SCOPE_INVALID",
-            path: { part: "STRATEGY" },
-            message: `${strategyMetricLabel(metric)} references a group that is not available.`,
-          });
-        }
-        continue;
-      }
-      if (!actorById.has(scope.actorId)) {
         issues.push({
           code: "SCOPE_INVALID",
           path: { part: "STRATEGY" },
-          message: `${strategyMetricLabel(metric)} references an actor that is not available.`,
+          message: `${strategyMetricLabel(metric)} uses a Congress group, and groups are no longer supported. Open its configuration and choose the members it counts.`,
+        });
+        continue;
+      }
+      const missing = (actorScopeActorIds(scope) ?? []).filter(
+        (actorId) => !known.has(actorId),
+      );
+      if (missing.length > 0) {
+        issues.push({
+          code: "SCOPE_INVALID",
+          path: { part: "STRATEGY" },
+          message:
+            missing.length === 1
+              ? `${strategyMetricLabel(metric)} selects a member of Congress who is not available.`
+              : `${strategyMetricLabel(metric)} selects ${missing.length} members of Congress who are not available.`,
         });
       }
     }
@@ -229,6 +230,7 @@ export class StrategiesService {
     }
   }
 
+  /** The Strategy a viewer asked to change: 404 when unreadable, 403 when a read-only built-in. */
   private async findMutable(
     db: Pick<PrismaService, "strategy">,
     viewer: AuthUser,
@@ -267,7 +269,7 @@ export class StrategiesService {
     const definition = normalizeStrategyDefinition(
       input.definition ?? emptyStrategyDefinition(),
     );
-    await this.assertScopeReferencesResolvable(user, definition);
+    await this.assertScopesWritable(definition);
 
     const row = await this.prisma.strategy.create({
       data: {
@@ -328,6 +330,10 @@ export class StrategiesService {
     const definition = normalizeStrategyDefinition(
       rekeyStrategyDefinition(readDefinition(source), randomUUID),
     );
+    // A copy is a write like any other. The one thing it can carry that a fresh strategy cannot is
+    // a legacy Congress group, from a source saved before groups left; copying it would mint a new
+    // reference to something the product no longer has.
+    await this.assertScopesWritable(definition);
 
     const row = await this.prisma.strategy.create({
       data: {
@@ -423,7 +429,7 @@ export class StrategiesService {
   ): Promise<StrategyDetailResponse> {
     const userId = user.id;
     const definition = normalizeStrategyDefinition(submitted);
-    await this.assertScopeReferencesResolvable(user, definition);
+    await this.assertScopesWritable(definition);
 
     const { row, appended } = await this.prisma.$transaction(async (tx) => {
       const target = await this.findMutable(tx, user, strategyId);

@@ -1,7 +1,10 @@
 import {
+  asAlternativeDataMetric,
+  collectActorIds,
   describeCondition,
   describeTrigger,
   normalizeStrategyDefinition,
+  type AlternativeDataMetric,
   type AuthUser,
   type DashboardFreshness,
   type DashboardMonitorResponse,
@@ -10,6 +13,7 @@ import {
   type DashboardRowResponse,
   type MonitorEligibility,
   type StrategyDefinition,
+  type StrategyScopeNames,
   type StrategySignal,
 } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -129,6 +133,7 @@ export class DashboardService {
         ),
       );
     }
+    const scopeNames = await this.scopeNamesOf(levelsByMonitor);
 
     const states = await this.prisma.monitorSignalState.findMany({
       where: {
@@ -236,10 +241,10 @@ export class DashboardService {
       ).map((rule) => ({
         ...(rule.exitRule === undefined ? {} : { exitRule: rule.exitRule }),
         conditions: rule.signal.conditions.map((condition) =>
-          describeCondition(condition),
+          describeCondition(condition, scopeNames),
         ),
         ...(rule.signal.trigger
-          ? { trigger: describeTrigger(rule.signal.trigger) }
+          ? { trigger: describeTrigger(rule.signal.trigger, scopeNames) }
           : {}),
         waitingForTrigger:
           ruleStates[rule.key]?.state === "PENDING_TRIGGER" || !active,
@@ -373,6 +378,50 @@ export class DashboardService {
     return now.getTime() - lastScanAt.getTime() > this.options.staleAfterMs
       ? "STALE"
       : "CURRENT";
+  }
+
+  /**
+   * The names of the members of Congress the described rules select, in one read for the page.
+   *
+   * A rule scoped to members stores their ids, so without this a reason reads
+   * `Congress buyers is above 0 (30D · 2 selected members)` where the rule plainly names two
+   * people. The actor catalog is platform reference data — it is served without a session on
+   * `/alternative-data/actors` — so reading a name from it reveals nothing a Guest could not
+   * already see. A legacy group's name is deliberately not resolved here: a group belongs to
+   * somebody, and a Dashboard row is not the place to decide who may read its name.
+   */
+  private async scopeNamesOf(
+    levelsByMonitor: ReadonlyMap<string, ReadonlyMap<string, LevelDescription>>,
+  ): Promise<StrategyScopeNames> {
+    const metrics: AlternativeDataMetric[] = [];
+    for (const levels of levelsByMonitor.values()) {
+      for (const level of levels.values()) {
+        for (const rule of level.rules) {
+          for (const predicate of [
+            ...rule.signal.conditions,
+            ...(rule.signal.trigger ? [rule.signal.trigger] : []),
+          ]) {
+            const metric = asAlternativeDataMetric(predicate.metric);
+            if (metric) {
+              metrics.push(metric);
+            }
+          }
+        }
+      }
+    }
+    const actorIds = collectActorIds(metrics);
+    if (actorIds.length === 0) {
+      return {};
+    }
+    const actors = await this.prisma.alternativeDataActor.findMany({
+      where: { id: { in: actorIds } },
+      select: { id: true, displayName: true },
+    });
+    return {
+      actors: Object.fromEntries(
+        actors.map((actor) => [actor.id, actor.displayName]),
+      ),
+    };
   }
 
   /**
