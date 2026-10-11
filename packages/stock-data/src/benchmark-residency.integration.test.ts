@@ -27,6 +27,7 @@ import {
 import type { RedisCacheClient } from "./cache.js";
 import {
   InMemoryLoadCoordinator,
+  RedlockLoadCoordinator,
   type LoadCoordinator,
 } from "./coordination.js";
 import { addDays } from "./dates.js";
@@ -531,6 +532,58 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       expect(history.rows.at(-1)?.date).toBe(TODAY);
       expect(cacheEvents.map((event) => event.outcome)).toContain("FAILED");
     });
+
+    it("does not make a read wait out the hydration lock before it answers from PostgreSQL", async () => {
+      await bootstrap();
+      await clearRedis();
+      cacheEvents = [];
+      // The real coordinator. Another process holds this series' hydration lock for as long as
+      // the read is outstanding: a slow provider read, a rebuild, or — the same thing to a
+      // reader — a Redis that answers reads but grants no lock at all.
+      const resource = `benchmark:hydrate:${series.id}`;
+      let release = (): void => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let held = (): void => {};
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      const holder = new RedlockLoadCoordinator(redis, {
+        lockDurationMs: 30_000,
+        lockWaitMs: 30_000,
+      }).run(resource, async () => {
+        held();
+        await released;
+      });
+      await holding;
+      try {
+        const reader = serviceWith(new HistoryProvider(), NOW, {
+          // The loader's own patience for this lock, shortened from the production two minutes
+          // only so that a regression fails in seconds.
+          coordinator: new RedlockLoadCoordinator(redis, {
+            lockDurationMs: 30_000,
+            lockWaitMs: 8_000,
+          }),
+        });
+        const started = Date.now();
+        const history = await reader.readBenchmarkHistory(series, {
+          from: "2026-10-01",
+          to: TODAY,
+        });
+        const elapsedMs = Date.now() - started;
+
+        // PostgreSQL had the answer the whole time. A provider-free read must not hold a request
+        // for as long as a hydration is willing to wait for the same lock.
+        expect(history).toMatchObject({ source: "POSTGRESQL", missing: [] });
+        expect(history.rows.at(-1)?.date).toBe(TODAY);
+        expect(elapsedMs).toBeLessThan(3_000);
+        expect(cacheEvents.map((event) => event.outcome)).toContain("FAILED");
+      } finally {
+        release();
+        await holder;
+      }
+    }, 20_000);
 
     it("reads a single session, and nothing for a day the market did not trade", async () => {
       await bootstrap();
