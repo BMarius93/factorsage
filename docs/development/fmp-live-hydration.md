@@ -353,6 +353,13 @@ profile`, `Refused requests: none`, and all three hydration steps `completed`. R
 `Provider requests: N sent of a budget of 200` and the per-dataset counts, in particular the
 insider and congressional page counts: they are the unmeasured part of the budget.
 
+If a step fails, its line carries the reason as a fixed code in brackets. `[HTTP 401]` or
+`[HTTP 403]` is the key or the plan; `[UNABLE_TO_VERIFY_LEAF_SIGNATURE]` or
+`[SELF_SIGNED_CERT_IN_CHAIN]` is a certificate the process does not trust, which is what a missing
+`NODE_EXTRA_CA_CERTS` looks like; `[ECONNREFUSED]`, `[ENOTFOUND]` or a timeout is a network that
+does not let the process out directly, which is the allowlist or a sandbox that requires a proxy
+this command deliberately does not use.
+
 A cold security takes from a few seconds to about half a minute. The time is mostly the shared
 gate, not the provider: a request that finds the gate full waits until the oldest holder's lease
 would expire.

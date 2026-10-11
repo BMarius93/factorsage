@@ -17,6 +17,7 @@ import type {
 import type { LiveFmpProcessEnvironment } from "./fmp-live-environment";
 import type { LiveFmpRunGuard } from "./fmp-live-guard";
 import {
+  describeLiveFmpError,
   runLiveFmpHydration,
   type LiveFmpLoaders,
   type LiveFmpSecurityResult,
@@ -119,7 +120,7 @@ export async function executeLiveFmpRun(input: {
       resolved: [],
       unresolved: symbols.map((symbol) => ({
         symbol,
-        reason: `resolution stopped before it was complete (${error.name}: ${error.message})`,
+        reason: `resolution stopped before it was complete (${describeLiveFmpError(error)})`,
       })),
     };
   }

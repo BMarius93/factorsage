@@ -3,6 +3,7 @@ import type { Security } from "@intrinsic/domain";
 import {
   FmpRequestBudgetExhaustedError,
   FmpSecurityScope,
+  FmpTransientError,
   FmpUnauthorizedError,
   type FmpRequestBudget,
 } from "@intrinsic/fmp";
@@ -12,7 +13,10 @@ import { describe, expect, it, vi } from "vitest";
 import { parseLiveFmpArguments } from "./fmp-live-arguments";
 import { describeLiveFmpProcessEnvironment } from "./fmp-live-environment";
 import { LiveFmpRunGuard } from "./fmp-live-guard";
-import type { LiveFmpLoaders } from "./fmp-live-hydration";
+import {
+  describeLiveFmpError,
+  type LiveFmpLoaders,
+} from "./fmp-live-hydration";
 import { LIVE_FMP_EXIT_CODES, formatLiveFmpReport } from "./fmp-live-report";
 import {
   executeLiveFmpRun,
@@ -425,10 +429,55 @@ describe("a live FMP run", () => {
       {
         symbol: "AAPL",
         reason:
-          "resolution stopped before it was complete (FmpUnauthorizedError: Stock data provider authentication failed)",
+          "resolution stopped before it was complete (FmpUnauthorizedError: Stock data provider authentication failed [HTTP 401])",
       },
     ]);
     expect(h.calls).toEqual([]);
+  });
+
+  it("says why the provider could not be reached, by code and never by a cause's text", async () => {
+    // What a child that does not trust the certificate it is shown produces: the client's
+    // "temporarily unavailable", whose cause is fetch's error, whose cause carries the code.
+    const untrusted = new FmpTransientError(undefined, {
+      cause: new TypeError("fetch failed", {
+        cause: Object.assign(
+          new Error(
+            "unable to verify the first certificate; host=secret.internal",
+          ),
+          { code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE" },
+        ),
+      }),
+    });
+    expect(describeLiveFmpError(untrusted)).toBe(
+      "FmpTransientError: Stock data provider is temporarily unavailable [UNABLE_TO_VERIFY_LEAF_SIGNATURE]",
+    );
+    expect(describeLiveFmpError(new FmpTransientError(503))).toBe(
+      "FmpTransientError: Stock data provider is temporarily unavailable [HTTP 503]",
+    );
+    expect(describeLiveFmpError(new Error("plain"))).toBe("Error: plain");
+    expect(describeLiveFmpError("not an error")).toBe("Unknown error");
+    // A code that is not a fixed word is not printed.
+    expect(
+      describeLiveFmpError(
+        Object.assign(new Error("odd"), { code: "see https://x.example/?k=1" }),
+      ),
+    ).toBe("Error: odd");
+
+    const h = harness({
+      symbols: ["AAPL"],
+      loaders: {
+        core: async () => {
+          throw untrusted;
+        },
+      },
+    });
+    const report = await run(h, "--symbols", "AAPL", "--full-history");
+    expect(report.securities[0]?.steps[0]).toMatchObject({
+      status: "FAILED",
+      detail:
+        "FmpTransientError: Stock data provider is temporarily unavailable [UNABLE_TO_VERIFY_LEAF_SIGNATURE]",
+    });
+    expect(formatLiveFmpReport(report)).not.toContain("secret.internal");
   });
 
   it("still fails loudly on anything that is not the provider", async () => {

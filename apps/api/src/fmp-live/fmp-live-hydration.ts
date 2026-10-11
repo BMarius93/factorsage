@@ -101,11 +101,39 @@ export type LiveFmpHydrationInput = {
   readonly now?: () => number;
 };
 
-function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    return `${error.name}: ${error.message}`;
+/**
+ * A failure, as far as a report may describe it: the error's class and message, the provider's
+ * HTTP status when there was one, and the first machine-readable code in its chain of causes.
+ *
+ * The client reports every failure to reach the provider as "temporarily unavailable" and keeps
+ * the reason as the error's cause. That reason is the difference between a certificate this
+ * process does not trust (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`), a host it cannot reach
+ * (`ECONNREFUSED`, `ENOTFOUND`) and a timeout — exactly what somebody validating a run in a new
+ * environment needs to see. A code is a fixed word; a cause's message is not printed, because it
+ * is free text this command did not write.
+ */
+export function describeLiveFmpError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Unknown error";
   }
-  return "Unknown error";
+  const details: string[] = [];
+  const status = (error as { statusCode?: unknown }).statusCode;
+  if (typeof status === "number" && Number.isInteger(status)) {
+    details.push(`HTTP ${status}`);
+  }
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current instanceof Error; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Z][A-Z0-9_]{2,59}$/.test(code)) {
+      details.push(code);
+      break;
+    }
+    current = current.cause;
+  }
+  return (
+    `${error.name}: ${error.message}` +
+    (details.length > 0 ? ` [${details.join(", ")}]` : "")
+  );
 }
 
 export async function runLiveFmpHydration(
@@ -144,7 +172,7 @@ export async function runLiveFmpHydration(
         steps.push({
           step,
           status: "FAILED",
-          detail: describeError(error),
+          detail: describeLiveFmpError(error),
           durationMs: now() - startedAt,
         });
         return false;
