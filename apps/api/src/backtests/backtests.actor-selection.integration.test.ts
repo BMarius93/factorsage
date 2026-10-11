@@ -41,7 +41,9 @@ useTestDatabase();
  * Three things only a real write path and a real stored row can prove:
  *
  * 1. **What may be written.** A selection is stored canonically; a member the catalog does not hold,
- *    a selection of nobody and a Congress group are refused — on create, on edit and on duplicate.
+ *    a selection of nobody and a Congress group are refused on create and on edit. A duplicate of a
+ *    strategy that still names a group selects the group's members instead, and is refused only
+ *    when the group cannot be resolved.
  * 2. **What still reads.** A strategy version saved with the legacy single-member or group shape is
  *    served, and re-saving the single-member one changes nothing: same hash, no new version.
  * 3. **What a run freezes.** The selection is in the frozen definition; the snapshot adds who those
@@ -553,21 +555,12 @@ describe("strategies and backtests that select members of Congress", () => {
           .expect(400)
       ).body,
     );
-    // …typed into a new strategy…
+    // …or typed into a new strategy.
     expectGroupRefusal(
       (
         await owner
           .post("/strategies")
           .send({ name: "New group rule", definition: read.definition })
-          .expect(400)
-      ).body,
-    );
-    // …or copied from the old one.
-    expectGroupRefusal(
-      (
-        await owner
-          .post(`/strategies/${strategyId}/duplicate`)
-          .send({ name: "Copy of a group rule" })
           .expect(400)
       ).body,
     );
@@ -581,6 +574,165 @@ describe("strategies and backtests that select members of Congress", () => {
       })
       .expect(200);
     expect(await versionsOf(strategyId)).toHaveLength(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Duplicating a strategy that still names a group
+  // -------------------------------------------------------------------------
+
+  /** A strategy stored before groups left, naming a group of this owner's with `memberIds`. */
+  async function storeGroupStrategy(
+    memberIds: readonly string[],
+  ): Promise<{ strategyId: string; groupId: string }> {
+    const group = await prisma.actorGroup.create({
+      data: {
+        userId: ownerUserId,
+        name: `Legacy group ${randomUUID().slice(0, 8)}`,
+        members: { create: memberIds.map((actorId) => ({ actorId })) },
+      },
+    });
+    const strategyId = await storeStrategy(
+      definitionScopedTo({ kind: "GROUP", groupId: group.id }),
+    );
+    return { strategyId, groupId: group.id };
+  }
+
+  it("copies a group-scoped strategy as a selection of the group's members, and leaves the original alone", async () => {
+    const [a, b, c] = actorIds as [string, string, string];
+    // Stored in the group's own order, which is not canonical order.
+    const { strategyId, groupId } = await storeGroupStrategy([c, a, b]);
+    const [sourceBefore] = await versionsOf(strategyId);
+    const groupBefore = await prisma.actorGroup.findUniqueOrThrow({
+      where: { id: groupId },
+      include: { members: { orderBy: { createdAt: "asc" } } },
+    });
+
+    const copy = (
+      await owner
+        .post(`/strategies/${strategyId}/duplicate`)
+        .send({ name: "Copy of a group rule" })
+        .expect(201)
+    ).body as StrategyDetailResponse;
+
+    // The copy selects exactly the members the group held, canonically, and names no group.
+    expect(scopeOf(copy.definition)).toEqual({
+      kind: "ACTORS",
+      actorIds: [a, b, c].sort(),
+    });
+    expect(JSON.stringify(copy.definition)).not.toContain(groupId);
+    // Everything else about the rule is the source's: it is the same rule about the same people.
+    const sourceMetric = definitionScopedTo(null) as {
+      buyLevels: { signal: { conditions: { metric: object }[] } }[];
+    };
+    expect(copy.definition.buyLevels[0]?.signal.conditions[0]?.metric).toEqual({
+      ...sourceMetric.buyLevels[0]!.signal.conditions[0]!.metric,
+      scope: { kind: "ACTORS", actorIds: [a, b, c].sort() },
+    });
+    const [copied] = await versionsOf(copy.id);
+    expect(copied!.versionNumber).toBe(1);
+    // The rule now says who rather than which group, so it is a different document.
+    expect(copied!.definitionHash).not.toBe(sourceBefore!.definitionHash);
+
+    // The original was only read: same single version, same stored document, same hash — it still
+    // names its group, and the group still holds its members.
+    expect(await versionsOf(strategyId)).toEqual([sourceBefore]);
+    expect(
+      scopeOf(
+        (
+          (await owner.get(`/strategies/${strategyId}`).expect(200))
+            .body as StrategyDetailResponse
+        ).definition,
+      ),
+    ).toEqual({ kind: "GROUP", groupId });
+    expect(
+      await prisma.actorGroup.findUniqueOrThrow({
+        where: { id: groupId },
+        include: { members: { orderBy: { createdAt: "asc" } } },
+      }),
+    ).toEqual(groupBefore);
+
+    // And the copy is an ordinary strategy from here on: it saves like any other, and editing the
+    // group afterwards does not reach it.
+    await owner
+      .put(`/strategies/${copy.id}/definition`)
+      .send({ definition: copy.definition })
+      .expect(200);
+    await prisma.actorGroupMember.deleteMany({
+      where: { groupId, actorId: c },
+    });
+    expect(
+      scopeOf(
+        (
+          (await owner.get(`/strategies/${copy.id}`).expect(200))
+            .body as StrategyDetailResponse
+        ).definition,
+      ),
+    ).toEqual({ kind: "ACTORS", actorIds: [a, b, c].sort() });
+  });
+
+  it("refuses to copy a strategy whose group cannot be resolved, and says why", async () => {
+    const [a] = actorIds as [string];
+    const refusal = async (strategyId: string): Promise<string> => {
+      const before = await prisma.strategy.count({
+        where: { userId: ownerUserId },
+      });
+      const body = (
+        await owner
+          .post(`/strategies/${strategyId}/duplicate`)
+          .send({ name: "Copy that must not exist" })
+          .expect(400)
+      ).body as { code?: string; issues?: { code: string; message: string }[] };
+      expect(body.code).toBe("STRATEGY_INVALID");
+      expect(body.issues?.map((issue) => issue.code)).toEqual([
+        "SCOPE_INVALID",
+      ]);
+      // Nothing was created, and the source still has its one version.
+      expect(
+        await prisma.strategy.count({ where: { userId: ownerUserId } }),
+      ).toBe(before);
+      expect(await versionsOf(strategyId)).toHaveLength(1);
+      return body.issues?.[0]?.message ?? "";
+    };
+
+    // A group with no members: an empty selection is not a rule.
+    const empty = await storeGroupStrategy([]);
+    const emptyGroup = await prisma.actorGroup.findUniqueOrThrow({
+      where: { id: empty.groupId },
+    });
+    expect(await refusal(empty.strategyId)).toBe(
+      `This strategy cannot be duplicated: one of its rules counts the Congress group “${emptyGroup.name}”, which has no members. Open the original, choose the members that rule counts, and duplicate it then.`,
+    );
+
+    // A group that no longer exists.
+    const missing = await storeStrategy(
+      definitionScopedTo({ kind: "GROUP", groupId: randomUUID() }),
+    );
+    expect(await refusal(missing)).toBe(
+      "This strategy cannot be duplicated: one of its rules counts a Congress group that is no longer available. Open the original, choose the members that rule counts, and duplicate it then.",
+    );
+
+    // Somebody else's group reads exactly as a missing one, and none of its members leak.
+    const stranger = await prisma.user.create({
+      data: { email: `selbt-stranger-${randomUUID()}@example.test` },
+    });
+    try {
+      const theirs = await prisma.actorGroup.create({
+        data: {
+          userId: stranger.id,
+          name: "Somebody else's selection",
+          members: { create: [{ actorId: a }] },
+        },
+      });
+      const foreign = await storeStrategy(
+        definitionScopedTo({ kind: "GROUP", groupId: theirs.id }),
+      );
+      const message = await refusal(foreign);
+      expect(message).toContain("a Congress group that is no longer available");
+      expect(message).not.toContain("Somebody else's selection");
+    } finally {
+      await prisma.actorGroup.deleteMany({ where: { userId: stranger.id } });
+      await prisma.user.delete({ where: { id: stranger.id } });
+    }
   });
 
   // -------------------------------------------------------------------------

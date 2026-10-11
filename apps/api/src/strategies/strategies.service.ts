@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
+  ACTOR_SCOPE_MAX_ACTORS,
   actorScopeActorIds,
   alternativeDataScope,
+  collectActorGroupIds,
   collectActorIds,
   collectAlternativeDataMetrics,
+  embedActorGroupScopes,
   emptyStrategyDefinition,
   normalizeStrategyDefinition,
   rekeyStrategyDefinition,
@@ -173,10 +176,10 @@ export class StrategiesService {
    *    data with no owner, so there is nothing to be "accessible" beyond existing in it.
    * 2. **No Congress group.** Groups left the product on 2026-10-11. A stored version naming one
    *    still reads and still executes, which is why the validator itself keeps accepting the
-   *    shape — but nothing may write another, whether typed into a request, carried over from the
-   *    version being edited, or copied from a strategy being duplicated. The Builder's
-   *    configuration dialog offers the group's members as a selection, so the way forward is one
-   *    Apply rather than a dead end.
+   *    shape — but nothing may write another, whether typed into a request or carried over from
+   *    the version being edited. The Builder's configuration dialog offers the group's members as
+   *    a selection, so the way forward is one Apply rather than a dead end. A copy never reaches
+   *    this rule with a group: `duplicateStrategy` has already turned it into a selection.
    *
    * Reported as an invalid strategy with the canonical `SCOPE_INVALID` code and a path, so the
    * Builder renders it as a validation issue rather than as a failed request.
@@ -307,6 +310,14 @@ export class StrategiesService {
    * a second name rather than a new one. The logic is untouched, which is why the copy's
    * `definitionHash` equals the source's.
    *
+   * **One exception, for a source saved before 2026-10-11 that still names a Congress group.** A
+   * copy is a new strategy, and nothing new may name a group, so the copy's rule selects the
+   * members the group holds at this moment instead (`embedLegacyGroups`). It counts exactly the
+   * disclosures the source's rule counts today; its hash differs because the rule now says who
+   * rather than which group, and it no longer follows the group afterwards. The source is not
+   * converted — it is only read. A group that cannot be resolved refuses the copy, with the reason,
+   * rather than producing a rule that counts nobody.
+   *
    * Ownership is the caller's alone — no `SYSTEM` ownership, `systemKey`, display order or audit
    * column is carried over — and the source is only read. The strategy and its first version are
    * one nested write, so the copy exists whole or not at all.
@@ -327,12 +338,17 @@ export class StrategiesService {
     if (!source) {
       throw new StrategyNotFoundError();
     }
-    const definition = normalizeStrategyDefinition(
+    const rekeyed = normalizeStrategyDefinition(
       rekeyStrategyDefinition(readDefinition(source), randomUUID),
     );
-    // A copy is a write like any other. The one thing it can carry that a fresh strategy cannot is
-    // a legacy Congress group, from a source saved before groups left; copying it would mint a new
-    // reference to something the product no longer has.
+    // The one thing a copy can carry that a fresh strategy cannot is a legacy Congress group, from
+    // a source saved before groups left. Copying the reference would mint a new dependency on
+    // something the product no longer has, so the copy holds the group's members instead.
+    const { definition, embeddedGroups } = await this.embedLegacyGroups(
+      user,
+      rekeyed,
+    );
+    // And then a copy is a write like any other.
     await this.assertScopesWritable(definition);
 
     const row = await this.prisma.strategy.create({
@@ -358,8 +374,74 @@ export class StrategiesService {
       sourceStrategyId: strategyId,
       sourceOwnership: source.ownership,
       sourceVersionNumber: source.versions[0]?.versionNumber ?? 0,
+      ...(embeddedGroups > 0 ? { embeddedGroups } : {}),
     });
     return detailOf(row, user);
+  }
+
+  /**
+   * A definition with every legacy Congress group replaced by a selection of that group's members,
+   * for a copy.
+   *
+   * The membership is read the way a backtest submission reads it when it freezes a group: only a
+   * group the caller can read — a built-in one, or their own — so a copy can never embed somebody
+   * else's selection. It never guesses. A group that is gone or not the caller's, a group with no
+   * members, and a result the validator refuses are each a refusal with the reason, reported as an
+   * invalid strategy so the client shows it as one: an empty selection is not a rule, and a copy
+   * that silently counted nobody would be a different strategy from the one that was copied.
+   */
+  private async embedLegacyGroups(
+    viewer: AuthUser,
+    definition: StrategyDefinition,
+  ): Promise<{ definition: StrategyDefinition; embeddedGroups: number }> {
+    const groupIds = collectActorGroupIds(
+      collectAlternativeDataMetrics(definition),
+    );
+    if (groupIds.length === 0) {
+      return { definition, embeddedGroups: 0 };
+    }
+    const groups = await this.prisma.actorGroup.findMany({
+      where: { id: { in: groupIds }, ...readableWhere(viewer) },
+      select: {
+        id: true,
+        name: true,
+        members: { orderBy: { createdAt: "asc" }, select: { actorId: true } },
+      },
+    });
+    const byId = new Map(groups.map((group) => [group.id, group]));
+    const way =
+      "Open the original, choose the members that rule counts, and duplicate it then.";
+    const issues: StrategyValidationIssue[] = [];
+    const members = new Map<string, readonly string[]>();
+    for (const groupId of groupIds) {
+      const group = byId.get(groupId);
+      const refusal = !group
+        ? "a Congress group that is no longer available"
+        : group.members.length === 0
+          ? `the Congress group “${group.name}”, which has no members`
+          : group.members.length > ACTOR_SCOPE_MAX_ACTORS
+            ? `the Congress group “${group.name}”, which has more members than one rule can select`
+            : undefined;
+      if (refusal || !group) {
+        issues.push({
+          code: "SCOPE_INVALID",
+          path: { part: "STRATEGY" },
+          message: `This strategy cannot be duplicated: one of its rules counts ${refusal}. ${way}`,
+        });
+        continue;
+      }
+      members.set(
+        groupId,
+        group.members.map((member) => member.actorId),
+      );
+    }
+    if (issues.length > 0) {
+      throw new StrategyValidationError(issues);
+    }
+    return {
+      definition: embedActorGroupScopes(definition, members),
+      embeddedGroups: groupIds.length,
+    };
   }
 
   async getStrategy(
