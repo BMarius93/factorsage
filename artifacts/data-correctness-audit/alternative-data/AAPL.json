@@ -1,7 +1,7 @@
 {
   "symbol": "AAPL",
   "securityId": "3aa17368-2015-4446-a7bb-c437b159ee8f",
-  "sessions": 8571,
+  "sessions": 8575,
   "insiderRows": 5956,
   "congressRows": 831,
   "insiderCoverage": {
@@ -51,7 +51,7 @@
       "coverageFrom": "2018-08-18",
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2018-09-17",
-      "firstValue": 60788280.300000094
+      "firstValue": 60788280.30000015
     },
     {
       "metric": "insider-buyers-20-ceo-cfo",
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2014-07-08",
       "firstValue": 51002
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 98,
+      "coverageFrom": "2014-02-28",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-04-10",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 39,
+      "coverageFrom": "2014-02-28",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2018-10-03",
+      "firstValue": 2
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 98,
+      "coverageFrom": "2014-02-28",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-07-08",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 98,
+      "coverageFrom": "2014-02-28",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-07-08",
+      "firstValue": 50001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 37,
+      "coverageFrom": "2014-02-28",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2014-04-10",
+      "firstValue": 1
     }
   ]
 }

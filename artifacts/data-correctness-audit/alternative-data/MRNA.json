@@ -1,7 +1,7 @@
 {
   "symbol": "MRNA",
   "securityId": "6ad3be0e-a56a-4724-8d1d-a7fd5a371f70",
-  "sessions": 1960,
+  "sessions": 1964,
   "insiderRows": 4910,
   "congressRows": 51,
   "insiderCoverage": {
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2022-03-09",
       "firstValue": 16002
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 20,
+      "coverageFrom": "2020-06-11",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2022-03-09",
+      "firstValue": 2
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 16,
+      "coverageFrom": "2020-06-11",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2022-02-09",
+      "firstValue": 3
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 20,
+      "coverageFrom": "2020-06-11",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2022-03-09",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 20,
+      "coverageFrom": "2020-06-11",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2022-03-09",
+      "firstValue": 16002
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 0,
+      "coverageFrom": "2020-06-11",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": null,
+      "firstValue": null
     }
   ]
 }

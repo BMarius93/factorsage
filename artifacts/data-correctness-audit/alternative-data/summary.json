@@ -1,15 +1,15 @@
 {
   "securities": 33,
   "comparisons": {
-    "compared": 4221571,
-    "passed": 4221571,
+    "compared": 5523084,
+    "passed": 5523084,
     "failed": 0,
     "skipped": 0,
-    "tolerancePasses": 220789
+    "tolerancePasses": 227150
   },
   "byCategory": {
     "alternative-data": {
-      "compared": 4221571,
+      "compared": 5523084,
       "failed": 0,
       "skipped": 0
     }
@@ -24,75 +24,106 @@
   "observableSessionViolations": 0,
   "perMetric": {
     "insider-buyers-20": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 11163
     },
     "insider-buyers-5": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 3100
     },
     "insider-sellers-20": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 85013
     },
     "insider-purchase-value-60": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
-      "sessionsWithValue": 52523
+      "sessionsWithValue": 59004
     },
     "insider-sale-value-20": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
-      "sessionsWithValue": 128111
+      "sessionsWithValue": 123908
     },
     "insider-buyers-20-ceo-cfo": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 938
     },
     "insider-buyers-20-director": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 9832
     },
     "congress-purchases-30": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 50868
     },
     "congress-sales-30": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 48112
     },
     "congress-buyers-90": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 73431
     },
     "congress-purchases-30-house": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 41339
     },
     "congress-purchases-30-senate": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 16367
     },
     "congress-purchases-30-self": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 3692
     },
     "congress-min-purchase-value-90": {
-      "compared": 259735,
+      "compared": 259867,
       "failed": 0,
       "sessionsWithValue": 73431
+    },
+    "congress-purchases-30-selected-3": {
+      "compared": 259867,
+      "failed": 0,
+      "sessionsWithValue": 23802
+    },
+    "congress-sales-30-selected-1": {
+      "compared": 259867,
+      "failed": 0,
+      "sessionsWithValue": 11502
+    },
+    "congress-buyers-90-selected-3": {
+      "compared": 259867,
+      "failed": 0,
+      "sessionsWithValue": 42648
+    },
+    "congress-min-purchase-value-90-selected-3": {
+      "compared": 259867,
+      "failed": 0,
+      "sessionsWithValue": 42648
+    },
+    "congress-purchases-30-selected-3-senate": {
+      "compared": 259867,
+      "failed": 0,
+      "sessionsWithValue": 3629
     }
+  },
+  "scoped": {
+    "securities": 33,
+    "securitiesWithoutMembers": [],
+    "selectionsCompared": 330,
+    "selectionMismatches": 0
   },
   "coverage": {
     "AAPL": {

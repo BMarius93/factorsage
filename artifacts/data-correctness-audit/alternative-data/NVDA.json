@@ -1,7 +1,7 @@
 {
   "symbol": "NVDA",
   "securityId": "26afda3e-f5e1-43fc-8002-cc0cad58f42a",
-  "sessions": 6962,
+  "sessions": 6966,
   "insiderRows": 5110,
   "congressRows": 561,
   "insiderCoverage": {
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2016-05-27",
       "firstValue": 4004
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 59,
+      "coverageFrom": "2016-01-21",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2020-03-17",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 35,
+      "coverageFrom": "2016-01-21",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2021-07-14",
+      "firstValue": 2
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 59,
+      "coverageFrom": "2016-01-21",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2020-03-17",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 59,
+      "coverageFrom": "2016-01-21",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2020-03-17",
+      "firstValue": 1001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 0,
+      "coverageFrom": "2016-01-21",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": null,
+      "firstValue": null
     }
   ]
 }

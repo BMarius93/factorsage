@@ -1,7 +1,7 @@
 {
   "symbol": "IBM",
   "securityId": "c5b4e09f-0dcb-422e-83dc-0e632a4c107d",
-  "sessions": 8571,
+  "sessions": 8575,
   "insiderRows": 9806,
   "congressRows": 201,
   "insiderCoverage": {
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2014-07-18",
       "firstValue": 50001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 52,
+      "coverageFrom": "2014-03-12",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2018-07-06",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 0,
+      "coverageFrom": "2014-03-12",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": null,
+      "firstValue": null
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 52,
+      "coverageFrom": "2014-03-12",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2018-07-06",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 52,
+      "coverageFrom": "2014-03-12",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2018-07-06",
+      "firstValue": 1001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 0,
+      "coverageFrom": "2014-03-12",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": null,
+      "firstValue": null
     }
   ]
 }

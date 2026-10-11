@@ -1,7 +1,7 @@
 {
   "symbol": "XOM",
   "securityId": "593de32d-daa3-4ede-a824-6d2fa04ad7bd",
-  "sessions": 8571,
+  "sessions": 8575,
   "insiderRows": 4092,
   "congressRows": 246,
   "insiderCoverage": {
@@ -124,6 +124,51 @@
       "coverageTo": "2026-09-25",
       "firstSessionWithValue": "2015-04-13",
       "firstValue": 1001
+    },
+    {
+      "metric": "congress-purchases-30-selected-3",
+      "selectedMembers": 3,
+      "observations": 21,
+      "coverageFrom": "2014-12-02",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2019-05-16",
+      "firstValue": 2
+    },
+    {
+      "metric": "congress-sales-30-selected-1",
+      "selectedMembers": 1,
+      "observations": 25,
+      "coverageFrom": "2014-12-02",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2019-04-16",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-buyers-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 21,
+      "coverageFrom": "2014-12-02",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2019-05-16",
+      "firstValue": 1
+    },
+    {
+      "metric": "congress-min-purchase-value-90-selected-3",
+      "selectedMembers": 3,
+      "observations": 21,
+      "coverageFrom": "2014-12-02",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2019-05-16",
+      "firstValue": 2002
+    },
+    {
+      "metric": "congress-purchases-30-selected-3-senate",
+      "selectedMembers": 3,
+      "observations": 5,
+      "coverageFrom": "2014-12-02",
+      "coverageTo": "2026-09-25",
+      "firstSessionWithValue": "2019-05-16",
+      "firstValue": 2
     }
   ]
 }
