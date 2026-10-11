@@ -312,7 +312,9 @@ in that order. The storage decision, with its measurements and pre-deployment ch
   before it is published. It never bootstraps.
 - **Reading.** `BenchmarkHistoryReader` is the provider-free read boundary for workers: a range, the
   full history, one session, a rolling window, several series, each bounded by an explicit end date.
-  With the projection resident a read is one `GET` and one `MGET`.
+  With the projection resident a read is one `GET` and one `MGET`. Without it, a read tries to
+  rebuild it under the hydration lock but waits at most one second for that lock before it answers
+  from PostgreSQL, so a lock nobody can grant never holds a request.
 
 ## Test isolation: the selectable catalog is exact
 

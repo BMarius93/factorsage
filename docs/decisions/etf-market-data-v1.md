@@ -320,7 +320,11 @@ projection, rebuilds it from PostgreSQL once when Redis lost it, and falls back 
 Redis cannot answer — reading the rows, the generation and the coverage in one `REPEATABLE READ`
 snapshot. A rebuild that fails (the hydration lock not had in time, a lease lost while
 republishing) still falls back; a Redis that cannot be read at all is an outage and fails the read,
-as `AGENTS.md` invariant 16 requires. Every read is bounded by an explicit end date, clamped to
+as `AGENTS.md` invariant 16 requires. A read waits at most one second for that lock
+(`DEFAULT_RESIDENT_READ_LOCK_WAIT_MS`), never the two minutes a hydration is willing to wait for
+it: PostgreSQL has the read's answer, and a Redis that answers reads but grants no lock — out of
+memory under `noeviction`, a failed save, a read-only replica — must not hold a Dashboard request
+for the length of twenty lock waits. Every read is bounded by an explicit end date, clamped to
 today, and never returns a bar after it. An end before the history begins returns an empty
 history.
 

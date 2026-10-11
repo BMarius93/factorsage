@@ -33,7 +33,11 @@ import {
   benchmarkExDateHold,
   changesStoredBenchmarkBars,
 } from "./benchmark-price-basis.js";
-import type { LoadCoordinator } from "./coordination.js";
+import type {
+  LoadCoordinator,
+  LoadLease,
+  LoadRunOptions,
+} from "./coordination.js";
 import type {
   PriceBasisObservation,
   ProviderRequestEvent,
@@ -133,6 +137,11 @@ export type CanonicalBenchmarkDataServiceOptions = {
   onPriceBasisEvent?: (event: PriceBasisObservation) => void;
   /** Redis publications, for operational visibility. */
   onCacheEvent?: (event: BenchmarkCacheObservation) => void;
+  /**
+   * The longest a provider-free read waits for the hydration lock when it finds no resident
+   * projection, before it answers from PostgreSQL. See {@link DEFAULT_RESIDENT_READ_LOCK_WAIT_MS}.
+   */
+  residentReadLockWaitMs?: number;
 };
 
 /** Spans every date a coverage interval can hold. */
@@ -149,6 +158,19 @@ const PUBLISH_ATTEMPTS = 4;
 
 /** Series read at once by `readBenchmarkHistories`. */
 const HISTORY_READ_CONCURRENCY = 4;
+
+/**
+ * How long a read waits for the hydration lock before it stops trying to repair the projection.
+ *
+ * A read that finds no resident head rebuilds it under the lock, so that concurrent readers after
+ * a Redis loss publish once. But the read does not need the rebuild: PostgreSQL has its answer. The
+ * coordinator's own wait is sized for a hydration — two minutes by default — and a request must not
+ * be held that long because another process holds the lock, or because Redis answers reads and
+ * grants no lock at all (out of memory under `noeviction`, a failed save, a read-only replica).
+ * One second is several times what a rebuild of one series takes, so a reader behind a rebuild
+ * still usually finds the projection resident.
+ */
+export const DEFAULT_RESIDENT_READ_LOCK_WAIT_MS = 1_000;
 
 type SaveOutcome = {
   outcome: "SAVED" | "REPLACED" | "REFUSED";
@@ -187,6 +209,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
   private readonly onPriceBasisEvent: (event: PriceBasisObservation) => void;
   private readonly onCacheEvent: (event: BenchmarkCacheObservation) => void;
+  private readonly residentReadLockWaitMs: number;
 
   constructor(
     private readonly store: BenchmarkDataStore,
@@ -202,6 +225,14 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
     this.onPriceBasisEvent = options.onPriceBasisEvent ?? (() => {});
     this.onCacheEvent = options.onCacheEvent ?? (() => {});
+    this.residentReadLockWaitMs =
+      options.residentReadLockWaitMs ?? DEFAULT_RESIDENT_READ_LOCK_WAIT_MS;
+    if (
+      !Number.isInteger(this.residentReadLockWaitMs) ||
+      this.residentReadLockWaitMs <= 0
+    ) {
+      throw new Error("residentReadLockWaitMs must be a positive integer");
+    }
   }
 
   async listBenchmarks(): Promise<BenchmarkWithSeries[]> {
@@ -388,11 +419,25 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   async ensureBenchmarkResident(
     series: BenchmarkSeries,
   ): Promise<BenchmarkResidency> {
+    return this.repairResidency(series);
+  }
+
+  /**
+   * Verifies the projection and republishes it under the hydration lock when it differs.
+   *
+   * `lock` bounds how long the caller is prepared to wait for that lock. A refresh or a bootstrap
+   * leaves it out and waits as long as a hydration does; a read passes a short wait, because it has
+   * PostgreSQL to answer from.
+   */
+  private async repairResidency(
+    series: BenchmarkSeries,
+    lock?: LoadRunOptions,
+  ): Promise<BenchmarkResidency> {
     const verdict = await this.residency(series);
     if (verdict.resident) {
       return verdict.residency;
     }
-    return this.coordinator.run(this.resource(series), async (lease) => {
+    const repair = async (lease: LoadLease): Promise<BenchmarkResidency> => {
       // Re-checked under the lock, so concurrent rebuilds after a Redis loss publish once.
       const locked = await this.residency(series);
       if (locked.resident) {
@@ -413,7 +458,10 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
         ...locked.residency,
         status: locked.residency.status === "EMPTY" ? "EMPTY" : "UNPUBLISHED",
       };
-    });
+    };
+    return lock
+      ? this.coordinator.run(this.resource(series), repair, lock)
+      : this.coordinator.run(this.resource(series), repair);
   }
 
   async benchmarkRefreshState(
@@ -1034,7 +1082,10 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     }
     let residency: BenchmarkResidency;
     try {
-      residency = await this.ensureBenchmarkResident(series);
+      // Bounded: the read waits a moment for the lock, never as long as a hydration would.
+      residency = await this.repairResidency(series, {
+        waitMs: this.residentReadLockWaitMs,
+      });
     } catch (err) {
       // The repair failed — the hydration lock was not had in time, or its lease was lost while
       // republishing — but the read still has an answer: PostgreSQL's, which the caller reads.
