@@ -217,7 +217,8 @@ leaving the old ones reading a different thing under the same name. `SP500_INDEX
 **separate series**, not a correction of `SP500`, and the execution calendar keeps resolving
 `SP500`/`SPY` exactly as before.
 
-The three index rows are internal **market references**: what the Dashboard reports the market did.
+The three index rows are internal **market references**. They were what the Dashboard reported the
+market did until the ETF market overview replaced those cards; they remain catalogued and stored.
 `MARKET_REFERENCE_SERIES` in `@intrinsic/domain` names them, in display order, with the words the
 product uses for them (`S&P 500`, `DJIA`, `VIX` — shorter than the catalog names, because that is
 what a reader calls them). It is one list for the same reason the catalog is: no array in the web
@@ -242,74 +243,63 @@ executed under, an already-completed run stays interpretable.
 
 ## The market overview
 
-`GET /market-overview` is the read behind the Dashboard's three index cards. It is deliberately not
-part of `GET /dashboard`: the Dashboard read model is entirely about which monitors *this viewer*
-can see, and an index closed where it closed. The endpoint therefore carries no session at all — no
-guard, no cookie, no viewer argument on the service — so a Guest and a signed-in customer are served
-identical bytes, and a second surface wanting the same three numbers reads this rather than a
-viewer-scoped model that happens to contain them.
+`GET /market-overview` is the read behind the Dashboard's ETF market overview
+(`docs/decisions/etf-market-overview-v1.md`): the twenty funds of `MARKET_OVERVIEW_ETF_GROUPS` in
+their three groups, each with six trailing price returns (1W, 1M, 3M, 6M, YTD, 1Y) and a 53-point
+one-year trend line rebased to 100. It is deliberately not part of `GET /dashboard`: the Dashboard
+read model is entirely about which monitors *this viewer* can see, and a fund closed where it
+closed. The endpoint carries no session at all — no guard, no cookie, no viewer argument on the
+service — so a Guest and a signed-in customer are served identical bodies.
 
-```jsonc
-{
-  "generatedAt": "2026-09-17T20:00:00.000Z",
-  "basis": "END_OF_DAY",
-  "items": [
-    {
-      "code": "SP500_INDEX",
-      "label": "S&P 500",
-      "status": "AVAILABLE",
-      "value": 7637.05,
-      "previousClose": 7551.81,
-      "changePercent": 1.1287,
-      "sessionDate": "2026-09-17",
-      "sparkline": [{ "date": "2026-09-09", "value": 7521.35 }] // 7 sessions, oldest first
-    }
-  ]
-}
-```
+The rules, decided in one pure module (`apps/api/src/market/market-overview.ts`) and tested without
+a database, a cache or a clock:
 
-The rules, all decided in one pure function (`apps/api/src/market/market-overview.ts`) so each is
-tested without a database, a provider or a clock:
+- **No price crosses the contract.** A fund's share price is not an index level; the contract
+  carries returns and a rebased line, and the ticker as a display field. The benchmark code, series
+  id and provider symbol never cross it.
+- **Calendar anchors, real sessions.** Each period is measured from the fund's latest completed
+  session to its most recent stored session on or before the period's anchor date — 7 days, 1/3/6
+  months clamped to month end, the previous year's last day, one year with 29 February clamped —
+  never a later session. A history that does not reach the anchor, or a coverage gap at it, yields
+  `null`, never zero.
+- **Completed sessions only.** A bar counts after its 16:00 New York close plus the refresh's
+  publication delay, and only if the series' recent tail was read after that instant
+  (`lastTailSyncAt`). Nothing intraday is reported as a close.
+- **One reference session.** `asOf` is the newest completed session any fund reached; a fund behind
+  it is `STALE` with its own `sessionDate`. The exchange calendar is not consulted: it is fetched
+  from the provider.
+- **`basis: END_OF_DAY` and `returnBasis: PRICE_RETURN` are values, not conventions.** Split-adjusted
+  closes, distributions excluded; the Dashboard's footnote says so.
+- **One unreadable series costs one row** (`status: UNAVAILABLE`, logged as
+  `market.overview.instrument.failed` with the original error), or keeps that fund's last
+  successful answer while *the read it came from* is younger than 15 minutes — never refreshed by
+  being carried into a newer summary, so a series that keeps failing becomes unavailable.
 
-- **`value`, not `price`.** `^VIX` is a level implied by option prices and nothing holds it. One
-  neutral name across three cards is more honest than an equity word stretched over the third.
-- **The latest _session_, never "today".** A read on a Sunday reports Friday's close and says so
-  with `sessionDate`.
-- **`changePercent` compares two adjacent observed sessions.** Not 24 hours of wall clock, which
-  would be meaningless over a weekend and wrong over a holiday.
-- **Fewer than two observations yields no percentage at all.** Zero would claim the market was flat,
-  which one bar cannot support.
-- **The sparkline is the last seven observed sessions**, with their real dates. Weekends and
-  holidays are absent rather than padded, because a padded weekend draws a flat segment the market
-  never had.
-- **`basis: END_OF_DAY` is a value, not a convention.** These are closes. Nothing consuming this
-  contract may present them as live, and the Dashboard's cards carry the session date for that
-  reason. An intraday source would be a second `basis` member and a different loading path, never a
-  silent reinterpretation of this one.
-- **One unreadable series costs one card.** Each reference is read independently; a failure is
-  logged with its code and the original error (`market.overview.reference.failed`) and returned as
-  `status: "UNAVAILABLE"` with no numbers. A provider hiccup must not take down a page that is
-  mostly about monitors, and a remembered number would be worse than none.
+**It never asks the provider.** `MarketService` holds `MarketOverviewDataPort` — `listBenchmarks`,
+`readBenchmarkHistory` (the `BenchmarkHistoryReader`) and `benchmarkRefreshState` — and no hydration
+method, so a read goes: catalog rows → the resident `benchmark:v1:*` head and year chunks (one `GET`,
+one `MGET`), rebuilt from PostgreSQL once if Redis lost them, PostgreSQL if Redis cannot answer.
+A series never bootstrapped is reported unavailable. Each read is bounded to one year and 45 days.
 
-There is **no market cache**. The service holds a `BenchmarkDataService` and can reach the provider
-only through it, so a read goes: catalog row → durable coverage subtracted → shared hydration lock →
-shared FMP gate → PostgreSQL → the `benchmark:v1:*` Redis projection. A `dashboard:market:*`
-namespace, a second price table or a browser cache used as the source of truth would each be a
-second implementation of something that already exists.
+**It is computed once and served to everyone**: an in-process `SnapshotCache` with single flight, a
+60-second TTL, stale-while-revalidate up to 15 minutes and nothing older ever served — including a
+kept answer inside a newer summary, which ends that summary's servability when its read turns 15
+minutes old. A warm computation is 61 small PostgreSQL reads and twenty Redis reads. Process memory
+rather than Redis, because the summary is a projection of the Redis projection and carries nothing
+user-owned. `Cache-Control: private, max-age=60`, because the response also carries the caller's
+rate-limit headers. The policy is `standard-read`.
 
-The read asks for the **recent window it actually draws** (`MARKET_OVERVIEW_LOOKBACK_DAYS`, 30
-calendar days to today) and lets the existing loader hydrate whatever is missing or stale. That is
-what keeps API startup free of a decades-deep index download: nothing is prefetched at boot, and the
-page asks for what a page needs.
+The market-reference index series below (`SP500_INDEX`, `DJIA_INDEX`, `VIX_INDEX`) are no longer read
+by this endpoint. They stay catalogued, stored and seeded until a later change removes them.
 
 ## The market-overview ETFs
 
 Twenty ETFs in three groups — Benchmarks, Sector Performance, Macro & Alternatives — are listed once
 in `MARKET_OVERVIEW_ETF_GROUPS` (`packages/domain/src/market-overview-etfs.ts`). `SPY` **is**
 `SP500`; the other nineteen are `ETF_<TICKER>` catalog rows, `ETF_PROXY`, active and **never
-backtest-selectable**, so `GET /benchmarks` is unchanged. No API contract carries the list yet: the
-Dashboard that draws it, and any change to `GET /market-overview`, are later work. The decision,
-with its measurements and pre-deployment checklist, is `docs/decisions/etf-market-data-v1.md`.
+backtest-selectable**, so `GET /benchmarks` is unchanged. `GET /market-overview` (above) reports them
+in that order. The storage decision, with its measurements and pre-deployment checklist, is
+`docs/decisions/etf-market-data-v1.md`; the overview's is `docs/decisions/etf-market-overview-v1.md`.
 
 - **Re-base protection.** Every `ETF_PROXY` series — `SP500` included — gets the stock detector of
   `historical-price-basis-v1.md`: a read that would add or change a stored bar first re-reads the
@@ -347,9 +337,9 @@ remove another suite's live fixture mid-test.
 
 ## Prewarming deeper history
 
-These series are stored durably because we will use them for more than a card, and the lazy read
-above only ever materializes a month. `pnpm benchmarks:prewarm` is the way to say "fetch this range
-now, once, off the request path":
+These series are stored durably because we use them for more than a card, and no Dashboard read
+ever fetches anything (the market overview reads only what is stored). `pnpm benchmarks:prewarm` is
+the way to say "fetch this range now, once, off the request path":
 
 ```bash
 pnpm benchmarks:prewarm --code SP500_INDEX --from 1990-01-01
@@ -360,7 +350,7 @@ pnpm benchmarks:prewarm --code SP500 --from 2000-01-01 --to 2009-12-31
 It resolves a code and calls `ensureBenchmarkHydrated`, and that is all it does: coverage
 subtraction, the hydration lock, the shared provider gate, retries, persistence and the Redis
 projection are the canonical implementations, so a prewarmed range is indistinguishable from one a
-page read happened to materialize and rerunning it costs nothing. It reports what coverage says
+backtest's hydration happened to materialize and rerunning it costs nothing. It reports what coverage says
 afterwards rather than assuming success — a series whose own history begins later legitimately
 leaves a leading gap.
 

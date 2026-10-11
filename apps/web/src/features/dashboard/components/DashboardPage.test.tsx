@@ -7,14 +7,15 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
+import { marketOverviewFixture } from "../../market/__testing__/market-overview";
 import { fetchMarketOverview } from "../../market/api/market-api";
 import { fetchDashboard } from "../api/dashboard-api";
 import { DashboardPage } from "./DashboardPage";
 
 vi.mock("../api/dashboard-api", () => ({ fetchDashboard: vi.fn() }));
 
-// The overview strip reads its own endpoint. Mocked here so the page's tests stay about the page,
-// and so the strip is exercised against a response rather than against a failed jsdom fetch.
+// The market overview reads its own endpoint. Mocked here so the page's tests stay about the page,
+// and so the overview is exercised against a response rather than against a failed jsdom fetch.
 vi.mock("../../market/api/market-api", () => ({ fetchMarketOverview: vi.fn() }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({
@@ -178,41 +179,7 @@ function signedIn() {
   });
 }
 
-const MARKET_OVERVIEW = {
-  generatedAt: "2026-09-17T20:00:00.000Z",
-  basis: "END_OF_DAY" as const,
-  items: [
-    {
-      code: "SP500_INDEX",
-      label: "S&P 500",
-      status: "AVAILABLE" as const,
-      value: 7637.05,
-      previousClose: 7551.81,
-      changePercent: 1.1287,
-      sessionDate: "2026-09-17",
-      sparkline: [
-        { date: "2026-09-16", value: 7551.81 },
-        { date: "2026-09-17", value: 7637.05 },
-      ],
-    },
-    {
-      code: "DJIA_INDEX",
-      label: "DJIA",
-      status: "AVAILABLE" as const,
-      value: 51778.04,
-      sessionDate: "2026-09-17",
-      sparkline: [{ date: "2026-09-17", value: 51778.04 }],
-    },
-    {
-      code: "VIX_INDEX",
-      label: "VIX",
-      status: "AVAILABLE" as const,
-      value: 15.43,
-      sessionDate: "2026-09-17",
-      sparkline: [{ date: "2026-09-17", value: 15.43 }],
-    },
-  ],
-};
+const MARKET_OVERVIEW = marketOverviewFixture();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -451,16 +418,21 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Nothing is matching right now")).toBeDefined();
   });
 
-  it("puts the five-card overview above the signals, and keeps it out of the filters", async () => {
+  it("puts the action strip, then the market overview, above the signals, and keeps them out of the filters", async () => {
     const user = userEvent.setup();
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
     const overview = await screen.findByTestId("dashboard-overview");
+    const market = await screen.findByTestId("market-overview");
     const signals = await screen.findByTestId("dashboard-signals");
-    // The cards are context for the table, so they precede it in the document.
+    // Action strip, market, matches: the market is context for the table, so it precedes it.
     expect(
-      overview.compareDocumentPosition(signals) &
+      overview.compareDocumentPosition(market) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      market.compareDocumentPosition(signals) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByTestId("dashboard-matches-total").textContent).toBe("4");
@@ -486,24 +458,25 @@ describe("DashboardPage", () => {
     );
   });
 
-  it("shows a Guest the market cards and asks for an account only at the action", async () => {
+  it("shows a Guest the market overview and asks for an account only at the action", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
     await screen.findByTestId("dashboard-overview");
     // Identical market data to a signed-in viewer's: the market is not a per-account fact.
-    expect(
-      screen.getByTestId("dashboard-market-value-SP500_INDEX").textContent,
-    ).toBe("7,637");
+    await screen.findByTestId("market-overview-row-SPY");
+    expect(screen.getByTestId("market-overview-return-SPY-1W").textContent).toBe(
+      "+0.4%",
+    );
     // And the Run Backtest card is the one thing that needs an account.
     expect(screen.getByTestId("dashboard-run-backtest").tagName).toBe("BUTTON");
   });
 
-  it("never describes VIX, or anything on the Dashboard, as fear and greed", async () => {
+  it("never describes anything on the Dashboard as fear and greed, or as live", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
     await screen.findByTestId("dashboard-signals");
-    await screen.findByTestId("dashboard-market-value-VIX_INDEX");
+    await screen.findByTestId("market-overview-row-SPY");
 
     const page = screen.getByTestId("dashboard-page");
     expect(page.textContent).not.toMatch(/fear|greed/i);
@@ -516,7 +489,7 @@ describe("DashboardPage", () => {
     await screen.findByTestId("dashboard-signals");
 
     // The page still has exactly one h1 and it is still the page's name — it is simply not a
-    // surface any more, so the market strip is the first thing on screen.
+    // surface any more, so the action strip is the first thing on screen.
     const headings = screen.getAllByRole("heading", { level: 1 });
     expect(headings.map((heading) => heading.textContent)).toEqual([
       "Dashboard",
@@ -537,7 +510,7 @@ describe("DashboardPage", () => {
     const freshness = await screen.findByTestId("dashboard-freshness");
     // Still the real scan time, not a client-side clock: the fixture scanned three minutes ago.
     expect(freshness.textContent).toBe("Updated 3 min ago");
-    // Inside the Current matches section, not in a page header above the market strip.
+    // Inside the Current matches section, not in a page header above the market overview.
     const section = screen.getByTestId("dashboard-signals").closest("section");
     expect(section?.contains(freshness)).toBe(true);
     expect(

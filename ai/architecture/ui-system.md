@@ -501,6 +501,8 @@ One row of mutually exclusive view choices — `aria-pressed` toggle buttons in 
 each showing the count it would reveal. The chosen option is tinted (`--color-surface-selected`,
 primary ink), never a solid slab: a page keeps one solid-blue commit action. The Dashboard's state
 filter and the Monitor page's status filter use it (UI-009 … UI-012 build on the same control).
+`fill` shares one row equally between the options instead of wrapping them — for a short, fixed set
+that must read as one control on a phone, like the market overview's three categories.
 
 ### `Select` / `SelectControl` / `EntitySelect`
 

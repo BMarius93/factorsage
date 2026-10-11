@@ -75,7 +75,11 @@ async function seed(): Promise<void> {
       `${seeded.stockData.symbol} stock data ready: ${seeded.stockData.tradingDays} trading days, ` +
         `${seeded.stockData.from} to ${seeded.stockData.to}.`,
     );
-    for (const series of [seeded.benchmark, ...seeded.marketReferences]) {
+    for (const series of [
+      seeded.benchmark,
+      ...seeded.marketReferences,
+      ...seeded.marketOverviewEtfs,
+    ]) {
       console.log(
         `${series.code} ready: ${series.tradingDays} sessions, ${series.from} to ${series.to}.`,
       );

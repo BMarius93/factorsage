@@ -6,6 +6,11 @@
 and any change to the `GET /market-overview` contract, are later pull requests and are not part of
 this decision's implementation. Nothing here exposes a new series to a browser.
 
+PR 2 has since replaced the `GET /market-overview` contract and the Dashboard's index cards with the
+ETF market overview, reading this infrastructure through `BenchmarkHistoryReader` and never the
+provider: `docs/decisions/etf-market-overview-v1.md`. Statements below that the endpoint is untouched
+describe PR 1.
+
 This decision:
 
 - adds nineteen ETF series to `BENCHMARK_CATALOG` and one grouped market-overview catalog of twenty

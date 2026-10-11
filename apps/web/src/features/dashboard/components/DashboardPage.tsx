@@ -34,6 +34,7 @@ import {
   LEVEL_KIND_LABELS,
 } from "../../monitors/utils/format";
 import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
+import { MarketOverview } from "../../market/components/MarketOverview";
 import { useDashboard } from "../hooks/use-dashboard";
 import { DashboardOverview } from "./DashboardOverview";
 import {
@@ -417,12 +418,12 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
  * A Guest sees the published built-in monitors; a signed-in user sees those they have not hidden,
  * plus their own. Freshness comes from real scan times and is never described as live when it is not.
  *
- * Above the table sits one strip of five cards — `Run Backtest`, the three market references and
- * the current match count — which is V1's Dashboard opening and the shape a returning user
- * recognises. It is context and one action, not a second information architecture: choosing which
- * monitors feed the table is still a property of a monitor and still lives on the Monitors page,
- * because a configuration panel under the signals competed with them for the screen and made the
- * product's home page look like a settings screen.
+ * Three things, in this order: a compact strip with `Run Backtest` and the current match count; the
+ * ETF market overview (`docs/decisions/etf-market-overview-v1.md`), which is the market the matches
+ * were found in; and the matches themselves. It is context and one action, not a second
+ * information architecture: choosing which monitors feed the table is still a property of a monitor
+ * and still lives on the Monitors page, because a configuration panel under the signals competed
+ * with them for the screen and made the product's home page look like a settings screen.
  */
 export function DashboardPage() {
   const { status, dashboard, reload } = useDashboard();
@@ -456,11 +457,15 @@ export function DashboardPage() {
             reader's heading key — it just is not a 120px card any more. */}
         <h1 className={styles.srOnly}>Dashboard</h1>
 
-        {/* The overview strip is now the first thing on the page — V1's own placement, and the
-            one that makes the market the context the matches are read in rather than a footnote
-            under them. It is given the *unfiltered* rows on purpose: narrowing the table below
-            must not change what is matching. */}
+        {/* The action strip first, then the market, then the matches. The strip is given the
+            *unfiltered* rows on purpose: narrowing the table below must not change what is
+            matching. */}
         <DashboardOverview rows={rows} rowsReady={status === "ready"} />
+
+        {/* The market the matches were found in. Its own request and its own failure states:
+            the market is the same for everybody, the matches are not, and neither may blank the
+            other. */}
+        <MarketOverview />
 
         {guest && status === "ready" ? (
           <div className={styles.guestNotice} data-testid="dashboard-guest-notice">

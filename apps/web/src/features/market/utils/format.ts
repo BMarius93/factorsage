@@ -1,37 +1,86 @@
-import type { MarketOverviewItemResponse } from "@intrinsic/contracts";
+import type {
+  MarketOverviewInstrumentResponse,
+  MarketOverviewPeriod,
+} from "@intrinsic/contracts";
 
 /**
- * How an index level reads.
+ * How a return reads, and what it means.
  *
- * Two rules, because two very different magnitudes share one card family: a four- or five-figure
- * index is read as a whole number with thousands separators — `7,637`, `51,778` — where two decimal
- * places would be noise nobody tracks, while `VIX` at `15.43` is watched to the hundredth and
- * rounding it to `15` would throw away the part that moves.
+ * - `positive` / `negative` — signed, always: `+4.3%`, `−1.2%` (a real minus sign, U+2212, so the
+ *   two widths match in tabular figures);
+ * - `zero` — a return that rounds to nothing at display precision, `0.0%` with no sign and no
+ *   colour: the instrument did not move, which is a fact;
+ * - `unavailable` — `—`: the history cannot support this period. Never `0.0%`, which would claim a
+ *   fact the data does not hold.
  */
-export function formatMarketValue(value: number): string {
-  const fractionDigits = Math.abs(value) >= 1000 ? 0 : 2;
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  }).format(value);
-}
+export type ReturnTone = "positive" | "negative" | "zero" | "unavailable";
 
-/** `+1.13%`, `-12.87%`. Always signed: the direction is the point. */
-export function formatChangePercent(percent: number): string {
-  const formatted = new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Math.abs(percent));
-  return `${percent >= 0 ? "+" : "−"}${formatted}%`;
-}
+const ONE_DECIMAL = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
 
-export type MarketChangeTone = "positive" | "negative" | "flat";
+const TWO_DECIMALS = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
-export function changeTone(percent: number | undefined): MarketChangeTone {
-  if (percent === undefined || percent === 0) {
-    return "flat";
+/**
+ * A return as the grid shows it: one decimal, signed, with its tone.
+ *
+ * One decimal because six of these share a row in a third of a desktop screen, and a tenth of a
+ * percent is the resolution an overview is read at. The tone is decided from the *displayed* value,
+ * so `+0.0%` in green can never appear: anything that rounds to zero is `zero`.
+ */
+export function formatReturn(value: number | null): {
+  readonly text: string;
+  readonly tone: ReturnTone;
+} {
+  if (value === null || !Number.isFinite(value)) {
+    return { text: "—", tone: "unavailable" };
   }
-  return percent > 0 ? "positive" : "negative";
+  const rounded = Math.round(value * 10) / 10;
+  if (rounded === 0) {
+    return { text: "0.0%", tone: "zero" };
+  }
+  const magnitude = ONE_DECIMAL.format(Math.abs(rounded));
+  return rounded > 0
+    ? { text: `+${magnitude}%`, tone: "positive" }
+    : { text: `−${magnitude}%`, tone: "negative" };
+}
+
+/** What each period label stands for, for a screen reader and a tooltip. */
+export const PERIOD_NAMES: Record<MarketOverviewPeriod, string> = {
+  "1W": "1 week",
+  "1M": "1 month",
+  "3M": "3 months",
+  "6M": "6 months",
+  YTD: "Year to date",
+  "1Y": "1 year",
+};
+
+/** A return in words, at two decimals: `1 month: up 4.32%`. */
+export function describeReturn(
+  period: MarketOverviewPeriod,
+  value: number | null,
+): string {
+  const name = PERIOD_NAMES[period];
+  if (value === null || !Number.isFinite(value)) {
+    return `${name}: not available`;
+  }
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded === 0) {
+    return `${name}: unchanged`;
+  }
+  return `${name}: ${rounded > 0 ? "up" : "down"} ${TWO_DECIMALS.format(Math.abs(rounded))}%`;
+}
+
+/** The trend line's colour follows the 1Y return; no 1Y return, no direction. */
+export function sparklineTone(
+  instrument: Pick<MarketOverviewInstrumentResponse, "returns">,
+): "positive" | "negative" | "flat" {
+  const { tone } = formatReturn(instrument.returns["1Y"]);
+  return tone === "positive" || tone === "negative" ? tone : "flat";
 }
 
 const MONTHS = [
@@ -49,46 +98,62 @@ const MONTHS = [
   "Dec",
 ] as const;
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function parseSessionDate(date: string): Date | null {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  return Number.isNaN(parsed.valueOf()) ? null : parsed;
+}
+
 /**
- * The session a value closed on, as `17 Sep`.
+ * A session as `9 Oct`.
  *
  * Read in UTC, not the reader's zone: the session is a calendar date the exchange decided, not an
- * instant, and rendering `2026-09-17` locally turns it into `16 Sep` for anybody west of Greenwich.
- *
- * The month names are a fixed table rather than `Intl`, because this string ends up in screenshots
- * and in assertions: ICU renders September as `Sep` in one runtime and `Sept` in the next, and a
- * pill that changes width between Node versions is not a thing to debug twice.
+ * instant, and rendering `2026-10-09` locally turns it into `8 Oct` for anybody west of Greenwich.
+ * The names are a fixed table rather than `Intl`, because ICU renders September as `Sep` in one
+ * runtime and `Sept` in the next, and these strings end up in screenshots and assertions.
  */
 export function formatSessionDate(date: string): string {
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.valueOf())) {
+  const parsed = parseSessionDate(date);
+  if (!parsed) {
     return date;
   }
   return `${parsed.getUTCDate()} ${MONTHS[parsed.getUTCMonth()] as string}`;
 }
 
-/**
- * What a screen reader is told about a card.
- *
- * Built from the numbers, never from the sparkline: the chart is `aria-hidden` and decorative, and
- * a reader who cannot see it must still get the level, the direction and — the part that is easy to
- * leave out — that this is a close rather than a live quote.
- */
-export function marketCardDescription(
-  item: MarketOverviewItemResponse,
-): string {
-  if (item.status === "UNAVAILABLE" || item.value === undefined) {
-    return `${item.label}: no recent data available.`;
+/** A session as `Fri 9 Oct 2026`, for the overview's as-of line. */
+export function formatLongSessionDate(date: string): string {
+  const parsed = parseSessionDate(date);
+  if (!parsed) {
+    return date;
   }
-  const session = item.sessionDate
-    ? ` at the close on ${formatSessionDate(item.sessionDate)}`
-    : "";
-  const change =
-    item.changePercent === undefined
-      ? ""
-      : `, ${item.changePercent >= 0 ? "up" : "down"} ${new Intl.NumberFormat(
-          "en-US",
-          { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-        ).format(Math.abs(item.changePercent))}% on the previous session`;
-  return `${item.label}: ${formatMarketValue(item.value)}${session}${change}.`;
+  return `${WEEKDAYS[parsed.getUTCDay()] as string} ${formatSessionDate(date)} ${parsed.getUTCFullYear()}`;
+}
+
+/** A session as `9 Oct 2026`. */
+function formatSessionDateWithYear(date: string): string {
+  const parsed = parseSessionDate(date);
+  return parsed ? `${formatSessionDate(date)} ${parsed.getUTCFullYear()}` : date;
+}
+
+/**
+ * What a screen reader is told about a trend line: what it covers and where it went. Built from the
+ * response, never from the drawing.
+ */
+export function describeSparkline(
+  instrument: Pick<
+    MarketOverviewInstrumentResponse,
+    "ticker" | "sparkline" | "returns"
+  >,
+): string {
+  const { sparkline } = instrument;
+  if (!sparkline) {
+    return `${instrument.ticker}: no trend available`;
+  }
+  const span = `${formatSessionDateWithYear(sparkline.startDate)} to ${formatSessionDateWithYear(sparkline.endDate)}`;
+  const yearReturn = instrument.returns["1Y"];
+  if (yearReturn === null) {
+    return `${instrument.ticker} trend, weekly closes from ${span}`;
+  }
+  return `${instrument.ticker} one-year trend, weekly closes from ${span}, ${describeReturn("1Y", yearReturn).replace(/^1 year: /, "")}`;
 }

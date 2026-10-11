@@ -1,41 +1,56 @@
+import type { MarketOverviewResponse } from "@intrinsic/contracts";
+import { request as playwrightRequest } from "@playwright/test";
 import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
- * The overview strip for a signed-in customer, and the backtest invariants beside it.
+ * The Dashboard for a signed-in customer (PRO persona): the ETF market overview, the action strip
+ * and the matches beside it.
  *
- * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`. The market values are the
- * deterministic QA market-reference fixtures, identical to the ones the Guest suite asserts —
- * proving the point rather than assuming it: an index closed where it closed, and signing in
- * changes nothing about it.
+ * Needs `pnpm test:personas:seed`. The market overview is the same deterministic ETF fixture the
+ * Guest suite reads — proving the point rather than assuming it: a fund closed where it closed, and
+ * signing in changes nothing about it, while the matches stay this viewer's own.
  */
 
 function qaRows(page: Page) {
   return page.getByTestId("dashboard-signal-row");
 }
 
-test.describe("PRO_USER dashboard overview cards", () => {
-  test("shows a customer the same market data a Guest sees", async ({
-    page,
-  }) => {
-    await page.goto("/");
+async function dismissConsent(page: Page) {
+  const reject = page.getByTestId("consent-reject");
+  if (await reject.isVisible()) {
+    await reject.click();
+  }
+}
 
-    await expect(
-      page.getByTestId("dashboard-market-value-SP500_INDEX"),
-    ).toHaveText("7,637");
-    await expect(
-      page.getByTestId("dashboard-market-value-DJIA_INDEX"),
-    ).toHaveText("51,778");
-    await expect(
-      page.getByTestId("dashboard-market-value-VIX_INDEX"),
-    ).toHaveText("15.43");
-    await expect(page.getByTestId("dashboard-vix-status")).toHaveText("Normal");
-    await expect(
-      page.getByTestId("dashboard-market-change-SP500_INDEX"),
-    ).toHaveText("+1.13%");
-    // No guest notice, and the same five cards.
+test.describe("PRO_USER dashboard", () => {
+  test("shows a customer exactly the market overview a Guest sees", async ({ page }) => {
+    // Signed in: the page's own request context carries the session cookie.
+    const signedIn = await page.request.get(`${apiBaseUrl()}/market-overview`);
+    expect(signedIn.status()).toBe(200);
+    const asCustomer = (await signedIn.json()) as MarketOverviewResponse;
+    // A fresh context with no cookies at all.
+    const anonymous = await playwrightRequest.newContext();
+    const asGuest = (await (
+      await anonymous.get(`${apiBaseUrl()}/market-overview`)
+    ).json()) as MarketOverviewResponse;
+    await anonymous.dispose();
+
+    expect(asCustomer.groups).toEqual(asGuest.groups);
+    expect(asCustomer.asOf).toBe(asGuest.asOf);
+    // Nothing about the viewer is in it.
+    const serialized = JSON.stringify(asCustomer);
+    expect(serialized).not.toMatch(/@|plan|PRO_USER|userId/);
+
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-guest-notice")).toHaveCount(0);
-    await expect(page.getByTestId("dashboard-overview")).toBeVisible();
+    const spy = asCustomer.groups[0]?.instruments[0];
+    expect(spy?.ticker).toBe("SPY");
+    await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
+    await expect(page.getByTestId("market-overview-SPY-sparkline")).toBeVisible();
+    for (const group of ["BENCHMARKS", "US_SECTORS", "MACRO_ALTERNATIVES"]) {
+      await expect(page.getByTestId(`market-overview-group-${group}`)).toBeVisible();
+    }
   });
 
   test("takes Run Backtest straight to the canonical New Backtest route", async ({
@@ -136,20 +151,29 @@ test.describe("PRO_USER dashboard overview cards", () => {
     await expect(page).toHaveURL(/\/stocks\/QATEST\d$/);
   });
 
-  test("fits a 390px phone for a signed-in viewer too", async ({ page }) => {
+  test("fits a 390px phone for a signed-in viewer, mobile navigation included", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-overview")).toBeVisible();
+    await dismissConsent(page);
     await expect(page.getByTestId("dashboard-run-backtest")).toBeVisible();
     await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
-    // The phone VIX card is the compact form — level and zone as text, no arc squeezed into 65px.
-    await expect(page.getByTestId("dashboard-vix-status")).toHaveText("Normal");
-    await expect(page.getByTestId("dashboard-vix-gauge")).toBeHidden();
+    await expect(page.getByTestId("market-overview-category")).toBeVisible();
+    await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
+    for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"]) {
+      await expect(page.getByTestId(`market-overview-return-SPY-${period}`)).toBeVisible();
+    }
+    await expect(qaRows(page).first()).toBeAttached();
 
     const overflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+
+    const nav = page.getByRole("navigation", { name: "Primary mobile" });
+    await nav.getByRole("link", { name: /Backtests/ }).click();
+    await expect(page).toHaveURL(/\/backtests$/);
   });
 });

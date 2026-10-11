@@ -8,10 +8,11 @@
 .sparkline {
   display: block;
   width: 100%;
-  height: 44px;
+  height: 100%;
+  overflow: visible;
   /* No transition anywhere: a microchart that animates on data arrival is a layout shift the
-     Dashboard would pay for five times on load. */
-  color: var(--color-text-secondary);
+     Dashboard would pay twenty times on load. */
+  color: var(--color-text-muted);
 }
 
 .sparkline[data-tone="positive"] {
@@ -25,11 +26,19 @@
 .line {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.75;
+  stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
-  /* The viewBox is stretched to the card, so an unscaled stroke keeps the same visual weight
-     whatever width the card ends up at. */
+  /* The viewBox is stretched to its box, so an unscaled stroke keeps the same visual weight
+     whatever width the row ends up at. */
+  vector-effect: non-scaling-stroke;
+}
+
+/* Where the year began: a hairline the line is read against, quieter than any data mark. */
+.baseline {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
   vector-effect: non-scaling-stroke;
 }
 
@@ -39,7 +48,7 @@
 
 .fillStart {
   stop-color: currentColor;
-  stop-opacity: 0.16;
+  stop-opacity: 0.14;
 }
 
 .fillEnd {

@@ -1693,23 +1693,31 @@ paths:
     get:
       tags: [Market]
       operationId: getMarketOverview
-      summary: The market references the Dashboard reports.
+      summary: How the twenty market-overview ETFs have performed.
       description: |
-        Readable without a session, and identical for a Guest and a signed-in caller: an index
-        closed where it closed. The provider symbol behind a code never crosses this contract.
+        Readable without a session, and identical for a Guest and a signed-in caller: a fund closed
+        where it closed. Exactly twenty exchange-traded funds in three ordered groups — Benchmarks
+        (5), Sector Performance (11), Macro & Alternatives (4) — each with six trailing price
+        returns and a one-year trend line. The provider symbol and the storage behind each fund
+        never cross this contract; `ticker` is a display field.
 
-        Every value is an **end-of-day close** — `basis` says so explicitly — and nothing here is
-        intraday. `changePercent` compares the latest session's close with the previous *session's*
-        close, never wall-clock arithmetic, and is absent rather than zero when there is only one
-        observation. `sparkline` holds the most recent observed market sessions, oldest first, with
-        their real session dates; weekends and holidays are absent rather than padded.
+        Every number is derived from **end-of-day closes** — `basis` says so explicitly — and nothing
+        here is intraday: a session counts only once its close has been published. `returnBasis:
+        PRICE_RETURN` means the change in the split-adjusted close, with distributions excluded.
+        Each period is measured from the fund's own latest completed session to its most recent
+        session on or before the period's anchor (7 calendar days; 1, 3 and 6 calendar months; the
+        last session of the previous year; one calendar year). A return the history cannot support
+        is `null`, never zero. A fund behind the overview's reference session (`asOf`) is `STALE`
+        and keeps its own `sessionDate`; a fund with no data is `UNAVAILABLE`, so one unreadable
+        series costs one row instead of the whole response.
 
-        A reference whose data is temporarily unreadable is returned with `status: UNAVAILABLE` and
-        no numbers, so one provider problem costs one card instead of the whole response.
-      x-rate-limit: { policy: stock-read }
+        The summary is read from stored history only — it never asks the market-data provider —
+        and computed at most once a minute per API process. The response is `Cache-Control:
+        private, max-age=60`: the body is everybody's, but the rate-limit headers are the caller's.
+      x-rate-limit: { policy: standard-read }
       responses:
         "200":
-          description: One item per market reference, in display order.
+          description: Three groups of funds, in display order.
           headers: *rateLimitHeaders
           content:
             application/json:
@@ -4755,71 +4763,123 @@ components:
     # -------------------------------------------------------------------------------------------
     # Market
     # -------------------------------------------------------------------------------------------
-    MarketOverviewPoint:
-      type: object
-      required: [date, value]
-      properties:
-        date:
-          {
-            type: string,
-            format: date,
-            description: The exchange session this value closed on.,
-          }
-        value: { type: number }
+    MarketOverviewPeriod:
+      type: string
+      enum: ["1W", "1M", "3M", "6M", "YTD", "1Y"]
 
-    MarketOverviewItem:
+    MarketOverviewReturns:
       type: object
-      required: [code, label, status, sparkline]
+      description: |
+        One percentage per period, unrounded. `null` when the stored history does not reach the
+        period's anchor, or coverage has a gap at it — never zero.
+      required: ["1W", "1M", "3M", "6M", "YTD", "1Y"]
       properties:
-        code:
+        "1W": { type: [number, "null"] }
+        "1M": { type: [number, "null"] }
+        "3M": { type: [number, "null"] }
+        "6M": { type: [number, "null"] }
+        YTD: { type: [number, "null"] }
+        "1Y": { type: [number, "null"] }
+
+    MarketOverviewSparkline:
+      type: object
+      description: |
+        The trailing year, downsampled to about one point a week. `values` are closes rebased to 100
+        at the first point, oldest first, so the line carries a shape and never a price; with a full
+        year of history the first point is the `1Y` baseline and the last is the latest session.
+      required: [startDate, endDate, values]
+      properties:
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        values: { type: array, items: { type: number } }
+
+    MarketOverviewInstrument:
+      type: object
+      required: [ticker, name, status, returns, sparkline]
+      properties:
+        ticker:
           {
             type: string,
-            description: The benchmark code behind the card.,
-            examples: [SP500_INDEX],
+            description: The exchange ticker the product displays.,
+            examples: [XLK],
           }
-        label:
+        name:
           {
             type: string,
             description: What the product calls it.,
-            examples: [S&P 500],
+            examples: [Technology],
           }
-        status: { type: string, enum: [AVAILABLE, UNAVAILABLE] }
-        value:
-          type: number
+        note:
+          {
+            type: string,
+            description: A qualification to show beside the instrument, such as that USO holds oil futures.,
+          }
+        status:
+          type: string
+          enum: [AVAILABLE, STALE, UNAVAILABLE]
           description: |
-            The latest available close. Called a value rather than a price because `VIX_INDEX` is a
-            level implied by option prices and nothing holds it. Absent when `status` is
-            `UNAVAILABLE`.
-        previousClose:
+            `AVAILABLE` at the reference session; `STALE` behind it, measured to its own
+            `sessionDate`; `UNAVAILABLE` with no completed session, every return `null`.
+        sessionDate:
           {
-            type: number,
-            description: The close of the session before the latest one. Absent with fewer than two observations.,
+            type: string,
+            format: date,
+            description: The latest completed session the returns are measured to.,
           }
-        changePercent:
-          {
-            type: number,
-            description: Latest close against the previous session's close. Absent rather than zero when it cannot be stated.,
-          }
-        sessionDate: { type: string, format: date }
+        returns: { $ref: "#/components/schemas/MarketOverviewReturns" }
         sparkline:
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
+
+    MarketOverviewGroup:
+      type: object
+      required: [id, label, shortLabel, instruments]
+      properties:
+        id: { type: string, enum: [BENCHMARKS, US_SECTORS, MACRO_ALTERNATIVES] }
+        label: { type: string, examples: [Sector Performance] }
+        shortLabel: { type: string, examples: [Sectors] }
+        instruments:
           type: array
-          description: The most recent observed sessions, oldest first. Empty when nothing is available.
-          items: { $ref: "#/components/schemas/MarketOverviewPoint" }
+          items: { $ref: "#/components/schemas/MarketOverviewInstrument" }
 
     MarketOverviewResponse:
       type: object
-      required: [generatedAt, basis, items]
+      required: [generatedAt, basis, returnBasis, status, groups]
       properties:
-        generatedAt: { type: string, format: date-time }
+        generatedAt:
+          {
+            type: string,
+            format: date-time,
+            description: When this summary was computed. Not a market time.,
+          }
         basis:
           type: string
           enum: [END_OF_DAY]
           description: |
             How current the numbers are. One member today; an intraday source would be a second
             member and a different loading path, never a silent reinterpretation of this one.
-        items:
+        returnBasis:
+          type: string
+          enum: [PRICE_RETURN]
+          description: Split-adjusted close to close, distributions excluded.
+        status:
+          type: string
+          enum: [AVAILABLE, PARTIAL, UNAVAILABLE]
+          description: |
+            `AVAILABLE` when every fund is; `UNAVAILABLE` when none has data (an environment whose
+            histories were never loaded); `PARTIAL` otherwise.
+        asOf:
+          {
+            type: string,
+            format: date,
+            description: The reference session, the newest completed session any fund reached. Absent when nothing is available.,
+          }
+        groups:
           type: array
-          items: { $ref: "#/components/schemas/MarketOverviewItem" }
+          minItems: 3
+          maxItems: 3
+          items: { $ref: "#/components/schemas/MarketOverviewGroup" }
 
     # -------------------------------------------------------------------------------------------
     # Backtests

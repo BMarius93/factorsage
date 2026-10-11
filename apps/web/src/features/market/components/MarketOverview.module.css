@@ -1,0 +1,505 @@
+/* The Dashboard's market overview.
+ *
+ * One markup, three compositions, at the product's own breakpoints (`ai/architecture/ui-system.md`):
+ *
+ *   < 880px       a category selector and one card per ETF, the six returns as a 3 × 2 grid;
+ *   880–1,279px   Benchmarks beside Macro & Alternatives, Sector Performance across both below,
+ *                 its rows in two columns;
+ *   ≥ 1,280px     the three groups side by side.
+ *
+ * Geometry local to this composition — the row grid, the trend line's box, the column template —
+ * stays here, as the UI system allows. Every colour, radius, type size and the emphasis weight is a
+ * token. Each group is a bordered card of its own and nothing wraps the three: they sit on the page
+ * canvas like the Dashboard's other cards, and a frame around them would be the card-in-card the
+ * system forbids. */
+
+.section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ── Heading ─────────────────────────────────────────────────────────────────── */
+
+.header {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
+}
+
+/* Reserves its line before the data lands, so the groups below do not move when the date fills it. */
+.meta {
+  min-height: calc(var(--text-small) * var(--line-height-body));
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--line-height-body);
+}
+
+/* The category selector and the sort: compact screens only. */
+.compactControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  min-width: 0;
+}
+
+/* The category selector takes the row on a phone and a comfortable share of it on a tablet. */
+.categories {
+  flex: 1 1 20rem;
+  max-width: 30rem;
+  min-width: 0;
+}
+
+.sortSkeleton {
+  width: 15rem;
+}
+
+/* ── Groups ──────────────────────────────────────────────────────────────────── */
+
+.groups {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* On a phone a group is not a card: each ETF is. The group's name stays for assistive
+   technology — the selector already shows it — and only the chosen group is on screen. */
+.group {
+  display: none;
+  min-width: 0;
+}
+
+.group[data-selected="true"] {
+  display: block;
+}
+
+.groupTitle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  margin: 0;
+}
+
+.groupBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.columnHeadings {
+  display: none;
+}
+
+.list {
+  display: grid;
+  /* One card per row on a phone, two from about 600px of content: a card needs ~18rem for its
+     3 × 2 grid to read comfortably, and is never squeezed below the screen's own width. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+/* ── An ETF: the phone card ─────────────────────────────────────────────────── */
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "identity"
+    "trend"
+    "returns";
+  row-gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.identity {
+  grid-area: identity;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ticker {
+  flex: none;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.marker {
+  margin-left: 1px;
+  color: var(--color-text-muted);
+}
+
+/* A row-level caveat — a stale close, or no data — as a quiet pill after the name. */
+.flag {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.flag[data-tone="warning"] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+/* The trend line's box. The SVG stretches to it; a row without one keeps the same height. */
+.trend {
+  grid-area: trend;
+  height: 44px;
+  min-width: 0;
+}
+
+.trendEmpty {
+  display: block;
+  height: 100%;
+  border-bottom: 1px dashed var(--color-border-strong);
+  transform: translateY(-50%);
+}
+
+.returns {
+  grid-area: returns;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.metric {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metricLabel {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0.04em;
+}
+
+.metricLabel abbr {
+  text-decoration: none;
+}
+
+.metricValue {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.metricValue[data-tone="positive"] {
+  color: var(--color-positive);
+}
+
+.metricValue[data-tone="negative"] {
+  color: var(--color-negative);
+}
+
+.metricValue[data-tone="zero"] {
+  color: var(--color-text-secondary);
+}
+
+.metricValue[data-tone="unavailable"] {
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+/* ── Footnote ────────────────────────────────────────────────────────────────── */
+
+.footnote {
+  display: grid;
+  gap: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  line-height: var(--line-height-body);
+}
+
+.footnote p {
+  margin: 0;
+  max-width: 110ch;
+}
+
+/* One line is held for the instruments' notes before they are known. */
+.notes {
+  min-height: calc(var(--text-small) * var(--line-height-body));
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Desktop: grouped, table-like cards ─────────────────────────────────────── */
+
+@media (min-width: 880px) {
+  .header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compactControls {
+    display: none;
+  }
+
+  .groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "benchmarks macro"
+      "sectors sectors";
+  }
+
+  .group,
+  .group[data-selected="true"] {
+    display: block;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-surface);
+    overflow: hidden;
+  }
+
+  .group[data-group="BENCHMARKS"] {
+    grid-area: benchmarks;
+  }
+
+  .group[data-group="US_SECTORS"] {
+    grid-area: sectors;
+  }
+
+  .group[data-group="MACRO_ALTERNATIVES"] {
+    grid-area: macro;
+  }
+
+  .groupTitle {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    padding: 14px 16px 4px;
+    color: var(--color-text-primary);
+    font-size: var(--text-body);
+    font-weight: var(--weight-emphasis);
+    line-height: var(--line-height-tight);
+  }
+
+  /* The six period headings sit exactly over the six return columns below: same template, same
+     inset. Each is a quiet button that sorts the group. */
+  .columnHeadings {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    min-height: 26px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .columnHeadings[data-echo="true"] {
+    display: none;
+  }
+
+  .columnHeading {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    min-width: 0;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: var(--color-text-muted);
+    font: inherit;
+    font-size: var(--text-label-size);
+    font-weight: var(--weight-emphasis);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+
+  .columnHeading:hover {
+    color: var(--color-primary-ink);
+  }
+
+  .columnHeading:focus-visible {
+    outline: none;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--focus-ring);
+  }
+
+  .columnHeading[data-active="true"] {
+    color: var(--color-primary-ink);
+  }
+
+  /* Always one glyph wide, so a heading never shifts when it becomes the sorted one. */
+  .sortGlyph {
+    display: inline-block;
+    width: 0.8em;
+    text-align: right;
+  }
+
+  .list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  /* The desktop row: ticker, name and trend on the first line; six returns under the headings on
+     the second. Rows are divided by a hairline, not boxed. */
+  .row {
+    grid-template-columns: minmax(0, 1fr) 96px;
+    grid-template-areas:
+      "identity trend"
+      "returns returns";
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 3px;
+    padding: 7px 16px 8px;
+    border: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--color-border-subtle);
+    background: none;
+  }
+
+  .list > .row:first-child {
+    border-top: 0;
+  }
+
+  .identity {
+    gap: 8px;
+  }
+
+  /* A fixed ticker column, so the names line up down the group. `XLRE` is the widest. */
+  .ticker {
+    min-width: 2.6rem;
+    font-size: var(--text-secondary);
+  }
+
+  .name {
+    font-size: var(--text-small);
+  }
+
+  .flag {
+    margin-left: 4px;
+  }
+
+  .trend {
+    height: 20px;
+  }
+
+  .returns {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .metric {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  /* The headings above name the columns; the per-value label stays for assistive technology. */
+  .metricLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .metricValue {
+    font-size: var(--text-secondary);
+  }
+}
+
+/* The intermediate band: Sector Performance spans both columns, so its rows run in two columns of
+   their own — with their own headings — rather than stretching a two-line row across the page. */
+@media (min-width: 880px) and (max-width: 1279.98px) {
+  .groupBody[data-split="true"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .groupBody[data-split="true"] > .columnHeadings[data-echo="true"] {
+    display: grid;
+    border-left: 1px solid var(--color-border-subtle);
+  }
+
+  .groupBody[data-split="true"] > .list {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The second column is divided from the first by the same hairline that divides rows. */
+  .groupBody[data-split="true"] > .list > .row:nth-child(even) {
+    border-left: 1px solid var(--color-border-subtle);
+  }
+
+  /* Two rows share each line; the first two have no row above them. */
+  .groupBody[data-split="true"] > .list > .row:nth-child(2) {
+    border-top: 0;
+  }
+}
+
+/* Wide desktop: the three groups side by side. */
+@media (min-width: 1280px) {
+  .groups {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas: "benchmarks sectors macro";
+  }
+}

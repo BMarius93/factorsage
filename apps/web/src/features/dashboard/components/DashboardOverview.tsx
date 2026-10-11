@@ -1,22 +1,8 @@
 "use client";
 
-import type {
-  DashboardRowResponse,
-  MarketOverviewItemResponse,
-} from "@intrinsic/contracts";
+import type { DashboardRowResponse } from "@intrinsic/contracts";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { MarketSparkline } from "../../market/components/MarketSparkline";
-import { VixGauge, vixZoneToneClass } from "../../market/components/VixGauge";
-import { useMarketOverview } from "../../market/hooks/use-market-overview";
-import {
-  changeTone,
-  formatChangePercent,
-  formatMarketValue,
-  formatSessionDate,
-  marketCardDescription,
-} from "../../market/utils/format";
-import { classifyVix, VIX_STATUS_LABELS } from "../../market/utils/vix";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import styles from "./DashboardOverview.module.css";
@@ -39,72 +25,38 @@ type DashboardOverviewProps = {
 };
 
 /**
- * The overview strip: five cards across the top of the Dashboard, in one visual family.
+ * The Dashboard's opening strip: `Run Backtest · Current matches`, two cards in one visual family.
  *
- * `Run Backtest · S&P 500 · DJIA · VIX · Current matches`. The order is fixed and the count is
- * exact — this is the row FactorSage V1 opened its Dashboard with, and the shape a returning user
- * recognises. What it is *not* is a place to keep adding metrics: breadth, valuation pulse, a
- * sentiment score and a second index each cost a reader more than they tell them.
+ * It used to carry three market-reference cards between them — S&P 500, DJIA and VIX. The ETF
+ * market overview below replaced them (`docs/decisions/etf-market-overview-v1.md`): it answers what
+ * those three cards gestured at, across twenty funds and six periods. What stays here is the one
+ * action and the one number a returning user opens the Dashboard for, kept compact so the market and
+ * the matches are what the first screen holds.
  *
- * The Run Backtest item is a card, not a button parked beside cards. It is the same rectangle, the
- * same radius and the same row as the four beside it, wearing the product's one solid-blue action
+ * The Run Backtest item is a card, not a button parked beside a card. It is the same rectangle, the
+ * same radius and the same row as the count beside it, wearing the product's one solid-blue action
  * treatment because it is the only thing here that does something.
  *
- * Nothing in this strip is live. The index cards are end-of-day closes and say which session they
- * closed on; describing them as real time would be the one mistake a market card can make that a
- * reader cannot detect.
+ * The strip shares the market overview's column grid — two columns below 1,280px, three from there,
+ * with the strip's cards in the first two — so its edges line up with the groups beneath it.
  */
 export function DashboardOverview({ rows, rowsReady }: DashboardOverviewProps) {
-  const { status, overview } = useMarketOverview();
   const gate = useSignInPrompt();
-
-  // An item per reference even before the response lands, so the grid is five cards wide from the
-  // first paint and nothing below it moves when the market data arrives.
-  const items = overview?.items ?? [];
 
   return (
     <section
       className={styles.overview}
-      // Named as end-of-day, because the phone card has no room for the session pill and nothing
-      // else on screen would tell a reader these are closes rather than live quotes.
-      aria-label="Market overview at the last market close"
+      aria-label="Run a backtest and current matches"
       data-testid="dashboard-overview"
     >
       <div className={styles.grid}>
         <RunBacktestCard gate={gate} />
-        {items.length > 0
-          ? items.map((item) => <ReferenceCard key={item.code} item={item} />)
-          : PLACEHOLDER_CODES.map((placeholder) => (
-              <ReferenceCard
-                key={placeholder.code}
-                item={{
-                  code: placeholder.code,
-                  label: placeholder.label,
-                  status: "UNAVAILABLE",
-                  sparkline: [],
-                }}
-                pending={status === "loading"}
-              />
-            ))}
         <MatchesCard rows={rows} ready={rowsReady} />
       </div>
       {gate.prompt}
     </section>
   );
 }
-
-/**
- * What the market cards are called before the server has said so.
- *
- * The server owns the list; this is only what the skeleton is labelled for the moment between
- * paint and response, and it is asserted against the response in the unit tests so the two cannot
- * drift into disagreeing about which three indices exist.
- */
-const PLACEHOLDER_CODES = [
-  { code: "SP500_INDEX", label: "S&P 500" },
-  { code: "DJIA_INDEX", label: "DJIA" },
-  { code: "VIX_INDEX", label: "VIX" },
-] as const;
 
 function RunBacktestCard({
   gate,
@@ -114,10 +66,7 @@ function RunBacktestCard({
   const content = (
     <>
       <span className={styles.actionText}>
-        <span className={styles.actionTitle}>
-          <span className={styles.fullLabel}>Run Backtest</span>
-          <span className={styles.shortLabel}>Backtest</span>
-        </span>
+        <span className={styles.actionTitle}>Run Backtest</span>
         <span className={styles.actionLead}>Test a strategy</span>
       </span>
       <span className={styles.actionGlyph} aria-hidden="true">
@@ -165,182 +114,6 @@ function RunBacktestCard({
   );
 }
 
-/** The market reference that is a level rather than a price, and is read as a gauge. */
-const VIX_CODE = "VIX_INDEX";
-
-/**
- * S&P 500 and DJIA read as a price with a trend; VIX reads as a level on a gauge. Same card, same
- * slot, same data — only the representation differs.
- */
-function ReferenceCard(props: {
-  readonly item: MarketOverviewItemResponse;
-  readonly pending?: boolean;
-}) {
-  return props.item.code === VIX_CODE ? (
-    <VixCard {...props} />
-  ) : (
-    <MarketCard {...props} />
-  );
-}
-
-/**
- * VIX as a gauge, in the same anatomy as the market cards beside it: the title top left, the
- * reading in the body and the change with its session along the bottom.
- *
- * - **the top-right slot holds the zone** (`Normal`), where the index cards label their chart
- *   `7D`. The gauge is the latest close, not a seven-day window, so a timeframe label there would
- *   describe data the card does not show;
- * - **the number is the real `^VIX` close.** Not a 0–100 score, not a sentiment reading and not the
- *   clamped gauge position — a VIX of 93.4 says `93.40` while its marker sits at the end of the arc;
- * - **the change is still session over session**, secondary, at the bottom with the session the
- *   close belongs to, exactly where the index cards put theirs. Never "24h";
- * - **unavailable is unavailable.** No level means no gauge, no zone and no change — never a marker
- *   at zero labelled "Very low".
- *
- * On a phone there is no arc: the card reads `VIX`, the level and the zone, in the rhythm of the
- * other cards' label, value and change.
- *
- * It is called VIX and nothing else. The zone words describe the level of expected volatility; they
- * are not a fear-and-greed reading, and nothing here converts one into the other.
- */
-function VixCard({
-  item,
-  pending,
-}: {
-  readonly item: MarketOverviewItemResponse;
-  readonly pending?: boolean;
-}) {
-  const tone = changeTone(item.changePercent);
-  const value = item.status === "AVAILABLE" ? item.value : undefined;
-  const zone = classifyVix(value);
-  const description =
-    zone === null
-      ? marketCardDescription(item)
-      : `${marketCardDescription(item)} Volatility level: ${VIX_STATUS_LABELS[zone]}.`;
-
-  return (
-    <article
-      className={`${styles.card} ${styles.vixCard}`}
-      data-testid={`dashboard-market-card-${item.code}`}
-      data-status={item.status}
-      data-variant="gauge"
-      aria-label={description}
-    >
-      <p className={`${styles.label} ${styles.vixLabel}`}>{item.label}</p>
-      {value !== undefined && zone !== null ? (
-        <>
-          <div className={styles.vixDial}>
-            <div className={styles.vixGauge}>
-              <VixGauge value={value} status={zone} />
-            </div>
-            <p
-              className={styles.vixValue}
-              data-testid={`dashboard-market-value-${item.code}`}
-            >
-              {formatMarketValue(value)}
-            </p>
-          </div>
-          <p
-            className={`${styles.vixStatus} ${vixZoneToneClass}`}
-            data-zone={zone}
-            data-testid="dashboard-vix-status"
-          >
-            {VIX_STATUS_LABELS[zone]}
-          </p>
-          <p className={`${styles.marketMeta} ${styles.vixMeta}`}>
-            {item.changePercent === undefined ? null : (
-              <span
-                className={styles.change}
-                data-tone={tone}
-                data-testid={`dashboard-market-change-${item.code}`}
-              >
-                {formatChangePercent(item.changePercent)}
-              </span>
-            )}
-            {item.sessionDate ? (
-              <span className={styles.session}>
-                {formatSessionDate(item.sessionDate)}
-              </span>
-            ) : null}
-          </p>
-        </>
-      ) : (
-        <p className={styles.valueUnavailable}>{pending ? "—" : "No data"}</p>
-      )}
-    </article>
-  );
-}
-
-function MarketCard({
-  item,
-  pending,
-}: {
-  readonly item: MarketOverviewItemResponse;
-  readonly pending?: boolean;
-}) {
-  const tone = changeTone(item.changePercent);
-  const available = item.status === "AVAILABLE" && item.value !== undefined;
-
-  return (
-    <article
-      className={styles.card}
-      data-testid={`dashboard-market-card-${item.code}`}
-      data-status={item.status}
-      aria-label={marketCardDescription(item)}
-    >
-      <div className={styles.marketBody}>
-        <div className={styles.marketFigures}>
-          <p className={styles.label} title={item.label}>
-            {item.label}
-          </p>
-          {available ? (
-            <p
-              className={styles.value}
-              data-testid={`dashboard-market-value-${item.code}`}
-            >
-              {formatMarketValue(item.value as number)}
-            </p>
-          ) : (
-            <p className={styles.valueUnavailable}>
-              {pending ? "—" : "No data"}
-            </p>
-          )}
-          <p className={styles.marketMeta}>
-            {item.changePercent === undefined ? (
-              // Never a fabricated 0.00%: one observation cannot say what the market did.
-              <span className={styles.changeFlat}>—</span>
-            ) : (
-              <span
-                className={styles.change}
-                data-tone={tone}
-                data-testid={`dashboard-market-change-${item.code}`}
-              >
-                {formatChangePercent(item.changePercent)}
-              </span>
-            )}
-            {/* The session the numbers closed on, where V1 wore a "24h" pill. The pill is V1's;
-                the words are not, because these are end-of-day closes and "24h" would describe a
-                rolling window nothing here computes. */}
-            {item.sessionDate ? (
-              <span className={styles.session}>
-                {formatSessionDate(item.sessionDate)}
-              </span>
-            ) : null}
-          </p>
-        </div>
-        <div className={styles.marketTrend}>
-          <p className={styles.trendLabel}>7D</p>
-          <MarketSparkline
-            points={item.sparkline}
-            tone={tone}
-            idPrefix={item.code}
-          />
-        </div>
-      </div>
-    </article>
-  );
-}
-
 /**
  * How much is matching right now, from the Dashboard's own rows.
  *
@@ -368,24 +141,23 @@ function MatchesCard({
       href="#signals"
       data-testid="dashboard-matches-card"
     >
-      <p className={styles.label}>
+      <span className={styles.matchesText}>
         {/* "Current", not "Real-time": this is an end-of-day product (UI-025). */}
-        <span className={styles.fullLabel}>Current matches</span>
-        <span className={styles.shortLabel}>Matches</span>
-      </p>
+        <span className={styles.label}>Current matches</span>
+        <span
+          className={styles.matchesBreakdown}
+          data-testid="dashboard-matches-breakdown"
+        >
+          {ready ? `${active} active · ${waiting} waiting` : "\u00a0"}
+        </span>
+      </span>
       {ready ? (
-        <p className={styles.value} data-testid="dashboard-matches-total">
+        <span className={styles.value} data-testid="dashboard-matches-total">
           {rows.length}
-        </p>
+        </span>
       ) : (
-        <p className={styles.valueUnavailable}>—</p>
+        <span className={styles.valueUnavailable}>—</span>
       )}
-      <p
-        className={styles.matchesBreakdown}
-        data-testid="dashboard-matches-breakdown"
-      >
-        {ready ? `${active} active · ${waiting} waiting` : " "}
-      </p>
     </a>
   );
 }

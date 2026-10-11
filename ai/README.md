@@ -117,11 +117,13 @@ escapes those rules, so the ratios before it are biased — MMM's valuation hist
 Solventum spin-off reads about 16.4 % low. It is accepted, not correct; do not special-case or
 "fix" it in unrelated work (the decision's "Accepted V1 limitation", and `AGENTS.md` invariant 24).
 
-For the Dashboard's market-overview cards, the market-reference index series or anything that
-touches which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the
+For the Dashboard's market overview, the market-reference index series or anything that touches
+which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the
 `isActive` / `isBacktestSelectable` split, the `ETF_PROXY` / `INDEX` series semantics, why `SP500`
 stays `SPY` for backtests, the `GET /market-overview` contract and its end-of-day honesty rules, and
-the `pnpm benchmarks:prewarm` runbook for deeper history. For the twenty market-overview ETFs —
+the `pnpm benchmarks:prewarm` runbook for deeper history. The overview itself — the six return
+periods and their anchors, the completed-session rule, the provider-free read, the shared summary
+cache and the responsive Dashboard composition — is `../docs/decisions/etf-market-overview-v1.md`. For the twenty market-overview ETFs —
 their catalog, full Redis residency and its eviction-policy requirement, re-base protection, the
 bootstrap, the `market-data` refresh child and the provider-free worker read interface — read
 `../docs/decisions/etf-market-data-v1.md` as well.
