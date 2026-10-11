@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "../fixtures";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
-import { chooseMetric } from "../utils/strategy-builder";
+import {
+  categoryLabels,
+  chooseMetric,
+  chooseSeriesValue,
+  openPicker,
+  showCategory,
+} from "../utils/strategy-builder";
 
 /**
  * Full Strategy Builder journey for PRO_USER.
@@ -104,12 +110,10 @@ test.describe("strategy builder", () => {
 
     // Price is above EMA 200D.
     const buyCard = page.getByTestId("level-card-BUY").first();
-    await buyCard.getByTestId("metric-select").first().selectOption("PRICE:");
-    await buyCard
-      .getByTestId("operator-select")
-      .first()
-      .selectOption("IS_ABOVE");
-    await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
+    const buyRow = buyCard.getByTestId("predicate-row").first();
+    await chooseMetric(buyRow, "PRICE", "PRICE:");
+    await buyRow.getByTestId("operator-select").selectOption("IS_ABOVE");
+    await chooseSeriesValue(buyRow, "EMA_200D");
 
     // ... AND Margin of Safety · DCF is above 25%.
     await buyCard.getByTestId("add-condition").click();
@@ -118,7 +122,7 @@ test.describe("strategy builder", () => {
     await second.getByTestId("value-control").fill("25");
 
     // The explanation panel must explain Margin of Safety correctly.
-    await second.getByTestId("metric-select").click();
+    await second.getByTestId("metric-picker").focus();
     const panel = page.getByTestId("explanation-panel");
     await expect(panel).toContainText("Margin of Safety · DCF (FCFF)");
     await expect(panel.getByTestId("help-formula")).toHaveText(
@@ -142,12 +146,10 @@ test.describe("strategy builder", () => {
       "GAIN:",
     );
     await sellCard.getByTestId("value-control").first().fill("25");
-    await expect(
-      buyCard
-        .getByTestId("metric-category-select")
-        .first()
-        .locator("option", { hasText: "Position" }),
-    ).toHaveCount(0);
+    const buyPanel = await openPicker(buyRow);
+    expect(await categoryLabels(buyPanel)).not.toContain("Position");
+    await page.keyboard.press("Escape");
+    await expect(buyPanel).toBeHidden();
 
     await expect(page.getByTestId("logic-preview")).toContainText(
       "Price is above EMA 200D",
@@ -257,9 +259,10 @@ test.describe("strategy builder final exit rules", () => {
 
     // Rule 1: Price is below SMA 200D AND SMA 50D is below SMA 200D.
     const first = exitRule(page, 0);
-    await first.getByTestId("metric-select").first().selectOption("PRICE:");
-    await first.getByTestId("operator-select").first().selectOption("IS_BELOW");
-    await first.getByTestId("value-control").first().selectOption("SMA_200D");
+    const firstRow = first.getByTestId("predicate-row").first();
+    await chooseMetric(firstRow, "PRICE", "PRICE:");
+    await firstRow.getByTestId("operator-select").selectOption("IS_BELOW");
+    await chooseSeriesValue(firstRow, "SMA_200D");
     await first.getByTestId("add-condition").click();
     const firstSecondRow = first.getByTestId("predicate-row").nth(1);
     await chooseMetric(
@@ -270,7 +273,7 @@ test.describe("strategy builder final exit rules", () => {
     await firstSecondRow
       .getByTestId("operator-select")
       .selectOption("IS_BELOW");
-    await firstSecondRow.getByTestId("value-control").selectOption("SMA_200D");
+    await chooseSeriesValue(firstSecondRow, "SMA_200D");
 
     // Rule 2: RSI 14D is above 80.
     await exitCard.getByTestId("add-exit-rule").click();
@@ -332,9 +335,10 @@ test.describe("strategy builder final exit rules", () => {
     // A third rule, then remove the middle one: the survivors renumber and keep their own rows.
     await page.getByTestId("level-card-FINAL_EXIT").getByTestId("add-exit-rule").click();
     const third = exitRule(page, 2);
-    await third.getByTestId("metric-select").first().selectOption("PRICE:");
-    await third.getByTestId("operator-select").first().selectOption("IS_ABOVE");
-    await third.getByTestId("value-control").first().selectOption("SMA_20D");
+    const thirdRow = third.getByTestId("predicate-row").first();
+    await chooseMetric(thirdRow, "PRICE", "PRICE:");
+    await thirdRow.getByTestId("operator-select").selectOption("IS_ABOVE");
+    await chooseSeriesValue(thirdRow, "SMA_20D");
     await page.getByTestId("save-strategy").click();
     await expect(page.getByText("All changes saved")).toBeVisible();
     await page.reload();
@@ -531,8 +535,10 @@ test.describe("strategy builder on a phone", () => {
     await buyCard.getByTestId("level-percentage").getByText("50%").click();
     await expect(buyCard.getByRole("radio", { name: "50%" })).toBeChecked();
 
-    // Contextual help moves next to the row being edited rather than into a side column.
-    await buyCard.getByTestId("metric-select").first().click();
+    // Contextual help moves next to the row being edited rather than into a side column. Tapping the
+    // Metric opens its bottom sheet; closing it leaves the explanation under the row.
+    await buyCard.getByTestId("metric-picker").first().click();
+    await buyCard.getByRole("button", { name: "Close metric" }).click();
     await expect(page.getByTestId("inline-help")).toBeVisible();
     await expect(page.getByTestId("inline-help")).toContainText(
       "Relative Strength Index",
@@ -578,31 +584,57 @@ test.describe("strategy builder on a phone", () => {
     const row = buyCard.getByTestId("predicate-row").first();
     await chooseMetric(row, "MOVING_AVERAGES", "MOVING_AVERAGE:SMA_50D");
     await row.getByTestId("operator-select").selectOption("IS_BELOW");
-    await row.getByTestId("value-control").selectOption("EMA_200D");
+    await chooseSeriesValue(row, "EMA_200D");
 
-    // `Moving averages · SMA 50D` then `is below · EMA 200D`: four controls do not fit one phone line,
-    // and four stacked would make a two-condition level taller than the screen, so the rule reads as
-    // two lines of two, in order, with targets that stay tappable and wide enough to read.
-    const [category, metric, operator, value] = await Promise.all(
-      [
-        "metric-category-select",
-        "metric-select",
-        "operator-select",
-        "value-control",
-      ].map((testId) => row.getByTestId(testId).boundingBox()),
+    // `SMA 50D` then `is below · EMA 200D`: three controls do not fit one phone line, and three
+    // stacked would make a two-condition level taller than the screen, so the Metric takes the first
+    // line and the Condition and Value share the second, with targets that stay tappable and wide
+    // enough to read.
+    const [metric, operator, value] = await Promise.all(
+      ["metric-picker", "operator-select", "value-control"].map((testId) =>
+        row.getByTestId(testId).boundingBox(),
+      ),
     );
-    expect(category && metric && operator && value).toBeTruthy();
-    expect(Math.abs(metric!.y - category!.y)).toBeLessThanOrEqual(1);
+    expect(metric && operator && value).toBeTruthy();
     expect(Math.abs(value!.y - operator!.y)).toBeLessThanOrEqual(1);
-    expect(operator!.y).toBeGreaterThanOrEqual(
-      category!.y + category!.height - 1,
-    );
-    expect(category!.x).toBeLessThan(metric!.x);
+    expect(operator!.y).toBeGreaterThanOrEqual(metric!.y + metric!.height - 1);
     expect(operator!.x).toBeLessThan(value!.x);
-    for (const box of [category, metric, operator, value]) {
+    expect(metric!.width).toBeGreaterThan(operator!.width + value!.width);
+    for (const box of [metric, operator, value]) {
       expect(box!.height).toBeGreaterThanOrEqual(40);
       expect(box!.width).toBeGreaterThanOrEqual(120);
     }
+
+    // The Metric picker is a bottom sheet on a phone: the whole width, on the bottom edge, every
+    // category on show at once and only the metrics scrolling.
+    const viewport = page.viewportSize()!;
+    const sheet = await openPicker(row);
+    const sheetBox = (await sheet.boundingBox())!;
+    expect(Math.round(sheetBox.x)).toBe(0);
+    expect(Math.round(sheetBox.width)).toBe(viewport.width);
+    expect(Math.round(sheetBox.y + sheetBox.height)).toBe(viewport.height);
+    await expect(page.getByTestId("metric-picker-scrim")).toBeVisible();
+    const tiles = sheet.getByTestId("metric-picker-category");
+    for (const tile of await tiles.all()) {
+      await expect(tile).toBeInViewport();
+    }
+    await showCategory(sheet, "FUNDAMENTALS");
+    const options = sheet.getByTestId("metric-picker-option");
+    await expect(options).toHaveCount(15);
+    const firstTile = (await tiles.first().boundingBox())!;
+    const scroller = sheet.getByTestId("metric-picker-options");
+    await scroller.evaluate((element) =>
+      element.scrollTo(0, element.scrollHeight),
+    );
+    await expect(options.last()).toBeInViewport();
+    expect((await tiles.first().boundingBox())!.y).toBe(firstTile.y);
+    await expectNoHorizontalScroll(page);
+    // A tap on the scrim leaves the rule exactly as it was.
+    await page
+      .getByTestId("metric-picker-scrim")
+      .click({ position: { x: 10, y: 10 } });
+    await expect(sheet).toBeHidden();
+    await expect(row.getByTestId("metric-picker")).toHaveText("SMA 50D");
 
     // A second condition still reads as joined, without a reserved column for the word.
     await buyCard.getByTestId("add-condition").click();

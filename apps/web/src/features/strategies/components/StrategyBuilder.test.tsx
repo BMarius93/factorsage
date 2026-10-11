@@ -20,6 +20,15 @@ import {
   updateStrategy,
 } from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
+import {
+  categoryLabels,
+  chooseMetric,
+  openPicker,
+  optionLabels,
+  pickerText,
+  pickerValue,
+  showCategory,
+} from "./__testing__/operand-picker";
 
 const replace = vi.fn();
 
@@ -100,29 +109,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** Chooses a Metric the way a user does: its category first, then the metric within it. */
-async function chooseMetric(
-  user: ReturnType<typeof userEvent.setup>,
-  row: HTMLElement,
-  category: string,
-  metric: string,
-) {
-  await user.selectOptions(
-    within(row).getByTestId("metric-category-select"),
-    category,
-  );
-  const select = within(row).getByTestId("metric-select") as HTMLSelectElement;
-  if (select.value !== metric) {
-    await user.selectOptions(select, metric);
-  }
-}
-
-function optionTexts(select: HTMLElement): (string | null)[] {
-  return within(select)
-    .getAllByRole("option")
-    .map((option) => option.textContent);
-}
-
 beforeEach(() => {
   replace.mockReset();
   createStrategyMock.mockReset();
@@ -148,20 +134,15 @@ describe("StrategyBuilder", () => {
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
 
-    // A complete rule: category, metric, condition and value, all chosen and all consistent.
-    const category = screen.getByTestId(
-      "metric-category-select",
-    ) as HTMLSelectElement;
-    const metric = screen.getByTestId("metric-select") as HTMLSelectElement;
-    expect(category.value).toBe("PRICE");
-    expect(metric.value).toBe("PRICE:");
-    expect(metric.selectedOptions[0]?.textContent).toBe("Price");
+    // A complete rule: metric, condition and value, all chosen and all consistent.
+    const row = screen.getByTestId("predicate-row");
+    expect(pickerValue(row)).toBe("PRICE:");
+    expect(pickerText(row)).toBe("Price");
     expect(
       (screen.getByTestId("operator-select") as HTMLSelectElement).value,
     ).toBe("IS_ABOVE");
-    expect(
-      (screen.getByTestId("value-control") as HTMLSelectElement).value,
-    ).toBe("SMA_20D");
+    expect(pickerValue(row, "value-control")).toBe("SMA_20D");
+    expect(pickerText(row, "value-control")).toBe("SMA 20D");
     const preview = within(screen.getByTestId("logic-preview"));
     expect(preview.getByText(/Price is above SMA 20D/)).toBeDefined();
     // The count stays neutral until the user engages; the missing name keeps the save closed.
@@ -171,23 +152,23 @@ describe("StrategyBuilder", () => {
     expect(screen.getByTestId("save-strategy")).toHaveProperty("disabled", true);
   });
 
-  it("moves through Category, Metric, Condition and Value in that order from the keyboard", async () => {
+  it("moves through Metric, Condition and Value in that order from the keyboard", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={savedStrategy()} />);
     const row = screen.getByTestId("predicate-row");
-    await user.click(within(row).getByTestId("metric-category-select"));
-    for (const next of ["metric-select", "operator-select", "value-control"]) {
+    within(row).getByTestId("metric-picker").focus();
+    for (const next of ["operator-select", "value-control"]) {
       await user.tab();
       expect(document.activeElement).toBe(within(row).getByTestId(next));
     }
+    // Three controls, each naming what it holds: no separate Category control any more.
+    expect(within(row).queryByTestId("metric-category-select")).toBeNull();
     expect(
-      within(row)
-        .getByTestId("metric-category-select")
-        .getAttribute("aria-label"),
-    ).toBe("Category");
+      within(row).getByTestId("metric-picker").getAttribute("aria-label"),
+    ).toBe("Metric: Price");
     expect(
-      within(row).getByTestId("metric-select").getAttribute("aria-label"),
-    ).toBe("Metric");
+      within(row).getByTestId("value-control").getAttribute("aria-label"),
+    ).toBe("Value: EMA 200D");
   });
 
   it("makes removing a level with authored logic recoverable (UI-014)", async () => {
@@ -263,9 +244,14 @@ describe("StrategyBuilder", () => {
       "MOVING_AVERAGE:SMA_50D",
     );
 
-    const values = within(screen.getByTestId("value-control"))
-      .getAllByRole("option")
-      .map((option) => option.textContent);
+    // The Value picker offers the comparable averages only, under the catalog's own group.
+    const panel = await openPicker(
+      user,
+      screen.getByTestId("predicate-row"),
+      "value-control",
+    );
+    expect(categoryLabels(panel)).toEqual(["Moving averages — Daily"]);
+    const values = optionLabels(panel);
     expect(values).toContain("SMA 200D");
     expect(values).not.toContain("SMA 50D");
     expect(values.some((label) => label?.endsWith("W"))).toBe(false);
@@ -294,39 +280,31 @@ describe("StrategyBuilder", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    expect(
-      optionTexts(screen.getByTestId("metric-category-select")),
-    ).not.toContain("Position");
+    const buyRow = within(screen.getByTestId("level-card-BUY")).getByTestId(
+      "predicate-row",
+    );
+    expect(categoryLabels(await openPicker(user, buyRow))).not.toContain(
+      "Position",
+    );
 
     await user.click(screen.getByTestId("add-level-SELL"));
-    const sellCard = screen.getByTestId("level-card-SELL");
-    expect(
-      optionTexts(within(sellCard).getByTestId("metric-category-select")),
-    ).toContain("Position");
-    await user.selectOptions(
-      within(sellCard).getByTestId("metric-category-select"),
-      "POSITION",
+    const sellRow = within(screen.getByTestId("level-card-SELL")).getByTestId(
+      "predicate-row",
     );
-    expect(optionTexts(within(sellCard).getByTestId("metric-select"))).toEqual([
-      "Gain",
-      "Loss",
-    ]);
+    const panel = await openPicker(user, sellRow);
+    expect(categoryLabels(panel)).toContain("Position");
+    await showCategory(user, panel, "POSITION");
+    expect(optionLabels(panel)).toEqual(["Gain", "Loss"]);
   });
 
   it("offers Relative Volume in a Signal's conditions, at the three fixed periods", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    await user.selectOptions(
-      screen.getByTestId("metric-category-select"),
-      "VOLUME",
-    );
+    const panel = await openPicker(user, screen.getByTestId("predicate-row"));
+    await showCategory(user, panel, "VOLUME");
     // Exactly three, in one category: no custom window, and no second volume indicator.
-    expect(optionTexts(screen.getByTestId("metric-select"))).toEqual([
-      "RVOL 10",
-      "RVOL 20",
-      "RVOL 50",
-    ]);
+    expect(optionLabels(panel)).toEqual(["RVOL 10", "RVOL 20", "RVOL 50"]);
   });
 
   it("authors an RVOL condition as a multiple, and describes it that way", async () => {
@@ -365,17 +343,19 @@ describe("StrategyBuilder", () => {
     await user.click(screen.getByTestId("add-level-BUY"));
     await user.click(screen.getByTestId("add-trigger"));
 
-    const categories = screen.getAllByTestId("metric-category-select");
+    const rows = screen.getAllByTestId("predicate-row");
     // The last row is the Trigger; the first is the Condition it was added beside. The condition-only
     // families — Volume and both alternative-data categories — are simply not offered to a Trigger.
-    expect(optionTexts(categories.at(-1)!)).toEqual([
+    expect(categoryLabels(await openPicker(user, rows.at(-1)!))).toEqual([
       "Price",
       "Moving averages",
       "Oscillators",
       "Valuation",
     ]);
     // …and the Condition row above it still offers Volume, so this is a part rule.
-    expect(optionTexts(categories[0]!)).toContain("Volume");
+    expect(categoryLabels(await openPicker(user, rows[0]!))).toContain(
+      "Volume",
+    );
   });
 
   it("shows a percentage control on BUY and SELL levels and none on FINAL EXIT", async () => {
@@ -482,12 +462,12 @@ describe("StrategyBuilder", () => {
       within(screen.getByTestId("explanation-panel")).getByRole("heading")
         .textContent;
 
-    await user.click(
-      within(screen.getAllByTestId("predicate-row")[1]!).getByTestId(
-        "metric-select",
-      ),
+    within(screen.getAllByTestId("predicate-row")[1]!)
+      .getByTestId("metric-picker")
+      .focus();
+    await waitFor(() =>
+      expect(explained()).toBe(strategyMetricLabel(rsi.metric)),
     );
-    expect(explained()).toBe(strategyMetricLabel(rsi.metric));
 
     await user.click(
       screen.getByRole("button", { name: "Remove condition 1" }),

@@ -709,7 +709,8 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | ----- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | 380px | Topbar search (`AppTopbar`, `StockSearch`)        | below it the field cannot sit beside the brand and account; it collapses to an icon             |
 | 960px | Strategy Builder side column (`ExplanationPanel`) | the editor rows need ~560px beside a 360px logic column; at 880 they would wrap every predicate |
-| 680px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Category, Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it they read as two lines of two |
+| 560px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it the Metric takes a line and Condition and Value share the next |
+| 440px **container** | Strategy Builder operand picker (`OperandPicker.module.css`, `@container operand-picker`) | the category tiles read four to a row only when the picker itself is this wide; it is as wide as the rule's fields above 600px and the whole screen below it, so its own width decides; below it they read three to a row |
 
 Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's
 reserved `AND` column and control scale at 600px, and the plan cards three abreast at 880px. See

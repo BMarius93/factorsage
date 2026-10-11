@@ -8,6 +8,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStrategy } from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
+import {
+  chooseMetric,
+  openPicker,
+  optionLabels,
+  showCategory,
+} from "./__testing__/operand-picker";
 
 /**
  * Valuation Ratios in the Strategy Builder (`docs/decisions/valuation-ratios-v1.md`).
@@ -89,11 +95,9 @@ describe("Valuation Ratios in the Builder", () => {
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
     const row = screen.getByTestId("predicate-row");
-    await user.selectOptions(
-      within(row).getByTestId("metric-category-select"),
-      "VALUATION",
-    );
-    const metrics = optionTexts(within(row).getByTestId("metric-select"));
+    const panel = await openPicker(user, row);
+    await showCategory(user, panel, "VALUATION");
+    const metrics = optionLabels(panel);
     expect(metrics.slice(-5)).toEqual([
       "P/E",
       "P/S",
@@ -102,8 +106,10 @@ describe("Valuation Ratios in the Builder", () => {
       "EV/EBITDA",
     ]);
 
-    await user.selectOptions(
-      within(row).getByTestId("metric-select"),
+    await chooseMetric(
+      user,
+      row,
+      "VALUATION",
       "VALUATION_RATIO:PRICE_TO_EARNINGS_TTM",
     );
     expect(optionTexts(within(row).getByTestId("operator-select"))).toEqual([
@@ -117,13 +123,12 @@ describe("Valuation Ratios in the Builder", () => {
 
     // A Trigger row does not offer them.
     await user.click(screen.getByTestId("add-trigger"));
-    await user.selectOptions(
-      screen.getAllByTestId("metric-category-select").at(-1)!,
-      "VALUATION",
+    const triggerPanel = await openPicker(
+      user,
+      screen.getAllByTestId("predicate-row").at(-1)!,
     );
-    expect(
-      optionTexts(screen.getAllByTestId("metric-select").at(-1)!),
-    ).not.toContain("P/E");
+    await showCategory(user, triggerPanel, "VALUATION");
+    expect(optionLabels(triggerPanel)).not.toContain("P/E");
   });
 
   it("saves `P/E is below 15` as the ratio's stable identity and a multiple", async () => {
@@ -139,12 +144,10 @@ describe("Valuation Ratios in the Builder", () => {
     await user.type(screen.getByLabelText("Name"), "Cheap earnings");
     await user.click(screen.getByTestId("add-level-BUY"));
     const row = screen.getByTestId("predicate-row");
-    await user.selectOptions(
-      within(row).getByTestId("metric-category-select"),
+    await chooseMetric(
+      user,
+      row,
       "VALUATION",
-    );
-    await user.selectOptions(
-      within(row).getByTestId("metric-select"),
       "VALUATION_RATIO:PRICE_TO_EARNINGS_TTM",
     );
     await user.selectOptions(

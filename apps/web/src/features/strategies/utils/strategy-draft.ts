@@ -3,6 +3,8 @@ import {
   STRATEGY_MAX_EXIT_RULES,
   STRATEGY_SCHEMA_VERSION,
   SELL_LEVEL_PERCENTAGES,
+  asAlternativeDataMetric,
+  buildAlternativeDataMetric,
   checkStrategyValue,
   conditionOperatorsFor,
   defaultConditionOperatorFor,
@@ -11,6 +13,8 @@ import {
   defaultValueFor,
   emptyStrategyDefinition,
   strategyMetricCategory,
+  strategyMetricKey,
+  strategyMetricOptions,
   triggerOperatorsFor,
   type ConditionOperator,
   type StrategyCondition,
@@ -41,8 +45,9 @@ import {
  * compared with is replaced by that Metric's default.
  *
  * A row's category is never stored. It is a property of its metric (`strategyMetricCategory`), so
- * the two controls that choose them can never disagree, and changing the category is nothing but
- * installing that category's first metric.
+ * the Metric picker — which shows a category, then that category's metrics — can never hold a
+ * category and a metric that disagree. Browsing a category changes nothing; choosing a metric is
+ * one `chooseMetric` edit.
  */
 export type StrategyDraftState = {
   readonly name: string;
@@ -89,6 +94,7 @@ export type StrategyDraftAction =
       category: StrategyMetricCategoryId;
     }
   | { type: "setMetric"; ref: PredicateRef; metric: StrategyMetric }
+  | { type: "chooseMetric"; ref: PredicateRef; metric: StrategyMetric }
   | { type: "setOperator"; ref: PredicateRef; operator: string }
   | { type: "setValue"; ref: PredicateRef; value: StrategyValue }
   | { type: "reset"; draft: StrategyDraftState };
@@ -262,6 +268,40 @@ function reconcile(
       : (supported[0] ?? operator),
     value,
   };
+}
+
+/**
+ * The chosen metric, carrying the configuration of the one it replaces when both are measures of the
+ * same alternative-data family.
+ *
+ * Every Insider measure takes the same lookback and role filter, and every Congressional measure the
+ * same lookback, scope, chamber and owner filters — the configuration's shape belongs to the family,
+ * never to the measure, and the canonical validator accepts any of it on any measure of that family.
+ * So `Insider sellers · 180D · CEO, CFO` becomes `Insider buyers · 180D · CEO, CFO` rather than
+ * silently dropping what the user narrowed. Anything else — another family, a market metric — has
+ * no configuration in common and starts from the chosen metric's own defaults.
+ */
+function withCarriedConfiguration(
+  previous: StrategyMetric,
+  chosen: StrategyMetric,
+): StrategyMetric {
+  const from = asAlternativeDataMetric(previous);
+  const to = asAlternativeDataMetric(chosen);
+  if (from?.kind === "INSIDER_ACTIVITY" && to?.kind === "INSIDER_ACTIVITY") {
+    return buildAlternativeDataMetric({ ...from, measure: to.measure });
+  }
+  if (from?.kind === "CONGRESS_ACTIVITY" && to?.kind === "CONGRESS_ACTIVITY") {
+    return buildAlternativeDataMetric({ ...from, measure: to.measure });
+  }
+  return chosen;
+}
+
+/** Whether the registry offers this metric's identity in the ref's level kind and half of a Signal. */
+function isOffered(ref: PredicateRef, metric: StrategyMetric): boolean {
+  const key = strategyMetricKey(metric);
+  return strategyMetricOptions(ref.levelKind, ref.part).some(
+    (option) => strategyMetricKey(option.metric) === key,
+  );
 }
 
 function mapSignal(
@@ -597,6 +637,47 @@ function documentReducer(
           })),
         ),
       };
+
+    case "chooseMetric": {
+      // What the Metric picker dispatches: one choice that may cross a category.
+      //
+      // - The row's own metric again changes nothing, so reopening the picker and confirming the
+      //   current choice can never reset a configuration.
+      // - Another category is the category-change rule `setCategory` applies: the chosen metric's
+      //   own starting rule, because a threshold written for another family means nothing here.
+      // - Another metric of the same category keeps whatever operator and Value it can still take
+      //   (`reconcile`), and a measure of the same alternative-data family keeps the configuration.
+      const row = rowAt(state.definition, action.ref);
+      if (
+        !row ||
+        !isOffered(action.ref, action.metric) ||
+        strategyMetricKey(row.metric) === strategyMetricKey(action.metric)
+      ) {
+        return state;
+      }
+      const crossesCategory =
+        strategyMetricCategory(row.metric) !==
+        strategyMetricCategory(action.metric);
+      const metric = crossesCategory
+        ? action.metric
+        : withCarriedConfiguration(row.metric, action.metric);
+      return {
+        ...state,
+        definition: withSignal(state.definition, action.ref, (signal) =>
+          mapSignal(signal, action.ref, (current) => ({
+            metric,
+            ...(crossesCategory
+              ? freshRule(action.ref.part, metric, current.value)
+              : reconcile(
+                  action.ref.part,
+                  metric,
+                  current.operator,
+                  current.value,
+                )),
+          })),
+        ),
+      };
+    }
 
     case "setOperator":
       return {

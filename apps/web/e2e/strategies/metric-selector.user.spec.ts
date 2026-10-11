@@ -2,13 +2,19 @@ import type { StrategyDetailResponse } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
-import { chooseMetric } from "../utils/strategy-builder";
+import {
+  categoryLabels,
+  chooseMetric,
+  openPicker,
+  showCategory,
+} from "../utils/strategy-builder";
 
 /**
- * The Category -> Metric -> Configuration -> Condition -> Value row, for PRO_USER.
+ * The Metric (category -> metric, in one picker) -> Configuration -> Condition -> Value row, for
+ * PRO_USER.
  *
  * What only a browser against the real API can prove: that a configurable metric's identity and its
- * configuration read the same on every surface — the two selectors, the row's summary, the Configure
+ * configuration read the same on every surface — the Metric picker, the row's summary, the Configure
  * dialog, the Strategy Logic panel and the explanation panel — and that saving, reloading, editing
  * and duplicating the strategy changes none of it. The selector once read `Insider sellers 20D`
  * while the rest of the page said `180D`.
@@ -104,16 +110,21 @@ async function expectRowReads(
   },
 ): Promise<void> {
   const row = firstRow(page);
-  const category = row.getByTestId("metric-category-select");
-  const metric = row.getByTestId("metric-select");
-  await expect(category).toHaveValue(expected.category.value);
-  await expect(category.locator("option:checked")).toHaveText(
-    expected.category.label,
+  const metric = row.getByTestId("metric-picker");
+  await expect(metric).toHaveAttribute("data-value", expected.metric.value);
+  await expect(metric).toHaveText(expected.metric.label);
+  // Reopening the picker restores the metric and its category.
+  const picker = await openPicker(row);
+  const category = picker.locator(
+    '[data-testid="metric-picker-category"][aria-pressed="true"]',
   );
-  await expect(metric).toHaveValue(expected.metric.value);
-  await expect(metric.locator("option:checked")).toHaveText(
-    expected.metric.label,
-  );
+  await expect(category).toHaveAttribute("data-value", expected.category.value);
+  await expect(category).toHaveText(expected.category.label);
+  await expect(
+    picker.locator('[data-testid="metric-picker-option"][aria-pressed="true"]'),
+  ).toHaveText(expected.metric.label);
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
   await expect(row.getByTestId("operand-configuration-summary")).toHaveText(
     expected.configuration,
   );
@@ -327,12 +338,14 @@ test.describe("configurable metrics in the Strategy Builder", () => {
         "180D · CEO",
       );
 
-      await row
-        .getByTestId("metric-category-select")
-        .selectOption("CONGRESSIONAL_TRADING");
-      await expect(
-        row.getByTestId("metric-select").locator("option:checked"),
-      ).toHaveText("Congress purchases");
+      await chooseMetric(
+        row,
+        "CONGRESSIONAL_TRADING",
+        "CONGRESS_ACTIVITY:PURCHASES",
+      );
+      await expect(row.getByTestId("metric-picker")).toHaveText(
+        "Congress purchases",
+      );
       await expect(row.getByTestId("operand-configuration-summary")).toHaveText(
         "30D",
       );
@@ -340,9 +353,7 @@ test.describe("configurable metrics in the Strategy Builder", () => {
         "CEO",
       );
 
-      await row
-        .getByTestId("metric-category-select")
-        .selectOption("OSCILLATORS");
+      await chooseMetric(row, "OSCILLATORS", "OSCILLATOR:RSI_7D");
       await expect(row.getByTestId("operand-config-button")).toHaveCount(0);
       await expect(
         row.getByTestId("operand-configuration-summary"),
@@ -412,29 +423,125 @@ test.describe("configurable metrics in the Strategy Builder", () => {
     await expect(
       trigger.getByTestId("operator-select").locator("option"),
     ).toHaveText(["crosses above", "crosses below"]);
-    await expect(
-      trigger.getByTestId("metric-category-select").locator("option"),
-    ).toHaveText(["Price", "Moving averages", "Oscillators", "Valuation"]);
+    expect(await categoryLabels(await openPicker(trigger))).toEqual([
+      "Price",
+      "Moving averages",
+      "Oscillators",
+      "Valuation",
+    ]);
   });
 
-  test("reads a rule as one line of four fields on a desktop", async ({
+  test("E: another measure of the same family keeps the applied filters, and saves them", async ({
+    page,
+  }) => {
+    const name = `E2E carried filters ${Date.now()}`;
+    let id: string | null = null;
+    try {
+      const row = await startStrategy(page, name);
+      await chooseMetric(
+        row,
+        "CONGRESSIONAL_TRADING",
+        "CONGRESS_ACTIVITY:BUYERS",
+      );
+      await configure(
+        page,
+        row,
+        "Configure Congress buyers",
+        async (dialog) => {
+          await dialog.getByLabel("Lookback").selectOption("90");
+          await dialog.getByLabel("Chamber").selectOption("SENATE");
+          await dialog.getByRole("checkbox", { name: "Spouse" }).check();
+        },
+      );
+      await row.getByTestId("value-control").fill("3");
+
+      // Every Congressional measure takes the same filters, so they follow the choice — and so does
+      // the threshold, which is still a count.
+      await chooseMetric(
+        row,
+        "CONGRESSIONAL_TRADING",
+        "CONGRESS_ACTIVITY:SELLERS",
+      );
+      await expect(row.getByTestId("operand-configuration-summary")).toHaveText(
+        "90D · Senate · Spouse",
+      );
+      await expect(page.getByTestId("logic-preview")).toContainText(
+        "Congress sellers is above 3 (90D · Senate · Spouse)",
+      );
+      // The dialog opens on what was carried, and Cancel leaves it there.
+      await row.getByTestId("operand-config-button").click();
+      const dialog = page.getByTestId("alternative-data-config");
+      await expect(dialog.getByLabel("Lookback")).toHaveValue("90");
+      await expect(dialog.getByLabel("Chamber")).toHaveValue("SENATE");
+      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(dialog).toHaveCount(0);
+
+      // A measure in another unit keeps the filters and starts its own threshold.
+      await chooseMetric(
+        row,
+        "CONGRESSIONAL_TRADING",
+        "CONGRESS_ACTIVITY:MINIMUM_PURCHASE_VALUE",
+      );
+      await expect(row.getByTestId("operand-configuration-summary")).toHaveText(
+        "90D · Senate · Spouse",
+      );
+      await expect(row.getByTestId("value-control")).toHaveValue("0");
+      await chooseMetric(
+        row,
+        "CONGRESSIONAL_TRADING",
+        "CONGRESS_ACTIVITY:SELLERS",
+      );
+      await row.getByTestId("value-control").fill("3");
+
+      await page.getByTestId("save-strategy").click();
+      await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/);
+      id = strategyIdOf(page);
+      const saved = await readStrategy(page, id);
+      expect(saved.definition.buyLevels[0]?.signal.conditions[0]).toMatchObject(
+        {
+          metric: {
+            kind: "CONGRESS_ACTIVITY",
+            measure: "SELLERS",
+            lookback: 90,
+            scope: { kind: "ANY" },
+            chamber: "SENATE",
+            owners: ["SPOUSE"],
+          },
+          operator: "IS_ABOVE",
+          value: { kind: "NUMBER", value: 3 },
+        },
+      );
+
+      // Another family does not inherit them.
+      await page.reload();
+      await chooseMetric(
+        firstRow(page),
+        "INSIDER_ACTIVITY",
+        "INSIDER_ACTIVITY:SELLERS",
+      );
+      await expect(
+        firstRow(page).getByTestId("operand-configuration-summary"),
+      ).toHaveText("20D");
+    } finally {
+      await deleteStrategies(page, [id]);
+    }
+  });
+
+  test("reads a rule as one line of three fields on a desktop, and opens the picker beneath it", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const row = await startStrategy(page, `E2E layout ${Date.now()}`);
     await chooseMetric(row, "VALUATION", "MARGIN_OF_SAFETY:DCF_FCFF");
     const boxes = await Promise.all(
-      [
-        "metric-category-select",
-        "metric-select",
-        "operator-select",
-        "value-control",
-      ].map((testId) => row.getByTestId(testId).boundingBox()),
+      ["metric-picker", "operator-select", "value-control"].map((testId) =>
+        row.getByTestId(testId).boundingBox(),
+      ),
     );
-    const [category] = boxes;
+    const [metric] = boxes;
     for (const box of boxes) {
       expect(box).toBeTruthy();
-      expect(Math.abs(box!.y - category!.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box!.y - metric!.y)).toBeLessThanOrEqual(1);
       expect(box!.width).toBeGreaterThanOrEqual(100);
     }
     // In order, left to right, and inside the level card rather than wider than it.
@@ -444,6 +551,77 @@ test.describe("configurable metrics in the Strategy Builder", () => {
     const card = await page.getByTestId("level-card-BUY").first().boundingBox();
     const last = boxes.at(-1)!;
     expect(last.x + last.width).toBeLessThanOrEqual(card!.x + card!.width);
+
+    // The popover opens beside the row — beneath it, or above it when the viewport has more room
+    // there — never over it and never off screen, with the eight BUY categories as two rows of four.
+    const panel = await openPicker(row);
+    const panelBox = (await panel.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(
+      panelBox.y >= metric!.y + metric!.height ||
+        panelBox.y + panelBox.height <= metric!.y,
+    ).toBe(true);
+    expect(panelBox.y).toBeGreaterThanOrEqual(0);
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(viewport.height);
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(viewport.width);
+    const tiles = await Promise.all(
+      (await panel.getByTestId("metric-picker-category").all()).map((tile) =>
+        tile.boundingBox(),
+      ),
+    );
+    expect(tiles).toHaveLength(8);
+    const rows = [...new Set(tiles.map((tile) => Math.round(tile!.y)))];
+    expect(rows).toHaveLength(2);
+    expect(
+      tiles.filter((tile) => Math.round(tile!.y) === rows[0]),
+    ).toHaveLength(4);
+
+    // A category's metrics sit below in two columns; only they scroll, and neither a change of
+    // category nor scrolling moves the categories.
+    const tileTop = async () =>
+      (await panel.getByTestId("metric-picker-category").first().boundingBox())!
+        .y;
+    await showCategory(panel, "FUNDAMENTALS");
+    expect(await tileTop()).toBe(tiles[0]!.y);
+    const options = panel.getByTestId("metric-picker-option");
+    const [firstOption, secondOption, thirdOption] = await Promise.all(
+      [0, 1, 2].map((index) => options.nth(index).boundingBox()),
+    );
+    expect(Math.abs(firstOption!.y - secondOption!.y)).toBeLessThanOrEqual(1);
+    expect(secondOption!.x).toBeGreaterThan(firstOption!.x);
+    expect(thirdOption!.y).toBeGreaterThan(firstOption!.y);
+    const scroller = panel.getByTestId("metric-picker-options");
+    await expect(scroller).toHaveCSS("overflow-y", "auto");
+    await scroller.evaluate((element) =>
+      element.scrollTo(0, element.scrollHeight),
+    );
+    await expect(options.last()).toBeInViewport();
+    expect(await tileTop()).toBe(tiles[0]!.y);
+    await showCategory(panel, "PRICE");
+    expect(await tileTop()).toBe(tiles[0]!.y);
+
+    // Choosing closes it; reopening restores both the metric and its category.
+    await showCategory(panel, "FUNDAMENTALS");
+    await options.filter({ hasText: "ROIC TTM" }).click();
+    await expect(panel).toBeHidden();
+    await expect(row.getByTestId("metric-picker")).toHaveText("ROIC TTM");
+    await openPicker(row);
+    await expect(
+      panel.locator(
+        '[data-testid="metric-picker-category"][aria-pressed="true"]',
+      ),
+    ).toHaveText("Fundamentals");
+    await expect(
+      panel.locator(
+        '[data-testid="metric-picker-option"][aria-pressed="true"]',
+      ),
+    ).toHaveText("ROIC TTM");
+    // A press elsewhere — here the explanation rail beside it — closes it without changing the rule.
+    await page
+      .getByTestId("explanation-panel")
+      .click({ position: { x: 8, y: 8 } });
+    await expect(panel).toBeHidden();
+    await expect(row.getByTestId("metric-picker")).toHaveText("ROIC TTM");
   });
 });
 
@@ -470,7 +648,7 @@ test.describe("configurable metrics on a phone", () => {
     // On a phone the explanation is drawn under the focused row. Pressing the second row's
     // Configure must not move it: a layout shift between press and release would hand the click
     // to an ancestor, and the dialog would never open.
-    await row.getByTestId("metric-select").focus();
+    await row.getByTestId("metric-picker").focus();
     await expect(row.getByTestId("inline-help")).toBeVisible();
     await configure(
       page,
@@ -509,14 +687,14 @@ test.describe("configurable metrics on a phone", () => {
       "Congress buyers is above 0 (90D · Senate · Spouse)",
     );
 
-    // Category and Metric share the first line, Condition and Value the second.
-    const [category, metric, operator] = await Promise.all(
-      ["metric-category-select", "metric-select", "operator-select"].map(
-        (testId) => row.getByTestId(testId).boundingBox(),
+    // The Metric has the first line, Condition and Value share the second.
+    const [metric, operator, value] = await Promise.all(
+      ["metric-picker", "operator-select", "value-control"].map((testId) =>
+        row.getByTestId(testId).boundingBox(),
       ),
     );
-    expect(Math.abs(metric!.y - category!.y)).toBeLessThanOrEqual(1);
-    expect(operator!.y).toBeGreaterThan(category!.y);
+    expect(Math.abs(value!.y - operator!.y)).toBeLessThanOrEqual(1);
+    expect(operator!.y).toBeGreaterThan(metric!.y);
 
     const overflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,

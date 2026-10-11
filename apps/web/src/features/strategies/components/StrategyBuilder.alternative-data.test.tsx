@@ -15,14 +15,24 @@ import {
 } from "../../alternative-data/api/alternative-data-api";
 import { replaceStrategyDefinition } from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
+import {
+  activeCategory,
+  categoryLabels,
+  chooseMetric,
+  openPicker,
+  optionLabels as pickerOptionLabels,
+  pickerText,
+  pickerTrigger,
+  pickerValue,
+  showCategory,
+} from "./__testing__/operand-picker";
 
 /**
  * The alternative-data half of the Strategy Builder.
  *
- * What it proves is the rule the Category / Metric selector exists for: a metric's **identity** —
- * its category and its measure — is what the two selectors show, and its **configuration** — the
- * lookback, the scope, the filters — is edited in its own dialog and rendered by one canonical
- * summary. The row, the Strategy Logic sidebar, the explanation panel, the saved document and a
+ * What it proves is the rule the Metric picker exists for: a metric's **identity** — its category
+ * and its measure — is what the picker shows, and its **configuration** — the lookback, the scope,
+ * the filters — is edited in its own dialog and rendered by one canonical summary. The row, the Strategy Logic sidebar, the explanation panel, the saved document and a
  * reloaded Builder must all agree on it; the selector once said `20D` while everything else said
  * `180D`. It also covers the phone layout's grammar, because responsive behaviour is part of
  * acceptance rather than a later cleanup.
@@ -143,11 +153,6 @@ function selectIn(row: HTMLElement, testId: string): HTMLSelectElement {
   return within(row).getByTestId(testId) as HTMLSelectElement;
 }
 
-/** The text a select shows: its selected option, not its value. */
-function shown(select: HTMLSelectElement): string {
-  return select.selectedOptions[0]?.textContent ?? "";
-}
-
 function optionLabels(select: HTMLSelectElement): string[] {
   return [...select.options].map((option) => option.textContent ?? "");
 }
@@ -157,8 +162,8 @@ function representations() {
   const row = screen.getByTestId("predicate-row");
   const side = screen.getByTestId("explanation-panel");
   return {
-    category: selectIn(row, "metric-category-select"),
-    metric: selectIn(row, "metric-select"),
+    metricKey: pickerValue(row),
+    metricLabel: pickerText(row),
     summary:
       within(row).queryByTestId("operand-configuration-summary")?.textContent ??
       null,
@@ -173,6 +178,23 @@ function representations() {
     helpConfiguration:
       within(side).queryByTestId("help-configuration")?.textContent ?? null,
   };
+}
+
+/** The category the row's Metric picker opens on, read by opening it and closing it again. */
+async function pickerCategory(
+  user: ReturnType<typeof userEvent.setup>,
+  row: HTMLElement,
+): Promise<string | null> {
+  const category = activeCategory(await openPicker(user, row));
+  await user.keyboard("{Escape}");
+  return category;
+}
+
+/** Focuses the row's Metric control, which is what points the explanation at it. */
+function focusMetric(row: HTMLElement) {
+  act(() => {
+    pickerTrigger(row).focus();
+  });
 }
 
 async function configure(
@@ -203,22 +225,19 @@ afterEach(() => {
 });
 
 describe("the alternative-data condition row", () => {
-  it("reads Category, Metric, Condition and Value, and puts configuration on its own line", async () => {
+  it("reads Metric, Condition and Value, and puts configuration on its own line", async () => {
+    const user = userEvent.setup();
     render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
 
-    expect(within(row).getAllByTestId("metric-category-select")).toHaveLength(
-      1,
-    );
-    expect(within(row).getAllByTestId("metric-select")).toHaveLength(1);
+    expect(within(row).queryByTestId("metric-category-select")).toBeNull();
+    expect(within(row).getAllByTestId("metric-picker")).toHaveLength(1);
     expect(within(row).getAllByTestId("operator-select")).toHaveLength(1);
     expect(within(row).getAllByTestId("value-control")).toHaveLength(1);
     expect(within(row).getByTestId("operand-config-button")).toBeDefined();
 
-    expect(shown(selectIn(row, "metric-category-select"))).toBe(
-      "Congressional trading",
-    );
-    expect(shown(selectIn(row, "metric-select"))).toBe("Congress buyers");
+    expect(pickerText(row)).toBe("Congress buyers");
+    expect(await pickerCategory(user, row)).toBe("CONGRESSIONAL_TRADING");
     expect(selectIn(row, "operator-select").value).toBe("IS_ABOVE");
     expect(
       (within(row).getByLabelText("Value") as HTMLInputElement).value,
@@ -226,12 +245,16 @@ describe("the alternative-data condition row", () => {
   });
 
   it("names the metric by its identity alone, never by a configuration", async () => {
+    const user = userEvent.setup();
     render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
-    const metric = selectIn(row, "metric-select");
-    expect(metric.getAttribute("title")).toBe("Congress buyers");
-    for (const label of optionLabels(metric)) {
-      expect(label).not.toMatch(/\d+D\b/);
+    expect(pickerTrigger(row).getAttribute("title")).toBe("Congress buyers");
+    const panel = await openPicker(user, row);
+    for (const category of ["CONGRESSIONAL_TRADING", "INSIDER_ACTIVITY"]) {
+      await showCategory(user, panel, category);
+      for (const label of pickerOptionLabels(panel)) {
+        expect(label).not.toMatch(/\d+D\b/);
+      }
     }
   });
 
@@ -268,9 +291,9 @@ describe("the alternative-data condition row", () => {
     const summaryId = within(row)
       .getByTestId("operand-configuration-summary")
       .getAttribute("id");
-    expect(
-      selectIn(row, "metric-select").getAttribute("aria-describedby"),
-    ).toContain(summaryId);
+    expect(pickerTrigger(row).getAttribute("aria-describedby")).toContain(
+      summaryId,
+    );
   });
 
   it("offers no configuration at all on a row with no alternative-data metric", async () => {
@@ -302,8 +325,10 @@ describe("identity and configuration agree everywhere", () => {
     );
     const row = await screen.findByTestId("predicate-row");
 
-    await user.selectOptions(
-      selectIn(row, "metric-select"),
+    await chooseMetric(
+      user,
+      row,
+      "INSIDER_ACTIVITY",
       "INSIDER_ACTIVITY:SELLERS",
     );
     await user.click(screen.getByTestId("operand-config-button"));
@@ -322,12 +347,13 @@ describe("identity and configuration agree everywhere", () => {
       within(dialog).getByTestId("alternative-data-config-apply"),
     );
 
-    const expectEverywhere180 = () => {
+    const expectEverywhere180 = async () => {
+      expect(
+        await pickerCategory(user, screen.getByTestId("predicate-row")),
+      ).toBe("INSIDER_ACTIVITY");
       const view = representations();
-      expect(view.category.value).toBe("INSIDER_ACTIVITY");
-      expect(shown(view.category)).toBe("Insider activity");
-      expect(view.metric.value).toBe("INSIDER_ACTIVITY:SELLERS");
-      expect(shown(view.metric)).toBe("Insider sellers");
+      expect(view.metricKey).toBe("INSIDER_ACTIVITY:SELLERS");
+      expect(view.metricLabel).toBe("Insider sellers");
       expect(view.summary).toBe("180D · CEO, CFO");
       expect(view.configureLabel).toBe("Configure Insider sellers");
       expect(view.logic).toContain(
@@ -344,7 +370,7 @@ describe("identity and configuration agree everywhere", () => {
     await waitFor(() =>
       expect(representations().summary).toBe("180D · CEO, CFO"),
     );
-    expectEverywhere180();
+    await expectEverywhere180();
 
     // Reopening the dialog shows the configuration it was given.
     await user.click(screen.getByTestId("operand-config-button"));
@@ -380,11 +406,11 @@ describe("identity and configuration agree everywhere", () => {
       />,
     );
     await screen.findByTestId("predicate-row");
-    await user.click(screen.getByTestId("metric-select"));
-    expectEverywhere180();
+    focusMetric(screen.getByTestId("predicate-row"));
+    await expectEverywhere180();
   });
 
-  it("B: Congressional trading -> Congress purchases configured to 180D + House agrees everywhere, saved and reloaded", async () => {
+  it("B: Congressional trading -> Congress purchases keeps its group, configured to 180D + House agrees everywhere, saved and reloaded", async () => {
     const user = userEvent.setup();
     const { unmount } = render(
       <StrategyBuilder strategy={congressStrategy()} />,
@@ -394,12 +420,15 @@ describe("identity and configuration agree everywhere", () => {
       expect(representations().summary).toBe("60D · House leadership"),
     );
 
-    // A different measure starts at its own default configuration: the group scope does not follow.
-    await user.selectOptions(
-      selectIn(row, "metric-select"),
+    // Every congressional measure takes the same configuration, so another measure keeps it: the
+    // lookback and the group scope follow the choice rather than silently resetting.
+    await chooseMetric(
+      user,
+      row,
+      "CONGRESSIONAL_TRADING",
       "CONGRESS_ACTIVITY:PURCHASES",
     );
-    expect(representations().summary).toBe("30D");
+    expect(representations().summary).toBe("60D · House leadership");
 
     await configure(user, async (dialog) => {
       expect(within(dialog).getByRole("heading").textContent).toBe(
@@ -415,20 +444,21 @@ describe("identity and configuration agree everywhere", () => {
       );
     });
 
-    const expectEverywhere = () => {
+    const expectEverywhere = async () => {
+      expect(
+        await pickerCategory(user, screen.getByTestId("predicate-row")),
+      ).toBe("CONGRESSIONAL_TRADING");
       const view = representations();
-      expect(view.category.value).toBe("CONGRESSIONAL_TRADING");
-      expect(shown(view.category)).toBe("Congressional trading");
-      expect(view.metric.value).toBe("CONGRESS_ACTIVITY:PURCHASES");
-      expect(shown(view.metric)).toBe("Congress purchases");
-      expect(view.summary).toBe("180D · House");
+      expect(view.metricKey).toBe("CONGRESS_ACTIVITY:PURCHASES");
+      expect(view.metricLabel).toBe("Congress purchases");
+      expect(view.summary).toBe("180D · House leadership · House");
       expect(view.logic).toContain(
-        "Congress purchases is above 2 (180D · House)",
+        "Congress purchases is above 2 (180D · House leadership · House)",
       );
       expect(view.helpTitle).toBe("Congress purchases");
-      expect(view.helpConfiguration).toBe("180D · House");
+      expect(view.helpConfiguration).toBe("180D · House leadership · House");
     };
-    expectEverywhere();
+    await expectEverywhere();
 
     await user.click(screen.getByTestId("save-strategy"));
     await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
@@ -437,7 +467,7 @@ describe("identity and configuration agree everywhere", () => {
       kind: "CONGRESS_ACTIVITY",
       measure: "PURCHASES",
       lookback: 180,
-      scope: { kind: "ANY" },
+      scope: { kind: "GROUP", groupId: "group-1" },
       chamber: "HOUSE",
     });
 
@@ -451,8 +481,11 @@ describe("identity and configuration agree everywhere", () => {
       />,
     );
     await screen.findByTestId("predicate-row");
-    await user.click(screen.getByTestId("metric-select"));
-    expectEverywhere();
+    focusMetric(screen.getByTestId("predicate-row"));
+    await waitFor(() =>
+      expect(representations().summary).toBe("180D · House leadership · House"),
+    );
+    await expectEverywhere();
   });
 
   it("C: a configured Insider metric leaks nothing into the category chosen after it", async () => {
@@ -469,30 +502,31 @@ describe("identity and configuration agree everywhere", () => {
     });
     expect(representations().summary).toBe("180D · CEO");
 
-    await user.selectOptions(
-      selectIn(row, "metric-category-select"),
+    await chooseMetric(
+      user,
+      row,
       "CONGRESSIONAL_TRADING",
+      "CONGRESS_ACTIVITY:PURCHASES",
     );
     let view = representations();
-    expect(shown(view.metric)).toBe("Congress purchases");
+    expect(view.metricLabel).toBe("Congress purchases");
     expect(view.summary).toBe("30D");
     expect(view.helpConfiguration).toBe("30D");
 
     // Back to Insider activity is a fresh start: nothing of 180D · CEO is remembered.
-    await user.selectOptions(
-      selectIn(row, "metric-category-select"),
+    await chooseMetric(
+      user,
+      row,
       "INSIDER_ACTIVITY",
+      "INSIDER_ACTIVITY:BUYERS",
     );
     view = representations();
-    expect(shown(view.metric)).toBe("Insider buyers");
+    expect(view.metricLabel).toBe("Insider buyers");
     expect(view.summary).toBe("20D");
 
     // And a category with no configuration at all carries none.
-    await user.selectOptions(
-      selectIn(row, "metric-category-select"),
-      "OSCILLATORS",
-    );
-    expect(shown(selectIn(row, "metric-select"))).toBe("RSI 7D");
+    await chooseMetric(user, row, "OSCILLATORS", "OSCILLATOR:RSI_7D");
+    expect(pickerText(row)).toBe("RSI 7D");
     expect(within(row).queryByTestId("operand-config-button")).toBeNull();
     expect(
       within(row).queryByTestId("operand-configuration-summary"),
@@ -521,7 +555,6 @@ describe("the configuration surface", () => {
   it("leaves the explanation where it is when Configure takes focus", async () => {
     // On a phone the explanation is drawn under the focused row, so a focus change moves the page.
     // Configure is a button: a move between press and release would swallow its click.
-    const user = userEvent.setup();
     const strategy = insiderStrategy();
     render(
       <StrategyBuilder
@@ -557,7 +590,7 @@ describe("the configuration surface", () => {
       />,
     );
     const [first, second] = await screen.findAllByTestId("predicate-row");
-    await user.click(within(first!).getByTestId("metric-select"));
+    focusMetric(first!);
     expect(within(first!).getByTestId("inline-help")).toBeDefined();
 
     act(() => {
@@ -692,11 +725,12 @@ describe("the configuration surface", () => {
   });
 });
 
-describe("the category and metric selectors", () => {
+describe("the Metric picker", () => {
   it("offers the categories a BUY condition can use, in canonical order", async () => {
+    const user = userEvent.setup();
     render(<StrategyBuilder strategy={insiderStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
-    expect(optionLabels(selectIn(row, "metric-category-select"))).toEqual([
+    expect(categoryLabels(await openPicker(user, row))).toEqual([
       "Price",
       "Moving averages",
       "Oscillators",
@@ -712,17 +746,15 @@ describe("the category and metric selectors", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={insiderStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
-    expect(optionLabels(selectIn(row, "metric-select"))).toEqual([
+    const panel = await openPicker(user, row);
+    expect(pickerOptionLabels(panel)).toEqual([
       "Insider buyers",
       "Insider sellers",
       "Insider purchase value",
       "Insider sale value",
     ]);
-    await user.selectOptions(
-      selectIn(row, "metric-category-select"),
-      "CONGRESSIONAL_TRADING",
-    );
-    expect(optionLabels(selectIn(row, "metric-select"))).toEqual([
+    await showCategory(user, panel, "CONGRESSIONAL_TRADING");
+    expect(pickerOptionLabels(panel)).toEqual([
       "Congress purchases",
       "Congress sales",
       "Congress buyers",
@@ -732,7 +764,7 @@ describe("the category and metric selectors", () => {
   });
 
   it("keeps the metric selected after a lookback change", async () => {
-    // The select is keyed by the metric's identity, not by its configuration: a reconfigured metric
+    // The picker is keyed by the metric's identity, not by its configuration: a reconfigured metric
     // must not read as "Unavailable metric".
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={insiderStrategy()} />);
@@ -743,21 +775,48 @@ describe("the category and metric selectors", () => {
         "120",
       );
     });
-    const select = screen.getByTestId("metric-select") as HTMLSelectElement;
-    expect(select.value).toBe("INSIDER_ACTIVITY:BUYERS");
-    expect(shown(select)).toBe("Insider buyers");
+    const row = screen.getByTestId("predicate-row");
+    expect(pickerValue(row)).toBe("INSIDER_ACTIVITY:BUYERS");
+    expect(pickerText(row)).toBe("Insider buyers");
     expect(representations().summary).toBe("120D");
+  });
+
+  it("keeps an Insider configuration when another Insider measure is chosen, and starts its threshold", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={insiderStrategy()} />);
+    const row = await screen.findByTestId("predicate-row");
+    await configure(user, async (dialog) => {
+      await user.selectOptions(
+        within(dialog).getByLabelText("Lookback"),
+        "180",
+      );
+      await user.click(within(dialog).getByRole("checkbox", { name: "CEO" }));
+    });
+    await chooseMetric(
+      user,
+      row,
+      "INSIDER_ACTIVITY",
+      "INSIDER_ACTIVITY:SALE_VALUE",
+    );
+    expect(pickerText(row)).toBe("Insider sale value");
+    expect(representations().summary).toBe("180D · CEO");
+    // A count of 1 is not an amount of money: the new unit starts from its own floor.
+    expect(representations().logic).toContain(
+      "Insider sale value is above $0 (180D · CEO)",
+    );
   });
 
   it("switches from a market metric to an alternative-data one and reconciles the value", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={priceStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
-    await user.selectOptions(
-      selectIn(row, "metric-category-select"),
+    await chooseMetric(
+      user,
+      row,
       "INSIDER_ACTIVITY",
+      "INSIDER_ACTIVITY:BUYERS",
     );
-    expect(shown(selectIn(row, "metric-select"))).toBe("Insider buyers");
+    expect(pickerText(row)).toBe("Insider buyers");
     // A new category installs the metric's own starting rule — `is above 0`, any such activity at
     // all. Keeping `is below` with the count's floor would have built `is below 0`, which no session
     // can ever satisfy.
