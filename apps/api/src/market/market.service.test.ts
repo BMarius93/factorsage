@@ -160,6 +160,7 @@ function harness(
     advance(ms: number) {
       now = new Date(now.getTime() + ms);
     },
+    now: () => now,
   };
 }
 
@@ -421,6 +422,122 @@ describe("MarketService", () => {
       const next = await service.getMarketOverview();
 
       expect(instrument(next, "TLT")).toEqual(instrument(first, "TLT"));
+    });
+
+    it("never lets a failing series outlive the staleness bound by being copied forward", async () => {
+      // One ETF fails on every read for twenty minutes while the other nineteen keep succeeding, so
+      // every minute produces a fresh, successful summary. The failing ETF's last good answer was
+      // read at T0; whatever the summaries around it do, it must be served for at most 15 minutes
+      // after T0 and then be reported unavailable — never refreshed by being copied into a newer
+      // summary.
+      const plans: Record<string, Plan> = {};
+      const { service, advance, now } = harness(plans, {
+        maxStaleMs: 15 * 60_000,
+      });
+      const first = await service.getMarketOverview();
+      const lastGood = instrument(first, "TLT");
+      expect(lastGood.status).toBe("AVAILABLE");
+      plans.ETF_TLT = { kind: "error" };
+
+      const seen: { minute: number; status: string; kept: boolean }[] = [];
+      for (let minute = 1; minute <= 20; minute += 1) {
+        advance(60_000);
+        await service.getMarketOverview(); // past the TTL: serves the last summary, refreshes it
+        const expected = now().toISOString();
+        await vi.waitFor(async () => {
+          expect((await service.getMarketOverview()).generatedAt).toBe(
+            expected,
+          );
+        });
+        const tlt = instrument(await service.getMarketOverview(), "TLT");
+        seen.push({
+          minute,
+          status: tlt.status,
+          kept:
+            JSON.stringify(tlt.returns) === JSON.stringify(lastGood.returns),
+        });
+        // The other nineteen are unaffected throughout.
+        const others = (await service.getMarketOverview()).groups
+          .flatMap((group) => group.instruments)
+          .filter((one) => one.ticker !== "TLT");
+        expect(others.every((one) => one.status === "AVAILABLE")).toBe(true);
+      }
+
+      // Kept while younger than 15 minutes from its own last successful read …
+      for (const entry of seen.filter((one) => one.minute < 15)) {
+        expect(entry, `minute ${entry.minute}`).toMatchObject({ kept: true });
+      }
+      // … and unavailable from then on, for good.
+      for (const entry of seen.filter((one) => one.minute >= 15)) {
+        expect(entry, `minute ${entry.minute}`).toEqual({
+          minute: entry.minute,
+          status: "UNAVAILABLE",
+          kept: false,
+        });
+      }
+    });
+
+    it("serves a recovered series fresh again, with a new bound from its new read", async () => {
+      const plans: Record<string, Plan> = {};
+      const { service, advance, now } = harness(plans, {
+        maxStaleMs: 15 * 60_000,
+      });
+      await service.getMarketOverview();
+      plans.ETF_TLT = { kind: "error" };
+      const refreshAt = async (ms: number) => {
+        advance(ms);
+        await service.getMarketOverview();
+        const expected = now().toISOString();
+        await vi.waitFor(async () => {
+          expect((await service.getMarketOverview()).generatedAt).toBe(
+            expected,
+          );
+        });
+        return instrument(await service.getMarketOverview(), "TLT");
+      };
+
+      expect((await refreshAt(16 * 60_000)).status).toBe("UNAVAILABLE");
+      delete plans.ETF_TLT; // the series reads again
+      expect((await refreshAt(61_000)).status).toBe("AVAILABLE");
+      plans.ETF_TLT = { kind: "error" };
+      // Fourteen minutes after the recovery read: kept; sixteen: not.
+      for (let minute = 1; minute <= 14; minute += 1) {
+        expect((await refreshAt(60_000)).status, `minute ${minute}`).toBe(
+          "AVAILABLE",
+        );
+      }
+      advance(60_000);
+      expect((await refreshAt(61_000)).status).toBe("UNAVAILABLE");
+    });
+
+    it("stops serving a cached summary once the oldest answer it carries reaches the bound", async () => {
+      // TLT's last good read is at T0. At T0 + 14:30 a summary keeps it; then every computation
+      // fails outright. Forty seconds later that summary is still inside its own 60-second TTL, but
+      // the TLT answer in it is 15:10 old, so it must not be served.
+      const plans: Record<string, Plan> = {};
+      const { service, data, advance, now } = harness(plans, {
+        maxStaleMs: 15 * 60_000,
+      });
+      await service.getMarketOverview();
+      plans.ETF_TLT = { kind: "error" };
+      advance(14 * 60_000 + 30_000);
+      await service.getMarketOverview();
+      const expected = now().toISOString();
+      await vi.waitFor(async () => {
+        expect((await service.getMarketOverview()).generatedAt).toBe(expected);
+      });
+      expect(instrument(await service.getMarketOverview(), "TLT").status).toBe(
+        "AVAILABLE",
+      );
+
+      vi.mocked(data.listBenchmarks).mockRejectedValue(
+        new Error("database down"),
+      );
+      advance(40_000);
+
+      await expect(service.getMarketOverview()).rejects.toThrow(
+        "database down",
+      );
     });
 
     it("fails the request, rather than serving something old, when a recomputation throws", async () => {

@@ -1,3 +1,6 @@
+/** What one computation produced, and optionally the instant after which it must not be served. */
+export type SnapshotLoad<T> = { value: T; servableUntil?: number };
+
 /**
  * One process-local summary, recomputed at most once per `ttlMs` however many visitors ask.
  *
@@ -11,7 +14,9 @@
  *   visitor never waits for the refresh another visitor triggered.
  * - **Bounded staleness.** A value older than `maxStaleMs` is never served: the request waits for a
  *   new one, and a computation that fails then fails the request rather than presenting an old
- *   summary as current.
+ *   summary as current. A computation may shorten that bound for the value it returns
+ *   (`servableUntil`) when it carries data older than itself, so no part of a value is ever served
+ *   past its own age limit.
  *
  * Process memory, deliberately. The summary is a projection of the Redis projection, cheap to
  * rebuild and carrying nothing user-owned, so a shared cache would be a third copy of the same data
@@ -19,7 +24,7 @@
  * anyway). Each API process recomputes it at most once a minute.
  */
 export class SnapshotCache<T> {
-  private entry: { value: T; at: number } | undefined;
+  private entry: { value: T; at: number; servableUntil: number } | undefined;
   private inflight: Promise<T> | undefined;
 
   constructor(
@@ -33,32 +38,39 @@ export class SnapshotCache<T> {
   ) {}
 
   /**
-   * The current value, computing it with `load` when needed. `load` receives the previous value
-   * while it is still within `maxStaleMs`, so it can keep a part it could not recompute.
+   * The current value, computing it with `load` when needed.
+   *
+   * `load` deliberately receives nothing from the previous value. Every value this cache stores
+   * is stamped with the time it was *computed*, so anything a computation copied out of the
+   * previous value would be re-stamped as new and could be carried forward indefinitely. A
+   * computation that wants to keep a part it could not refresh must track that part's own age.
    */
-  async get(load: (previous: T | undefined) => Promise<T>): Promise<T> {
+  async get(load: () => Promise<SnapshotLoad<T>>): Promise<T> {
     const entry = this.entry;
-    const age = entry === undefined ? Infinity : this.options.now() - entry.at;
-    if (entry && age < this.options.ttlMs) {
-      return entry.value;
-    }
-    if (entry && age < this.options.maxStaleMs) {
+    const now = this.options.now();
+    if (entry && now < entry.servableUntil) {
+      if (now - entry.at < this.options.ttlMs) {
+        return entry.value;
+      }
       this.refresh(load).catch(this.options.onBackgroundFailure);
       return entry.value;
     }
     return this.refresh(load);
   }
 
-  private refresh(load: (previous: T | undefined) => Promise<T>): Promise<T> {
+  private refresh(load: () => Promise<SnapshotLoad<T>>): Promise<T> {
     if (!this.inflight) {
-      const entry = this.entry;
-      const previous =
-        entry && this.options.now() - entry.at < this.options.maxStaleMs
-          ? entry.value
-          : undefined;
-      this.inflight = load(previous)
-        .then((value) => {
-          this.entry = { value, at: this.options.now() };
+      this.inflight = load()
+        .then(({ value, servableUntil }) => {
+          const at = this.options.now();
+          this.entry = {
+            value,
+            at,
+            servableUntil: Math.min(
+              at + this.options.maxStaleMs,
+              servableUntil ?? Infinity,
+            ),
+          };
           return value;
         })
         .finally(() => {

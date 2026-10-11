@@ -30,7 +30,7 @@ import {
   MARKET_OVERVIEW_OPTIONS,
   type MarketOverviewOptions,
 } from "./market.tokens";
-import { SnapshotCache } from "./snapshot-cache";
+import { SnapshotCache, type SnapshotLoad } from "./snapshot-cache";
 
 /**
  * Everything the overview may ask of the benchmark subsystem, and nothing that reaches the
@@ -49,10 +49,17 @@ export type MarketOverviewDataPort = Pick<
 /** Series read at once: the history reader's own batch size. */
 const READ_CONCURRENCY = 4;
 
+type InstrumentAnswer = Omit<MarketOverviewInstrumentResponse, "status">;
+
 type ComputedInstrument = {
-  instrument: Omit<MarketOverviewInstrumentResponse, "status">;
+  instrument: InstrumentAnswer;
   source: "REDIS" | "POSTGRESQL" | "PREVIOUS" | "NONE";
+  /** For `PREVIOUS`: when the read it came from ran. */
+  readAt?: number;
 };
+
+/** An instrument's last answer that came from a read that succeeded, and when that read ran. */
+type SuccessfulRead = { instrument: InstrumentAnswer; readAt: number };
 
 /**
  * How the twenty market-overview ETFs have performed, for whoever is looking at the Dashboard.
@@ -74,6 +81,13 @@ type ComputedInstrument = {
 @Injectable()
 export class MarketService {
   private readonly cache: SnapshotCache<MarketOverviewResponse>;
+  /**
+   * Each instrument's last successful read, by ticker. Written only when a read succeeds, so its
+   * `readAt` is the age of the data itself — never the age of a summary that happened to carry it
+   * forward. Twenty entries at most; one computation runs at a time (`SnapshotCache`), so nothing
+   * else writes it concurrently.
+   */
+  private readonly lastSuccessful = new Map<string, SuccessfulRead>();
 
   constructor(
     @Inject(BENCHMARK_DATA_SERVICE)
@@ -94,12 +108,10 @@ export class MarketService {
   }
 
   async getMarketOverview(): Promise<MarketOverviewResponse> {
-    return this.cache.get((previous) => this.compute(previous));
+    return this.cache.get(() => this.compute());
   }
 
-  private async compute(
-    previous: MarketOverviewResponse | undefined,
-  ): Promise<MarketOverviewResponse> {
+  private async compute(): Promise<SnapshotLoad<MarketOverviewResponse>> {
     const startedAt = Date.now();
     const now = this.now();
     const range = marketOverviewReadRange(now.toISOString().slice(0, 10));
@@ -117,21 +129,9 @@ export class MarketService {
           benchmark,
         ]),
       );
-      const previousByTicker = new Map(
-        (previous?.groups ?? [])
-          .flatMap((group) => group.instruments)
-          .map((instrument) => [instrument.ticker, instrument]),
-      );
-
       const etfs = marketOverviewEtfs();
       const computed = await mapWithConcurrency(etfs, READ_CONCURRENCY, (etf) =>
-        this.readInstrument(
-          etf,
-          benchmarks.get(etf.benchmarkCode),
-          range,
-          now,
-          previousByTicker.get(etf.ticker),
-        ),
+        this.readInstrument(etf, benchmarks.get(etf.benchmarkCode), range, now),
       );
 
       const { asOf, statuses, status } = classifyInstruments(
@@ -175,7 +175,17 @@ export class MarketService {
           .length,
         durationMs: Date.now() - startedAt,
       });
-      return response;
+      // A kept answer is as old as the read it came from, not as new as this summary: the summary
+      // stops being servable when its oldest kept read reaches the staleness bound.
+      const keptReads = computed
+        .map((one) => one.readAt)
+        .filter((readAt): readAt is number => readAt !== undefined);
+      return keptReads.length === 0
+        ? { value: response }
+        : {
+            value: response,
+            servableUntil: Math.min(...keptReads) + this.options.maxStaleMs,
+          };
     } catch (err) {
       this.logger.error({
         event: "market.overview.compute.failed",
@@ -191,7 +201,6 @@ export class MarketService {
     benchmark: BenchmarkWithSeries | undefined,
     range: Required<DateRange>,
     now: Date,
-    previous: MarketOverviewInstrumentResponse | undefined,
   ): Promise<ComputedInstrument> {
     const unavailable = unavailableInstrument(etf.ticker, etf.label, etf.note);
     if (!benchmark) {
@@ -220,43 +229,56 @@ export class MarketService {
           ? { lastTailSyncAt: refresh.lastTailSyncAt }
           : {}),
       });
-      return {
-        instrument: {
-          ticker: etf.ticker,
-          name: etf.label,
-          ...(etf.note ? { note: etf.note } : {}),
-          ...(performance.sessionDate
-            ? { sessionDate: performance.sessionDate }
-            : {}),
-          returns: performance.returns,
-          sparkline: performance.sparkline,
-        },
-        source: history.source,
+      const instrument: InstrumentAnswer = {
+        ticker: etf.ticker,
+        name: etf.label,
+        ...(etf.note ? { note: etf.note } : {}),
+        ...(performance.sessionDate
+          ? { sessionDate: performance.sessionDate }
+          : {}),
+        returns: performance.returns,
+        sparkline: performance.sparkline,
       };
+      this.lastSuccessful.set(etf.ticker, {
+        instrument,
+        readAt: now.getTime(),
+      });
+      return { instrument, source: history.source };
     } catch (err) {
       // Logged with the original error, then isolated to this one instrument: a series that cannot
-      // be read must not take down a page that has nineteen others to show. The summary computed a
-      // moment ago still holds a correct answer for it, dated by its own session, so that is kept
-      // while it is younger than the staleness bound; otherwise the instrument has no numbers.
+      // be read must not take down a page that has nineteen others to show. Its last successful
+      // read is still a correct answer, dated by its own session, so it is kept while that *read*
+      // is younger than the staleness bound — measured from when the read ran, never from the
+      // summary that last carried it, so repeated failures cannot keep an old answer alive.
+      // Afterwards the instrument has no numbers until a read succeeds again.
+      const kept = this.lastSuccessful.get(etf.ticker);
+      const keptAgeMs = kept ? now.getTime() - kept.readAt : undefined;
+      const usable =
+        kept !== undefined &&
+        keptAgeMs !== undefined &&
+        keptAgeMs < this.options.maxStaleMs &&
+        kept.instrument.sessionDate !== undefined
+          ? kept
+          : undefined;
+      if (kept !== undefined && usable === undefined) {
+        this.lastSuccessful.delete(etf.ticker);
+      }
       this.logger.warn({
         event: "market.overview.instrument.failed",
         ticker: etf.ticker,
         code: etf.benchmarkCode,
         seriesId: benchmark.series.id,
-        keptPrevious: previous?.sessionDate !== undefined,
+        keptPrevious: usable !== undefined,
+        ...(keptAgeMs !== undefined
+          ? { lastSuccessfulReadAgeMs: keptAgeMs }
+          : {}),
         err,
       });
-      if (previous?.sessionDate !== undefined) {
+      if (usable) {
         return {
-          instrument: {
-            ticker: previous.ticker,
-            name: previous.name,
-            ...(previous.note ? { note: previous.note } : {}),
-            sessionDate: previous.sessionDate,
-            returns: previous.returns,
-            sparkline: previous.sparkline,
-          },
+          instrument: usable.instrument,
           source: "PREVIOUS",
+          readAt: usable.readAt,
         };
       }
       return { instrument: unavailable, source: "NONE" };

@@ -271,8 +271,9 @@ a database, a cache or a clock:
 - **`basis: END_OF_DAY` and `returnBasis: PRICE_RETURN` are values, not conventions.** Split-adjusted
   closes, distributions excluded; the Dashboard's footnote says so.
 - **One unreadable series costs one row** (`status: UNAVAILABLE`, logged as
-  `market.overview.instrument.failed` with the original error), or keeps the previous summary's
-  answer for that fund while it is younger than 15 minutes.
+  `market.overview.instrument.failed` with the original error), or keeps that fund's last
+  successful answer while *the read it came from* is younger than 15 minutes — never refreshed by
+  being carried into a newer summary, so a series that keeps failing becomes unavailable.
 
 **It never asks the provider.** `MarketService` holds `MarketOverviewDataPort` — `listBenchmarks`,
 `readBenchmarkHistory` (the `BenchmarkHistoryReader`) and `benchmarkRefreshState` — and no hydration
@@ -281,7 +282,9 @@ one `MGET`), rebuilt from PostgreSQL once if Redis lost them, PostgreSQL if Redi
 A series never bootstrapped is reported unavailable. Each read is bounded to one year and 45 days.
 
 **It is computed once and served to everyone**: an in-process `SnapshotCache` with single flight, a
-60-second TTL, stale-while-revalidate up to 15 minutes and nothing older ever served. Process memory
+60-second TTL, stale-while-revalidate up to 15 minutes and nothing older ever served — including a
+kept answer inside a newer summary, which ends that summary's servability when its read turns 15
+minutes old. A warm computation is 61 small PostgreSQL reads and twenty Redis reads. Process memory
 rather than Redis, because the summary is a projection of the Redis projection and carries nothing
 user-owned. `Cache-Control: private, max-age=60`, because the response also carries the caller's
 rate-limit headers. The policy is `standard-read`.

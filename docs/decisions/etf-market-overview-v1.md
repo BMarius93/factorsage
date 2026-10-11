@@ -129,11 +129,19 @@ Each read is bounded: one year plus 45 days to today, from the resident Redis pr
 and one `MGET`), rebuilt from PostgreSQL once if Redis lost it, PostgreSQL if Redis cannot answer.
 Twenty series are read four at a time. One computation therefore costs one catalog query, twenty bounded
 Redis reads and, per series, the three small indexed PostgreSQL reads of `benchmarkRefreshState`
-(coverage, latest bar, tail watermark) — at most once a minute per API process, however many visitors
-ask. One unreadable series costs its own row: the failure is
-logged with the original error (`market.overview.instrument.failed`) and the row is unavailable — or,
-while the previous summary is younger than the staleness bound, keeps that summary's answer, dated by
-its own session.
+(coverage, latest bar, tail watermark) — **61 PostgreSQL round trips**, measured, at most once a minute
+per API process however many visitors ask. A Redis loss costs one rebuild computation of about 200
+(PR 1's residency check and publication snapshot), then the warm count again. Only the watermark of
+the three is used; a narrower watermark read would save 40 indexed lookups a minute per process,
+which is not material at that rate and would widen PR 1's reader interface, so it is not added.
+
+One unreadable series costs its own row: the failure is logged with the original error
+(`market.overview.instrument.failed`, with `lastSuccessfulReadAgeMs`) and the row is unavailable — or,
+while **that instrument's own last successful read** is younger than the 15-minute staleness bound,
+keeps that read's answer, dated by its own session. The bound is measured from when the read ran,
+never from a summary that carried the answer forward, so a series that keeps failing is served its
+last good answer for at most 15 minutes and then reported unavailable until a read succeeds again
+(`MarketService.lastSuccessful`, process memory, twenty entries).
 
 ### 5. Serving it to many visitors
 
@@ -145,7 +153,10 @@ The summary is identical for everybody, so it is computed once per process and s
 - **stale while revalidating** — between 60 seconds and 15 minutes the previous summary is served at
   once while one background computation replaces it;
 - **bounded** — nothing older than 15 minutes is served; a computation that throws then fails the
-  request (`500`) rather than presenting an old summary as current.
+  request (`500`) rather than presenting an old summary as current. A summary that carries a kept
+  answer stops being servable when that answer's read reaches 15 minutes, even inside its TTL
+  (`servableUntil`), so the two bounds never stack. `SnapshotCache` passes nothing from one summary
+  to the next computation: anything copied forward would be re-stamped as new.
 
 Process memory, not Redis: the summary is a projection of the Redis projection, carries nothing
 user-owned, and a shared copy would need its own invalidation and a namespace invariant 16 does not
