@@ -86,7 +86,7 @@ const MUST_STAY_GATED: readonly string[] = [
  * Routes with no authentication guard at all.
  *
  * The gate reads the session the route's own guard resolved, so a route that resolves none is
- * public for everybody and cannot be gated — `/market-overview` serves the same index cards to a
+ * public for everybody and cannot be gated — `/market-overview` serves the same market overview to a
  * Guest and to a signed-in visitor. Listing them here makes that a stated property rather than a
  * gap somebody later mistakes for a bypass.
  */

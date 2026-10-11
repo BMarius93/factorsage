@@ -16,6 +16,11 @@ type SegmentedControlProps<TValue extends string> = {
   readonly value: TValue;
   readonly onChange: (next: TValue) => void;
   readonly testId?: string;
+  /**
+   * Share one row equally between the options instead of wrapping them. For a short, fixed set
+   * that must read as one control on a phone — the market overview's three categories.
+   */
+  readonly fill?: boolean;
 };
 
 /**
@@ -32,10 +37,12 @@ export function SegmentedControl<TValue extends string>({
   value,
   onChange,
   testId,
+  fill,
 }: SegmentedControlProps<TValue>) {
   return (
     <div
       className={styles.group}
+      data-fill={fill ? "true" : undefined}
       role="group"
       aria-label={label}
       {...(testId ? { "data-testid": testId } : {})}

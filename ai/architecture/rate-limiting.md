@@ -156,20 +156,20 @@ number; changing a limit is one edit there.
      actor, failure mode and both allowances in every row are parsed from this table and
      compared with `rate-limit-policies.ts`. Keep the `<points> / [count] <unit>` cell shape. -->
 
-| Policy               | Per actor  | Shared per-IP bucket | Actor   | On Redis failure | Applies to                                                                        |
-| -------------------- | ---------- | -------------------- | ------- | ---------------- | --------------------------------------------------------------------------------- |
-| `auth-sensitive`     | 20 / 5 min | —                    | IP      | **deny**         | login, register, verify, resend, forgot/reset password, both Google routes        |
-| `session-probe`      | 120 / min  | —                    | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`       |
-| `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                      |
-| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the seven `/stocks/{symbol}*` reads and `GET /market-overview`                    |
-| `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health` |
-| `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                 |
-| `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                    |
-| `monitor-mutation`   | 30 / min   | —                    | user→IP | allow            | monitor create / update / delete                                                  |
-| `backtest-execution` | 60 / hr    | 180 / hr             | user→IP | allow            | `POST /backtests`                                                                 |
-| `billing-mutation`   | 20 / 5 min | 60 / 5 min           | user→IP | **deny**         | checkout, portal, change                                                          |
-| `billing-refresh`    | 60 / 5 min | 180 / 5 min          | user→IP | **deny**         | `POST /billing/refresh`, which the client polls                                   |
-| `admin-operation`    | 10 / hr    | —                    | user→IP | **deny**         | `POST /admin/securities/sync`                                                     |
+| Policy               | Per actor  | Shared per-IP bucket | Actor   | On Redis failure | Applies to                                                                                                |
+| -------------------- | ---------- | -------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `auth-sensitive`     | 20 / 5 min | —                    | IP      | **deny**         | login, register, verify, resend, forgot/reset password, both Google routes                                |
+| `session-probe`      | 120 / min  | —                    | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`                               |
+| `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                                              |
+| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the seven `/stocks/{symbol}*` reads                                                                       |
+| `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health`, `GET /market-overview` |
+| `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                                         |
+| `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                                            |
+| `monitor-mutation`   | 30 / min   | —                    | user→IP | allow            | monitor create / update / delete                                                                          |
+| `backtest-execution` | 60 / hr    | 180 / hr             | user→IP | allow            | `POST /backtests`                                                                                         |
+| `billing-mutation`   | 20 / 5 min | 60 / 5 min           | user→IP | **deny**         | checkout, portal, change                                                                                  |
+| `billing-refresh`    | 60 / 5 min | 180 / 5 min          | user→IP | **deny**         | `POST /billing/refresh`, which the client polls                                                           |
+| `admin-operation`    | 10 / hr    | —                    | user→IP | **deny**         | `POST /admin/securities/sync`                                                                             |
 
 Sizing is from how the product's own UI calls each endpoint, plus headroom, so ordinary use never
 reaches one:

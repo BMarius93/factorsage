@@ -5,6 +5,7 @@ import type {
 } from "@intrinsic/stock-data";
 import {
   seedQaBenchmarkData,
+  seedQaMarketOverviewEtfData,
   seedQaMarketReferenceData,
 } from "../benchmarks/seed-qa-benchmark-data";
 import {
@@ -49,10 +50,12 @@ export type QaMarketFixtureSummary = {
   stockData: { symbol: string; from: string; to: string; tradingDays: number };
   benchmark: SeededSeries;
   marketReferences: SeededSeries[];
+  marketOverviewEtfs: SeededSeries[];
 };
 
 /**
- * `QATEST1`/`QATEST2`, `SP500` and the market references: `pnpm test:securities:seed`.
+ * `QATEST1`/`QATEST2`, `SP500`, the market references and the market-overview ETFs:
+ * `pnpm test:securities:seed`.
  *
  * Pruning orphaned non-catalog benchmarks is the entry script's separate first step, not part of
  * this: it deletes rows other integration suites create while they run, so it must never run from
@@ -103,12 +106,20 @@ export async function seedQaMarketFixtures(input: {
   for (const reference of marketReferences) {
     await benchmarkCache.invalidateManifest(reference.seriesId);
   }
+  // The Dashboard's market overview: the nineteen ETFs beside `SP500`, ending on the same session
+  // so all twenty share one reference date. The overview never asks a provider, so without them it
+  // would simply report those rows unavailable.
+  const marketOverviewEtfs = await seedQaMarketOverviewEtfData(prisma, today);
+  for (const etf of marketOverviewEtfs) {
+    await benchmarkCache.invalidateManifest(etf.seriesId);
+  }
 
   return {
     securities,
     stockData: { symbol: withMarketData.symbol, ...stockData },
     benchmark,
     marketReferences,
+    marketOverviewEtfs,
   };
 }
 

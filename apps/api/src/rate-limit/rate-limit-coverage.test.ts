@@ -178,19 +178,19 @@ describe("rate-limit coverage", () => {
     ]);
     // Split out on purpose: the client polls this one, its siblings are clicked.
     expect(byPolicy.get("billing-refresh")).toEqual(["POST /billing/refresh"]);
-    // The seven Stock Details reads plus the Dashboard's market overview: the same class, because
-    // each of them may hydrate from the market-data provider on a cold read. The chosen
-    // Fundamental Metric's history is one of them: it reads the same derived state. So is the
-    // chosen valuation ratio's, which may also refresh the provider's split list.
-    expect(byPolicy.get("stock-read")?.sort()).toContain(
-      "GET /market-overview",
-    );
+    // The seven Stock Details reads: the same class, because each of them may hydrate from the
+    // market-data provider on a cold read. The chosen Fundamental Metric's history is one of them:
+    // it reads the same derived state. So is the chosen valuation ratio's, which may also refresh
+    // the provider's split list. The Dashboard's market overview is not: it reads stored history
+    // only, once a minute, and is an ordinary system read.
+    expect(byPolicy.get("stock-read")).not.toContain("GET /market-overview");
+    expect(byPolicy.get("standard-read")).toContain("GET /market-overview");
     expect(byPolicy.get("stock-read")).toContain(
       "GET /stocks/:symbol/fundamentals/daily",
     );
     expect(byPolicy.get("stock-read")).toContain(
       "GET /stocks/:symbol/valuation-ratios/daily",
     );
-    expect(byPolicy.get("stock-read")?.length).toBe(8);
+    expect(byPolicy.get("stock-read")?.length).toBe(7);
   });
 });

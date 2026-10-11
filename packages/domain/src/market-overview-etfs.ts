@@ -11,8 +11,8 @@ import type { LocalDate } from "./stock-data.js";
  * `docs/decisions/etf-market-data-v1.md` is the decision. Exactly twenty ETFs in three groups, in
  * display order. This is the **one** list: a later Dashboard reads it rather than keeping a second
  * array of tickers, and the refresh job and the bootstrap tool read it to know which series to
- * maintain. Nothing here crosses an API contract yet — the overview endpoint keeps its current
- * contract until the Dashboard work replaces it.
+ * maintain. `GET /market-overview` reads it to answer in this order, with these words; the provider
+ * symbol behind each benchmark code never crosses that contract.
  *
  * Each entry names the benchmark **code** its history is stored under. `SPY` names `SP500`: the
  * backtest benchmark and execution calendar are the same SPY series, so the overview reuses it
@@ -49,6 +49,8 @@ export type MarketOverviewEtf = {
 export type MarketOverviewGroup = {
   readonly id: MarketOverviewGroupId;
   readonly label: string;
+  /** The compact name a category selector uses where the full label does not fit. */
+  readonly shortLabel: string;
   readonly etfs: readonly MarketOverviewEtf[];
 };
 
@@ -56,6 +58,7 @@ export const MARKET_OVERVIEW_ETF_GROUPS = [
   {
     id: "BENCHMARKS",
     label: "Benchmarks",
+    shortLabel: "Benchmarks",
     etfs: [
       {
         ticker: "SPY",
@@ -92,6 +95,7 @@ export const MARKET_OVERVIEW_ETF_GROUPS = [
   {
     id: "US_SECTORS",
     label: "Sector Performance",
+    shortLabel: "Sectors",
     etfs: [
       {
         ticker: "XLK",
@@ -164,6 +168,7 @@ export const MARKET_OVERVIEW_ETF_GROUPS = [
   {
     id: "MACRO_ALTERNATIVES",
     label: "Macro & Alternatives",
+    shortLabel: "Macro",
     etfs: [
       {
         ticker: "GLD",

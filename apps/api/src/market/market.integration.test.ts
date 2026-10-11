@@ -4,7 +4,10 @@ import type {
   BenchmarkResponse,
   MarketOverviewResponse,
 } from "@intrinsic/contracts";
-import { MARKET_REFERENCE_SERIES } from "@intrinsic/domain";
+import {
+  MARKET_OVERVIEW_ETF_GROUPS,
+  marketOverviewEtfs,
+} from "@intrinsic/domain";
 import {
   createStockDataRedisClient,
   IoredisCacheClient,
@@ -15,35 +18,70 @@ import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AuthModule } from "../auth/auth.module";
 import { PasswordService } from "../auth/password.service";
 import { BenchmarksModule } from "../benchmarks/benchmarks.module";
-import { seedQaMarketReferenceDataWith } from "../benchmarks/seed-qa-benchmark-data";
+import {
+  seedQaBenchmarkDataWith,
+  seedQaMarketOverviewEtfDataWith,
+} from "../benchmarks/seed-qa-benchmark-data";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
+import { STOCK_DATA_PROVIDER } from "../stocks/stock-data.tokens";
+import { periodAnchorDate } from "./market-overview";
 import { MarketModule } from "./market.module";
 
 useTestDatabase();
 
+const NOT_PROVIDER_CALLS = new Set([
+  "then",
+  "onModuleInit",
+  "onApplicationBootstrap",
+  "onModuleDestroy",
+  "beforeApplicationShutdown",
+  "onApplicationShutdown",
+]);
+
 /**
- * `GET /market-overview` end to end, against seeded series.
+ * `GET /market-overview` end to end: a compiled application, the real benchmark store in
+ * PostgreSQL and the real resident projection in Redis, against the deterministic QA fixtures for
+ * all twenty ETFs (`SP500` for `SPY`, nineteen `ETF_*` series).
  *
- * Deterministic on purpose: the series are the QA market-reference fixtures with complete coverage
- * and a current tail watermark, so the loader resolves entirely out of PostgreSQL and this suite
- * never touches FMP. The numbers asserted below are the fixture's, not today's market.
+ * The provider is replaced by a spy whose every method fails the test: a Dashboard read must never
+ * reach it, and this proves it on the production composition rather than on a fake service.
  */
 describe("market overview", () => {
   const suffix = randomUUID().slice(0, 8);
   const password = "Local-test-password-42";
   const email = `market-${suffix}@example.test`;
+  const providerCalls: string[] = [];
+  const provider = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        // Not provider calls: how Nest and promises probe an object they were handed.
+        if (typeof property === "symbol" || NOT_PROVIDER_CALLS.has(property)) {
+          return undefined;
+        }
+        return vi.fn(() => {
+          providerCalls.push(String(property));
+          throw new Error(
+            `the market overview reached the provider: ${String(property)}`,
+          );
+        });
+      },
+    },
+  );
 
   let app: INestApplication;
   let prisma: PrismaService;
   let guest: ReturnType<typeof request>;
   let user: ReturnType<typeof request.agent>;
   let redis: ReturnType<typeof createStockDataRedisClient>;
+  let store: PrismaBenchmarkDataStore;
+  const seriesByCode = new Map<string, string>();
 
   beforeAll(async () => {
     loadRootEnv();
@@ -61,22 +99,28 @@ describe("market overview", () => {
         BenchmarksModule,
         MarketModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(STOCK_DATA_PROVIDER)
+      .useValue(provider)
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = moduleRef.get(PrismaService);
 
-    // Bars, coverage and the tail watermark, through the canonical store. Anything less and the
-    // loader would decide the recent window is missing and go to the provider.
-    const seeded = await seedQaMarketReferenceDataWith(
-      new PrismaBenchmarkDataStore(prisma),
-    );
-    // The Redis projection is shared with every other suite on this machine; a manifest left by an
-    // earlier run would be served in preference to what was just written.
+    // Bars, coverage and the tail watermark for all twenty, through the canonical store.
+    store = new PrismaBenchmarkDataStore(prisma);
+    const spy = await seedQaBenchmarkDataWith(store);
+    const etfs = await seedQaMarketOverviewEtfDataWith(store);
+    for (const series of [spy, ...etfs]) {
+      seriesByCode.set(series.code, series.seriesId);
+    }
+    // The projection is shared with every other suite on this machine; a head left by an earlier
+    // run would be served in preference to what was just written. Dropping it also makes the first
+    // read below rebuild every projection from PostgreSQL — the Redis-loss path, provider-free.
     redis = createStockDataRedisClient(getRedisConfig().url);
     const cache = new RedisBenchmarkDataCache(new IoredisCacheClient(redis));
-    for (const reference of seeded) {
-      await cache.invalidateManifest(reference.seriesId);
+    for (const seriesId of seriesByCode.values()) {
+      await cache.invalidateManifest(seriesId);
     }
 
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
@@ -104,138 +148,111 @@ describe("market overview", () => {
     return response.body as MarketOverviewResponse;
   }
 
-  it("is readable without a session", async () => {
-    const body = await overview(guest);
+  it("is readable without a session, and never asks the provider", async () => {
+    const response = await guest.get("/market-overview").expect(200);
+    const body = response.body as MarketOverviewResponse;
 
     expect(body.basis).toBe("END_OF_DAY");
-    expect(body.items.map((item) => item.code)).toEqual(
-      MARKET_REFERENCE_SERIES.map((reference) => reference.code),
-    );
-    expect(body.items.map((item) => item.label)).toEqual([
-      "S&P 500",
-      "DJIA",
-      "VIX",
-    ]);
+    expect(body.returnBasis).toBe("PRICE_RETURN");
+    expect(providerCalls).toEqual([]);
+    // Shared caches must not store it: the body is everybody's, the rate-limit headers are not.
+    expect(response.headers["cache-control"]).toBe("private, max-age=60");
+    expect(response.headers["set-cookie"]).toBeUndefined();
   });
 
-  it("serves a Guest and a signed-in customer the identical market data", async () => {
+  it("answers exactly twenty ETFs in three groups of 5, 11 and 4, each with six returns", async () => {
+    const body = await overview(guest);
+
+    expect(body.groups.map((group) => group.id)).toEqual([
+      "BENCHMARKS",
+      "US_SECTORS",
+      "MACRO_ALTERNATIVES",
+    ]);
+    expect(body.groups.map((group) => group.instruments.length)).toEqual([
+      5, 11, 4,
+    ]);
+    expect(
+      body.groups.map((group) => group.instruments.map((one) => one.ticker)),
+    ).toEqual(
+      MARKET_OVERVIEW_ETF_GROUPS.map((group) =>
+        group.etfs.map((etf) => etf.ticker),
+      ),
+    );
+    expect(body.status).toBe("AVAILABLE");
+
+    for (const instrument of body.groups.flatMap(
+      (group) => group.instruments,
+    )) {
+      expect(instrument.status).toBe("AVAILABLE");
+      expect(instrument.sessionDate).toBe(body.asOf);
+      for (const value of Object.values(instrument.returns)) {
+        expect(typeof value).toBe("number");
+        expect(Number.isFinite(value)).toBe(true);
+      }
+      expect(instrument.sparkline?.values.length).toBeGreaterThanOrEqual(52);
+      expect(instrument.sparkline?.endDate).toBe(body.asOf);
+    }
+  });
+
+  it("measures each return from the stored close on or before its anchor", async () => {
+    const body = await overview(guest);
+    const xlk = body.groups[1]?.instruments.find((one) => one.ticker === "XLK");
+    const asOf = body.asOf as string;
+    const rows = await store.getDailyPrices(
+      seriesByCode.get("ETF_XLK") as string,
+      {
+        from: "1990-01-01",
+        to: asOf,
+      },
+    );
+    const closeOnOrBefore = (date: string) =>
+      [...rows].reverse().find((row) => row.date <= date)?.close as number;
+    const latest = closeOnOrBefore(asOf);
+
+    for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const) {
+      const anchor = closeOnOrBefore(periodAnchorDate(period, asOf));
+      expect(xlk?.returns[period]).toBeCloseTo((latest / anchor - 1) * 100, 10);
+    }
+    // The fixture pins XLK rising and XLE falling over every period.
+    expect(
+      Object.values(xlk?.returns ?? {}).every((value) => (value as number) > 0),
+    ).toBe(true);
+    const xle = body.groups[1]?.instruments.find((one) => one.ticker === "XLE");
+    expect(
+      Object.values(xle?.returns ?? {}).every((value) => (value as number) < 0),
+    ).toBe(true);
+  });
+
+  it("serves a Guest and a signed-in customer the identical summary", async () => {
     const asGuest = await overview(guest);
     const asUser = await overview(user);
 
-    // The market is not a per-account fact, and `generatedAt` is the only thing allowed to differ.
-    expect(asUser.items).toEqual(asGuest.items);
-    expect(asUser.basis).toBe(asGuest.basis);
+    expect(asUser).toEqual(asGuest);
   });
 
-  it("reports the fixture's latest session, its change and its seven-session trend", async () => {
-    const body = await overview(guest);
-    const sp500 = body.items.find((item) => item.code === "SP500_INDEX");
-    const vix = body.items.find((item) => item.code === "VIX_INDEX");
+  it("carries no provider symbol, no storage identifier, no price and nothing about the viewer", async () => {
+    const serialized = JSON.stringify(await overview(user));
 
-    expect(sp500?.status).toBe("AVAILABLE");
-    expect(sp500?.value).toBe(7637.05);
-    expect(sp500?.previousClose).toBe(7551.81);
-    expect(sp500?.changePercent).toBeCloseTo(1.1287, 3);
-    expect(sp500?.sparkline).toHaveLength(7);
-    expect(sp500?.sparkline.at(-1)?.value).toBe(7637.05);
-    // Sessions ascend and never repeat a date.
-    const dates = sp500?.sparkline.map((point) => point.date) ?? [];
-    expect([...dates].sort()).toEqual(dates);
-    expect(new Set(dates).size).toBe(dates.length);
-
-    // VIX falls in the fixture, so the negative path is covered by data rather than by hope.
-    expect(vix?.value).toBe(15.43);
-    expect(vix?.changePercent).toBeLessThan(0);
-  });
-
-  it("reports the last trading session, never a weekend", async () => {
-    const body = await overview(guest);
-
-    for (const item of body.items) {
-      expect(item.sessionDate).toBeDefined();
-      const weekday = new Date(
-        `${item.sessionDate as string}T00:00:00.000Z`,
-      ).getUTCDay();
-      expect(weekday).toBeGreaterThanOrEqual(1);
-      expect(weekday).toBeLessThanOrEqual(5);
-      // And never in the future.
-      expect(
-        (item.sessionDate as string) <= new Date().toISOString().slice(0, 10),
-      ).toBe(true);
+    for (const forbidden of [
+      ...seriesByCode.values(),
+      "ETF_",
+      "SP500",
+      "providerSymbol",
+      "seriesId",
+      "close",
+      email,
+      "plan",
+    ]) {
+      expect(serialized).not.toContain(forbidden);
     }
+    expect(serialized.length).toBeLessThan(60_000);
   });
 
-  it("never exposes a provider symbol to the browser", async () => {
-    const body = JSON.stringify(await overview(guest));
-
-    for (const symbol of ["^GSPC", "^DJI", "^VIX", "GSPC", "SPY"]) {
-      expect(body).not.toContain(symbol);
-    }
-  });
-
-  it("keeps the internal market references out of the backtest benchmark catalog", async () => {
-    const response = await guest.get("/benchmarks");
-    // `/benchmarks` needs a session; the market overview deliberately does not.
-    expect(response.status).toBe(401);
-
+  it("keeps the twenty ETFs out of the backtest benchmark catalog", async () => {
     const listed = (await user.get("/benchmarks").expect(200))
       .body as BenchmarkResponse[];
-    // Exactly the one product benchmark. Every suite that registers a fixture benchmark now either
-    // makes it non-selectable or deletes it, so anything else here is a leak and must fail.
     expect(listed.map((benchmark) => benchmark.code)).toEqual(["SP500"]);
-  });
-
-  it("stores each reference under its own series, so nothing can collide with SPY", async () => {
-    const rows = await prisma.benchmark.findMany({
-      where: {
-        code: {
-          in: [
-            "SP500",
-            ...MARKET_REFERENCE_SERIES.map((reference) => reference.code),
-          ],
-        },
-      },
-      include: { series: { orderBy: { version: "desc" }, take: 1 } },
-    });
-
-    const byCode = new Map(rows.map((row) => [row.code, row]));
-    const sp500 = byCode.get("SP500")?.series[0];
-    expect(sp500?.providerSymbol).toBe("SPY");
-    expect(sp500?.seriesType).toBe("ETF_PROXY");
-    expect(byCode.get("SP500")?.isBacktestSelectable).toBe(true);
-
-    for (const [code, symbol] of [
-      ["SP500_INDEX", "^GSPC"],
-      ["DJIA_INDEX", "^DJI"],
-      ["VIX_INDEX", "^VIX"],
-    ] as const) {
-      const benchmark = byCode.get(code);
-      expect(benchmark?.isActive).toBe(true);
-      expect(benchmark?.isBacktestSelectable).toBe(false);
-      expect(benchmark?.series[0]?.providerSymbol).toBe(symbol);
-      expect(benchmark?.series[0]?.seriesType).toBe("INDEX");
-    }
-
-    // Four distinct series ids: PostgreSQL rows, coverage, watermarks and the Redis projection are
-    // all keyed by one of these, so hydrating an index can never touch the SPY benchmark's bars.
-    const seriesIds = rows.map((row) => row.series[0]?.id);
-    expect(new Set(seriesIds).size).toBe(seriesIds.length);
-
-    const spySeriesId = sp500?.id ?? "";
-    const indexSeriesIds = rows
-      .filter((row) => row.code !== "SP500")
-      .map((row) => row.series[0]?.id ?? "");
-    const spyBars = await prisma.benchmarkDailyPrice.count({
-      where: { seriesId: spySeriesId },
-    });
-    const indexBarsUnderSpy = await prisma.benchmarkDailyPrice.count({
-      where: {
-        seriesId: spySeriesId,
-        close: { in: [7637.05, 51778.04, 15.43] },
-      },
-    });
-    expect(indexSeriesIds).not.toContain(spySeriesId);
-    expect(indexBarsUnderSpy).toBe(0);
-    expect(spyBars).toBeGreaterThanOrEqual(0);
+    expect(marketOverviewEtfs()).toHaveLength(20);
+    expect(providerCalls).toEqual([]);
   });
 });

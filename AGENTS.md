@@ -72,7 +72,7 @@ Read `ai/README.md` before substantial work.
     projection principles under its own namespace; see `ai/architecture/benchmark-data.md`.
     **One infrastructure, several series.** `isActive` (does the system maintain it) and
     `isBacktestSelectable` (may a customer compare a portfolio against it) are different questions
-    and are different columns: the market-reference indices behind the Dashboard cards —
+    and are different columns: the market-reference indices the Dashboard cards used to show —
     `SP500_INDEX`/`^GSPC`, `DJIA_INDEX`/`^DJI`, `VIX_INDEX`/`^VIX` — are fully active system series
     that a user may never select, and a submission naming one is refused at the canonical boundary,
     not merely hidden from the picker. `seriesType` (`ETF_PROXY | INDEX`) says what the object *is*
@@ -84,8 +84,10 @@ Read `ai/README.md` before substantial work.
     not add a second market cache, a second price table or a second hydration path for index data.
     The market-overview ETFs follow the same rule: `MARKET_OVERVIEW_ETF_GROUPS` is the one list of
     twenty, `SPY` is `SP500`, and the other nineteen are `ETF_*` series that are active and never
-    selectable. Every `ETF_PROXY` series carries the re-base protection and generation of
-    `docs/decisions/historical-price-basis-v1.md`; see `docs/decisions/etf-market-data-v1.md`.
+    selectable. `GET /market-overview` reads them through `BenchmarkHistoryReader` only and never
+    asks the provider (`docs/decisions/etf-market-overview-v1.md`). Every `ETF_PROXY` series
+    carries the re-base protection and generation of `docs/decisions/historical-price-basis-v1.md`;
+    see `docs/decisions/etf-market-data-v1.md`.
 14. Backtest work is claimed from PostgreSQL (`BacktestJob`, `FOR UPDATE SKIP LOCKED`, renewable
     lease, ownership-guarded writes). Do not add a queue library, and do not make Redis the queue.
     One backtest is never internally parallelized: its simulation stays sequential and

@@ -69,6 +69,28 @@ export function addYears(value: string, years: number): string {
 }
 
 /**
+ * Subtracts whole calendar months, clamping the day to the target month's last day.
+ *
+ * `2026-03-31` minus one month is `2026-02-28` (and `2024-02-29` in a leap year), never a rollover
+ * into March: a trailing month measured from the last day of a long month must still end inside the
+ * month before it.
+ */
+export function subtractMonths(value: string, months: number): string {
+  if (!isLocalDate(value)) {
+    throw new Error(`Invalid local date '${value}'`);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() - months);
+  const lastDayOfMonth = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDayOfMonth));
+  return date.toISOString().slice(0, 10);
+}
+
+/**
  * How many whole years of history a `[startDate, endDate]` period requests.
  *
  * The smallest `n` for which `endDate <= addYears(startDate, n)` — that is, the number the

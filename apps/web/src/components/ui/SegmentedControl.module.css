@@ -5,6 +5,13 @@
   gap: 8px;
 }
 
+/* One row, equal shares: the options never wrap onto a second line. */
+.group[data-fill="true"] {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
 .option {
   display: inline-flex;
   align-items: center;
@@ -50,4 +57,11 @@
 .option[data-active="true"] .count {
   background: var(--color-surface);
   color: var(--color-primary-ink);
+}
+
+.group[data-fill="true"] .option {
+  justify-content: center;
+  min-width: 0;
+  padding: 0 8px;
+  white-space: nowrap;
 }

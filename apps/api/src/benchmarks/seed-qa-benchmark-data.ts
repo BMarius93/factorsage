@@ -3,6 +3,7 @@ import {
   BENCHMARK_CATALOG,
   DEFAULT_BENCHMARK_CODE,
   MARKET_REFERENCE_SERIES,
+  marketOverviewEtfs,
   type BenchmarkDailyPrice,
 } from "@intrinsic/domain";
 import {
@@ -236,6 +237,340 @@ export async function seedQaMarketReferenceDataWith(
       prices,
       // Exactly what was generated, through today — the same honest claim the benchmark seed makes.
       // Ending at `today` is what tells the loader the missing weekend is a weekend and not a gap.
+      successfulCoverage: [{ from: first.date, to: today }],
+      syncedAt: new Date().toISOString(),
+      tailDate: today,
+      freshThrough: today,
+    });
+    seeded.push({
+      code: benchmark.code,
+      seriesId: benchmark.series.id,
+      from: first.date,
+      to: last.date,
+      tradingDays: prices.length,
+    });
+  }
+  return seeded;
+}
+
+/**
+ * Weeks of history for a market-overview ETF fixture: more than a year plus the read margin, so the
+ * `1Y` return and its 53-point trend line exist, and the overview's bounded read is exercised against
+ * a series holding more than it asks for.
+ */
+const MARKET_OVERVIEW_ETF_WEEKS = 64;
+
+/**
+ * The shape of each seeded ETF: a yearly drift, one slow cycle and a little day-to-day noise.
+ *
+ * Synthetic and deliberately varied, so the Dashboard shows gains and losses side by side. Two are
+ * pinned to a direction for every period whatever day the seed runs: `XLK` only rises and `XLE`
+ * only falls (no cycle, negligible noise), so browser tests can assert the positive and negative
+ * treatments without depending on where today falls in a cycle. `SPY` is not here: it is `SP500`,
+ * seeded above for the backtests.
+ */
+const MARKET_OVERVIEW_ETF_SHAPES: Record<
+  string,
+  {
+    readonly base: number;
+    readonly drift: number;
+    readonly cycle: number;
+    readonly periodDays: number;
+    readonly phase: number;
+    readonly noise: number;
+  }
+> = {
+  QQQ: {
+    base: 480,
+    drift: 0.18,
+    cycle: 0.06,
+    periodDays: 140,
+    phase: 0.3,
+    noise: 0.004,
+  },
+  DIA: {
+    base: 420,
+    drift: 0.08,
+    cycle: 0.04,
+    periodDays: 200,
+    phase: 1.1,
+    noise: 0.003,
+  },
+  IWM: {
+    base: 210,
+    drift: 0.02,
+    cycle: 0.08,
+    periodDays: 120,
+    phase: 2.0,
+    noise: 0.005,
+  },
+  RSP: {
+    base: 170,
+    drift: 0.06,
+    cycle: 0.04,
+    periodDays: 180,
+    phase: 0.7,
+    noise: 0.003,
+  },
+  XLK: {
+    base: 220,
+    drift: 0.28,
+    cycle: 0,
+    periodDays: 1,
+    phase: 0,
+    noise: 0.0005,
+  },
+  XLF: {
+    base: 48,
+    drift: 0.12,
+    cycle: 0.05,
+    periodDays: 160,
+    phase: 1.6,
+    noise: 0.004,
+  },
+  XLE: {
+    base: 88,
+    drift: -0.22,
+    cycle: 0,
+    periodDays: 1,
+    phase: 0,
+    noise: 0.0005,
+  },
+  XLV: {
+    base: 145,
+    drift: -0.04,
+    cycle: 0.05,
+    periodDays: 150,
+    phase: 2.4,
+    noise: 0.003,
+  },
+  XLI: {
+    base: 135,
+    drift: 0.1,
+    cycle: 0.05,
+    periodDays: 170,
+    phase: 0.2,
+    noise: 0.003,
+  },
+  XLY: {
+    base: 190,
+    drift: 0.05,
+    cycle: 0.07,
+    periodDays: 130,
+    phase: 3.0,
+    noise: 0.004,
+  },
+  XLP: {
+    base: 80,
+    drift: -0.02,
+    cycle: 0.03,
+    periodDays: 220,
+    phase: 1.3,
+    noise: 0.002,
+  },
+  XLU: {
+    base: 75,
+    drift: 0.09,
+    cycle: 0.04,
+    periodDays: 190,
+    phase: 4.0,
+    noise: 0.003,
+  },
+  XLB: {
+    base: 90,
+    drift: -0.06,
+    cycle: 0.06,
+    periodDays: 140,
+    phase: 2.8,
+    noise: 0.004,
+  },
+  XLRE: {
+    base: 42,
+    drift: -0.08,
+    cycle: 0.05,
+    periodDays: 160,
+    phase: 5.0,
+    noise: 0.004,
+  },
+  XLC: {
+    base: 95,
+    drift: 0.16,
+    cycle: 0.06,
+    periodDays: 150,
+    phase: 0.9,
+    noise: 0.004,
+  },
+  GLD: {
+    base: 240,
+    drift: 0.24,
+    cycle: 0.05,
+    periodDays: 210,
+    phase: 1.9,
+    noise: 0.004,
+  },
+  USO: {
+    base: 75,
+    drift: -0.12,
+    cycle: 0.12,
+    periodDays: 110,
+    phase: 0.4,
+    noise: 0.008,
+  },
+  TLT: {
+    base: 92,
+    drift: -0.07,
+    cycle: 0.05,
+    periodDays: 230,
+    phase: 3.5,
+    noise: 0.003,
+  },
+  HYG: {
+    base: 78,
+    drift: 0.03,
+    cycle: 0.015,
+    periodDays: 250,
+    phase: 2.2,
+    noise: 0.001,
+  },
+};
+
+/** Days since 2020-01-01: the fixture's clock, so a date's close never depends on when it is seeded. */
+const FIXTURE_EPOCH_MS = Date.UTC(2020, 0, 1);
+
+/** A stable value in [-1, 1] for one ticker on one date. */
+function fixtureNoise(ticker: string, date: string): number {
+  let hash = 2166136261;
+  for (const character of `${ticker}|${date}`) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 0xffffffff) * 2 - 1;
+}
+
+/**
+ * Weekday sessions for one market-overview ETF, on exactly the dates the `SP500` fixture holds at
+ * its end — through the Friday before the current ISO week — so all twenty share one reference
+ * session and none reads as stale against `SPY`.
+ *
+ * Each close is a pure function of the ticker and the calendar date: reseeding on another day
+ * writes the same close for every date both runs cover.
+ */
+export function qaMarketOverviewEtfTradingDays(
+  ticker: string,
+  seriesId: string,
+  today: string,
+): BenchmarkDailyPrice[] {
+  const shape = MARKET_OVERVIEW_ETF_SHAPES[ticker];
+  if (!shape) {
+    throw new Error(`No QA market-overview fixture for '${ticker}'`);
+  }
+  const start = addDays(startOfIsoWeek(today), -7 * MARKET_OVERVIEW_ETF_WEEKS);
+  const rows: BenchmarkDailyPrice[] = [];
+  for (let week = 0; week < MARKET_OVERVIEW_ETF_WEEKS; week += 1) {
+    for (let day = 0; day < 5; day += 1) {
+      const date = addDays(start, week * 7 + day);
+      const days =
+        (Date.parse(`${date}T00:00:00.000Z`) - FIXTURE_EPOCH_MS) / 86_400_000;
+      const logLevel =
+        shape.drift * (days / 365) +
+        shape.cycle *
+          Math.sin((2 * Math.PI * days) / shape.periodDays + shape.phase) +
+        shape.noise * fixtureNoise(ticker, date);
+      const close = round2(shape.base * Math.exp(logLevel));
+      rows.push({
+        seriesId,
+        date,
+        open: round2(close * 0.998),
+        high: round2(close * 1.006),
+        low: round2(close * 0.994),
+        close,
+        volume: 5_000_000 + rows.length,
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Deterministic bars for the nineteen market-overview ETFs that are not `SP500`, through the same
+ * store, coverage claim and tail watermark as every other benchmark fixture.
+ */
+export async function seedQaMarketOverviewEtfData(
+  prisma: PrismaClient,
+  today = new Date().toISOString().slice(0, 10),
+): Promise<
+  {
+    code: string;
+    seriesId: string;
+    from: string;
+    to: string;
+    tradingDays: number;
+  }[]
+> {
+  assertQaSecuritySeedingAllowed();
+  return seedQaMarketOverviewEtfDataWith(
+    new PrismaBenchmarkDataStore(prisma),
+    today,
+  );
+}
+
+export async function seedQaMarketOverviewEtfDataWith(
+  store: Pick<
+    BenchmarkDataStore,
+    "reconcileBenchmarkCatalog" | "saveDailyPriceSync"
+  >,
+  today = new Date().toISOString().slice(0, 10),
+): Promise<
+  {
+    code: string;
+    seriesId: string;
+    from: string;
+    to: string;
+    tradingDays: number;
+  }[]
+> {
+  const etfs = marketOverviewEtfs().filter(
+    (etf) => etf.benchmarkCode !== DEFAULT_BENCHMARK_CODE,
+  );
+  const codes = new Set(etfs.map((etf) => etf.benchmarkCode));
+  const benchmarks = await store.reconcileBenchmarkCatalog(
+    BENCHMARK_CATALOG.filter((entry) => codes.has(entry.code)),
+  );
+  const byCode = new Map(
+    benchmarks.map((benchmark) => [benchmark.code, benchmark]),
+  );
+
+  const seeded: {
+    code: string;
+    seriesId: string;
+    from: string;
+    to: string;
+    tradingDays: number;
+  }[] = [];
+  for (const etf of etfs) {
+    const benchmark = byCode.get(etf.benchmarkCode);
+    if (!benchmark) {
+      throw new Error(
+        `QA market-overview seed found no '${etf.benchmarkCode}' benchmark`,
+      );
+    }
+    const prices = qaMarketOverviewEtfTradingDays(
+      etf.ticker,
+      benchmark.series.id,
+      today,
+    );
+    const first = prices[0];
+    const last = prices.at(-1);
+    if (!first || !last) {
+      throw new Error(
+        `QA market-overview seed produced no sessions for ${etf.ticker}`,
+      );
+    }
+    await store.saveDailyPriceSync({
+      seriesId: benchmark.series.id,
+      prices,
+      // Exactly what was generated, through today: the days after the last fixture session are a
+      // claim that nothing traded, the same claim the `SP500` fixture makes.
       successfulCoverage: [{ from: first.date, to: today }],
       syncedAt: new Date().toISOString(),
       tailDate: today,

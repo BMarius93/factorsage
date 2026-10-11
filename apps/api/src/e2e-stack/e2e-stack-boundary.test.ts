@@ -691,14 +691,36 @@ describe("E2E fixture namespace", () => {
         (_, index) => entitlementFixtureSymbol(index),
       ),
     ]);
+    const etfTickers = [
+      "QQQ",
+      "DIA",
+      "IWM",
+      "RSP",
+      "XLK",
+      "XLF",
+      "XLE",
+      "XLV",
+      "XLI",
+      "XLY",
+      "XLP",
+      "XLU",
+      "XLB",
+      "XLRE",
+      "XLC",
+      "GLD",
+      "USO",
+      "TLT",
+      "HYG",
+    ];
     expect(e2eFixtureBenchmarkCodes()).toEqual([
       "SP500",
       "SP500_INDEX",
       "DJIA_INDEX",
       "VIX_INDEX",
+      ...etfTickers.map((ticker) => `ETF_${ticker}`),
     ]);
     expect(e2eFixtureBenchmarkProviderSymbols().sort()).toEqual(
-      ["SPY", "^DJI", "^GSPC", "^VIX"].sort(),
+      ["SPY", "^DJI", "^GSPC", "^VIX", ...etfTickers].sort(),
     );
     // Fixture securities are fictional: none can collide with a real listing.
     expect(

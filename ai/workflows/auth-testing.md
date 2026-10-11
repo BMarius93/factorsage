@@ -126,7 +126,7 @@ Or the steps on their own:
 
 ```bash
 pnpm test:users:seed          # the five personas
-pnpm test:securities:seed     # QA catalog rows, prices, SP500, the market references; prunes leaked fixture benchmarks
+pnpm test:securities:seed     # QA catalog rows, prices, SP500, the market references and ETFs; prunes leaked fixture benchmarks
 pnpm test:builtins:seed       # QA built-in lists/strategy/monitors with exact Dashboard state
 pnpm test:entitlements:seed   # the entitlement fixtures the entitlement specs run against
 ```
@@ -470,8 +470,8 @@ an earlier server was given.
 namespace (`apps/api/src/e2e-stack/fixture-boundary.ts`, derived from the seeds themselves):
 
 - daily bars for a fixture security (`QATEST1`, `QATEST2`, `ENTF001`…`ENTF100`) or fixture
-  benchmark (`SPY`, `^GSPC`, `^DJI`, `^VIX`): `[]` — "no bars beyond what the seed wrote". An empty
-  answer never deletes a persisted row;
+  benchmark (`SPY`, `^GSPC`, `^DJI`, `^VIX` and the nineteen other market-overview ETF tickers):
+  `[]` — "no bars beyond what the seed wrote". An empty answer never deletes a persisted row;
 - profile and the three financial statements of a fixture security: `[]`;
 - current quotes (`batch-quote`) of fixture securities: `[]`, as the real provider answers a
   fictional ticker;
@@ -496,8 +496,9 @@ product, the browser and the seeds all use the real date, and the fixture window
 
 - for every fixture security: `DailyPrice`, `WeeklyPrice`, `DailyDerivedState`,
   `FinancialStatement`, `SecurityProfile`, `StockDatasetCoverage`, `StockDatasetState`;
-- for the current series of `SP500`, `SP500_INDEX`, `DJIA_INDEX`, `VIX_INDEX`: `BenchmarkDailyPrice`,
-  `BenchmarkDatasetCoverage`, `BenchmarkDatasetState`;
+- for the current series of `SP500`, `SP500_INDEX`, `DJIA_INDEX`, `VIX_INDEX` and the nineteen
+  `ETF_*` market-overview series: `BenchmarkDailyPrice`, `BenchmarkDatasetCoverage`,
+  `BenchmarkDatasetState`;
 - the Redis projections of all of them (`stock-data:v2:*` per security, `benchmark:v1:*` per series);
 - orphaned non-catalog benchmarks left by integration suites (`pruneOrphanedFixtureBenchmarks`);
 - the entitlement fixtures' own runs, lists, monitors and strategies, which it reconciles.
