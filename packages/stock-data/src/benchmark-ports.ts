@@ -5,7 +5,10 @@ import type {
   BenchmarkSeries,
   BenchmarkWithSeries,
   DateRange,
+  Instant,
+  LocalDate,
 } from "@intrinsic/domain";
+import type { PriceBasisEvent } from "./price-basis.js";
 
 /**
  * Revision of what a persisted benchmark coverage interval *means*.
@@ -93,42 +96,319 @@ export interface BenchmarkDataStore {
     tailDate: string;
     freshThrough?: string;
     assertOwned?: () => void;
+    /**
+     * The price-basis generation the saved bars were read under. Compared under the series write
+     * lock: when a replacement committed another generation since, nothing is written and
+     * `PriceBasisConflictError` is raised, so bars read on an old basis never land beside a new
+     * one — whatever the writer's lease says.
+     */
+    expectedGeneration?: number;
   }): Promise<void>;
+  /** The first stored bar's date, or null when the series holds none. */
+  getEarliestDailyPriceDate(seriesId: string): Promise<LocalDate | null>;
+  /** The last stored bar's date, or null when the series holds none. */
+  getLatestDailyPriceDate(seriesId: string): Promise<LocalDate | null>;
+  /** The last `limit` stored bars on or before `through`, ascending. */
+  getDailyPricesThrough(
+    seriesId: string,
+    through: LocalDate,
+    limit: number,
+  ): Promise<BenchmarkDailyPrice[]>;
+  /** One digest per calendar year that holds at least one stored bar, ascending by year. */
+  getDailyPriceYearDigests(seriesId: string): Promise<BenchmarkYearDigest[]>;
+  /**
+   * Everything one Redis publication needs, read in **one** repeatable-read snapshot: the durable
+   * coverage, every year's digest, the price-basis generation, and the bars of each year whose
+   * digest differs from the one in `held` (the digest the current projection already publishes).
+   *
+   * One snapshot is what makes a published chunk key and its content agree: a key is named by the
+   * digest of the rows it was built from, and both are read before any concurrent write can land.
+   */
+  readPublicationSnapshot(
+    seriesId: string,
+    held: ReadonlyMap<number, string>,
+  ): Promise<BenchmarkPublicationSnapshot>;
+  /** The series' price-basis generation: 0 until its stored history is first replaced. */
+  getPriceBasisGeneration(seriesId: string): Promise<number>;
+  /**
+   * Stored bars with the generation and the durable coverage they were read under, all from one
+   * `REPEATABLE READ` snapshot, so a replacement committing meanwhile can never pair one basis's
+   * bars with the other's generation. `range` reads every bar inside it; `through` reads the last
+   * `sessions` bars on or before it.
+   */
+  readHistorySnapshot(
+    seriesId: string,
+    query:
+      { range: Required<DateRange> } | { through: LocalDate; sessions: number },
+  ): Promise<BenchmarkHistorySnapshot>;
+  /**
+   * Replaces the series' whole stored history after a measured re-base, in one transaction
+   * (`docs/decisions/etf-market-data-v1.md`; `historical-price-basis-v1.md` §9): every bar, the
+   * coverage the replacement read, the measured events and the next generation.
+   *
+   * Refused with `PriceBasisConflictError`, and nothing written, when the generation is no longer
+   * `expectedGeneration`: another writer replaced it after this one compared.
+   */
+  replaceDailyPriceHistory(input: {
+    seriesId: string;
+    expectedGeneration: number;
+    prices: readonly BenchmarkDailyPrice[];
+    events: readonly PriceBasisEvent[];
+    coverage: Required<DateRange>;
+    syncedAt: Instant;
+    tailDate: LocalDate;
+    freshThrough?: LocalDate;
+    assertOwned?: () => void;
+    /**
+     * Runs inside the transaction, holding the series write lock, after every write and the last
+     * ownership check and immediately before the commit, with the generation being committed. A
+     * failure rolls the replacement back. It is where the Redis generation fence is raised, so the
+     * fence is ahead of PostgreSQL before PostgreSQL moves.
+     */
+    beforeCommit?: (generation: number) => Promise<void>;
+  }): Promise<{ generation: number }>;
+  /**
+   * Runs `work` with the series write lock held — the advisory lock every replacement holds while
+   * it changes the generation — and the generation PostgreSQL has committed. A replacement in
+   * flight is waited for, so `work` never sees a generation that is about to change.
+   */
+  withPriceBasisLock<T>(
+    seriesId: string,
+    work: (generation: number) => Promise<T>,
+  ): Promise<T>;
 }
 
+/** The digest of one calendar year of a series' stored bars. */
+export type BenchmarkYearDigest = {
+  year: number;
+  /** Changes whenever any bar of the year is added, removed or changes in any field. */
+  digest: string;
+  bars: number;
+  firstDate: LocalDate;
+  lastDate: LocalDate;
+};
+
+export type BenchmarkPublicationSnapshot = {
+  basisGeneration: number;
+  /** Durable coverage under the current variant, ascending and disjoint. */
+  coverage: Required<DateRange>[];
+  years: BenchmarkYearDigest[];
+  /** The bars of every year whose digest is not the one the caller already holds. */
+  rows: Map<number, BenchmarkDailyPrice[]>;
+};
+
 /**
- * What a benchmark's Redis projection holds.
+ * The head of a series' Redis projection: one immutable publication of its **whole** durable
+ * history (`docs/decisions/etf-market-data-v1.md`).
  *
- * The namespace is deliberately distinct — `benchmark:<seriesId>:daily-price:<year>` — rather
- * than pretending benchmark bars are ordinary security data. A stock eviction must never take a
- * benchmark with it, and a benchmark must never appear in the resident-stock LRU.
+ * A read reads the head, then exactly the year chunks it names. Chunk keys carry the digest of the
+ * stored bars they were built from and are never rewritten, so every chunk a head names belongs to
+ * that one publication: a reader can see an older publication or a newer one, never two at once. A
+ * chunk the head names that has already gone means the head moved on, and the read is retried.
  */
-export type BenchmarkManifest = {
+export type BenchmarkCacheHead = {
   seriesId: string;
-  /** Range resident in Redis. Narrower than durable coverage after an eviction or a narrow read. */
-  coverageStart: string;
-  coverageEnd: string;
-  materializedAt: string;
+  chunkEncodingVersion: number;
   priceDatasetVersion: number;
+  /** `BenchmarkSeriesPriceBasis.generation` the published bars were read under. */
+  basisGeneration: number;
+  /**
+   * The durable coverage when published, ascending and disjoint. A range is answered only inside
+   * one of these: there, the published bars are every bar PostgreSQL holds.
+   */
+  residentRanges: Required<DateRange>[];
+  /** Year to digest of that year's bars. A year inside a resident range but absent here has none. */
+  chunks: Record<string, string>;
+  bars: number;
+  firstDate?: LocalDate;
+  lastDate?: LocalDate;
+  /** When this head was published. */
+  materializedAt: Instant;
+};
+
+/** A head as it was read, with the exact stored text a compare-and-set commit compares against. */
+export type ObservedBenchmarkHead = { head: BenchmarkCacheHead; raw: string };
+
+export type BenchmarkPublishOutcome =
+  /** The head now names this publication. */
+  | "COMMITTED"
+  /** Another publication committed since the expected head was read; nothing changed. */
+  | "CONFLICT"
+  /** A chunk the head would name is gone (an expired stage, an eviction); nothing changed. */
+  | "MISSING_CHUNKS"
+  /**
+   * The head's generation is not the series' generation fence, or there is no fence; nothing
+   * changed. The publisher re-establishes the fence from PostgreSQL under the series write lock and
+   * publishes again from a new snapshot.
+   */
+  | "FENCED";
+
+/** A read answered from one publication, with the head that answered it. */
+export type BenchmarkCacheRead = {
+  rows: BenchmarkDailyPrice[];
+  head: BenchmarkCacheHead;
 };
 
 export interface BenchmarkDataCache {
-  getManifest(seriesId: string): Promise<BenchmarkManifest | null>;
-  setManifest(manifest: BenchmarkManifest): Promise<void>;
+  getHead(seriesId: string): Promise<ObservedBenchmarkHead | null>;
+  /**
+   * Stages the chunks `stage` holds, then commits `head` atomically if the stored head is still
+   * `expected` (absent when null). Staged chunks expire unless the commit adopts them, and the
+   * commit removes every chunk of the series the new head no longer names.
+   */
+  publish(input: {
+    expected: ObservedBenchmarkHead | null;
+    head: BenchmarkCacheHead;
+    stage: ReadonlyMap<number, readonly BenchmarkDailyPrice[]>;
+  }): Promise<BenchmarkPublishOutcome>;
+  /** Drops the head, so the next read rebuilds the projection from PostgreSQL. */
   invalidateManifest(seriesId: string): Promise<void>;
+  /**
+   * Removes the head and every chunk of the series atomically, returning how many chunks went. A
+   * reader that already holds the previous head then finds its chunks gone, so nothing of that
+   * publication can be served once this returns.
+   */
+  discardProjection(seriesId: string): Promise<number>;
+  /** Whether every chunk `head` names exists. */
+  chunksPresent(head: BenchmarkCacheHead): Promise<boolean>;
+  /** The series' generation fence, or null when Redis holds none. */
+  getGenerationFence(seriesId: string): Promise<number | null>;
+  /**
+   * Sets the series' generation fence and, atomically, removes the whole projection when its head
+   * is on any other generation. Called **only** with the PostgreSQL series write lock held: by a
+   * replacement just before it commits the next generation, and by a publisher re-establishing the
+   * fence from the generation PostgreSQL committed. That lock is what orders every fence write.
+   */
+  fenceGeneration(seriesId: string, generation: number): Promise<void>;
+  /**
+   * Every bar inside `range` from one publication, or null when there is no current head or its
+   * chunks cannot be read. A head is a complete image of PostgreSQL — every stored bar and every
+   * coverage interval — so this answers any range: what coverage does not hold is the caller's to
+   * report as missing, from `head.residentRanges`.
+   */
   readDailyPrices(
     seriesId: string,
     range: Required<DateRange>,
-  ): Promise<BenchmarkDailyPrice[] | null>;
-  writeDailyPriceYears(
+  ): Promise<BenchmarkCacheRead | null>;
+  /**
+   * The last `sessions` bars on or before `through` from one publication, reading only the years
+   * that hold them, or null when there is no current head or its chunks cannot be read.
+   */
+  readSessionsThrough(
     seriesId: string,
-    prices: readonly BenchmarkDailyPrice[],
-    years: readonly number[],
-  ): Promise<void>;
+    through: LocalDate,
+    sessions: number,
+  ): Promise<BenchmarkCacheRead | null>;
+  /**
+   * Every bar from the start of the published history through `through`, with that start, from
+   * one publication; null as for `readDailyPrices`.
+   */
+  readHistoryThrough(
+    seriesId: string,
+    through: LocalDate,
+  ): Promise<(BenchmarkCacheRead & { from: LocalDate }) | null>;
 }
 
+/**
+ * One series' bars as a reader got them, and where from.
+ *
+ * `basisGeneration` is the price basis the bars are on, so a caller that must be reproducible can
+ * record it. `missing` lists the parts of the requested range PostgreSQL has never been asked for;
+ * a reader never asks the provider, so a caller that needs them must hydrate first.
+ */
+export type BenchmarkHistorySnapshot = {
+  rows: BenchmarkDailyPrice[];
+  basisGeneration: number;
+  /** Every durable coverage interval of the series, ascending. */
+  coverage: Required<DateRange>[];
+};
+
+export type BenchmarkHistory = {
+  seriesId: string;
+  basisGeneration: number;
+  rows: BenchmarkDailyPrice[];
+  missing: Required<DateRange>[];
+  source: "REDIS" | "POSTGRESQL";
+};
+
+/**
+ * The historical read boundary for workers (`docs/decisions/etf-market-data-v1.md`).
+ *
+ * Never asks the provider: it reads the resident Redis projection, rebuilds it from PostgreSQL when
+ * Redis lost it, and falls back to PostgreSQL for a range Redis cannot answer. Every read is bounded
+ * by an explicit end date and never returns a bar after it.
+ */
+export interface BenchmarkHistoryReader {
+  readBenchmarkHistory(
+    series: BenchmarkSeries,
+    range: Required<DateRange>,
+  ): Promise<BenchmarkHistory>;
+  /** Everything stored, through `through` (today when omitted). */
+  readFullBenchmarkHistory(
+    series: BenchmarkSeries,
+    through?: LocalDate,
+  ): Promise<BenchmarkHistory>;
+  readBenchmarkSession(
+    series: BenchmarkSeries,
+    date: LocalDate,
+  ): Promise<BenchmarkDailyPrice | null>;
+  /** The last `sessions` bars on or before `through`, inclusive. */
+  readBenchmarkSessions(
+    series: BenchmarkSeries,
+    window: { through: LocalDate; sessions: number },
+  ): Promise<BenchmarkHistory>;
+  readBenchmarkHistories(
+    series: readonly BenchmarkSeries[],
+    range: Required<DateRange>,
+  ): Promise<BenchmarkHistory[]>;
+}
+
+/** What the scheduled refresh decides from (`market-data-refresh.ts`). */
+export type BenchmarkRefreshState = {
+  /** The end of the latest durable coverage interval, or undefined before any bootstrap. */
+  coverageEnd?: LocalDate;
+  latestBar?: LocalDate;
+  /** When the bounded tail last synced successfully: a read that reached today and saved. */
+  lastTailSyncAt?: Instant;
+};
+
+export type BenchmarkRefreshStatus =
+  /** The expected session is stored and was read after it became final. Nothing was asked. */
+  | "UP_TO_DATE"
+  /** The tail was read and the expected session is stored. */
+  | "REFRESHED"
+  /** The tail was read and the provider has not published the expected session yet. */
+  | "AWAITING_PUBLICATION"
+  /** The provider re-based the history, and it was replaced whole under a new generation. */
+  | "REBASED"
+  /** A re-base was detected and could not be replaced yet; nothing new was saved. */
+  | "REBASE_REFUSED"
+  /** The series was never bootstrapped; the refresh does not bootstrap. */
+  | "NOT_BOOTSTRAPPED";
+
+export type BenchmarkRefreshResult = {
+  status: BenchmarkRefreshStatus;
+  latestBar?: LocalDate;
+  basisGeneration: number;
+  /** Provider reads this refresh made (one per walk; a walk may page). */
+  providerReads: number;
+};
+
+/** What `ensureBenchmarkResident` found. */
+export type BenchmarkResidency = {
+  /**
+   * `RESIDENT` — the head already matched PostgreSQL; `REPUBLISHED` — it did not and now does;
+   * `EMPTY` — nothing durable to project; `UNPUBLISHED` — it did not match and could not be
+   * published (Redis refused or kept losing the race), so reads fall back to PostgreSQL.
+   */
+  status: "RESIDENT" | "REPUBLISHED" | "EMPTY" | "UNPUBLISHED";
+  bars: number;
+  years: number;
+  basisGeneration: number;
+};
+
 /** The read boundary a backtest consumes. It never learns which provider symbol backs a code. */
-export interface BenchmarkDataService {
+export interface BenchmarkDataService extends BenchmarkHistoryReader {
   listBenchmarks(): Promise<BenchmarkWithSeries[]>;
   getBenchmark(code: string): Promise<BenchmarkWithSeries>;
   /**
@@ -156,4 +436,21 @@ export interface BenchmarkDataService {
     series: BenchmarkSeries,
     period: Required<DateRange>,
   ): Promise<Required<DateRange>[]>;
+  /**
+   * Makes the series' Redis projection a complete image of PostgreSQL: verifies the published head
+   * against every year's digest and republishes what differs. Never asks the provider.
+   */
+  ensureBenchmarkResident(series: BenchmarkSeries): Promise<BenchmarkResidency>;
+  /** What the scheduled refresh decides from. Reads PostgreSQL only. */
+  benchmarkRefreshState(
+    series: BenchmarkSeries,
+  ): Promise<BenchmarkRefreshState>;
+  /**
+   * The scheduled refresh of one bootstrapped series: one bounded tail read, never the history,
+   * with the re-base protection applied, then the projection republished.
+   */
+  refreshBenchmarkSeries(
+    series: BenchmarkSeries,
+    input: { expectedSession?: LocalDate },
+  ): Promise<BenchmarkRefreshResult>;
 }

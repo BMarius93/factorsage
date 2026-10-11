@@ -156,13 +156,30 @@ export type ReadinessCheck = {
 };
 
 /**
+ * Whether Redis may evict what the product keeps resident (`docs/decisions/etf-market-data-v1.md`).
+ *
+ * `failed` only for an `allkeys-*` policy no operator accepted (`UNSAFE`): such a policy may evict
+ * any key, including the always-resident benchmark histories and the hydration locks, so an
+ * instance on it must not report ready. Every other verdict is `ok`, with `detail` saying why.
+ */
+export type RedisEvictionPolicyCheck = ReadinessCheck & {
+  verdict: "SAFE" | "TOLERATED" | "ACCEPTED" | "UNSAFE" | "UNKNOWN";
+  policy?: string;
+  detail?: string;
+};
+
+/**
  * `GET /health/ready`. `ok` is served with `200`; `unavailable` is served with `503` and the same
  * body, so the per-dependency detail is visible either way. Only the dependencies every request
- * needs are probed — PostgreSQL and Redis — never the market-data provider.
+ * needs are probed — PostgreSQL and Redis, and how Redis evicts — never the market-data provider.
  */
 export type ReadinessResponse = {
   status: "ok" | "unavailable";
-  checks: { postgres: ReadinessCheck; redis: ReadinessCheck };
+  checks: {
+    postgres: ReadinessCheck;
+    redis: ReadinessCheck;
+    redisEvictionPolicy: RedisEvictionPolicyCheck;
+  };
 };
 
 export * from "./billing.js";

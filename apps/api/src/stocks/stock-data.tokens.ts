@@ -25,3 +25,11 @@ export const ALTERNATIVE_DATA_SERVICE = Symbol("ALTERNATIVE_DATA_SERVICE");
 export const STOCK_DETAILS_RETENTION_YEARS = Symbol(
   "STOCK_DETAILS_RETENTION_YEARS",
 );
+
+/**
+ * The `allkeys-*` eviction policy an operator explicitly accepted (`REDIS_ACCEPTED_EVICTION_POLICY`),
+ * or null. Read by readiness, which otherwise refuses such a policy.
+ */
+export const REDIS_ACCEPTED_EVICTION_POLICY = Symbol(
+  "REDIS_ACCEPTED_EVICTION_POLICY",
+);

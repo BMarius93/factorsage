@@ -5,6 +5,7 @@ import {
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
+  getRedisEvictionPolicyConfig,
   getStockDataConfig,
 } from "@intrinsic/config";
 import { FmpClient } from "@intrinsic/fmp";
@@ -22,6 +23,7 @@ import {
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
+  inspectRedisEvictionPolicy,
   logPriceBasisEvent,
   type AlternativeDataStore,
   type LoadCoordinator,
@@ -34,6 +36,7 @@ import {
   Inject,
   Injectable,
   Module,
+  type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
@@ -42,6 +45,7 @@ import { LoggedStockDataService } from "./logged-stock-data.service";
 import {
   ALTERNATIVE_DATA_SERVICE,
   ALTERNATIVE_DATA_STORE,
+  REDIS_ACCEPTED_EVICTION_POLICY,
   SECURITY_CATALOG_SERVICE,
   STOCK_DATA_CACHE,
   STOCK_DATA_COORDINATOR,
@@ -65,6 +69,37 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
 
   onApplicationShutdown(): void {
     this.redis.disconnect();
+  }
+}
+
+/**
+ * Says once, at startup, how this Redis evicts (`docs/decisions/etf-market-data-v1.md`).
+ *
+ * Readiness repeats the check on every probe; this line is what an operator searching the boot log
+ * finds. It never fails the boot: a Redis that refuses `INFO` reads as `UNKNOWN`.
+ */
+@Injectable()
+class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
+  constructor(
+    @Inject(STOCK_DATA_REDIS)
+    private readonly redis: StockDataRedisClient,
+    @Inject(STOCK_DATA_LOGGER) private readonly logger: StructuredLogger,
+    @Inject(REDIS_ACCEPTED_EVICTION_POLICY)
+    private readonly acceptedPolicy: string | null,
+  ) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    const assessment = await inspectRedisEvictionPolicy(this.redis, {
+      ...(this.acceptedPolicy ? { acceptedPolicy: this.acceptedPolicy } : {}),
+    });
+    const entry = { event: "redis.eviction-policy", ...assessment };
+    if (assessment.verdict === "UNSAFE") {
+      this.logger.error(entry);
+    } else if (assessment.verdict === "SAFE") {
+      this.logger.info(entry);
+    } else {
+      this.logger.warn(entry);
+    }
   }
 }
 
@@ -264,6 +299,12 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
           logger.child({ component: "security-catalog" }),
         ),
     },
+    {
+      provide: REDIS_ACCEPTED_EVICTION_POLICY,
+      useFactory: (): string | null =>
+        getRedisEvictionPolicyConfig().acceptedPolicy ?? null,
+    },
+    RedisEvictionPolicyReporter,
     StockDataRedisLifecycle,
   ],
   // The Redis client is exported for the readiness probe only; no feature module reads it.
@@ -276,6 +317,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     STOCK_DATA_SERVICE,
     SECURITY_CATALOG_SERVICE,
     STOCK_DATA_REDIS,
+    REDIS_ACCEPTED_EVICTION_POLICY,
     STOCK_DATA_PROVIDER,
     STOCK_DATA_COORDINATOR,
     ALTERNATIVE_DATA_STORE,

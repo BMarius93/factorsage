@@ -7,6 +7,10 @@ import {
   loadRootEnv,
 } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
+import {
+  MARKET_OVERVIEW_HISTORY_FLOOR,
+  marketOverviewBenchmarkCodes,
+} from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import { createLogger } from "@intrinsic/observability";
 import {
@@ -15,7 +19,15 @@ import {
   RedisFmpRequestGate,
   RedlockLoadCoordinator,
 } from "@intrinsic/stock-data";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { reconcileBenchmarkCatalog } from "./benchmark-catalog.service";
 import { createBenchmarkDataService } from "./benchmark-data.composition";
+import {
+  bootstrapMarketOverview,
+  countingFetch,
+  formatBootstrapLine,
+} from "./market-overview-bootstrap";
 
 /**
  * Materializes a benchmark's history over an explicit range, through the ordinary loader.
@@ -42,14 +54,35 @@ import { createBenchmarkDataService } from "./benchmark-data.composition";
  * pnpm benchmarks:prewarm --code SP500_INDEX --code DJIA_INDEX --code VIX_INDEX --from 2006-01-01
  * pnpm benchmarks:prewarm --code SP500 --from 2000-01-01 --to 2009-12-31
  * ```
+ *
+ * `--group market-overview` is the bootstrap of the twenty market-overview ETFs
+ * (`docs/decisions/etf-market-data-v1.md`, "Bootstrap"). It reconciles the catalog, loads each
+ * series' full history from {@link MARKET_OVERVIEW_HISTORY_FLOOR} — before every fund listed, so the
+ * provider decides where each history begins — one series at a time and `SP500` first, proves the
+ * Redis projection against PostgreSQL, and prints a report per ETF: the stored span and bar count,
+ * the pre-inception period, coverage still missing, sessions missing against the SP500 execution
+ * calendar, a start long after the fund listed, and the HTTP requests the provider actually
+ * received. `--report` also writes that report as JSON. It exits non-zero when any series failed;
+ * rerunning resumes from durable coverage.
+ *
+ * ```bash
+ * pnpm benchmarks:prewarm --group market-overview --report artifacts/market-overview-bootstrap.json
+ * ```
  */
 
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The named groups `--group` accepts. */
+export const PREWARM_GROUPS = ["market-overview"] as const;
+
+export type PrewarmGroup = (typeof PREWARM_GROUPS)[number];
 
 type PrewarmArguments = {
   readonly codes: readonly string[];
   readonly from: string;
   readonly to: string;
+  readonly group?: PrewarmGroup;
+  readonly reportPath?: string;
 };
 
 export function parsePrewarmArguments(
@@ -59,6 +92,8 @@ export function parsePrewarmArguments(
   const codes: string[] = [];
   let from: string | undefined;
   let to: string | undefined;
+  let group: PrewarmGroup | undefined;
+  let reportPath: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
@@ -79,11 +114,37 @@ export function parsePrewarmArguments(
         to = value;
         index += 1;
         break;
+      case "--group":
+        if (!value || !(PREWARM_GROUPS as readonly string[]).includes(value)) {
+          throw new Error(`--group needs one of: ${PREWARM_GROUPS.join(", ")}`);
+        }
+        group = value as PrewarmGroup;
+        index += 1;
+        break;
+      case "--report":
+        if (!value) {
+          throw new Error("--report needs a file path for the JSON report");
+        }
+        reportPath = value;
+        index += 1;
+        break;
       default:
         throw new Error(
-          `Unknown argument '${String(flag)}'. Usage: --code CODE [--code CODE ...] --from YYYY-MM-DD [--to YYYY-MM-DD]`,
+          `Unknown argument '${String(flag)}'. Usage: --code CODE [--code CODE ...] --from YYYY-MM-DD [--to YYYY-MM-DD], or --group market-overview [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--report PATH]`,
         );
     }
+  }
+
+  if (group) {
+    if (codes.length > 0) {
+      throw new Error("--group and --code cannot be combined");
+    }
+    codes.push(...marketOverviewBenchmarkCodes());
+    // The group names its own floor: a date before every one of its funds listed, so the provider
+    // — not a constant here — decides where each history begins.
+    from ??= MARKET_OVERVIEW_HISTORY_FLOOR;
+  } else if (reportPath) {
+    throw new Error("--report is only available with --group");
   }
 
   if (codes.length === 0) {
@@ -102,7 +163,13 @@ export function parsePrewarmArguments(
     throw new Error(`--from ${from} is after --to ${resolvedTo}`);
   }
 
-  return { codes, from, to: resolvedTo };
+  return {
+    codes,
+    from,
+    to: resolvedTo,
+    ...(group ? { group } : {}),
+    ...(reportPath ? { reportPath } : {}),
+  };
 }
 
 async function prewarm(): Promise<void> {
@@ -115,12 +182,14 @@ async function prewarm(): Promise<void> {
     base: { component: "benchmark-prewarm" },
   });
 
-  const { codes, from, to } = parsePrewarmArguments(
+  const { codes, from, to, group, reportPath } = parsePrewarmArguments(
     process.argv.slice(2),
     new Date().toISOString().slice(0, 10),
   );
 
   const prisma = new PrismaClient();
+  // Counts what the provider actually receives — every page and every retry — per symbol.
+  const http = countingFetch(fetch);
   const redis = createStockDataRedisClient(getRedisConfig().url, (err) => {
     logger.warn({ event: "stock-data.redis.error", err });
   });
@@ -129,7 +198,7 @@ async function prewarm(): Promise<void> {
   const benchmarks = createBenchmarkDataService({
     prisma,
     cache: new IoredisCacheClient(redis),
-    provider: new FmpClient(() => getFmpConfig(), fetch, {
+    provider: new FmpClient(() => getFmpConfig(), http.fetch, {
       // The shared gate, not a private one: a prewarm of thirty years of index history is exactly
       // the job that would otherwise starve a live Stock Details read of its provider budget.
       gate: new RedisFmpRequestGate(redis, {
@@ -148,7 +217,76 @@ async function prewarm(): Promise<void> {
     onProviderRequest: (request) => {
       logger.info({ event: "benchmark.prewarm.provider.request", ...request });
     },
+    logger,
   });
+
+  if (group) {
+    try {
+      // The catalog rows are written by every API boot; reconciling here too, through the same
+      // idempotent path, lets the bootstrap run before the first boot of a release.
+      await reconcileBenchmarkCatalog(prisma);
+      logger.info({
+        event: "benchmark.prewarm.group.started",
+        group,
+        from,
+        to,
+      });
+      const result = await bootstrapMarketOverview({
+        benchmarks,
+        from,
+        to,
+        providerRequestsFor: (symbol) => http.requestsFor(symbol),
+        onSeries: (report) => {
+          logger.info({
+            event: "benchmark.prewarm.group.series",
+            group,
+            ...report,
+          });
+          console.log(formatBootstrapLine(report));
+        },
+      });
+      logger.info({
+        event: "benchmark.prewarm.group.completed",
+        group,
+        from,
+        to,
+        series: result.reports.length,
+        failed: result.failed,
+        bars: result.bars,
+        providerHttpRequests: result.providerHttpRequests,
+        durationMs: result.durationMs,
+      });
+      console.log(
+        `${group}: ${result.reports.length - result.failed}/${result.reports.length} series loaded, ` +
+          `${result.bars} bars, ${result.providerHttpRequests} provider HTTP request(s), ${result.durationMs} ms.`,
+      );
+      if (reportPath) {
+        await mkdir(dirname(reportPath), { recursive: true });
+        await writeFile(
+          reportPath,
+          `${JSON.stringify({ group, generatedAt: new Date().toISOString(), ...result }, null, 2)}\n`,
+        );
+        console.log(`Report written to ${reportPath}`);
+      }
+      if (result.failed > 0) {
+        process.exitCode = 1;
+      }
+    } catch (error) {
+      logger.error({
+        event: "benchmark.prewarm.group.failed",
+        group,
+        err: error,
+      });
+      console.error(
+        `${group}: bootstrap failed — ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exitCode = 1;
+    } finally {
+      redis.disconnect();
+      await prisma.$disconnect();
+    }
+    return;
+  }
 
   let failures = 0;
   try {

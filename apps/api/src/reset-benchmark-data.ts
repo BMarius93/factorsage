@@ -1,5 +1,10 @@
-import { loadRootEnv } from "@intrinsic/config";
+import { getRedisConfig, loadRootEnv } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
+import {
+  createStockDataRedisClient,
+  IoredisCacheClient,
+  RedisBenchmarkDataCache,
+} from "@intrinsic/stock-data";
 
 /**
  * Discards a benchmark's stored market data so the next read re-hydrates it from the provider.
@@ -13,12 +18,19 @@ import { PrismaClient } from "@intrinsic/database";
  * before that fix still holds them, and there is no way to tell a synthetic bar from a real one by
  * looking at it. Clearing the series and letting the loader rebuild is the honest repair.
  *
+ * The Redis projection of each reset series is discarded too — its head and chunks, keyed by series,
+ * and nothing else. A projection is always a complete image of what PostgreSQL held when it was
+ * published, so one left behind would keep answering historical reads with bars that no longer
+ * exist. Redis is never flushed.
+ *
  * Usage: `pnpm db:benchmarks:reset [CODE ...]` (defaults to every benchmark).
  */
 async function reset(): Promise<void> {
   loadRootEnv();
   const codes = process.argv.slice(2).filter((value) => value.trim() !== "");
   const prisma = new PrismaClient();
+  const redis = createStockDataRedisClient(getRedisConfig().url);
+  const cache = new RedisBenchmarkDataCache(new IoredisCacheClient(redis));
 
   try {
     const benchmarks = await prisma.benchmark.findMany({
@@ -45,17 +57,19 @@ async function reset(): Promise<void> {
           where: { seriesId: { in: seriesIds } },
         }),
       ]);
+      let chunks = 0;
+      for (const seriesId of seriesIds) {
+        chunks += await cache.discardProjection(seriesId);
+      }
       console.log(
         `${benchmark.code}: cleared ${prices.count} bars, ${coverage.count} coverage ` +
-          `intervals and ${state.count} watermarks across ${seriesIds.length} series. ` +
+          `intervals and ${state.count} watermarks across ${seriesIds.length} series, and ` +
+          `discarded the Redis projection (${chunks} chunk(s)). ` +
           "The next read re-hydrates it from the provider.",
       );
     }
-    console.log(
-      "Redis still holds the previous projection; it is keyed by series and rebuilt on the next " +
-        "read, but flush it if you want the very next request to go to PostgreSQL.",
-    );
   } finally {
+    redis.disconnect();
     await prisma.$disconnect();
   }
 }

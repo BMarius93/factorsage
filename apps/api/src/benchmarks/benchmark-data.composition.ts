@@ -1,8 +1,12 @@
 import { getStockDataConfig } from "@intrinsic/config";
 import type { PrismaClient } from "@intrinsic/database";
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
+import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CanonicalBenchmarkDataService,
+  logBenchmarkCacheEvent,
+  logPriceBasisEvent,
+  logUnreadableBenchmarkChunk,
   PrismaBenchmarkDataStore,
   RedisBenchmarkDataCache,
   type BenchmarkDataService,
@@ -31,18 +35,36 @@ export function createBenchmarkDataService(options: {
   readonly provider: FmpBenchmarkProviderPort;
   readonly coordinator: LoadCoordinator;
   readonly onProviderRequest?: (event: ProviderRequestEvent) => void;
+  /** Where price-basis decisions and failed Redis publications are logged. */
+  readonly logger?: StructuredLogger;
 }): BenchmarkDataService {
   const config = getStockDataConfig();
+  const logger = options.logger;
   return new CanonicalBenchmarkDataService(
     new PrismaBenchmarkDataStore(options.prisma),
     options.provider,
-    new RedisBenchmarkDataCache(options.cache),
+    new RedisBenchmarkDataCache(
+      options.cache,
+      logger
+        ? {
+            observer: {
+              onUnreadableChunk: logUnreadableBenchmarkChunk(logger),
+            },
+          }
+        : {},
+    ),
     options.coordinator,
     {
       recentPriceFreshnessMs: config.recentPriceFreshnessMs,
       recentTailCalendarDays: config.recentTailCalendarDays,
       ...(options.onProviderRequest
         ? { onProviderRequest: options.onProviderRequest }
+        : {}),
+      ...(logger
+        ? {
+            onPriceBasisEvent: logPriceBasisEvent(logger),
+            onCacheEvent: logBenchmarkCacheEvent(logger),
+          }
         : {}),
     },
   );

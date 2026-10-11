@@ -88,6 +88,8 @@ services:
       BACKTEST_WORKER_PROCESSES: ${BACKTEST_WORKER_PROCESSES:-2}
       MONITOR_WORKER_PROCESSES: ${MONITOR_WORKER_PROCESSES:-1}
       MONITOR_SCAN_INTERVAL_MS: ${MONITOR_SCAN_INTERVAL_MS:-300000}
+      # The market-data child keeps the market-overview ETF histories current and resident.
+      MARKET_DATA_WORKER_PROCESSES: ${MARKET_DATA_WORKER_PROCESSES:-1}
     depends_on:
       postgres:
         condition: service_healthy

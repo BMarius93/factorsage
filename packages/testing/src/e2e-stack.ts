@@ -361,6 +361,14 @@ export function e2eStackEnvironment(
     STOCK_RECENT_PRICE_FRESHNESS_MS: freshness,
     STOCK_FUNDAMENTALS_FRESHNESS_MS: freshness,
     ALT_DATA_FRESHNESS_MS: freshness,
+    ...(input.role === "worker"
+      ? {
+          // The market-data child refreshes the ETF histories on its own schedule. The E2E stack
+          // seeds none of them, and its fixture provider answers only the seeded namespace, so the
+          // refresh is off here: nothing on this stack may reach for a series it did not seed.
+          MARKET_DATA_WORKER_PROCESSES: "0",
+        }
+      : {}),
     ...(input.role === "api"
       ? {
           // Playwright signs in far more often than a person does, from one loopback address.

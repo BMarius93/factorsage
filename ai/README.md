@@ -121,7 +121,10 @@ For the Dashboard's market-overview cards, the market-reference index series or 
 touches which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the
 `isActive` / `isBacktestSelectable` split, the `ETF_PROXY` / `INDEX` series semantics, why `SP500`
 stays `SPY` for backtests, the `GET /market-overview` contract and its end-of-day honesty rules, and
-the `pnpm benchmarks:prewarm` runbook for deeper history.
+the `pnpm benchmarks:prewarm` runbook for deeper history. For the twenty market-overview ETFs —
+their catalog, full Redis residency and its eviction-policy requirement, re-base protection, the
+bootstrap, the `market-data` refresh child and the provider-free worker read interface — read
+`../docs/decisions/etf-market-data-v1.md` as well.
 
 For backtest work — the engine, the worker, benchmark data or the run surfaces — read
 `product/backtests.md` first, then `architecture/backtest-execution.md` (the built lifecycle,
