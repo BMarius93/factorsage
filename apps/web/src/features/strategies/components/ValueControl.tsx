@@ -1,12 +1,16 @@
 "use client";
 
 import {
+  SELECTABLE_SERIES_GROUP_LABELS,
+  findSelectableSeries,
   strategyValueLabel,
   valueSpecFor,
+  type SelectableSeriesGroupId,
+  type SelectableSeriesId,
   type StrategyMetric,
   type StrategyValue,
 } from "@intrinsic/contracts";
-import { Select } from "../../../components/ui/Select";
+import { OperandPicker, type OperandPickerCategory } from "./OperandPicker";
 import styles from "./StrategyBuilder.module.css";
 
 type ValueControlProps = {
@@ -28,12 +32,49 @@ type ValueControlProps = {
 };
 
 /**
+ * The permitted series, partitioned by the catalog's own groups — `Moving averages — Daily`,
+ * `Intrinsic Value — Models` — in the catalog's order. The grouping, its labels and its order are the
+ * catalog's; nothing here lists a series.
+ */
+function seriesCategories(
+  seriesIds: readonly SelectableSeriesId[],
+): readonly OperandPickerCategory[] {
+  const groups: {
+    id: SelectableSeriesGroupId;
+    options: { key: string; label: string }[];
+  }[] = [];
+  for (const seriesId of seriesIds) {
+    const group = findSelectableSeries(seriesId)?.group;
+    if (!group) {
+      continue;
+    }
+    const option = {
+      key: seriesId,
+      label: strategyValueLabel({ kind: "SERIES", seriesId }),
+    };
+    const existing = groups.find((candidate) => candidate.id === group);
+    if (existing) {
+      existing.options.push(option);
+    } else {
+      groups.push({ id: group, options: [option] });
+    }
+  }
+  return groups.map((group) => ({
+    id: group.id,
+    label: SELECTABLE_SERIES_GROUP_LABELS[group.id],
+    options: group.options,
+  }));
+}
+
+/**
  * The Value control, shaped by the Metric's own value spec.
  *
- * A series-valued Metric gets a select over exactly the series the registry permits — for a moving
- * average that is `comparableMovingAverages`, so a self-comparison or a daily/weekly pair can never
- * be picked. A numeric or percentage Metric gets an input carrying that metric's own bounds; the
- * bounds are hints on the control, and the canonical validator is what enforces them.
+ * A series-valued Metric is compared with another series through the same picker the Metric is
+ * chosen with — the series grouped as the catalog groups them — over exactly the series the registry
+ * permits: for a moving average that is `comparableMovingAverages`, so a self-comparison or a
+ * daily/weekly pair can never be picked. A numeric or percentage Metric gets an input carrying that
+ * metric's own bounds; the bounds are hints on the control, and the canonical validator is what
+ * enforces them.
  */
 export function ValueControl({
   metric,
@@ -49,41 +90,35 @@ export function ValueControl({
 
   if (spec.kind === "SERIES") {
     const selected = value.kind === "SERIES" ? value.seriesId : "";
+    const group =
+      selected === "" ? undefined : findSelectableSeries(selected)?.group;
     return (
-      <Select
-        density="compact"
+      <OperandPicker
+        label={label}
         testId="value-control"
-        aria-label={label}
-        // The row truncates a long series on a phone; the full label stays readable on hover and
-        // is what the native picker and the accessible value carry either way.
-        {...(selected === "" ? {} : { title: strategyValueLabel(value) })}
+        categories={seriesCategories(spec.seriesIds)}
+        selectedKey={selected}
+        {...(group ? { selectedCategoryId: group } : {})}
+        // A series the metric can no longer be compared with stays named rather than silently
+        // replaced; validation is what reports it.
+        display={selected === "" ? "Choose" : strategyValueLabel(value)}
+        placeholder={selected === ""}
+        align="end"
         invalid={invalid}
-        {...(describedBy ? { "aria-describedby": describedBy } : {})}
-        value={selected}
+        {...(describedBy ? { describedBy } : {})}
         onFocus={() => {
           if (value.kind === "SERIES") {
             onFocus?.();
           }
         }}
         onBlur={onBlur}
-        onValueChange={(seriesId) => {
-          const next: StrategyValue = {
+        onSelect={(seriesId) => {
+          onChange({
             kind: "SERIES",
-            seriesId: seriesId as (typeof spec.seriesIds)[number],
-          };
-          onChange(next);
+            seriesId: seriesId as SelectableSeriesId,
+          });
           onFocus?.();
         }}
-        {...(selected === ""
-          ? { placeholder: "Choose", placeholderDisabled: true }
-          : {})}
-        unavailableLabel={
-          value.kind === "SERIES" ? strategyValueLabel(value) : "Choose"
-        }
-        options={spec.seriesIds.map((seriesId) => ({
-          value: seriesId,
-          label: strategyValueLabel({ kind: "SERIES", seriesId }),
-        }))}
       />
     );
   }

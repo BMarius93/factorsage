@@ -100,6 +100,9 @@ describe("shared FMP provider gate", () => {
     //
     // The live hydration run (`pnpm fmp:live`) is here for the same reason, and it is the one
     // entry whose client also carries a guard — see the last case in this suite.
+    //
+    // The market-data worker child refreshes the market-overview ETF histories on a schedule; it
+    // shares the gate so its reads queue behind the same allowance as every live read.
     expect(files).toEqual([
       "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
       "apps/api/src/fmp-live/fmp-live-runtime.ts",
@@ -107,6 +110,7 @@ describe("shared FMP provider gate", () => {
       "apps/api/src/resync-canonical-stock-data.ts",
       "apps/api/src/stocks/stocks.module.ts",
       "apps/worker/src/backtest/composition.ts",
+      "apps/worker/src/market-data/composition.ts",
       "apps/worker/src/monitor/composition.ts",
     ]);
   });

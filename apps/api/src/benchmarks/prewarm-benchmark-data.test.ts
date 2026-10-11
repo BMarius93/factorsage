@@ -1,3 +1,7 @@
+import {
+  MARKET_OVERVIEW_HISTORY_FLOOR,
+  marketOverviewBenchmarkCodes,
+} from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { parsePrewarmArguments } from "./prewarm-benchmark-data";
 
@@ -69,5 +73,61 @@ describe("parsePrewarmArguments", () => {
     expect(() => parsePrewarmArguments(["--code"], TODAY)).toThrow(
       /--code needs a benchmark code/,
     );
+  });
+
+  describe("--group market-overview", () => {
+    it("names the twenty ETFs' codes, SP500 first, from the group's floor to today", () => {
+      const parsed = parsePrewarmArguments(
+        ["--group", "market-overview"],
+        TODAY,
+      );
+
+      expect(parsed.group).toBe("market-overview");
+      expect(parsed.codes).toEqual(marketOverviewBenchmarkCodes());
+      expect(parsed.codes).toHaveLength(20);
+      expect(parsed.codes[0]).toBe("SP500");
+      expect(parsed.from).toBe(MARKET_OVERVIEW_HISTORY_FLOOR);
+      expect(parsed.to).toBe(TODAY);
+    });
+
+    it("accepts an explicit range and a JSON report path", () => {
+      expect(
+        parsePrewarmArguments(
+          [
+            "--group",
+            "market-overview",
+            "--from",
+            "2000-01-01",
+            "--to",
+            "2020-12-31",
+            "--report",
+            "artifacts/bootstrap.json",
+          ],
+          TODAY,
+        ),
+      ).toMatchObject({
+        from: "2000-01-01",
+        to: "2020-12-31",
+        reportPath: "artifacts/bootstrap.json",
+      });
+    });
+
+    it("refuses an unknown group, a group mixed with codes, and a report without a group", () => {
+      expect(() =>
+        parsePrewarmArguments(["--group", "everything"], TODAY),
+      ).toThrow(/--group needs one of: market-overview/);
+      expect(() =>
+        parsePrewarmArguments(
+          ["--group", "market-overview", "--code", "SP500_INDEX"],
+          TODAY,
+        ),
+      ).toThrow(/cannot be combined/);
+      expect(() =>
+        parsePrewarmArguments(
+          ["--code", "SP500", "--from", "2000-01-01", "--report", "out.json"],
+          TODAY,
+        ),
+      ).toThrow(/only available with --group/);
+    });
   });
 });

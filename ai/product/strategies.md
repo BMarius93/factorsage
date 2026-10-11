@@ -886,22 +886,34 @@ Each Signal visually separates:
 
 ### Authoring a rule: Category -> Metric -> Configuration -> Condition -> Value
 
-A row names its Metric with **two** controls rather than one long list: a **Category** — Price,
-Moving averages, Oscillators, Volume, Valuation, Fundamentals, Position, Insider activity,
-Congressional trading — and then a **Metric** inside it. Both lists come from the registry, so a
-category the level or the half of the Signal cannot use is simply absent: Position (Gain, Loss) in a
-BUY level, and Volume, Fundamentals and both alternative-data categories in a Trigger row.
+A row reads as three controls — **Metric | Condition | Value** — and names its Metric in two steps
+inside the one Metric control rather than in one long list (owner decision, 2026-10-11; it replaced
+the separate Category and Metric selects of 2026-09-28). The control opens a picker showing every
+**Category** at once — Price, Moving averages, Oscillators, Volume, Valuation, Fundamentals,
+Position, Insider activity, Congressional trading — and, below them, the **Metrics** of the category
+being shown. Both come from the registry, so a category the level or the half of the Signal cannot
+use is simply absent: Position (Gain, Loss) in a BUY level, and Volume, Fundamentals and both
+alternative-data categories in a Trigger row. There is no search.
 
-- The category is a property of the metric, never stored beside it, so the two controls can never
-  disagree.
+- The category is a property of the metric, never stored beside it, so the picker can never hold a
+  category and a metric that disagree. Showing a category changes nothing; choosing a metric is the
+  edit, and closes the picker. Reopening it shows the chosen metric's category with the metric marked.
 - A new row is a complete rule: the first category's first metric (`Price`), with that metric's
   default Condition and Value. There is no row without a valid category and metric.
-- Changing the category installs that category's first metric; choosing another metric installs that
-  metric. Either way the new metric starts at **its own default configuration** — nothing of the
-  previous metric's lookback, scope or filters is carried over — and the Condition and Value are
-  kept only where the new metric still supports them.
+- Choosing a metric of **another category** starts that metric's own rule: its default Condition,
+  Value and configuration — nothing of the previous rule is carried over, because a threshold or a
+  filter written for another family means nothing here.
+- Choosing another metric of **the same category** keeps the Condition and Value where the new metric
+  still supports them. Within one alternative-data family it also keeps the **configuration**: every
+  Insider measure takes the same lookback and role filter, and every Congressional measure the same
+  lookback, scope, chamber and owner filters, so `Insider sellers (180D · CEO, CFO)` becomes
+  `Insider buyers (180D · CEO, CFO)` rather than silently dropping what the user narrowed (owner
+  decision, 2026-10-11). Choosing the row's own metric again changes nothing.
 - The Metric control shows the metric's **identity** only (`Insider sellers`, never
   `Insider sellers 20D`), one entry per measure and never one per configuration.
+- A Value that is a series is chosen with the same picker, its categories the series catalog's own
+  groups (`Moving averages — Daily`, `Intrinsic Value — Models`, …) and its entries exactly the series
+  the Metric may be compared with. A numeric Value stays a typed input.
 - A configurable metric offers **Configure** beneath the fields, and a compact summary of its
   configuration beside it: `180D · CEO, CFO`, `180D · House`. The lookback always appears, because it
   is configuration; a filter appears only when it narrows the metric.

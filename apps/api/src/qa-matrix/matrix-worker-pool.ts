@@ -161,6 +161,9 @@ export class MatrixWorkerPool {
       // sees to a backtest — so a monitor child would show up as traffic no run made. The sweep
       // measures backtests; monitoring is switched off for its duration.
       MONITOR_WORKER_PROCESSES: "0",
+      // And the market-data child, for the same reason: its scheduled ETF refresh is provider
+      // traffic no run made.
+      MARKET_DATA_WORKER_PROCESSES: "0",
       // Provider requests are logged at debug; without this the sweep cannot count them.
       LOG_LEVEL: "debug",
       STOCK_RECENT_PRICE_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,

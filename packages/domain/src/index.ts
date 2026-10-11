@@ -7,5 +7,6 @@ export * from "./fundamental-metrics.js";
 export * from "./security-universe.js";
 export * from "./stock-lists.js";
 export * from "./benchmarks.js";
+export * from "./market-overview-etfs.js";
 export * from "./alternative-data.js";
 export * from "./corporate-actions.js";

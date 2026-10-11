@@ -51,25 +51,35 @@ describe("the alternative-data operand summary", () => {
   });
 });
 
-describe("the Category / Metric / Condition / Value fields", () => {
+describe("the Metric / Condition / Value fields", () => {
   it("lay out by the width the list actually has, not by the viewport", () => {
     // The same list is full-width on a tablet and two-thirds of the page beside the explanation
-    // panel, so only its own width can say whether four controls fit on one line.
+    // panel, so only its own width can say whether three controls fit on one line.
     expect(ruleBody(".predicateList")).toContain(
       "container: predicate-list / inline-size",
     );
   });
 
-  it("read as two short lines in a narrow list, so no control is squeezed", () => {
+  it("read as two short lines in a narrow list, the Metric on a line of its own", () => {
     expect(ruleBody(".predicateFields")).toContain(
       "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);",
     );
+    expect(ruleBody(".predicateFields > :first-child")).toContain(
+      "grid-column: 1 / -1",
+    );
   });
 
-  it("read as one sentence once the list is wide enough for all four", () => {
-    const wide = css.indexOf("@container predicate-list (min-width: 680px)");
+  it("read as one sentence once the list is wide enough for all three", () => {
+    const wide = css.indexOf("@container predicate-list (min-width: 560px)");
     expect(wide).toBeGreaterThan(-1);
     const body = ruleBody(".predicateFields", wide);
-    expect(body.match(/minmax\(/g)).toHaveLength(4);
+    expect(body.match(/minmax\(/g)).toHaveLength(3);
+    expect(ruleBody(".predicateFields > :first-child", wide)).toContain(
+      "grid-column: auto",
+    );
+  });
+
+  it("anchor the operand pickers' popovers, so they open as wide as the rule", () => {
+    expect(ruleBody(".predicateFields")).toContain("position: relative");
   });
 });

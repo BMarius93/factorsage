@@ -382,7 +382,7 @@ export function emptyStrategyDefinition(): StrategyDefinition {
 // ---------------------------------------------------------------------------
 
 /**
- * The metric categories, in canonical order: the first of the Builder's two metric controls.
+ * The metric categories, in canonical order: the first step of the Builder's Metric picker.
  *
  * A row is authored as Category -> Metric -> Configuration -> Condition -> Value. The category is
  * never stored: it is a property of the metric's kind (`strategyMetricCategory`), so a row can never

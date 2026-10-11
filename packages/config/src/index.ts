@@ -763,6 +763,63 @@ export function getMonitorWorkerConfig(env: Environment = process.env) {
 }
 
 /**
+ * Upper bound on forked market-data workers. The refresh is a singleton claim, so a second process
+ * buys availability, never throughput; more than a couple is a typo.
+ */
+const MAX_MARKET_DATA_WORKER_PROCESSES = 2;
+
+/**
+ * The market-data refresh worker (`docs/decisions/etf-market-data-v1.md`).
+ *
+ * It keeps the market-overview ETF histories current and their Redis projection complete, in its
+ * own child process so it can never delay a Monitor cycle. Cadence is an application decision:
+ * `MARKET_DATA_REFRESH_INTERVAL_MS` is the gap between the end of one run and the next, and most runs
+ * ask the provider for nothing — only the first run after a session's close plus
+ * `MARKET_DATA_EOD_PUBLICATION_DELAY_MS` reads one bounded tail per series.
+ *
+ * `MARKET_DATA_SERIES_RETRY_MS` spaces repeated reads of a session the provider has not published
+ * yet. `MARKET_DATA_REFRESH_RUN_BUDGET_MS` bounds one run: series not reached within it are left to
+ * the next run rather than holding the claim.
+ */
+export function getMarketDataWorkerConfig(env: Environment = process.env) {
+  const processes = Number(optional(env, "MARKET_DATA_WORKER_PROCESSES") ?? "1");
+  if (
+    !Number.isInteger(processes) ||
+    processes < 0 ||
+    processes > MAX_MARKET_DATA_WORKER_PROCESSES
+  ) {
+    throw new Error(
+      "Invalid application configuration: MARKET_DATA_WORKER_PROCESSES must be between 0 and " +
+        `${MAX_MARKET_DATA_WORKER_PROCESSES}`,
+    );
+  }
+  return {
+    /** `0` disables the market-data refresh in this process entirely. */
+    processes,
+    refreshIntervalMs: integer(
+      env,
+      ["MARKET_DATA_REFRESH_INTERVAL_MS"],
+      10 * 60_000,
+    ),
+    pollIntervalMs: integer(env, ["MARKET_DATA_REFRESH_POLL_INTERVAL_MS"], 15_000),
+    leaseMs: integer(env, ["MARKET_DATA_REFRESH_LEASE_MS"], 5 * 60_000),
+    heartbeatIntervalMs: integer(
+      env,
+      ["MARKET_DATA_REFRESH_HEARTBEAT_INTERVAL_MS"],
+      30_000,
+    ),
+    retryBackoffMs: integer(env, ["MARKET_DATA_REFRESH_RETRY_BACKOFF_MS"], 60_000),
+    publicationDelayMs: integer(
+      env,
+      ["MARKET_DATA_EOD_PUBLICATION_DELAY_MS"],
+      30 * 60_000,
+    ),
+    seriesRetryMs: integer(env, ["MARKET_DATA_SERIES_RETRY_MS"], 30 * 60_000),
+    runBudgetMs: integer(env, ["MARKET_DATA_REFRESH_RUN_BUDGET_MS"], 4 * 60_000),
+  } as const;
+}
+
+/**
  * Forensic debug archives — a **developer** capture, off unless explicitly asked for.
  *
  * `full` makes a worker write one self-contained archive per backtest attempt: the immutable
@@ -826,6 +883,25 @@ export function getDatabaseConfig(env: Environment = process.env) {
 export function getRedisConfig(env: Environment = process.env) {
   return {
     url: required(env, "REDIS_URL"),
+  } as const;
+}
+
+/**
+ * How Redis is allowed to evict (`docs/decisions/etf-market-data-v1.md`, "Redis eviction policy").
+ *
+ * `acceptedPolicy` is an operator's explicit acknowledgement of an `allkeys-*` eviction policy
+ * (`REDIS_ACCEPTED_EVICTION_POLICY=allkeys-lru`). Under such a policy Redis may evict any key — the
+ * always-resident benchmark histories, a hydration lock, the provider gate's cooldown — so readiness
+ * refuses it unless it is named here; the residency guarantee then no longer holds and the
+ * deployment says so on purpose rather than by accident.
+ *
+ * Separate from `getRedisConfig` on purpose: only the processes that judge the policy read it, so a
+ * process with an allowlisted environment that only needs the connection never has to carry it.
+ */
+export function getRedisEvictionPolicyConfig(env: Environment = process.env) {
+  const acceptedPolicy = optional(env, "REDIS_ACCEPTED_EVICTION_POLICY");
+  return {
+    ...(acceptedPolicy === undefined ? {} : { acceptedPolicy }),
   } as const;
 }
 

@@ -71,9 +71,16 @@ describe("benchmark catalog", () => {
     // The two S&P series are different series, not one corrected into the other.
     expect(bySymbol.get("SP500")).toBe("SPY");
     expect(bySymbol.get("SP500_INDEX")).toBe("^GSPC");
-    // `VXX` is a volatility *futures* ETN and tracks something else entirely; `DIA` is an ETF.
+    // `VXX` is a volatility *futures* ETN and tracks something else entirely.
     expect([...bySymbol.values()]).not.toContain("VXX");
-    expect([...bySymbol.values()]).not.toContain("DIA");
+    // The DJIA market reference is the index level. `DIA` is in the catalog since the market
+    // overview arrived, but only as its own ETF series, never as the index reference.
+    expect(bySymbol.get("DJIA_INDEX")).toBe("^DJI");
+    expect(findBenchmarkCatalogEntry("ETF_DIA")).toMatchObject({
+      providerSymbol: "DIA",
+      seriesType: "ETF_PROXY",
+      isBacktestSelectable: false,
+    });
   });
 
   it("gives every entry a unique code and a distinct provider symbol", () => {

@@ -8,7 +8,6 @@ import {
   type StrategyIssuePath,
   type StrategyLevelKind,
   type StrategyMetric,
-  type StrategyMetricCategoryId,
   type StrategyTrigger,
   type StrategyValue,
 } from "@intrinsic/contracts";
@@ -18,8 +17,7 @@ import type { PredicateRef } from "../utils/strategy-draft";
 import type { StrategyIssueLookup } from "../utils/strategy-issues";
 import { messageAt } from "../utils/strategy-issues";
 import styles from "./StrategyBuilder.module.css";
-import { CategorySelect } from "./CategorySelect";
-import { MetricSelect } from "./MetricSelect";
+import { MetricPicker } from "./MetricPicker";
 import { OperatorSelect } from "./OperatorSelect";
 import { ValueControl } from "./ValueControl";
 import { ExplanationPanel } from "./ExplanationPanel";
@@ -35,7 +33,9 @@ type PredicateRowProps = {
   readonly isRevealed: (path: StrategyIssuePath) => boolean;
   readonly touch: (path: StrategyIssuePath) => void;
   readonly connector: "AND" | null;
-  readonly onSetCategory: (category: StrategyMetricCategoryId) => void;
+  /** The Metric picker's choice: may cross a category, and the draft decides what survives it. */
+  readonly onChooseMetric: (metric: StrategyMetric) => void;
+  /** The Configure dialog's apply: the same metric, reconfigured. */
   readonly onSetMetric: (metric: StrategyMetric) => void;
   readonly onSetOperator: (operator: string) => void;
   readonly onSetValue: (value: StrategyValue) => void;
@@ -46,8 +46,8 @@ type PredicateRowProps = {
 };
 
 /**
- * One rule, read as a short sentence: the Metric — chosen as a Category, then a Metric within it —
- * then the Condition or Trigger, then the Value.
+ * One rule, read as a short sentence of three controls: the Metric — a category and a metric within
+ * it, chosen in one popover — then the Condition or Trigger, then the Value it is compared with.
  *
  * The same component serves both, because the product grammar is the same fields; only the
  * operator vocabulary differs, and that comes from the registry. A configurable metric's
@@ -62,7 +62,7 @@ export function PredicateRow({
   isRevealed,
   touch,
   connector,
-  onSetCategory,
+  onChooseMetric,
   onSetMetric,
   onSetOperator,
   onSetValue,
@@ -131,21 +131,7 @@ export function PredicateRow({
         {connector ?? ""}
       </span>
       <div className={styles.predicateFields}>
-        <CategorySelect
-          levelKind={levelKind}
-          part={ref_.part}
-          metric={row.metric}
-          label="Category"
-          invalid={fieldMessage("METRIC") !== null}
-          {...(describedBy ? { describedBy } : {})}
-          onChange={(category) => {
-            touch(pathFor("METRIC"));
-            onSetCategory(category);
-          }}
-          onFocus={() => focusField("METRIC")}
-          onBlur={() => touch(pathFor("METRIC"))}
-        />
-        <MetricSelect
+        <MetricPicker
           levelKind={levelKind}
           part={ref_.part}
           metric={row.metric}
@@ -154,7 +140,7 @@ export function PredicateRow({
           {...(metricDescribedBy ? { describedBy: metricDescribedBy } : {})}
           onChange={(metric) => {
             touch(pathFor("METRIC"));
-            onSetMetric(metric);
+            onChooseMetric(metric);
           }}
           onFocus={() => focusField("METRIC")}
           onBlur={() => touch(pathFor("METRIC"))}

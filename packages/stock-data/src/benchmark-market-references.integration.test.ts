@@ -265,10 +265,14 @@ describeReferences(
       for (const code of Object.values(codes)) {
         const seriesId = seriesFor(code).id;
         // The namespace `AGENTS.md` invariant 16 names, and nothing else.
-        expect(keys).toContain(`${namespace}:benchmark:${seriesId}:manifest`);
-        expect(keys).toContain(
-          `${namespace}:benchmark:${seriesId}:daily-price:2020`,
-        );
+        expect(keys).toContain(`${namespace}:benchmark:${seriesId}:head`);
+        expect(
+          keys.some((key) =>
+            key.startsWith(
+              `${namespace}:benchmark:${seriesId}:daily-price:v1:2020:`,
+            ),
+          ),
+        ).toBe(true);
         // Never keyed by code, and never a second namespace of its own.
         expect(keys.some((key) => key.includes(code))).toBe(false);
       }
@@ -279,8 +283,8 @@ describeReferences(
       // And a read of one series returns only its own bars.
       const spx = await cache.readDailyPrices(seriesFor(codes.spx).id, range);
       const vix = await cache.readDailyPrices(seriesFor(codes.vix).id, range);
-      expect(spx?.[0]?.close).toBe(7000);
-      expect(vix?.[0]?.close).toBe(15);
+      expect(spx?.rows[0]?.close).toBe(7000);
+      expect(vix?.rows[0]?.close).toBe(15);
     });
 
     it("serves a warm read from the cache manifest without touching the provider", async () => {
@@ -295,7 +299,7 @@ describeReferences(
       // earlier case already materialized the range — the second one must cost zero.
       await service.getBenchmarkDailyPrices(seriesFor(codes.spx), range);
       const afterFirst = warm.requests.length;
-      expect(await cache.getManifest(seriesFor(codes.spx).id)).not.toBeNull();
+      expect(await cache.getHead(seriesFor(codes.spx).id)).not.toBeNull();
 
       const rows = await service.getBenchmarkDailyPrices(
         seriesFor(codes.spx),
@@ -328,7 +332,7 @@ describeReferences(
 
       expect(afterFlush.requests).toEqual([]);
       expect(rows[0]?.close).toBe(15);
-      expect(await cache.getManifest(seriesFor(codes.vix).id)).not.toBeNull();
+      expect(await cache.getHead(seriesFor(codes.vix).id)).not.toBeNull();
     });
 
     it("coordinates concurrent loads of one series through the shared hydration lock", async () => {

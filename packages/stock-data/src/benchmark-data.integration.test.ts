@@ -138,24 +138,18 @@ describeBenchmark("benchmark loading", () => {
     rows = series(benchmark.series.id, "2020-01-01", 120);
   });
 
-  beforeEach(async () => {
-    await redis.del(
-      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
-      ...[2019, 2020].map(
-        (year) =>
-          `${namespace}:benchmark:${benchmark.series.id}:daily-price:${year}`,
-      ),
-    );
-  });
+  /** Every key this suite's own randomized namespace holds: what a Redis flush would leave. */
+  async function clearProjection(): Promise<void> {
+    const keys = await redis.keys(`${namespace}*`);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  }
+
+  beforeEach(clearProjection);
 
   afterAll(async () => {
-    await redis.del(
-      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
-      ...[2019, 2020].map(
-        (year) =>
-          `${namespace}:benchmark:${benchmark.series.id}:daily-price:${year}`,
-      ),
-    );
+    await clearProjection();
     redis.disconnect();
     await prisma.benchmark.deleteMany({ where: { code } });
     await prisma.$disconnect();
@@ -233,11 +227,15 @@ describeBenchmark("benchmark loading", () => {
     );
     expect(coverage.length).toBeGreaterThan(0);
 
-    const manifest = await cache.getManifest(benchmark.series.id);
-    expect(manifest?.priceDatasetVersion).toBe(BENCHMARK_PRICE_DATASET_VERSION);
+    const observed = await cache.getHead(benchmark.series.id);
+    expect(observed?.head.priceDatasetVersion).toBe(
+      BENCHMARK_PRICE_DATASET_VERSION,
+    );
     // The projection lives in its own namespace, not among the resident stocks.
+    const digest = observed?.head.chunks["2020"];
+    expect(digest).toBeDefined();
     const chunk = await redis.get(
-      `${namespace}:benchmark:${benchmark.series.id}:daily-price:2020`,
+      `${namespace}:benchmark:${benchmark.series.id}:daily-price:v1:2020:${digest}`,
     );
     expect(chunk).not.toBeNull();
   });
@@ -271,10 +269,7 @@ describeBenchmark("benchmark loading", () => {
     });
 
     // A Redis flush must cost one durable re-read, never a provider re-download of the history.
-    await redis.del(
-      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
-      `${namespace}:benchmark:${benchmark.series.id}:daily-price:2020`,
-    );
+    await clearProjection();
 
     const provider = new RecordingBenchmarkProvider(rows);
     const reloaded = await serviceWith(provider).getBenchmarkDailyPrices(
@@ -305,10 +300,7 @@ describeBenchmark("benchmark loading", () => {
     });
     // Everything Redis holds is gone, but PostgreSQL still records complete coverage and a current
     // tail watermark. That is what lets a seeded environment run a backtest with no provider at all.
-    await redis.del(
-      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
-      `${namespace}:benchmark:${benchmark.series.id}:daily-price:2020`,
-    );
+    await clearProjection();
 
     const provider = new RecordingBenchmarkProvider(rows);
     const reloaded = await serviceWith(provider).getBenchmarkDailyPrices(
@@ -339,7 +331,7 @@ describeBenchmark("benchmark loading", () => {
       },
       data: { lastSuccessfulSyncAt: new Date("2020-06-20T00:00:00.000Z") },
     });
-    await redis.del(`${namespace}:benchmark:${benchmark.series.id}:manifest`);
+    await cache.invalidateManifest(benchmark.series.id);
 
     const provider = new RecordingBenchmarkProvider(rows);
     await serviceWith(provider).getBenchmarkDailyPrices(benchmark.series, {
@@ -391,7 +383,7 @@ describeBenchmark("benchmark loading", () => {
       benchmark.series,
       { from: "2020-05-01", to: "2020-06-10" },
     );
-    await redis.del(`${namespace}:benchmark:${benchmark.series.id}:manifest`);
+    await cache.invalidateManifest(benchmark.series.id);
 
     // Twenty days later the provider has every session; the next read must include 2020-06-10.
     const loaded = await at("2020-06-30T12:00:00.000Z").getBenchmarkDailyPrices(

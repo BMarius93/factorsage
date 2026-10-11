@@ -141,18 +141,43 @@ The worker **never** calls FMP around this infrastructure.
 ## Redis namespace
 
 ```text
-benchmark:v1:benchmark:<seriesId>:daily-price:<year>
-benchmark:v1:benchmark:<seriesId>:manifest
+benchmark:v1:benchmark:<seriesId>:head                               JSON head: the publication
+benchmark:v1:benchmark:<seriesId>:chunks                             registry of the series' chunks
+benchmark:v1:benchmark:<seriesId>:daily-price:v1:<year>:<digest16>  immutable columnar year chunk
+benchmark:v1:benchmark:<seriesId>:generation                         generation fence
 ```
 
 Keyed by the immutable series, so a new version projects into its own keys and can never read a
 previous version's cached bars — and so can a *different* benchmark: `SP500`, `SP500_INDEX`,
-`DJIA_INDEX` and `VIX_INDEX` are four series ids, four sets of keys, four coverage ledgers and four
-watermarks. Hydrating an index cannot touch the SPY benchmark's bars or mark its coverage, which is
-what `packages/stock-data/src/benchmark-market-references.integration.test.ts` proves.
+`DJIA_INDEX`, `VIX_INDEX` and every `ETF_*` series are separate series ids, sets of keys, coverage
+ledgers and watermarks. Hydrating an index cannot touch the SPY benchmark's bars or mark its
+coverage, which is what `packages/stock-data/src/benchmark-market-references.integration.test.ts`
+proves.
 
 Distinct from `stock-data:v2:security:<id>:…` on purpose: the stock LRU can never evict a benchmark,
 a benchmark can never occupy a stock residency slot, and a Redis flush costs one durable re-read.
+
+**Every series is fully resident** (`docs/decisions/etf-market-data-v1.md` §3–§4):
+
+- a chunk's key names its content (the year's PostgreSQL digest), so a key is never rewritten;
+- the head names every year's digest and **always describes all durable coverage** — it is built
+  from PostgreSQL's whole history, never from the range a caller asked for, so a narrow read cannot
+  narrow residency;
+- a publication stages missing chunks with a short expiry, then commits the head by
+  compare-and-set, makes the named chunks permanent and deletes every registered chunk the head no
+  longer names; unchanged years are reused;
+- a reader `GET`s the head and `MGET`s only the years it needs, re-reading the head when a chunk is
+  gone (the head moved), so it sees exactly one publication; the head answers any range, reporting
+  what its coverage does not hold as missing, so a resident read never touches PostgreSQL;
+- a head commits only on the series' generation fence, which is written only under PostgreSQL's
+  series write lock — raised by a re-base replacement just before it commits, re-established by a
+  publisher from what PostgreSQL committed — so a stale publisher can never make an older price
+  generation visible after a newer one committed;
+- nothing committed has a TTL. Redis's own `maxmemory-policy` must not be an unaccepted `allkeys-*`
+  policy, which readiness refuses (`REDIS_ACCEPTED_EVICTION_POLICY` is the explicit override).
+
+The first commit of a series deletes the previous `:manifest` + `:daily-price:<year>` layout.
+`pnpm db:benchmarks:reset` discards a reset series' projection with its rows; it never flushes.
 
 ## Freshness
 
@@ -277,6 +302,28 @@ calendar days to today) and lets the existing loader hydrate whatever is missing
 what keeps API startup free of a decades-deep index download: nothing is prefetched at boot, and the
 page asks for what a page needs.
 
+## The market-overview ETFs
+
+Twenty ETFs in three groups — Benchmarks, Sector Performance, Macro & Alternatives — are listed once
+in `MARKET_OVERVIEW_ETF_GROUPS` (`packages/domain/src/market-overview-etfs.ts`). `SPY` **is**
+`SP500`; the other nineteen are `ETF_<TICKER>` catalog rows, `ETF_PROXY`, active and **never
+backtest-selectable**, so `GET /benchmarks` is unchanged. No API contract carries the list yet: the
+Dashboard that draws it, and any change to `GET /market-overview`, are later work. The decision,
+with its measurements and pre-deployment checklist, is `docs/decisions/etf-market-data-v1.md`.
+
+- **Re-base protection.** Every `ETF_PROXY` series — `SP500` included — gets the stock detector of
+  `historical-price-basis-v1.md`: a read that would add or change a stored bar first re-reads the
+  earliest stored bars, a changed earliest bar re-reads and compares the whole history, and a
+  measured re-base replaces it in one transaction under a new `BenchmarkSeriesPriceBasis`
+  generation, with the Redis projection discarded first. Split-sized moves at the newest edge are
+  held. `INDEX` series are unaffected.
+- **Refresh.** The worker's `market-data` child (`ai/architecture/api-worker.md`) keeps the twenty
+  current after each NYSE close: one bounded tail read per series, never the history, persisted
+  before it is published. It never bootstraps.
+- **Reading.** `BenchmarkHistoryReader` is the provider-free read boundary for workers: a range, the
+  full history, one session, a rolling window, several series, each bounded by an explicit end date.
+  With the projection resident a read is one `GET` and one `MGET`.
+
 ## Test isolation: the selectable catalog is exact
 
 The product exposes exactly one backtest benchmark, and the suites assert it exactly —
@@ -321,6 +368,21 @@ leaves a leading gap.
 history the provider has into a tool, where it would quietly rot; coverage stays provider-driven.
 (Measured on 2026-09-17: one `historical-price-eod/full` page returns 5000 rows, so `^GSPC` reaches
 back to 2006-10-31 in a single request and the adapter's pagination walks further on request.)
+
+**The market-overview bootstrap** is the one named group:
+
+```bash
+pnpm benchmarks:prewarm --group market-overview --report artifacts/market-overview-bootstrap.json
+```
+
+It reconciles the catalog, then loads the twenty ETFs one at a time, `SP500` first, from
+`MARKET_OVERVIEW_HISTORY_FLOOR` (1993-01-01, before every fund listed, so the provider still decides
+where each history begins) through today, proves each Redis projection against PostgreSQL, and
+prints a line per ETF: span, bars, pre-inception period, missing coverage, sessions missing against
+`SP500`, a late start, and the provider HTTP requests actually sent. It exits non-zero when a series
+failed, and a rerun asks only for what is still missing. The validation procedure is §6 of
+`docs/decisions/etf-market-data-v1.md`; `pnpm market-data:refresh-once` then exercises the
+incremental path.
 
 ## What the engine sees
 

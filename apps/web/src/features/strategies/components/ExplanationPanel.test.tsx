@@ -8,6 +8,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { StrategyBuilder } from "./StrategyBuilder";
+import { chooseSeriesValue } from "./__testing__/operand-picker";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -195,7 +196,7 @@ describe("explanation panel", () => {
 
     expect(screen.queryByTestId("inline-help")).toBeNull();
     const buyCard = screen.getByTestId("level-card-BUY");
-    await user.click(within(buyCard).getAllByTestId("metric-select")[0]!);
+    await user.click(within(buyCard).getAllByTestId("metric-picker")[0]!);
 
     const inline = within(screen.getByTestId("inline-help")).getByTestId(
       "inline-explanation-panel",
@@ -267,7 +268,11 @@ describe("explanation panel", () => {
     expect(screen.getByTestId("inline-help").textContent).toContain("EMA 50D");
 
     // Choosing a different series describes that one instead.
-    await user.selectOptions(value, "SMA_200D");
+    await chooseSeriesValue(
+      user,
+      within(buyCard).getAllByTestId("predicate-row").at(-1)!,
+      "SMA_200D",
+    );
     expect(within(side).getByRole("heading").textContent).toBe("SMA 200D");
     expect(screen.getByTestId("inline-help").textContent).toContain("SMA 200D");
   });
@@ -301,7 +306,7 @@ describe("explanation panel", () => {
 
     const sellCard = screen.getByTestId("level-card-SELL");
     // `Gain is above 25%`: the Value is a number, and a number has no canonical help.
-    await user.click(within(sellCard).getAllByTestId("metric-select")[0]!);
+    await user.click(within(sellCard).getAllByTestId("metric-picker")[0]!);
     const side = screen.getByTestId("explanation-panel");
     expect(within(side).getByRole("heading").textContent).toBe("Gain");
 

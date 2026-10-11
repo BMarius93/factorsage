@@ -139,8 +139,10 @@ The current Strategy page design is authoritative.
 
 Preserve:
 
-- the Category / Metric selector for the first operand (it replaced the single large categorized
-  selector on 2026-09-28; `ai/product/strategies.md` § Strategy Builder surface owns it)
+- the Category -> Metric choice for the first operand (it replaced the single large categorized
+  selector on 2026-09-28, and became one Metric picker — every category at once, the chosen
+  category's metrics beneath — on 2026-10-11; `ai/product/strategies.md` § Strategy Builder surface
+  owns it)
 - the condition row's grammar
 - the current `signal / operator / value-or-series` grammar
 - the Strategy Logic sidebar
@@ -164,9 +166,11 @@ Congressional trading | Congress buyers    | is above | 1     Configure · 30D �
 
 ### First-operand selector
 
-Insider activity and Congressional trading are two categories of the Category control, and each
-measure is one entry of the Metric control within it — `Insider buyers`, never `Insider buyers 20D`:
-the lookback is configuration, so no entry carries one and no configuration is ever enumerated.
+Insider activity and Congressional trading are two categories of the Metric picker, and each
+measure is one entry within its category — `Insider buyers`, never `Insider buyers 20D`: the lookback
+is configuration, so no entry carries one and no configuration is ever enumerated. Choosing another
+measure of the same family keeps the applied configuration (2026-10-11); another family starts from
+its own defaults.
 
 Do not create a separate “Alternative Data” strategy-builder page.
 
@@ -352,8 +356,9 @@ Avoid unrelated refactors and cosmetic redesigns.
 ## Implementation clarifications (added during implementation)
 
 The product decisions above are unchanged except where a later decision is dated in place (the
-Category / Metric selector and the removal of the inclusive operators, 2026-09-28; direct member
-selection in place of Congress groups, 2026-10-11). What follows are
+Category / Metric selector and the removal of the inclusive operators, 2026-09-28; the single Metric
+picker, the configuration kept across measures of one family, and direct member selection in place
+of Congress groups, 2026-10-11). What follows are
 semantics the implementation had to fix
 precisely, and provider facts verified live on 2026-09-25, recorded here so no surface has to
 rediscover them. Nothing in this section relaxes the point-in-time rule.
