@@ -256,6 +256,19 @@ Read `ai/README.md` before substantial work.
     add reusable groups, presets or saved selections, insider person groups, a semantic or historical
     group, or a second FMP gate: ingestion goes through the one `RedisFmpRequestGate` like every
     other provider read.
+    **The member catalog is an identity directory, synchronized with the provider's member
+    directory** (`docs/development/congress-member-catalog.md`): `pnpm data:congress-members:sync`
+    or `POST /admin/congress-members/sync` adds every member the directory lists, in office and
+    former, whether or not a disclosure of theirs has been loaded. Identity is the bioguide id —
+    never make an identity from a name — and a synchronization **never deletes, merges or re-keys**
+    a member, because strategies, snapshots and Monitors hold canonical ids. It reads the whole
+    directory before it writes and fails closed, writing nothing, when it cannot. It writes actor
+    labels only: no disclosure, no coverage, no dataset state, and no metric may ever read the
+    catalog — a member being listed says nothing about their trading. A member's label is their
+    disclosures' once one has been loaded and the directory's until then; do not make the
+    synchronization and ingestion both write one label. The picker never causes a provider request,
+    and says whether the catalog it searches has been synchronized. A duplicate of a strategy that
+    still names a group holds a selection of that group's members; the original is only read.
 24. Valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA) are correct or unavailable, from FMP's data
     alone: V1 has no second market-data provider and no historical distribution factor `Φ`, and
     `docs/decisions/valuation-ratios-v1.md` is the source of truth. A known or detected unsafe

@@ -467,10 +467,18 @@ selects nobody reads a confident zero forever.
 **What must keep working.** Strategy versions and backtest snapshots saved before this still name a
 group or a single member, and they are re-read through the canonical validator on every path. So the
 validator keeps both legacy shapes; only the strategy **write** boundary refuses a group, including
-one carried over from the version being edited or copied by a duplicate. A backtest still resolves a
-group from the membership frozen in its own snapshot, a Monitor still resolves it from the group as
-it stands, and the group tables and routes remain. The Builder opens a rule that names a group on
-that group's members, so one Apply turns it into a selection.
+one carried over from the version being edited. A backtest still resolves a group from the
+membership frozen in its own snapshot, a Monitor still resolves it from the group as it stands, and
+the group tables and routes remain. The Builder opens a rule that names a group on that group's
+members, so one Apply turns it into a selection.
+
+**Duplicating a strategy that still names a group** gives the copy a selection of the members the
+group holds at that moment. A copy is a new strategy and nothing new may name a group, but refusing
+it left the user with a strategy they could run and not copy. The copy counts exactly the
+disclosures the original counts that day and stops following the group afterwards; the original is
+only read — same version, same hash, still naming its group. The group is read as a backtest
+submission reads it, so only a built-in group or the caller's own can be embedded. A group that is
+gone, not the caller's, or empty refuses the copy and says which: an empty selection is not a rule.
 
 **What an unknown scope does.** It is refused — by the validator, by the signature, by the loader
 and by the worker's snapshot parse — and is never read as nobody. A backtest snapshot holding a
@@ -485,19 +493,46 @@ and will not convert a strategy that has a Monitor until told to — because the
 that Monitor's affected levels once. `docs/development/congress-group-scope-conversion.md` is the
 runbook, including the deploy order.
 
-**Two limitations of the member catalog, stated rather than hidden.**
+**The member catalog is synchronized with the provider's member directory** (owner, 2026-10-11;
+`docs/development/congress-member-catalog.md` is the runbook). The first version of this decision
+left the catalog holding only the members some loaded disclosure had named, which made the picker
+depend on which securities happened to have been opened. It no longer does:
 
-- **It is not every member of Congress.** A member exists in the catalog once a security they
-  disclosed a trade in has had its disclosure history loaded, and that loading is lazy — it happens
-  when a backtest or a Monitor first needs it, or when an operator runs `pnpm data:alt-data:ingest`.
-  The selector says so, in its hint and beside an empty search. Guaranteeing a complete catalog
-  means loading members independently of securities, which is an ingestion change and is not part
-  of this decision.
-- **A member's name is whichever spelling the provider last sent.** The catalog holds
-  "Rafael E Cruz" for the senator people search for as "Ted Cruz". A search whose whole term matches
-  nobody now falls back to names sharing some of its words, so that search still finds him by
-  surname; a term that matches anybody whole is unaffected. Storing every known spelling is the real
-  fix and needs a schema change, so it is a follow-up too.
+- **Where members come from.** `GET /stable/senate-profile` lists both chambers, in office and
+  former — 1,261 identities on 2026-10-11 — and carries the same bioguide id a disclosure carries.
+  A synchronization adds every member the catalog lacks and records the directory's spelling of
+  every member it holds. All 217 members that disclosures had already created were found in the
+  directory by that id, and kept their canonical ids.
+- **Identity is the bioguide id.** No identity is made from a name, a directory row whose id is not
+  a bioguide id is declined, and a member the directory stops listing is never removed.
+- **The whole directory or nothing.** A run reads every page of both halves before it writes, in
+  one transaction. A page that fails, an empty half, a filter the provider did not honour or paging
+  that does not advance fails the run and leaves the catalog as it was.
+- **An identity, never a trade.** A synchronization writes no disclosure and no coverage, and no
+  metric reads the catalog. A member it added has no disclosures; a rule selecting them counts
+  nothing where the security's coverage reaches and is still `NOT_EVALUABLE` where it does not.
+- **Whose label.** A member's displayed name, chamber and state are their disclosures' once one has
+  been loaded, as before, and the directory's until then. Ingestion is unchanged.
+- **It runs when somebody runs it**: `pnpm data:congress-members:sync` or
+  `POST /admin/congress-members/sync`, never on a page load and never beside another run. Nothing
+  schedules it; the runbook says when to.
+
+**What the catalog still does not hold, stated rather than hidden.**
+
+- **It is the provider's directory, not a guarantee.** A former member the directory does not list,
+  or a member sworn in since the last run, is in the catalog only once a disclosure of theirs is
+  loaded. Three people whose latest position is outside Congress and who have no loaded disclosure
+  are declined, because there is no chamber to file them under.
+- **The picker says which catalog it is searching.** `GET /alternative-data/actors/catalog` reports
+  `SYNCHRONIZED`, `NOT_SYNCHRONIZED` or `SYNCHRONIZATION_FAILED`, and an empty search is worded from
+  it: nobody matches, or the directory is not loaded and the member may simply not be here yet.
+- **A member has two spellings and no nicknames.** The directory spells 99 of those 217 members
+  differently from their disclosures — "Bill Cassidy" beside "William Cassidy" — and a search
+  matches either. Neither source holds a nickname: the senator people search for as "Ted Cruz" is
+  "Rafael E Cruz" in one and "Rafael Edward Cruz" in the other. A search whose whole term matches
+  nobody therefore still falls back to names sharing some of its words, those sharing more first
+  and, among equals, those sharing its last word first, so he is found by the surname. No alias is
+  invented and nothing is matched fuzzily.
 
 **Not changed, on purpose.** Which disclosures exist, when each becomes observable, how a window is
 measured, and what counts as coverage are exactly as they were. The data-quality questions the
@@ -513,6 +548,13 @@ absence of a provider-observation timestamp — are separate correctness work.
   come newest-first by `disclosureDate`, and **ordering within one disclosure date is not stable
   between calls**. Both endpoints return the member's bioguide id in a field named `senateID`, and
   neither states the chamber — the endpoint asked is the only evidence.
+- `senate-profile` is the member directory and holds **both chambers** (verified live on
+  2026-10-11; `house-profile` answers HTTP 404). `active=true`, also the default, returns members
+  in office and `active=false` former ones; no row belongs to both. A page holds at most **500**
+  rows, `page` is a page index, and the page after the last is an empty array: 540 in office and
+  721 former that day, 1,261 distinct bioguide ids in the same `senateID` field the trade endpoints
+  use. `latestPosition` is the latest position only, and is an office outside Congress for a former
+  member who went on to hold one. There is no alias field.
 - Because the payloads carry no per-line identity, two genuinely separate same-day trades by one
   actor with identical size, price and amount band **collapse into one row**. Collapsing is the
   deterministic choice; the alternative is a row count that grows on every reingest.

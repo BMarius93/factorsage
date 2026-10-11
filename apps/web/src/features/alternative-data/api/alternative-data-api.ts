@@ -1,5 +1,6 @@
 import {
   ACTOR_RESOLVE_MAX_IDS,
+  type ActorCatalogStatusResponse,
   type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
   type AlternativeDataActorResponse,
@@ -20,6 +21,21 @@ export function searchActors(
   }
   return apiGet<AlternativeDataActorResponse[]>(
     `/alternative-data/actors?${query.toString()}`,
+    options,
+  );
+}
+
+/**
+ * Whether the catalog has been filled from the provider's member directory.
+ *
+ * Asked so an empty search can be worded truthfully: nobody matches, or the member may simply not
+ * be in the catalog yet. It reads one stored row; it never causes a provider request.
+ */
+export function fetchActorCatalogStatus(
+  options: { signal?: AbortSignal } = {},
+) {
+  return apiGet<ActorCatalogStatusResponse>(
+    "/alternative-data/actors/catalog",
     options,
   );
 }

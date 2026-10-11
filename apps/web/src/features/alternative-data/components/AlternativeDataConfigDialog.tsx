@@ -16,6 +16,7 @@ import {
   alternativeDataSupportsScope,
   canonicalActorIds,
   strategyMetricLabel,
+  type ActorCatalogState,
   type ActorScope,
   type AlternativeDataLookback,
   type AlternativeDataMetric,
@@ -28,7 +29,11 @@ import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
 import { Notice } from "../../../components/ui/Notice";
 import { Select } from "../../../components/ui/Select";
-import { fetchActorGroup, resolveActors } from "../api/alternative-data-api";
+import {
+  fetchActorCatalogStatus,
+  fetchActorGroup,
+  resolveActors,
+} from "../api/alternative-data-api";
 import { ActorCombobox, type ActorSelection } from "./ActorCombobox";
 import styles from "./AlternativeDataConfigDialog.module.css";
 
@@ -82,6 +87,41 @@ type ScopeMode = (typeof SCOPE_CHOICES)[number]["mode"];
 
 /** Chips shown before the rest fold away, so a long selection does not push Apply off the dialog. */
 const VISIBLE_CHIPS = 12;
+
+/**
+ * What the picker says about how complete its list is, by what the API reports about the catalog.
+ *
+ * The list is complete in one case only: the catalog has been filled from the provider's member
+ * directory, which holds current and former members whether or not they have traded. Otherwise it
+ * holds just the members some loaded disclosure named, and the picker says so — and says whether
+ * the directory was never loaded or could not be — rather than letting an empty search read as
+ * "this member does not exist". `UNKNOWN` is the moment before the answer, or an answer that did
+ * not arrive: nothing is claimed either way.
+ *
+ * Being listed is an identity, never a trading record, which the synchronized wording states: a
+ * member who is found may still have disclosed nothing.
+ */
+const CATALOG_COPY: Record<
+  ActorCatalogState | "UNKNOWN",
+  { readonly emptyHint: string; readonly note: string }
+> = {
+  SYNCHRONIZED: {
+    emptyHint:
+      "No current or former member of Congress matches. Try the surname alone.",
+    note: "The list covers current and former members of Congress, whether or not they have traded.",
+  },
+  NOT_SYNCHRONIZED: {
+    emptyHint:
+      "The member directory has not been loaded yet, so only members with disclosures FactorSage has already loaded can be found. Try the surname alone.",
+    note: "The member directory has not been loaded yet: the list holds only the members who appear in the disclosures FactorSage has loaded so far, so it is not every member of Congress.",
+  },
+  SYNCHRONIZATION_FAILED: {
+    emptyHint:
+      "The member directory could not be loaded, so only members with disclosures FactorSage has already loaded can be found. Try the surname alone.",
+    note: "The member directory could not be loaded: the list holds only the members who appear in the disclosures FactorSage has loaded so far, so it is not every member of Congress.",
+  },
+  UNKNOWN: { emptyHint: "Try the surname alone.", note: "" },
+};
 
 /**
  * A Congress group a rule saved before 2026-10-11 still names, and what became of reading it.
@@ -181,6 +221,24 @@ export function AlternativeDataConfigDialog({
       });
     return () => controller.abort();
   }, [savedActorKey]);
+
+  // How complete the picker's list is. Asked once, and only when the picker is on screen: it is
+  // what an empty search and the note under the picker are worded from.
+  const [catalog, setCatalog] = useState<ActorCatalogState | "UNKNOWN">(
+    "UNKNOWN",
+  );
+  const showsPicker = supportsScope && scopeMode === "SELECTED";
+  useEffect(() => {
+    if (!showsPicker) {
+      return;
+    }
+    const controller = new AbortController();
+    fetchActorCatalogStatus({ signal: controller.signal })
+      .then((status) => setCatalog(status.state))
+      // Not knowing is not a reason to block a selection: the wording simply claims nothing.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [showsPicker]);
 
   // A rule that still names a group: its members become the selection, so applying the dialog
   // converts the rule without the user having to rebuild the list by hand.
@@ -337,7 +395,7 @@ export function AlternativeDataConfigDialog({
                         ? "Search by name…"
                         : "Add another member…"
                     }
-                    emptyHint="Only members with disclosures FactorSage has already loaded can be found. Try the surname alone."
+                    emptyHint={CATALOG_COPY[catalog].emptyHint}
                     testId="alt-actor-picker"
                   />
                 )}
@@ -357,9 +415,10 @@ export function AlternativeDataConfigDialog({
                     ? "Select at least one member."
                     : `${selected.length} of ${ACTOR_SCOPE_MAX_ACTORS} selected.`}{" "}
                   Their disclosures are counted together as one total, not as
-                  separate rules. The list holds the members who appear in the
-                  disclosures FactorSage has loaded so far, so it is not every
-                  member of Congress.
+                  separate rules.{" "}
+                  <span data-testid="alt-actor-catalog" data-state={catalog}>
+                    {CATALOG_COPY[catalog].note}
+                  </span>
                 </p>
               </div>
             ) : null}

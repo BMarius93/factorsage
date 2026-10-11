@@ -1040,6 +1040,61 @@ export type AlternativeDataActorResponse = {
   district?: string;
 };
 
+/**
+ * Whether the picker's catalog has been filled from the provider's member directory.
+ *
+ * - `SYNCHRONIZED` — a synchronization has read the whole directory and written it. The catalog
+ *   holds every member the directory listed then, whether or not a disclosure of theirs has ever
+ *   been loaded. It stays this state when a later run fails: the catalog still holds what the last
+ *   complete run wrote.
+ * - `NOT_SYNCHRONIZED` — no synchronization has run. The catalog holds only members some loaded
+ *   disclosure named, so a member can be missing for no reason but that.
+ * - `SYNCHRONIZATION_FAILED` — a synchronization was attempted and none has ever completed. The
+ *   catalog is as incomplete as in `NOT_SYNCHRONIZED`, and an operator has something to look at.
+ *
+ * It exists so an empty search can be read correctly: "nobody matches" under `SYNCHRONIZED`, "the
+ * member may simply not be here yet" under the other two.
+ */
+export const ACTOR_CATALOG_STATES = [
+  "SYNCHRONIZED",
+  "NOT_SYNCHRONIZED",
+  "SYNCHRONIZATION_FAILED",
+] as const;
+
+export type ActorCatalogState = (typeof ACTOR_CATALOG_STATES)[number];
+
+export type ActorCatalogStatusResponse = {
+  state: ActorCatalogState;
+  /** When the directory was last read whole and written. Present exactly when `SYNCHRONIZED`. */
+  synchronizedAt?: string;
+};
+
+/**
+ * Outcome of one administrator-triggered synchronization of the member catalog.
+ *
+ * Every identity the directory held is counted once: `received` is
+ * `created + updated + unchanged + declined`. `relabelled` is a subset of `updated`, and
+ * `retained` counts catalog members the directory did not hold — every one of them is kept.
+ */
+export type CongressMemberCatalogSyncResponse = {
+  runSequence: number;
+  /** HTTP requests asked of the provider's directory. */
+  providerRequests: number;
+  received: number;
+  inOffice: number;
+  former: number;
+  created: number;
+  updated: number;
+  relabelled: number;
+  unchanged: number;
+  declined: number;
+  /** Declined rows by reason, e.g. `NO_CHAMBER`. A reason nothing was declined for reads 0. */
+  declinedByReason: Record<string, number>;
+  repeatedRows: number;
+  retained: number;
+  durationMs: number;
+};
+
 export const ACTOR_SEARCH_MIN_TERM_LENGTH = 2;
 export const ACTOR_SEARCH_DEFAULT_LIMIT = 20;
 export const ACTOR_SEARCH_MAX_LIMIT = 50;

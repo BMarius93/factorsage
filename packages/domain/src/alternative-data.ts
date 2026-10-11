@@ -58,6 +58,21 @@ export const CONGRESS_CHAMBERS = ["HOUSE", "SENATE"] as const;
 export type CongressChamber = (typeof CONGRESS_CHAMBERS)[number];
 
 /**
+ * The shape of a bioguide id: one capital letter and six digits (`P000197`).
+ *
+ * It is the identifier the Biographical Directory of the United States Congress assigns a member,
+ * and the one both of the provider's congressional sources carry — a disclosure and a directory
+ * profile alike. A disclosure's id is taken as sent, because the row is a fact about a trade and
+ * dropping it would lose the trade. The member directory is held to the shape: it creates an
+ * identity nothing else vouches for, so an id that is not one is refused rather than admitted.
+ */
+const BIOGUIDE_ID_PATTERN = /^[A-Z][0-9]{6}$/;
+
+export function isBioguideId(value: string): boolean {
+  return BIOGUIDE_ID_PATTERN.test(value);
+}
+
+/**
  * One canonical actor: in V1, a member of Congress.
  *
  * `externalId` is the identity — a member's bioguide id — and `displayName` is a label. Two members

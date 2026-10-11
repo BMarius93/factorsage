@@ -1,5 +1,6 @@
 import {
   ACTOR_RESOLVE_MAX_IDS,
+  type ActorCatalogStatusResponse,
   type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
   type AlternativeDataActorResponse,
@@ -48,9 +49,10 @@ import {
 /**
  * The canonical actor catalog: members of Congress.
  *
- * Readable without a session, like the built-in lists: it is platform reference data grown by
- * ingestion rather than anybody's content, and the Strategy Builder needs it to label a saved rule's
- * scope before it knows who is looking.
+ * Readable without a session, like the built-in lists: it is platform reference data — the
+ * provider's member directory, plus anybody a loaded disclosure named — rather than anybody's
+ * content, and the Strategy Builder needs it to label a saved rule's scope before it knows who is
+ * looking.
  */
 @Controller("alternative-data")
 export class AlternativeDataController {
@@ -73,6 +75,21 @@ export class AlternativeDataController {
       ...(term === undefined ? {} : { term }),
       ...(parsedLimit === undefined ? {} : { limit: parsedLimit }),
     });
+  }
+
+  /**
+   * Whether the catalog has been filled from the provider's member directory.
+   *
+   * It exists so the picker can read an empty search correctly: with a synchronized catalog an
+   * empty result means nobody matches, and without one it may only mean the member is not here
+   * yet. A read of one PostgreSQL row — it never asks the provider anything, and neither does
+   * opening the Strategy Builder.
+   */
+  @RateLimit("standard-read")
+  @Get("actors/catalog")
+  @UseGuards(OptionalCookieAuthGuard)
+  async actorCatalog(): Promise<ActorCatalogStatusResponse> {
+    return this.groups.actorCatalogStatus();
   }
 
   /**

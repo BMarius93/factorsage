@@ -594,7 +594,15 @@ disclosures are pooled and the measure aggregates the pool — and never an OR b
 per member: with one purchase each from two selected members, `Congress purchases is above 1` holds.
 A selection of nobody is refused, not read as "anyone" or as a rule that never matches. There are no
 reusable groups, presets or saved selections; Congress groups left the product on 2026-10-11 and
-survive only as a legacy scope that stored versions and run snapshots may still hold.
+survive only as a legacy scope that stored versions and run snapshots may still hold. Duplicating a
+strategy that still holds one gives the copy a selection of that group's members.
+
+**Who can be selected** is the member catalog, which is synchronized with the provider's member
+directory: current and former members of Congress, whether or not they have traded and whether or
+not any disclosure has been loaded (`../../docs/development/congress-member-catalog.md`). Being
+listed is an identity, not a trading record — a rule that selects a member with no disclosures in a
+security counts nothing there. The picker searches both spellings the provider has for a member,
+never invents one, and says when the directory has not been loaded.
 
 The fifteen **Fundamental Metrics** of `../../docs/decisions/fundamental-metrics-v1.md` are the third
 condition-only family: that decision makes them Condition metrics only in V1. A value that changes

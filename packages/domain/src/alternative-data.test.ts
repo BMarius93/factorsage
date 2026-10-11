@@ -8,6 +8,7 @@ import {
   insiderRolesOf,
   insiderTransactionCode,
   insiderTransactionValue,
+  isBioguideId,
   isCongressTradeStrategyEligible,
   isOpenMarketInsiderTrade,
   parseDisclosedAmountRange,
@@ -220,5 +221,30 @@ describe("parseDisclosedAmountRange", () => {
       raw: "undisclosed",
     });
     expect(parseDisclosedAmountRange(undefined)).toEqual({ raw: "" });
+  });
+});
+
+describe("isBioguideId", () => {
+  it("accepts one capital letter and six digits", () => {
+    for (const id of ["P000197", "T000278", "C001098", "A000001"]) {
+      expect(isBioguideId(id), id).toBe(true);
+    }
+  });
+
+  it("refuses everything else, including a name and a near miss", () => {
+    for (const id of [
+      "",
+      "p000197",
+      "P00197",
+      "P0001977",
+      "PP00197",
+      "0000197",
+      " P000197",
+      "P000197 ",
+      "Nancy Pelosi",
+      "QA-E2E-MEMBER-HOUSE",
+    ]) {
+      expect(isBioguideId(id), JSON.stringify(id)).toBe(false);
+    }
   });
 });

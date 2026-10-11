@@ -13,11 +13,23 @@
  * `ALIAS` carries the provider's formal spelling of somebody people search for by another name, the
  * way the real catalog holds "Rafael E Cruz" for Ted Cruz. It is what lets a spec prove that a
  * search for the familiar name still finds the member.
+ *
+ * `HOUSE` carries a second spelling, the way the real catalog holds the member directory's "Bill
+ * Cassidy" beside a disclosure's "William Cassidy". `directoryFirstName` is a word only that second
+ * spelling holds, so a search for it can only succeed through the directory's spelling.
+ *
+ * The seeder also records the catalog as synchronized, which is the state a deployment's catalog is
+ * in once `pnpm data:congress-members:sync` has run: the hermetic stack reaches no provider, so the
+ * seed is its synchronization.
  */
 export const QA_CONGRESS_MEMBERS = {
   HOUSE: {
     externalId: "QA-E2E-MEMBER-HOUSE",
     displayName: "Quentin Aldersgate",
+    /** The member directory's spelling, stored beside the label. */
+    directoryName: "Quint Aldersgate",
+    /** What only the directory's spelling holds. */
+    directoryFirstName: "Quint",
     chamber: "HOUSE",
     state: "CA",
     district: "CA12",
@@ -26,6 +38,7 @@ export const QA_CONGRESS_MEMBERS = {
   SENATE: {
     externalId: "QA-E2E-MEMBER-SENATE",
     displayName: "Rosalind Fairweather",
+    directoryName: undefined,
     chamber: "SENATE",
     state: "TX",
     district: undefined,
@@ -34,6 +47,7 @@ export const QA_CONGRESS_MEMBERS = {
   ALIAS: {
     externalId: "QA-E2E-MEMBER-ALIAS",
     displayName: "Bartholomew J Winterbourne",
+    directoryName: undefined,
     chamber: "SENATE",
     state: "AL",
     district: undefined,

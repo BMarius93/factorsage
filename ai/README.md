@@ -172,7 +172,10 @@ members it counts directly, in the Strategy Builder; the selection is stored in 
 and pooled into one metric. Congress groups are **legacy** since 2026-10-11 — nothing manages or
 writes one, while stored strategy versions and run snapshots that name one still read and execute.
 `../docs/development/congress-group-scope-conversion.md` is the runbook for that compatibility: what
-must keep working, the deploy order, and the operator's conversion command.
+must keep working, the deploy order, and the operator's conversion command. The members a rule can
+select come from a catalog synchronized with the provider's member directory, independently of
+which disclosures have been loaded; `../docs/development/congress-member-catalog.md` is the runbook
+for that — what the provider offers, what a synchronization refuses to do, and how to run it.
 
 For anything to do with HTTP rate limiting, `429` responses, client-IP or proxy assumptions, the
 Redis-failure policy, or outbound FMP provider throttling, read `architecture/rate-limiting.md`. It

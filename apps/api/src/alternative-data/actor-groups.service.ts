@@ -3,6 +3,7 @@ import {
   ACTOR_SEARCH_DEFAULT_LIMIT,
   ACTOR_SEARCH_MAX_LIMIT,
   ACTOR_SEARCH_MIN_TERM_LENGTH,
+  type ActorCatalogStatusResponse,
   type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
   type AlternativeDataActorResponse,
@@ -10,7 +11,10 @@ import {
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
-import type { AlternativeDataStore } from "@intrinsic/stock-data";
+import type {
+  AlternativeDataStore,
+  CongressMemberCatalogService,
+} from "@intrinsic/stock-data";
 import { Inject, Injectable } from "@nestjs/common";
 import {
   SYSTEM_FIRST_ORDER,
@@ -22,6 +26,7 @@ import {
   type ContentViewer,
 } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
+import { CONGRESS_MEMBER_CATALOG_SERVICE } from "../stocks/stock-data.tokens";
 import {
   ALTERNATIVE_DATA_LOGGER,
   ALTERNATIVE_DATA_STORE_TOKEN,
@@ -164,14 +169,41 @@ export class ActorGroupsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ALTERNATIVE_DATA_STORE_TOKEN)
     private readonly actors: AlternativeDataStore,
+    @Inject(CONGRESS_MEMBER_CATALOG_SERVICE)
+    private readonly memberCatalog: CongressMemberCatalogService,
     @Inject(ALTERNATIVE_DATA_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
   /**
+   * Whether the catalog has been filled from the provider's member directory.
+   *
+   * Read from the synchronization's own state row and from nothing else: it says what a run did,
+   * never what the provider would say now. A catalog that was once synchronized stays
+   * `SYNCHRONIZED` through a later failed run, because it still holds what the last complete run
+   * wrote; only a catalog no run has ever completed is reported as not synchronized, and as failed
+   * when a run has tried.
+   */
+  async actorCatalogStatus(): Promise<ActorCatalogStatusResponse> {
+    const state = await this.memberCatalog.state();
+    if (state?.lastCompletedAt) {
+      return {
+        state: "SYNCHRONIZED",
+        synchronizedAt: state.lastCompletedAt,
+      };
+    }
+    return {
+      state: state?.lastFailedAt
+        ? "SYNCHRONIZATION_FAILED"
+        : "NOT_SYNCHRONIZED",
+    };
+  }
+
+  /**
    * The canonical actors matching a search term.
    *
-   * Readable without a session: the actor catalog is platform reference data grown by ingestion, not
-   * anybody's content, and the Strategy Builder needs it to render a saved rule's scope. A blank term
+   * Readable without a session: the actor catalog is platform reference data — filled from the
+   * provider's member directory, and by ingestion for anybody the directory lacks — not anybody's
+   * content, and the Strategy Builder needs it to render a saved rule's scope. A blank term
    * returns the first page in name order so the picker opens on something rather than on nothing.
    */
   async searchActors(input: {

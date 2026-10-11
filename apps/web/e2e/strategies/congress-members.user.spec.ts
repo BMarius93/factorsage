@@ -145,9 +145,17 @@ test.describe("selecting members of Congress in a rule", () => {
       await expect(dialog.getByTestId("alt-actor-count")).toContainText(
         "Select at least one member.",
       );
-      // The catalog is honest about not being every member.
+      // The catalog has been filled from the member directory, and the picker says what that
+      // means — and no longer warns that the list depends on which disclosures were loaded.
+      await expect(dialog.getByTestId("alt-actor-catalog")).toHaveAttribute(
+        "data-state",
+        "SYNCHRONIZED",
+      );
       await expect(dialog.getByTestId("alt-actor-count")).toContainText(
-        "it is not every member of Congress",
+        "The list covers current and former members of Congress, whether or not they have traded.",
+      );
+      await expect(dialog.getByTestId("alt-actor-count")).not.toContainText(
+        "not every member of Congress",
       );
 
       await pickMember(dialog, "Fairweather", SENATE);
@@ -307,6 +315,63 @@ test.describe("selecting members of Congress in a rule", () => {
     } finally {
       await deleteStrategies(page, [id]);
     }
+  });
+});
+
+test.describe("the member catalog behind the picker", () => {
+  test("finds members nobody has disclosed for, by either spelling, and says an empty search is empty", async ({
+    page,
+  }) => {
+    // The catalog's state is the API's own, read from the stored synchronization — not a guess the
+    // page makes.
+    const status = await page.request.get(
+      `${apiBaseUrl()}/alternative-data/actors/catalog`,
+    );
+    expect(status.ok()).toBe(true);
+    expect(((await status.json()) as { state: string }).state).toBe(
+      "SYNCHRONIZED",
+    );
+
+    await page.goto("/strategies/new");
+    await page.getByTestId("add-level-BUY").click();
+    const row = firstRow(page);
+    await chooseMetric(
+      row,
+      "CONGRESSIONAL_TRADING",
+      "CONGRESS_ACTIVITY:BUYERS",
+    );
+    const dialog = await openConfiguration(page, row);
+    await dialog.getByRole("radio", { name: "Selected members" }).check();
+
+    // The hermetic stack has loaded no disclosure for anybody, so every member found here is found
+    // on identity alone — in either chamber.
+    const search = dialog.getByLabel("Search members of Congress");
+    for (const member of [HOUSE, SENATE]) {
+      await search.fill(member.displayName);
+      await expect(
+        dialog.getByRole("option").filter({ hasText: member.displayName }),
+      ).toHaveCount(1);
+    }
+
+    // The member directory's spelling finds the member too, and the row keeps the label people
+    // see everywhere else. The word typed here is in the directory's spelling only.
+    expect(HOUSE.displayName).not.toContain(HOUSE.directoryFirstName);
+    await search.fill(HOUSE.directoryName);
+    await expect(
+      dialog.getByRole("option").filter({ hasText: HOUSE.displayName }),
+    ).toHaveCount(1);
+    await pickMember(dialog, HOUSE.directoryFirstName, HOUSE);
+    await expect(chips(dialog)).toHaveText([`${HOUSE.displayName}×`]);
+
+    // With the directory loaded, nobody matching means nobody matches — said plainly, without the
+    // old caveat that the member might simply not have been loaded yet.
+    await search.fill("Zebulon Nonesuch");
+    const empty = dialog.getByRole("listbox");
+    await expect(empty).toContainText("No matches.");
+    await expect(empty).toContainText(
+      "No current or former member of Congress matches.",
+    );
+    await expect(empty).not.toContainText("already loaded");
   });
 });
 

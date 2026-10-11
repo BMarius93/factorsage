@@ -34,10 +34,15 @@ validator, so the validator still accepts both.
 | `Monitor` on a strategy whose current version names a group | —                                      | Evaluated as before, from the group as it stands.                                                                                                                                                      |
 | `ActorGroup`, `ActorGroupMember`                            | —                                      | Kept. The routes are kept too: the Builder reads a legacy group's name and members through them.                                                                                                       |
 
-What is refused: a strategy **write** holding a `GROUP` scope — on create, on edit (including a
-group carried over unchanged from the version being edited) and on duplicate. The message tells the
-user to open the rule's configuration, where the group's members are already selected and one Apply
-converts the rule.
+What is refused: a strategy **write** holding a `GROUP` scope — on create and on edit, including a
+group carried over unchanged from the version being edited. The message tells the user to open the
+rule's configuration, where the group's members are already selected and one Apply converts the
+rule.
+
+A **duplicate** is not refused: the copy selects the members the group holds at that moment, and the
+original is only read — same version, same hash, still naming its group. The copy is refused, with
+the reason, only when the group cannot be resolved: it is gone, it is not the caller's, or it has no
+members.
 
 ## 3. Deploy order
 
@@ -171,17 +176,11 @@ tables above against PostgreSQL.
 
 ## 5. The member catalog
 
-Two limits, both reported by the product rather than hidden:
-
-- **The catalog is not every member of Congress.** It holds the members who appear in disclosures
-  already loaded, and loading is per security and lazy. The selector says so. To make more members
-  selectable before users look for them, load disclosure history for the securities you care about:
-  `pnpm data:alt-data:ingest --symbol <TICKER> --domain CONGRESS`.
-- **Names are the provider's latest spelling.** A search whose whole term matches nobody falls back
-  to names sharing some of its words, so "Ted Cruz" finds the member stored as "Rafael E Cruz".
-
-Loading members independently of securities, and storing every known spelling of a name, are
-follow-ups: the first changes ingestion and the second changes the schema.
+Who a rule may select is its own subject and has its own runbook:
+`docs/development/congress-member-catalog.md`. In short, the catalog is synchronized with the
+provider's member directory — `pnpm data:congress-members:sync` — and no longer depends on which
+securities' disclosures have been loaded. A conversion needs nothing from it: a group's members are
+catalog rows already, and a conversion embeds their canonical ids.
 
 ## 6. Later cleanup, not part of this change
 

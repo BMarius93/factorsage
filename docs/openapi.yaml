@@ -2161,6 +2161,53 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /admin/congress-members/sync:
+    post:
+      tags: [Admin]
+      operationId: syncCongressMemberCatalog
+      summary: Synchronize the member catalog with the provider's member directory.
+      description: |
+        Fills the catalog a Congressional rule selects from with every member the provider's
+        directory lists — in office and former — whether or not a disclosure of theirs has ever been
+        loaded. **Identity only**, as `securities/sync` is: it adds members and records the
+        directory's spelling of their names. It loads no disclosure, changes no coverage, and
+        **never removes a member**: one the directory stops listing keeps their row and their id.
+
+        A run reads the whole directory before it writes anything, so it either wrote all of it or
+        none of it. Runs are exclusive: while one is in progress any other caller is answered `409`
+        and the provider is not asked. Safe to repeat; a run over an unchanged directory writes
+        nothing.
+
+        Provider-backed, so it shares `admin-operation` with `securities/sync` and is refused rather
+        than allowed when the limiter's store is unreachable. `200`, not `201`: it reconciles a
+        catalog rather than creating a resource at this URL.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: admin-operation }
+      responses:
+        "200":
+          description: What the synchronization did.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/CongressMemberCatalogSyncResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/RoleForbidden" }
+        "409":
+          description: Another synchronization is running. The provider was not asked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: |
+            The directory could not be read whole, so nothing was written and the catalog is exactly
+            as it was. The message names why (`PROVIDER_UNAVAILABLE`, `DIRECTORY_EMPTY`, …).
+            Retryable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   # ---------------------------------------------------------------------------------------------
   # Operations — not called by a user, and deliberately not rate limited
   # ---------------------------------------------------------------------------------------------
@@ -2426,26 +2473,32 @@ paths:
       operationId: searchAlternativeDataActors
       summary: Search the canonical actor catalog.
       description: |
-        Members of Congress, matched on display name or on the bioguide id they are identified by.
-        Readable without a session: the catalog is platform reference data grown by ingestion, not
+        Members of Congress, matched on either spelling of their name or on the bioguide id they are
+        identified by. Readable without a session: the catalog is platform reference data, not
         anybody's content, and the Strategy Builder needs it to label a saved rule's scope.
 
         A term shorter than two characters is treated as no term rather than as an error, and returns
         the first page in name order so the picker opens on something.
 
-        When a term of several words matches nobody whole, the members whose names share some of its
-        words are returned instead, those sharing most first. A member's stored name is whichever
-        spelling the provider last sent, which is not always the one a person types; a term that
-        matches anybody whole returns exactly those matches and nothing else.
+        A member has up to two spellings, both the provider's own: the one their disclosures use,
+        which is `displayName`, and the one the member directory uses. A term is matched against
+        both, so "Bill Cassidy" finds the senator returned as "William Cassidy". When a term of
+        several words matches nobody whole, the members whose names share some of its words are
+        returned instead, those sharing most first — the provider holds no nicknames, so "Ted Cruz"
+        is found by the surname. A term that matches anybody whole returns exactly those matches and
+        nothing else.
 
-        **The catalog is not every member of Congress.** It holds the members who appear in the
-        disclosures FactorSage has loaded so far, and it grows as more securities' disclosure history
-        is loaded. An empty result does not mean the member does not exist.
+        **What the catalog holds depends on whether it has been synchronized**
+        (`GET /alternative-data/actors/catalog`). Synchronized, it holds every member the provider's
+        directory listed at that time — in office and former — whether or not a disclosure of theirs
+        has been loaded. Not synchronized, it holds only the members some loaded disclosure named,
+        and an empty result does not mean the member does not exist. Being in the catalog says
+        nothing about a member's trading: it is an identity, not a disclosure history.
       x-rate-limit: { policy: stock-search }
       parameters:
         - name: q
           in: query
-          description: Search term. Matched against the display name and the external identifier.
+          description: Search term. Matched against both spellings of the name and the external identifier.
           schema: { type: string, maxLength: 200 }
         - name: limit
           in: query
@@ -2460,6 +2513,30 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/AlternativeDataActor" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /alternative-data/actors/catalog:
+    get:
+      tags: [Alternative data]
+      operationId: getAlternativeDataActorCatalog
+      summary: Whether the actor catalog has been filled from the provider's member directory.
+      description: |
+        Lets a client read an empty search correctly. With a `SYNCHRONIZED` catalog an empty result
+        means nobody matches; otherwise the member may simply not be in the catalog yet.
+
+        It reports what a synchronization did, never what the provider would say now: it is one
+        stored row, and neither this route nor opening the Strategy Builder asks the provider
+        anything. A catalog that was synchronized once stays `SYNCHRONIZED` through a later failed
+        run, because it still holds what the last complete run wrote.
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The catalog's state.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActorCatalogStatus" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -3901,6 +3978,92 @@ components:
           type: string
           maxLength: 16
           description: "`TX17` for a House member; Senate rows carry none."
+
+    ActorCatalogStatus:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [SYNCHRONIZED, NOT_SYNCHRONIZED, SYNCHRONIZATION_FAILED]
+          description: |
+            `SYNCHRONIZED` — a synchronization has read the provider's whole member directory and
+            written it. `NOT_SYNCHRONIZED` — none has run, so the catalog holds only members a loaded
+            disclosure named. `SYNCHRONIZATION_FAILED` — one was attempted and none has ever
+            completed; the catalog is as incomplete as when none has run.
+        synchronizedAt:
+          type: string
+          format: date-time
+          description: When the directory was last read whole and written. Present exactly when `SYNCHRONIZED`.
+
+    CongressMemberCatalogSyncResponse:
+      type: object
+      description: |
+        Every identity the directory held is counted once: `received` is
+        `created + updated + unchanged + declined`.
+      required:
+        [
+          runSequence,
+          providerRequests,
+          received,
+          inOffice,
+          former,
+          created,
+          updated,
+          relabelled,
+          unchanged,
+          declined,
+          declinedByReason,
+          repeatedRows,
+          retained,
+          durationMs,
+        ]
+      properties:
+        runSequence: { type: integer, minimum: 1 }
+        providerRequests:
+          type: integer
+          minimum: 0
+          description: HTTP requests asked of the provider's directory.
+        received:
+          type: integer
+          minimum: 0
+          description: Distinct identities the directory held.
+        inOffice: { type: integer, minimum: 0 }
+        former: { type: integer, minimum: 0 }
+        created:
+          type: integer
+          minimum: 0
+          description: Members the catalog did not hold.
+        updated:
+          type: integer
+          minimum: 0
+          description: Members the catalog held whose directory spelling or label was written.
+        relabelled:
+          type: integer
+          minimum: 0
+          description: |
+            Of `updated`, those whose displayed name, chamber or state changed. Only a member no
+            loaded disclosure names can be among them; one a disclosure has named keeps the label
+            their disclosures gave them.
+        unchanged: { type: integer, minimum: 0 }
+        declined:
+          type: integer
+          minimum: 0
+          description: Directory rows that were not written; `declinedByReason` says why.
+        declinedByReason:
+          type: object
+          description: |
+            `MALFORMED_ID` — the identifier is not a bioguide id. `CONFLICTING_ROWS` — the directory
+            listed the identifier more than once and the rows disagree. `UNNAMED` — no name.
+            `NO_CHAMBER` — the latest position is not a seat in Congress and no disclosure has named
+            them.
+          additionalProperties: { type: integer, minimum: 0 }
+        repeatedRows: { type: integer, minimum: 0 }
+        retained:
+          type: integer
+          minimum: 0
+          description: Catalog members the directory did not hold. Every one of them is kept.
+        durationMs: { type: integer, minimum: 0 }
 
     ActorGroupSummary:
       type: object

@@ -293,6 +293,13 @@ id the catalog no longer holds as an unavailable chip that must be removed, and 
 selection of nobody. The summary names the first two members alphabetically and counts the rest
 (`30D · Nancy Pelosi, Ro Khanna +3`), and says `3 selected members` until the names resolve.
 
+The picker searches the member catalog through the API and never causes a provider request. When it
+is on screen the dialog asks once whether that catalog has been synchronized with the provider's
+member directory (`GET /alternative-data/actors/catalog`) and words an empty search and the note
+under the picker from the answer: nobody matches (`SYNCHRONIZED`), or the directory is not loaded
+and the member may simply not be here yet (`NOT_SYNCHRONIZED`, `SYNCHRONIZATION_FAILED`). While the
+answer is unknown it claims neither and blocks nothing.
+
 Two shapes are **legacy** and never offered: `ACTOR` (one member), which normalization rewrites to a
 one-entry `ACTORS` under the same signature, and `GROUP` (a Congress group), which a stored version
 may still hold. A rule opened with a group scope shows the group's members as the selection, so one

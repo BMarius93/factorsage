@@ -10,6 +10,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchActorCatalogStatus,
   fetchActorGroup,
   fetchActorGroups,
   resolveActors,
@@ -64,6 +65,7 @@ vi.mock("../api/strategies-api", async () => {
 vi.mock("../../alternative-data/api/alternative-data-api", () => ({
   searchActors: vi.fn(),
   resolveActors: vi.fn(),
+  fetchActorCatalogStatus: vi.fn(),
   fetchActorGroups: vi.fn(),
   fetchActorGroup: vi.fn(),
 }));
@@ -71,6 +73,7 @@ vi.mock("../../alternative-data/api/alternative-data-api", () => ({
 const replaceDefinitionMock = vi.mocked(replaceStrategyDefinition);
 const searchActorsMock = vi.mocked(searchActors);
 const resolveActorsMock = vi.mocked(resolveActors);
+const fetchActorCatalogStatusMock = vi.mocked(fetchActorCatalogStatus);
 const fetchActorGroupsMock = vi.mocked(fetchActorGroups);
 const fetchActorGroupMock = vi.mocked(fetchActorGroup);
 
@@ -188,6 +191,22 @@ function congressStrategy(): StrategyDetailResponse {
     },
     operator: "IS_ABOVE",
     value: { kind: "NUMBER", value: 2 },
+  });
+}
+
+/** A congressional strategy that counts every member: no selection, so no picker on screen. */
+function anyoneStrategy(): StrategyDetailResponse {
+  return strategyWith("The whole Hill", {
+    id: "c1",
+    metric: {
+      kind: "CONGRESS_ACTIVITY",
+      measure: "PURCHASES",
+      lookback: 30,
+      scope: { kind: "ANY" },
+      chamber: "ANY",
+    },
+    operator: "IS_ABOVE",
+    value: { kind: "NUMBER", value: 1 },
   });
 }
 
@@ -324,6 +343,11 @@ beforeEach(() => {
   resolveActorsMock.mockImplementation(async (actorIds) =>
     CATALOG.filter((actor) => actorIds.includes(actor.id)),
   );
+  // The catalog as a deployment normally has it: filled from the provider's member directory.
+  fetchActorCatalogStatusMock.mockResolvedValue({
+    state: "SYNCHRONIZED",
+    synchronizedAt: "2026-10-11T12:00:00.000Z",
+  });
   fetchActorGroupsMock.mockResolvedValue([LEADERSHIP]);
   fetchActorGroupMock.mockResolvedValue(LEADERSHIP_DETAIL);
   replaceDefinitionMock.mockImplementation(async (_id, definition) => ({
@@ -1069,7 +1093,8 @@ describe("selecting members of Congress", () => {
     expect(chipNames(dialog)).toEqual(["Nancy Pelosi", "Tommy Tuberville"]);
   });
 
-  it("says the catalog is not every member when a search finds nobody", async () => {
+  /** Opens the picker, searches for somebody the catalog does not hold, and reads what it says. */
+  async function searchForNobody(): Promise<{ empty: string; note: string }> {
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={selectionStrategy()} />);
     const dialog = await openConfiguration(user);
@@ -1078,12 +1103,110 @@ describe("selecting members of Congress", () => {
       "Nobody Here",
     );
     const empty = await within(dialog).findByText(/No matches\./);
-    expect(empty.textContent).toContain(
-      "Only members with disclosures FactorSage has already loaded can be found.",
+    return {
+      empty: empty.textContent ?? "",
+      note: within(dialog).getByTestId("alt-actor-count").textContent ?? "",
+    };
+  }
+
+  it("says nobody matches, and warns of nothing, once the member directory is loaded", async () => {
+    const { empty, note } = await searchForNobody();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("alt-actor-catalog").getAttribute("data-state"),
+      ).toBe("SYNCHRONIZED"),
     );
-    expect(within(dialog).getByTestId("alt-actor-count").textContent).toContain(
-      "it is not every member of Congress",
+    const after = screen.getByTestId("alt-actor-count").textContent ?? "";
+
+    expect(empty).toContain(
+      "No current or former member of Congress matches. Try the surname alone.",
     );
+    expect(after).toContain(
+      "The list covers current and former members of Congress, whether or not they have traded.",
+    );
+    // The warning about a list grown from loaded disclosures is gone, because it is no longer true.
+    for (const text of [empty, note, after]) {
+      expect(text).not.toContain("not every member of Congress");
+      expect(text).not.toContain("already loaded");
+    }
+  });
+
+  it("says the directory has not been loaded yet, so an empty search is not read as nobody", async () => {
+    fetchActorCatalogStatusMock.mockResolvedValue({ state: "NOT_SYNCHRONIZED" });
+    const { empty } = await searchForNobody();
+
+    expect(empty).toContain(
+      "The member directory has not been loaded yet, so only members with disclosures FactorSage has already loaded can be found.",
+    );
+    expect(screen.getByTestId("alt-actor-count").textContent).toContain(
+      "The member directory has not been loaded yet: the list holds only the members who appear in the disclosures FactorSage has loaded so far, so it is not every member of Congress.",
+    );
+  });
+
+  it("says the directory could not be loaded, which is a different statement from not yet", async () => {
+    fetchActorCatalogStatusMock.mockResolvedValue({
+      state: "SYNCHRONIZATION_FAILED",
+    });
+    const { empty } = await searchForNobody();
+
+    expect(empty).toContain(
+      "The member directory could not be loaded, so only members with disclosures FactorSage has already loaded can be found.",
+    );
+    const note = screen.getByTestId("alt-actor-count").textContent ?? "";
+    expect(note).toContain("The member directory could not be loaded:");
+    expect(note).toContain("it is not every member of Congress");
+    expect(note).not.toContain("has not been loaded yet");
+  });
+
+  it("claims nothing about the list while it does not know, and still lets a member be chosen", async () => {
+    fetchActorCatalogStatusMock.mockRejectedValue(new Error("offline"));
+    const { empty, note } = await searchForNobody();
+
+    expect(empty).toBe("No matches.Try the surname alone.");
+    expect(note).not.toContain("current and former members");
+    expect(note).not.toContain("not every member of Congress");
+    expect(
+      screen.getByTestId("alt-actor-catalog").getAttribute("data-state"),
+    ).toBe("UNKNOWN");
+    // Not knowing blocks nothing: the saved selection is intact and Apply is available.
+    expect(chipNames(screen.getByTestId("alternative-data-config"))).toEqual([
+      "Nancy Pelosi",
+      "Tommy Tuberville",
+    ]);
+    expect(
+      (screen.getByTestId("alternative-data-config-apply") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("asks about the catalog once, and only when the picker is on screen", async () => {
+    const user = userEvent.setup();
+    // "Anyone": no picker, so nothing to word.
+    const { unmount } = render(<StrategyBuilder strategy={anyoneStrategy()} />);
+    const anyone = await openConfiguration(user);
+    expect(fetchActorCatalogStatusMock).not.toHaveBeenCalled();
+
+    // Choosing "Selected members" shows the picker, and asks.
+    await user.click(
+      within(anyone).getByRole("radio", { name: "Selected members" }),
+    );
+    await waitFor(() =>
+      expect(fetchActorCatalogStatusMock).toHaveBeenCalledTimes(1),
+    );
+    // Searching does not ask again: the answer is about the catalog, not about a term.
+    await user.type(
+      within(anyone).getByLabelText("Search members of Congress"),
+      "Pelosi",
+    );
+    await within(anyone).findByRole("option", { name: /Nancy Pelosi/ });
+    expect(fetchActorCatalogStatusMock).toHaveBeenCalledTimes(1);
+    unmount();
+
+    // An insider metric has no members to select and never asks.
+    fetchActorCatalogStatusMock.mockClear();
+    render(<StrategyBuilder strategy={insiderStrategy()} />);
+    await openConfiguration(user);
+    expect(fetchActorCatalogStatusMock).not.toHaveBeenCalled();
   });
 
   it("loads every saved member when an existing condition is reopened", async () => {

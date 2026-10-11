@@ -41,6 +41,7 @@
     "benchmarks:prewarm": "pnpm build:packages && pnpm --filter @intrinsic/api prewarm:benchmark-data",
     "data:resync": "pnpm build:packages && pnpm --filter @intrinsic/api data:resync",
     "data:alt-data:ingest": "pnpm build:packages && pnpm --filter @intrinsic/api data:alt-data:ingest",
+    "data:congress-members:sync": "pnpm build:packages && pnpm --filter @intrinsic/api data:congress-members:sync",
     "strategies:convert-group-scopes": "pnpm build:packages && pnpm --filter @intrinsic/api strategies:convert-group-scopes",
     "fmp:live": "pnpm build:packages && pnpm --filter @intrinsic/api fmp:live",
     "db:benchmarks:reset": "pnpm build:packages && pnpm --filter @intrinsic/api reset:benchmark-data",

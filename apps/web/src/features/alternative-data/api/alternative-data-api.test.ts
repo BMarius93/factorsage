@@ -4,7 +4,7 @@ import {
 } from "@intrinsic/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiGet } from "../../../lib/api/client";
-import { resolveActors } from "./alternative-data-api";
+import { fetchActorCatalogStatus, resolveActors } from "./alternative-data-api";
 
 vi.mock("../../../lib/api/client", () => ({ apiGet: vi.fn() }));
 
@@ -70,5 +70,29 @@ describe("resolveActors", () => {
     );
     const resolved = await resolveActors(["a", "gone", "b"]);
     expect(resolved.map((entry) => entry.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("fetchActorCatalogStatus", () => {
+  it("reads the catalog's state from its own route, and passes the abort signal on", async () => {
+    apiGetMock.mockResolvedValue({
+      state: "SYNCHRONIZED",
+      synchronizedAt: "2026-10-11T12:00:00.000Z",
+    });
+    const controller = new AbortController();
+
+    await expect(
+      fetchActorCatalogStatus({ signal: controller.signal }),
+    ).resolves.toEqual({
+      state: "SYNCHRONIZED",
+      synchronizedAt: "2026-10-11T12:00:00.000Z",
+    });
+    expect(apiGetMock).toHaveBeenCalledTimes(1);
+    expect(apiGetMock).toHaveBeenCalledWith(
+      "/alternative-data/actors/catalog",
+      {
+        signal: controller.signal,
+      },
+    );
   });
 });
