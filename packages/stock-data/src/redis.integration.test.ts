@@ -137,6 +137,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       `stock-data:load:${namespace}:lock`,
       `stock-data:load:${namespace}:exception`,
       `stock-data:load:${namespace}:timeout`,
+      `stock-data:load:${namespace}:call-wait`,
     );
     redisA.disconnect();
     redisB.disconnect();
@@ -610,6 +611,59 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(Date.now() - startedAt).toBeLessThan(2_000);
     releaseHolder();
     await first;
+  });
+
+  it("lets one call give up on the lock sooner than its coordinator would, and changes nothing else", async () => {
+    const resource = `${namespace}:call-wait`;
+    const lockKey = `stock-data:load:${resource}`;
+    const holder = new RedlockLoadCoordinator(redisA, {
+      lockDurationMs: 2_000,
+      lockWaitMs: 2_000,
+    });
+    // Its own wait is far longer than this test may take: only the call's wait can end it.
+    const waiter = new RedlockLoadCoordinator(redisB, {
+      lockDurationMs: 2_000,
+      lockWaitMs: 60_000,
+      retryDelayMs: 50,
+    });
+    const held = gate();
+    const release = gate();
+    const first = holder.run(resource, async () => {
+      held.open();
+      await release.opened;
+    });
+    await held.opened;
+    try {
+      let ran = false;
+      const startedAt = Date.now();
+      await expect(
+        waiter.run(
+          resource,
+          async () => {
+            ran = true;
+          },
+          { waitMs: 300 },
+        ),
+      ).rejects.toThrow();
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+      expect(Date.now() - startedAt).toBeLessThan(2_000);
+      expect(ran).toBe(false);
+      // Giving up released nothing that was not the waiter's: the holder still owns the lock.
+      expect(await redisA.exists(lockKey)).toBe(1);
+    } finally {
+      release.open();
+      await first;
+    }
+
+    // The same coordinator, on a call that names no wait, takes the free lock as it always did,
+    // and leaves nothing behind.
+    await expect(waiter.run(resource, async () => "free")).resolves.toBe(
+      "free",
+    );
+    expect(await redisA.exists(lockKey)).toBe(0);
+    await expect(
+      waiter.run(resource, async () => "unused", { waitMs: 0 }),
+    ).rejects.toThrow("waitMs must be a positive integer");
   });
 
   it("shares concurrency, rate, and cooldown backpressure across gate instances", async () => {

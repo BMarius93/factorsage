@@ -23,6 +23,7 @@ import {
 import {
   CanonicalBenchmarkDataService,
   type BenchmarkCacheObservation,
+  type CanonicalBenchmarkDataServiceOptions,
 } from "./benchmark-service.js";
 import type { RedisCacheClient } from "./cache.js";
 import {
@@ -155,6 +156,10 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       store?: BenchmarkDataStore;
       cache?: BenchmarkDataCache;
       coordinator?: LoadCoordinator;
+      options?: Pick<
+        CanonicalBenchmarkDataServiceOptions,
+        "residentReadLockWaitMs"
+      >;
     } = {},
   ) {
     return new CanonicalBenchmarkDataService(
@@ -166,8 +171,17 @@ describeResidency("benchmark history residency, reads and refresh", () => {
         now: () => now,
         onCacheEvent: (event) => cacheEvents.push(event),
         onPriceBasisEvent: (event) => basisEvents.push(event),
+        ...overrides.options,
       },
     );
+  }
+
+  /** The hydration lock as production takes it: Redlock on this Redis, a hydration-sized wait. */
+  function redlock(): LoadCoordinator {
+    return new RedlockLoadCoordinator(redis, {
+      lockDurationMs: 30_000,
+      lockWaitMs: 30_000,
+    });
   }
 
   async function clearRedis(): Promise<void> {
@@ -360,6 +374,37 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       for (const read of reads) {
         expect(read.rows).toEqual(reads[0]!.rows);
       }
+    });
+
+    it("publishes once when separate processes find Redis empty, and answers every reader with the stored history", async () => {
+      await bootstrap();
+      await clearRedis();
+      cacheEvents = [];
+      const range = { from: "2024-01-01", to: "2024-12-31" } as const;
+      const stored = await store.getDailyPrices(series.id, range);
+
+      // Each reader has its own coordinator, as each process has: what they share is the lock in
+      // Redis. Some are answered by the rebuild, some give up on the lock and read PostgreSQL —
+      // which one happens to a reader must not be visible in what it is told.
+      const reads = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          serviceWith(new HistoryProvider(), NOW, {
+            coordinator: redlock(),
+          }).readBenchmarkHistory(series, range),
+        ),
+      );
+
+      for (const read of reads) {
+        expect(read.rows).toEqual(stored);
+        expect(read).toMatchObject({ missing: [], basisGeneration: 0 });
+      }
+      expect(
+        cacheEvents.filter((event) => event.outcome === "PUBLISHED"),
+      ).toHaveLength(1);
+      expect((await cache.getHead(series.id))?.head.bars).toBe(DATES.length);
+      await expect(
+        serviceWith(new HistoryProvider()).readBenchmarkHistory(series, range),
+      ).resolves.toMatchObject({ source: "REDIS" });
     });
 
     it("repairs a head whose chunk Redis lost, from PostgreSQL and never the provider", async () => {
@@ -584,6 +629,63 @@ describeResidency("benchmark history residency, reads and refresh", () => {
         await holder;
       }
     }, 20_000);
+
+    it("fails the read when Redis cannot be read at all, whatever PostgreSQL holds", async () => {
+      await bootstrap();
+      const calls: string[] = [];
+      const refused = async (): Promise<never> => {
+        throw new Error("connect ECONNREFUSED 127.0.0.1:6379");
+      };
+      const unreachable = watched(cache, [], {
+        getHead: refused,
+        readDailyPrices: refused,
+        readHistoryThrough: refused,
+        readSessionsThrough: refused,
+      });
+      const lock: LoadCoordinator = {
+        run: async (_resource, work) => {
+          calls.push("lock");
+          return work({ assertOwned: () => {} });
+        },
+      };
+      const service = serviceWith(new HistoryProvider(), NOW, {
+        cache: unreachable,
+        coordinator: lock,
+      });
+
+      // An outage, not a miss (`AGENTS.md` invariant 16): nothing degrades to PostgreSQL-only, and
+      // a read that cannot see Redis does not go on to take its lock.
+      await expect(
+        service.readBenchmarkHistory(series, { from: "2026-10-01", to: TODAY }),
+      ).rejects.toThrow("ECONNREFUSED");
+      await expect(service.readFullBenchmarkHistory(series)).rejects.toThrow(
+        "ECONNREFUSED",
+      );
+      await expect(
+        service.readBenchmarkSessions(series, { through: TODAY, sessions: 5 }),
+      ).rejects.toThrow("ECONNREFUSED");
+      expect(calls).toEqual([]);
+    });
+
+    it("answers from PostgreSQL when Redis is lost between the read and the repair", async () => {
+      await bootstrap();
+      await clearRedis();
+      cacheEvents = [];
+      // The read itself sees an empty Redis; the repair that follows cannot reach it at all.
+      const failing = watched(cache, [], {
+        getHead: async () => {
+          throw new Error("connect ECONNREFUSED 127.0.0.1:6379");
+        },
+      });
+
+      const history = await serviceWith(new HistoryProvider(), NOW, {
+        cache: failing,
+      }).readBenchmarkHistory(series, { from: "2026-10-01", to: TODAY });
+
+      expect(history).toMatchObject({ source: "POSTGRESQL", missing: [] });
+      expect(history.rows.at(-1)?.date).toBe(TODAY);
+      expect(cacheEvents.map((event) => event.outcome)).toContain("FAILED");
+    });
 
     it("reads a single session, and nothing for a day the market did not trade", async () => {
       await bootstrap();
@@ -1228,6 +1330,66 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       await expect(a).resolves.toMatchObject({ status: "REBASED" });
       await expect(b).resolves.toMatchObject({ basisGeneration: 1 });
       expect(await headGeneration()).toBe(1);
+      await expectNewBasisEverywhere(provider);
+    });
+
+    it("answers a reader in one generation while a replacement holds the lock, and lets it publish nothing", async () => {
+      const before = Object.assign(new HistoryProvider(), {
+        publishedThrough: "2026-10-05",
+      });
+      await bootstrap(before);
+      const raised = gate();
+      const commitAllowed = gate();
+      const pausing = watched(cache, [], {
+        fenceGeneration: async (original, ...args) => {
+          const result = await original(...args);
+          raised.open();
+          await commitAllowed.opened;
+          return result;
+        },
+      });
+      const provider = rebasedProvider();
+      // The replacement holds the real hydration lock for as long as it runs.
+      const a = serviceWith(provider, NOW, {
+        cache: pausing,
+        coordinator: redlock(),
+      }).refreshBenchmarkSeries(series, { expectedSession: TODAY });
+      await raised.opened;
+      try {
+        // Its fence has removed the generation-0 head; generation 1 is written and uncommitted.
+        expect(await headGeneration()).toBeUndefined();
+        cacheEvents = [];
+
+        const startedAt = Date.now();
+        const during = await serviceWith(new HistoryProvider(), NOW, {
+          coordinator: redlock(),
+          options: { residentReadLockWaitMs: 200 },
+        }).readFullBenchmarkHistory(series);
+
+        // The reader could not have the lock, so it was told what PostgreSQL has committed: the
+        // whole history on the old basis, and nothing of the new one beside it.
+        expect(Date.now() - startedAt).toBeLessThan(3_000);
+        expect(during).toMatchObject({
+          source: "POSTGRESQL",
+          basisGeneration: 0,
+        });
+        expect(during.rows.length).toBeGreaterThan(2_000);
+        for (const row of during.rows) {
+          expect(row.close).toBeCloseTo(before.close(row.date), 6);
+        }
+        // And it published nothing: no head of the old generation came back, and the fence the
+        // replacement raised is where the replacement left it.
+        expect(await headGeneration()).toBeUndefined();
+        await expect(cache.getGenerationFence(series.id)).resolves.toBe(1);
+        expect(cacheEvents.map((event) => event.outcome)).toEqual(["FAILED"]);
+      } finally {
+        commitAllowed.open();
+      }
+
+      await expect(a).resolves.toMatchObject({
+        status: "REBASED",
+        basisGeneration: 1,
+      });
       await expectNewBasisEverywhere(provider);
     });
 
