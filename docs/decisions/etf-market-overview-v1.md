@@ -12,6 +12,13 @@ Out of scope, and left for PR 3: removing the market-reference index series (`SP
 `DJIA_INDEX`, `VIX_INDEX`) — their catalog rows, stored bars, Redis keys and QA seeds stay exactly as
 they are. This PR only stops the Dashboard from showing them.
 
+**Amended 2026-10-12 — the compact Dashboard composition (owner).** Section 6 is replaced: the
+overview is now two columns of single-line, eight-column tables on a wide desktop and compact cards
+on a phone, it names each fund by the market it tracks, and it prints no subtitle, methodology or
+footnote. The contract, the arithmetic, the data path and the cache (sections 2 to 5) are unchanged;
+only the catalog's display labels moved (section 1). Where an earlier sentence in this document said
+the Dashboard states something in a footnote, it now states it in the contract only.
+
 ## Context
 
 The Dashboard opened with five cards: Run Backtest, three index levels and the current match count.
@@ -32,8 +39,14 @@ provider call. The question the Dashboard should now answer at a glance:
 RSP), Sector Performance (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), Macro &
 Alternatives (GLD, USO, TLT, HYG). The response follows it exactly; no web array repeats it. Each
 group gained a `shortLabel` (`Benchmarks`, `Sectors`, `Macro`) for the phone category selector. `SPY`
-is read from the `SP500` series, never stored twice. `USO`'s note — near-month WTI futures, not spot
-crude — travels in the contract and is shown beside it.
+is read from the `SP500` series, never stored twice.
+
+Each fund's `label` — the response's `name` — is the **market** it tracks, never the fund's own
+name: `S&P 500`, `Nasdaq-100`, `Dow Jones`, `Russell 2000`, `S&P 500 Equal Weight`, the eleven sector
+names, `Gold`, `Oil Futures`, `Long-Term Treasuries`, `High-Yield Bonds`. The ticker is shown beside
+it and is what says the row is a fund (`S&P 500 (SPY)`). `USO`'s note — near-month WTI futures, not
+spot crude — still travels in the contract; the Dashboard no longer prints it, so the label itself
+says `Futures`.
 
 ### 2. The contract
 
@@ -93,7 +106,8 @@ gate. Its body is replaced (`MarketOverviewResponse` in `@intrinsic/contracts`):
 One pure module, `apps/api/src/market/market-overview.ts`, tested without a database, cache or clock.
 
 - **Price return:** `returnPct = (latestClose / anchorClose − 1) × 100` on the provider's
-  split-adjusted close, distributions excluded. The Dashboard footnote says so.
+  split-adjusted close, distributions excluded. The contract says so (`returnBasis: PRICE_RETURN`);
+  the Dashboard does not repeat it.
 - **Anchors**, from the fund's latest completed session: `1W` 7 calendar days; `1M`, `3M`, `6M`
   calendar months with the day clamped to the target month's end (`subtractMonths` in
   `@intrinsic/contracts`); `YTD` the last day of the previous calendar year; `1Y` one calendar year
@@ -166,20 +180,39 @@ from `stock-read` to `standard-read`: it no longer hydrates anything.
 
 ### 6. The Dashboard
 
-Order: a compact strip (Run Backtest, Current matches), the market overview, then Current matches —
-unchanged in every behaviour. The three index cards and the VIX gauge are removed from the web app.
+Order: the current match count in one compact card, the market overview, then Current matches —
+unchanged in every behaviour. The three index cards and the VIX gauge are removed from the web app,
+and so is the strip's `Run Backtest` card: a backtest is started from the Backtests area or from the
+List, Strategy or Monitor it is about.
 
-- **≥ 1,280px** — three group cards side by side. Each row has two lines: ticker, name and a 96×20
-  trend line; then the six returns under the group's period headings, which double as sort buttons
-  (strongest first; a second click restores the catalog order). Nothing fills the space under the two
-  shorter groups.
-- **880–1,279px** — Benchmarks beside Macro & Alternatives, Sector Performance across both below
-  them with its rows in two columns.
+The overview exists to be read at a glance and then got past, so it is as short as twenty funds
+allow: Current matches starts on the first screen of a 1,440 × 900 display.
+
+- **One table, three times.** From 880px every group is the same eight columns in this order —
+  `Market | 1W | 1M | 3M | 6M | YTD | 1Y | Chart 1Y` — with one 36px line per fund. `Market` is the
+  market's name with the ticker after it in a quieter voice, on that one line; a name too long for
+  its column ends in an ellipsis and never wraps. The six period headings double as sort buttons
+  (strongest first; a second click restores the catalog order). `Chart 1Y` is the trailing-year
+  trend line, inside the row's height.
+- **≥ 1,280px** — two columns. Benchmarks over Macro & Alternatives on the left, Sector Performance
+  on the right, and the two columns **start and end on the same lines**. Sector Performance spans
+  both rows of the left column in one grid, so that holds whatever the groups contain; at the
+  chosen geometry it also holds with nothing stretched, because a second card's title, heading row
+  and border plus the gap come to exactly two rows. If they ever do not, the difference is shared
+  among the shorter column's rows, never left as space under it. Between 1,280px and 1,439px the
+  table steps down one type size and draws a shorter line, so the longest name still fits.
+- **880–1,279px** — the same three tables, one under another across the page: half of that page
+  cannot hold eight columns.
 - **< 880px** — a category selector (`Benchmarks / Sectors / Macro`, a choice of group, never of
-  period) and a native sort select; one card per fund with a full-width trend line and the six
-  returns as a labelled 3 × 2 grid. No horizontal scrolling.
-- **States** — a skeleton with the final layout's geometry (no shift on desktop), a clean unavailable
-  panel when nothing has data, an error panel with retry, a `STALE` pill with the fund's own date, a
+  period) and a native sort select; one compact card per fund with the market and its ticker on one
+  line and the six returns as a labelled 3 × 2 grid. No trend line on a card. No horizontal
+  scrolling.
+- **No explanation.** The section keeps its heading and prints nothing else about its numbers: no
+  as-of subtitle, no methodology paragraph, no footnotes. They remain end-of-day price returns, and
+  the contract still says so (`basis`, `returnBasis`, `asOf`, `note`); nothing on the page may
+  describe them as live.
+- **States** — a skeleton with the final layout's geometry (no shift), a clean unavailable panel
+  when nothing has data, an error panel with retry, a `STALE` pill with the fund's own date, a
   `No data` pill, `—` for an unavailable return (announced as "not available"), `0.0%` for zero.
 - Signed returns use `+` and a true minus sign (U+2212), tabular figures and the financial-state
   tokens; the trend line's colour follows the `1Y` return and it is announced in words.
@@ -187,8 +220,10 @@ unchanged in every behaviour. The three index cards and the VIX gauge are remove
 ## Alternatives rejected
 
 - **A period selector.** It would hide five of the six answers the overview exists to compare.
-- **Eight-column rows.** Too wide for three groups side by side at 1,280px; the two-line row keeps
-  every value at body size.
+- **Three groups side by side.** It forced a two-line row — eight columns do not fit a third of a
+  1,280px page — and two lines per fund made the overview a screen tall. Two columns hold the
+  eight-column single-line row. (The original decision chose the opposite; the 2026-10-12 amendment
+  reversed it.)
 - **Sending histories to the browser** for client-side returns or charts — larger, and it would put
   canonical arithmetic in React.
 - **A Redis summary cache or a dashboard namespace** — a third copy of the same data, forbidden by

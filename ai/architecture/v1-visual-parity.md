@@ -146,26 +146,30 @@ or allocation state, never V1 credits.
 
 ### The Dashboard overview strip and market overview
 
-The Dashboard opens with a compact two-card strip — `Run Backtest · Current matches` — then the ETF
-market overview, then the Current matches table. V1's five-card row (`Run Backtest · S&P 500 · DJIA ·
-VIX · Real-time Matches`) is retired: the market overview (`docs/decisions/etf-market-overview-v1.md`)
-answers what its three index cards gestured at, across twenty funds and six periods. Both are
-feature-owned compositions on the page canvas, not `SectionCard`s, and they share one column grid —
-two columns below 1,280px, three from there — so the strip's cards line up with the groups below.
+The Dashboard opens with the current match count in one compact card, then the ETF market overview,
+then the Current matches table. V1's five-card row (`Run Backtest · S&P 500 · DJIA · VIX · Real-time
+Matches`) is retired: the market overview (`docs/decisions/etf-market-overview-v1.md`) answers what
+its three index cards gestured at, across twenty funds and six periods, and the Dashboard carries no
+`Run Backtest` action — a backtest starts from the Backtests area or from the List, Strategy or
+Monitor it is about. Both are feature-owned compositions on the page canvas, not `SectionCard`s. From
+880px the count card is one column of two, so from 1,280px it ends where the group beneath it ends.
 
-- **flat, not elevated.** V1 gives each card a soft drop shadow and the action card a blue gradient.
-  V2 surfaces use `--shadow-surface` (`none`) and a flat `--color-primary` fill, because a glow
-  under every panel is the single loudest thing that made V2 read as a different product.
-- **end-of-day, stated.** The market overview's heading names the session its numbers closed on and
-  its footnote that they are price returns from closes; nothing on the Dashboard says `24h` or live.
-- **dense on a desktop, purpose-built on a phone.** Three group cards of two-line rows (identity and
-  trend line, then six returns under sortable period headings) from 1,280px; Benchmarks beside Macro
-  with Sector Performance across both from 880px; below 880px a category selector and one card per
-  fund with a labelled 3 × 2 return grid, never a squeezed table.
+- **flat, not elevated.** V1 gives each card a soft drop shadow. V2 surfaces use `--shadow-surface`
+  (`none`), because a glow under every panel is the single loudest thing that made V2 read as a
+  different product.
+- **short, so the matches start on the first screen.** The overview is its heading and its tables,
+  and nothing that explains them: no subtitle, no methodology, no footnote. Its numbers are still
+  end-of-day price returns — the contract says so — and nothing on the Dashboard says `24h` or live.
+- **one table, three times, on a desktop; purpose-built on a phone.** Every group is the same eight
+  columns — `Market`, the six returns under sortable period headings, `Chart 1Y` — one 36px line per
+  fund, the market named first and its ticker beside it. From 1,280px they stand in two columns that
+  start and end on the same lines: Benchmarks over Macro & Alternatives, beside Sector Performance.
+  From 880px to 1,279px the three run one under another. Below 880px a category selector and one
+  compact card per fund — name and ticker on one line, a labelled 3 × 2 return grid, no trend line —
+  never a squeezed table.
 
-`Run Backtest` is a card in the same family as the match count, not a button beside it, and it wears
-the product's one solid-blue action treatment because it is the only thing in the strip that does
-something. Do not put market cards back into the strip.
+Do not put market cards or a `Run Backtest` card back into the strip, and do not let either column
+of the overview end short of the other.
 
 ## Visual tokens and elevation
 
