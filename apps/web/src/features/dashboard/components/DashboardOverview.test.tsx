@@ -1,15 +1,7 @@
 import type { DashboardRowResponse } from "@intrinsic/contracts";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useAuthSession } from "../../auth/hooks/use-auth-session";
+import { describe, expect, it } from "vitest";
 import { DashboardOverview } from "./DashboardOverview";
-
-vi.mock("../../auth/hooks/use-auth-session", () => ({
-  useAuthSession: vi.fn(),
-}));
-
-const useAuthSessionMock = vi.mocked(useAuthSession);
 
 function row(
   overrides: Partial<DashboardRowResponse> = {},
@@ -34,62 +26,45 @@ function row(
   };
 }
 
-function signedIn(value: boolean) {
-  useAuthSessionMock.mockReturnValue({
-    state: value
-      ? {
-          status: "authenticated",
-          user: {
-            id: "user-1",
-            email: "pro@example.test",
-            role: "USER",
-            plan: "PRO",
-          },
-        }
-      : { status: "unauthenticated" },
-    refresh: vi.fn(),
-    signOut: vi.fn(),
-  } as unknown as ReturnType<typeof useAuthSession>);
-}
-
-async function renderOverview(
-  rows: DashboardRowResponse[] = [],
-  rowsReady = true,
-) {
+function renderOverview(rows: DashboardRowResponse[] = [], rowsReady = true) {
   render(<DashboardOverview rows={rows} rowsReady={rowsReady} />);
-  await screen.findByTestId("dashboard-run-backtest");
 }
 
 /**
  * The Dashboard's opening strip.
  *
- * The count and the order are asserted literally, because they are the product decision: two cards,
- * `Run Backtest · Current matches`. The market lives in the market overview below, and a market card
- * creeping back into this strip is exactly the failure these tests exist to catch.
+ * What it holds is asserted literally, because it is the product decision: one card, the current
+ * match count. The market lives in the market overview below and a backtest is started from the
+ * Backtests area, so a market card or a `Run Backtest` action creeping back into this strip is
+ * exactly the failure these tests exist to catch.
  */
 describe("DashboardOverview", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    signedIn(true);
+  it("holds exactly one card: the current match count", () => {
+    renderOverview();
+
+    const card = screen.getByTestId("dashboard-matches-card");
+    const grid = card.parentElement as HTMLElement;
+    expect([...grid.children]).toEqual([card]);
+    expect(card.textContent).toContain("Current matches");
   });
 
-  it("renders exactly two cards, in the agreed order", async () => {
-    await renderOverview();
+  it("offers no Run Backtest action: backtests start from the Backtests area", () => {
+    renderOverview();
 
-    const cards = [
-      screen.getByTestId("dashboard-run-backtest"),
-      screen.getByTestId("dashboard-matches-card"),
-    ];
-    const grid = cards[0]?.parentElement as HTMLElement;
-    expect([...grid.children]).toEqual(cards);
-    expect([...grid.children].map((card) => card.textContent)).toEqual([
-      expect.stringContaining("Run Backtest"),
-      expect.stringContaining("Current matches"),
-    ]);
+    const strip = screen.getByTestId("dashboard-overview");
+    expect(screen.queryByTestId("dashboard-run-backtest")).toBeNull();
+    expect(within(strip).queryByText(/backtest/i)).toBeNull();
+    expect(within(strip).queryAllByRole("button")).toHaveLength(0);
+    // The one link in the strip stays on the Dashboard.
+    expect(
+      within(strip)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href")),
+    ).toEqual(["#signals"]);
   });
 
-  it("carries no market card: the market overview below replaced them", async () => {
-    await renderOverview();
+  it("carries no market card: the market overview below replaced them", () => {
+    renderOverview();
 
     const strip = screen.getByTestId("dashboard-overview");
     for (const forbidden of [/S&P 500/, /DJIA/, /VIX/, /nasdaq/i, /fear/i, /greed/i]) {
@@ -98,47 +73,8 @@ describe("DashboardOverview", () => {
     expect(screen.queryByTestId(/^dashboard-market-card-/)).toBeNull();
   });
 
-  it("links a signed-in viewer straight to the canonical New Backtest route", async () => {
-    await renderOverview();
-
-    const card = screen.getByTestId("dashboard-run-backtest");
-    expect(card.tagName).toBe("A");
-    expect(card.getAttribute("href")).toBe("/backtests/new");
-    expect(card.textContent).toContain("Run Backtest");
-  });
-
-  it("asks a Guest for an account in place, without navigating", async () => {
-    // The Dashboard is already where sign-in lands by default, so its links carry no `next`.
-    window.history.replaceState(null, "", "/dashboard");
-    signedIn(false);
-    await renderOverview();
-
-    const card = screen.getByTestId("dashboard-run-backtest");
-    // A button, not a link: the honest answer to the click is a question, not a destination.
-    expect(card.tagName).toBe("BUTTON");
-    expect(card.getAttribute("href")).toBeNull();
-
-    await userEvent.click(card);
-
-    const prompt = await screen.findByTestId("sign-in-prompt");
-    expect(
-      within(prompt)
-        .getByRole("link", { name: "Sign in" })
-        .getAttribute("href"),
-      // Signing in goes straight to New Backtest, the thing the Guest asked for (UI-042).
-    ).toBe("/login?next=%2Fbacktests%2Fnew");
-    expect(
-      within(prompt)
-        .getByRole("link", { name: "Create an account" })
-        .getAttribute("href"),
-    ).toBe("/register?next=%2Fbacktests%2Fnew");
-    // And the Dashboard is still underneath it: no redirect to /login for a click.
-    expect(screen.queryByTestId("dashboard-overview")).not.toBeNull();
-    expect(screen.getByTestId("dashboard-matches-card")).toBeTruthy();
-  });
-
-  it("counts every current row the viewer's dashboard returned", async () => {
-    await renderOverview([
+  it("counts every current row the viewer's dashboard returned", () => {
+    renderOverview([
       row({ id: "a", state: "ACTIVE" }),
       row({ id: "b", state: "ACTIVE" }),
       row({ id: "c", state: "PENDING_TRIGGER" }),
@@ -152,16 +88,16 @@ describe("DashboardOverview", () => {
     );
   });
 
-  it("holds the count back until the dashboard has actually answered", async () => {
-    await renderOverview([], false);
+  it("holds the count back until the dashboard has actually answered", () => {
+    renderOverview([], false);
 
     // A premature 0 reads as "nothing is matching", which is a different statement from "not known
     // yet" and the one thing a count must never say by accident.
     expect(screen.queryByTestId("dashboard-matches-total")).toBeNull();
   });
 
-  it("points at the signals section rather than navigating away", async () => {
-    await renderOverview([row()]);
+  it("points at the signals section rather than navigating away", () => {
+    renderOverview([row()]);
 
     expect(
       screen.getByTestId("dashboard-matches-card").getAttribute("href"),

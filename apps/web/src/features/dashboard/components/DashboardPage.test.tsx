@@ -418,7 +418,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Nothing is matching right now")).toBeDefined();
   });
 
-  it("puts the action strip, then the market overview, above the signals, and keeps them out of the filters", async () => {
+  it("puts the match count, then the market overview, above the signals, and keeps them out of the filters", async () => {
     const user = userEvent.setup();
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
@@ -426,7 +426,7 @@ describe("DashboardPage", () => {
     const overview = await screen.findByTestId("dashboard-overview");
     const market = await screen.findByTestId("market-overview");
     const signals = await screen.findByTestId("dashboard-signals");
-    // Action strip, market, matches: the market is context for the table, so it precedes it.
+    // Match count, market, matches: the market is context for the table, so it precedes it.
     expect(
       overview.compareDocumentPosition(market) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -458,7 +458,7 @@ describe("DashboardPage", () => {
     );
   });
 
-  it("shows a Guest the market overview and asks for an account only at the action", async () => {
+  it("shows a Guest the market overview, and offers nobody a Run Backtest action here", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
@@ -468,8 +468,9 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("market-overview-return-SPY-1W").textContent).toBe(
       "+0.4%",
     );
-    // And the Run Backtest card is the one thing that needs an account.
-    expect(screen.getByTestId("dashboard-run-backtest").tagName).toBe("BUTTON");
+    // The Dashboard reports; a backtest is started from the Backtests area.
+    expect(screen.queryByTestId("dashboard-run-backtest")).toBeNull();
+    expect(screen.queryByText(/run backtest/i)).toBeNull();
   });
 
   it("never describes anything on the Dashboard as fear and greed, or as live", async () => {
@@ -489,7 +490,7 @@ describe("DashboardPage", () => {
     await screen.findByTestId("dashboard-signals");
 
     // The page still has exactly one h1 and it is still the page's name — it is simply not a
-    // surface any more, so the action strip is the first thing on screen.
+    // surface any more, so the match count is the first thing on screen.
     const headings = screen.getAllByRole("heading", { level: 1 });
     expect(headings.map((heading) => heading.textContent)).toEqual([
       "Dashboard",

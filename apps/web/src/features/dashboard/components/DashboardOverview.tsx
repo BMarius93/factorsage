@@ -1,14 +1,7 @@
 "use client";
 
 import type { DashboardRowResponse } from "@intrinsic/contracts";
-import Link from "next/link";
-import type { ReactNode } from "react";
-import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
-import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import styles from "./DashboardOverview.module.css";
-
-/** The canonical New Backtest route. There is exactly one, and this is it. */
-const NEW_BACKTEST_HREF = "/backtests/new";
 
 type DashboardOverviewProps = {
   /**
@@ -25,92 +18,29 @@ type DashboardOverviewProps = {
 };
 
 /**
- * The Dashboard's opening strip: `Run Backtest · Current matches`, two cards in one visual family.
+ * The Dashboard's opening strip: how much is matching right now, in one card.
  *
- * It used to carry three market-reference cards between them — S&P 500, DJIA and VIX. The ETF
- * market overview below replaced them (`docs/decisions/etf-market-overview-v1.md`): it answers what
- * those three cards gestured at, across twenty funds and six periods. What stays here is the one
- * action and the one number a returning user opens the Dashboard for, kept compact so the market and
- * the matches are what the first screen holds.
+ * It used to open with a `Run Backtest` card beside the count, and before that with three
+ * market-reference cards between them. The market cards became the ETF market overview below
+ * (`docs/decisions/etf-market-overview-v1.md`), and the action was removed as redundant: a backtest
+ * starts from the Backtests area in the main navigation, or from the List, Strategy or Monitor it is
+ * about. What stays is the one number a returning user opens the Dashboard for, kept compact so the
+ * market and the matches are what the first screen holds.
  *
- * The Run Backtest item is a card, not a button parked beside a card. It is the same rectangle, the
- * same radius and the same row as the count beside it, wearing the product's one solid-blue action
- * treatment because it is the only thing here that does something.
- *
- * The strip shares the market overview's column grid — two columns below 1,280px, three from there,
- * with the strip's cards in the first two — so its edges line up with the groups beneath it.
+ * The strip keeps the market overview's column grid from 880px — the card is one column of two —
+ * so its edges line up with the group beneath it. On a phone the card takes the row.
  */
 export function DashboardOverview({ rows, rowsReady }: DashboardOverviewProps) {
-  const gate = useSignInPrompt();
-
   return (
     <section
       className={styles.overview}
-      aria-label="Run a backtest and current matches"
+      aria-label="Current matches summary"
       data-testid="dashboard-overview"
     >
       <div className={styles.grid}>
-        <RunBacktestCard gate={gate} />
         <MatchesCard rows={rows} ready={rowsReady} />
       </div>
-      {gate.prompt}
     </section>
-  );
-}
-
-function RunBacktestCard({
-  gate,
-}: {
-  readonly gate: ReturnType<typeof useSignInPrompt>;
-}) {
-  const content = (
-    <>
-      <span className={styles.actionText}>
-        <span className={styles.actionTitle}>Run Backtest</span>
-        <span className={styles.actionLead}>Test a strategy</span>
-      </span>
-      <span className={styles.actionGlyph} aria-hidden="true">
-        <PlayIcon />
-      </span>
-    </>
-  );
-
-  // A signed-in viewer gets a real link: middle-click, open in a new tab and the browser's own
-  // status bar all work, and none of them would if this were a button that navigated.
-  //
-  // A Guest gets a button, because the honest answer to the click is a question, not a destination.
-  // `useSignInPrompt` asks it in place — `docs/decisions/builtin-dashboard-signals-v1.md` section
-  // 5.1 refuses anonymous persistence, and bouncing a visitor to `/login` would throw away the
-  // Dashboard they were reading in order to say so.
-  //
-  // While the session is still resolving the card is a button too: it cannot know yet, and
-  // rendering a link a Guest would follow is the one wrong answer of the two.
-  if (gate.signedIn) {
-    return (
-      <Link
-        className={`${styles.card} ${styles.actionCard}`}
-        href={NEW_BACKTEST_HREF}
-        data-testid="dashboard-run-backtest"
-      >
-        {content}
-      </Link>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className={`${styles.card} ${styles.actionCard}`}
-      data-testid="dashboard-run-backtest"
-      onClick={() =>
-        gate.attempt(
-          { ...SIGN_IN_TO_BACKTEST, next: NEW_BACKTEST_HREF },
-          () => {},
-        )
-      }
-    >
-      {content}
-    </button>
   );
 }
 
@@ -148,7 +78,7 @@ function MatchesCard({
           className={styles.matchesBreakdown}
           data-testid="dashboard-matches-breakdown"
         >
-          {ready ? `${active} active · ${waiting} waiting` : "\u00a0"}
+          {ready ? `${active} active · ${waiting} waiting` : " "}
         </span>
       </span>
       {ready ? (
@@ -159,13 +89,5 @@ function MatchesCard({
         <span className={styles.valueUnavailable}>—</span>
       )}
     </a>
-  );
-}
-
-function PlayIcon(): ReactNode {
-  return (
-    <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-      <path d="M3 2.69a1.1 1.1 0 0 1 1.648-.96l9.401 5.311a1.1 1.1 0 0 1 0 1.918L4.648 14.271A1.1 1.1 0 0 1 3 13.311V2.69z" />
-    </svg>
   );
 }

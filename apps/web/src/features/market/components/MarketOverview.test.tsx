@@ -54,6 +54,64 @@ describe("MarketOverview", () => {
     expect(screen.queryByText(/vs\.? SPY|relative/i)).toBeNull();
   });
 
+  it("names the market first and puts its ticker beside it, on the one line", async () => {
+    const response = marketOverviewFixture();
+    await renderReady(response);
+
+    for (const instrument of response.groups.flatMap((group) => group.instruments)) {
+      const row = screen.getByTestId(`market-overview-row-${instrument.ticker}`);
+      const name = within(row).getByTestId("market-overview-name");
+      const ticker = within(row).getByTestId("market-overview-ticker");
+      const identity = name.parentElement as HTMLElement;
+
+      expect(name.textContent).toBe(instrument.name);
+      expect(ticker.textContent).toBe(instrument.ticker);
+      // One line of text and nothing under it: the name, then the ticker in parentheses.
+      expect(identity.textContent).toBe(`${instrument.name}(${instrument.ticker})`);
+      expect([...identity.children]).toEqual([name, ticker.parentElement]);
+      // A name too long for its column is cut with an ellipsis; the whole of it stays reachable.
+      expect(name.getAttribute("title")).toBe(instrument.name);
+    }
+    expect(screen.getByTestId("market-overview-row-SPY").textContent).toContain("S&P 500(SPY)");
+    expect(screen.getByTestId("market-overview-row-XLY").textContent).toContain(
+      "Consumer Discretionary(XLY)",
+    );
+    expect(screen.getByTestId("market-overview-row-TLT").textContent).toContain(
+      "Long-Term Treasuries(TLT)",
+    );
+    // The market is what a row is called; a fund is never introduced as "… ETF".
+    expect(screen.getByTestId("market-overview").textContent).not.toMatch(/\bETF\b/);
+  });
+
+  it("gives every group the same eight columns: Market, six returns, Chart 1Y", async () => {
+    await renderReady();
+
+    for (const id of MARKET_OVERVIEW_GROUP_IDS) {
+      const headings = screen.getByTestId(`market-overview-columns-${id}`);
+      const [market, periods, chart] = [...headings.children] as HTMLElement[];
+      expect(headings.children).toHaveLength(3);
+      expect(market?.textContent).toBe("Market");
+      expect(
+        within(periods as HTMLElement)
+          .getAllByRole("button")
+          .map((button) => button.getAttribute("data-testid")),
+      ).toEqual(
+        ["1W", "1M", "3M", "6M", "YTD", "1Y"].map(
+          (period) => `market-overview-sort-${id}-${period}`,
+        ),
+      );
+      expect(chart?.textContent).toBe("Chart 1Y");
+    }
+    // And every row fills them in that order: the market, its six returns, its trend line.
+    for (const row of screen.getAllByTestId(/^market-overview-row-/)) {
+      const [identity, returns, trend] = [...row.children] as HTMLElement[];
+      expect(row.children).toHaveLength(3);
+      expect(within(identity as HTMLElement).getByTestId("market-overview-name")).toBeTruthy();
+      expect(within(returns as HTMLElement).getAllByRole("definition")).toHaveLength(6);
+      expect(within(trend as HTMLElement).getByRole("img")).toBeTruthy();
+    }
+  });
+
   it("signs returns, uses a real minus sign and colours by direction", async () => {
     await renderReady(
       marketOverviewFixture({
@@ -108,20 +166,38 @@ describe("MarketOverview", () => {
     );
   });
 
-  it("states the data basis and the session the numbers closed on", async () => {
+  it("keeps its heading and explains nothing: no subtitle, no methodology, no footnotes", async () => {
     await renderReady();
+    const overview = screen.getByTestId("market-overview");
 
-    expect(screen.getByTestId("market-overview-asof").textContent).toBe(
-      "End-of-day price returns · As of the close on Fri 9 Oct 2026",
-    );
-    const footnote = screen.getByTestId("market-overview-footnote").textContent ?? "";
-    expect(footnote).toMatch(/excluding dividends and other distributions/);
-    expect(footnote).toMatch(/not index levels/);
-    expect(footnote).toMatch(/USO: Tracks near-month WTI crude oil futures, not the spot price/);
-    // The row points at its note.
-    expect(screen.getByTestId("market-overview-row-USO").getAttribute("aria-describedby")).toBe(
-      "market-overview-note-USO",
-    );
+    expect(
+      within(overview)
+        .getAllByRole("heading", { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Market overview"]);
+    expect(screen.queryByTestId("market-overview-asof")).toBeNull();
+    expect(screen.queryByTestId("market-overview-footnote")).toBeNull();
+    // Only headings, column captions, names, tickers and percentages are left to read.
+    expect(overview.querySelectorAll("p")).toHaveLength(0);
+    for (const explanation of [
+      /end-of-day/i,
+      /as of the close/i,
+      /price returns/i,
+      /split-adjusted/i,
+      /dividends|distributions/i,
+      /index levels/i,
+      /calendar days/i,
+      /previous year/i,
+      /trend lines show/i,
+      /near-month|spot price/i,
+    ]) {
+      expect(overview.textContent).not.toMatch(explanation);
+    }
+    // USO's qualification stays in the response and is not printed: no marker, no pointer to a note.
+    const uso = screen.getByTestId("market-overview-row-USO");
+    expect(uso.getAttribute("aria-describedby")).toBeNull();
+    expect(uso.textContent).toContain("Oil Futures(USO)");
+    expect(uso.textContent).not.toMatch(/[*†‡§]/);
   });
 
   it("marks a stale ETF with its own data date, and an unavailable one plainly", async () => {
@@ -259,7 +335,7 @@ describe("MarketOverview", () => {
     render(<MarketOverview />);
 
     expect(await screen.findByTestId("market-overview-error")).toBeTruthy();
-    expect(screen.queryByTestId("market-overview-footnote")).toBeNull();
+    expect(screen.queryByTestId(/^market-overview-group-/)).toBeNull();
   });
 
   it("renders a clean unavailable state, with no fabricated rows, when nothing has data", async () => {
@@ -270,7 +346,8 @@ describe("MarketOverview", () => {
     expect(empty.textContent).toMatch(/not available right now/);
     expect(screen.queryByTestId("market-overview-row-SPY")).toBeNull();
     expect(screen.queryByText(/%/)).toBeNull();
-    expect(screen.getByTestId("market-overview-asof").textContent).toBe("End-of-day price returns");
+    // The section keeps its name while it has nothing to show.
+    expect(screen.getByRole("heading", { level: 2, name: "Market overview" })).toBeTruthy();
   });
 
   it("never shows a fund's price as if it were an index level", async () => {

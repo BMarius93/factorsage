@@ -7,9 +7,8 @@ import {
   type MarketOverviewGroupResponse,
   type MarketOverviewInstrumentResponse,
   type MarketOverviewPeriod,
-  type MarketOverviewResponse,
 } from "@intrinsic/contracts";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { SelectControl } from "../../../components/ui/SelectControl";
@@ -19,7 +18,6 @@ import { useMarketOverview } from "../hooks/use-market-overview";
 import {
   describeReturn,
   describeSparkline,
-  formatLongSessionDate,
   formatReturn,
   formatSessionDate,
   PERIOD_NAMES,
@@ -29,9 +27,6 @@ import { MarketSparkline } from "./MarketSparkline";
 import styles from "./MarketOverview.module.css";
 
 type SortState = Partial<Record<MarketOverviewGroupId, MarketOverviewPeriod>>;
-
-/** Footnote markers for instruments that carry a note, in display order. */
-const NOTE_MARKERS = ["*", "†", "‡", "§"] as const;
 
 /**
  * How many rows each group's loading skeleton holds, so nothing below it moves when the data lands.
@@ -55,16 +50,19 @@ export const MARKET_OVERVIEW_SKELETON_ROWS: Record<MarketOverviewGroupId, number
  *
  * One markup, three compositions, switched by CSS at the product's own breakpoints:
  *
- * - **≥ 1,280px** — Benchmarks, Sector Performance and Macro & Alternatives side by side, each a
- *   card of two-line rows: ticker, name and trend line on the first, the six returns under column
- *   headings on the second;
- * - **880–1,279px** — Benchmarks beside Macro & Alternatives, Sector Performance across both below
- *   them with its rows in two columns, so no row is stretched to the full page;
- * - **< 880px** — a category selector (a choice of *group*, never of period) and one purpose-built
- *   card per ETF: identity, a wider trend line, and the six returns as a labelled 3 × 2 grid.
+ * - **≥ 1,280px** — two columns that start and end together: Benchmarks over Macro & Alternatives
+ *   on the left, Sector Performance on the right. Every group is the same eight-column table —
+ *   Market, the six returns, Chart 1Y — with one line per fund;
+ * - **880–1,279px** — the same three tables, one under another across the page;
+ * - **< 880px** — a category selector (a choice of *group*, never of period) and one compact card
+ *   per ETF: the market and its ticker on one line and the six returns as a labelled 3 × 2 grid.
+ *   The trend line is the desktop table's last column and is not drawn on a card.
  *
- * Everything is end-of-day and price-only, and the footnote says so. The numbers come from the API
- * as computed; this component formats and arranges them and calculates nothing.
+ * A fund is called by the market it tracks, with its ticker beside the name in a quieter voice.
+ * Nothing on the page explains the numbers: they are end-of-day price returns, which the contract
+ * states (`MARKET_OVERVIEW_BASIS`, `MARKET_OVERVIEW_RETURN_BASIS`), and the overview is kept short
+ * so that the matches below it start on the first screen. The numbers come from the API as
+ * computed; this component formats and arranges them and calculates nothing.
  */
 export function MarketOverview() {
   const { status, overview, reload } = useMarketOverview();
@@ -95,24 +93,9 @@ export function MarketOverview() {
       data-status={ready ? overview.status : status.toUpperCase()}
     >
       <div className={styles.header}>
-        <div className={styles.heading}>
-          <h2 id="market-overview-title" className={styles.title}>
-            Market overview
-          </h2>
-          <p className={styles.meta} data-testid="market-overview-asof">
-            {ready && overview.asOf ? (
-              <>
-                End-of-day price returns <span aria-hidden="true">·</span> As of
-                the close on{" "}
-                <time dateTime={overview.asOf}>
-                  {formatLongSessionDate(overview.asOf)}
-                </time>
-              </>
-            ) : (
-              "End-of-day price returns"
-            )}
-          </p>
-        </div>
+        <h2 id="market-overview-title" className={styles.title}>
+          Market overview
+        </h2>
         {ready && !empty ? (
           <div className={styles.compactControls}>
             <div className={styles.categories}>
@@ -191,21 +174,17 @@ export function MarketOverview() {
       ) : null}
 
       {ready && !empty ? (
-        <>
-          <div className={styles.groups}>
-            {groups.map((group) => (
-              <GroupCard
-                key={group.id}
-                group={group}
-                selected={group.id === category}
-                sort={sorts[group.id]}
-                onSort={(period) => toggleSort(group.id, period)}
-                markers={noteMarkers(groups)}
-              />
-            ))}
-          </div>
-          <Footnote overview={overview} />
-        </>
+        <div className={styles.groups}>
+          {groups.map((group) => (
+            <GroupCard
+              key={group.id}
+              group={group}
+              selected={group.id === category}
+              sort={sorts[group.id]}
+              onSort={(period) => toggleSort(group.id, period)}
+            />
+          ))}
+        </div>
       ) : null}
     </section>
   );
@@ -216,13 +195,11 @@ function GroupCard({
   selected,
   sort,
   onSort,
-  markers,
 }: {
   readonly group: MarketOverviewGroupResponse;
   readonly selected: boolean;
   readonly sort: MarketOverviewPeriod | undefined;
   readonly onSort: (period: MarketOverviewPeriod) => void;
-  readonly markers: ReadonlyMap<string, string>;
 }) {
   const titleId = `market-overview-group-${group.id}-title`;
   const instruments = sort ? sortedBy(group.instruments, sort) : group.instruments;
@@ -238,20 +215,11 @@ function GroupCard({
       <h3 id={titleId} className={styles.groupTitle}>
         {group.label}
       </h3>
-      <div className={styles.groupBody} data-split={group.id === "US_SECTORS" ? "true" : undefined}>
+      <div className={styles.groupBody}>
         <ColumnHeadings group={group} sort={sort} onSort={onSort} />
-        {group.id === "US_SECTORS" ? (
-          // The second column's headings, for the band where the sector rows run in two columns.
-          // Decorative there: the first set already names the columns and owns the sort buttons.
-          <ColumnHeadings group={group} sort={sort} onSort={onSort} echo />
-        ) : null}
         <ol className={styles.list} aria-label={`${group.label} ETFs`}>
           {instruments.map((instrument) => (
-            <InstrumentRow
-              key={instrument.ticker}
-              instrument={instrument}
-              marker={markers.get(instrument.ticker)}
-            />
+            <InstrumentRow key={instrument.ticker} instrument={instrument} />
           ))}
         </ol>
       </div>
@@ -260,79 +228,91 @@ function GroupCard({
 }
 
 /**
- * The six period headings over the returns, as sort buttons: one click sorts the group by that
- * period, strongest first; a second click restores the catalog order.
+ * The table's heading row: `Market`, the six periods and `Chart 1Y`, over the columns they name.
+ *
+ * The six periods are sort buttons: one click sorts the group by that period, strongest first; a
+ * second click restores the catalog order. `Market` and `Chart 1Y` are captions for the eye only.
+ * A row already says what each of its cells is — the fund by name, every return under its own
+ * period label, the trend line in words — so assistive technology is told nothing twice.
  */
 function ColumnHeadings({
   group,
   sort,
   onSort,
-  echo,
 }: {
   readonly group: MarketOverviewGroupResponse;
   readonly sort: MarketOverviewPeriod | undefined;
   readonly onSort: (period: MarketOverviewPeriod) => void;
-  readonly echo?: boolean;
 }) {
   return (
     <div
       className={styles.columnHeadings}
-      data-echo={echo ? "true" : undefined}
-      {...(echo
-        ? { "aria-hidden": true }
-        : { role: "group", "aria-label": `Sort ${group.label} by return` })}
+      data-testid={`market-overview-columns-${group.id}`}
     >
-      {MARKET_OVERVIEW_PERIODS.map((period) => (
-        <button
-          key={period}
-          type="button"
-          className={styles.columnHeading}
-          aria-pressed={sort === period}
-          data-active={sort === period ? "true" : undefined}
-          title={`${PERIOD_NAMES[period]} return`}
-          tabIndex={echo ? -1 : undefined}
-          onClick={() => onSort(period)}
-          {...(echo ? {} : { "data-testid": `market-overview-sort-${group.id}-${period}` })}
-        >
-          <span className={styles.srOnly}>Sort by {PERIOD_NAMES[period]} return</span>
-          {/* Before the label, so the label's right edge is the value column's right edge. */}
-          <span className={styles.sortGlyph} aria-hidden="true">
-            {sort === period ? "↓" : ""}
-          </span>
-          <span aria-hidden="true">{period}</span>
-        </button>
-      ))}
+      <span className={styles.columnLabel} aria-hidden="true">
+        Market
+      </span>
+      <div
+        className={styles.periodHeadings}
+        role="group"
+        aria-label={`Sort ${group.label} by return`}
+      >
+        {MARKET_OVERVIEW_PERIODS.map((period) => (
+          <button
+            key={period}
+            type="button"
+            className={styles.columnHeading}
+            aria-pressed={sort === period}
+            data-active={sort === period ? "true" : undefined}
+            title={`${PERIOD_NAMES[period]} return`}
+            onClick={() => onSort(period)}
+            data-testid={`market-overview-sort-${group.id}-${period}`}
+          >
+            <span className={styles.srOnly}>Sort by {PERIOD_NAMES[period]} return</span>
+            {/* Before the label, so the label's right edge is the value column's right edge. */}
+            <span className={styles.sortGlyph} aria-hidden="true">
+              {sort === period ? "↓" : ""}
+            </span>
+            <span aria-hidden="true">{period}</span>
+          </button>
+        ))}
+      </div>
+      <span className={styles.columnLabel} data-column="chart" aria-hidden="true">
+        Chart 1Y
+      </span>
     </div>
   );
 }
 
+/**
+ * One fund: the market it tracks, its six returns and its trailing-year trend line, in the order
+ * the table's columns name them.
+ *
+ * The market's name comes first and the ticker follows it on the same line. Where the line is too
+ * short for both, the name gives way with an ellipsis — the whole name stays in its tooltip — and
+ * the ticker, which is what a reader searches by, is never cut.
+ */
 function InstrumentRow({
   instrument,
-  marker,
 }: {
   readonly instrument: MarketOverviewInstrumentResponse;
-  readonly marker: string | undefined;
 }) {
-  const noteId = marker ? `market-overview-note-${instrument.ticker}` : undefined;
-
   return (
     <li
       className={styles.row}
       data-status={instrument.status}
       data-testid={`market-overview-row-${instrument.ticker}`}
-      {...(noteId ? { "aria-describedby": noteId } : {})}
     >
       <div className={styles.identity}>
-        <span className={styles.ticker} data-testid="market-overview-ticker">
-          {instrument.ticker}
-        </span>
-        <span className={styles.name} title={instrument.name}>
+        <span
+          className={styles.name}
+          title={instrument.name}
+          data-testid="market-overview-name"
+        >
           {instrument.name}
-          {marker ? (
-            <span className={styles.marker} aria-hidden="true">
-              {marker}
-            </span>
-          ) : null}
+        </span>
+        <span className={styles.ticker}>
+          (<span data-testid="market-overview-ticker">{instrument.ticker}</span>)
         </span>
         {instrument.status === "STALE" && instrument.sessionDate ? (
           <span
@@ -352,18 +332,6 @@ function InstrumentRow({
             No data
           </span>
         ) : null}
-      </div>
-      <div className={styles.trend}>
-        {instrument.sparkline ? (
-          <MarketSparkline
-            values={instrument.sparkline.values}
-            tone={sparklineTone(instrument)}
-            idPrefix={`market-overview-${instrument.ticker}`}
-            label={describeSparkline(instrument)}
-          />
-        ) : (
-          <span className={styles.trendEmpty} aria-hidden="true" />
-        )}
       </div>
       <dl className={styles.returns}>
         {MARKET_OVERVIEW_PERIODS.map((period) => {
@@ -393,105 +361,72 @@ function InstrumentRow({
           );
         })}
       </dl>
+      <div className={styles.trend}>
+        {instrument.sparkline ? (
+          <MarketSparkline
+            values={instrument.sparkline.values}
+            tone={sparklineTone(instrument)}
+            idPrefix={`market-overview-${instrument.ticker}`}
+            label={describeSparkline(instrument)}
+          />
+        ) : (
+          <span className={styles.trendEmpty} aria-hidden="true" />
+        )}
+      </div>
     </li>
   );
 }
 
-function Footnote({ overview }: { readonly overview: MarketOverviewResponse }) {
-  const markers = noteMarkers(overview.groups);
-  const noted = overview.groups
-    .flatMap((group) => group.instruments)
-    .filter((instrument) => instrument.note && markers.has(instrument.ticker));
-
-  return (
-    <FootnoteText>
-      {noted.map((instrument) => (
-        <p key={instrument.ticker} id={`market-overview-note-${instrument.ticker}`}>
-          <span aria-hidden="true">{markers.get(instrument.ticker)} </span>
-          {instrument.ticker}: {instrument.note}
-        </p>
-      ))}
-    </FootnoteText>
-  );
-}
-
 /**
- * What every number above is, in one paragraph. Static, so it is on screen while the data loads as
- * well; the instruments' own notes follow it once they are known, in a line reserved for them.
- */
-function FootnoteText({ children }: { readonly children?: ReactNode }) {
-  return (
-    <div className={styles.footnote} data-testid="market-overview-footnote">
-      <p>
-        Price returns from split-adjusted end-of-day closes of exchange-traded funds, excluding
-        dividends and other distributions. Fund prices are share prices, not index levels. 1W
-        covers 7 calendar days; YTD runs from the previous year&apos;s final close. Trend lines
-        show the trailing year, weekly.
-      </p>
-      <div className={styles.notes}>{children}</div>
-    </div>
-  );
-}
-
-/**
- * The loading shape: the real groups, row counts, row anatomy and footnote, built from the same
- * classes as the loaded rows with placeholders sized in `em`, so every row is the height it will
- * be at every width and nothing below the overview moves when the data lands.
+ * The loading shape: the real groups, row counts and row anatomy, built from the same classes as
+ * the loaded rows with placeholders sized in `em`, so every row is the height it will be at every
+ * width and nothing below the overview moves when the data lands.
  */
 function OverviewSkeleton() {
   return (
-    <>
-      <div className={styles.groups} aria-hidden="true" data-testid="market-overview-loading">
-        {MARKET_OVERVIEW_GROUP_IDS.map((id) => (
-          <section
-            key={id}
-            className={styles.group}
-            data-group={id}
-            data-selected={id === "BENCHMARKS" ? "true" : undefined}
-          >
-            <div className={styles.groupTitle}>
-              <Skeleton height="1.2em" width="8rem" />
-            </div>
-            <div
-              className={styles.groupBody}
-              data-split={id === "US_SECTORS" ? "true" : undefined}
-            >
-              <div className={styles.columnHeadings} />
-              {id === "US_SECTORS" ? (
-                <div className={styles.columnHeadings} data-echo="true" />
-              ) : null}
-              <ol className={styles.list}>
-                {Array.from({ length: MARKET_OVERVIEW_SKELETON_ROWS[id] }, (_, index) => (
-                  <li key={index} className={styles.row}>
-                    <div className={styles.identity}>
-                      <span className={styles.ticker}>
-                        <Skeleton height="1.2em" width="9rem" />
-                      </span>
-                    </div>
-                    <div className={styles.trend}>
-                      <Skeleton height="100%" width="100%" />
-                    </div>
-                    <div className={styles.returns}>
-                      {MARKET_OVERVIEW_PERIODS.map((period) => (
-                        <div key={period} className={styles.metric}>
-                          <span className={styles.metricLabel}>
-                            <Skeleton height="1.2em" width="1.6rem" />
-                          </span>
-                          <span className={styles.metricValue}>
-                            <Skeleton height="1.2em" width="3.2rem" />
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </section>
-        ))}
-      </div>
-      <FootnoteText />
-    </>
+    <div className={styles.groups} aria-hidden="true" data-testid="market-overview-loading">
+      {MARKET_OVERVIEW_GROUP_IDS.map((id) => (
+        <section
+          key={id}
+          className={styles.group}
+          data-group={id}
+          data-selected={id === "BENCHMARKS" ? "true" : undefined}
+        >
+          <div className={styles.groupTitle}>
+            <Skeleton height="1.2em" width="8rem" />
+          </div>
+          <div className={styles.groupBody}>
+            <div className={styles.columnHeadings} />
+            <ol className={styles.list}>
+              {Array.from({ length: MARKET_OVERVIEW_SKELETON_ROWS[id] }, (_, index) => (
+                <li key={index} className={styles.row}>
+                  <div className={styles.identity}>
+                    <span className={styles.name}>
+                      <Skeleton height="1.2em" width="9rem" />
+                    </span>
+                  </div>
+                  <div className={styles.returns}>
+                    {MARKET_OVERVIEW_PERIODS.map((period) => (
+                      <div key={period} className={styles.metric}>
+                        <span className={styles.metricLabel}>
+                          <Skeleton height="1.2em" width="1.6rem" />
+                        </span>
+                        <span className={styles.metricValue}>
+                          <Skeleton height="1.2em" width="3.2rem" />
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className={styles.trend}>
+                    <Skeleton height="100%" width="100%" />
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -511,19 +446,6 @@ function sortedBy(
       return b - a || left.index - right.index;
     })
     .map(({ instrument }) => instrument);
-}
-
-function noteMarkers(
-  groups: readonly MarketOverviewGroupResponse[],
-): ReadonlyMap<string, string> {
-  const markers = new Map<string, string>();
-  for (const instrument of groups.flatMap((group) => group.instruments)) {
-    const marker = NOTE_MARKERS[markers.size];
-    if (instrument.note && marker) {
-      markers.set(instrument.ticker, marker);
-    }
-  }
-  return markers;
 }
 
 function isPeriod(value: string): value is MarketOverviewPeriod {

@@ -418,12 +418,14 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
  * A Guest sees the published built-in monitors; a signed-in user sees those they have not hidden,
  * plus their own. Freshness comes from real scan times and is never described as live when it is not.
  *
- * Three things, in this order: a compact strip with `Run Backtest` and the current match count; the
- * ETF market overview (`docs/decisions/etf-market-overview-v1.md`), which is the market the matches
- * were found in; and the matches themselves. It is context and one action, not a second
- * information architecture: choosing which monitors feed the table is still a property of a monitor
- * and still lives on the Monitors page, because a configuration panel under the signals competed
- * with them for the screen and made the product's home page look like a settings screen.
+ * Three things, in this order: the current match count, in one compact card; the ETF market
+ * overview (`docs/decisions/etf-market-overview-v1.md`), which is the market the matches were found
+ * in; and the matches themselves. The Dashboard reports and starts nothing — a backtest is started
+ * from the Backtests area or from the List, Strategy or Monitor it is about — and it is context,
+ * not a second information architecture: choosing which monitors feed the table is still a
+ * property of a monitor and still lives on the Monitors page, because a configuration panel under
+ * the signals competed with them for the screen and made the product's home page look like a
+ * settings screen.
  */
 export function DashboardPage() {
   const { status, dashboard, reload } = useDashboard();
@@ -457,7 +459,7 @@ export function DashboardPage() {
             reader's heading key — it just is not a 120px card any more. */}
         <h1 className={styles.srOnly}>Dashboard</h1>
 
-        {/* The action strip first, then the market, then the matches. The strip is given the
+        {/* The match count first, then the market, then the matches. The count is given the
             *unfiltered* rows on purpose: narrowing the table below must not change what is
             matching. */}
         <DashboardOverview rows={rows} rowsReady={status === "ready"} />

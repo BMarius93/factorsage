@@ -4,7 +4,7 @@ import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
- * The Dashboard for a signed-in customer (PRO persona): the ETF market overview, the action strip
+ * The Dashboard for a signed-in customer (PRO persona): the ETF market overview, the match count
  * and the matches beside it.
  *
  * Needs `pnpm test:personas:seed`. The market overview is the same deterministic ETF fixture the
@@ -53,19 +53,25 @@ test.describe("PRO_USER dashboard", () => {
     }
   });
 
-  test("takes Run Backtest straight to the canonical New Backtest route", async ({
+  test("starts a backtest from the Backtests area, not from a Dashboard button", async ({
     page,
   }) => {
     await page.goto("/");
-    const card = page.getByTestId("dashboard-run-backtest");
+    await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
+    // The Dashboard's own call to action is gone…
+    await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
 
-    // A real link for a signed-in viewer, so the browser's own affordances work.
-    await expect(card).toHaveAttribute("href", "/backtests/new");
-    await card.click();
+    // …and the way to a backtest is unchanged: the navigation, then the area's own action.
+    await page
+      .getByRole("navigation", { name: "Primary", exact: true })
+      .getByRole("link", { name: "Backtests" })
+      .click();
+    await expect(page).toHaveURL(/\/backtests$/);
+    await page.getByRole("link", { name: "New backtest", exact: true }).click();
 
     await expect(page).toHaveURL(/\/backtests\/new$/);
     await expect(page.getByTestId("backtest-benchmark")).toBeVisible();
-    // No prompt: the viewer has an account.
     await expect(page.getByTestId("sign-in-prompt")).toHaveCount(0);
   });
 
@@ -157,13 +163,15 @@ test.describe("PRO_USER dashboard", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await dismissConsent(page);
-    await expect(page.getByTestId("dashboard-run-backtest")).toBeVisible();
+    await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
     await expect(page.getByTestId("market-overview-category")).toBeVisible();
     await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
     for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"]) {
       await expect(page.getByTestId(`market-overview-return-SPY-${period}`)).toBeVisible();
     }
+    // A phone card carries the six returns and no trend line.
+    await expect(page.getByTestId("market-overview-SPY-sparkline")).toBeHidden();
     await expect(qaRows(page).first()).toBeAttached();
 
     const overflow = await page.evaluate(() => ({

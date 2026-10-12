@@ -98,8 +98,6 @@ const MONTHS = [
   "Dec",
 ] as const;
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
 function parseSessionDate(date: string): Date | null {
   const parsed = new Date(`${date}T00:00:00.000Z`);
   return Number.isNaN(parsed.valueOf()) ? null : parsed;
@@ -119,15 +117,6 @@ export function formatSessionDate(date: string): string {
     return date;
   }
   return `${parsed.getUTCDate()} ${MONTHS[parsed.getUTCMonth()] as string}`;
-}
-
-/** A session as `Fri 9 Oct 2026`, for the overview's as-of line. */
-export function formatLongSessionDate(date: string): string {
-  const parsed = parseSessionDate(date);
-  if (!parsed) {
-    return date;
-  }
-  return `${WEEKDAYS[parsed.getUTCDay()] as string} ${formatSessionDate(date)} ${parsed.getUTCFullYear()}`;
 }
 
 /** A session as `9 Oct 2026`. */
