@@ -123,9 +123,10 @@ another process already holds the same port on `127.0.0.1` — the request then 
 This machine has two such listeners (editor helpers): one answers `404` with an empty body, the
 other accepts and never answers, after which every later test in the file times out at 5 s. Both
 were reproduced deliberately during TEST-001. `await app.listen(0, "127.0.0.1")` removes the
-mechanism; `registration-enumeration` and `backtests` do it. Other suites still use `app.init()`
-and remain exposed to the same rare collision — a `404 {}` or a 5 s timeout cascade in one of them
-is this, not a product failure, until they are converted.
+mechanism, and every suite does it: the last twenty-three were converted on 2026-10-12, after one
+full `pnpm test` lost `monitors` to the `404` and `stocks.search` to the timeouts in the same run.
+`apps/api/src/http-suite-loopback.test.ts` reads the suites as source and fails on an `init()` left
+unlistened, on a wildcard `listen(0)`, or on an application created without a loopback listen.
 
 Prepare the database once, then keep `TEST_DATABASE_URL` in `.env` so `pnpm test`
 picks it up:

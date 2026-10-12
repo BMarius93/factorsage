@@ -76,7 +76,10 @@ describeRedis("rate limiting on the real API surface", () => {
       ],
     }).compile();
     app = moduleRef.createNestApplication();
-    await app.listen(0);
+    // Bound to loopback, never to the wildcard address: a wildcard ephemeral port can be one
+    // another process holds on 127.0.0.1, and requests then reach that process
+    // (`ai/workflows/validation.md`, "bind it to loopback").
+    await app.listen(0, "127.0.0.1");
 
     prisma = moduleRef.get(PrismaService);
     redis = app.get<Redis>(RATE_LIMIT_REDIS);

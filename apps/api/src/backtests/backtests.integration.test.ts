@@ -1854,7 +1854,10 @@ describe("backtests", () => {
       .useValue(`ABSENT_${suffix.slice(0, 8).toUpperCase()}`)
       .compile();
     const isolatedApp = isolated.createNestApplication();
-    await isolatedApp.init();
+    // Bound to loopback, never left unlistened: an unlistened app makes supertest bind a
+    // wildcard port per request, which on macOS can be one another process holds on
+    // 127.0.0.1 (`ai/workflows/validation.md`, "bind it to loopback").
+    await isolatedApp.listen(0, "127.0.0.1");
 
     try {
       const client = request.agent(isolatedApp.getHttpServer());

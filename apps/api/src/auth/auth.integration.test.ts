@@ -57,7 +57,10 @@ describe("authentication and role authorization", () => {
     app = moduleRef.createNestApplication();
     const apiConfig = getApiConfig();
     app.enableCors({ origin: apiConfig.corsOrigins, credentials: true });
-    await app.init();
+    // Bound to loopback, never left unlistened: an unlistened app makes supertest bind a
+    // wildcard port per request, which on macOS can be one another process holds on
+    // 127.0.0.1 (`ai/workflows/validation.md`, "bind it to loopback").
+    await app.listen(0, "127.0.0.1");
 
     prisma = moduleRef.get(PrismaService);
     passwords = moduleRef.get(PasswordService);
