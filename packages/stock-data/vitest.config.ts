@@ -13,5 +13,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     fileParallelism: false,
+    // Fails a run that leaves keys behind in the shared Redis. See the file.
+    globalSetup: ["./vitest.global-setup.ts"],
   },
 });

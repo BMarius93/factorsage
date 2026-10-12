@@ -48,6 +48,7 @@ import {
   WEEKLY_PRICE_VARIANT,
 } from "./ports.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
+import { deleteRedisNamespace } from "./redis-namespace.test-helper.js";
 import {
   createStockDataRedisClient,
   IoredisCacheClient,
@@ -1461,6 +1462,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
         await cache.evict(securityId);
         await prismaA.security.deleteMany({ where: { id: securityId } });
       }
+      // Eviction removes a security's keys; the namespace's own access counter is not one of them.
+      await deleteRedisNamespace(redisA, namespace);
       redisA.disconnect();
       redisB.disconnect();
       await prismaA.$disconnect();
@@ -1554,6 +1557,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
         await cache.evict(securityId);
         await prisma.security.deleteMany({ where: { id: securityId } });
       }
+      // Eviction removes a security's keys; the namespace's own access counter is not one of them.
+      await deleteRedisNamespace(redis, namespace);
       redis.disconnect();
       await prisma.$disconnect();
     }

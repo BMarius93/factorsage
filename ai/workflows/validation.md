@@ -140,6 +140,19 @@ Redis isolation is deliberately different: suites keep one instance and isolate
 by randomized key namespace with targeted cleanup. Nothing resets or flushes
 developer infrastructure.
 
+Because nothing is flushed, a suite that does not delete what it wrote leaks it for good: a
+committed projection carries no expiry. `benchmark-retention` cleaned PostgreSQL in its teardown
+and never Redis, and left about 5,500 keys and 184 MB in one development Redis before it was
+noticed. `packages/stock-data` therefore enforces the cleanup rather than trusting it:
+
+- `src/redis-namespace.test-helper.ts` is the teardown. `deleteRedisNamespace(redis, namespace)`
+  removes exactly the keys at or below one suite namespace — `SCAN` and `UNLINK`, never a sibling
+  that shares a prefix — and refuses a namespace that touches one of the product's own key roots.
+- `vitest.global-setup.ts` fails the run. It records the suite-owned keys before the first test
+  and, after the last, names every key the run created that is still there and will never expire.
+  Keys with an expiry are not leaks, and the product's own roots are not looked at, so a
+  development stack working beside the run cannot trip it.
+
 Redis-backed suites resolve `TEST_REDIS_URL` then `REDIS_URL`. Locally a missing
 value skips them, so a developer without `pnpm infra:up` is not blocked. **In CI
 (`CI=true`) a missing value is a hard failure instead of a skip**, because
