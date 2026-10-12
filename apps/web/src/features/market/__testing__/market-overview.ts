@@ -22,11 +22,11 @@ const GROUPS: readonly {
     label: "Benchmarks",
     shortLabel: "Benchmarks",
     instruments: [
-      ["SPY", "S&P 500 ETF"],
-      ["QQQ", "Nasdaq-100 ETF"],
-      ["DIA", "Dow Jones Industrial Average ETF"],
-      ["IWM", "Russell 2000 ETF"],
-      ["RSP", "S&P 500 Equal Weight ETF"],
+      ["SPY", "S&P 500"],
+      ["QQQ", "Nasdaq-100"],
+      ["DIA", "Dow Jones"],
+      ["IWM", "Russell 2000"],
+      ["RSP", "S&P 500 Equal Weight"],
     ],
   },
   {
@@ -53,9 +53,9 @@ const GROUPS: readonly {
     shortLabel: "Macro",
     instruments: [
       ["GLD", "Gold"],
-      ["USO", "Oil futures", "Tracks near-month WTI crude oil futures, not the spot price of oil."],
-      ["TLT", "Long-term US Treasury bonds"],
-      ["HYG", "High-yield corporate bonds"],
+      ["USO", "Oil Futures", "Tracks near-month WTI crude oil futures, not the spot price of oil."],
+      ["TLT", "Long-Term Treasuries"],
+      ["HYG", "High-Yield Bonds"],
     ],
   },
 ];

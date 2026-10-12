@@ -14,6 +14,10 @@ import type { LocalDate } from "./stock-data.js";
  * maintain. `GET /market-overview` reads it to answer in this order, with these words; the provider
  * symbol behind each benchmark code never crosses that contract.
  *
+ * A `label` is the market, index, sector or asset class the fund tracks — `S&P 500`, `Technology`,
+ * `Long-Term Treasuries` — and never the fund's own name: the overview prints the ticker beside
+ * it, which is what says the row is a fund.
+ *
  * Each entry names the benchmark **code** its history is stored under. `SPY` names `SP500`: the
  * backtest benchmark and execution calendar are the same SPY series, so the overview reuses it
  * rather than storing and fetching SPY twice. Every other entry has a catalog row of its own, active
@@ -36,13 +40,16 @@ export type MarketOverviewGroupId = (typeof MARKET_OVERVIEW_GROUP_IDS)[number];
 export type MarketOverviewEtf = {
   /** The exchange ticker the product displays. */
   readonly ticker: string;
-  /** What the overview calls it. */
+  /** What the overview calls it: the market the fund tracks, not the fund. */
   readonly label: string;
   /** The benchmark code the history is stored under. */
   readonly benchmarkCode: string;
   /** `YYYY-MM`: the month the fund began trading. */
   readonly listedIn: string;
-  /** A qualification the overview must show beside the instrument, when it has one. */
+  /**
+   * A qualification of what the instrument tracks, when it has one. It travels in the contract;
+   * the Dashboard's compact table does not print it, so the `label` must be honest without it.
+   */
   readonly note?: string;
 };
 
@@ -62,31 +69,31 @@ export const MARKET_OVERVIEW_ETF_GROUPS = [
     etfs: [
       {
         ticker: "SPY",
-        label: "S&P 500 ETF",
+        label: "S&P 500",
         benchmarkCode: DEFAULT_BENCHMARK_CODE,
         listedIn: "1993-01",
       },
       {
         ticker: "QQQ",
-        label: "Nasdaq-100 ETF",
+        label: "Nasdaq-100",
         benchmarkCode: "ETF_QQQ",
         listedIn: "1999-03",
       },
       {
         ticker: "DIA",
-        label: "Dow Jones Industrial Average ETF",
+        label: "Dow Jones",
         benchmarkCode: "ETF_DIA",
         listedIn: "1998-01",
       },
       {
         ticker: "IWM",
-        label: "Russell 2000 ETF",
+        label: "Russell 2000",
         benchmarkCode: "ETF_IWM",
         listedIn: "2000-05",
       },
       {
         ticker: "RSP",
-        label: "S&P 500 Equal Weight ETF",
+        label: "S&P 500 Equal Weight",
         benchmarkCode: "ETF_RSP",
         listedIn: "2003-04",
       },
@@ -178,20 +185,20 @@ export const MARKET_OVERVIEW_ETF_GROUPS = [
       },
       {
         ticker: "USO",
-        label: "Oil futures",
+        label: "Oil Futures",
         benchmarkCode: "ETF_USO",
         listedIn: "2006-04",
         note: "Tracks near-month WTI crude oil futures, not the spot price of oil.",
       },
       {
         ticker: "TLT",
-        label: "Long-term US Treasury bonds",
+        label: "Long-Term Treasuries",
         benchmarkCode: "ETF_TLT",
         listedIn: "2002-07",
       },
       {
         ticker: "HYG",
-        label: "High-yield corporate bonds",
+        label: "High-Yield Bonds",
         benchmarkCode: "ETF_HYG",
         listedIn: "2007-04",
       },

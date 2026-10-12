@@ -219,7 +219,7 @@ describe("MarketService", () => {
       expect(one.sparkline?.endDate).toBe("2026-10-09");
     }
     expect(instrument(body, "USO").note).toMatch(/futures/i);
-    expect(instrument(body, "SPY").name).toBe("S&P 500 ETF");
+    expect(instrument(body, "SPY").name).toBe("S&P 500");
   });
 
   it("reads SPY from the SP500 series: the backtest benchmark, not a second copy", async () => {
