@@ -14,10 +14,12 @@ they are. This PR only stops the Dashboard from showing them.
 
 **Amended 2026-10-12 — the compact Dashboard composition (owner).** Section 6 is replaced: the
 overview is now two columns of single-line, eight-column tables on a wide desktop and compact cards
-on a phone, it names each fund by the market it tracks, and it prints no subtitle, methodology or
-footnote. The contract, the arithmetic, the data path and the cache (sections 2 to 5) are unchanged;
-only the catalog's display labels moved (section 1). Where an earlier sentence in this document said
-the Dashboard states something in a footnote, it now states it in the contract only.
+on a phone, it names each fund by the market it tracks, and it prints no heading, subtitle,
+methodology or footnote. Nothing stands above it either: the strip that opened the Dashboard — a
+`Run Backtest` card and a Current matches count — is gone. The contract, the arithmetic, the data
+path and the cache (sections 2 to 5) are unchanged; only the catalog's display labels moved
+(section 1). Where an earlier sentence in this document said the Dashboard states something in a
+footnote, it now states it in the contract only.
 
 ## Context
 
@@ -180,16 +182,18 @@ from `stock-read` to `standard-read`: it no longer hydrates anything.
 
 ### 6. The Dashboard
 
-Order: the current match count in one compact card, the market overview, then Current matches —
-unchanged in every behaviour. The three index cards and the VIX gauge are removed from the web app,
-and so is the strip's `Run Backtest` card: a backtest is started from the Backtests area or from the
-List, Strategy or Monitor it is about.
+Order: the market overview, then Current matches — unchanged in every behaviour. Nothing stands
+above the overview. The three index cards and the VIX gauge are removed from the web app, and so is
+the whole opening strip: its `Run Backtest` card, because a backtest is started from the Backtests
+area or from the List, Strategy or Monitor it is about, and its Current matches count, because the
+section that lists the matches already counts them on its filters.
 
 The overview exists to be read at a glance and then got past, so it is as short as twenty funds
-allow: Current matches starts on the first screen of a 1,440 × 900 display.
+allow — 378px on a desktop — and Current matches, its first row included, is on the first screen of
+a 1,440 × 900 display.
 
 - **One table, three times.** From 880px every group is the same eight columns in this order —
-  `Market | 1W | 1M | 3M | 6M | YTD | 1Y | Chart 1Y` — with one 36px line per fund. `Market` is the
+  `Market | 1W | 1M | 3M | 6M | YTD | 1Y | Chart 1Y` — with one 30px line per fund. `Market` is the
   market's name with the ticker after it in a quieter voice, on that one line; a name too long for
   its column ends in an ellipsis and never wraps. The six period headings double as sort buttons
   (strongest first; a second click restores the catalog order). `Chart 1Y` is the trailing-year
@@ -198,19 +202,22 @@ allow: Current matches starts on the first screen of a 1,440 × 900 display.
   on the right, and the two columns **start and end on the same lines**. Sector Performance spans
   both rows of the left column in one grid, so that holds whatever the groups contain; at the
   chosen geometry it also holds with nothing stretched, because a second card's title, heading row
-  and border plus the gap come to exactly two rows. If they ever do not, the difference is shared
-  among the shorter column's rows, never left as space under it. Between 1,280px and 1,439px the
-  table steps down one type size and draws a shorter line, so the longest name still fits.
+  and border plus the gap come to exactly two rows (24 + 22 + 2 + 12 = 2 × 30). If they ever do
+  not, the difference is shared among the shorter column's rows, never left as space under it.
+  Between 1,280px and 1,439px the table steps down one type size and draws a shorter line, so the
+  longest name still fits.
 - **880–1,279px** — the same three tables, one under another across the page: half of that page
   cannot hold eight columns.
 - **< 880px** — a category selector (`Benchmarks / Sectors / Macro`, a choice of group, never of
   period) and a native sort select; one compact card per fund with the market and its ticker on one
   line and the six returns as a labelled 3 × 2 grid. No trend line on a card. No horizontal
   scrolling.
-- **No explanation.** The section keeps its heading and prints nothing else about its numbers: no
-  as-of subtitle, no methodology paragraph, no footnotes. They remain end-of-day price returns, and
-  the contract still says so (`basis`, `returnBasis`, `asOf`, `note`); nothing on the page may
-  describe them as live.
+- **No heading and no explanation.** The section has no title — its tables, or on a phone its
+  category selector, are the first thing on the page — and prints nothing about its numbers: no
+  as-of subtitle, no methodology paragraph, no footnotes. It remains a named region for assistive
+  technology, and each group's title is a heading at the level of the Dashboard's other sections.
+  The numbers remain end-of-day price returns, and the contract still says so (`basis`,
+  `returnBasis`, `asOf`, `note`); nothing on the page may describe them as live.
 - **States** — a skeleton with the final layout's geometry (no shift), a clean unavailable panel
   when nothing has data, an error panel with retry, a `STALE` pill with the fund's own date, a
   `No data` pill, `—` for an unavailable return (announced as "not available"), `0.0%` for zero.

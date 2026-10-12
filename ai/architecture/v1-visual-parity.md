@@ -144,32 +144,34 @@ behaviour, that is the point to generalise, with the shared thing modelling save
 New Backtest must use this phone action bar. Its summary should describe the current configuration
 or allocation state, never V1 credits.
 
-### The Dashboard overview strip and market overview
+### The Dashboard market overview
 
-The Dashboard opens with the current match count in one compact card, then the ETF market overview,
-then the Current matches table. V1's five-card row (`Run Backtest · S&P 500 · DJIA · VIX · Real-time
-Matches`) is retired: the market overview (`docs/decisions/etf-market-overview-v1.md`) answers what
-its three index cards gestured at, across twenty funds and six periods, and the Dashboard carries no
-`Run Backtest` action — a backtest starts from the Backtests area or from the List, Strategy or
-Monitor it is about. Both are feature-owned compositions on the page canvas, not `SectionCard`s. From
-880px the count card is one column of two, so from 1,280px it ends where the group beneath it ends.
+The Dashboard opens with the ETF market overview and continues with the Current matches table.
+Nothing stands above the overview: no opening strip, no summary card and no section heading. V1's
+five-card row (`Run Backtest · S&P 500 · DJIA · VIX · Real-time Matches`) is retired whole. The
+market overview (`docs/decisions/etf-market-overview-v1.md`) answers what its three index cards
+gestured at, across twenty funds and six periods; a backtest starts from the Backtests area or from
+the List, Strategy or Monitor it is about; and the matches are counted where they are listed, on
+the Current matches filters. The overview is a feature-owned composition on the page canvas, not a
+`SectionCard`.
 
 - **flat, not elevated.** V1 gives each card a soft drop shadow. V2 surfaces use `--shadow-surface`
   (`none`), because a glow under every panel is the single loudest thing that made V2 read as a
   different product.
-- **short, so the matches start on the first screen.** The overview is its heading and its tables,
-  and nothing that explains them: no subtitle, no methodology, no footnote. Its numbers are still
-  end-of-day price returns — the contract says so — and nothing on the Dashboard says `24h` or live.
+- **short, so the matches are on the first screen.** The overview is its tables and nothing that
+  introduces or explains them: no title, no subtitle, no methodology, no footnote. Its numbers are
+  still end-of-day price returns — the contract says so — and nothing on the Dashboard says `24h`
+  or live.
 - **one table, three times, on a desktop; purpose-built on a phone.** Every group is the same eight
-  columns — `Market`, the six returns under sortable period headings, `Chart 1Y` — one 36px line per
+  columns — `Market`, the six returns under sortable period headings, `Chart 1Y` — one 30px line per
   fund, the market named first and its ticker beside it. From 1,280px they stand in two columns that
   start and end on the same lines: Benchmarks over Macro & Alternatives, beside Sector Performance.
   From 880px to 1,279px the three run one under another. Below 880px a category selector and one
   compact card per fund — name and ticker on one line, a labelled 3 × 2 return grid, no trend line —
   never a squeezed table.
 
-Do not put market cards or a `Run Backtest` card back into the strip, and do not let either column
-of the overview end short of the other.
+Do not put a summary card, a `Run Backtest` card or a heading back above the overview, and do not
+let either column of it end short of the other.
 
 ## Visual tokens and elevation
 
