@@ -48,6 +48,7 @@ import {
   WEEKLY_PRICE_VARIANT,
 } from "./ports.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
+import { deleteRedisNamespace } from "./redis-namespace.test-helper.js";
 import {
   createStockDataRedisClient,
   IoredisCacheClient,
@@ -136,6 +137,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       `stock-data:load:${namespace}:lock`,
       `stock-data:load:${namespace}:exception`,
       `stock-data:load:${namespace}:timeout`,
+      `stock-data:load:${namespace}:call-wait`,
     );
     redisA.disconnect();
     redisB.disconnect();
@@ -609,6 +611,59 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(Date.now() - startedAt).toBeLessThan(2_000);
     releaseHolder();
     await first;
+  });
+
+  it("lets one call give up on the lock sooner than its coordinator would, and changes nothing else", async () => {
+    const resource = `${namespace}:call-wait`;
+    const lockKey = `stock-data:load:${resource}`;
+    const holder = new RedlockLoadCoordinator(redisA, {
+      lockDurationMs: 2_000,
+      lockWaitMs: 2_000,
+    });
+    // Its own wait is far longer than this test may take: only the call's wait can end it.
+    const waiter = new RedlockLoadCoordinator(redisB, {
+      lockDurationMs: 2_000,
+      lockWaitMs: 60_000,
+      retryDelayMs: 50,
+    });
+    const held = gate();
+    const release = gate();
+    const first = holder.run(resource, async () => {
+      held.open();
+      await release.opened;
+    });
+    await held.opened;
+    try {
+      let ran = false;
+      const startedAt = Date.now();
+      await expect(
+        waiter.run(
+          resource,
+          async () => {
+            ran = true;
+          },
+          { waitMs: 300 },
+        ),
+      ).rejects.toThrow();
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+      expect(Date.now() - startedAt).toBeLessThan(2_000);
+      expect(ran).toBe(false);
+      // Giving up released nothing that was not the waiter's: the holder still owns the lock.
+      expect(await redisA.exists(lockKey)).toBe(1);
+    } finally {
+      release.open();
+      await first;
+    }
+
+    // The same coordinator, on a call that names no wait, takes the free lock as it always did,
+    // and leaves nothing behind.
+    await expect(waiter.run(resource, async () => "free")).resolves.toBe(
+      "free",
+    );
+    expect(await redisA.exists(lockKey)).toBe(0);
+    await expect(
+      waiter.run(resource, async () => "unused", { waitMs: 0 }),
+    ).rejects.toThrow("waitMs must be a positive integer");
   });
 
   it("shares concurrency, rate, and cooldown backpressure across gate instances", async () => {
@@ -1265,6 +1320,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
   });
 
   it("uses one FMP delta for two service instances with different projections", async () => {
+    const LOCK_DURATION_MS = 2_000;
     const suffix = randomUUID();
     const namespace = `stock-data:v2:test:service:${suffix}`;
     const symbol = `T${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
@@ -1277,6 +1333,11 @@ describeInfrastructure("cross-process canonical hydration", () => {
       redisUrl ?? "redis://localhost:6379",
     );
     const provider = new IntegrationProvider();
+    // The provider's delta is held open by the test, not by a timer, and released on every path
+    // out so that neither hydration is left waiting on it.
+    const deltaStarted = gate();
+    const deltaReleased = gate();
+    let reads: Promise<unknown> | undefined;
     let securityId: string | undefined;
     try {
       const security = await prismaA.security.create({
@@ -1355,7 +1416,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         provider,
         cacheA,
         new RedlockLoadCoordinator(redisA, {
-          lockDurationMs: 2_000,
+          lockDurationMs: LOCK_DURATION_MS,
           lockWaitMs: 6_000,
         }),
         {
@@ -1368,7 +1429,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         provider,
         new RedisStockDataCache(new IoredisCacheClient(redisB), 10, namespace),
         new RedlockLoadCoordinator(redisB, {
-          lockDurationMs: 2_000,
+          lockDurationMs: LOCK_DURATION_MS,
           lockWaitMs: 6_000,
         }),
         {
@@ -1377,30 +1438,66 @@ describeInfrastructure("cross-process canonical hydration", () => {
         },
       );
 
-      // Only the delta is slow, so the other caller provably waits on the lock for it. The
+      // Only the delta is held, so the other caller provably waits on the lock for it. The
       // earliest-row re-read before the delta is saved answers at once.
-      provider.delayMs = 3_500;
-      provider.delayedRange = "1992-08-24:2014-12-31";
-      const startedAt = Date.now();
+      provider.held = {
+        range: "1992-08-24:2014-12-31",
+        started: deltaStarted.open,
+        released: deltaReleased.opened,
+      };
+      let answered = 0;
+      const counted = <T>(read: Promise<T>): Promise<T> =>
+        read.finally(() => {
+          answered += 1;
+        });
       // Both windows reach past the retention horizon, so both resolve to the same load target:
       // whichever process wins the Redlock does the one delta and the other waits on it.
-      const [older, newer] = await Promise.all([
-        serviceA.getDailyPrices(symbol, {
-          from: "1997-01-01",
-          to: "2020-12-31",
-        }),
-        serviceB.getDailyPrices(symbol, {
-          from: "1999-01-01",
-          to: "2025-12-31",
-        }),
+      const both = Promise.all([
+        counted(
+          serviceA.getDailyPrices(symbol, {
+            from: "1997-01-01",
+            to: "2020-12-31",
+          }),
+        ),
+        counted(
+          serviceB.getDailyPrices(symbol, {
+            from: "1999-01-01",
+            to: "2025-12-31",
+          }),
+        ),
       ]);
+      reads = both;
+      // A read that fails before the delta starts must fail the test, not leave it waiting.
+      await Promise.race([deltaStarted.opened, both]);
+
+      // One instance holds the lock and is inside the provider. It stays there until Redlock has
+      // renewed the lease, which it does a second before the two-second lock would lapse: a
+      // provider slower than one lease is exactly when the other instance must still be kept out,
+      // and the renewal is what keeps it out. Observed on the lock itself rather than inferred
+      // from how long the read took — the earlier form of this test slept 3.5 s to outlast the
+      // lease and so spent most of its five-second budget waiting.
+      await expect(
+        leaseRenewed(
+          redisA,
+          `stock-data:load:hydrate:${security.id}`,
+          LOCK_DURATION_MS,
+        ),
+      ).resolves.toBe(true);
+      // The other instance is still waiting on that lock: it has asked the provider nothing and
+      // neither caller has an answer.
+      expect(provider.ranges).toEqual([
+        { from: "1992-08-24", to: "2014-12-31" },
+      ]);
+      expect(answered).toBe(0);
+
+      deltaReleased.open();
+      const [older, newer] = await both;
 
       expect(provider.ranges).toEqual([
         { from: "1992-08-24", to: "2014-12-31" },
         // The earliest stored sessions, re-read once before the delta is saved beside them.
         { from: "2022-01-03", to: "2022-02-02" },
       ]);
-      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
       expect(newer.map((row) => row.date)).toEqual([
         "2010-01-04",
@@ -1452,6 +1549,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
         derivedWritesA.mock.calls.length + derivedWritesB.mock.calls.length,
       ).toBe(1);
     } finally {
+      // On a failure above the delta may still be held: let both hydrations finish before their
+      // connections go.
+      deltaReleased.open();
+      await reads?.catch(() => {});
       if (securityId) {
         const cache = new RedisStockDataCache(
           new IoredisCacheClient(redisA),
@@ -1461,6 +1562,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
         await cache.evict(securityId);
         await prismaA.security.deleteMany({ where: { id: securityId } });
       }
+      // Eviction removes a security's keys; the namespace's own access counter is not one of them.
+      await deleteRedisNamespace(redisA, namespace);
       redisA.disconnect();
       redisB.disconnect();
       await prismaA.$disconnect();
@@ -1554,6 +1657,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
         await cache.evict(securityId);
         await prisma.security.deleteMany({ where: { id: securityId } });
       }
+      // Eviction removes a security's keys; the namespace's own access counter is not one of them.
+      await deleteRedisNamespace(redis, namespace);
       redis.disconnect();
       await prisma.$disconnect();
     }
@@ -2886,13 +2991,56 @@ describeInfrastructure(
   },
 );
 
+/** A promise and the function that settles it. */
+function gate(): { opened: Promise<void>; open: () => void } {
+  let open = (): void => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open };
+}
+
+/**
+ * Resolves `true` once the lock at `key` has had its lease renewed, `false` if the lock is gone or
+ * was never renewed.
+ *
+ * A held lock's remaining time only falls. The moment it rises, its holder has extended it — which
+ * is the thing a test about a slow holder wants to see, and takes about half a lease to happen
+ * rather than a whole one.
+ */
+async function leaseRenewed(
+  redis: ReturnType<typeof createStockDataRedisClient>,
+  key: string,
+  lockDurationMs: number,
+): Promise<boolean> {
+  const giveUpAt = Date.now() + lockDurationMs * 3;
+  let lowest = Number.POSITIVE_INFINITY;
+  while (Date.now() < giveUpAt) {
+    const remaining = await redis.pttl(key);
+    if (remaining < 0) {
+      return false;
+    }
+    // Well clear of the jitter between two reads of a clock that is only running down.
+    if (remaining > lowest + lockDurationMs / 4) {
+      return true;
+    }
+    lowest = Math.min(lowest, remaining);
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 20);
+    });
+  }
+  return false;
+}
+
 class IntegrationProvider implements FmpStockProviderPort {
   securityId = "";
   readonly ranges: Required<DateRange>[] = [];
   readonly rows = new Map<string, ReturnType<typeof integrationPrice>[]>();
-  delayMs = 0;
-  /** When set, only this `from:to` range is delayed. */
-  delayedRange?: string;
+  /**
+   * When set, a read of this `from:to` range reports that it has started and then waits to be
+   * released. The test decides how long the provider takes; no timer does.
+   */
+  held?: { range: string; started: () => void; released: Promise<void> };
 
   async getProfile() {
     return null;
@@ -2901,14 +3049,9 @@ class IntegrationProvider implements FmpStockProviderPort {
   async getDailyPrices(_symbol: string, _securityId: string, range: DateRange) {
     if (!range.from || !range.to) throw new Error("Expected bounded range");
     this.ranges.push({ from: range.from, to: range.to });
-    if (
-      this.delayMs > 0 &&
-      (this.delayedRange === undefined ||
-        this.delayedRange === `${range.from}:${range.to}`)
-    ) {
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, this.delayMs);
-      });
+    if (this.held?.range === `${range.from}:${range.to}`) {
+      this.held.started();
+      await this.held.released;
     }
     return this.rows.get(`${range.from}:${range.to}`) ?? [];
   }

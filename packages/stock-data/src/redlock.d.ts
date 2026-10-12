@@ -22,5 +22,13 @@ declare module "redlock" {
       duration: number,
       routine: (signal: RedlockAbortSignal) => Promise<T>,
     ): Promise<T>;
+
+    /** `settings` are laid over the instance's for this one acquisition. */
+    using<T>(
+      resources: string[],
+      duration: number,
+      settings: Partial<RedlockSettings>,
+      routine: (signal: RedlockAbortSignal) => Promise<T>,
+    ): Promise<T>;
   }
 }

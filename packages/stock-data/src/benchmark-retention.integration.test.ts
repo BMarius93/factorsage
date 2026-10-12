@@ -18,6 +18,10 @@ import {
   createStockDataRedisClient,
   IoredisCacheClient,
 } from "./redis-client.js";
+import {
+  deleteRedisNamespace,
+  redisKeysUnder,
+} from "./redis-namespace.test-helper.js";
 
 /**
  * An immutable backtest period is not re-measured against a later clock.
@@ -187,12 +191,20 @@ describeRetention(
     }, 120_000);
 
     afterAll(async () => {
-      // The row itself, not only its bars: an orphaned fixture benchmark is still a catalog row,
-      // and it used to accumulate one `RET…` entry per run in every shared test database.
-      // Series, bars, coverage and watermarks cascade from it.
-      await prisma.benchmark.deleteMany({ where: { code } });
-      await prisma.$disconnect();
-      redis.disconnect();
+      try {
+        // The row itself, not only its bars: an orphaned fixture benchmark is still a catalog row,
+        // and it used to accumulate one `RET…` entry per run in every shared test database.
+        // Series, bars, coverage and watermarks cascade from it.
+        await prisma.benchmark.deleteMany({ where: { code } });
+        // And the projection. PostgreSQL was cleaned here from the start and Redis never was: every
+        // run left this suite's heads, fences, registries and year chunks behind, none of which
+        // expires — about 5,500 keys and 184 MB in one development Redis by the time it was found.
+        await deleteRedisNamespace(redis, namespace);
+        expect(await redisKeysUnder(redis, namespace)).toEqual([]);
+      } finally {
+        await prisma.$disconnect();
+        redis.disconnect();
+      }
     });
 
     const firstDate = async (today: string): Promise<string | undefined> => {

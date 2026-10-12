@@ -42,15 +42,36 @@ apply:
   migration, or whether a migration can apply to a database holding real rows.
 - `pnpm --filter @intrinsic/stock-data test:redis`.
 
+## `pnpm test` runs one package at a time
+
+`pnpm test` is `pnpm -r --workspace-concurrency=1 --if-present test`: every workspace suite, in
+dependency order, never two at once.
+
+pnpm's default runs four packages together. That put the web suite — a jsdom worker for every core
+— beside `packages/stock-data`'s integration suites, which drive one real PostgreSQL and one real
+Redis and whose tests are sized for a machine that is not otherwise saturated. Measured on the
+eight-core development machine on 2026-10-12, with only those two suites running: a persistence
+test that takes 2.0 s alone took 4.4–5.4 s, load average passed 30, and two `redis.integration`
+cases crossed vitest's five-second limit in every run. So `pnpm test` failed locally while each
+package passed alone, and — because pnpm stops at the first failing package — never reached
+`apps/api` or `apps/worker`, which also ran together, on one test database.
+
+Serializing the workspace removes that contention at its source, for the reason the three
+PostgreSQL-backed packages already serialize their own files (`fileParallelism: false`): a longer
+deadline only moves the point at which the interference shows. The whole command takes about eight
+and a half minutes on that machine, under a minute more than the parallel run would if it passed.
+`packages/config/src/workspace-builds.test.ts` keeps the flag. A package's own script is unchanged,
+so one suite still runs alone, and several can still be run side by side by hand.
+
 ## Package builds are incremental
 
-`pnpm test` runs every workspace suite concurrently, and several test scripts rebuild the shared
-packages they import so they also work standalone. Every `packages/*` build is therefore
-`tsc --incremental --tsBuildInfoFile dist/.tsbuildinfo`: a rebuild with unchanged sources writes
-nothing, so a concurrent suite can never import a `dist` file that `tsc` has just truncated. A plain
-`tsc` rewrites every output and once made a whole web test file see `emptyStrategyDefinition is not
-a function` in CI. `packages/config/src/workspace-builds.test.ts` keeps the rule. Deleting a
-package's `dist` also deletes its build info and forces a full build.
+Suites can still run beside each other (`pnpm -r test`, two terminals), and several test scripts
+rebuild the shared packages they import so they also work standalone. Every `packages/*` build is
+therefore `tsc --incremental --tsBuildInfoFile dist/.tsbuildinfo`: a rebuild with unchanged sources
+writes nothing, so a concurrent suite can never import a `dist` file that `tsc` has just truncated.
+A plain `tsc` rewrites every output and once made a whole web test file see
+`emptyStrategyDefinition is not a function` in CI. `packages/config/src/workspace-builds.test.ts`
+keeps the rule. Deleting a package's `dist` also deletes its build info and forces a full build.
 
 ## PostgreSQL-backed tests
 
@@ -123,9 +144,10 @@ another process already holds the same port on `127.0.0.1` — the request then 
 This machine has two such listeners (editor helpers): one answers `404` with an empty body, the
 other accepts and never answers, after which every later test in the file times out at 5 s. Both
 were reproduced deliberately during TEST-001. `await app.listen(0, "127.0.0.1")` removes the
-mechanism; `registration-enumeration` and `backtests` do it. Other suites still use `app.init()`
-and remain exposed to the same rare collision — a `404 {}` or a 5 s timeout cascade in one of them
-is this, not a product failure, until they are converted.
+mechanism, and every suite does it: the last twenty-three were converted on 2026-10-12, after one
+full `pnpm test` lost `monitors` to the `404` and `stocks.search` to the timeouts in the same run.
+`apps/api/src/http-suite-loopback.test.ts` reads the suites as source and fails on an `init()` left
+unlistened, on a wildcard `listen(0)`, or on an application created without a loopback listen.
 
 Prepare the database once, then keep `TEST_DATABASE_URL` in `.env` so `pnpm test`
 picks it up:
@@ -139,6 +161,19 @@ TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/i
 Redis isolation is deliberately different: suites keep one instance and isolate
 by randomized key namespace with targeted cleanup. Nothing resets or flushes
 developer infrastructure.
+
+Because nothing is flushed, a suite that does not delete what it wrote leaks it for good: a
+committed projection carries no expiry. `benchmark-retention` cleaned PostgreSQL in its teardown
+and never Redis, and left about 5,500 keys and 184 MB in one development Redis before it was
+noticed. `packages/stock-data` therefore enforces the cleanup rather than trusting it:
+
+- `src/redis-namespace.test-helper.ts` is the teardown. `deleteRedisNamespace(redis, namespace)`
+  removes exactly the keys at or below one suite namespace — `SCAN` and `UNLINK`, never a sibling
+  that shares a prefix — and refuses a namespace that touches one of the product's own key roots.
+- `vitest.global-setup.ts` fails the run. It records the suite-owned keys before the first test
+  and, after the last, names every key the run created that is still there and will never expire.
+  Keys with an expiry are not leaks, and the product's own roots are not looked at, so a
+  development stack working beside the run cannot trip it.
 
 Redis-backed suites resolve `TEST_REDIS_URL` then `REDIS_URL`. Locally a missing
 value skips them, so a developer without `pnpm infra:up` is not blocked. **In CI

@@ -463,9 +463,11 @@ evaluator physically cannot read an ungated value.
 
 PostgreSQL-backed suites require `TEST_DATABASE_URL` pointing at a dedicated, migrated test database
 (`pnpm db:test:prepare`); they never fall back to `DATABASE_URL`. `apps/api`, `apps/worker` and
-`packages/stock-data` serialize their test files for that reason. `apps/worker` is one supervisor
-with three child kinds — backtest, Monitor and market-data children — so a worker change must be
-tested against the kind it affects. See `ai/workflows/validation.md`.
+`packages/stock-data` serialize their test files for that reason, and `pnpm test` runs the
+workspace one package at a time for the same one: suites that share a database, a Redis and a
+machine are not run beside each other. `apps/worker` is one supervisor with three child kinds —
+backtest, Monitor and market-data children — so a worker change must be tested against the kind it
+affects. See `ai/workflows/validation.md`.
 
 During implementation, prefer the smallest relevant test/typecheck command. Once the implementation is settled, run the full validation gate once before marking the task complete:
 

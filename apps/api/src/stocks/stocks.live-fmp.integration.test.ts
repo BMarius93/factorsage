@@ -251,7 +251,10 @@ describeLive("live FMP stock API smoke", () => {
       })
       .compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    // Bound to loopback, never left unlistened: an unlistened app makes supertest bind a
+    // wildcard port per request, which on macOS can be one another process holds on
+    // 127.0.0.1 (`ai/workflows/validation.md`, "bind it to loopback").
+    await app.listen(0, "127.0.0.1");
     prisma = app.get(PrismaService);
 
     // Start cold and admit the symbol. Pre-cleaning matters as much as seeding: a half-hydrated

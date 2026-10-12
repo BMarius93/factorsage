@@ -168,7 +168,10 @@ async function createApp(
     }
     const moduleRef = await builder.compile();
     const created = moduleRef.createNestApplication();
-    await created.init();
+    // Bound to loopback, never left unlistened: an unlistened app makes supertest bind a
+    // wildcard port per request, which on macOS can be one another process holds on
+    // 127.0.0.1 (`ai/workflows/validation.md`, "bind it to loopback").
+    await created.listen(0, "127.0.0.1");
     return created;
   } finally {
     for (const key of Object.keys(process.env)) {

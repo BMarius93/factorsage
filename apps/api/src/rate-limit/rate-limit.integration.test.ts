@@ -127,7 +127,9 @@ async function createInstance(
     const app = moduleRef.createNestApplication();
     // Bound to an ephemeral port rather than left un-listened: the concurrency case fires dozens
     // of requests at once, and supertest would otherwise race to `listen(0)` once per request.
-    await app.listen(0);
+    // On loopback, never the wildcard address: a wildcard ephemeral port can be one another
+    // process holds on 127.0.0.1 (`ai/workflows/validation.md`, "bind it to loopback").
+    await app.listen(0, "127.0.0.1");
     return app;
   } finally {
     // Configuration is read once, at module construction; restoring immediately keeps one
