@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 /**
  * Workspace package builds must be safe to repeat while other suites are running.
  *
- * `pnpm test` runs every workspace suite concurrently, and several test scripts rebuild the shared
- * packages they depend on (`pnpm --filter @intrinsic/contracts build && vitest run`) so they also
- * work standalone. A plain `tsc` truncates and rewrites every output file even when nothing
- * changed, so a suite importing `@intrinsic/contracts/dist` at that instant loaded an empty module
- * — CI saw `emptyStrategyDefinition is not a function` across a whole web test file.
+ * Suites can run beside each other — `pnpm -r test`, two terminals, and `pnpm test` itself until it
+ * was serialized (below) — and several test scripts rebuild the shared packages they depend on
+ * (`pnpm --filter @intrinsic/contracts build && vitest run`) so they also work standalone. A plain
+ * `tsc` truncates and rewrites every output file even when nothing changed, so a suite importing
+ * `@intrinsic/contracts/dist` at that instant loaded an empty module — CI saw
+ * `emptyStrategyDefinition is not a function` across a whole web test file.
  *
  * An incremental build whose build info lives beside its output rewrites nothing when the sources
  * are unchanged, which makes those repeated builds invisible to concurrent readers. Keeping the
@@ -27,6 +28,36 @@ function repositoryRoot(): string {
   }
   return directory;
 }
+
+/**
+ * `pnpm test` runs the workspace's suites one package at a time.
+ *
+ * pnpm runs four packages at once by default. That put the web suite, which starts a jsdom worker
+ * per core, beside `packages/stock-data`'s integration suites, which drive one real PostgreSQL and
+ * one real Redis and whose tests are sized for a machine that is not otherwise saturated: measured
+ * with only those two running, one persistence test went from 2.0 s to between 4.4 and 5.4 s, and
+ * two `redis.integration` cases crossed the five-second limit in every run — so `pnpm test` failed
+ * locally while each package passed alone, and stopped before `apps/api` and `apps/worker`.
+ * Those two also ran together, on one test database.
+ *
+ * The contention is removed at its source, exactly as the PostgreSQL-backed packages already
+ * serialize their own files (`fileParallelism: false`): a longer deadline would only move the
+ * point at which the interference shows. `ai/workflows/validation.md` has the measurements.
+ */
+describe("the workspace test gate", () => {
+  const scripts = (
+    JSON.parse(
+      readFileSync(join(repositoryRoot(), "package.json"), "utf8"),
+    ) as { scripts: Record<string, string> }
+  ).scripts;
+
+  it("runs every workspace suite, one package at a time", () => {
+    const test = scripts.test ?? "";
+    expect(test).toMatch(/^pnpm -r\b/);
+    expect(test).toMatch(/--workspace-concurrency=1\b/);
+    expect(test).toMatch(/--if-present test$/);
+  });
+});
 
 describe("workspace package builds", () => {
   const packagesDirectory = join(repositoryRoot(), "packages");

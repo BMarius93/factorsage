@@ -42,15 +42,36 @@ apply:
   migration, or whether a migration can apply to a database holding real rows.
 - `pnpm --filter @intrinsic/stock-data test:redis`.
 
+## `pnpm test` runs one package at a time
+
+`pnpm test` is `pnpm -r --workspace-concurrency=1 --if-present test`: every workspace suite, in
+dependency order, never two at once.
+
+pnpm's default runs four packages together. That put the web suite — a jsdom worker for every core
+— beside `packages/stock-data`'s integration suites, which drive one real PostgreSQL and one real
+Redis and whose tests are sized for a machine that is not otherwise saturated. Measured on the
+eight-core development machine on 2026-10-12, with only those two suites running: a persistence
+test that takes 2.0 s alone took 4.4–5.4 s, load average passed 30, and two `redis.integration`
+cases crossed vitest's five-second limit in every run. So `pnpm test` failed locally while each
+package passed alone, and — because pnpm stops at the first failing package — never reached
+`apps/api` or `apps/worker`, which also ran together, on one test database.
+
+Serializing the workspace removes that contention at its source, for the reason the three
+PostgreSQL-backed packages already serialize their own files (`fileParallelism: false`): a longer
+deadline only moves the point at which the interference shows. The whole command takes about eight
+and a half minutes on that machine, under a minute more than the parallel run would if it passed.
+`packages/config/src/workspace-builds.test.ts` keeps the flag. A package's own script is unchanged,
+so one suite still runs alone, and several can still be run side by side by hand.
+
 ## Package builds are incremental
 
-`pnpm test` runs every workspace suite concurrently, and several test scripts rebuild the shared
-packages they import so they also work standalone. Every `packages/*` build is therefore
-`tsc --incremental --tsBuildInfoFile dist/.tsbuildinfo`: a rebuild with unchanged sources writes
-nothing, so a concurrent suite can never import a `dist` file that `tsc` has just truncated. A plain
-`tsc` rewrites every output and once made a whole web test file see `emptyStrategyDefinition is not
-a function` in CI. `packages/config/src/workspace-builds.test.ts` keeps the rule. Deleting a
-package's `dist` also deletes its build info and forces a full build.
+Suites can still run beside each other (`pnpm -r test`, two terminals), and several test scripts
+rebuild the shared packages they import so they also work standalone. Every `packages/*` build is
+therefore `tsc --incremental --tsBuildInfoFile dist/.tsbuildinfo`: a rebuild with unchanged sources
+writes nothing, so a concurrent suite can never import a `dist` file that `tsc` has just truncated.
+A plain `tsc` rewrites every output and once made a whole web test file see
+`emptyStrategyDefinition is not a function` in CI. `packages/config/src/workspace-builds.test.ts`
+keeps the rule. Deleting a package's `dist` also deletes its build info and forces a full build.
 
 ## PostgreSQL-backed tests
 

@@ -14,7 +14,7 @@
     "pretypecheck": "pnpm build:packages",
     "typecheck": "pnpm -r --if-present typecheck",
     "pretest": "pnpm build:packages",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --workspace-concurrency=1 --if-present test",
     "lint": "eslint . --max-warnings=0",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
