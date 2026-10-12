@@ -65,6 +65,37 @@ describe("market-overview ETF catalog", () => {
     }
   });
 
+  it("calls each fund by the market it tracks, with the ticker left to say which fund", () => {
+    expect(
+      marketOverviewEtfs().map((etf) => `${etf.label} (${etf.ticker})`),
+    ).toEqual([
+      "S&P 500 (SPY)",
+      "Nasdaq-100 (QQQ)",
+      "Dow Jones (DIA)",
+      "Russell 2000 (IWM)",
+      "S&P 500 Equal Weight (RSP)",
+      "Technology (XLK)",
+      "Financials (XLF)",
+      "Energy (XLE)",
+      "Healthcare (XLV)",
+      "Industrials (XLI)",
+      "Consumer Discretionary (XLY)",
+      "Consumer Staples (XLP)",
+      "Utilities (XLU)",
+      "Materials (XLB)",
+      "Real Estate (XLRE)",
+      "Communication Services (XLC)",
+      "Gold (GLD)",
+      "Oil Futures (USO)",
+      "Long-Term Treasuries (TLT)",
+      "High-Yield Bonds (HYG)",
+    ]);
+    // The ticker beside the name already says it is a fund; the name does not repeat it.
+    for (const etf of marketOverviewEtfs()) {
+      expect(etf.label).not.toMatch(/\bETF\b/);
+    }
+  });
+
   it("reads SPY through the existing SP500 series instead of storing it twice", () => {
     const spy = marketOverviewEtfs().find((etf) => etf.ticker === "SPY");
     expect(spy?.benchmarkCode).toBe(DEFAULT_BENCHMARK_CODE);
@@ -107,6 +138,8 @@ describe("market-overview ETF catalog", () => {
 
   it("identifies USO as an oil-futures fund, never as the price of oil", () => {
     const uso = marketOverviewEtfs().find((etf) => etf.ticker === "USO");
+    // In the name itself, which is all the Dashboard prints.
+    expect(uso?.label).toBe("Oil Futures");
     expect(uso?.note).toMatch(/futures/i);
     expect(uso?.note).toMatch(/not the spot price/i);
     expect(findBenchmarkCatalogEntry("ETF_USO")?.description).toMatch(

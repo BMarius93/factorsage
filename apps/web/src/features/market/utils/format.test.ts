@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   describeReturn,
   describeSparkline,
-  formatLongSessionDate,
   formatReturn,
   formatSessionDate,
   sparklineTone,
@@ -51,8 +50,7 @@ describe("sparklineTone", () => {
 describe("session dates", () => {
   it("reads the session as a calendar date, not an instant", () => {
     expect(formatSessionDate("2026-10-09")).toBe("9 Oct");
-    expect(formatLongSessionDate("2026-10-09")).toBe("Fri 9 Oct 2026");
-    expect(formatLongSessionDate("2026-09-01")).toBe("Tue 1 Sep 2026");
+    expect(formatSessionDate("2026-09-01")).toBe("1 Sep");
     expect(formatSessionDate("not-a-date")).toBe("not-a-date");
   });
 });

@@ -124,9 +124,12 @@ export type MarketOverviewSparkline = {
 export type MarketOverviewInstrumentResponse = {
   /** The exchange ticker the product displays. A display field, not a provider identifier. */
   ticker: string;
-  /** What the overview calls it, e.g. `Technology`. */
+  /** What the overview calls it: the market the fund tracks, e.g. `Technology` or `S&P 500`. */
   name: string;
-  /** A qualification that must be shown beside the instrument, e.g. that `USO` holds futures. */
+  /**
+   * A qualification of what the instrument tracks, e.g. that `USO` holds futures. Available to
+   * any surface with room for it; the Dashboard's compact table shows `name` and `ticker` only.
+   */
   note?: string;
   status: MarketOverviewInstrumentStatus;
   /** The latest completed session the returns are measured to. Absent when `UNAVAILABLE`. */

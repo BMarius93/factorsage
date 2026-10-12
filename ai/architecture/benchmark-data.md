@@ -269,7 +269,9 @@ a database, a cache or a clock:
   it is `STALE` with its own `sessionDate`. The exchange calendar is not consulted: it is fetched
   from the provider.
 - **`basis: END_OF_DAY` and `returnBasis: PRICE_RETURN` are values, not conventions.** Split-adjusted
-  closes, distributions excluded; the Dashboard's footnote says so.
+  closes, distributions excluded. The Dashboard prints neither — its compact overview carries no
+  subtitle or footnote — so the contract is where that is stated, and no surface may call the
+  numbers live.
 - **One unreadable series costs one row** (`status: UNAVAILABLE`, logged as
   `market.overview.instrument.failed` with the original error), or keeps that fund's last
   successful answer while *the read it came from* is younger than 15 minutes — never refreshed by

@@ -4,8 +4,8 @@ import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
- * The Dashboard for a signed-in customer (PRO persona): the ETF market overview, the action strip
- * and the matches beside it.
+ * The Dashboard for a signed-in customer (PRO persona): the ETF market overview and the matches
+ * under it.
  *
  * Needs `pnpm test:personas:seed`. The market overview is the same deterministic ETF fixture the
  * Guest suite reads — proving the point rather than assuming it: a fund closed where it closed, and
@@ -53,19 +53,25 @@ test.describe("PRO_USER dashboard", () => {
     }
   });
 
-  test("takes Run Backtest straight to the canonical New Backtest route", async ({
+  test("starts a backtest from the Backtests area, not from a Dashboard button", async ({
     page,
   }) => {
     await page.goto("/");
-    const card = page.getByTestId("dashboard-run-backtest");
+    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    // The Dashboard's own call to action is gone…
+    await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
 
-    // A real link for a signed-in viewer, so the browser's own affordances work.
-    await expect(card).toHaveAttribute("href", "/backtests/new");
-    await card.click();
+    // …and the way to a backtest is unchanged: the navigation, then the area's own action.
+    await page
+      .getByRole("navigation", { name: "Primary", exact: true })
+      .getByRole("link", { name: "Backtests" })
+      .click();
+    await expect(page).toHaveURL(/\/backtests$/);
+    await page.getByRole("link", { name: "New backtest", exact: true }).click();
 
     await expect(page).toHaveURL(/\/backtests\/new$/);
     await expect(page.getByTestId("backtest-benchmark")).toBeVisible();
-    // No prompt: the viewer has an account.
     await expect(page.getByTestId("sign-in-prompt")).toHaveCount(0);
   });
 
@@ -101,27 +107,32 @@ test.describe("PRO_USER dashboard", () => {
     ]);
   });
 
-  test("reflects the rows this viewer's dashboard returned", async ({
+  test("counts this viewer's matches on the section's own filters, with no summary card", async ({
     page,
   }) => {
     await page.goto("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
-    await expect(page.getByTestId("dashboard-matches-total")).toBeVisible();
+    await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
 
     const rows = await qaRows(page).count();
-    await expect(page.getByTestId("dashboard-matches-total")).toHaveText(
-      String(rows),
-    );
-
     const active = await qaRows(page)
       .filter({ has: page.locator('[data-state="ACTIVE"]') })
       .count();
     const waiting = await qaRows(page)
       .filter({ has: page.locator('[data-state="PENDING_TRIGGER"]') })
       .count();
-    await expect(page.getByTestId("dashboard-matches-breakdown")).toHaveText(
-      `${active} active · ${waiting} waiting`,
+    expect(active + waiting).toBe(rows);
+    const filter = page.getByTestId("dashboard-state-filter");
+    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(
+      String(rows),
     );
+    await expect(
+      filter.getByRole("button", { name: /^Active/ }),
+    ).toContainText(String(active));
+    await expect(
+      filter.getByRole("button", { name: /^Waiting/ }),
+    ).toContainText(String(waiting));
   });
 
   test("leaves the signal table's filtering and row links working", async ({
@@ -157,13 +168,15 @@ test.describe("PRO_USER dashboard", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await dismissConsent(page);
-    await expect(page.getByTestId("dashboard-run-backtest")).toBeVisible();
-    await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
+    await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
     await expect(page.getByTestId("market-overview-category")).toBeVisible();
     await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
     for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"]) {
       await expect(page.getByTestId(`market-overview-return-SPY-${period}`)).toBeVisible();
     }
+    // A phone card carries the six returns and no trend line.
+    await expect(page.getByTestId("market-overview-SPY-sparkline")).toBeHidden();
     await expect(qaRows(page).first()).toBeAttached();
 
     const overflow = await page.evaluate(() => ({
