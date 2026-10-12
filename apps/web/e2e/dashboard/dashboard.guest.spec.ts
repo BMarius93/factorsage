@@ -169,17 +169,17 @@ test.describe("guest dashboard", () => {
   }) => {
     await page.goto("/");
 
-    // No hero: the market strip is the first thing under the topbar, and the sentence that
+    // No hero: the market tables are the first thing under the topbar, and the sentence that
     // explained what a dashboard is has gone with it.
-    await expect(page.getByTestId("dashboard-overview")).toBeVisible();
+    await expect(page.getByTestId("market-overview")).toBeVisible();
     await expect(
       page.getByText("Current matches and setups from your monitors"),
     ).toHaveCount(0);
-    const strip = await page.getByTestId("dashboard-overview").boundingBox();
+    const market = await page.getByTestId("market-overview").boundingBox();
     const topbar = await page.locator("header").first().boundingBox();
     // Within one page gutter of the chrome, rather than a card-height below it.
     expect(
-      (strip?.y ?? 0) - ((topbar?.y ?? 0) + (topbar?.height ?? 0)),
+      (market?.y ?? 0) - ((topbar?.y ?? 0) + (topbar?.height ?? 0)),
     ).toBeLessThan(64);
 
     // The freshness survived the hero, inside the section it describes.

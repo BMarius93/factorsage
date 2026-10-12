@@ -6,7 +6,8 @@ import { watchForIssues } from "../utils/page-issues";
 
 /**
  * The Dashboard's ETF market overview, as a first-time visitor meets it, at every width the product
- * supports (`docs/decisions/etf-market-overview-v1.md`).
+ * supports (`docs/decisions/etf-market-overview-v1.md`). It opens the page: nothing stands above
+ * its tables, and Current matches follows it.
  *
  * Needs `pnpm test:personas:seed` (`test:securities:seed` writes the deterministic ETF fixtures: the
  * nineteen `ETF_*` series beside `SP500`, ending on the same session). The returns depend on where
@@ -85,7 +86,6 @@ async function clippedText(page: Page): Promise<string[]> {
       '[data-testid="market-overview-ticker"]',
       '[data-testid^="market-overview-return-"]',
       '[data-testid="market-overview"] h2',
-      '[data-testid="market-overview"] h3',
       '[data-testid="market-overview-category"] button',
     ].join(",");
     for (const element of document.querySelectorAll<HTMLElement>(selector)) {
@@ -246,18 +246,26 @@ test.describe("market overview on desktop", () => {
         Math.abs(benchmarks.height + gap + macro.height - sectors.height),
       ).toBeLessThanOrEqual(0.5);
 
-      // Twenty single-line rows of 34–38px, the market name and its ticker sharing the line.
+      // Nothing stands over the tables: no summary card and no section heading. The first card
+      // begins where the section does, one page gutter under the topbar.
+      const section = await page.getByTestId("market-overview").boundingBox();
+      const topbar = await page.locator("header").first().boundingBox();
+      expect(Math.abs(benchmarks.y - (section?.y ?? -9))).toBeLessThanOrEqual(0.5);
+      expect(benchmarks.y - ((topbar?.y ?? 0) + (topbar?.height ?? 0))).toBeLessThanOrEqual(40);
+      expect(Math.abs((section?.height ?? 0) - sectors.height)).toBeLessThanOrEqual(0.5);
+
+      // Twenty single-line rows of 30–32px, the market name and its ticker sharing the line.
       const rows = await rowGeometry(page);
       expect(rows).toHaveLength(20);
       for (const row of rows) {
-        expect(row.height, row.ticker).toBeGreaterThanOrEqual(34);
-        expect(row.height, row.ticker).toBeLessThanOrEqual(38);
+        expect(row.height, row.ticker).toBeGreaterThanOrEqual(30);
+        expect(row.height, row.ticker).toBeLessThanOrEqual(32);
         expect(row.oneLine, row.ticker).toBe(true);
       }
       // Sector Performance is as tall as its eleven rows need and no taller: a title, a heading
       // row and its border.
       const sectorRows = rows.slice(5, 16).reduce((sum, row) => sum + row.height, 0);
-      expect(sectors.height - sectorRows).toBeLessThanOrEqual(64);
+      expect(sectors.height - sectorRows).toBeLessThanOrEqual(50);
 
       // The same eight columns in every group, in order, each return under its own heading and
       // each trend line under `Chart 1Y`.
@@ -316,7 +324,9 @@ test.describe("market overview on desktop", () => {
     });
   }
 
-  test("starts Current matches on the first screen at 1440×900", async ({ page }) => {
+  test("puts Current matches, first row included, on the first screen at 1440×900", async ({
+    page,
+  }) => {
     await openDashboard(page, 1440, 900);
 
     const heading = page.getByRole("heading", { level: 2, name: "Current matches" });
@@ -324,16 +334,29 @@ test.describe("market overview on desktop", () => {
     // Without scrolling: the page is where it loaded.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(heading).toBeInViewport({ ratio: 1 });
-    // What makes room for it: the overview is one heading and eleven table rows tall.
+    await expect(page.getByTestId("dashboard-state-filter")).toBeInViewport({ ratio: 1 });
+    // Even for a Guest, whose sign-in notice sits between the market and the matches.
+    await expect(page.getByTestId("dashboard-guest-notice")).toBeVisible();
+    await expect(page.getByTestId("dashboard-signal-row").first()).toBeInViewport({ ratio: 1 });
+    // What makes room for it: the overview is eleven table rows and their two-line header tall.
     const market = await page.getByTestId("market-overview").boundingBox();
-    expect(market?.height).toBeLessThan(520);
+    expect(market?.height).toBeLessThan(400);
   });
 
-  test("keeps its heading and prints no subtitle, methodology or footnote", async ({ page }) => {
+  test("prints no heading of its own, and no subtitle, methodology or footnote", async ({ page }) => {
     await openDashboard(page, 1440);
     const overview = page.getByTestId("market-overview");
 
-    await expect(overview.getByRole("heading", { level: 2 })).toHaveText(["Market overview"]);
+    // The only headings are the three groups' own.
+    await expect(page.getByRole("heading", { name: "Market overview" })).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-page")).not.toContainText(/market overview/i);
+    await expect(overview.getByRole("heading")).toHaveText([
+      "Benchmarks",
+      "Sector Performance",
+      "Macro & Alternatives",
+    ]);
+    // It is still a named region for assistive technology.
+    await expect(page.getByRole("region", { name: "Market overview" })).toBeVisible();
     await expect(page.getByTestId("market-overview-asof")).toHaveCount(0);
     await expect(page.getByTestId("market-overview-footnote")).toHaveCount(0);
     await expect(overview.locator("p")).toHaveCount(0);
@@ -504,18 +527,24 @@ test.describe("market overview on desktop", () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test("sits between the match count and Current matches, with no page error or failed read", async ({
+  test("opens the page, above Current matches, with no page error or failed read", async ({
     page,
   }) => {
     const issues = watchForIssues(page);
     await openDashboard(page, 1440);
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
 
-    const strip = await page.getByTestId("dashboard-overview").boundingBox();
     const market = await page.getByTestId("market-overview").boundingBox();
     const matches = await page.getByTestId("dashboard-signals").boundingBox();
-    expect((strip?.y ?? 0) + (strip?.height ?? 0)).toBeLessThan(market?.y ?? 0);
     expect((market?.y ?? 0) + (market?.height ?? 0)).toBeLessThan(matches?.y ?? 0);
+    // It is the first thing on the page: the summary card that stood above it is gone.
+    await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
+    expect(
+      await page
+        .getByTestId("dashboard-page")
+        .evaluate((root) => root.children[1]?.getAttribute("data-testid")),
+    ).toBe("market-overview");
     // The old index cards are gone from the Dashboard.
     await expect(page.getByTestId(/^dashboard-market-card-/)).toHaveCount(0);
     await expect(page.getByTestId("dashboard-page")).not.toContainText(/fear|greed/i);
@@ -572,9 +601,16 @@ test.describe("market overview on tablet and phone", () => {
         page.locator('[data-testid="market-overview"] svg[role="img"]:visible'),
       ).toHaveCount(0);
       await expect(page.getByTestId("market-overview-columns-BENCHMARKS")).toBeHidden();
-      // A card is its name and two lines of three returns: about two thirds of what it was with
-      // a trend line in it (186px).
-      expect(cardBox?.height).toBeLessThanOrEqual(128);
+      // A card is its name and two lines of three returns: about three fifths of what it was
+      // with a trend line in it (186px).
+      expect(cardBox?.height).toBeLessThanOrEqual(112);
+      // The category selector opens the page: no summary card and no heading above it.
+      const topbar = await page.locator("header").first().boundingBox();
+      const selector = await category.boundingBox();
+      expect((selector?.y ?? 99) - ((topbar?.y ?? 0) + (topbar?.height ?? 0))).toBeLessThanOrEqual(
+        width >= 600 ? 32 : 16,
+      );
+      await expect(page.getByRole("heading", { name: "Market overview" })).toHaveCount(0);
 
       expect(await clippedText(page)).toEqual([]);
       await expectNoHorizontalScroll(page);
@@ -723,7 +759,7 @@ test.describe("the rest of the Dashboard, for a Guest", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
+    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
 
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
@@ -736,22 +772,29 @@ test.describe("the rest of the Dashboard, for a Guest", () => {
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
   });
 
-  test("counts the rows the Dashboard shows, and does not move when they are filtered", async ({
+  test("has no summary card above the market tables, and leaves Current matches as it was", async ({
     page,
   }) => {
     await page.goto("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+
+    await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-total")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-page")).not.toContainText(/\d+ active · \d+ waiting/);
+    // "Current matches" is said once: by the section that lists them.
+    await expect(page.getByText("Current matches", { exact: true })).toHaveCount(1);
+
+    // That section still counts what it shows, and still filters it.
     const rows = page.getByTestId("dashboard-signal-row");
     const total = await rows.count();
-    await expect(page.getByTestId("dashboard-matches-total")).toHaveText(String(total));
-
-    await page
-      .getByTestId("dashboard-state-filter")
-      .getByRole("button", { name: /^Active/ })
-      .click();
+    expect(total).toBeGreaterThan(0);
+    const filter = page.getByTestId("dashboard-state-filter");
+    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(String(total));
+    await filter.getByRole("button", { name: /^Active/ }).click();
     await expect(
       rows.filter({ has: page.locator('[data-state="PENDING_TRIGGER"]') }),
     ).toHaveCount(0);
-    await expect(page.getByTestId("dashboard-matches-total")).toHaveText(String(total));
+    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(String(total));
   });
 });

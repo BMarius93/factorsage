@@ -36,7 +36,6 @@ import {
 import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
 import { MarketOverview } from "../../market/components/MarketOverview";
 import { useDashboard } from "../hooks/use-dashboard";
-import { DashboardOverview } from "./DashboardOverview";
 import {
   FRESHNESS_TONES,
   ROW_STATE_FILTER_LABELS,
@@ -418,14 +417,15 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
  * A Guest sees the published built-in monitors; a signed-in user sees those they have not hidden,
  * plus their own. Freshness comes from real scan times and is never described as live when it is not.
  *
- * Three things, in this order: the current match count, in one compact card; the ETF market
- * overview (`docs/decisions/etf-market-overview-v1.md`), which is the market the matches were found
- * in; and the matches themselves. The Dashboard reports and starts nothing — a backtest is started
- * from the Backtests area or from the List, Strategy or Monitor it is about — and it is context,
- * not a second information architecture: choosing which monitors feed the table is still a
- * property of a monitor and still lives on the Monitors page, because a configuration panel under
- * the signals competed with them for the screen and made the product's home page look like a
- * settings screen.
+ * Two things, in this order: the ETF market overview (`docs/decisions/etf-market-overview-v1.md`),
+ * which is the market the matches were found in, and the matches themselves. Nothing stands above
+ * the market tables — no summary card, no section heading — so the matches begin as high on the
+ * first screen as twenty funds allow; how many are matching is on the filters of the section that
+ * lists them. The Dashboard reports and starts nothing — a backtest is started from the Backtests
+ * area or from the List, Strategy or Monitor it is about — and it is context, not a second
+ * information architecture: choosing which monitors feed the table is still a property of a
+ * monitor and still lives on the Monitors page, because a configuration panel under the signals
+ * competed with them for the screen and made the product's home page look like a settings screen.
  */
 export function DashboardPage() {
   const { status, dashboard, reload } = useDashboard();
@@ -458,11 +458,6 @@ export function DashboardPage() {
             the document's `h1` — in the tab title, in the landmark tree and under a screen
             reader's heading key — it just is not a 120px card any more. */}
         <h1 className={styles.srOnly}>Dashboard</h1>
-
-        {/* The match count first, then the market, then the matches. The count is given the
-            *unfiltered* rows on purpose: narrowing the table below must not change what is
-            matching. */}
-        <DashboardOverview rows={rows} rowsReady={status === "ready"} />
 
         {/* The market the matches were found in. Its own request and its own failure states:
             the market is the same for everybody, the matches are not, and neither may blank the

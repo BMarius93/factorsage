@@ -418,51 +418,37 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Nothing is matching right now")).toBeDefined();
   });
 
-  it("puts the match count, then the market overview, above the signals, and keeps them out of the filters", async () => {
-    const user = userEvent.setup();
+  it("puts the market overview above the signals, with no summary card above either", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
-    const overview = await screen.findByTestId("dashboard-overview");
     const market = await screen.findByTestId("market-overview");
     const signals = await screen.findByTestId("dashboard-signals");
-    // Match count, market, matches: the market is context for the table, so it precedes it.
-    expect(
-      overview.compareDocumentPosition(market) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // Market, then matches: the market is context for the table, so it precedes it.
     expect(
       market.compareDocumentPosition(signals) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByTestId("dashboard-matches-total").textContent).toBe("4");
-    expect(screen.getByTestId("dashboard-matches-breakdown").textContent).toBe(
-      "3 active · 1 waiting",
-    );
-
-    // Narrowing the table below is a view decision; it does not change what is matching, and the
-    // card must not restate the filter counts that are already on the filter buttons.
-    await user.click(
-      within(screen.getByTestId("dashboard-state-filter")).getByRole("button", {
-        name: /Active/,
-      }),
-    );
+    // The count card that stood above the market is gone, and nothing took its place.
+    expect(screen.queryByTestId("dashboard-overview")).toBeNull();
+    expect(screen.queryByTestId("dashboard-matches-card")).toBeNull();
+    expect(screen.queryByTestId("dashboard-matches-total")).toBeNull();
+    expect(screen.queryByTestId("dashboard-matches-breakdown")).toBeNull();
+    expect(screen.queryByText(/\d+ active · \d+ waiting/)).toBeNull();
+    // "Current matches" names one thing on the page now: the section that lists them, where the
+    // counts already are.
+    expect(screen.getAllByText("Current matches")).toHaveLength(1);
     expect(
-      within(screen.getByTestId("dashboard-signals")).getAllByTestId(
-        "dashboard-signal-row",
-      ),
-    ).toHaveLength(3);
-    expect(screen.getByTestId("dashboard-matches-total").textContent).toBe("4");
-    expect(screen.getByTestId("dashboard-matches-breakdown").textContent).toBe(
-      "3 active · 1 waiting",
-    );
+      within(screen.getByTestId("dashboard-state-filter"))
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["All4", "Active3", "Waiting1"]);
   });
 
   it("shows a Guest the market overview, and offers nobody a Run Backtest action here", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
-    await screen.findByTestId("dashboard-overview");
     // Identical market data to a signed-in viewer's: the market is not a per-account fact.
     await screen.findByTestId("market-overview-row-SPY");
     expect(screen.getByTestId("market-overview-return-SPY-1W").textContent).toBe(
@@ -490,7 +476,7 @@ describe("DashboardPage", () => {
     await screen.findByTestId("dashboard-signals");
 
     // The page still has exactly one h1 and it is still the page's name — it is simply not a
-    // surface any more, so the match count is the first thing on screen.
+    // surface any more, so the market tables are the first thing on screen.
     const headings = screen.getAllByRole("heading", { level: 1 });
     expect(headings.map((heading) => heading.textContent)).toEqual([
       "Dashboard",
@@ -499,9 +485,13 @@ describe("DashboardPage", () => {
     expect(page.textContent).not.toMatch(
       /Current matches and setups from your monitors/,
     );
-    // Nothing between the heading and the strip.
+    // Nothing between that heading and the market tables: no summary card, no section title.
     expect(page.firstElementChild?.tagName).toBe("H1");
-    expect(page.children[1]).toBe(screen.getByTestId("dashboard-overview"));
+    expect(page.children[1]).toBe(screen.getByTestId("market-overview"));
+    expect(
+      screen.queryByRole("heading", { name: "Market overview" }),
+    ).toBeNull();
+    expect(page.textContent).not.toMatch(/market overview/i);
   });
 
   it("keeps the freshness fact, beside the matches it describes", async () => {
@@ -516,7 +506,7 @@ describe("DashboardPage", () => {
     expect(section?.contains(freshness)).toBe(true);
     expect(
       screen
-        .getByTestId("dashboard-overview")
+        .getByTestId("market-overview")
         .compareDocumentPosition(freshness) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();

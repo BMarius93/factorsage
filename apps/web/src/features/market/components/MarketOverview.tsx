@@ -63,6 +63,10 @@ export const MARKET_OVERVIEW_SKELETON_ROWS: Record<MarketOverviewGroupId, number
  * states (`MARKET_OVERVIEW_BASIS`, `MARKET_OVERVIEW_RETURN_BASIS`), and the overview is kept short
  * so that the matches below it start on the first screen. The numbers come from the API as
  * computed; this component formats and arranges them and calculates nothing.
+ *
+ * The section has no heading of its own: the tables begin where the page does. It is still a named
+ * region for assistive technology, and each group's title is a heading at the level of the
+ * Dashboard's other sections.
  */
 export function MarketOverview() {
   const { status, overview, reload } = useMarketOverview();
@@ -87,56 +91,51 @@ export function MarketOverview() {
   return (
     <section
       className={styles.section}
-      aria-labelledby="market-overview-title"
+      aria-label="Market overview"
       aria-busy={status === "loading"}
       data-testid="market-overview"
       data-status={ready ? overview.status : status.toUpperCase()}
     >
-      <div className={styles.header}>
-        <h2 id="market-overview-title" className={styles.title}>
-          Market overview
-        </h2>
-        {ready && !empty ? (
-          <div className={styles.compactControls}>
-            <div className={styles.categories}>
-              <SegmentedControl
-                label="Market category"
-                testId="market-overview-category"
-                value={category}
-                onChange={setCategory}
-                fill
-                options={groups.map((group) => ({
-                  value: group.id,
-                  label: group.shortLabel,
-                }))}
-              />
-            </div>
-            <SelectControl
-              id="market-overview-sort"
-              label="Sort"
-              testId="market-overview-sort"
-              value={sorts[category] ?? "DEFAULT"}
-              onChange={(value) => chooseSort(category, value)}
-              options={[
-                { value: "DEFAULT", label: "Default order" },
-                ...MARKET_OVERVIEW_PERIODS.map((period) => ({
-                  value: period,
-                  label: `${period} return, highest first`,
-                })),
-              ]}
+      {ready && !empty ? (
+        <div className={styles.compactControls}>
+          <div className={styles.categories}>
+            <SegmentedControl
+              label="Market category"
+              testId="market-overview-category"
+              value={category}
+              onChange={setCategory}
+              fill
+              options={groups.map((group) => ({
+                value: group.id,
+                label: group.shortLabel,
+              }))}
             />
           </div>
-        ) : status === "loading" ? (
-          <div className={styles.compactControls} aria-hidden="true">
-            <div className={styles.categories}>
-              <Skeleton height="var(--button-height)" width="100%" radius="control" />
-            </div>
-            <div className={styles.sortSkeleton}>
-              <Skeleton height="var(--action-height)" width="100%" radius="control" />
-            </div>
+          <SelectControl
+            id="market-overview-sort"
+            label="Sort"
+            testId="market-overview-sort"
+            value={sorts[category] ?? "DEFAULT"}
+            onChange={(value) => chooseSort(category, value)}
+            options={[
+              { value: "DEFAULT", label: "Default order" },
+              ...MARKET_OVERVIEW_PERIODS.map((period) => ({
+                value: period,
+                label: `${period} return, highest first`,
+              })),
+            ]}
+          />
+        </div>
+      ) : status === "loading" ? (
+        <div className={styles.compactControls} aria-hidden="true">
+          <div className={styles.categories}>
+            <Skeleton height="var(--button-height)" width="100%" radius="control" />
           </div>
-        ) : null}
-      </div>
+          <div className={styles.sortSkeleton}>
+            <Skeleton height="var(--action-height)" width="100%" radius="control" />
+          </div>
+        </div>
+      ) : null}
 
       {status === "loading" ? <OverviewSkeleton /> : null}
 
@@ -212,9 +211,9 @@ function GroupCard({
       aria-labelledby={titleId}
       data-testid={`market-overview-group-${group.id}`}
     >
-      <h3 id={titleId} className={styles.groupTitle}>
+      <h2 id={titleId} className={styles.groupTitle}>
         {group.label}
-      </h3>
+      </h2>
       <div className={styles.groupBody}>
         <ColumnHeadings group={group} sort={sort} onSort={onSort} />
         <ol className={styles.list} aria-label={`${group.label} ETFs`}>

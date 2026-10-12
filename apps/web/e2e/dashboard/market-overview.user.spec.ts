@@ -4,8 +4,8 @@ import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
- * The Dashboard for a signed-in customer (PRO persona): the ETF market overview, the match count
- * and the matches beside it.
+ * The Dashboard for a signed-in customer (PRO persona): the ETF market overview and the matches
+ * under it.
  *
  * Needs `pnpm test:personas:seed`. The market overview is the same deterministic ETF fixture the
  * Guest suite reads — proving the point rather than assuming it: a fund closed where it closed, and
@@ -57,7 +57,7 @@ test.describe("PRO_USER dashboard", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
+    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
     // The Dashboard's own call to action is gone…
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
@@ -107,27 +107,32 @@ test.describe("PRO_USER dashboard", () => {
     ]);
   });
 
-  test("reflects the rows this viewer's dashboard returned", async ({
+  test("counts this viewer's matches on the section's own filters, with no summary card", async ({
     page,
   }) => {
     await page.goto("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
-    await expect(page.getByTestId("dashboard-matches-total")).toBeVisible();
+    await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
 
     const rows = await qaRows(page).count();
-    await expect(page.getByTestId("dashboard-matches-total")).toHaveText(
-      String(rows),
-    );
-
     const active = await qaRows(page)
       .filter({ has: page.locator('[data-state="ACTIVE"]') })
       .count();
     const waiting = await qaRows(page)
       .filter({ has: page.locator('[data-state="PENDING_TRIGGER"]') })
       .count();
-    await expect(page.getByTestId("dashboard-matches-breakdown")).toHaveText(
-      `${active} active · ${waiting} waiting`,
+    expect(active + waiting).toBe(rows);
+    const filter = page.getByTestId("dashboard-state-filter");
+    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(
+      String(rows),
     );
+    await expect(
+      filter.getByRole("button", { name: /^Active/ }),
+    ).toContainText(String(active));
+    await expect(
+      filter.getByRole("button", { name: /^Waiting/ }),
+    ).toContainText(String(waiting));
   });
 
   test("leaves the signal table's filtering and row links working", async ({
@@ -164,7 +169,7 @@ test.describe("PRO_USER dashboard", () => {
     await page.goto("/");
     await dismissConsent(page);
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
-    await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
     await expect(page.getByTestId("market-overview-category")).toBeVisible();
     await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
     for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"]) {

@@ -23,23 +23,10 @@
   min-width: 0;
 }
 
-/* ── Heading ─────────────────────────────────────────────────────────────────── */
+/* ── Controls ────────────────────────────────────────────────────────────────── */
 
-.header {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.title {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: var(--text-section-title);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: -0.01em;
-}
-
-/* The category selector and the sort: compact screens only. */
+/* The category selector and the sort: compact screens only. Nothing stands above them, or above
+   the tables on a desktop: the section has no heading, and the page begins with its content. */
 .compactControls {
   display: flex;
   flex-wrap: wrap;
@@ -118,9 +105,9 @@
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  row-gap: 8px;
+  row-gap: 6px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -191,7 +178,7 @@
 .returns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px 8px;
   margin: 0;
   min-width: 0;
 }
@@ -270,9 +257,9 @@
       repeat(6, minmax(var(--overview-return-floor), 5.5rem))
       var(--overview-chart-width);
     --overview-inset: 16px;
-    --overview-row-height: 36px;
-    --overview-title-height: 30px;
-    --overview-headings-height: 28px;
+    --overview-row-height: 30px;
+    --overview-title-height: 24px;
+    --overview-headings-height: 22px;
     --overview-gap: 12px;
     --overview-text: var(--text-secondary);
     --overview-text-quiet: var(--text-small);
@@ -343,9 +330,11 @@
   }
 
   /* The six period headings span the six return columns and divide them as the rows do. Each is
-     a quiet button that sorts the group. */
+     a quiet button that sorts the group, and takes the heading row's whole height: the row is
+     short, and the part of it that can be clicked should not be shorter still. */
   .periodHeadings {
     grid-column: 2 / span 6;
+    align-self: stretch;
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     min-width: 0;
@@ -357,13 +346,14 @@
     justify-content: flex-end;
     gap: 2px;
     min-width: 0;
-    padding: 4px 0;
+    padding: 0;
     border: 0;
     background: none;
     color: var(--color-text-muted);
     font: inherit;
     font-size: var(--text-label-size);
     font-weight: var(--weight-emphasis);
+    line-height: var(--line-height-tight);
     letter-spacing: 0.04em;
     cursor: pointer;
   }
@@ -458,7 +448,7 @@
      the box, and a row without a line keeps the same height. */
   .trend {
     display: block;
-    height: 20px;
+    height: 18px;
     min-width: 0;
     padding-left: 12px;
   }
@@ -470,7 +460,7 @@
  * where it begins and Macro & Alternatives end where it ends, whatever any of the three holds.
  * At these row heights nothing has to stretch: the left column's second title, heading row and
  * border and the gap between its cards come to exactly the two rows Sector Performance has more
- * (2 + 30 + 28 + 12 = 2 × 36). If that ever stops being true — a twelfth sector, a taller row —
+ * (2 + 24 + 22 + 12 = 2 × 30). If that ever stops being true — a twelfth sector, a taller row —
  * the difference is shared between the shorter column's cards and, inside each, among its rows. */
 @media (min-width: 1280px) {
   /* Two groups share the page, so width is what runs out. Market is given what the longest name

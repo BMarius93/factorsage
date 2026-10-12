@@ -33,7 +33,7 @@ describe("MarketOverview", () => {
   it("shows the three groups in order, with exactly 5, 11 and 4 ETFs", async () => {
     await renderReady();
 
-    const groups = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+    const groups = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
     expect(groups).toEqual(["Benchmarks", "Sector Performance", "Macro & Alternatives"]);
     expect(rowTickers("BENCHMARKS")).toEqual(["SPY", "QQQ", "DIA", "IWM", "RSP"]);
     expect(rowTickers("US_SECTORS")).toHaveLength(11);
@@ -166,15 +166,29 @@ describe("MarketOverview", () => {
     );
   });
 
-  it("keeps its heading and explains nothing: no subtitle, no methodology, no footnotes", async () => {
+  it("has no heading of its own and explains nothing: no title, subtitle, methodology or footnotes", async () => {
     await renderReady();
     const overview = screen.getByTestId("market-overview");
 
+    // The tables begin where the section does. The only headings are the three groups' own, at
+    // the level of the Dashboard's other sections.
+    expect(screen.queryByRole("heading", { name: "Market overview" })).toBeNull();
+    expect(overview.textContent).not.toMatch(/market overview/i);
     expect(
       within(overview)
-        .getAllByRole("heading", { level: 2 })
-        .map((heading) => heading.textContent),
-    ).toEqual(["Market overview"]);
+        .getAllByRole("heading")
+        .map((heading) => `${heading.tagName} ${heading.textContent}`),
+    ).toEqual(["H2 Benchmarks", "H2 Sector Performance", "H2 Macro & Alternatives"]);
+    // Nothing precedes the groups but the phone's category and sort controls.
+    expect([...overview.children].map((child) => child.tagName)).toEqual(["DIV", "DIV"]);
+    expect(overview.firstElementChild?.contains(screen.getByTestId("market-overview-category"))).toBe(
+      true,
+    );
+    expect(overview.lastElementChild?.contains(screen.getByTestId("market-overview-row-SPY"))).toBe(
+      true,
+    );
+    // It is still a named region for assistive technology.
+    expect(screen.getByRole("region", { name: "Market overview" })).toBe(overview);
     expect(screen.queryByTestId("market-overview-asof")).toBeNull();
     expect(screen.queryByTestId("market-overview-footnote")).toBeNull();
     // Only headings, column captions, names, tickers and percentages are left to read.
@@ -346,8 +360,8 @@ describe("MarketOverview", () => {
     expect(empty.textContent).toMatch(/not available right now/);
     expect(screen.queryByTestId("market-overview-row-SPY")).toBeNull();
     expect(screen.queryByText(/%/)).toBeNull();
-    // The section keeps its name while it has nothing to show.
-    expect(screen.getByRole("heading", { level: 2, name: "Market overview" })).toBeTruthy();
+    // The panel says what is missing; no section title stands over it.
+    expect(screen.queryByRole("heading", { name: "Market overview" })).toBeNull();
   });
 
   it("never shows a fund's price as if it were an index level", async () => {
