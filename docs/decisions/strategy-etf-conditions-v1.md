@@ -9,6 +9,11 @@ current codebase already supports ETF-derived strategy series and is **not**
 authorization to merge automatically. No application code changes belong in this
 specification branch.
 
+The read-only architecture audit this section requires has been performed and
+reviewed: `ai/architecture/strategy-etf-conditions.md` is the resulting
+technical design and implementation plan, carrying the owner's final
+architecture decisions of 2026-10-13.
+
 Read this alongside `AGENTS.md`, `ai/README.md`, `ai/product/strategies.md`,
 `ai/architecture/strategy-builder.md`, `ai/architecture/strategy-evaluation.md`,
 `ai/product/monitors.md`, `ai/architecture/monitor-engine.md`,
