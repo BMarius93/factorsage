@@ -1526,6 +1526,52 @@ export function defaultStrategyMetric(
   return chosen?.options[0]?.metric;
 }
 
+/**
+ * Whether a row of this level kind and half of a Signal may read an ETF at all.
+ *
+ * Asked of the menu rather than restated: an ETF source is a Condition capability only, so the
+ * answer is the registry's — a Trigger row offers no ETF metric — and the Builder's Data Source
+ * control follows it instead of knowing the rule.
+ */
+export function strategyEtfSourcesOffered(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+): boolean {
+  const [first] = STRATEGY_ETF_SOURCES;
+  return (
+    first !== undefined &&
+    strategyMetricOptions(levelKind, part, { kind: "ETF", code: first.code })
+      .length > 0
+  );
+}
+
+/**
+ * The same metric **identity** read from another data source, or `undefined` when that source does
+ * not offer it in this level kind and half of a Signal.
+ *
+ * What a change of Data Source keeps: `RSI 14D` becomes `XLK · RSI 14D`, `XLK · RSI 14D` becomes
+ * `XLF · RSI 14D` or the stock's own `RSI 14D`, and nothing else about the metric moves — its
+ * configuration included, so a configured stock metric handed back its own source is returned as
+ * it stands. `undefined` is the honest answer for a stock-only metric asked of an ETF (`ROIC TTM`
+ * has no ETF form): the caller must then choose one of the metrics that source does offer rather
+ * than receive a substitute nobody picked. Whether the row's operator and Value survive is a
+ * separate question, answered as for every change of metric by `checkStrategyValue`.
+ */
+export function strategyMetricUnderSource(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+  metric: StrategyMetric,
+  source: StrategyMetricSource | undefined,
+): StrategyMetric | undefined {
+  const candidate = withMetricSource(withoutMetricSource(metric), source);
+  const key = strategyMetricKey(candidate);
+  return strategyMetricOptions(levelKind, part, source).some(
+    (option) => strategyMetricKey(option.metric) === key,
+  )
+    ? candidate
+    : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Labels
 // ---------------------------------------------------------------------------

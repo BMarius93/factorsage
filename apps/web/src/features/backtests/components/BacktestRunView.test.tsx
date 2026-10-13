@@ -365,6 +365,67 @@ describe("BacktestRunView", () => {
     ).toBeTruthy();
   });
 
+  it("says whether the ETFs a strategy reads could be evaluated, beside the result it explains", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...testResult(),
+          etfConditions: [
+            {
+              code: "ETF_XLK",
+              ticker: "XLK",
+              status: "READY",
+              firstSession: "1998-12-22",
+              latestSession: "2025-12-31",
+              basisGeneration: 0,
+            },
+            { code: "ETF_GLD", ticker: "GLD", status: "NOT_BOOTSTRAPPED" },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const notice = screen.getByTestId("backtest-etf-conditions");
+    expect(notice.getAttribute("data-tone")).toBe("warning");
+    expect(notice.textContent).toContain(
+      "Some ETF conditions could not be evaluated",
+    );
+    const lines = screen.getAllByTestId("backtest-etf-condition");
+    expect(
+      lines.map((line) => [
+        line.getAttribute("data-ticker"),
+        line.getAttribute("data-ready"),
+      ]),
+    ).toEqual([
+      ["XLK", "true"],
+      ["GLD", "false"],
+    ]);
+    expect(lines[1]!.textContent).toContain("has not been loaded yet");
+    // After the hero it explains, before the configuration.
+    expect(
+      screen.getByTestId("backtest-hero").compareDocumentPosition(notice) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      notice.compareDocumentPosition(screen.getByTestId("run-configuration")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows no ETF notice for a run whose strategy reads none", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    expect(screen.queryByTestId("backtest-etf-conditions")).toBeNull();
+  });
+
   it("renders the eight result numbers as one flat section, not a card in a card", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", { result: testResult() }),

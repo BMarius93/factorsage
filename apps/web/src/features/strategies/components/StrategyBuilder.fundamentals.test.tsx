@@ -10,13 +10,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStrategy } from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
 import {
-  categoryLabels,
+  activeCategory,
+  activeFamily,
   chooseMetric,
+  familyLabels,
   openPicker,
   optionLabels,
   pickerText,
   pickerTrigger,
   showCategory,
+  shownSource,
 } from "./__testing__/operand-picker";
 
 /**
@@ -106,21 +109,23 @@ async function newBuyRow(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("the Fundamentals category", () => {
-  it("is offered once, after Valuation, in a Condition row and never in a Trigger row", async () => {
+  it("is offered once, as a family of its own beside Valuation, in a Condition row and never in a Trigger row", async () => {
     const user = userEvent.setup();
     const row = await newBuyRow(user);
-    const categories = categoryLabels(await openPicker(user, row));
-    expect(categories.filter((label) => label === "Fundamentals")).toHaveLength(
-      1,
-    );
-    expect(categories.indexOf("Fundamentals")).toBe(
-      categories.indexOf("Valuation") + 1,
-    );
+    const families = familyLabels(await openPicker(user, row));
+    expect(families.filter((label) => label === "Fundamentals")).toHaveLength(1);
+    // Its own family, never folded into Valuation: a fundamental measures the business alone.
+    expect(families).toEqual([
+      "Technical",
+      "Fundamentals",
+      "Valuation",
+      "Activity",
+    ]);
     await user.keyboard("{Escape}");
 
     await user.click(screen.getByTestId("add-trigger"));
     const trigger = screen.getAllByTestId("predicate-row").at(-1)!;
-    expect(categoryLabels(await openPicker(user, trigger))).not.toContain(
+    expect(familyLabels(await openPicker(user, trigger))).not.toContain(
       "Fundamentals",
     );
   });
@@ -300,14 +305,11 @@ describe("a saved Fundamental strategy in the Builder", () => {
     render(<StrategyBuilder strategy={SAVED} />);
     const [roic, leverage] = screen.getAllByTestId("predicate-row");
     expect(pickerText(roic!)).toBe("ROIC TTM");
-    // Reopening the picker lands on the metric's own category, with the metric marked.
+    // Reopening the picker lands on the metric's own family and category, with the metric marked.
     const panel = await openPicker(user, roic!);
-    expect(
-      within(panel)
-        .getAllByTestId("metric-picker-category")
-        .find((tile) => tile.getAttribute("aria-pressed") === "true")
-        ?.textContent,
-    ).toBe("Fundamentals");
+    expect(shownSource(panel)).toBe("STOCK");
+    expect(activeFamily(panel)).toBe("FUNDAMENTALS");
+    expect(activeCategory(panel)).toBe("FUNDAMENTALS");
     expect(
       within(panel)
         .getAllByTestId("metric-picker-option")

@@ -20,7 +20,10 @@ import { replaceStrategyDefinition } from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
 import {
   activeCategory,
+  activeFamily,
   categoryLabels,
+  familyLabels,
+  showFamily,
   chooseMetric,
   openPicker,
   optionLabels as pickerOptionLabels,
@@ -899,20 +902,36 @@ describe("the configuration surface", () => {
 });
 
 describe("the Metric picker", () => {
-  it("offers the categories a BUY condition can use, in canonical order", async () => {
+  it("offers the families a BUY condition can use, with their categories as subgroups, in canonical order", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={insiderStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
-    expect(categoryLabels(await openPicker(user, row))).toEqual([
+    const panel = await openPicker(user, row);
+    // Position is absent: a BUY level has no position to measure.
+    expect(familyLabels(panel)).toEqual([
+      "Technical",
+      "Fundamentals",
+      "Valuation",
+      "Activity",
+    ]);
+    // The rule's own family is the one on show, with its two categories as subgroups.
+    expect(activeFamily(panel)).toBe("ACTIVITY");
+    expect(categoryLabels(panel)).toEqual([
+      "Insider activity",
+      "Congressional trading",
+    ]);
+    await showFamily(user, panel, "TECHNICAL");
+    expect(categoryLabels(panel)).toEqual([
       "Price",
       "Moving averages",
       "Oscillators",
       "Volume",
-      "Valuation",
-      "Fundamentals",
-      "Insider activity",
-      "Congressional trading",
     ]);
+    // A family of one category lists its metrics directly, with no subgroup to open.
+    await showFamily(user, panel, "FUNDAMENTALS");
+    expect(categoryLabels(panel)).toEqual([]);
+    await showFamily(user, panel, "VALUATION");
+    expect(categoryLabels(panel)).toEqual([]);
   });
 
   it("offers only the chosen category's metrics, one per measure", async () => {

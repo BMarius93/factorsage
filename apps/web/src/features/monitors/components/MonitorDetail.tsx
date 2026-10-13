@@ -34,6 +34,7 @@ import {
   type SegmentedOption,
 } from "../../../components/ui/SegmentedControl";
 import { formatDay, formatRelative } from "../../../lib/dates";
+import { etfSourceLines } from "../utils/etf-sources";
 import { useNow } from "../../../lib/use-now";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { stockCountLabel } from "../../lists/utils/format";
@@ -213,6 +214,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const sortedSecurities = [...view.securities].sort(
     (a, b) => SECURITY_STATUS_ORDER[a.status] - SECURITY_STATUS_ORDER[b.status],
   );
+  const etfSources = etfSourceLines(view.etfSources);
   const statusCounts = Object.fromEntries(
     MONITOR_SECURITY_STATUSES.map((status) => [
       status,
@@ -629,6 +631,29 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               }
             : {})}
         >
+          {etfSources ? (
+            // A rule reading an ETF is decided on the fund's own completed session, so it waits for
+            // the end of the day while its stock half is already decided on the live price. Said
+            // once, with each fund's own state, so a wait is never mistaken for missing data.
+            <p className={styles.sectionNote} data-testid="monitor-etf-sources">
+              <strong>ETF conditions</strong> are decided at the end of each
+              trading day, on the fund&apos;s own completed session — a rule
+              reading one shows &ldquo;Not evaluable&rdquo; for the current
+              session until then.{" "}
+              {etfSources.map((source, index) => (
+                <span
+                  key={source.code}
+                  data-testid="monitor-etf-source"
+                  data-ticker={source.ticker}
+                  data-ready={source.ready ? "true" : "false"}
+                >
+                  {index === 0 ? "" : " · "}
+                  <strong>{source.ticker}</strong>: {source.text}
+                </span>
+              ))}
+              .
+            </p>
+          ) : null}
           {statusCounts.NOT_EVALUABLE > 0 ? (
             // What "Not evaluable" means, once, in words (UI-026). The per-stock cause is not
             // recorded yet — see ui-system.md, known read-model gaps.

@@ -23,6 +23,7 @@ import { StrategyBuilder } from "./StrategyBuilder";
 import {
   categoryLabels,
   chooseMetric,
+  familyLabels,
   openPicker,
   optionLabels,
   pickerText,
@@ -283,7 +284,7 @@ describe("StrategyBuilder", () => {
     const buyRow = within(screen.getByTestId("level-card-BUY")).getByTestId(
       "predicate-row",
     );
-    expect(categoryLabels(await openPicker(user, buyRow))).not.toContain(
+    expect(familyLabels(await openPicker(user, buyRow))).not.toContain(
       "Position",
     );
 
@@ -292,7 +293,7 @@ describe("StrategyBuilder", () => {
       "predicate-row",
     );
     const panel = await openPicker(user, sellRow);
-    expect(categoryLabels(panel)).toContain("Position");
+    expect(familyLabels(panel)).toContain("Position");
     await showCategory(user, panel, "POSITION");
     expect(optionLabels(panel)).toEqual(["Gain", "Loss"]);
   });
@@ -346,11 +347,12 @@ describe("StrategyBuilder", () => {
     const rows = screen.getAllByTestId("predicate-row");
     // The last row is the Trigger; the first is the Condition it was added beside. The condition-only
     // families — Volume and both alternative-data categories — are simply not offered to a Trigger.
-    expect(categoryLabels(await openPicker(user, rows.at(-1)!))).toEqual([
+    const triggerPanel = await openPicker(user, rows.at(-1)!);
+    expect(familyLabels(triggerPanel)).toEqual(["Technical", "Valuation"]);
+    expect(categoryLabels(triggerPanel)).toEqual([
       "Price",
       "Moving averages",
       "Oscillators",
-      "Valuation",
     ]);
     // …and the Condition row above it still offers Volume, so this is a part rule.
     expect(categoryLabels(await openPicker(user, rows[0]!))).toContain(

@@ -393,6 +393,54 @@ describe("MonitorDetail", () => {
     );
   });
 
+  it("says how ETF conditions are decided, with each fund's own state", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        etfSources: [
+          {
+            code: "ETF_XLK",
+            ticker: "XLK",
+            status: "READY",
+            latestSession: "2026-10-13",
+          },
+          { code: "ETF_GLD", ticker: "GLD", status: "NOT_BOOTSTRAPPED" },
+        ],
+      }),
+    );
+
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const note = screen.getByTestId("monitor-etf-sources");
+    // The wait is the rule, said once: an ETF is read at the end of its day, never live.
+    expect(note.textContent).toContain(
+      "decided at the end of each trading day, on the fund's own completed session",
+    );
+    const sources = screen.getAllByTestId("monitor-etf-source");
+    expect(
+      sources.map((source) => [
+        source.getAttribute("data-ticker"),
+        source.getAttribute("data-ready"),
+      ]),
+    ).toEqual([
+      ["XLK", "true"],
+      ["GLD", "false"],
+    ]);
+    expect(sources[0]!.textContent).toContain(
+      "latest completed session Oct 13, 2026",
+    );
+    expect(sources[1]!.textContent).toContain(
+      "market history has not been loaded yet",
+    );
+  });
+
+  it("says nothing about ETFs for a strategy that reads none", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    expect(screen.queryByTestId("monitor-etf-sources")).toBeNull();
+  });
+
   it("distinguishes all four security statuses without inventing any", async () => {
     fetchMonitorMock.mockResolvedValue(
       detail({

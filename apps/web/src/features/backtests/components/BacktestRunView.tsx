@@ -50,6 +50,7 @@ import {
   type BacktestMetricsView,
 } from "../utils/metrics";
 import { BacktestAnnualReturns } from "./BacktestAnnualReturns";
+import { BacktestEtfConditions } from "./BacktestEtfConditions";
 import { BacktestComparisonChart } from "./BacktestComparisonChart";
 import { BacktestHoldings } from "./BacktestHoldings";
 import { BacktestMetricsRow } from "./BacktestMetricsRow";
@@ -643,6 +644,12 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             </>
           )}
         </SectionCard>
+
+        {/* Whether the ETFs the strategy reads could be evaluated: beside the result it explains,
+            and present only for a completed run whose strategy reads one. */}
+        {completed ? (
+          <BacktestEtfConditions rows={run.result?.etfConditions} />
+        ) : null}
 
         {/* The inputs follow the outcome, and stay out of the way until asked for. */}
         <details

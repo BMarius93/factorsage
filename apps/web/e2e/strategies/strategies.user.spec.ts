@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "../fixtures";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 import {
-  categoryLabels,
   chooseMetric,
   chooseSeriesValue,
+  familyLabels,
   openPicker,
   showCategory,
 } from "../utils/strategy-builder";
@@ -147,7 +147,12 @@ test.describe("strategy builder", () => {
     );
     await sellCard.getByTestId("value-control").first().fill("25");
     const buyPanel = await openPicker(buyRow);
-    expect(await categoryLabels(buyPanel)).not.toContain("Position");
+    expect(await familyLabels(buyPanel)).toEqual([
+      "Technical",
+      "Fundamentals",
+      "Valuation",
+      "Activity",
+    ]);
     await page.keyboard.press("Escape");
     await expect(buyPanel).toBeHidden();
 
@@ -605,8 +610,8 @@ test.describe("strategy builder on a phone", () => {
       expect(box!.width).toBeGreaterThanOrEqual(120);
     }
 
-    // The Metric picker is a bottom sheet on a phone: the whole width, on the bottom edge, every
-    // category on show at once and only the metrics scrolling.
+    // The Metric picker is a bottom sheet on a phone: the whole width, on the bottom edge, with the
+    // data source and every family on show at once and only the metrics scrolling.
     const viewport = page.viewportSize()!;
     const sheet = await openPicker(row);
     const sheetBox = (await sheet.boundingBox())!;
@@ -614,20 +619,21 @@ test.describe("strategy builder on a phone", () => {
     expect(Math.round(sheetBox.width)).toBe(viewport.width);
     expect(Math.round(sheetBox.y + sheetBox.height)).toBe(viewport.height);
     await expect(page.getByTestId("metric-picker-scrim")).toBeVisible();
-    const tiles = sheet.getByTestId("metric-picker-category");
-    for (const tile of await tiles.all()) {
-      await expect(tile).toBeInViewport();
+    await expect(sheet.getByTestId("metric-picker-sources")).toBeInViewport();
+    const tabs = sheet.getByTestId("metric-picker-family");
+    for (const tab of await tabs.all()) {
+      await expect(tab).toBeInViewport();
     }
     await showCategory(sheet, "FUNDAMENTALS");
     const options = sheet.getByTestId("metric-picker-option");
     await expect(options).toHaveCount(15);
-    const firstTile = (await tiles.first().boundingBox())!;
+    const firstTab = (await tabs.first().boundingBox())!;
     const scroller = sheet.getByTestId("metric-picker-options");
     await scroller.evaluate((element) =>
       element.scrollTo(0, element.scrollHeight),
     );
     await expect(options.last()).toBeInViewport();
-    expect((await tiles.first().boundingBox())!.y).toBe(firstTile.y);
+    expect((await tabs.first().boundingBox())!.y).toBe(firstTab.y);
     await expectNoHorizontalScroll(page);
     // A tap on the scrim leaves the rule exactly as it was.
     await page

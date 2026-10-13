@@ -14,7 +14,9 @@ import {
   emptyStrategyDefinition,
   strategyMetricCategory,
   strategyMetricKey,
+  strategyMetricLabel,
   strategyMetricOptions,
+  strategyMetricSource,
   triggerOperatorsFor,
   type ConditionOperator,
   type StrategyCondition,
@@ -296,11 +298,152 @@ function withCarriedConfiguration(
   return chosen;
 }
 
-/** Whether the registry offers this metric's identity in the ref's level kind and half of a Signal. */
+/**
+ * Whether the registry offers this metric's identity — under its own data source — in the ref's
+ * level kind and half of a Signal. An ETF-sourced metric is asked of that ETF's menu, so a
+ * stock-only metric handed an ETF, or any ETF metric handed to a Trigger, is simply not offered.
+ */
 function isOffered(ref: PredicateRef, metric: StrategyMetric): boolean {
   const key = strategyMetricKey(metric);
-  return strategyMetricOptions(ref.levelKind, ref.part).some(
-    (option) => strategyMetricKey(option.metric) === key,
+  return strategyMetricOptions(
+    ref.levelKind,
+    ref.part,
+    strategyMetricSource(metric),
+  ).some((option) => strategyMetricKey(option.metric) === key);
+}
+
+/** The three things a rule row holds besides its identity. */
+type RuleFields = {
+  metric: StrategyMetric;
+  operator: string;
+  value: StrategyValue;
+};
+
+/**
+ * What choosing `chosen` makes of one row, or `null` when the choice changes nothing.
+ *
+ * The one statement of the Metric picker's edit, read by the reducer that applies it and by the row
+ * that has to say what it did — so the outcome a row announces is the outcome the document took.
+ *
+ * - The row's own metric again changes nothing, so reopening the picker and confirming the current
+ *   choice can never reset a configuration. Nor does a metric the registry does not offer there.
+ * - Another category is a category change: the chosen metric's own starting rule, because a
+ *   threshold written for another family means nothing here.
+ * - Another metric of the same category keeps whatever operator and Value it can still take
+ *   (`reconcile`), and a measure of the same alternative-data family keeps the configuration.
+ *
+ * A change of **data source** is the same edit: the picker hands over the row's own identity under
+ * the new source (`strategyMetricUnderSource`), which is another metric of the same category — so
+ * `RSI 14D is above 50` becomes `XLK · RSI 14D is above 50` untouched, while `Price is below
+ * Balanced` becomes `XLK · Price` at its own starting rule, since an intrinsic value is not a Value
+ * an ETF's Price can be compared with.
+ */
+export function chooseMetricOutcome(
+  ref: PredicateRef,
+  row: RuleFields,
+  chosen: StrategyMetric,
+): RuleFields | null {
+  if (
+    !isOffered(ref, chosen) ||
+    strategyMetricKey(row.metric) === strategyMetricKey(chosen)
+  ) {
+    return null;
+  }
+  const crossesCategory =
+    strategyMetricCategory(row.metric) !== strategyMetricCategory(chosen);
+  const metric = crossesCategory
+    ? chosen
+    : withCarriedConfiguration(row.metric, chosen);
+  return {
+    metric,
+    ...(crossesCategory
+      ? freshRule(ref.part, metric, row.value)
+      : reconcile(ref.part, metric, row.operator, row.value)),
+  };
+}
+
+function sameValue(left: StrategyValue, right: StrategyValue): boolean {
+  if (left.kind === "SERIES" || right.kind === "SERIES") {
+    return (
+      left.kind === "SERIES" &&
+      right.kind === "SERIES" &&
+      left.seriesId === right.seriesId
+    );
+  }
+  return left.kind === right.kind && Object.is(left.value, right.value);
+}
+
+/** Which of a row's two other fields a change of metric or data source could not keep. */
+export type MetricChangeResets = {
+  readonly operator: boolean;
+  readonly value: boolean;
+};
+
+/** What one change of metric or data source replaced: the row before it against the row after. */
+export function metricChangeResets(
+  before: RuleFields,
+  after: RuleFields,
+): MetricChangeResets {
+  return {
+    operator: before.operator !== after.operator,
+    value: !sameValue(before.value, after.value),
+  };
+}
+
+/**
+ * The resets of several changes made one after another, as one: a Value replaced by the first is
+ * still a replaced Value after a second change that kept everything — moving a rule from the stock
+ * to `XLF` and on to `GLD` must not retract the notice the first step raised.
+ */
+export function mergeMetricChangeResets(
+  earlier: MetricChangeResets | null,
+  later: MetricChangeResets,
+): MetricChangeResets | null {
+  const merged = {
+    operator: (earlier?.operator ?? false) || later.operator,
+    value: (earlier?.value ?? false) || later.value,
+  };
+  return merged.operator || merged.value ? merged : null;
+}
+
+/**
+ * What changes of metric or data source replaced in a row, in words, or `null` when the row kept
+ * both its operator and its Value. `metric` is the one the row holds now: the sentence names the
+ * rule as it reads today, not as it read when the reset happened.
+ *
+ * A change that cannot keep them resets them to the new metric's own starting rule — that is the
+ * reducer's job — and this is what makes the reset **visible**: the row prints the sentence, so a
+ * threshold is never swapped out behind the user's back
+ * (`docs/decisions/strategy-etf-conditions-v1.md` §4.6).
+ */
+export function metricResetNotice(
+  part: "CONDITION" | "TRIGGER",
+  resets: MetricChangeResets | null,
+  metric: StrategyMetric,
+): string | null {
+  if (!resets || (!resets.operator && !resets.value)) {
+    return null;
+  }
+  const operatorName = part === "TRIGGER" ? "Trigger" : "Condition";
+  const what =
+    resets.operator && resets.value
+      ? `${operatorName} and value were`
+      : resets.operator
+        ? `${operatorName} was`
+        : "Value was";
+  return `${what} reset to match ${strategyMetricLabel(metric)}.`;
+}
+
+/** {@link metricResetNotice} for one change: the row before it against the row after. */
+export function metricChangeNotice(
+  part: "CONDITION" | "TRIGGER",
+  before: RuleFields,
+  after: RuleFields,
+): string | null {
+  return metricResetNotice(
+    part,
+    metricChangeResets(before, after),
+    after.metric,
   );
 }
 
@@ -639,42 +782,19 @@ function documentReducer(
       };
 
     case "chooseMetric": {
-      // What the Metric picker dispatches: one choice that may cross a category.
-      //
-      // - The row's own metric again changes nothing, so reopening the picker and confirming the
-      //   current choice can never reset a configuration.
-      // - Another category is the category-change rule `setCategory` applies: the chosen metric's
-      //   own starting rule, because a threshold written for another family means nothing here.
-      // - Another metric of the same category keeps whatever operator and Value it can still take
-      //   (`reconcile`), and a measure of the same alternative-data family keeps the configuration.
+      // What the Metric picker dispatches: one choice that may cross a category or a data source.
+      // `chooseMetricOutcome` is the whole rule.
       const row = rowAt(state.definition, action.ref);
-      if (
-        !row ||
-        !isOffered(action.ref, action.metric) ||
-        strategyMetricKey(row.metric) === strategyMetricKey(action.metric)
-      ) {
+      const outcome = row
+        ? chooseMetricOutcome(action.ref, row, action.metric)
+        : null;
+      if (!outcome) {
         return state;
       }
-      const crossesCategory =
-        strategyMetricCategory(row.metric) !==
-        strategyMetricCategory(action.metric);
-      const metric = crossesCategory
-        ? action.metric
-        : withCarriedConfiguration(row.metric, action.metric);
       return {
         ...state,
         definition: withSignal(state.definition, action.ref, (signal) =>
-          mapSignal(signal, action.ref, (current) => ({
-            metric,
-            ...(crossesCategory
-              ? freshRule(action.ref.part, metric, current.value)
-              : reconcile(
-                  action.ref.part,
-                  metric,
-                  current.operator,
-                  current.value,
-                )),
-          })),
+          mapSignal(signal, action.ref, () => outcome),
         ),
       };
     }

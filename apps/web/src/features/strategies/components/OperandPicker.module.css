@@ -1,143 +1,9 @@
 /*
- * The operand picker: a trigger that reads like the product's select, and one panel holding every
- * category and the active category's options.
- *
- * Mobile first. On a phone the panel is a bottom sheet over a scrim; from 600px it is a popover
- * anchored to the rule's fields (the nearest positioned ancestor), as wide as they are up to a cap.
- * Every colour, radius, shadow and control height is a token; only this component's own geometry is
- * local.
+ * What the Value picker's panel holds: every category as a tile, and the active category's options.
+ * The trigger, the panel and its two forms — bottom sheet and anchored popover — are the shell's
+ * (`PickerPopover.module.css`). The option grid and its options are shared with the Metric picker,
+ * so a metric and a series are chosen from rows that look and behave alike.
  */
-
-.picker {
-  min-width: 0;
-}
-
-/* --- Trigger --- */
-
-.trigger {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-width: 0;
-  /* The feature's phone density: the same 40px target the row's selects keep on a phone. */
-  min-height: 40px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  font: inherit;
-  font-size: 12px;
-  text-align: start;
-  outline: none;
-  cursor: pointer;
-}
-
-.trigger:hover {
-  border-color: var(--color-primary-border);
-}
-
-.trigger:focus-visible,
-.trigger[aria-expanded="true"] {
-  border-color: var(--color-primary);
-  box-shadow: var(--focus-ring-inset);
-}
-
-.trigger[aria-invalid="true"] {
-  border-color: var(--color-negative);
-}
-
-.triggerText {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trigger[data-placeholder="true"] .triggerText {
-  color: var(--color-text-muted);
-}
-
-/* The same filled caret the product's select draws, built from borders so its colour is a token. */
-.chevron {
-  flex: none;
-  width: 0;
-  height: 0;
-  margin-inline-end: 1px;
-  border-inline: 5px solid transparent;
-  border-top: 5px solid var(--color-text-muted);
-}
-
-.trigger[aria-expanded="true"] .chevron {
-  transform: rotate(180deg);
-}
-
-/* --- Panel: a bottom sheet on a phone --- */
-
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 59;
-  background: color-mix(in srgb, var(--color-text-primary) 32%, transparent);
-}
-
-.panel {
-  /* The category grid answers to the panel's own width, so one stylesheet serves both forms. */
-  container: operand-picker / inline-size;
-  position: fixed;
-  inset: auto 0 0;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: min(80dvh, 640px);
-  padding: 14px 16px calc(14px + var(--safe-area-bottom));
-  border: 1px solid var(--color-border);
-  border-bottom: none;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-dialog);
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.title {
-  font-size: var(--text-body);
-  font-weight: var(--weight-emphasis);
-}
-
-.close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.close:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface-soft);
-}
-
-.close:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
 
 /* --- Categories: every one visible at once, never scrolled --- */
 
@@ -148,8 +14,8 @@
   gap: 6px;
 }
 
-/* Four to a row wherever the panel has the room: eight categories read as two rows of four. */
-@container operand-picker (min-width: 440px) {
+/* Four to a row wherever the panel has the room. */
+@container picker-panel (min-width: 440px) {
   .categories {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -266,51 +132,7 @@
   box-shadow: var(--focus-ring);
 }
 
-/* --- From 600px: a popover anchored to the rule's fields --- */
-
 @media (min-width: 600px) {
-  .trigger {
-    min-height: var(--control-height-compact);
-    padding: 0 10px;
-    font-size: 13px;
-  }
-
-  .scrim {
-    display: none;
-  }
-
-  .panel {
-    position: absolute;
-    inset: calc(100% + 6px) auto auto 0;
-    z-index: 30;
-    width: min(100%, 600px);
-    max-height: min(440px, 70vh);
-    padding: 12px;
-    border-bottom: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-menu);
-  }
-
-  .panel[data-align="end"] {
-    inset-inline: auto 0;
-  }
-
-  .panel[data-placement="below"] {
-    top: var(--picker-offset);
-  }
-
-  .panel[data-placement="above"] {
-    top: auto;
-    bottom: var(--picker-offset);
-    height: var(--picker-height, auto);
-  }
-
-  /* The trigger says what is being chosen; a popover beside it needs no title of its own. Escape and
-     a press outside close it. */
-  .header {
-    display: none;
-  }
-
   .option {
     min-height: 34px;
   }

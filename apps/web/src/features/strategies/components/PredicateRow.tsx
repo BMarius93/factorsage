@@ -13,7 +13,14 @@ import {
 } from "@intrinsic/contracts";
 import { useState } from "react";
 import { AlternativeDataConfigDialog } from "../../alternative-data/components/AlternativeDataConfigDialog";
-import type { PredicateRef } from "../utils/strategy-draft";
+import {
+  chooseMetricOutcome,
+  mergeMetricChangeResets,
+  metricChangeResets,
+  metricResetNotice,
+  type MetricChangeResets,
+  type PredicateRef,
+} from "../utils/strategy-draft";
 import type { StrategyIssueLookup } from "../utils/strategy-issues";
 import { messageAt } from "../utils/strategy-issues";
 import styles from "./StrategyBuilder.module.css";
@@ -78,6 +85,15 @@ export function PredicateRow({
   // draft and commits through the same `setMetric` a change of metric uses, so the operator and the
   // value are reconciled by the one canonical rule.
   const [configuring, setConfiguring] = useState(false);
+  // What changes of metric or data source have replaced in this rule since its operator or Value
+  // was last edited. A change that cannot keep them resets them to the new metric's own starting
+  // rule; this is what makes that reset visible instead of silent. It accumulates across changes —
+  // a second one that keeps everything does not retract what the first replaced — and it is cleared
+  // by the next edit of the rule itself.
+  const [changeResets, setChangeResets] = useState<MetricChangeResets | null>(
+    null,
+  );
+  const changeNotice = metricResetNotice(ref_.part, changeResets, row.metric);
   const alternative = asAlternativeDataMetric(row.metric);
   const configuration = describeMetricConfiguration(row.metric, scopeNames);
   const pathFor = (
@@ -105,6 +121,7 @@ export function PredicateRow({
   const domId = `${ref_.levelKind}-${ref_.levelIndex ?? "x"}-${ref_.ruleIndex ?? "x"}-${ref_.part}-${ref_.conditionIndex ?? "x"}`;
   const errorId = `${domId}-error`;
   const configurationId = `${domId}-configuration`;
+  const noticeId = `${domId}-notice`;
   const message =
     fieldMessage("METRIC") ??
     fieldMessage("OPERATOR") ??
@@ -138,8 +155,18 @@ export function PredicateRow({
           label="Metric"
           invalid={fieldMessage("METRIC") !== null}
           {...(metricDescribedBy ? { describedBy: metricDescribedBy } : {})}
+          notice={changeNotice}
           onChange={(metric) => {
             touch(pathFor("METRIC"));
+            // The outcome is the draft's own: the same function the reducer applies, asked before
+            // it is dispatched, so the sentence printed is what the document took.
+            const outcome = chooseMetricOutcome(ref_, row, metric);
+            if (outcome) {
+              const resets = metricChangeResets(row, outcome);
+              setChangeResets((earlier) =>
+                mergeMetricChangeResets(earlier, resets),
+              );
+            }
             onChooseMetric(metric);
           }}
           onFocus={() => focusField("METRIC")}
@@ -154,6 +181,7 @@ export function PredicateRow({
           {...(describedBy ? { describedBy } : {})}
           onChange={(operator) => {
             touch(pathFor("OPERATOR"));
+            setChangeResets(null);
             onSetOperator(operator);
           }}
           onFocus={() => focusField("OPERATOR")}
@@ -165,7 +193,10 @@ export function PredicateRow({
           label="Value"
           invalid={fieldMessage("VALUE") !== null}
           {...(describedBy ? { describedBy } : {})}
-          onChange={(value) => onSetValue(value)}
+          onChange={(value) => {
+            setChangeResets(null);
+            onSetValue(value);
+          }}
           // The third field explains itself like the first two: focusing or choosing a series
           // describes that series, on the desktop rail and in this row alike.
           onFocus={() => focusField("VALUE")}
@@ -207,6 +238,17 @@ export function PredicateRow({
         </div>
       ) : null}
 
+      {changeNotice ? (
+        <p
+          className={styles.rowNotice}
+          id={noticeId}
+          role="status"
+          data-testid="row-change-notice"
+        >
+          {changeNotice}
+        </p>
+      ) : null}
+
       {message ? (
         <p className={styles.rowError} id={errorId} role="alert">
           {message}
@@ -219,6 +261,7 @@ export function PredicateRow({
           onClose={() => setConfiguring(false)}
           onApply={(next) => {
             touch(pathFor("METRIC"));
+            setChangeResets(null);
             onSetMetric(next);
             setConfiguring(false);
           }}

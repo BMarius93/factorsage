@@ -2,8 +2,8 @@ import type { StrategyDetailResponse } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 import {
-  categoryLabels,
   chooseMetric,
+  familyLabels,
   openPicker,
 } from "../utils/strategy-builder";
 
@@ -216,10 +216,8 @@ test.describe("Fundamental Metrics in the Strategy Builder", () => {
       .getByTestId("add-trigger")
       .click();
     const trigger = buyRows(page).last();
-    expect(await categoryLabels(await openPicker(trigger))).toEqual([
-      "Price",
-      "Moving averages",
-      "Oscillators",
+    expect(await familyLabels(await openPicker(trigger))).toEqual([
+      "Technical",
       "Valuation",
     ]);
     await page.keyboard.press("Escape");

@@ -12,6 +12,7 @@ import {
   STRATEGY_METRIC_KINDS,
   STRATEGY_SCHEMA_VERSION,
   strategyDefinitionFingerprint,
+  strategyEtfSourcesOffered,
   strategyMetricFamilies,
   strategyMetricHelp,
   strategyMetricKey,
@@ -19,6 +20,7 @@ import {
   strategyMetricCategories,
   strategyMetricOptions,
   strategyMetricSource,
+  strategyMetricUnderSource,
   strategySignalFingerprint,
   triggerOperatorsFor,
   validateStrategyDefinition,
@@ -235,68 +237,79 @@ describe("validation of ETF-sourced conditions", () => {
       "INSIDER_ACTIVITY",
       "CONGRESS_ACTIVITY",
     ]);
-    const forged: Record<string, unknown>[] = [
-      { kind: "MARGIN_OF_SAFETY", sourceId: "BALANCED", source: XLK },
-      { kind: "VALUATION_RATIO", ratioId: "PE", source: XLK },
-      { kind: "FUNDAMENTAL", metricId: "ROIC_TTM", source: XLK },
-      { kind: "GAIN", source: XLK },
+    // One otherwise-valid rule per stock-only kind, so the only thing wrong with each is the
+    // forged `source`: the control without it validates, and with it the refusal is exactly the
+    // unknown field.
+    const rules: {
+      metric: Record<string, unknown>;
+      value: StrategyCondition["value"];
+    }[] = [
       {
-        kind: "INSIDER_ACTIVITY",
-        measure: "INSIDER_BUYERS",
-        lookback: 20,
-        source: XLK,
+        metric: { kind: "MARGIN_OF_SAFETY", sourceId: "BALANCED" },
+        value: { kind: "PERCENT", value: 10 },
+      },
+      {
+        metric: { kind: "VALUATION_RATIO", ratioId: "PRICE_TO_EARNINGS_TTM" },
+        value: { kind: "MULTIPLE", value: 15 },
+      },
+      {
+        metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+        value: { kind: "PERCENT", value: 10 },
+      },
+      { metric: { kind: "GAIN" }, value: { kind: "PERCENT", value: 10 } },
+      { metric: { kind: "LOSS" }, value: { kind: "PERCENT", value: 10 } },
+      {
+        metric: { kind: "INSIDER_ACTIVITY", measure: "BUYERS", lookback: 20 },
+        value: { kind: "NUMBER", value: 1 },
+      },
+      {
+        metric: {
+          kind: "CONGRESS_ACTIVITY",
+          measure: "PURCHASES",
+          lookback: 20,
+          scope: { kind: "ANY" },
+          chamber: "ANY",
+        },
+        value: { kind: "NUMBER", value: 1 },
       },
     ];
-    for (const metric of forged) {
-      const issues = validateStrategyDefinition(
-        definitionOf(
-          [
-            {
-              id: "c-1",
-              metric: metric as unknown as StrategyMetric,
-              operator: "IS_ABOVE",
-              value: { kind: "PERCENT", value: 10 },
+    expect(rules.map((rule) => rule.metric.kind)).toEqual(incompatible);
+
+    const inSellLevel = (metric: Record<string, unknown>, value: StrategyCondition["value"]) =>
+      validateStrategyDefinition({
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: "buy-1",
+            percentage: 25,
+            signal: {
+              conditions: [
+                {
+                  id: "c-buy",
+                  metric: { kind: "PRICE" },
+                  operator: "IS_ABOVE",
+                  value: { kind: "SERIES", seriesId: "SMA_200D" },
+                },
+              ],
             },
-          ],
-          metric.kind === "GAIN"
-            ? {
-              buyLevels: [
-                {
-                  id: "buy-1",
-                  signal: {
-                    conditions: [
-                      {
-                        id: "c-buy",
-                        metric: { kind: "PRICE" },
-                        operator: "IS_ABOVE",
-                        value: { kind: "SERIES", seriesId: "SMA_200D" },
-                      },
-                    ],
-                  },
-                  percentage: 25,
-                },
-              ],
-              sellLevels: [
-                {
-                  id: "sell-1",
-                  signal: {
-                    conditions: [
-                      {
-                        id: "c-1",
-                        metric: metric as unknown as StrategyMetric,
-                        operator: "IS_ABOVE",
-                        value: { kind: "PERCENT", value: 10 },
-                      },
-                    ],
-                  },
-                  percentage: 50,
-                },
-              ],
-            }
-            : {},
-        ),
-      );
-      expect(codesOf(issues)).toContain("UNKNOWN_FIELD");
+          },
+        ],
+        // A SELL level, where the position-dependent kinds are allowed at all.
+        sellLevels: [
+          {
+            id: "sell-1",
+            percentage: 50,
+            signal: {
+              conditions: [{ id: "c-1", metric, operator: "IS_ABOVE", value }],
+            },
+          },
+        ],
+      });
+
+    for (const rule of rules) {
+      expect(inSellLevel(rule.metric, rule.value)).toEqual([]);
+      const forged = inSellLevel({ ...rule.metric, source: XLK }, rule.value);
+      expect(codesOf(forged)).toEqual(["UNKNOWN_FIELD"]);
     }
   });
 
@@ -748,6 +761,70 @@ describe("labels and descriptions", () => {
       seriesId: "RSI_14D",
     });
     expect(Object.keys(withoutMetricSource(metric))).not.toContain("source");
+  });
+});
+
+describe("changing a rule's data source", () => {
+  it("offers an ETF source to Conditions only, in every level kind", () => {
+    for (const levelKind of ["BUY", "SELL", "FINAL_EXIT"] as const) {
+      expect(strategyEtfSourcesOffered(levelKind, "CONDITION")).toBe(true);
+      expect(strategyEtfSourcesOffered(levelKind, "TRIGGER")).toBe(false);
+    }
+  });
+
+  it("keeps a technical metric's identity across Stock, one ETF and another", () => {
+    const stock: StrategyMetric = { kind: "OSCILLATOR", seriesId: "RSI_14D" };
+    const xlk = strategyMetricUnderSource("BUY", "CONDITION", stock, XLK);
+    expect(xlk).toEqual({ kind: "OSCILLATOR", seriesId: "RSI_14D", source: XLK });
+    const gld = strategyMetricUnderSource("BUY", "CONDITION", xlk!, GLD);
+    expect(gld).toEqual({ kind: "OSCILLATOR", seriesId: "RSI_14D", source: GLD });
+    // Back to the stock: the identity with no source field at all, as a stock rule always was.
+    const back = strategyMetricUnderSource("BUY", "CONDITION", gld!, undefined);
+    expect(back).toEqual(stock);
+    expect(Object.keys(back!)).not.toContain("source");
+    // Price, a moving average and Relative Volume carry over the same way.
+    expect(
+      strategyMetricUnderSource("SELL", "CONDITION", { kind: "PRICE" }, SPY),
+    ).toEqual({ kind: "PRICE", source: SPY });
+    expect(
+      strategyMetricUnderSource(
+        "FINAL_EXIT",
+        "CONDITION",
+        { kind: "RELATIVE_VOLUME", period: 20 },
+        GLD,
+      ),
+    ).toEqual({ kind: "RELATIVE_VOLUME", period: 20, source: GLD });
+  });
+
+  it("answers undefined for a stock-only metric asked of an ETF, never a substitute", () => {
+    const stockOnly: StrategyMetric[] = [
+      { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
+      { kind: "VALUATION_RATIO", ratioId: "PRICE_TO_EARNINGS_TTM" },
+      { kind: "MARGIN_OF_SAFETY", sourceId: "BALANCED" },
+      { kind: "GAIN" },
+      { kind: "INSIDER_ACTIVITY", measure: "BUYERS", lookback: 180 },
+    ];
+    for (const metric of stockOnly) {
+      expect(
+        strategyMetricUnderSource("SELL", "CONDITION", metric, XLK),
+      ).toBeUndefined();
+    }
+    // A Trigger offers no ETF metric at all, a technical one included.
+    expect(
+      strategyMetricUnderSource("BUY", "TRIGGER", { kind: "PRICE" }, XLK),
+    ).toBeUndefined();
+  });
+
+  it("returns a configured stock metric as it stands when the source does not change", () => {
+    const configured: StrategyMetric = {
+      kind: "INSIDER_ACTIVITY",
+      measure: "SELLERS",
+      lookback: 180,
+      roles: ["CEO", "CFO"],
+    };
+    expect(
+      strategyMetricUnderSource("BUY", "CONDITION", configured, undefined),
+    ).toEqual(configured);
   });
 });
 
