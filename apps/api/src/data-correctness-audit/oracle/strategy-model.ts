@@ -85,6 +85,11 @@ function text(value: unknown, path: string): string {
 function metric(value: unknown, path: string): OracleMetric {
   const raw = object(value, path);
   const kind = text(raw.kind, `${path}.kind`);
+  if (raw.source !== undefined) {
+    // The independent oracle deliberately does not implement ETF-sourced conditions; refusing is
+    // what keeps it from quietly auditing a different rule than the engine evaluated.
+    throw new Error(`oracle: ETF-sourced metrics are not implemented at ${path}`);
+  }
   switch (kind) {
     case "PRICE":
     case "GAIN":

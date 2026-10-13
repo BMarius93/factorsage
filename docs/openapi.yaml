@@ -5520,6 +5520,40 @@ components:
           maxItems: 1500
           description: Downsampled to a bounded number of points for rendering.
           items: { $ref: "#/components/schemas/BacktestCurvePoint" }
+        etfConditions:
+          type: array
+          description: |
+            One row per ETF source the run's strategy read, in the definition's catalog order;
+            absent for a run whose strategy reads none. A non-READY row is why the ETF conditions
+            could not evaluate.
+          items: { $ref: "#/components/schemas/BacktestEtfConditionDiagnostics" }
+
+    BacktestEtfConditionDiagnostics:
+      type: object
+      required: [code, ticker, status]
+      description: |
+        Whether one ETF condition source could be evaluated by a completed run, in the aggregate.
+        READY still does not promise every session — dates before `firstSession`, indicator warm-up
+        and gaps are per-session absences — but a non-READY status names the operational cause:
+        NOT_BOOTSTRAPPED (the series' history was never bootstrapped), NOT_SYNCHRONIZED (no
+        completed tail read proves any stored bar final), NO_FINALIZED_SESSIONS, or LOAD_FAILED
+        (re-running retries it).
+      properties:
+        code: { type: string }
+        ticker: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              READY,
+              NOT_BOOTSTRAPPED,
+              NOT_SYNCHRONIZED,
+              NO_FINALIZED_SESSIONS,
+              LOAD_FAILED,
+            ]
+        firstSession: { type: string, format: date }
+        latestSession: { type: string, format: date }
+        basisGeneration: { type: integer }
 
     BacktestRunDetail:
       type: object
@@ -5769,6 +5803,25 @@ components:
               type: array
               description: The newest signals, newest first.
               items: { $ref: "#/components/schemas/MonitorSignal" }
+            etfSources:
+              type: array
+              description: |
+                One row per ETF source the Monitor's strategy currently reads, in catalog order;
+                absent when it reads none. Derived at read time from the series' durable refresh
+                state. AWAITING_SESSION means the current session's end-of-day bar is not final
+                yet, so ETF conditions are not evaluable for it until the evening refresh lands.
+              items: { $ref: "#/components/schemas/MonitorEtfSourceStatus" }
+
+    MonitorEtfSourceStatus:
+      type: object
+      required: [code, ticker, status]
+      properties:
+        code: { type: string }
+        ticker: { type: string }
+        status:
+          type: string
+          enum: [READY, AWAITING_SESSION, NOT_SYNCHRONIZED, NOT_BOOTSTRAPPED]
+        latestSession: { type: string, format: date }
 
     # -------------------------------------------------------------------------------------------
     # Dashboard and built-in content

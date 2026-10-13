@@ -2,6 +2,7 @@ import {
   getAlternativeDataConfig,
   getFmpConfig,
   getFmpTrafficConfig,
+  getMarketDataWorkerConfig,
   getRedisConfig,
   getStockDataConfig,
 } from "@intrinsic/config";
@@ -12,7 +13,12 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
+  CanonicalBenchmarkDataService,
   CanonicalStockDataService,
+  PrismaBenchmarkDataStore,
+  RedisBenchmarkDataCache,
+  logBenchmarkCacheEvent,
+  logUnreadableBenchmarkChunk,
   PrismaAlternativeDataStore,
   IoredisCacheClient,
   PrismaStockDataStore,
@@ -29,7 +35,10 @@ import {
   type TradingCalendar,
 } from "@intrinsic/stock-data";
 import { requiredAlternativeDataLeadingSessions, type OperandKey } from "@intrinsic/strategy";
-import type { MonitorDataLoader } from "./monitor-cycle.js";
+import type {
+  MonitorDataLoader,
+  MonitorEtfContexts,
+} from "./monitor-cycle.js";
 import {
   PrismaMonitorRepository,
   type MonitorRepository,
@@ -41,6 +50,8 @@ export type MonitorRuntime = {
   monitors: MonitorRepository;
   data: MonitorDataLoader;
   calendar: TradingCalendar;
+  /** The ETF histories behind ETF-sourced conditions: the provider-free reader slice only. */
+  etfContexts: MonitorEtfContexts;
   close(): Promise<void>;
 };
 
@@ -98,6 +109,11 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     },
   );
 
+  const coordinator = new RedlockLoadCoordinator(redis, {
+    lockDurationMs: stockDataConfig.loadLockDurationMs,
+    lockWaitMs: stockDataConfig.loadLockWaitMs,
+  });
+
   const stockData = new CanonicalStockDataService(
     new PrismaStockDataStore(prisma),
     provider,
@@ -113,10 +129,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
         },
       },
     ),
-    new RedlockLoadCoordinator(redis, {
-      lockDurationMs: stockDataConfig.loadLockDurationMs,
-      lockWaitMs: stockDataConfig.loadLockWaitMs,
-    }),
+    coordinator,
     {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
       productHistoryYears: stockDataConfig.productHistoryYears,
@@ -129,10 +142,49 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     },
   );
 
+  // The canonical benchmark service, for the ETF condition sources alone — and only its
+  // provider-free reader slice is handed out, so a Monitor cycle can never hydrate an ETF
+  // (`docs/decisions/strategy-etf-conditions-v1.md` §5). The bootstrap and the market-data child
+  // own provider reads; a series they have not maintained is simply unavailable here.
+  const benchmarks = new CanonicalBenchmarkDataService(
+    new PrismaBenchmarkDataStore(prisma),
+    provider,
+    new RedisBenchmarkDataCache(new IoredisCacheClient(redis), {
+      observer: { onUnreadableChunk: logUnreadableBenchmarkChunk(logger) },
+    }),
+    coordinator,
+    {
+      historyYears: stockDataConfig.productHistoryYears,
+      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
+      onProviderRequest,
+      onPriceBasisEvent: logPriceBasisEvent(logger),
+      onCacheEvent: logBenchmarkCacheEvent(logger),
+    },
+  );
+
+  const etfContexts: MonitorEtfContexts = {
+    loader: {
+      getSeries: (seriesId) => benchmarks.getSeries(seriesId),
+      readFullBenchmarkHistory: (series, through) =>
+        benchmarks.readFullBenchmarkHistory(series, through),
+      benchmarkRefreshState: (series) =>
+        benchmarks.benchmarkRefreshState(series),
+      missingBenchmarkCoverage: (series, period) =>
+        benchmarks.missingBenchmarkCoverage(series, period),
+    },
+    resolveSeriesId: async (code) => {
+      const benchmark = await benchmarks.getBenchmark(code);
+      return benchmark.series.id;
+    },
+    publicationDelayMs: getMarketDataWorkerConfig().publicationDelayMs,
+  };
+
   return {
     scans: new PrismaMonitorScanRepository(prisma),
     monitors: new PrismaMonitorRepository(prisma),
     data: new PrismaMonitorDataLoader(stockData),
+    etfContexts,
     // Built from the same gated provider as everything else, so a schedule fetch is throttled with
     // the rest of the cycle's traffic. Its cache is process memory by design — see
     // `CachedTradingCalendar`; nothing about it belongs in Redis.

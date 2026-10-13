@@ -4,8 +4,12 @@ import {
   collectActorGroupIds,
   collectActorIds,
   collectAlternativeDataMetrics,
+  collectStrategyEtfSources,
+  findStrategyEtfSource,
+  type BacktestEtfConditionDiagnosticsResponse,
   type BacktestSnapshotActor,
   type BacktestSnapshotActorGroup,
+  type BacktestSnapshotEtfSeries,
   type StrategyDefinition,
   type StrategyScopeNames,
   backtestAnnualReturns,
@@ -865,6 +869,12 @@ export class BacktestsService {
     // definition below. What is frozen here is who they are: the bioguide id and the name each had
     // today, so the completed run can still say whose activity it counted.
     const actors = await this.freezeActors(definition);
+    // The ETF series behind every ETF-sourced condition, pinned exactly as the comparison
+    // benchmark and the execution calendar are: the definition names a stable code, this resolves
+    // the immutable series it means today, and execution reads that id back whatever the catalog
+    // does afterwards. The price-basis generation in force now is recorded beside it, so a later
+    // re-executed run whose numbers differ is explainable rather than mysterious.
+    const etfSeries = await this.freezeEtfSeries(definition);
 
     const snapshot: BacktestRunSnapshot = {
       // The lowest version able to express this run. A strategy that selects no member directly is
@@ -886,6 +896,7 @@ export class BacktestsService {
       // carries the field when it means something.
       ...(actorGroups.length > 0 ? { actorGroups } : {}),
       ...(actors.length > 0 ? { actors } : {}),
+      ...(etfSeries.length > 0 ? { etfSeries } : {}),
       period: { startDate: input.startDate, endDate: input.endDate },
       capital: {
         initialCapital: input.initialCapital,
@@ -1285,10 +1296,56 @@ export class BacktestsService {
       where: { runId: run.id },
       orderBy: { date: "asc" },
     });
+    const etfConditions = run.summary.etfConditionDiagnostics;
     return {
       summary: resultSummaryOf(run.summary),
       annualReturns: annualReturnsOf(equity, run),
       curve: downsampleCurve(equity.map(curvePointOf)),
+      // Written by the worker with the rest of the result; served verbatim. Absent for every run
+      // whose strategy reads no ETF.
+      ...(Array.isArray(etfConditions) && etfConditions.length > 0
+        ? {
+            etfConditions:
+              etfConditions as unknown as BacktestEtfConditionDiagnosticsResponse[],
+          }
+        : {}),
     };
+  }
+
+  /**
+   * The immutable ETF series behind each source the definition reads, with the price basis now in
+   * force. Every source is one of the twenty catalog ETFs, which the validator already proved, so a
+   * code that cannot resolve here is a system problem — an unreconciled catalog — and the
+   * submission is refused the way an unregistered execution calendar is, not blamed on the caller.
+   */
+  private async freezeEtfSeries(
+    definition: StrategyDefinition,
+  ): Promise<BacktestSnapshotEtfSeries[]> {
+    const codes = collectStrategyEtfSources(definition);
+    const frozen: BacktestSnapshotEtfSeries[] = [];
+    for (const code of codes) {
+      const benchmark = await this.prisma.benchmark.findFirst({
+        where: { code, isActive: true },
+        include: { series: { orderBy: { version: "desc" }, take: 1 } },
+      });
+      const series = benchmark?.series[0];
+      if (!series) {
+        throw new BacktestUnavailableError(
+          `Backtests using ${findStrategyEtfSource(code)?.ticker ?? code} are temporarily unavailable: its market-data series is not registered.`,
+        );
+      }
+      const basis = await this.prisma.benchmarkSeriesPriceBasis.findUnique({
+        where: { seriesId: series.id },
+      });
+      frozen.push({
+        code,
+        ticker: findStrategyEtfSource(code)?.ticker ?? code,
+        seriesId: series.id,
+        seriesVersion: series.version,
+        // No row means generation 0: the series has never been re-based.
+        basisGeneration: basis?.generation ?? 0,
+      });
+    }
+    return frozen.sort((left, right) => left.code.localeCompare(right.code));
   }
 }

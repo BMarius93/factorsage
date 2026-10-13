@@ -1,3 +1,4 @@
+import { stubEtfContexts } from "../shared/etf-context.test-helper.js";
 import {
   BACKTEST_SNAPSHOT_VERSION,
   STRATEGY_SCHEMA_VERSION,
@@ -284,6 +285,7 @@ async function execute(definition: StrategyDefinition): Promise<{
       },
       stockData: loader,
       benchmarks: new FixtureBenchmarks(),
+      etfContexts: stubEtfContexts(),
       logger,
     },
     {

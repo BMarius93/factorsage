@@ -1,6 +1,7 @@
 import {
   normalizeStrategyDefinition,
   type StrategyDefinition,
+  type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
 import {
   tradingSessionDate,
@@ -13,17 +14,24 @@ import {
   addDays,
   monitorWindowCalendarDays,
   PriceBasisChangedError,
+  withEtfOperandColumns,
   type CurrentObservation,
   type MonitorEvaluationFrame,
   type TradingCalendar,
 } from "@intrinsic/stock-data";
 import {
+  collectEtfOperands,
   collectOperands,
   monitorStrategyLevels,
   type EvaluationFrame,
   type MonitorStrategyLevel,
   type OperandKey,
 } from "@intrinsic/strategy";
+import {
+  loadEtfTechnicalSnapshots,
+  type EtfContextLoader,
+  type EtfTechnicalSnapshots,
+} from "../shared/etf-context.js";
 import { mapWithConcurrency } from "../shared/concurrency.js";
 import { decideLevel, needsDeeperHistory } from "./level-decision.js";
 import {
@@ -112,6 +120,18 @@ export interface MonitorDataLoader {
    */
   reconstructionHistoryStart(security: Security): LocalDate;
 }
+
+/**
+ * How a cycle reaches the ETF histories behind ETF-sourced conditions: the provider-free reader
+ * slice, a live code-to-series resolution — a Monitor is live configuration, so it reads the series
+ * currently in force, unlike a backtest's pinned snapshot — and the finalized-session convention's
+ * publication delay.
+ */
+export type MonitorEtfContexts = {
+  loader: EtfContextLoader;
+  resolveSeriesId: (code: StrategyEtfSourceCode) => Promise<string>;
+  publicationDelayMs: number;
+};
 
 export type MonitorCycleOptions = {
   symbolConcurrency: number;
@@ -214,6 +234,11 @@ export class MonitorCycle {
     private readonly calendar: TradingCalendar,
     private readonly logger: StructuredLogger,
     private readonly options: MonitorCycleOptions,
+    /**
+     * Absent only in tests whose monitors read no ETF. Without it an ETF-sourced condition is
+     * NOT_EVALUABLE — the fail-closed reading — and the cycle says so once per cycle.
+     */
+    private readonly etfContexts?: MonitorEtfContexts,
   ) {
     this.now = options.now ?? (() => new Date());
   }
@@ -317,6 +342,58 @@ export class MonitorCycle {
       }
     }
 
+    // Each distinct ETF any active Monitor reads, loaded and computed **once per cycle** — never
+    // per Monitor, per symbol or per condition — from the series currently in force, through the
+    // provider-free reader, finalized-and-synchronized sessions only (owner decisions 1 and 2).
+    // A failed or unavailable ETF degrades exactly the conditions naming it to NOT_EVALUABLE;
+    // unlike a quote outage it never fails the cycle, because it invalidates only those rules.
+    const etfOperandSet = new Set<OperandKey>();
+    const etfCodes = new Set<StrategyEtfSourceCode>();
+    for (const { definition } of prepared) {
+      for (const [code, keys] of collectEtfOperands(definition)) {
+        etfCodes.add(code);
+        for (const key of keys) {
+          etfOperandSet.add(key);
+        }
+      }
+    }
+    const etfOperands = [...etfOperandSet].sort();
+    let etfSnapshots: EtfTechnicalSnapshots = new Map();
+    if (etfCodes.size > 0) {
+      if (!this.etfContexts) {
+        this.logger.warn({
+          event: "monitor.etf-context.unconfigured",
+          cycleSequence,
+          codes: [...etfCodes].sort(),
+        });
+      } else {
+        const series: { code: StrategyEtfSourceCode; seriesId: string }[] = [];
+        for (const code of [...etfCodes].sort()) {
+          try {
+            series.push({
+              code,
+              seriesId: await this.etfContexts.resolveSeriesId(code),
+            });
+          } catch (err) {
+            this.logger.warn({
+              event: "monitor.etf-context.resolve-failed",
+              cycleSequence,
+              code,
+              err,
+            });
+          }
+        }
+        ({ snapshots: etfSnapshots } = await loadEtfTechnicalSnapshots({
+          series,
+          loader: this.etfContexts.loader,
+          now: this.now(),
+          publicationDelayMs: this.etfContexts.publicationDelayMs,
+          logger: this.logger,
+          logContext: { component: "monitor" },
+        }));
+      }
+    }
+
     const securityIds = [...operandsBySecurity.keys()];
     summary.symbols = securityIds.length;
     // Deliberately no early return when the universe is empty. Every call below is a no-op on an
@@ -416,6 +493,8 @@ export class MonitorCycle {
           observationDate: resolved.date,
           asOf,
           cycleSequence,
+          etfOperands,
+          etfSnapshots,
         });
         const targets = needsReconstruction.get(security.id);
         if (snapshot.frame && targets) {
@@ -426,6 +505,8 @@ export class MonitorCycle {
             targets,
             cycleSequence,
             summary,
+            etfOperands,
+            etfSnapshots,
           });
         }
         snapshots.set(security.id, snapshot);
@@ -483,6 +564,8 @@ export class MonitorCycle {
     observationDate: LocalDate;
     asOf: LocalDate;
     cycleSequence: number;
+    etfOperands: readonly OperandKey[];
+    etfSnapshots: EtfTechnicalSnapshots;
   }): Promise<SymbolSnapshot> {
     const { security, operands, observation, asOf } = input;
     const windowObservations = this.data.monitorWindowObservations(operands);
@@ -493,7 +576,7 @@ export class MonitorCycle {
         asOf,
         operands,
       );
-      const frame = await this.data.readMonitorEvaluationFrame({
+      let frame = await this.data.readMonitorEvaluationFrame({
         security,
         operands,
         observations: windowObservations,
@@ -501,6 +584,20 @@ export class MonitorCycle {
         observation,
         observationDate: input.observationDate,
       });
+      // ETF columns join by exact session date, the live observation row included: today has no
+      // finalized ETF bar until the evening refresh, so an ETF condition reads NaN there and is
+      // NOT_EVALUABLE for the session — strict same-session alignment, never yesterday's reading
+      // carried forward (owner decision 1).
+      if (frame && input.etfOperands.length > 0) {
+        frame = {
+          ...frame,
+          frame: withEtfOperandColumns(
+            frame.frame,
+            input.etfOperands,
+            input.etfSnapshots,
+          ),
+        };
+      }
       this.logger.debug({
         event: "monitor.symbol.prepared",
         cycleSequence: input.cycleSequence,
@@ -541,6 +638,8 @@ export class MonitorCycle {
     targets: readonly ReconstructionTarget[];
     cycleSequence: number;
     summary: MonitorCycleSummary;
+    etfOperands: readonly OperandKey[];
+    etfSnapshots: EtfTechnicalSnapshots;
   }): Promise<ReconstructionHistory | null> {
     const { security, snapshot, targets } = input;
     const observationDate = snapshot.frame!.observationDate;
@@ -556,8 +655,22 @@ export class MonitorCycle {
         // unclamped range, which is still a valid one and simply holds nothing.
         const range = { from: complete && start <= to ? start : earliest, to };
         await this.data.prepareReconstructionData(security, range, input.operands);
+        // ETF columns are joined before the resting-session scan below, so a level whose rules
+        // read an ETF rests — and stops the doubling — exactly where a full replay would.
+        const readFrame = await this.data.readReconstructionFrame(
+          security,
+          range,
+          input.operands,
+        );
         const history: ReconstructionHistory = {
-          frame: await this.data.readReconstructionFrame(security, range, input.operands),
+          frame:
+            input.etfOperands.length > 0
+              ? withEtfOperandColumns(
+                  readFrame,
+                  input.etfOperands,
+                  input.etfSnapshots,
+                )
+              : readFrame,
           complete,
         };
         const deeper = targets.filter((target) =>

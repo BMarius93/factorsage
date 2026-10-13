@@ -1295,6 +1295,10 @@ model BacktestRunSummary {
   winningTrades               Int
   losingTrades                Int
   openPositions               Int
+  /// Per-ETF availability of the run's ETF condition sources, written with the result
+  /// (`BacktestEtfConditionDiagnosticsResponse[]` in `@intrinsic/contracts`). NULL for a run whose
+  /// strategy reads no ETF — every run that existed before ETF conditions did.
+  etfConditionDiagnostics     Json?
   run                         BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 }
 

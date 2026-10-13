@@ -36,10 +36,17 @@ try {
   await scans.requestImmediateScan(new Date());
   const loop = new MonitorWorkerLoop(
     scans,
-    new MonitorCycle(runtime.monitors, runtime.data, runtime.calendar, logger, {
-      symbolConcurrency: config.symbolConcurrency,
-      quoteMaxAgeMs: config.quoteMaxAgeMs,
-    }),
+    new MonitorCycle(
+      runtime.monitors,
+      runtime.data,
+      runtime.calendar,
+      logger,
+      {
+        symbolConcurrency: config.symbolConcurrency,
+        quoteMaxAgeMs: config.quoteMaxAgeMs,
+      },
+      runtime.etfContexts,
+    ),
     logger,
     {
       workerId,

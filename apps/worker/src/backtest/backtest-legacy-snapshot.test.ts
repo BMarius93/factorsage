@@ -1,3 +1,4 @@
+import { stubEtfContexts } from "../shared/etf-context.test-helper.js";
 import {
   BACKTEST_SNAPSHOT_VERSION,
   BACKTEST_SNAPSHOT_VERSION_ACTOR_SELECTION,
@@ -347,6 +348,7 @@ function processorWith(
       },
       stockData,
       benchmarks: new FixtureBenchmarks(),
+      etfContexts: stubEtfContexts(),
       logger,
     },
     {

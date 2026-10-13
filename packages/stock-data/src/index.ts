@@ -39,6 +39,7 @@ export * from "./benchmark-service.js";
 export * from "./benchmark-technicals.js";
 export * from "./market-data-refresh.js";
 export * from "./evaluation-frame.js";
+export * from "./etf-frame-columns.js";
 export * from "./alternative-data-ports.js";
 export * from "./alternative-data-prisma-store.js";
 export * from "./alternative-data-service.js";

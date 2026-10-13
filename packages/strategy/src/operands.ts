@@ -1,15 +1,20 @@
 import {
   findSelectableSeries,
   isFundamentalMetricId,
+  isStrategyEtfSourceCode,
   isValuationRatioId,
   RELATIVE_VOLUME_PERIODS,
+  strategyMetricSource,
+  withoutMetricSource,
   type FundamentalMetricId,
   type RelativeVolumePeriod,
   type SelectableSeries,
   type SelectableSeriesId,
   type StrategyCondition,
   type StrategyDefinition,
+  type StrategyEtfSourceCode,
   type StrategyMetric,
+  type StrategyMetricSource,
   type StrategySignal,
   type StrategyTrigger,
   type StrategyValue,
@@ -146,6 +151,55 @@ export function operandValuationRatioId(
   return isValuationRatioId(ratioId) ? ratioId : null;
 }
 
+const ETF_PREFIX = "etf:";
+
+/**
+ * One ETF-sourced reading: the stock operand encoding, prefixed with the source's benchmark code.
+ *
+ * Its own key family — `etf:ETF_XLK:series:RSI_14D`, `etf:SP500:price`,
+ * `etf:ETF_GLD:relative-volume:20` — so an ETF column can never be read as, loaded as, or counted
+ * toward a security's own data: the per-security projectors refuse unknown families, and the
+ * Monitor's warm-up sizing decodes only the stock families. ETF columns are computed once per
+ * distinct ETF per backtest run or Monitor cycle from the benchmark's own finalized history
+ * (`@intrinsic/stock-data`, `benchmark-technicals.ts`) and joined onto each security's frame by
+ * exact session date.
+ */
+export function etfOperand(
+  code: StrategyEtfSourceCode,
+  base: OperandKey,
+): OperandKey {
+  return `${ETF_PREFIX}${code}:${base}`;
+}
+
+/**
+ * The ETF source and underlying stock encoding one key addresses, or null when the key addresses
+ * something else — including an `etf:` key naming a code the catalog does not define, so a forged
+ * or drifted key can never be projected as an ETF that happens to be absent.
+ */
+export function decodeEtfOperand(
+  key: OperandKey,
+): { code: StrategyEtfSourceCode; base: OperandKey } | null {
+  if (!key.startsWith(ETF_PREFIX)) {
+    return null;
+  }
+  const rest = key.slice(ETF_PREFIX.length);
+  const separator = rest.indexOf(":");
+  if (separator <= 0) {
+    return null;
+  }
+  const code = rest.slice(0, separator);
+  const base = rest.slice(separator + 1);
+  if (!isStrategyEtfSourceCode(code) || base.length === 0) {
+    return null;
+  }
+  return { code, base };
+}
+
+/** Whether a key belongs to the ETF family at all, decodable or not. */
+export function isEtfOperand(key: OperandKey): boolean {
+  return key.startsWith(ETF_PREFIX);
+}
+
 /**
  * Margin of Safety against one explicitly selected intrinsic-value source.
  *
@@ -172,6 +226,14 @@ export function isPositionDependentMetric(metric: StrategyMetric): boolean {
  * silent failure a new family must never have.
  */
 export function metricOperand(metric: StrategyMetric): OperandKey | null {
+  // An ETF-sourced metric reads its own key family, never the stock's column of the same identity:
+  // the source is resolved here, in the one key builder, so no projector or evaluator can confuse
+  // `XLK · RSI 14D` with the candidate stock's RSI however the frames are assembled.
+  const source = strategyMetricSource(metric);
+  if (source) {
+    const base = metricOperand(withoutMetricSource(metric));
+    return base === null ? null : etfOperand(source.code, base);
+  }
   switch (metric.kind) {
     case "PRICE":
       return PRICE_OPERAND;
@@ -197,43 +259,37 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
   }
 }
 
-/** The frame column a Value reads, or null when the Value is a constant. */
-export function valueOperand(value: StrategyValue): OperandKey | null {
-  return value.kind === "SERIES" ? seriesOperand(value.seriesId) : null;
+/**
+ * The frame column a Value reads, or null when the Value is a constant.
+ *
+ * A `SERIES` Value under an ETF-sourced metric resolves against the **same ETF** — the source lives
+ * on the condition's metric and both sides of the comparison read from it — so a stock-versus-ETF
+ * comparison is not representable here, exactly as the registry never offers one.
+ */
+export function valueOperand(
+  value: StrategyValue,
+  source?: StrategyMetricSource,
+): OperandKey | null {
+  if (value.kind !== "SERIES") {
+    return null;
+  }
+  const base = seriesOperand(value.seriesId);
+  return source ? etfOperand(source.code, base) : base;
 }
 
-/**
- * Every frame column a strategy version references, ascending and deduplicated.
- *
- * Projecting only these columns is what keeps a long multi-security run in tens of megabytes
- * instead of gigabytes (`ai/architecture/strategy-evaluation.md` §2.5). The ordering is stable so
- * two runs of the same definition request identical projections.
- */
-export function collectOperands(definition: StrategyDefinition): OperandKey[] {
-  const keys = new Set<OperandKey>();
-  // Price is always projected: portfolio valuation, execution and Gain/Loss all need the close,
-  // whether or not a predicate names it.
-  keys.add(PRICE_OPERAND);
-
+/** One walk over every predicate of a definition, shared by the two collectors below. */
+function walkPredicates(
+  definition: StrategyDefinition,
+  visit: (predicate: StrategyCondition | StrategyTrigger) => void,
+): void {
   const addSignal = (signal: StrategySignal): void => {
-    const predicates: (StrategyCondition | StrategyTrigger)[] = [
-      ...signal.conditions,
-    ];
-    if (signal.trigger) {
-      predicates.push(signal.trigger);
+    for (const condition of signal.conditions) {
+      visit(condition);
     }
-    for (const predicate of predicates) {
-      const metric = metricOperand(predicate.metric);
-      if (metric) {
-        keys.add(metric);
-      }
-      const value = valueOperand(predicate.value);
-      if (value) {
-        keys.add(value);
-      }
+    if (signal.trigger) {
+      visit(signal.trigger);
     }
   };
-
   for (const level of definition.buyLevels) {
     addSignal(level.signal);
   }
@@ -243,8 +299,79 @@ export function collectOperands(definition: StrategyDefinition): OperandKey[] {
   for (const rule of definition.finalExit?.rules ?? []) {
     addSignal(rule.signal);
   }
+}
+
+/**
+ * Every **security-owned** frame column a strategy version references, ascending and deduplicated.
+ *
+ * Projecting only these columns is what keeps a long multi-security run in tens of megabytes
+ * instead of gigabytes (`ai/architecture/strategy-evaluation.md` §2.5). The ordering is stable so
+ * two runs of the same definition request identical projections.
+ *
+ * ETF-sourced predicates contribute **nothing** here, deliberately: their columns belong to the
+ * ETF, are computed once per distinct ETF per run or cycle, and are collected by
+ * {@link collectEtfOperands}. Keeping them out is what stops an ETF key reaching the per-security
+ * projectors — which refuse unknown families — and what stops twenty conditions on one ETF
+ * widening a Monitor's per-security load window.
+ */
+export function collectOperands(definition: StrategyDefinition): OperandKey[] {
+  const keys = new Set<OperandKey>();
+  // Price is always projected: portfolio valuation, execution and Gain/Loss all need the close,
+  // whether or not a predicate names it.
+  keys.add(PRICE_OPERAND);
+
+  walkPredicates(definition, (predicate) => {
+    const source = strategyMetricSource(predicate.metric);
+    if (source) {
+      return;
+    }
+    const metric = metricOperand(predicate.metric);
+    if (metric) {
+      keys.add(metric);
+    }
+    const value = valueOperand(predicate.value);
+    if (value) {
+      keys.add(value);
+    }
+  });
 
   return [...keys].sort();
+}
+
+/**
+ * Every ETF-sourced frame column a strategy version references, grouped by source code, each list
+ * ascending and deduplicated, the codes in ascending order.
+ *
+ * The one answer to "which ETF columns does this definition need, from which histories?": the
+ * backtest's prepare phase and the Monitor cycle both read it, compute each named ETF's technicals
+ * once, and join exactly these columns onto every security frame. Work therefore scales with the
+ * distinct ETFs a definition names, never with securities × conditions.
+ */
+export function collectEtfOperands(
+  definition: StrategyDefinition,
+): ReadonlyMap<StrategyEtfSourceCode, readonly OperandKey[]> {
+  const byCode = new Map<StrategyEtfSourceCode, Set<OperandKey>>();
+  walkPredicates(definition, (predicate) => {
+    const source = strategyMetricSource(predicate.metric);
+    if (!source) {
+      return;
+    }
+    const keys = byCode.get(source.code) ?? new Set<OperandKey>();
+    const metric = metricOperand(predicate.metric);
+    if (metric) {
+      keys.add(metric);
+    }
+    const value = valueOperand(predicate.value, source);
+    if (value) {
+      keys.add(value);
+    }
+    byCode.set(source.code, keys);
+  });
+  return new Map(
+    [...byCode.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([code, keys]) => [code, [...keys].sort()]),
+  );
 }
 
 /**

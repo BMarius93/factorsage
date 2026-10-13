@@ -2263,4 +2263,94 @@ describe("backtests", () => {
     expect(body.failure?.phase).toBeNull();
     expect(body.failure?.code).toBe("EXECUTION_FAILED");
   });
+
+  describe("ETF condition sources are pinned at submission", () => {
+    it("freezes each named ETF's immutable series and basis generation, and only those", async () => {
+      const etfDefinition = normalizeStrategyDefinition({
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: "buy-etf-1",
+            percentage: 25,
+            signal: {
+              conditions: [
+                {
+                  id: "condition-etf-1",
+                  metric: {
+                    kind: "OSCILLATOR",
+                    seriesId: "RSI_14D",
+                    source: { kind: "ETF", code: "ETF_XLK" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 50 },
+                },
+                {
+                  id: "condition-etf-2",
+                  metric: {
+                    kind: "PRICE",
+                    source: { kind: "ETF", code: "SP500" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "SERIES", seriesId: "SMA_200D" },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [],
+      } satisfies StrategyDefinition);
+      const etfStrategy = await prisma.strategy.create({
+        data: {
+          userId: ownerUserId,
+          name: "ETF context strategy",
+          versions: {
+            create: {
+              versionNumber: 1,
+              definition: etfDefinition as unknown as object,
+              definitionHash: createHash("sha256")
+                .update(strategyDefinitionFingerprint(etfDefinition))
+                .digest("hex"),
+            },
+          },
+        },
+      });
+
+      const run = await submit({ strategyId: etfStrategy.id });
+      const row = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true },
+      });
+      const snapshot = row.snapshot as unknown as BacktestRunSnapshot;
+
+      // The reconciled catalog's current series, pinned by id — exactly as the comparison
+      // benchmark and the execution calendar are — sorted by code, with the price basis in force
+      // (generation 0: nothing has re-based these fixtures).
+      const pins = snapshot.etfSeries ?? [];
+      expect(pins.map((pin) => [pin.code, pin.ticker])).toEqual([
+        ["ETF_XLK", "XLK"],
+        ["SP500", "SPY"],
+      ]);
+      for (const pin of pins) {
+        const benchmark = await prisma.benchmark.findUniqueOrThrow({
+          where: { code: pin.code },
+          include: { series: { orderBy: { version: "desc" }, take: 1 } },
+        });
+        expect(pin.seriesId).toBe(benchmark.series[0]?.id);
+        expect(pin.basisGeneration).toBe(0);
+      }
+      // The snapshot version is untouched: pre-launch there are no mixed worker deployments, and
+      // the pinned section plus the worker's own source refusal are the correctness mechanism.
+      expect(snapshot.snapshotVersion).toBe(1);
+
+      // A stock-only submission still writes no section at all, byte-identical to before.
+      const stockRun = await submit();
+      const stockRow = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: stockRun.id },
+        select: { snapshot: true },
+      });
+      expect(
+        (stockRow.snapshot as unknown as BacktestRunSnapshot).etfSeries,
+      ).toBeUndefined();
+    });
+  });
 });

@@ -9,9 +9,20 @@ import type {
   MonitorSummaryResponse,
   MonitorWaitingLevelResponse,
 } from "@intrinsic/contracts";
-import { normalizeStrategyDefinition } from "@intrinsic/contracts";
+import {
+  collectStrategyEtfSources,
+  findStrategyEtfSource,
+  normalizeStrategyDefinition,
+  type MonitorEtfSourceStatusResponse,
+  type StrategyEtfSourceCode,
+} from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import { monitorStrategyLevels } from "@intrinsic/strategy";
+import {
+  benchmarkSessionFinalizedAt,
+  MARKET_OVERVIEW_HISTORY_FLOOR,
+  type BenchmarkDataService,
+} from "@intrinsic/stock-data";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
 import {
@@ -26,7 +37,11 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { crossMonitorConfigurationBoundary } from "./monitor-configuration-boundary";
-import { MONITORS_LOGGER } from "./monitors.tokens";
+import { BENCHMARK_DATA_SERVICE } from "../benchmarks/benchmarks.tokens";
+import {
+  MONITOR_ETF_STATUS_OPTIONS,
+  MONITORS_LOGGER,
+} from "./monitors.tokens";
 import { monitorStateSince } from "./signal-since";
 import {
   BUILT_IN_MONITOR_KEYS,
@@ -193,6 +208,10 @@ export class MonitorsService {
     @Inject(EntitlementsService)
     private readonly entitlements: EntitlementsService,
     @Inject(MONITORS_LOGGER) private readonly logger: StructuredLogger,
+    @Inject(BENCHMARK_DATA_SERVICE)
+    private readonly benchmarks: BenchmarkDataService,
+    @Inject(MONITOR_ETF_STATUS_OPTIONS)
+    private readonly etfStatusOptions: { publicationDelayMs: number },
   ) {}
 
   /**
@@ -328,18 +347,102 @@ export class MonitorsService {
     // Three independent reads, issued together: the levels this Monitor actually evaluates, the
     // monitored universe with its current status, and the newest Signals. None is per security or
     // per Signal.
-    const [monitoredLevelIds, signals, eligibility] = await Promise.all([
-      this.monitoredLevelIds(row.strategyId),
-      this.listSignals(monitorId),
-      row.userId === null
-        ? Promise.resolve(new Map<string, MonitorEligibility>())
-        : this.entitlements.getMonitorExecutionEligibility(row.userId),
-    ]);
+    const [monitoredLevelIds, signals, eligibility, etfSources] =
+      await Promise.all([
+        this.monitoredLevelIds(row.strategyId),
+        this.listSignals(monitorId),
+        row.userId === null
+          ? Promise.resolve(new Map<string, MonitorEligibility>())
+          : this.entitlements.getMonitorExecutionEligibility(row.userId),
+        this.etfSourceStatuses(row.strategyId),
+      ]);
     return {
       ...summaryOf(row, eligibility.get(row.id), viewer),
       securities: await this.listSecurityEvaluations(row, monitoredLevelIds),
       signals,
+      ...(etfSources.length > 0 ? { etfSources } : {}),
     };
+  }
+
+  /**
+   * The current availability of each ETF source this Monitor's Strategy reads — derived at read
+   * time from the series' durable refresh state, never persisted, and never a provider request.
+   * Empty for a Strategy that reads none, and empty rather than failing when the Strategy cannot
+   * be read: the availability note must not take the whole detail page down.
+   */
+  private async etfSourceStatuses(
+    strategyId: string,
+  ): Promise<MonitorEtfSourceStatusResponse[]> {
+    let codes: readonly StrategyEtfSourceCode[];
+    try {
+      const version = await this.prisma.strategyVersion.findFirst({
+        where: { strategyId },
+        orderBy: { versionNumber: "desc" },
+        select: { definition: true },
+      });
+      if (!version) {
+        return [];
+      }
+      codes = collectStrategyEtfSources(
+        normalizeStrategyDefinition(version.definition),
+      );
+    } catch {
+      return [];
+    }
+    if (codes.length === 0) {
+      return [];
+    }
+    const statuses: MonitorEtfSourceStatusResponse[] = [];
+    for (const code of codes) {
+      const ticker = findStrategyEtfSource(code)?.ticker ?? code;
+      try {
+        const benchmark = await this.benchmarks.getBenchmark(code);
+        const state = await this.benchmarks.benchmarkRefreshState(
+          benchmark.series,
+        );
+        if (state.coverageEnd === undefined) {
+          statuses.push({ code, ticker, status: "NOT_BOOTSTRAPPED" });
+          continue;
+        }
+        const missing = await this.benchmarks.missingBenchmarkCoverage(
+          benchmark.series,
+          { from: MARKET_OVERVIEW_HISTORY_FLOOR, to: state.coverageEnd },
+        );
+        if (missing.length > 0) {
+          statuses.push({ code, ticker, status: "NOT_BOOTSTRAPPED" });
+          continue;
+        }
+        if (state.lastTailSyncAt === undefined || state.latestBar === undefined) {
+          statuses.push({ code, ticker, status: "NOT_SYNCHRONIZED" });
+          continue;
+        }
+        // The newest stored bar is usable exactly when its session's close plus the publication
+        // delay has passed AND the tail was read at or after that instant — the same rule the
+        // evaluation path applies. Until then the bar may still be the provisional mid-session
+        // reading, so conditions evaluate through an earlier session.
+        const finalizedAt = benchmarkSessionFinalizedAt(
+          state.latestBar,
+          this.etfStatusOptions.publicationDelayMs,
+        ).getTime();
+        const synced =
+          finalizedAt <= Date.now() &&
+          finalizedAt <= Date.parse(state.lastTailSyncAt);
+        statuses.push({
+          code,
+          ticker,
+          status: synced ? "READY" : "AWAITING_SESSION",
+          ...(synced ? { latestSession: state.latestBar } : {}),
+        });
+      } catch (err) {
+        this.logger.warn({
+          event: "monitor.etf-source.status-failed",
+          code,
+          err,
+        });
+        statuses.push({ code, ticker, status: "NOT_SYNCHRONIZED" });
+      }
+    }
+    return statuses;
   }
 
   /**

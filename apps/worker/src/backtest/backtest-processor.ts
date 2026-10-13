@@ -19,6 +19,7 @@ import type {
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
+  collectEtfOperands,
   collectOperands,
   createBacktestSimulation,
   methodologyMismatches,
@@ -30,6 +31,12 @@ import {
   type EvaluationFrame,
   type OperandKey,
 } from "@intrinsic/strategy";
+import {
+  loadEtfTechnicalSnapshots,
+  type EtfConditionDiagnostic,
+  type EtfContextLoader,
+  type EtfTechnicalSnapshots,
+} from "../shared/etf-context.js";
 import type {
   ArchivePreparedSecurity,
   BacktestArchiveStatus,
@@ -47,6 +54,7 @@ import {
 import {
   BACKTEST_DATA_REVISIONS,
   PriceBasisChangedError,
+  withEtfOperandColumns,
   type DailyPriceBounds,
   type PreparedDailyEvaluationData,
   type ValuationTimeline,
@@ -190,6 +198,15 @@ type PreparedSecurityOutcome = {
 type PreparedRun = {
   securities: PreparedSecurity[];
   operands: readonly OperandKey[];
+  /**
+   * The ETF-sourced columns the definition reads, flat, and the technical snapshot of each pinned
+   * ETF series — computed **once** here, in prepare, and joined onto every security's window frames.
+   * An ETF whose context is unavailable has no snapshot, so exactly the conditions naming it join
+   * NaN columns and read NOT_EVALUABLE; `etfDiagnostics` says why, aggregate and user-visible.
+   */
+  etfOperands: readonly OperandKey[];
+  etfSnapshots: EtfTechnicalSnapshots;
+  etfDiagnostics: readonly EtfConditionDiagnostic[];
   benchmark: BenchmarkSeriesInput | null;
   executionCalendar: LocalDate[];
   /**
@@ -217,6 +234,15 @@ export type BacktestProcessorDependencies = {
   securities: BacktestSecurityCatalog;
   stockData: BacktestFrameLoader;
   benchmarks: BacktestBenchmarkLoader;
+  /**
+   * The provider-free reads behind ETF condition sources, plus the finalized-session convention's
+   * publication delay. Separate from `benchmarks` on purpose: that loader may hydrate, and the ETF
+   * condition path must not be able to (`docs/decisions/strategy-etf-conditions-v1.md` §5).
+   */
+  etfContexts: {
+    loader: EtfContextLoader;
+    publicationDelayMs: number;
+  };
   logger: StructuredLogger;
   /**
    * Opt-in forensic capture, absent unless `BACKTEST_DEBUG_ARCHIVE` asked for it.
@@ -403,7 +429,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       phase = "FINALIZING";
       const finalizingStartedAt = Date.now();
       await archive?.recordResult(result);
-      await this.finalize(claim, lease, result);
+      await this.finalize(claim, lease, result, prepared.etfDiagnostics);
       archive?.recordTiming("finalizingMs", Date.now() - finalizingStartedAt);
       archiveStatus = "COMPLETED";
 
@@ -531,6 +557,35 @@ export class BacktestProcessor implements BacktestJobProcessor {
       archive,
     );
 
+    // Each distinct ETF the definition reads, computed once for the whole run — never per security
+    // or per condition — through the provider-free reader, from the series the snapshot pinned.
+    const etfOperandsByCode = collectEtfOperands(snapshot.strategy.definition);
+    const etfOperands = [...etfOperandsByCode.values()].flat().sort();
+    const { snapshots: etfSnapshots, diagnostics: etfDiagnostics } =
+      etfOperandsByCode.size === 0
+        ? { snapshots: new Map(), diagnostics: [] }
+        : await loadEtfTechnicalSnapshots({
+            series: [...etfOperandsByCode.keys()].map((code) => {
+              const pinned = (snapshot.etfSeries ?? []).find(
+                (entry) => entry.code === code,
+              );
+              // Unreachable: parseRunSnapshot refused any definition whose sources are not pinned.
+              if (!pinned) {
+                throw new BacktestRunFailure(
+                  "EXECUTION_FAILED",
+                  FAILURE_MESSAGES.EXECUTION_FAILED,
+                  `The run snapshot pins no ETF series for ${code}.`,
+                );
+              }
+              return { code, seriesId: pinned.seriesId };
+            }),
+            loader: this.dependencies.etfContexts.loader,
+            now: this.now(),
+            publicationDelayMs: this.dependencies.etfContexts.publicationDelayMs,
+            logger: this.dependencies.logger,
+            logContext: { component: "backtest" },
+          });
+
     const loaded: (PreparedSecurity | null)[] = snapshot.securities.map(
       () => null,
     );
@@ -640,6 +695,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
     return {
       securities,
       operands,
+      etfOperands,
+      etfSnapshots,
+      etfDiagnostics,
       benchmark: await this.loadBenchmark(snapshot, period, archive),
       executionCalendar,
       resolveGroupMembers: frozenActorGroupResolver(snapshot),
@@ -1140,7 +1198,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const frames: EvaluationFrame[] = new Array(prepared.securities.length);
     await this.mapWithConcurrency(prepared.securities, async (entry, index) => {
       try {
-        frames[index] =
+        const frame =
           await this.dependencies.stockData.readDailyEvaluationFrame(
             entry.security,
             range,
@@ -1155,6 +1213,13 @@ export class BacktestProcessor implements BacktestJobProcessor {
                 : { valuation: entry.valuation }),
             },
           );
+        // The ETF columns are joined here, by exact session date, from the run's one per-ETF
+        // snapshot — so the join cost is an array lookup per session and the data was computed once.
+        frames[index] = withEtfOperandColumns(
+          frame,
+          prepared.etfOperands,
+          prepared.etfSnapshots,
+        );
       } catch (err) {
         if (err instanceof PriceBasisChangedError) {
           // The provider re-based this security while the run was reading it. Finishing on two price
@@ -1249,6 +1314,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     claim: ClaimedBacktestJob,
     lease: BacktestJobLease,
     result: BacktestResult,
+    etfConditions: readonly EtfConditionDiagnostic[],
   ): Promise<void> {
     await this.writeProgress(claim, lease, "PHASE", {
       status: BacktestRunStatus.FINALIZING,
@@ -1263,6 +1329,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       workerId: this.options.workerId,
       now: this.now(),
       result,
+      ...(etfConditions.length === 0 ? {} : { etfConditions }),
     });
     if (!persisted) {
       lease.markLost();

@@ -1,3 +1,4 @@
+import { stubEtfContexts } from "../shared/etf-context.test-helper.js";
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
@@ -245,6 +246,7 @@ describeInfrastructure(
           },
           stockData: options.stockData ?? service,
           benchmarks: new CalendarBenchmarks(),
+          etfContexts: stubEtfContexts(),
           logger,
         },
         {

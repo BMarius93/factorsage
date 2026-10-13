@@ -1,3 +1,4 @@
+import { stubEtfContexts } from "../shared/etf-context.test-helper.js";
 import { BACKTEST_SNAPSHOT_VERSION } from "@intrinsic/contracts";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
@@ -192,6 +193,7 @@ function processorWith(benchmarks: BacktestBenchmarkLoader) {
         },
       },
       benchmarks,
+      etfContexts: stubEtfContexts(),
       logger,
     },
     {
