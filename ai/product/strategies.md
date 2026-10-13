@@ -9,6 +9,15 @@ document are product decisions. The complete metric compatibility matrix is stil
 Coding agents must not silently fill gaps in the matrix or turn technical implementation choices
 into new product semantics.
 
+## ETF-sourced Strategy Conditions (accepted 2026-10-13)
+
+See [Strategy ETF Conditions V1](../../docs/decisions/strategy-etf-conditions-v1.md)
+for the **accepted product scope and test gate** for optional, per-condition ETF
+sources (all 20 Dashboard ETFs; 21 existing compatible technical metrics).
+It does **not** alter the currently implemented Strategy contract or grant
+new metric/Trigger compatibility until implementation, validation and review.
+All pre-existing stock and position semantics remain authoritative.
+
 ## Domain boundary
 
 A **Strategy** defines reusable investment signal logic.
