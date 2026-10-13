@@ -1,0 +1,448 @@
+import {
+  DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
+  MATERIALIZED_MOVING_AVERAGES,
+  type BenchmarkDailyPrice,
+  type DailyPrice,
+  type LocalDate,
+} from "@intrinsic/domain";
+import { describe, expect, it } from "vitest";
+import {
+  BENCHMARK_TECHNICAL_FIELDS,
+  benchmarkSessionFinalizedAt,
+  benchmarkTechnicalValueOn,
+  buildBenchmarkTechnicalContext,
+  finalizedBenchmarkBars,
+  type BenchmarkTechnicalContext,
+  type BenchmarkTechnicalSnapshot,
+} from "./benchmark-technicals.js";
+import { buildDailyDerivedState } from "./derived-state.js";
+import { addDays } from "./dates.js";
+import { referenceMovingAverage } from "./moving-average-oracle.test-helper.js";
+import { referenceWilderRsi } from "./wilder-rsi-oracle.test-helper.js";
+import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
+
+const SERIES_ID = "series-etf-xlk";
+const DELAY_MS = 30 * 60 * 1000;
+
+/** Deterministic pseudorandom source, so every run sees the same history. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    return state / 0xffffffff;
+  };
+}
+
+function weekday(date: LocalDate): number {
+  return new Date(`${date}T00:00:00.000Z`).getUTCDay();
+}
+
+/** `count` consecutive weekday sessions from `from`, optionally skipping listed holidays. */
+function sessions(
+  from: LocalDate,
+  count: number,
+  holidays: readonly LocalDate[] = [],
+): LocalDate[] {
+  const result: LocalDate[] = [];
+  let date = from;
+  while (result.length < count) {
+    const day = weekday(date);
+    if (day !== 0 && day !== 6 && !holidays.includes(date)) {
+      result.push(date);
+    }
+    date = addDays(date, 1) as LocalDate;
+  }
+  return result;
+}
+
+function barsOn(
+  dates: readonly LocalDate[],
+  seed = 7,
+): BenchmarkDailyPrice[] {
+  const random = seeded(seed);
+  let close = 100;
+  return dates.map((date) => {
+    close = Math.max(5, close * (1 + (random() - 0.5) * 0.04));
+    const open = close * (1 + (random() - 0.5) * 0.01);
+    return {
+      seriesId: SERIES_ID,
+      date,
+      open,
+      high: Math.max(open, close) * 1.01,
+      low: Math.min(open, close) * 0.99,
+      close,
+      volume: Math.round(1_000_000 + random() * 9_000_000),
+    };
+  });
+}
+
+/** A moment after the newest bar's session finalized, with the watermark synced after it. */
+function syncedAfter(bars: readonly BenchmarkDailyPrice[]): {
+  now: Date;
+  lastTailSyncAt: string;
+} {
+  const last = bars[bars.length - 1]!;
+  const finalized = benchmarkSessionFinalizedAt(last.date, DELAY_MS).getTime();
+  return {
+    now: new Date(finalized + 60 * 60 * 1000),
+    lastTailSyncAt: new Date(finalized + 30 * 60 * 1000).toISOString(),
+  };
+}
+
+function readyContext(
+  bars: readonly BenchmarkDailyPrice[],
+  overrides: Partial<Parameters<typeof buildBenchmarkTechnicalContext>[0]> = {},
+): BenchmarkTechnicalContext {
+  const { now, lastTailSyncAt } = syncedAfter(bars);
+  return buildBenchmarkTechnicalContext({
+    seriesId: SERIES_ID,
+    history: { seriesId: SERIES_ID, basisGeneration: 3, rows: [...bars], missing: [], source: "REDIS" },
+    refreshState: { lastTailSyncAt },
+    missingFromFloor: [],
+    now,
+    publicationDelayMs: DELAY_MS,
+    ...overrides,
+  });
+}
+
+function snapshotOf(context: BenchmarkTechnicalContext): BenchmarkTechnicalSnapshot {
+  if (context.status !== "READY") {
+    throw new Error(`Expected READY, got ${context.status}`);
+  }
+  return context.snapshot;
+}
+
+describe("stock/ETF methodology parity", () => {
+  it("produces bit-identical values to the stock calculation path on identical bars", () => {
+    const bars = barsOn(sessions("2021-01-04", 700), 11);
+    const snapshot = snapshotOf(readyContext(bars));
+
+    // The stock path, fed the very same OHLCV under a stock identity, with the same completed-week
+    // anchor the adapter derives (the last bar's own date).
+    const stockPrices: DailyPrice[] = bars.map((bar) => ({
+      securityId: "stock-1",
+      date: bar.date,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume,
+    }));
+    const lastDate = stockPrices[stockPrices.length - 1]!.date;
+    const stockRows = buildDailyDerivedState({
+      prices: stockPrices,
+      weeklyBars: aggregateCompletedWeeks(stockPrices, lastDate, {
+        historyStart: stockPrices[0]!.date,
+        historyStartOrigin: "LISTING",
+      }),
+    });
+
+    expect(snapshot.dates).toEqual(stockRows.map((row) => row.date));
+    for (const field of BENCHMARK_TECHNICAL_FIELDS) {
+      const column = snapshot.columns.get(field)!;
+      stockRows.forEach((row, index) => {
+        const stockValue = row[field];
+        if (typeof stockValue === "number") {
+          // Exact equality: it is the same kernel, so parity is bit-for-bit, not approximate.
+          expect(column[index]).toBe(stockValue);
+        } else {
+          expect(Number.isNaN(column[index])).toBe(true);
+        }
+      });
+    }
+  });
+});
+
+describe("independent numerical oracles", () => {
+  const bars = barsOn(sessions("2022-03-01", 320), 23);
+  const snapshot = snapshotOf(readyContext(bars));
+  const closes = bars.map((bar) => bar.close);
+
+  it("matches the independent moving-average oracle for every daily average", () => {
+    for (const average of MATERIALIZED_MOVING_AVERAGES.filter(
+      (entry) => entry.timeframe === "1D",
+    )) {
+      const expected = referenceMovingAverage(
+        closes,
+        average.type,
+        average.period,
+      );
+      const column = snapshot.columns.get(average.field)!;
+      expected.forEach((value, index) => {
+        if (value === undefined) {
+          expect(Number.isNaN(column[index])).toBe(true);
+        } else {
+          expect(column[index]).toBeCloseTo(value, 8);
+        }
+      });
+    }
+  });
+
+  it("matches the independent Wilder RSI oracle for every period", () => {
+    for (const oscillator of DAILY_OSCILLATORS) {
+      const expected = referenceWilderRsi(closes, oscillator.period);
+      const column = snapshot.columns.get(oscillator.field)!;
+      expected.forEach((value, index) => {
+        if (value === undefined) {
+          expect(Number.isNaN(column[index])).toBe(true);
+        } else {
+          expect(column[index]).toBeCloseTo(value, 8);
+        }
+      });
+    }
+  });
+
+  it("matches an independent prior-session-mean RVOL for every period", () => {
+    const volumes = bars.map((bar) => bar.volume);
+    for (const { period, field } of DAILY_RELATIVE_VOLUMES) {
+      const column = snapshot.columns.get(field)!;
+      volumes.forEach((volume, index) => {
+        if (index < period) {
+          expect(Number.isNaN(column[index])).toBe(true);
+          return;
+        }
+        let sum = 0;
+        for (let back = 1; back <= period; back += 1) {
+          sum += volumes[index - back]!;
+        }
+        expect(column[index]).toBeCloseTo(volume / (sum / period), 10);
+      });
+    }
+  });
+
+  it("matches the independent oracle for weekly averages over completed weekly closes", () => {
+    const longBars = barsOn(sessions("2018-01-01", 650), 5);
+    const longSnapshot = snapshotOf(readyContext(longBars));
+    const prices: DailyPrice[] = longBars.map((bar) => ({ ...bar, securityId: "s" }));
+    const weeks = aggregateCompletedWeeks(
+      prices,
+      longBars[longBars.length - 1]!.date,
+      { historyStart: longBars[0]!.date, historyStartOrigin: "LISTING" },
+    ).sort((a, b) => a.weekStartDate.localeCompare(b.weekStartDate));
+    const weeklyCloses = weeks.map((week) => week.close);
+    const sma20w = referenceMovingAverage(weeklyCloses, "SMA", 20);
+    // Check the carried-forward value on each week's eligible date.
+    weeks.forEach((week, weekIndex) => {
+      const expected = sma20w[weekIndex];
+      const read = benchmarkTechnicalValueOn(
+        longSnapshot,
+        week.eligibleDate,
+        "sma20w",
+      );
+      if (expected === undefined) {
+        expect(Number.isNaN(read)).toBe(true);
+      } else {
+        expect(read).toBeCloseTo(expected, 8);
+      }
+    });
+  });
+});
+
+describe("finalized-session synchronization (owner decision 1)", () => {
+  const dates = sessions("2026-10-05", 5); // Mon..Fri one week
+  const bars = barsOn(dates);
+
+  it("counts a bar only once its close plus the delay has passed", () => {
+    const friday = dates[4]!;
+    const fridayFinalized = benchmarkSessionFinalizedAt(friday, DELAY_MS);
+    const beforeFinal = new Date(fridayFinalized.getTime() - 60 * 1000);
+    const kept = finalizedBenchmarkBars({
+      rows: bars,
+      refreshState: { lastTailSyncAt: new Date(fridayFinalized.getTime() + 1).toISOString() },
+      now: beforeFinal,
+      publicationDelayMs: DELAY_MS,
+    });
+    expect(kept.map((bar) => bar.date)).toEqual(dates.slice(0, 4));
+  });
+
+  it("refuses a bar the watermark has not confirmed, however late the clock is", () => {
+    const thursdayFinalized = benchmarkSessionFinalizedAt(dates[3]!, DELAY_MS);
+    const kept = finalizedBenchmarkBars({
+      rows: bars,
+      // The tail was last read after Thursday finalized but before Friday did: Friday's stored bar
+      // may still be the provisional mid-session reading, so the clock alone is not evidence.
+      refreshState: {
+        lastTailSyncAt: new Date(thursdayFinalized.getTime() + 1000).toISOString(),
+      },
+      now: new Date(
+        benchmarkSessionFinalizedAt(dates[4]!, DELAY_MS).getTime() +
+          24 * 60 * 60 * 1000,
+      ),
+      publicationDelayMs: DELAY_MS,
+    });
+    expect(kept.map((bar) => bar.date)).toEqual(dates.slice(0, 4));
+  });
+
+  it("is NOT_SYNCHRONIZED before any tail read has completed", () => {
+    const context = buildBenchmarkTechnicalContext({
+      seriesId: SERIES_ID,
+      history: { seriesId: SERIES_ID, basisGeneration: 0, rows: bars, missing: [], source: "POSTGRESQL" },
+      refreshState: {},
+      missingFromFloor: [],
+      now: new Date("2026-10-12T00:00:00.000Z"),
+      publicationDelayMs: DELAY_MS,
+    });
+    expect(context.status).toBe("NOT_SYNCHRONIZED");
+  });
+
+  it("is EMPTY when no finalized session holds a bar yet", () => {
+    const monday = dates[0]!;
+    const context = buildBenchmarkTechnicalContext({
+      seriesId: SERIES_ID,
+      history: {
+        seriesId: SERIES_ID,
+        basisGeneration: 2,
+        rows: bars.slice(0, 1),
+        missing: [],
+        source: "REDIS",
+      },
+      refreshState: { lastTailSyncAt: "2026-10-05T12:00:00.000Z" },
+      missingFromFloor: [],
+      // Mid-session on Monday: the only stored bar is provisional.
+      now: new Date(
+        benchmarkSessionFinalizedAt(monday, DELAY_MS).getTime() - 60_000,
+      ),
+      publicationDelayMs: DELAY_MS,
+    });
+    expect(context).toEqual({ status: "EMPTY", basisGeneration: 2 });
+  });
+});
+
+describe("the floor-anchored coverage gate (owner decision 7)", () => {
+  it("refuses to compute from a history whose coverage does not reach the floor", () => {
+    const bars = barsOn(sessions("2020-01-06", 300));
+    const context = readyContext(bars, {
+      missingFromFloor: [{ from: "1993-01-01", to: "2019-12-31" }],
+    });
+    expect(context).toEqual({
+      status: "NOT_ANCHORED",
+      missing: [{ from: "1993-01-01", to: "2019-12-31" }],
+    });
+  });
+});
+
+describe("listing boundaries and exact-session alignment", () => {
+  it("keeps a genuine mid-week listing week, like a stock's IPO week", () => {
+    // XLC-style: the first bar is a Wednesday. The listing week (Wed-Fri) is a genuine, complete
+    // trading week and participates in weekly aggregation.
+    const firstBar = "2018-06-20"; // a Wednesday
+    expect(weekday(firstBar)).toBe(3);
+    const bars = barsOn(sessions(firstBar, 160));
+    const snapshot = snapshotOf(readyContext(bars));
+    const prices: DailyPrice[] = bars.map((bar) => ({ ...bar, securityId: "s" }));
+    const weeks = aggregateCompletedWeeks(
+      prices,
+      bars[bars.length - 1]!.date,
+      { historyStart: firstBar, historyStartOrigin: "LISTING" },
+    ).sort((a, b) => a.weekStartDate.localeCompare(b.weekStartDate));
+    expect(weeks[0]?.weekStartDate).toBe(startOfIsoWeek(firstBar));
+    // sma20w first appears on the 20th completed week's own final trading day — counting the
+    // listing week — and is carried onto later sessions until the next week completes.
+    const twentieth = weeks[19]!;
+    expect(
+      Number.isNaN(
+        benchmarkTechnicalValueOn(
+          snapshot,
+          addDays(twentieth.eligibleDate, -1) as LocalDate,
+          "sma20w",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      benchmarkTechnicalValueOn(snapshot, twentieth.eligibleDate, "sma20w"),
+    ).not.toBeNaN();
+  });
+
+  it("answers by exact session only: a missing session reads NaN, never a neighbour", () => {
+    const holiday = "2026-09-07" as LocalDate; // Labor Day Monday
+    const dates = sessions("2026-08-31", 10, [holiday]);
+    const bars = barsOn(dates);
+    const snapshot = snapshotOf(readyContext(bars));
+    expect(Number.isNaN(benchmarkTechnicalValueOn(snapshot, holiday, "close"))).toBe(
+      true,
+    );
+    expect(Number.isNaN(benchmarkTechnicalValueOn(snapshot, holiday, "rvol10"))).toBe(
+      true,
+    );
+    expect(
+      Number.isNaN(
+        benchmarkTechnicalValueOn(snapshot, "2026-09-05" as LocalDate, "close"),
+      ),
+    ).toBe(true); // a Saturday
+    expect(
+      benchmarkTechnicalValueOn(snapshot, dates[3]!, "close"),
+    ).toBeCloseTo(bars[3]!.close, 12);
+  });
+
+  it("never fabricates a weekly close from the week the watermark cannot prove is over", () => {
+    // The last finalized bar is a Wednesday; Thursday and Friday may exist unseen, so the week is
+    // not aggregated and no weekly value moves on it.
+    const dates = sessions("2024-01-01", 103); // ends 2024-05-22, a Wednesday
+    const bars = barsOn(dates);
+    const lastDate = dates[dates.length - 1]!;
+    expect(weekday(lastDate)).toBe(3);
+    const snapshot = snapshotOf(readyContext(bars));
+    const lastWeekStart = startOfIsoWeek(lastDate);
+    // The stalled week contributes no weekly bar: the newest weekly source week is an earlier one.
+    const mondayOfLastWeek = lastWeekStart;
+    const previousFriday = addDays(mondayOfLastWeek, -3) as LocalDate;
+    expect(
+      benchmarkTechnicalValueOn(snapshot, lastDate, "sma20w"),
+    ).toBe(benchmarkTechnicalValueOn(snapshot, previousFriday, "sma20w"));
+  });
+});
+
+describe("warm-up and no-look-ahead", () => {
+  const dates = sessions("2023-01-02", 120);
+  const bars = barsOn(dates, 3);
+  const snapshot = snapshotOf(readyContext(bars));
+
+  it("produces each series' first value exactly where the stock methodology does", () => {
+    const column = (field: Parameters<typeof benchmarkTechnicalValueOn>[2]) =>
+      dates.map((date) => benchmarkTechnicalValueOn(snapshot, date, field));
+    const firstIndex = (values: number[]) =>
+      values.findIndex((value) => !Number.isNaN(value));
+    expect(firstIndex(column("sma20d"))).toBe(19);
+    expect(firstIndex(column("ema50d"))).toBe(49);
+    expect(firstIndex(column("rsi14d"))).toBe(14);
+    expect(firstIndex(column("rvol20"))).toBe(20);
+    expect(firstIndex(column("close"))).toBe(0);
+  });
+
+  it("gives identical values for its own sessions when future history is removed", () => {
+    // A prefix of the history, cut at a Friday so both builds anchor their completed weeks the
+    // same way a shorter real history would.
+    const cut = dates.findIndex((date) => weekday(date) === 5 && date > "2023-04-01");
+    const truncated = snapshotOf(readyContext(bars.slice(0, cut + 1)));
+    for (const date of dates.slice(0, cut + 1)) {
+      for (const field of ["close", "sma20d", "ema20d", "rsi14d", "rvol10"] as const) {
+        const full = benchmarkTechnicalValueOn(snapshot, date, field);
+        const prefix = benchmarkTechnicalValueOn(truncated, date, field);
+        if (Number.isNaN(full)) {
+          expect(Number.isNaN(prefix)).toBe(true);
+        } else {
+          expect(prefix).toBe(full);
+        }
+      }
+    }
+  });
+
+  it("treats a zero-volume session as a real reading and a zero baseline as absence", () => {
+    const quiet = barsOn(dates.slice(0, 30), 9).map((bar, index) => ({
+      ...bar,
+      volume: index < 10 ? 0 : bar.volume,
+    }));
+    const quietSnapshot = snapshotOf(readyContext(quiet));
+    // Inside the zero-volume stretch the baseline is zero, so the ratio is undefined: absent.
+    expect(
+      Number.isNaN(
+        benchmarkTechnicalValueOn(quietSnapshot, dates[10]!, "rvol10"),
+      ),
+    ).toBe(true);
+    // Once the full baseline is positive, a session that traded nothing would read exactly 0 —
+    // and an ordinary session reads its genuine multiple.
+    const later = benchmarkTechnicalValueOn(quietSnapshot, dates[25]!, "rvol10");
+    expect(Number.isFinite(later)).toBe(true);
+  });
+});

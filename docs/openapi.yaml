@@ -3356,6 +3356,8 @@ components:
               LOOKBACK_UNSUPPORTED,
               SCOPE_INVALID,
               FILTER_INVALID,
+              SOURCE_INVALID,
+              SOURCE_NOT_ALLOWED_IN_PART,
             ]
         message: { type: string }
         path:
@@ -4296,17 +4298,21 @@ components:
       oneOf:
         - type: object
           required: [kind]
-          properties: { kind: { type: string, const: PRICE } }
+          properties:
+            kind: { type: string, const: PRICE }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, seriesId]
           properties:
             kind: { type: string, const: MOVING_AVERAGE }
             seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, seriesId]
           properties:
             kind: { type: string, const: OSCILLATOR }
             seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, period]
           description: |
@@ -4316,6 +4322,7 @@ components:
           properties:
             kind: { type: string, const: RELATIVE_VOLUME }
             period: { type: integer, enum: [10, 20, 50] }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, sourceId]
           description: Margin of safety against one intrinsic-value series. Percent domain, at most 100.
@@ -4424,6 +4431,48 @@ components:
                 type: string
                 enum:
                   [SELF, SPOUSE, JOINT, CHILD, DEPENDENT, OTHER, UNSPECIFIED]
+
+    StrategyMetricSource:
+      type: object
+      required: [kind, code]
+      description: |
+        The data source of one technical condition metric. Absent means the evaluated stock itself —
+        exactly what every document saved before ETF sources existed says by carrying nothing.
+        Present, it names one of the twenty Dashboard ETFs by its stable benchmark code
+        (`docs/decisions/strategy-etf-conditions-v1.md`): the condition is then evaluated against
+        that ETF's own completed end-of-day history, identically for every candidate stock on the
+        same eligible session. `SP500` is the SPY ETF. Only `PRICE`, `MOVING_AVERAGE`, `OSCILLATOR`
+        and `RELATIVE_VOLUME` accept the field — on any other metric kind it is refused with
+        `UNKNOWN_FIELD` — an unknown code is refused with `SOURCE_INVALID`, and a trigger naming a
+        source is refused with `SOURCE_NOT_ALLOWED_IN_PART`: ETF-sourced triggers are deliberately
+        not part of V1.
+      properties:
+        kind: { type: string, const: ETF }
+        code:
+          type: string
+          enum:
+            [
+              SP500,
+              ETF_QQQ,
+              ETF_DIA,
+              ETF_IWM,
+              ETF_RSP,
+              ETF_XLK,
+              ETF_XLF,
+              ETF_XLE,
+              ETF_XLV,
+              ETF_XLI,
+              ETF_XLY,
+              ETF_XLP,
+              ETF_XLU,
+              ETF_XLB,
+              ETF_XLRE,
+              ETF_XLC,
+              ETF_GLD,
+              ETF_USO,
+              ETF_TLT,
+              ETF_HYG,
+            ]
 
     AlternativeDataLookback:
       type: integer

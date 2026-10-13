@@ -52,6 +52,13 @@ import {
   type SelectableSeriesSource,
 } from "./selectable-series.js";
 import {
+  findStrategyEtfSource,
+  isStrategyEtfSourceCode,
+  STRATEGY_ETF_SOURCES,
+  strategyEtfSourceTicker,
+  type StrategyEtfSourceCode,
+} from "./strategy-etf-sources.js";
+import {
   findValuationRatio,
   isValuationRatioId,
   VALUATION_RATIO_CATALOG,
@@ -137,6 +144,27 @@ export function relativeVolumeLabel(period: RelativeVolumePeriod): string {
 }
 
 /**
+ * The data source of one technical Condition metric.
+ *
+ * Absent means the evaluated stock itself — byte-identical to every document saved before ETF
+ * sources existed, so no stored `definitionHash` or Monitor latch can move. Present, it names one
+ * of the twenty Dashboard ETFs by its stable benchmark **code**
+ * (`docs/decisions/strategy-etf-conditions-v1.md`): the condition is then evaluated against that
+ * ETF's own historical OHLCV, identically for every candidate stock on the same eligible session.
+ *
+ * The source is part of the condition's **identity**: `RSI 14D is above 50` and
+ * `XLK · RSI 14D is above 50` are different conditions, may be ANDed in one Signal, and
+ * fingerprint — and therefore version, and latch — separately. Only the four technical metric
+ * kinds carry it (`ETF_COMPATIBLE_METRIC_KINDS`); every other kind refuses the field structurally,
+ * and an ETF source is a Condition capability only — a Trigger naming one is refused by the
+ * validator, which keeps ETF-sourced Triggers the explicit product follow-up the decision defers.
+ */
+export type StrategyMetricSource = {
+  kind: "ETF";
+  code: StrategyEtfSourceCode;
+};
+
+/**
  * A Strategy Metric.
  *
  * `Price` is the canonical end-of-day close and is deliberately not a catalog entry, so it is its
@@ -158,10 +186,22 @@ export function relativeVolumeLabel(period: RelativeVolumePeriod): string {
  * `ratioId`: `P/E is below 15` names the ratio and nothing about how its availability is decided.
  */
 export type StrategyMetric =
-  | { kind: "PRICE" }
-  | { kind: "MOVING_AVERAGE"; seriesId: SelectableSeriesId }
-  | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId }
-  | { kind: "RELATIVE_VOLUME"; period: RelativeVolumePeriod }
+  | { kind: "PRICE"; source?: StrategyMetricSource }
+  | {
+      kind: "MOVING_AVERAGE";
+      seriesId: SelectableSeriesId;
+      source?: StrategyMetricSource;
+    }
+  | {
+      kind: "OSCILLATOR";
+      seriesId: SelectableSeriesId;
+      source?: StrategyMetricSource;
+    }
+  | {
+      kind: "RELATIVE_VOLUME";
+      period: RelativeVolumePeriod;
+      source?: StrategyMetricSource;
+    }
   | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }
   | { kind: "VALUATION_RATIO"; ratioId: ValuationRatioId }
   | { kind: "FUNDAMENTAL"; metricId: FundamentalMetricId }
@@ -192,6 +232,60 @@ export const STRATEGY_METRIC_KINDS = [
   "INSIDER_ACTIVITY",
   "CONGRESS_ACTIVITY",
 ] as const satisfies readonly StrategyMetricKind[];
+
+/**
+ * The metric kinds an ETF source may parameterize: exactly the four technical families, which is
+ * what makes the decision's "21 metric choices per ETF" — Price, the 14 moving averages, the 3 RSI
+ * periods and the 3 RVOL periods — a structural fact rather than a filter. Every other kind's
+ * closed key set refuses a `source` field outright.
+ */
+export const ETF_COMPATIBLE_METRIC_KINDS = [
+  "PRICE",
+  "MOVING_AVERAGE",
+  "OSCILLATOR",
+  "RELATIVE_VOLUME",
+] as const satisfies readonly StrategyMetricKind[];
+
+export type EtfCompatibleMetricKind =
+  (typeof ETF_COMPATIBLE_METRIC_KINDS)[number];
+
+/**
+ * The data source of one metric, or `undefined` for the evaluated stock — including every metric
+ * kind that cannot carry a source at all. The one narrowing accessor, so no caller reads `.source`
+ * off a kind that has none.
+ */
+export function strategyMetricSource(
+  metric: StrategyMetric,
+): StrategyMetricSource | undefined {
+  switch (metric.kind) {
+    case "PRICE":
+    case "MOVING_AVERAGE":
+    case "OSCILLATOR":
+    case "RELATIVE_VOLUME":
+      return metric.source;
+    default:
+      return undefined;
+  }
+}
+
+/** The same metric read from the evaluated stock: its identity with no source field at all. */
+export function withoutMetricSource(metric: StrategyMetric): StrategyMetric {
+  switch (metric.kind) {
+    case "PRICE":
+    case "MOVING_AVERAGE":
+    case "OSCILLATOR":
+    case "RELATIVE_VOLUME": {
+      if (metric.source === undefined) {
+        return metric;
+      }
+      const rest = { ...metric };
+      delete rest.source;
+      return rest;
+    }
+    default:
+      return metric;
+  }
+}
 
 /**
  * The right-hand side of a Condition or Trigger, in product vocabulary.
@@ -831,22 +925,28 @@ export function strategyMetricSeriesId(
  * option.
  */
 export function strategyMetricKey(metric: StrategyMetric): string {
+  // The source is identity exactly as the kind and parameter are: `Stock RSI 14D` and
+  // `XLK · RSI 14D` must be two options, two rows and two selections. A stock metric's key is
+  // byte-identical to what it always was, so nothing keyed by it moves.
+  const source = strategyMetricSource(metric);
+  const prefix = source ? `ETF(${source.code})|` : "";
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
       return `${metric.kind}:${metric.measure}`;
     case "RELATIVE_VOLUME":
-      return `${metric.kind}:${metric.period}`;
+      return `${prefix}${metric.kind}:${metric.period}`;
     case "FUNDAMENTAL":
       return `${metric.kind}:${metric.metricId}`;
     case "VALUATION_RATIO":
       return `${metric.kind}:${metric.ratioId}`;
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
-      return `${metric.kind}:${metric.seriesId}`;
+      return `${prefix}${metric.kind}:${metric.seriesId}`;
     case "MARGIN_OF_SAFETY":
       return `${metric.kind}:${metric.sourceId}`;
     case "PRICE":
+      return `${prefix}${metric.kind}:`;
     case "GAIN":
     case "LOSS":
       return `${metric.kind}:`;
@@ -891,6 +991,18 @@ export function triggerOperatorsFor(
  */
 export function valueSpecFor(metric: StrategyMetric): StrategyValueSpec {
   const definition = strategyMetricDefinition(metric);
+  // ETF Price keeps Price's series-based Value picker, narrowed to the moving averages of the same
+  // ETF: an intrinsic-value model or blend is a statement about a company, which an ETF is not, so
+  // it is never a valid ETF Value (`docs/decisions/strategy-etf-conditions-v1.md` §3). A SERIES
+  // Value under an ETF-sourced metric always resolves against the same ETF — the source lives on
+  // the condition's metric, and evaluation reads both sides from it — so no stock-versus-ETF
+  // comparison is representable, let alone offered.
+  if (
+    metric.kind === "PRICE" &&
+    strategyMetricSource(metric) !== undefined
+  ) {
+    return { kind: "SERIES", seriesIds: catalogIds(MOVING_AVERAGE_SERIES) };
+  }
   if (definition.valueSource === "ALTERNATIVE_DATA_MEASURE") {
     const alternative = asAlternativeDataMetric(metric);
     return alternative
@@ -1206,6 +1318,69 @@ const METRIC_MENU_BY_LEVEL: Record<
 };
 
 /**
+ * The menu one ETF source offers: only the technical kinds, each instance carrying the source.
+ *
+ * Deliberately derived from the same registry walk as the stock menu — the same category order, the
+ * same `instancesOf`, the same `allowedIn` — so the "21 metric choices per ETF" are the registry's
+ * own technical instances and never a second list. A TRIGGER menu is empty, because an ETF source
+ * is a Condition capability only, which is also what the validator enforces on the document.
+ *
+ * Option labels are the metric's **identity** (`RSI 14D`): inside the picker the ETF is already
+ * chosen and shown once, so repeating the ticker on every row would say nothing. Every surface
+ * outside the picker reads `strategyMetricLabel(metric)`, which carries the `XLK · ` prefix.
+ */
+function buildEtfMetricMenu(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+  source: StrategyMetricSource,
+): MetricMenu {
+  if (part === "TRIGGER") {
+    return { options: [], categories: [] };
+  }
+  const options: StrategyMetricOption[] = [];
+  for (const category of STRATEGY_METRIC_CATEGORIES) {
+    for (const kind of ETF_COMPATIBLE_METRIC_KINDS) {
+      const definition = STRATEGY_METRIC_DEFINITIONS[kind];
+      if (definition.category !== category) {
+        continue;
+      }
+      if (!definition.allowedIn.includes(levelKind)) {
+        continue;
+      }
+      for (const metric of instancesOf(kind)) {
+        const sourced = withMetricSource(metric, source);
+        options.push({
+          metric: sourced,
+          label: strategyMetricLabel(metric),
+          category,
+        });
+      }
+    }
+  }
+  return { options, categories: buildMetricCategories(options) };
+}
+
+const ETF_METRIC_MENUS = new Map<string, MetricMenu>();
+
+function metricMenu(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
+  source?: StrategyMetricSource,
+): MetricMenu {
+  if (!source) {
+    return METRIC_MENU_BY_LEVEL[levelKind][part];
+  }
+  const key = `${source.code}|${levelKind}|${part}`;
+  const cached = ETF_METRIC_MENUS.get(key);
+  if (cached) {
+    return cached;
+  }
+  const menu = buildEtfMetricMenu(levelKind, part, source);
+  ETF_METRIC_MENUS.set(key, menu);
+  return menu;
+}
+
+/**
  * Every Metric selectable in one level kind and one half of a Signal, in canonical category order.
  *
  * `Gain` and `Loss` are simply absent for BUY: they are position-dependent and no position exists
@@ -1215,8 +1390,9 @@ const METRIC_MENU_BY_LEVEL: Record<
 export function strategyMetricOptions(
   levelKind: StrategyLevelKind,
   part: StrategyPredicatePart = "CONDITION",
+  source?: StrategyMetricSource,
 ): readonly StrategyMetricOption[] {
-  return METRIC_MENU_BY_LEVEL[levelKind][part].options;
+  return metricMenu(levelKind, part, source).options;
 }
 
 /**
@@ -1231,8 +1407,93 @@ export function strategyMetricOptions(
 export function strategyMetricCategories(
   levelKind: StrategyLevelKind,
   part: StrategyPredicatePart = "CONDITION",
+  source?: StrategyMetricSource,
 ): readonly StrategyMetricCategory[] {
-  return METRIC_MENU_BY_LEVEL[levelKind][part].categories;
+  return metricMenu(levelKind, part, source).categories;
+}
+
+// ---------------------------------------------------------------------------
+// Metric families: the picker's top level
+// ---------------------------------------------------------------------------
+
+/**
+ * The compact top-level families of the Metric picker
+ * (`docs/decisions/strategy-etf-conditions-v1.md` §4): Technical groups the price, moving-average,
+ * oscillator and volume categories as expandable subgroups, and Activity the two disclosure
+ * families. The family is pure presentation metadata over the categories — a category is derived
+ * from the metric's kind and neither is ever stored — so regrouping the picker moves no document,
+ * fingerprint or validation rule.
+ */
+export const STRATEGY_METRIC_FAMILIES = [
+  "TECHNICAL",
+  "FUNDAMENTALS",
+  "VALUATION",
+  "ACTIVITY",
+  "POSITION",
+] as const;
+
+export type StrategyMetricFamilyId = (typeof STRATEGY_METRIC_FAMILIES)[number];
+
+export const STRATEGY_METRIC_FAMILY_LABELS = {
+  TECHNICAL: "Technical",
+  FUNDAMENTALS: FUNDAMENTAL_METRICS_LABEL,
+  VALUATION: VALUATION_RATIOS_LABEL,
+  ACTIVITY: "Activity",
+  POSITION: "Position",
+} as const satisfies Record<StrategyMetricFamilyId, string>;
+
+/** Which family each category belongs to. Total, so a new category must choose a family. */
+export const STRATEGY_METRIC_CATEGORY_FAMILIES = {
+  PRICE: "TECHNICAL",
+  MOVING_AVERAGES: "TECHNICAL",
+  OSCILLATORS: "TECHNICAL",
+  VOLUME: "TECHNICAL",
+  VALUATION: "VALUATION",
+  FUNDAMENTALS: "FUNDAMENTALS",
+  POSITION: "POSITION",
+  INSIDER_ACTIVITY: "ACTIVITY",
+  CONGRESSIONAL_TRADING: "ACTIVITY",
+} as const satisfies Record<StrategyMetricCategoryId, StrategyMetricFamilyId>;
+
+/** One picker family: its categories as subgroups, each with its options. */
+export type StrategyMetricFamily = {
+  id: StrategyMetricFamilyId;
+  label: string;
+  categories: readonly StrategyMetricCategory[];
+};
+
+/** The family a metric belongs to: derived from its category, never stored. */
+export function strategyMetricFamily(
+  metric: StrategyMetric,
+): StrategyMetricFamilyId {
+  return STRATEGY_METRIC_CATEGORY_FAMILIES[strategyMetricCategory(metric)];
+}
+
+/**
+ * The same menu as {@link strategyMetricCategories}, partitioned into the picker's families in
+ * canonical family order. A family with nothing to offer — everything but Technical under an ETF
+ * source, Position in a BUY level — is absent rather than empty, exactly as a category is.
+ */
+export function strategyMetricFamilies(
+  levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart = "CONDITION",
+  source?: StrategyMetricSource,
+): readonly StrategyMetricFamily[] {
+  const categories = strategyMetricCategories(levelKind, part, source);
+  return STRATEGY_METRIC_FAMILIES.flatMap((familyId) => {
+    const familyCategories = categories.filter(
+      (category) => STRATEGY_METRIC_CATEGORY_FAMILIES[category.id] === familyId,
+    );
+    return familyCategories.length === 0
+      ? []
+      : [
+          {
+            id: familyId,
+            label: STRATEGY_METRIC_FAMILY_LABELS[familyId],
+            categories: familyCategories,
+          },
+        ];
+  });
 }
 
 /** The category a metric belongs to: a property of its kind, never stored beside it. */
@@ -1255,8 +1516,9 @@ export function defaultStrategyMetric(
   levelKind: StrategyLevelKind,
   part: StrategyPredicatePart,
   category?: StrategyMetricCategoryId,
+  source?: StrategyMetricSource,
 ): StrategyMetric | undefined {
-  const categories = strategyMetricCategories(levelKind, part);
+  const categories = strategyMetricCategories(levelKind, part, source);
   const chosen =
     category === undefined
       ? categories[0]
@@ -1319,6 +1581,16 @@ function seriesLabel(id: SelectableSeriesId): string {
  * fall through to a label that is only its kind.
  */
 export function strategyMetricLabel(metric: StrategyMetric): string {
+  // An ETF-sourced metric is named by its ticker and its identity — `XLK · RSI 14D`, the product's
+  // own `·` separator — in this one function, so the collapsed Metric control, the logic preview, a
+  // trade reason, a Dashboard row and a validator message can never disagree about which source a
+  // rule reads. A drifted code renders raw rather than throwing, like every other label here.
+  const source = strategyMetricSource(metric);
+  if (source) {
+    return `${strategyEtfSourceTicker(source.code)} · ${strategyMetricLabel(
+      withoutMetricSource(metric),
+    )}`;
+  }
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
@@ -1469,6 +1741,49 @@ export function collectAlternativeDataMetrics(
     addSignal(rule.signal);
   }
   return metrics;
+}
+
+/**
+ * Every distinct ETF source one definition reads, in catalog order.
+ *
+ * The one walk that answers "which ETF histories does evaluating this strategy need?", shared by
+ * the callers that must never disagree: a backtest submission pinning the series each code
+ * resolves to, the worker loading each history once per run, and the Monitor cycle loading each
+ * once per cycle. Catalog order rather than document order so the answer is deterministic however
+ * the conditions are arranged, and deduplicated because twenty conditions on one ETF still need
+ * exactly one history. Triggers are walked too, defensively: validation refuses an ETF-sourced
+ * Trigger, so for a valid document they contribute nothing.
+ */
+export function collectStrategyEtfSources(
+  definition: StrategyDefinition,
+): readonly StrategyEtfSourceCode[] {
+  const named = new Set<StrategyEtfSourceCode>();
+  const addSignal = (signal: StrategySignal): void => {
+    const predicates: (StrategyCondition | StrategyTrigger)[] = [
+      ...signal.conditions,
+    ];
+    if (signal.trigger) {
+      predicates.push(signal.trigger);
+    }
+    for (const predicate of predicates) {
+      const source = strategyMetricSource(predicate.metric);
+      if (source) {
+        named.add(source.code);
+      }
+    }
+  };
+  for (const level of definition.buyLevels) {
+    addSignal(level.signal);
+  }
+  for (const level of definition.sellLevels) {
+    addSignal(level.signal);
+  }
+  for (const rule of definition.finalExit?.rules ?? []) {
+    addSignal(rule.signal);
+  }
+  return STRATEGY_ETF_SOURCES.filter((etf) =>
+    named.has(etf.code),
+  ).map((etf) => etf.code);
 }
 
 /** Why {@link embedActorGroupScopes} could not rewrite a definition. */
@@ -1835,9 +2150,9 @@ export const STRATEGY_METRIC_HELP: Record<
   StrategyHelpEntry
 > = {
   PRICE: {
-    summary: "The stock's end-of-day close.",
+    summary: "The end-of-day close of the rule's data source.",
     detail:
-      "Price compares with the canonical price-scaled series: the moving averages and the intrinsic-value models and blends. Oscillators are unitless and are never comparable with a price.",
+      "Price compares with the canonical price-scaled series of the same source. For the stock those are the moving averages and the intrinsic-value models and blends; for an ETF source they are that ETF's own moving averages — intrinsic values describe a company, which an ETF is not. Oscillators are unitless and are never comparable with a price.",
     notEvaluableWhen:
       "There is no close for the date, or the compared series has no value yet.",
   },
@@ -1895,7 +2210,7 @@ export const STRATEGY_METRIC_HELP: Record<
     ],
     notes: [
       "The three periods are fixed presets. A custom window is deliberately not offered.",
-      "The baseline is this stock's own recent history, so 2.0x means the same thing for a mega-cap and for a small-cap.",
+      "The baseline is the instrument's own recent history, so 2.0x means the same thing for a mega-cap, for a small-cap and for an ETF.",
     ],
     notEvaluableWhen:
       "The full lookback of previous sessions does not exist yet, one of those sessions has no volume, or their average is zero.",
@@ -2057,6 +2372,23 @@ const FUNDAMENTAL_UNIT_NOTES = {
  * feature code.
  */
 export function strategyMetricHelp(metric: StrategyMetric): StrategyHelpEntry {
+  // An ETF-sourced metric leads with what its source changes: the condition reads the named ETF's
+  // own completed end-of-day history — never the evaluated stock's, and never a live ETF quote —
+  // and is evaluated identically for every candidate stock on the same session.
+  const source = strategyMetricSource(metric);
+  if (source) {
+    const etf = findStrategyEtfSource(source.code);
+    const stockHelp = strategyMetricHelp(withoutMetricSource(metric));
+    return {
+      ...stockHelp,
+      notes: [
+        `Read from ${etf ? `${etf.ticker} (${etf.label})` : source.code} rather than the evaluated stock, as a market-context filter: the same completed end-of-day ETF history is compared for every stock on the same session.`,
+        ...(stockHelp.notes ?? []),
+      ],
+      notEvaluableWhen:
+        "The ETF has no completed, synchronized session for the date — before the fund's own history begins, inside an indicator's warm-up, during the current session before the ETF's end-of-day bar is final, or where its stored history has a gap.",
+    };
+  }
   const shared = STRATEGY_METRIC_HELP[metric.kind];
   if (metric.kind === "VALUATION_RATIO") {
     const ratio = findValuationRatio(metric.ratioId);
@@ -2258,6 +2590,10 @@ export const STRATEGY_VALIDATION_CODES = [
   "SCOPE_INVALID",
   /** A chamber, owner or role filter named a value the product does not define. */
   "FILTER_INVALID",
+  /** A metric source was malformed, of an unknown kind, or named an ETF the catalog does not define. */
+  "SOURCE_INVALID",
+  /** An ETF source on a Trigger: ETF-sourced Triggers are deliberately not part of V1. */
+  "SOURCE_NOT_ALLOWED_IN_PART",
 ] as const;
 
 export type StrategyValidationCode = (typeof STRATEGY_VALIDATION_CODES)[number];
@@ -2328,10 +2664,12 @@ const SIGNAL_KEYS = ["conditions", "trigger"] as const;
 const PREDICATE_KEYS = ["id", "metric", "operator", "value"] as const;
 
 const METRIC_KEYS: Record<StrategyMetricKind, readonly string[]> = {
-  PRICE: ["kind"],
-  MOVING_AVERAGE: ["kind", "seriesId"],
-  OSCILLATOR: ["kind", "seriesId"],
-  RELATIVE_VOLUME: ["kind", "period"],
+  // Only the four technical kinds admit `source`; on every other kind the field is an unknown key,
+  // which is what makes "an ETF source on an incompatible metric is rejected" structural.
+  PRICE: ["kind", "source"],
+  MOVING_AVERAGE: ["kind", "seriesId", "source"],
+  OSCILLATOR: ["kind", "seriesId", "source"],
+  RELATIVE_VOLUME: ["kind", "period", "source"],
   MARGIN_OF_SAFETY: ["kind", "sourceId"],
   // The identity and nothing else: a label, group, unit or storage field smuggled beside it is refused.
   FUNDAMENTAL: ["kind", "metricId"],
@@ -2725,6 +3063,71 @@ function parseActorSelection(
   return { kind: "ACTORS", actorIds };
 }
 
+/**
+ * Reads a metric's optional data source.
+ *
+ * `undefined` means "the evaluated stock", which is what every document saved before ETF sources
+ * existed says by carrying nothing. The set is closed twice over: the only source kind is `ETF`,
+ * and the only codes are the twenty of the catalog — an unknown code is refused rather than read
+ * as the stock, because a condition silently evaluated against a different instrument than the one
+ * it names is the exact misinterpretation the source exists to prevent.
+ */
+function parseMetricSource(
+  raw: unknown,
+  path: StrategyIssuePath,
+  issues: ValidationContext,
+): StrategyMetricSource | undefined | "INVALID" {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    issues.add(
+      "SOURCE_INVALID",
+      path,
+      "Choose the data source this rule reads.",
+    );
+    return "INVALID";
+  }
+  if (raw.kind !== "ETF") {
+    issues.add(
+      "SOURCE_INVALID",
+      path,
+      `\`${String(raw.kind)}\` is not a kind of data source.`,
+    );
+    return "INVALID";
+  }
+  issues.rejectUnknownKeys(raw, ["kind", "code"], path);
+  if (!isStrategyEtfSourceCode(raw.code)) {
+    issues.add(
+      "SOURCE_INVALID",
+      path,
+      `\`${String(raw.code)}\` is not an ETF this product offers.`,
+    );
+    return "INVALID";
+  }
+  return { kind: "ETF", code: raw.code };
+}
+
+/** The same metric with its source attached, for the kinds that may carry one. */
+function withMetricSource(
+  metric: StrategyMetric,
+  source: StrategyMetricSource | undefined,
+): StrategyMetric {
+  if (!source) {
+    return metric;
+  }
+  switch (metric.kind) {
+    case "PRICE":
+    case "MOVING_AVERAGE":
+    case "OSCILLATOR":
+    case "RELATIVE_VOLUME":
+      return { ...metric, source };
+    default:
+      // Unreachable: callers attach a source only to the compatible kinds.
+      return metric;
+  }
+}
+
 function parseMetric(
   raw: unknown,
   location: PredicateLocation,
@@ -2751,6 +3154,15 @@ function parseMetric(
   const kind = rawKind as StrategyMetricKind;
   issues.rejectUnknownKeys(raw, METRIC_KEYS[kind], path);
 
+  const source = (ETF_COMPATIBLE_METRIC_KINDS as readonly string[]).includes(
+    kind,
+  )
+    ? parseMetricSource(raw.source, path, issues)
+    : undefined;
+  if (source === "INVALID") {
+    return undefined;
+  }
+
   const definition = STRATEGY_METRIC_DEFINITIONS[kind];
   if (!definition.allowedIn.includes(levelKind)) {
     issues.add(
@@ -2767,7 +3179,7 @@ function parseMetric(
 
   switch (kind) {
     case "PRICE":
-      return { kind: "PRICE" };
+      return withMetricSource({ kind: "PRICE" }, source);
     case "GAIN":
       return { kind: "GAIN" };
     case "LOSS":
@@ -2787,7 +3199,10 @@ function parseMetric(
         );
         return undefined;
       }
-      return { kind: "RELATIVE_VOLUME", period: period as RelativeVolumePeriod };
+      return withMetricSource(
+        { kind: "RELATIVE_VOLUME", period: period as RelativeVolumePeriod },
+        source,
+      );
     }
     case "FUNDAMENTAL": {
       // The identity must be one the product catalog defines, matched exactly. Stored and submitted
@@ -2847,7 +3262,7 @@ function parseMetric(
     );
     return undefined;
   }
-  return instantiateMetric(kind, seriesId);
+  return withMetricSource(instantiateMetric(kind, seriesId), source);
 }
 
 function parseValue(
@@ -3057,22 +3472,28 @@ function checkValueAgainstMetric(
  * Exhaustive, with no fallback, so a kind parameterized by something new cannot collide silently.
  */
 function predicateMetricKey(metric: StrategyMetric): string {
+  // The source is part of the identity: `RSI 14D is above 50` and `XLK · RSI 14D is above 50` are
+  // two different conditions and may be ANDed in one Signal, and two rows naming the same ETF are
+  // still one rule written twice. A stock metric's key is unchanged.
+  const source = strategyMetricSource(metric);
+  const sourceKey = source ? `etf(${source.code}):` : "";
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
       return alternativeDataMetricSignature(metric);
     case "RELATIVE_VOLUME":
-      return String(metric.period);
+      return `${sourceKey}${String(metric.period)}`;
     case "FUNDAMENTAL":
       return metric.metricId;
     case "VALUATION_RATIO":
       return metric.ratioId;
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
-      return metric.seriesId;
+      return `${sourceKey}${metric.seriesId}`;
     case "MARGIN_OF_SAFETY":
       return metric.sourceId;
     case "PRICE":
+      return sourceKey;
     case "GAIN":
     case "LOSS":
       return "";
@@ -3151,6 +3572,24 @@ function validatePredicate(
 
   const metric = parseMetric(raw.metric, location, levelKind, issues);
   const value = parseValue(raw.value, location, issues);
+
+  // An ETF source is a Condition capability only. Whether ETF-sourced Triggers should exist is an
+  // explicit product follow-up (`docs/decisions/strategy-etf-conditions-v1.md` §1), so a Trigger
+  // naming one is refused rather than evaluated — and refused against the Metric, because the
+  // source is part of the metric, not of the operator. The row stays out of duplicate detection,
+  // exactly like any other unreadable metric.
+  if (
+    metric &&
+    location.part === "TRIGGER" &&
+    strategyMetricSource(metric) !== undefined
+  ) {
+    issues.add(
+      "SOURCE_NOT_ALLOWED_IN_PART",
+      predicatePath(location, "METRIC"),
+      `${strategyMetricLabel(metric)} reads an ETF, so it can be used as a condition only, not as a trigger.`,
+    );
+    return undefined;
+  }
 
   // A metric that declares no Trigger operators is not available as a Trigger at all. It is
   // reported against the Metric, not the operator: "Relative Volume cannot be used as a trigger"
@@ -3657,21 +4096,36 @@ function buildMetric(metric: StrategyMetric): StrategyMetric {
   if (alternative) {
     return buildAlternativeDataMetric(alternative);
   }
+  // The source is rebuilt field by field exactly as the identity is: normalization is the one path
+  // every create, read, duplicate, Monitor cycle and backtest submission goes through, and a source
+  // dropped here would silently turn `XLK · RSI 14D` back into the stock's own RSI.
+  const source = strategyMetricSource(metric);
+  const rebuiltSource: { source?: StrategyMetricSource } = source
+    ? { source: { kind: "ETF", code: source.code } }
+    : {};
   switch (metric.kind) {
     case "MOVING_AVERAGE":
-      return { kind: "MOVING_AVERAGE", seriesId: metric.seriesId };
+      return {
+        kind: "MOVING_AVERAGE",
+        seriesId: metric.seriesId,
+        ...rebuiltSource,
+      };
     case "OSCILLATOR":
-      return { kind: "OSCILLATOR", seriesId: metric.seriesId };
+      return { kind: "OSCILLATOR", seriesId: metric.seriesId, ...rebuiltSource };
     case "MARGIN_OF_SAFETY":
       return { kind: "MARGIN_OF_SAFETY", sourceId: metric.sourceId };
     case "RELATIVE_VOLUME":
-      return { kind: "RELATIVE_VOLUME", period: metric.period };
+      return {
+        kind: "RELATIVE_VOLUME",
+        period: metric.period,
+        ...rebuiltSource,
+      };
     case "FUNDAMENTAL":
       return { kind: "FUNDAMENTAL", metricId: metric.metricId };
     case "VALUATION_RATIO":
       return { kind: "VALUATION_RATIO", ratioId: metric.ratioId };
     case "PRICE":
-      return { kind: "PRICE" };
+      return { kind: "PRICE", ...rebuiltSource };
     case "GAIN":
       return { kind: "GAIN" };
     case "LOSS":
@@ -3925,26 +4379,38 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
     //
     // Exhaustive, with no fallback: a kind parameterized by something new must choose its
     // serialization here or fail to compile, rather than silently collapse into `[kind, null]`.
-    switch (input.kind) {
-      case "RELATIVE_VOLUME":
-        return [input.kind, null, input.period];
-      case "FUNDAMENTAL":
-        return [input.kind, null, input.metricId];
-      case "VALUATION_RATIO":
-        return [input.kind, null, input.ratioId];
-      case "INSIDER_ACTIVITY":
-      case "CONGRESS_ACTIVITY":
-        return [input.kind, null, alternativeDataMetricFingerprint(input)];
-      case "MOVING_AVERAGE":
-      case "OSCILLATOR":
-        return [input.kind, input.seriesId];
-      case "MARGIN_OF_SAFETY":
-        return [input.kind, input.sourceId];
-      case "PRICE":
-      case "GAIN":
-      case "LOSS":
-        return [input.kind, null];
-    }
+    //
+    // An **ETF source appends one trailing element, and only when it is present** — the same
+    // append-only rule every extension above follows. A stock-sourced metric therefore serializes
+    // byte-for-byte as it always did, so no stored `definitionHash` moves and no Monitor latch
+    // resets; an ETF-sourced one serializes with its `etf:<code>` element, so `Stock RSI 14D`,
+    // `XLK · RSI 14D` and `XLF · RSI 14D` fingerprint — and version, and latch — separately. The
+    // element cannot collide with an existing shape: within one kind the stock form never has it,
+    // and across kinds the leading `kind` element already differs.
+    const base = (input: StrategyMetric): unknown[] => {
+      switch (input.kind) {
+        case "RELATIVE_VOLUME":
+          return [input.kind, null, input.period];
+        case "FUNDAMENTAL":
+          return [input.kind, null, input.metricId];
+        case "VALUATION_RATIO":
+          return [input.kind, null, input.ratioId];
+        case "INSIDER_ACTIVITY":
+        case "CONGRESS_ACTIVITY":
+          return [input.kind, null, alternativeDataMetricFingerprint(input)];
+        case "MOVING_AVERAGE":
+        case "OSCILLATOR":
+          return [input.kind, input.seriesId];
+        case "MARGIN_OF_SAFETY":
+          return [input.kind, input.sourceId];
+        case "PRICE":
+        case "GAIN":
+        case "LOSS":
+          return [input.kind, null];
+      }
+    };
+    const source = strategyMetricSource(input);
+    return source ? [...base(input), `etf:${source.code}`] : base(input);
   };
   const predicate = (input: StrategyCondition | StrategyTrigger): unknown => [
     metric(input.metric),

@@ -36,6 +36,7 @@ export * from "./benchmark-chunk.js";
 export * from "./benchmark-cache.js";
 export * from "./benchmark-price-basis.js";
 export * from "./benchmark-service.js";
+export * from "./benchmark-technicals.js";
 export * from "./market-data-refresh.js";
 export * from "./evaluation-frame.js";
 export * from "./alternative-data-ports.js";
