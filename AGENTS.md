@@ -108,9 +108,10 @@ Read `ai/README.md` before substantial work.
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
     PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP
-    LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has three instances — the third
-    is the market-data refresh's `MarketDataRefreshSchedule`, owned by its own worker child so it
-    can never delay the Monitor cycle — and any further durable claim must match them rather than
+    LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instances — the third
+    is the market-data refresh's `MarketDataRefreshSchedule` row `ETF_MARKET_DATA`, the fourth the
+    stock EOD preparation's row `STOCK_EOD` in the same table, each owned by its own worker child so
+    neither can delay the Monitor cycle — and any further durable claim must match them rather than
     add a queue, a cron or a Redis lock.
 16. Redis is **required at runtime** — every stock-data read, hydration lock and provider gate goes
     through it and nothing degrades to PostgreSQL-only when it is down — but its **contents are
@@ -481,9 +482,9 @@ PostgreSQL-backed suites require `TEST_DATABASE_URL` pointing at a dedicated, mi
 (`pnpm db:test:prepare`); they never fall back to `DATABASE_URL`. `apps/api`, `apps/worker` and
 `packages/stock-data` serialize their test files for that reason, and `pnpm test` runs the
 workspace one package at a time for the same one: suites that share a database, a Redis and a
-machine are not run beside each other. `apps/worker` is one supervisor with three child kinds —
-backtest, Monitor and market-data children — so a worker change must be tested against the kind it
-affects. See `ai/workflows/validation.md`.
+machine are not run beside each other. `apps/worker` is one supervisor with four child kinds —
+backtest, Monitor, market-data and stock EOD children — so a worker change must be tested against the
+kind it affects. See `ai/workflows/validation.md`.
 
 During implementation, prefer the smallest relevant test/typecheck command. Once the implementation is settled, run the full validation gate once before marking the task complete:
 

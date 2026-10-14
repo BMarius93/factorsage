@@ -952,9 +952,11 @@ model BenchmarkPriceBasisEvent {
 /// The market-data refresh schedule (`docs/decisions/etf-market-data-v1.md`): the third instance of
 /// the durable claim idiom of `BacktestJob` and `MonitorScanSchedule` (`AGENTS.md` invariant 15).
 ///
-/// One row, id `MARKET_DATA_REFRESH_SCHEDULE_ID`, claimed with `FOR UPDATE SKIP LOCKED` and a
-/// renewable lease by the worker's market-data child, so exactly one process refreshes the ETF
-/// histories at a time and a crashed one is replaced. Columns match `MonitorScanSchedule` exactly.
+/// One row per durable refresh, each claimed with `FOR UPDATE SKIP LOCKED` and a renewable lease by
+/// its own worker child: `ETF_MARKET_DATA` (the market-data child refreshing the ETF histories) and
+/// `STOCK_EOD` (the stock EOD child preparing the securities running Monitors watch). Exactly one
+/// process runs each at a time, a crashed one is replaced, and the two rows never contend. Columns
+/// match `MonitorScanSchedule` exactly.
 model MarketDataRefreshSchedule {
   id                  String    @id
   /// Earliest instant the next run may start.
