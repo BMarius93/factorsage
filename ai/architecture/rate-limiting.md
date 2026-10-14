@@ -162,7 +162,7 @@ number; changing a limit is one edit there.
 | `session-probe`      | 120 / min  | —                    | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`                               |
 | `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                                              |
 | `stock-read`         | 180 / min  | —                    | user→IP | allow            | the seven `/stocks/{symbol}*` reads                                                                       |
-| `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health`, `GET /market-overview` |
+| `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health`, `GET /market-overview`, `GET /dashboard/activity`, `GET /monitors/:monitorId/signals` |
 | `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                                         |
 | `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                                            |
 | `monitor-mutation`   | 30 / min   | —                    | user→IP | allow            | monitor create / update / delete                                                                          |
