@@ -5,6 +5,7 @@ import {
   getBacktestWorkerConfig,
   getMarketDataWorkerConfig,
   getMonitorWorkerConfig,
+  getStockEodWorkerConfig,
   getWorkerConfig,
   loadRootEnv,
 } from "@intrinsic/config";
@@ -13,7 +14,7 @@ import { createLogger } from "@intrinsic/observability";
 /**
  * The worker supervisor.
  *
- * It owns no business logic: it forks children of three kinds and keeps them alive.
+ * It owns no business logic: it forks children of four kinds and keeps them alive.
  *
  * `BACKTEST_WORKER_PROCESSES` backtest children each claim and execute at most one backtest at a
  * time. One backtest is never split across processes — the day loop is sequential in time and stays
@@ -32,6 +33,12 @@ import { createLogger } from "@intrinsic/observability";
  * never delay a Monitor cycle. `0` disables it, which is what the deterministic E2E stack and the QA
  * matrix set.
  *
+ * `STOCK_EOD_WORKER_PROCESSES` stock EOD children each claim at most one preparation of the
+ * securities running Monitors watch, for the newest finalized session
+ * (`docs/decisions/monitor-eod-v2-proposal.md` §3.3). The same singleton claim, its own schedule
+ * row, its own process: the provider work Monitor evaluation must never do lives here. These are
+ * additional child processes of the one `dev:worker` service — never a fourth top-level service.
+ *
  * Supervision is what makes the deployment self-healing: a child that dies is replaced with a
  * bounded backoff, and any work it was holding is recovered through its expired lease. A signal is
  * forwarded to every child and the supervisor waits for them, so a graceful stop releases claims
@@ -42,6 +49,7 @@ const appConfig = getWorkerConfig();
 const backtestConfig = getBacktestWorkerConfig();
 const monitorConfig = getMonitorWorkerConfig();
 const marketDataConfig = getMarketDataWorkerConfig();
+const stockEodConfig = getStockEodWorkerConfig();
 
 const logger = createLogger({
   service: "worker",
@@ -84,6 +92,15 @@ const CHILD_KINDS = [
       dirname(supervisorPath),
       "market-data",
       `market-data-process${childExtension}`,
+    ),
+  },
+  {
+    kind: "stock-eod",
+    processes: stockEodConfig.processes,
+    module: join(
+      dirname(supervisorPath),
+      "stock-eod",
+      `stock-eod-process${childExtension}`,
     ),
   },
 ] as const;
@@ -268,6 +285,7 @@ logger.info(
     backtestProcesses: backtestConfig.processes,
     monitorProcesses: monitorConfig.processes,
     marketDataProcesses: marketDataConfig.processes,
+    stockEodProcesses: stockEodConfig.processes,
   },
   "workers started",
 );

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   BuyWindowValidationError,
   isBuyWindowEligible,
+  isOngoingListMember,
   normalizeBuyWindowConfiguration,
   normalizeBuyWindowRanges,
+  ongoingMembershipStart,
   type BuyWindowRange,
 } from "./stock-lists.js";
 
@@ -398,5 +400,60 @@ describe("point-in-time membership", () => {
     expect(isBuyWindowEligible(configuration, "1982-11-29")).toBe(false);
     expect(isBuyWindowEligible(configuration, "1982-11-30")).toBe(true);
     expect(isBuyWindowEligible(configuration, "2026-09-16")).toBe(true);
+  });
+});
+
+describe("ongoing membership (the Monitor universe)", () => {
+  const custom = (
+    ranges: { startDate: string; endDate: string | null }[],
+  ) => ({ mode: "CUSTOM" as const, ranges });
+
+  it("treats Always eligible as ongoing on every date, with no start", () => {
+    const full = { mode: "FULL" as const, ranges: [] };
+    expect(ongoingMembershipStart(full)).toBeNull();
+    expect(isOngoingListMember(full, "1990-01-02")).toBe(true);
+    expect(isOngoingListMember(full, "2030-06-30")).toBe(true);
+  });
+
+  it("is ongoing from the open-ended range's start, and not before it", () => {
+    const present = custom([{ startDate: "2024-06-24", endDate: null }]);
+    expect(ongoingMembershipStart(present)).toBe("2024-06-24");
+    expect(isOngoingListMember(present, "2024-06-21")).toBe(false);
+    expect(isOngoingListMember(present, "2024-06-24")).toBe(true);
+    expect(isOngoingListMember(present, "2026-10-14")).toBe(true);
+  });
+
+  it("is not yet ongoing when the open-ended range starts in the future", () => {
+    const future = custom([{ startDate: "2027-01-04", endDate: null }]);
+    expect(isOngoingListMember(future, "2026-10-14")).toBe(false);
+  });
+
+  it("is never ongoing for bounded ranges only, even when the end is in the future", () => {
+    const bounded = custom([{ startDate: "2020-01-02", endDate: "2030-12-31" }]);
+    expect(ongoingMembershipStart(bounded)).toBeUndefined();
+    expect(isOngoingListMember(bounded, "2026-10-14")).toBe(false);
+    const ended = custom([{ startDate: "2001-03-10", endDate: "2008-07-15" }]);
+    expect(isOngoingListMember(ended, "2005-01-03")).toBe(false);
+  });
+
+  it("finds the open-ended period of a multi-period member, and ignores the earlier ones", () => {
+    const rejoined = custom([
+      { startDate: "2001-03-10", endDate: "2008-07-15" },
+      { startDate: "2012-05-01", endDate: null },
+    ]);
+    expect(ongoingMembershipStart(rejoined)).toBe("2012-05-01");
+    // Inside an old period the member was eligible for a backtest's BUY, but is not a current
+    // Monitor member there.
+    expect(isOngoingListMember(rejoined, "2005-01-03")).toBe(false);
+    expect(isBuyWindowEligible(rejoined, "2005-01-03")).toBe(true);
+    // In the gap neither rule admits it; from the rejoin both do.
+    expect(isOngoingListMember(rejoined, "2010-01-04")).toBe(false);
+    expect(isOngoingListMember(rejoined, "2012-05-01")).toBe(true);
+  });
+
+  it("leaves the backtest's point-in-time BUY rule unchanged for a bounded future end", () => {
+    const bounded = custom([{ startDate: "2020-01-02", endDate: "2030-12-31" }]);
+    expect(isBuyWindowEligible(bounded, "2026-10-14")).toBe(true);
+    expect(isOngoingListMember(bounded, "2026-10-14")).toBe(false);
   });
 });

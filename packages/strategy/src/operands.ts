@@ -252,6 +252,30 @@ export function marginOfSafetyOperand(
   return `margin-of-safety:${sourceId}`;
 }
 
+/**
+ * Whether any of these operands reads financial statements — an intrinsic-value model or blend, a
+ * Margin of Safety, a Fundamental Metric or a valuation ratio — and so needs the statements kept
+ * current, not only the prices.
+ *
+ * The stock EOD preparation asks this per security, over the union of what every Monitor watching
+ * it reads, so a security only price-and-technical strategies watch never spends a statement
+ * request on a refresh it does not need.
+ */
+export function operandsReadStatements(operands: readonly OperandKey[]): boolean {
+  return operands.some((key) => {
+    if (
+      key.startsWith("margin-of-safety:") ||
+      operandFundamentalMetricId(key) !== null ||
+      operandValuationRatioId(key) !== null
+    ) {
+      return true;
+    }
+    const seriesId = operandSeriesId(key);
+    const kind = seriesId ? findSelectableSeries(seriesId)?.source.kind : undefined;
+    return kind === "INTRINSIC_VALUE_MODEL" || kind === "INTRINSIC_VALUE_BLEND";
+  });
+}
+
 /** Whether this metric needs simulated position state and therefore cannot be precomputed. */
 export function isPositionDependentMetric(metric: StrategyMetric): boolean {
   return metric.kind === "GAIN" || metric.kind === "LOSS";

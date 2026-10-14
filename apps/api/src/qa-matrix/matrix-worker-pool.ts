@@ -164,6 +164,8 @@ export class MatrixWorkerPool {
       // And the market-data child, for the same reason: its scheduled ETF refresh is provider
       // traffic no run made.
       MARKET_DATA_WORKER_PROCESSES: "0",
+      // And the stock EOD child: its preparation of monitored securities is not a run's traffic.
+      STOCK_EOD_WORKER_PROCESSES: "0",
       // Provider requests are logged at debug; without this the sweep cannot count them.
       LOG_LEVEL: "debug",
       // The matrix database is a frozen copy: its stored price tails are the dataset and are never

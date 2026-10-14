@@ -567,6 +567,10 @@ export class PriceBasisChangedError extends Error {
 
 /** What durable storage proves about one stock's end-of-day tail (`stockRefreshState`). */
 export type StockRefreshState = {
+  /** The oldest date the provider has been asked for under the current price-dataset revision. */
+  coverageStart?: LocalDate;
+  /** The oldest stored bar. */
+  earliestBar?: LocalDate;
   /** The newest stored bar. */
   latestBar?: LocalDate;
   /** When the newest leading-edge provider read was issued. */
@@ -906,7 +910,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * the Monitor evaluation read to agree on which session a security is ready for.
    */
   async stockRefreshState(security: Security): Promise<StockRefreshState> {
-    const [freshness, derived, bounds] = await Promise.all([
+    const [coverage, freshness, derived, bounds] = await Promise.all([
+      this.store.getDatasetState(security.id, "DAILY_PRICE", DAILY_PRICE_VARIANT),
       this.store.getDatasetState(
         security.id,
         "DAILY_PRICE",
@@ -940,6 +945,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
               })
             )?.lastDate;
     return {
+      ...(coverage?.earliestDate ? { coverageStart: coverage.earliestDate } : {}),
+      ...(bounds ? { earliestBar: bounds.firstDate } : {}),
       ...(bounds ? { latestBar: bounds.lastDate } : {}),
       ...(lastTailSyncAt ? { lastTailSyncAt } : {}),
       ...(tailDate ? { tailDate } : {}),
@@ -948,6 +955,20 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       ...(derived?.latestDate ? { derivedThrough: derived.latestDate } : {}),
       priceBasisGeneration: await this.priceBasisGeneration(security.id),
     };
+  }
+
+  /**
+   * Ingests the inputs a set of operands reads beyond prices — alternative-data disclosures and the
+   * provider's split list — each behind its own freshness, or does nothing when the operands name
+   * none. The preparation-phase counterpart of what an evaluation frame later only reads, so a
+   * provider-free reader (the Monitor evaluation) finds them current.
+   */
+  async prepareStockOperands(
+    security: Security,
+    operands: readonly OperandKey[],
+  ): Promise<void> {
+    await this.ensureAlternativeDataIngested(security, operands);
+    await this.ensureValuationInputsIngested(security, operands);
   }
 
   /**
@@ -983,8 +1004,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       fundamentals: input.fundamentals ?? "skip",
     });
     if (input.operands && input.operands.length > 0) {
-      await this.ensureAlternativeDataIngested(security, input.operands);
-      await this.ensureValuationInputsIngested(security, input.operands);
+      await this.prepareStockOperands(security, input.operands);
     }
     const state = await this.stockRefreshState(security);
     const decision = this.finality.decide(state, input.expectedSession);
