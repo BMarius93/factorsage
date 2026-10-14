@@ -20,7 +20,6 @@ import {
   outcomeOf,
 } from "./level-decision.js";
 import type {
-  ActiveMonitorMember,
   LevelChange,
   LevelSessionsWrite,
   PersistedSignalState,
@@ -52,7 +51,6 @@ import type {
 
 export type SessionDecisionInput = {
   level: MonitorStrategyLevel;
-  member: ActiveMonitorMember;
   strategyVersionId: string;
   previous: PersistedSignalState | null;
   frame: EvaluationFrame;
@@ -98,7 +96,7 @@ type WriteBase = Omit<
 export function decideLevelSessions(
   input: SessionDecisionInput,
 ): SessionDecision {
-  const { level, member, previous, frame, sessions } = input;
+  const { level, previous, frame, sessions } = input;
   const stale =
     previous !== null && previous.signalFingerprint !== level.fingerprint;
   const base: WriteBase = {
@@ -149,9 +147,7 @@ export function decideLevelSessions(
     };
   };
   const historyBefore = (date: LocalDate) =>
-    historySteps(level, member, frame, date, (_level, day) =>
-      input.monitoredOn(day),
-    );
+    historySteps(level, frame, date, input.monitoredOn);
 
   if (previous && !stale) {
     const readings = sessions.map(read);

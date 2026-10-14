@@ -224,10 +224,6 @@ describe("live FMP run guard", () => {
       (client: FmpClient) => client.getStockUniverse("NYSE"),
     ],
     [
-      "a batch of quotes",
-      (client: FmpClient) => client.getCurrentQuotes(["AAPL", "MSFT"]),
-    ],
-    [
       "an exchange calendar",
       (client: FmpClient) =>
         client.getExchangeHolidays("NYSE", "2025-12-31", "2026-12-31"),

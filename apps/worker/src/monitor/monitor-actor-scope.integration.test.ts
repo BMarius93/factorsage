@@ -12,37 +12,32 @@ import { createLogger } from "@intrinsic/observability";
 import {
   CanonicalAlternativeDataService,
   PrismaAlternativeDataStore,
-  projectEvaluationFrame,
-  projectMonitorEvaluationFrame,
-  type MonitorEvaluationFrame,
 } from "@intrinsic/stock-data";
-import {
-  alternativeDataOperand,
-  type EvaluationFrame,
-  type OperandKey,
-} from "@intrinsic/strategy";
+import { alternativeDataOperand, type OperandKey } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { MonitorCycle } from "./monitor-cycle.js";
+import { MonitorEodEvaluation } from "./monitor-evaluation.js";
 import {
-  FixtureCalendar,
-  FixtureLoader,
-  flatHistory,
-} from "./monitor-fixtures.test-helper.js";
+  afterClose,
+  EodFixtureData,
+  fixturePolicy,
+  longHistory,
+  scopedRepository,
+} from "./monitor-evaluation.test-helper.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
 // Before any PrismaClient in this file is constructed.
 useTestDatabase();
 
 /**
- * Monitor cycles over a rule scoped to members of Congress, in every shape a strategy version can
- * hold: a selection, a legacy group read live, and a legacy single member.
+ * Monitor EOD evaluations over a rule scoped to members of Congress, in every shape a strategy
+ * version can hold: a selection, a legacy group read live, and a legacy single member.
  *
- * The cycle, the repository, the lifecycle reducer and the durable rows are the production ones, and
- * so is everything about the congressional data: the disclosures are real rows in PostgreSQL, read
- * by `CanonicalAlternativeDataService.loadFacts` exactly as the production loader reads them for a
- * Monitor — with no resolver, so a group is resolved from the database as it stands. Only prices and
- * the live quote are scripted, as in every other Monitor suite.
+ * The evaluation, the repository, the lifecycle reducer and the durable rows are the production
+ * ones, and so is everything about the congressional data: the disclosures are real rows in
+ * PostgreSQL, read by `CanonicalAlternativeDataService.loadFacts` exactly as the production frame
+ * read loads them — with no resolver, so a group is resolved from the database as it stands. Only
+ * the stored bars are scripted (`EodFixtureData`), as in every other Monitor suite.
  *
  * What it settles:
  *
@@ -55,14 +50,18 @@ useTestDatabase();
  */
 
 const prisma = new PrismaClient();
-const repository = new PrismaMonitorRepository(prisma);
+const running = new Set<string>();
+const repository = scopedRepository(
+  new PrismaMonitorRepository(prisma),
+  () => running,
+);
 const store = new PrismaAlternativeDataStore(prisma);
 const logger = createLogger({ service: "worker", level: "silent" });
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 
-/** 10:00 New York on Monday 2026-03-02, the session after the last bar `flatHistory` writes. */
-const SESSION_ONE = new Date("2026-03-02T15:00:00.000Z");
-const SESSION_TWO = new Date("2026-03-03T15:00:00.000Z");
+/** Monday 2026-03-02 and Tuesday 03-03: the sessions after the last bar `longHistory` writes. */
+const SESSION_ONE = "2026-03-02";
+const SESSION_TWO = "2026-03-03";
 
 /** The provider is never asked: every read here is `loadFacts`, which reaches no provider. */
 const alternativeData = new CanonicalAlternativeDataService(
@@ -77,65 +76,6 @@ const alternativeData = new CanonicalAlternativeDataService(
   },
   { freshnessMs: 60_000, maxPagesPerIngest: 1 },
 );
-
-/**
- * The fixture loader, with the congressional columns supplied the way production supplies them.
- *
- * `CanonicalStockDataService.readMonitorEvaluationFrame` loads the disclosures over the projected
- * window and hands them to `projectMonitorEvaluationFrame`; this does the same with the same two
- * functions, so the columns a level reads here are the ones it would read in a worker.
- */
-class CongressLoader extends FixtureLoader {
-  override async readMonitorEvaluationFrame(input: {
-    security: Security;
-    operands: readonly OperandKey[];
-    observations: number;
-    asOf: string;
-    observation: { price: number; quotedAt?: string } | null;
-    observationDate: string;
-  }): Promise<MonitorEvaluationFrame | null> {
-    this.frameCalls.push(input.security.id);
-    this.lastRequestedOperands.set(input.security.id, input.operands);
-    const prices = this.prices.get(input.security.id) ?? [];
-    return projectMonitorEvaluationFrame({
-      security: input.security,
-      prices,
-      derived: [],
-      operands: input.operands,
-      observation: input.observation,
-      observationDate: input.observationDate,
-      alternativeData: await alternativeData.loadFacts({
-        security: input.security,
-        operands: input.operands,
-        from: prices[0]?.date ?? input.observationDate,
-        to: input.observationDate,
-      }),
-    });
-  }
-
-  override async readReconstructionFrame(
-    security: Security,
-    range: { from: string; to: string },
-    operands: readonly OperandKey[],
-  ): Promise<EvaluationFrame> {
-    const prices = (this.prices.get(security.id) ?? []).filter(
-      (price) => price.date <= range.to,
-    );
-    return projectEvaluationFrame({
-      security,
-      prices,
-      derived: [],
-      operands,
-      periodStart: range.from,
-      alternativeData: await alternativeData.loadFacts({
-        security,
-        operands,
-        from: prices[0]?.date ?? range.from,
-        to: range.to,
-      }),
-    }).frame;
-  }
-}
 
 const userIds: string[] = [];
 const securityIds: string[] = [];
@@ -301,6 +241,7 @@ async function createMonitor(input: {
     },
   });
   createdMonitorIds.push(monitor.id);
+  running.add(monitor.id);
   return { monitorId: monitor.id, strategyId: strategy.id };
 }
 
@@ -322,23 +263,61 @@ async function appendVersion(
   });
 }
 
-function loaderFor(...securities: Security[]): CongressLoader {
-  const loader = new CongressLoader(securities);
+/**
+ * Stored bars for each security, with the congressional columns supplied the way production supplies
+ * them: `readFinalizedEvaluationFrame` loads the disclosures over the projected window through
+ * `loadFacts`, and this does the same.
+ */
+function loaderFor(...securities: Security[]): EodFixtureData {
+  const data = new EodFixtureData(securities);
   for (const security of securities) {
-    loader.prices.set(security.id, flatHistory(security.id, 100));
+    data.prices.set(
+      security.id,
+      longHistory(
+        security.id,
+        Array.from({ length: 25 }, () => 100),
+      ),
+    );
   }
-  loader.currentPrice = 100;
-  return loader;
+  data.alternativeData = (input) =>
+    alternativeData.loadFacts({
+      security: input.security,
+      operands: input.operands,
+      from: input.from,
+      to: input.to,
+    });
+  return data;
+}
+
+/** The operands the newest frame read of a security asked for. */
+function lastOperands(
+  data: EodFixtureData,
+  security: Security,
+): readonly OperandKey[] {
+  return (
+    data.frameReads.filter((read) => read.securityId === security.id).at(-1)
+      ?.operands ?? []
+  );
 }
 
 let cycleSequence = 0;
-async function runCycle(loader: CongressLoader, now: Date = SESSION_ONE) {
+async function runCycle(data: EodFixtureData, session: string = SESSION_ONE) {
   cycleSequence += 1;
-  return new MonitorCycle(repository, loader, new FixtureCalendar(), logger, {
-    symbolConcurrency: 4,
-    quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
-    now: () => now,
-  }).run(cycleSequence);
+  for (const security of await data.findSecurities(securityIds)) {
+    data.addBar(security.id, session, 100);
+  }
+  const clock = { now: afterClose(session) };
+  return new MonitorEodEvaluation(
+    repository,
+    data,
+    fixturePolicy(clock),
+    logger,
+    {
+      securityConcurrency: 4,
+      dependencyGiveUpMs: 24 * 60 * 60_000,
+      now: () => clock.now,
+    },
+  ).run(cycleSequence);
 }
 
 async function signalsOf(monitorId: string) {
@@ -406,6 +385,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  running.clear();
   await prisma.monitor.updateMany({
     where: { id: { in: createdMonitorIds } },
     data: { enabled: false },
@@ -481,7 +461,7 @@ describe("a Monitor on a rule scoped to members of Congress", () => {
 
     // The selection travels in the column's own key, canonically ordered.
     const [first, second] = [actor.A, actor.B].sort();
-    expect(loader.lastRequestedOperands.get(security.id)).toEqual(
+    expect(lastOperands(loader, security)).toEqual(
       expect.arrayContaining([
         `alt:CONGRESS_ACTIVITY|PURCHASES|5|actors:${first}+${second}|ANY|-`,
         `alt:CONGRESS_ACTIVITY|PURCHASES|5|actor:${actor.B}|ANY|-`,
@@ -660,7 +640,7 @@ describe("a Monitor on a rule scoped to members of Congress", () => {
     }
     expect(await signalsOf(healthy.monitorId)).toHaveLength(1);
     // No column was ever requested on the unreadable rules' behalf.
-    expect(loader.lastRequestedOperands.get(security.id)).toEqual(
+    expect(lastOperands(loader, security)).toEqual(
       expect.arrayContaining([
         alternativeDataOperand({
           kind: "CONGRESS_ACTIVITY",
@@ -672,7 +652,7 @@ describe("a Monitor on a rule scoped to members of Congress", () => {
       ]),
     );
     expect(
-      (loader.lastRequestedOperands.get(security.id) ?? []).filter((operand) =>
+      lastOperands(loader, security).filter((operand) =>
         operand.startsWith("alt:"),
       ),
     ).toHaveLength(1);

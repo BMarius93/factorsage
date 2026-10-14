@@ -140,15 +140,14 @@ describe("FMP endpoint classification", () => {
       "profile",
       "company-screener",
       "historical-price-eod/full",
-      "batch-quote",
       "holidays-by-exchange",
       "splits",
       "insider-trading/search",
       "senate-profile",
     ]);
-    // Ten `this.request` calls in the client: the eight above and two with a computed path. An
-    // eleventh is an endpoint somebody added without deciding what it is about.
-    expect(source.match(/this\.request</g)).toHaveLength(10);
+    // Nine `this.request` calls in the client: the seven above and two with a computed path. A
+    // tenth is an endpoint somebody added without deciding what it is about.
+    expect(source.match(/this\.request</g)).toHaveLength(9);
     expect([...FMP_ENDPOINT_CLASSES.keys()].sort()).toEqual(
       [...literal, ...computed].sort(),
     );
@@ -164,7 +163,6 @@ describe("FMP endpoint classification", () => {
       "company-screener",
       "holidays-by-exchange",
     ]);
-    expect(bySubject("SYMBOL_LIST")).toEqual(["batch-quote"]);
     expect(bySubject("SECURITY")).toHaveLength(9);
   });
 });
@@ -306,8 +304,6 @@ describe("FMP security scope", () => {
   it.each([
     ["company-screener", { exchange: "NASDAQ", limit: "20000" }],
     ["holidays-by-exchange", { exchange: "NYSE", from: "a", to: "b" }],
-    ["batch-quote", { symbols: "AAPL" }],
-    ["batch-quote", { symbols: "AAPL,MSFT,NVDA" }],
     ["senate-profile", { active: "true", page: "0" }],
     // A symbol on it changes nothing: the directory is about no security.
     ["senate-profile", { active: "true", page: "0", symbol: "AAPL" }],
@@ -329,7 +325,15 @@ describe("FMP security scope", () => {
 
   it("refuses an endpoint it does not know", () => {
     const scope = resolvedScope(["AAPL"]);
-    for (const path of ["stock-list", "quote", "constructor", "__proto__"]) {
+    // `batch-quote` among them: FactorSage reads end-of-day prices only, and the client has no quote
+    // endpoint to classify (`docs/decisions/monitor-eod-v2.md` §8).
+    for (const path of [
+      "stock-list",
+      "quote",
+      "batch-quote",
+      "constructor",
+      "__proto__",
+    ]) {
       let refusal: unknown;
       try {
         scope.authorize(request(path, { symbol: "AAPL" }));
@@ -418,13 +422,6 @@ describe("a guarded FMP client", () => {
     await expect(client.getStockUniverse("NASDAQ")).rejects.toMatchObject({
       reason: "NOT_A_SECURITY_ENDPOINT",
     });
-    // A caller-supplied symbol list — refused even when every symbol on it is approved.
-    await expect(
-      client.getCurrentQuotes(["AAPL", "MSFT", "NVDA"]),
-    ).rejects.toMatchObject({ reason: "NOT_A_SECURITY_ENDPOINT" });
-    await expect(
-      client.getCurrentQuotes(["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]),
-    ).rejects.toMatchObject({ reason: "NOT_A_SECURITY_ENDPOINT" });
     // A venue's calendar.
     await expect(
       client.getExchangeHolidays("NYSE", "2025-12-31", "2026-12-31"),
@@ -648,7 +645,6 @@ describe("an unguarded FMP client", () => {
     const client = new FmpClient(config, fetchMock);
 
     await client.getStockUniverse("nasdaq");
-    await client.getCurrentQuotes(["msft", "AAPL"]);
     await client.getExchangeHolidays("nyse", "2025-12-31", "2026-12-31");
     await client.getProfile("googl");
     await client.getBenchmarkDailyPrices("^GSPC", "series", {
@@ -658,7 +654,6 @@ describe("an unguarded FMP client", () => {
 
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       "https://financialmodelingprep.com/stable/company-screener?exchange=NASDAQ&isEtf=false&isFund=false&limit=20000&apikey=test-secret-key",
-      "https://financialmodelingprep.com/stable/batch-quote?symbols=AAPL%2CMSFT&apikey=test-secret-key",
       "https://financialmodelingprep.com/stable/holidays-by-exchange?exchange=NYSE&from=2025-12-31&to=2026-12-31&apikey=test-secret-key",
       "https://financialmodelingprep.com/stable/profile?symbol=GOOGL&apikey=test-secret-key",
       "https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=%5EGSPC&from=2020-01-01&to=2020-12-31&apikey=test-secret-key",

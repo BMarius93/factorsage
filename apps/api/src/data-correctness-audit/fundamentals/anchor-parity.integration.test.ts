@@ -19,9 +19,7 @@ import {
   dailyStateChunkKey,
   decodeDailyStateChunk,
   fundamentalsDatasetOperations,
-  monitorWindowObservations,
   priceRetentionYears,
-  requiredDailySeries,
   subtractYears,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
@@ -41,7 +39,6 @@ import {
   stepMonitorLevel,
 } from "@intrinsic/strategy";
 import {
-  FUNDAMENTAL_AUDIT_ANCHOR_BOUNDARIES,
   FUNDAMENTAL_AUDIT_ANCHOR_FIRST_SESSION,
   FUNDAMENTAL_AUDIT_ANCHOR_LAST_SESSION,
   FUNDAMENTAL_AUDIT_ANCHOR_SYNCS,
@@ -90,7 +87,7 @@ const describeInfrastructure = redisUrl ? describe : describe.skip;
  * | Redis | the yearly `daily-state` chunks, parsed | the key omitted |
  * | Strategy / Backtest | `getDailyEvaluationFrame`, the frame a backtest window projects | `NaN` |
  * | Predicate | `evaluateMarketCondition` on that frame | `NOT_EVALUABLE` |
- * | Monitor | `readMonitorEvaluationFrame`, a provisional session after each boundary | `NaN` |
+ * | Monitor | `readFinalizedEvaluationFrame`, the end-of-day frame read from PostgreSQL | `NaN` |
  * | Stock Details API | `GET /stocks/:symbol/fundamentals/daily` over HTTP | `value` omitted |
  *
  * The chart's preparation of the same rows is held to the same table in the web app's
@@ -626,85 +623,46 @@ describeInfrastructure(
       ).toBe(0);
     });
 
-    it("a Monitor reads the newest closed session's value on the provisional session, and the closed row's own", async () => {
+    it("a Monitor reads every session's own persisted value from PostgreSQL", async () => {
       const operands = [
         "price",
         ...FUNDAMENTAL_AUDIT_METRICS.map((metric) =>
           fundamentalMetricOperand(metric.id as never),
         ),
       ];
-      const observations = monitorWindowObservations(
-        requiredDailySeries(operands),
+      // The Monitor's end-of-day frame: stored bars and materialized rows, read from PostgreSQL.
+      const { frame } = await service.readFinalizedEvaluationFrame(
+        security,
+        range,
+        operands,
       );
-      // Any live price within the ex-date hold's band of every stored close (50 to 78), so the hold
-      // never takes the observation away; the carried values do not depend on it.
-      for (const closed of FUNDAMENTAL_AUDIT_ANCHOR_BOUNDARIES) {
-        const position = sessions.indexOf(closed);
-        const next = sessions[position + 1];
-        if (next === undefined) {
-          continue;
-        }
-        await service.prepareMonitorEvaluationData(
-          security,
-          observations,
-          closed,
-          operands,
-        );
-        const provisional = await service.readMonitorEvaluationFrame({
-          security,
-          operands,
-          observations,
-          asOf: closed,
-          observation: { price: 61.23 },
-          observationDate: next,
-        });
-        const repriced = await service.readMonitorEvaluationFrame({
-          security,
-          operands,
-          observations,
-          asOf: closed,
-          observation: { price: 61.23 },
-          observationDate: closed,
-        });
-        expect(provisional?.observationDate).toBe(next);
+      let compared = 0;
+      for (const session of sessions) {
+        const index = frame.dates.indexOf(session);
+        expect(index, session).toBeGreaterThanOrEqual(0);
         for (const metric of FUNDAMENTAL_AUDIT_METRICS) {
-          const key = fundamentalMetricOperand(metric.id as never);
-          const closedValue = expectedNumber(metric.id, closed);
-          const onProvisional = readOperand(
-            provisional!.frame,
-            key,
-            provisional!.observationIndex,
+          const expected = expectedNumber(metric.id, session);
+          const actual = readOperand(
+            frame,
+            fundamentalMetricOperand(metric.id as never),
+            index,
           );
-          const onClosedRow = readOperand(
-            provisional!.frame,
-            key,
-            provisional!.observationIndex - 1,
-          );
-          const onRepriced = readOperand(
-            repriced!.frame,
-            key,
-            repriced!.observationIndex,
-          );
-          for (const [label, actual] of [
-            ["provisional", onProvisional],
-            ["closed row", onClosedRow],
-            ["repriced", onRepriced],
-          ] as const) {
-            if (closedValue === undefined) {
-              expect(actual, `${closed} ${metric.id} ${label}`).toBeNaN();
-            } else {
-              expect(
-                Object.is(actual, closedValue),
-                `${closed} ${metric.id} ${label}: ${actual}`,
-              ).toBe(true);
-            }
+          if (expected === undefined) {
+            expect(actual, `${session} ${metric.id}`).toBeNaN();
+          } else {
+            expect(
+              Object.is(actual, expected),
+              `${session} ${metric.id}: ${actual}`,
+            ).toBe(true);
           }
+          compared += 1;
         }
       }
+      expect(compared).toBe(sessions.length * FUNDAMENTAL_AUDIT_METRICS.length);
       expect(provider.calls).toEqual([]);
     });
 
-    it("a Monitor opens after the close that first holds, holds through unavailability, resolves on a decidable false", async () => {
+    it("a Monitor opens on the close that first holds, holds through unavailability, resolves on a decidable false", async () => {
       const definition = normalizeStrategyDefinition({
         schemaVersion: 2,
         buyLevels: [
@@ -727,9 +685,8 @@ describeInfrastructure(
       });
       const [level] = monitorStrategyLevels(definition);
       const operands = collectOperands(definition);
-      const observations = monitorWindowObservations(
-        requiredDailySeries(operands),
-      );
+      const { frame: monitorFrame } =
+        await service.readFinalizedEvaluationFrame(security, range, operands);
       const backtest = await service.getDailyEvaluationFrame(
         security,
         range,
@@ -743,65 +700,48 @@ describeInfrastructure(
       const first = sessions.indexOf("2024-07-29");
       const last = sessions.indexOf("2025-08-20");
       for (let index = first; index <= last; index += 1) {
-        const closed = sessions[index - 1]!;
-        const provisional = sessions[index]!;
-        await service.prepareMonitorEvaluationData(
-          security,
-          observations,
-          closed,
-          operands,
-        );
-        const projected = await service.readMonitorEvaluationFrame({
-          security,
-          operands,
-          observations,
-          asOf: closed,
-          // Inside the ex-date hold's band of the stored closes of these sessions (64 to 75).
-          observation: { price: 70 },
-          observationDate: provisional,
-        });
+        const session = sessions[index]!;
         const rules = observeMonitorLevel(
           level!,
-          projected!.frame,
-          projected!.observationIndex,
+          monitorFrame,
+          monitorFrame.dates.indexOf(session),
         );
-        // The Monitor's provisional session decides exactly what the backtest decided on the close
-        // before it: the same stored value through the same predicate (the documented one-session
-        // framing of a statement event).
-        expect(rules[0]!.conditions, provisional).toBe(
+        // Each finalized session decides exactly what the backtest decided on that same close: the
+        // same stored value through the same predicate.
+        expect(rules[0]!.conditions, session).toBe(
           evaluateMarketCondition(
             condition,
             backtest,
-            backtest.dates.indexOf(closed),
+            backtest.dates.indexOf(session),
           ),
         );
         const result = stepMonitorLevel(lifecycle, {
-          date: provisional,
+          date: session,
           eligible: true,
           rules,
         });
         if (result.opened) {
-          opened.push(provisional);
+          opened.push(session);
         }
         if (result.closed) {
-          resolved.push(provisional);
+          resolved.push(session);
         }
         if (
           rules[0]!.conditions === Evaluability.NOT_EVALUABLE &&
           result.next.state === "ACTIVE"
         ) {
-          heldUnavailable.push(provisional);
+          heldUnavailable.push(session);
         }
         lifecycle = result.next;
       }
-      // ROIC is 18 from the 2024-08-02 close, so the first provisional session to see it is 08-05.
-      expect(opened).toEqual(["2024-08-05"]);
+      // ROIC is 18 from the 2024-08-02 close: the Monitor opens on that session.
+      expect(opened).toEqual(["2024-08-02"]);
       // Unavailable on the 2024-08-20 … 09-13 closes: the occurrence stays open, never resolved by a
       // reading that cannot be decided.
-      expect(heldUnavailable[0]).toBe("2024-08-21");
-      expect(heldUnavailable.at(-1)).toBe("2024-09-16");
-      // 12 from the 2025-08-15 close: resolved on the next provisional session.
-      expect(resolved).toEqual(["2025-08-18"]);
+      expect(heldUnavailable[0]).toBe("2024-08-20");
+      expect(heldUnavailable.at(-1)).toBe("2024-09-13");
+      // 12 from the 2025-08-15 close: resolved on that session.
+      expect(resolved).toEqual(["2025-08-15"]);
       expect(provider.calls).toEqual([]);
     }, 180_000);
 

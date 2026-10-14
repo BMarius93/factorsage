@@ -15,58 +15,65 @@ import type {
   FinancialStatementDraft,
   LocalDate,
   Security,
-  SecurityId,
 } from "@intrinsic/domain";
-import {
-  FmpProviderError,
-  FmpRateLimitError,
-  type FmpCurrentQuote,
-  type FmpCurrentQuoteProviderPort,
-  type FmpExchangeCalendarPort,
-  type FmpExchangeHoliday,
-  type FmpStockProviderPort,
-  type MappedFmpProfile,
+import type {
+  FmpExchangeCalendarPort,
+  FmpExchangeHoliday,
+  FmpStockProviderPort,
+  MappedFmpProfile,
 } from "@intrinsic/fmp";
 import { createLogger, type LogLevel } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalStockDataService,
+  EodFinalityPolicy,
   IoredisCacheClient,
   PrismaStockDataStore,
   RedisStockDataCache,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
-  monitorWindowObservations,
-  requiredDailySeries,
-  type CurrentObservation,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
-import {
-  requiredAlternativeDataLeadingSessions,
-  type OperandKey,
-} from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
-import { MonitorCycle, type MonitorDataLoader } from "./monitor-cycle.js";
 import {
-  PrismaMonitorRepository,
-  type MonitorRepository,
-} from "./monitor-repository.js";
+  StockEodRefreshRun,
+  type StockEodRefreshSummary,
+} from "../stock-eod/refresh-run.js";
+import {
+  MonitorEodEvaluation,
+  type MonitorEvaluationData,
+  type MonitorEvaluationSummary,
+} from "./monitor-evaluation.js";
+import { PrismaMonitorRepository } from "./monitor-repository.js";
 
 /**
- * Developer-only capacity benchmark for the Monitor cycle.
+ * Developer-only capacity benchmark for the EOD Monitor path (`docs/decisions/monitor-eod-v2.md`
+ * §3, §8).
  *
- * It drives the **production path** — `MonitorCycle`, `PrismaMonitorRepository`,
- * `CanonicalStockDataService` over a real PostgreSQL and a real Redis cache and Redlock — and
- * replaces exactly one boundary, the provider, with a synthetic counting stub. Nothing here is a
- * test double of the code under measurement, so the numbers describe what a deployment would do.
+ * It drives the **production classes** — `StockEodRefreshRun` over `CanonicalStockDataService`
+ * (real PostgreSQL, Redis cache and Redlock), then `MonitorEodEvaluation` over
+ * `PrismaMonitorRepository` and the provider-free reads the Monitor composition hands it — and
+ * replaces exactly two things: the provider, with a synthetic counting stub that publishes one EOD
+ * bar per simulated session, and the clock, which steps from one session's evening to the next.
+ *
+ * Each simulated day runs the stock EOD preparation to completion (its follow-up runs included),
+ * then one Monitor pass, and measures both: provider requests per security, pass durations,
+ * sessions decided, PostgreSQL queries and tuples, Redis commands. The steps are:
+ *
+ * - `cold`: the first session — every security hydrated, every member reconstructed (or its
+ *   90-day window replayed with `--replay`);
+ * - `idle`: the same session again, as the next scan interval finds it — nothing new to decide;
+ * - `steady`: one new session per day, `--days` of them;
+ * - `gap`: after an outage of `--gap` sessions, one run that catches all of them up.
  *
  * It writes only to the dedicated test database (`useTestDatabase`) and to a namespaced Redis key
  * space it removes afterwards. It never touches the development database and never calls FMP.
+ * Monitors that already exist in the test database are paused for the run and restored after it.
  *
  * ```bash
  * pnpm --filter @intrinsic/worker bench:monitor -- --scenario=small
- * pnpm --filter @intrinsic/worker bench:monitor -- --scenario=boundary --sizes=50,100,101,200,500
- * pnpm --filter @intrinsic/worker bench:monitor -- --scenario=growing --resident=100 --cycles=3
+ * pnpm --filter @intrinsic/worker bench:monitor -- --scenario=normal --days=3 --gap=5
+ * pnpm --filter @intrinsic/worker bench:monitor -- --scenario=growing --replay
  * ```
  *
  * Findings and the environment the published numbers were taken in are recorded in
@@ -82,15 +89,16 @@ useTestDatabase();
 
 type Args = {
   scenario: string;
-  resident: number;
-  cycles: number;
-  sizes: number[];
+  days: number;
+  gap: number;
+  replay: boolean;
   pool: number | undefined;
   users: number | undefined;
+  resident: number;
+  eodConcurrency: number;
+  monitorConcurrency: number;
   out: string | undefined;
   logLevel: LogLevel;
-  quoteFailure: "" | "429" | "500" | "timeout";
-  flushBetweenCycles: boolean;
   keep: boolean;
 };
 
@@ -100,15 +108,17 @@ function parseArgs(argv: readonly string[]): Args {
   const has = (name: string): boolean => argv.includes(`--${name}`);
   return {
     scenario: get("scenario") ?? "small",
-    resident: Number(get("resident") ?? "100"),
-    cycles: Number(get("cycles") ?? "3"),
-    sizes: (get("sizes") ?? "50,100,101,200,500").split(",").map(Number),
+    days: Number(get("days") ?? "3"),
+    gap: Number(get("gap") ?? "0"),
+    replay: has("replay"),
     pool: get("pool") === undefined ? undefined : Number(get("pool")),
     users: get("users") === undefined ? undefined : Number(get("users")),
+    resident: Number(get("resident") ?? "100"),
+    // The production defaults: STOCK_EOD_SECURITY_CONCURRENCY and MONITOR_SYMBOL_CONCURRENCY.
+    eodConcurrency: Number(get("eod-concurrency") ?? "2"),
+    monitorConcurrency: Number(get("monitor-concurrency") ?? "4"),
     out: get("out"),
     logLevel: (get("log") ?? "warn") as LogLevel,
-    quoteFailure: (get("quote-failure") ?? "") as Args["quoteFailure"],
-    flushBetweenCycles: has("flush-between-cycles"),
     keep: has("keep"),
   };
 }
@@ -119,10 +129,19 @@ const args = parseArgs(process.argv.slice(2));
 // Clock and calendar
 // ---------------------------------------------------------------------------
 
-/** 11:00 New York on Tuesday 2025-06-10: a regular session, one bar after the synthetic history. */
-const NOW = new Date("2025-06-10T15:00:00.000Z");
+/** The first simulated session: Tuesday 2025-06-10. Later days are the sessions after it. */
+const FIRST_SESSION: LocalDate = "2025-06-10";
 const HISTORY_FROM: LocalDate = "2013-01-02";
-const HISTORY_TO: LocalDate = "2025-06-09";
+const HISTORY_TO: LocalDate = "2025-12-31";
+const PUBLICATION_DELAY_MS = 30 * 60_000;
+
+/** The simulated instant: the evening of the session being prepared, after its bar is final. */
+const clock = { now: eveningOf(FIRST_SESSION) };
+
+/** 22:30 UTC: past the New York close plus the publication delay, in summer and winter alike. */
+function eveningOf(session: LocalDate): Date {
+  return new Date(`${session}T22:30:00.000Z`);
+}
 
 /** Full closures NYSE/NASDAQ observed 2013–2025 (fixed dates plus the movable ones), for realism. */
 const FULL_CLOSURES = new Set<LocalDate>([
@@ -279,31 +298,27 @@ type ProviderCounters = {
   dailyPriceRows: number;
   profiles: number;
   statements: number;
-  quoteBatches: number;
-  quoteSymbols: number;
   holidays: number;
 };
 
+/**
+ * The provider's EOD feed: it publishes a session's bar once the simulated clock has reached that
+ * session's evening, and never anything later. It serves no quotes — nothing on this path asks for
+ * one.
+ */
 class SyntheticProvider
-  implements
-    FmpStockProviderPort,
-    FmpCurrentQuoteProviderPort,
-    FmpExchangeCalendarPort
+  implements FmpStockProviderPort, FmpExchangeCalendarPort
 {
   readonly counters: ProviderCounters = {
     dailyPrices: 0,
     dailyPriceRows: 0,
     profiles: 0,
     statements: 0,
-    quoteBatches: 0,
-    quoteSymbols: 0,
     holidays: 0,
   };
-  /** Advances per cycle so quotes move and some evaluations transition. */
-  cycleIndex = 0;
+  /** The newest session whose bar the provider has published. */
+  publishedThrough: LocalDate = FIRST_SESSION;
   private readonly histories = new Map<string, DailyPrice[]>();
-
-  constructor(private readonly failure: Args["quoteFailure"]) {}
 
   private history(symbol: string): DailyPrice[] {
     let rows = this.histories.get(symbol);
@@ -312,6 +327,14 @@ class SyntheticProvider
       this.histories.set(symbol, rows);
     }
     return rows;
+  }
+
+  total(): number {
+    return (
+      this.counters.dailyPrices +
+      this.counters.profiles +
+      this.counters.statements
+    );
   }
 
   /**
@@ -345,6 +368,7 @@ class SyntheticProvider
     this.counters.dailyPrices += 1;
     const rows = this.history(symbol).filter(
       (row) =>
+        row.date <= this.publishedThrough &&
         (!range.from || row.date >= range.from) &&
         (!range.to || row.date <= range.to),
     );
@@ -355,39 +379,6 @@ class SyntheticProvider
   async getFinancialStatements(): Promise<FinancialStatementDraft[]> {
     this.counters.statements += 1;
     return [];
-  }
-
-  async getCurrentQuotes(
-    providerSymbols: readonly string[],
-  ): Promise<FmpCurrentQuote[]> {
-    const batches = Math.ceil(providerSymbols.length / 50);
-    this.counters.quoteBatches += batches;
-    this.counters.quoteSymbols += providerSymbols.length;
-    if (this.failure === "429") {
-      throw new FmpRateLimitError(30_000);
-    }
-    if (this.failure === "500") {
-      throw new FmpProviderError("Stock data provider request failed", 500);
-    }
-    if (this.failure === "timeout") {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      throw new FmpProviderError("Stock data provider request timed out", 504);
-    }
-    return providerSymbols.map((symbol) => {
-      const rows = this.history(symbol);
-      const last = rows[rows.length - 1] as DailyPrice;
-      const swing = Math.sin(this.cycleIndex * 0.9 + last.close) * 0.02;
-      const price = round(last.close * (1 + swing));
-      return {
-        providerSymbol: symbol,
-        price,
-        open: last.close,
-        dayHigh: Math.max(price, last.close),
-        dayLow: Math.min(price, last.close),
-        volume: 500_000,
-        quotedAt: NOW.toISOString(),
-      };
-    });
   }
 
   async getExchangeHolidays(
@@ -407,12 +398,7 @@ class SyntheticProvider
 // ---------------------------------------------------------------------------
 
 type StrategyKind =
-  | "simple"
-  | "two-indicator"
-  | "trigger"
-  | "long-window"
-  | "intrinsic"
-  | "multi-level";
+  "simple" | "two-indicator" | "trigger" | "long-window" | "multi-level";
 
 let rowCounter = 0;
 function rowId(prefix: string): string {
@@ -475,24 +461,6 @@ function definitionOf(kind: StrategyKind): StrategyDefinition {
     },
     "long-window": {
       buyLevels: [level("BUY", { conditions: [priceAbove("EMA_200D")] })],
-      sellLevels: [],
-    },
-    intrinsic: {
-      buyLevels: [
-        level("BUY", {
-          conditions: [
-            {
-              id: rowId("condition"),
-              metric: {
-                kind: "MARGIN_OF_SAFETY",
-                sourceId: "DCF_FCFF" as never,
-              },
-              operator: "IS_ABOVE",
-              value: { kind: "PERCENT", value: 20 },
-            },
-          ],
-        }),
-      ],
       sellLevels: [],
     },
     "multi-level": {
@@ -569,144 +537,39 @@ type RedisStats = {
 
 type PhaseTimer = { calls: number; ms: number };
 
-function timer(): PhaseTimer {
-  return { calls: 0, ms: 0 };
-}
-
-async function timed<T>(phase: PhaseTimer, work: () => Promise<T>): Promise<T> {
-  const started = performance.now();
-  try {
-    return await work();
-  } finally {
-    phase.calls += 1;
-    phase.ms += performance.now() - started;
-  }
-}
-
-/** The loader `MonitorCycle` sees, with every method timed. Mirrors the production composition. */
-class TimedLoader implements MonitorDataLoader {
-  readonly phases = {
-    findSecurities: timer(),
-    getCurrentObservations: timer(),
-    prepare: timer(),
-    readFrame: timer(),
-    prepareHistory: timer(),
-    readHistory: timer(),
-  };
-
-  constructor(private readonly stockData: CanonicalStockDataService) {}
-
-  findSecurities(securityIds: readonly SecurityId[]): Promise<Security[]> {
-    return timed(this.phases.findSecurities, () =>
-      this.stockData.findSecuritiesByIds(securityIds),
-    );
-  }
-
-  getCurrentObservations(
-    securities: readonly Security[],
-  ): Promise<Map<SecurityId, CurrentObservation>> {
-    return timed(this.phases.getCurrentObservations, () =>
-      this.stockData.getCurrentObservations(securities),
-    );
-  }
-
-  prepareMonitorEvaluationData(
-    security: Security,
-    observations: number,
-    asOf: LocalDate,
-  ): Promise<void> {
-    return timed(this.phases.prepare, () =>
-      this.stockData.prepareMonitorEvaluationData(security, observations, asOf),
-    );
-  }
-
-  readMonitorEvaluationFrame(
-    input: Parameters<MonitorDataLoader["readMonitorEvaluationFrame"]>[0],
-  ) {
-    return timed(this.phases.readFrame, () =>
-      this.stockData.readMonitorEvaluationFrame(input),
-    );
-  }
-
-  monitorWindowObservations(operands: readonly OperandKey[]): number {
-    return monitorWindowObservations(
-      requiredDailySeries(operands),
-      // The longest alternative-data lookback must fit inside the loaded window, or the one session a
-      // Monitor evaluates would report NOT_EVALUABLE for a metric whose data is fully present.
-      requiredAlternativeDataLeadingSessions(operands),
-    );
-  }
-
-  prepareReconstructionData(
-    security: Security,
-    range: { from: LocalDate; to: LocalDate },
-    operands: readonly OperandKey[] = [],
-  ): Promise<void> {
-    return timed(this.phases.prepareHistory, async () => {
-      await this.stockData.prepareDailyEvaluationData(security, range, operands);
-    });
-  }
-
-  readReconstructionFrame(
-    security: Security,
-    range: { from: LocalDate; to: LocalDate },
-    operands: readonly OperandKey[],
-  ) {
-    return timed(this.phases.readHistory, () =>
-      this.stockData.readDailyEvaluationFrame(security, range, operands),
-    );
-  }
-
-  reconstructionHistoryStart(security: Security): LocalDate {
-    return this.stockData.evaluationHistoryStart(security);
-  }
-}
-
-class TimedRepository implements MonitorRepository {
-  readonly phases = {
-    listActiveMonitors: timer(),
-    loadSignalStates: timer(),
-    applyLevelState: timer(),
-    resolveUnvisitedStates: timer(),
-    markScanned: timer(),
-  };
-
-  constructor(private readonly inner: MonitorRepository) {}
-
-  listActiveMonitors() {
-    return timed(this.phases.listActiveMonitors, () =>
-      this.inner.listActiveMonitors(),
-    );
-  }
-
-  loadSignalStates(monitorId: string) {
-    return timed(this.phases.loadSignalStates, () =>
-      this.inner.loadSignalStates(monitorId),
-    );
-  }
-
-  applyLevelState(write: Parameters<MonitorRepository["applyLevelState"]>[0]) {
-    return timed(this.phases.applyLevelState, () =>
-      this.inner.applyLevelState(write),
-    );
-  }
-
-  resolveUnvisitedStates(
-    input: Parameters<MonitorRepository["resolveUnvisitedStates"]>[0],
-  ) {
-    return timed(this.phases.resolveUnvisitedStates, () =>
-      this.inner.resolveUnvisitedStates(input),
-    );
-  }
-
-  markScanned(
-    monitors: readonly { monitorId: string; configVersion: number }[],
-    now: Date,
-  ) {
-    return timed(this.phases.markScanned, () =>
-      this.inner.markScanned(monitors, now),
-    );
-  }
+/**
+ * `inner` with every method call timed into `phases` by name. The production object does the work;
+ * the proxy only watches it.
+ */
+function timedProxy<T extends object>(
+  inner: T,
+  phases: Record<string, PhaseTimer>,
+): T {
+  return new Proxy(inner, {
+    get(target, property, receiver) {
+      const value: unknown = Reflect.get(target, property, receiver);
+      if (typeof value !== "function" || typeof property !== "string") {
+        return value;
+      }
+      return (...callArgs: unknown[]) => {
+        const phase = (phases[property] ??= { calls: 0, ms: 0 });
+        const started = performance.now();
+        const settle = () => {
+          phase.calls += 1;
+          phase.ms += performance.now() - started;
+        };
+        const result: unknown = (value as (...a: unknown[]) => unknown).apply(
+          target,
+          callArgs,
+        );
+        if (result instanceof Promise) {
+          return result.finally(settle);
+        }
+        settle();
+        return result;
+      };
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -738,42 +601,82 @@ const logger = createLogger({
   base: { component: "bench" },
 });
 
-const provider = new SyntheticProvider(args.quoteFailure);
+const provider = new SyntheticProvider();
 const providerRequestsByReason: Record<string, number> = {};
 const onProviderRequest = (event: ProviderRequestEvent): void => {
   const key = `${event.dataset}:${event.reason}`;
   providerRequestsByReason[key] = (providerRequestsByReason[key] ?? 0) + 1;
 };
 
-const store = new PrismaStockDataStore(prisma);
-const cache = new RedisStockDataCache(
-  new IoredisCacheClient(redis),
-  args.resident,
-  namespace,
-);
-const coordinator = new RedlockLoadCoordinator(redis, {
-  lockDurationMs: 30_000,
-  lockWaitMs: 120_000,
-});
+const calendar = new CachedTradingCalendar(provider, { now: () => clock.now });
+const eod = { publicationDelayMs: PUBLICATION_DELAY_MS, calendar };
+const policy = new EodFinalityPolicy({ ...eod, now: () => clock.now });
 const stockData = new CanonicalStockDataService(
-  store,
+  new PrismaStockDataStore(prisma),
   provider,
-  cache,
-  coordinator,
+  new RedisStockDataCache(
+    new IoredisCacheClient(redis),
+    args.resident,
+    namespace,
+  ),
+  new RedlockLoadCoordinator(redis, {
+    lockDurationMs: 30_000,
+    lockWaitMs: 120_000,
+  }),
   {
     // Eight visible years: long enough for an EMA 200D window plus its warm-up, short enough that
     // a thousand synthetic securities hydrate in minutes rather than hours.
     productHistoryYears: 8,
-    now: () => NOW,
+    eod,
+    now: () => clock.now,
     onProviderRequest,
   },
 );
-const loader = new TimedLoader(stockData);
-const repository = new TimedRepository(new PrismaMonitorRepository(prisma));
-const calendar = new CachedTradingCalendar(provider, { now: () => NOW });
+
+const eodPhases: Record<string, PhaseTimer> = {};
+const dataPhases: Record<string, PhaseTimer> = {};
+const repositoryPhases: Record<string, PhaseTimer> = {};
+const repository = timedProxy(
+  new PrismaMonitorRepository(prisma),
+  repositoryPhases,
+);
+
+/** Exactly the provider-free slice `createMonitorRuntime` hands the evaluation. */
+const monitorData: MonitorEvaluationData = timedProxy(
+  {
+    findSecurities: (ids: readonly string[]) =>
+      stockData.findSecuritiesByIds(ids),
+    stockRefreshState: (security: Security) =>
+      stockData.stockRefreshState(security),
+    readFinalizedEvaluationFrame: (
+      ...input: Parameters<
+        MonitorEvaluationData["readFinalizedEvaluationFrame"]
+      >
+    ) => stockData.readFinalizedEvaluationFrame(...input),
+    reconstructionHistoryStart: (security: Security) =>
+      stockData.evaluationHistoryStart(security),
+  },
+  dataPhases,
+);
+
+const stockEod = new StockEodRefreshRun(
+  timedProxy(stockData, eodPhases),
+  repository,
+  logger,
+  {
+    policy,
+    runBudgetMs: 4 * 60_000,
+    securityConcurrency: args.eodConcurrency,
+    followUpMs: 30_000,
+    providerRequests: () => provider.total(),
+    now: () => clock.now,
+  },
+);
 
 const createdUserIds: string[] = [];
 const createdSecurityIds: string[] = [];
+const pausedUserMonitors: string[] = [];
+const pausedSystemMonitors: string[] = [];
 
 /**
  * PostgreSQL 15+ backends flush their pending statistics at most once a second and only at the end
@@ -849,64 +752,55 @@ function diffRedis(before: RedisStats, after: RedisStats) {
 }
 
 function resetPhases(): void {
-  for (const phases of [loader.phases, repository.phases]) {
-    for (const phase of Object.values(phases)) {
-      phase.calls = 0;
-      phase.ms = 0;
+  for (const phases of [eodPhases, dataPhases, repositoryPhases]) {
+    for (const key of Object.keys(phases)) {
+      delete phases[key];
     }
+  }
+  for (const key of Object.keys(providerRequestsByReason)) {
+    delete providerRequestsByReason[key];
   }
 }
 
-type CycleMeasurement = {
-  label: string;
-  cycle: number;
+function roundedPhases(phases: Record<string, PhaseTimer>) {
+  return Object.fromEntries(
+    Object.entries(phases).map(([key, value]) => [
+      key,
+      { calls: value.calls, ms: Math.round(value.ms) },
+    ]),
+  );
+}
+
+type Measured = {
   durationMs: number;
   cpuMs: number;
-  rssBeforeMb: number;
   rssPeakMb: number;
-  heapPeakMb: number;
-  summary: Awaited<ReturnType<MonitorCycle["run"]>>;
   pg: PgStats & { queries: number; queryMs: number };
   redis: ReturnType<typeof diffRedis>;
   provider: ProviderCounters;
   providerByReason: Record<string, number>;
   phases: Record<string, PhaseTimer>;
-  cacheResident: number;
 };
 
-async function measureCycle(
-  label: string,
-  cycle: number,
-): Promise<CycleMeasurement> {
+async function measure<T>(
+  phases: Record<string, PhaseTimer>,
+  work: () => Promise<T>,
+): Promise<{ result: T; measured: Measured }> {
   resetPhases();
-  for (const key of Object.keys(providerRequestsByReason)) {
-    delete providerRequestsByReason[key];
-  }
   const providerBefore = { ...provider.counters };
   const pgBefore = await pgStats();
   const redisBefore = await redisStats();
   const queriesBefore = queryCount;
   const queryMsBefore = queryMs;
   const cpuBefore = process.cpuUsage();
-  const rssBefore = process.memoryUsage().rss;
-  let rssPeak = rssBefore;
-  let heapPeak = process.memoryUsage().heapUsed;
+  let rssPeak = process.memoryUsage().rss;
   const sampler = setInterval(() => {
-    const usage = process.memoryUsage();
-    rssPeak = Math.max(rssPeak, usage.rss);
-    heapPeak = Math.max(heapPeak, usage.heapUsed);
+    rssPeak = Math.max(rssPeak, process.memoryUsage().rss);
   }, 20);
-
-  provider.cycleIndex = cycle;
-  const monitorCycle = new MonitorCycle(repository, loader, calendar, logger, {
-    symbolConcurrency: 4,
-    quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
-    now: () => NOW,
-  });
   const started = performance.now();
-  let summary: Awaited<ReturnType<MonitorCycle["run"]>>;
+  let result: T;
   try {
-    summary = await monitorCycle.run(cycle);
+    result = await work();
   } finally {
     clearInterval(sampler);
   }
@@ -914,49 +808,28 @@ async function measureCycle(
   const cpu = process.cpuUsage(cpuBefore);
   const pgAfter = await pgStats();
   const redisAfter = await redisStats();
-  const providerAfter = provider.counters;
-  const resident = await redis.zcard(`${namespace}:resident-stocks`);
-
-  const providerDelta = Object.fromEntries(
-    Object.keys(providerAfter).map((key) => [
-      key,
-      providerAfter[key as keyof ProviderCounters] -
-        providerBefore[key as keyof ProviderCounters],
-    ]),
-  ) as ProviderCounters;
-
   return {
-    label,
-    cycle,
-    durationMs: Math.round(durationMs),
-    cpuMs: Math.round((cpu.user + cpu.system) / 1000),
-    rssBeforeMb: Math.round(rssBefore / 1_048_576),
-    rssPeakMb: Math.round(rssPeak / 1_048_576),
-    heapPeakMb: Math.round(heapPeak / 1_048_576),
-    summary,
-    pg: {
-      ...diff(pgBefore, pgAfter),
-      queries: queryCount - queriesBefore,
-      queryMs: Math.round(queryMs - queryMsBefore),
-    },
-    redis: diffRedis(redisBefore, redisAfter),
-    provider: providerDelta,
-    providerByReason: { ...providerRequestsByReason },
-    phases: {
-      ...Object.fromEntries(
-        Object.entries(loader.phases).map(([key, value]) => [
+    result,
+    measured: {
+      durationMs: Math.round(durationMs),
+      cpuMs: Math.round((cpu.user + cpu.system) / 1000),
+      rssPeakMb: Math.round(rssPeak / 1_048_576),
+      pg: {
+        ...diff(pgBefore, pgAfter),
+        queries: queryCount - queriesBefore,
+        queryMs: Math.round(queryMs - queryMsBefore),
+      },
+      redis: diffRedis(redisBefore, redisAfter),
+      provider: Object.fromEntries(
+        Object.keys(provider.counters).map((key) => [
           key,
-          { ...value, ms: Math.round(value.ms) },
+          provider.counters[key as keyof ProviderCounters] -
+            providerBefore[key as keyof ProviderCounters],
         ]),
-      ),
-      ...Object.fromEntries(
-        Object.entries(repository.phases).map(([key, value]) => [
-          key,
-          { ...value, ms: Math.round(value.ms) },
-        ]),
-      ),
+      ) as ProviderCounters,
+      providerByReason: { ...providerRequestsByReason },
+      phases: roundedPhases(phases),
     },
-    cacheResident: resident,
   };
 }
 
@@ -968,7 +841,9 @@ async function createUser(index: number): Promise<string> {
   const user = await prisma.user.create({
     data: {
       email: `bench-${suffix}-${index}@example.test`,
-      emailVerifiedAt: NOW,
+      emailVerifiedAt: clock.now,
+      // Every scenario fits PRO's limits; a FREE owner's larger lists would never be scanned.
+      plan: "PRO",
     },
   });
   createdUserIds.push(user.id);
@@ -1043,8 +918,11 @@ async function createMonitor(input: {
       userId: input.userId,
       name: input.name,
       items: {
+        // Listed before the simulated clock's first evening, as a List that existed before its
+        // Monitor is: a member listed after the replay window was fixed is reconstructed instead.
         create: input.securities.map((security) => ({
           securityId: security.id,
+          createdAt: new Date(clock.now.getTime() - 24 * 60 * 60_000),
         })),
       },
     },
@@ -1056,6 +934,7 @@ async function createMonitor(input: {
       strategyId: input.strategyId,
       stockListId: list.id,
       enabled: input.enabled ?? true,
+      initialReplayRequested: args.replay,
     },
   });
   return monitor.id;
@@ -1197,146 +1076,194 @@ async function buildScenario(
   return { securities, monitors };
 }
 
-function report(measurement: CycleMeasurement): void {
-  const s = measurement.summary;
-  const p = measurement.phases;
+/** Pauses every Monitor the test database already runs, so a pass evaluates the bench's alone. */
+async function pauseForeignMonitors(): Promise<void> {
+  const user = await prisma.monitor.findMany({
+    where: { ownership: "USER", enabled: true },
+    select: { id: true },
+  });
+  pausedUserMonitors.push(...user.map((row) => row.id));
+  await prisma.monitor.updateMany({
+    where: { id: { in: pausedUserMonitors } },
+    data: { enabled: false },
+  });
+  const system = await prisma.monitor.findMany({
+    where: { ownership: "SYSTEM", isGloballyEnabled: true },
+    select: { id: true },
+  });
+  pausedSystemMonitors.push(...system.map((row) => row.id));
+  await prisma.monitor.updateMany({
+    where: { id: { in: pausedSystemMonitors } },
+    data: { isGloballyEnabled: false },
+  });
+}
+
+async function restoreForeignMonitors(): Promise<void> {
+  await prisma.monitor.updateMany({
+    where: { id: { in: pausedUserMonitors } },
+    data: { enabled: true },
+  });
+  await prisma.monitor.updateMany({
+    where: { id: { in: pausedSystemMonitors } },
+    data: { isGloballyEnabled: true },
+  });
+}
+
+type StepMeasurement = {
+  step: "cold" | "idle" | "steady" | "gap";
+  session: LocalDate;
+  /** Sessions the provider published since the previous step: 0 for an idle re-run. */
+  newSessions: number;
+  stockEod: Measured & {
+    /** Runs until nothing was deferred: the first plus its follow-ups. */
+    runs: number;
+    universe: number;
+    providerReads: number;
+    providerReadsPerSecurity: number;
+    outcomes: Record<string, number>;
+  };
+  monitor: Measured & { summary: MonitorEvaluationSummary };
+};
+
+const results: StepMeasurement[] = [];
+let runSequence = 0;
+
+/** The stock EOD preparation to completion, as its follow-up runs would carry it. */
+async function prepareSession(): Promise<{
+  runs: number;
+  summaries: StockEodRefreshSummary[];
+}> {
+  const summaries: StockEodRefreshSummary[] = [];
+  for (let run = 0; run < 50; run += 1) {
+    runSequence += 1;
+    const summary = await stockEod.run(runSequence, () => false);
+    summaries.push(summary);
+    if (summary.deferred === 0) {
+      break;
+    }
+  }
+  return { runs: summaries.length, summaries };
+}
+
+async function step(
+  kind: StepMeasurement["step"],
+  session: LocalDate,
+  newSessions: number,
+  scanOffsetMs = 0,
+): Promise<void> {
+  provider.publishedThrough = session;
+  clock.now = new Date(eveningOf(session).getTime() + scanOffsetMs);
+
+  const prepared = await measure(eodPhases, prepareSession);
+  const last = prepared.result.summaries.at(-1)!;
+  const outcomes: Record<string, number> = {};
+  for (const outcome of last.outcomes) {
+    outcomes[outcome.outcome] = (outcomes[outcome.outcome] ?? 0) + 1;
+  }
+  const providerReads = prepared.result.summaries.reduce(
+    (sum, summary) => sum + summary.providerReads,
+    0,
+  );
+
+  runSequence += 1;
+  const evaluated = await measure({ ...dataPhases, ...repositoryPhases }, () =>
+    new MonitorEodEvaluation(repository, monitorData, policy, logger, {
+      securityConcurrency: args.monitorConcurrency,
+      dependencyGiveUpMs: 24 * 60 * 60_000,
+      now: () => clock.now,
+    }).run(runSequence),
+  );
+  // The evaluation's phases are read after it ran: both maps fill while it runs.
+  evaluated.measured.phases = {
+    ...roundedPhases(dataPhases),
+    ...roundedPhases(repositoryPhases),
+  };
+
+  const measurement: StepMeasurement = {
+    step: kind,
+    session,
+    newSessions,
+    stockEod: {
+      ...prepared.measured,
+      runs: prepared.result.runs,
+      universe: last.universe,
+      providerReads,
+      providerReadsPerSecurity:
+        last.universe === 0
+          ? 0
+          : Math.round((providerReads / last.universe) * 100) / 100,
+      outcomes,
+    },
+    monitor: { ...evaluated.measured, summary: evaluated.result },
+  };
+  results.push(measurement);
+  report(measurement);
+}
+
+function report(measurement: StepMeasurement): void {
+  const e = measurement.stockEod;
+  const m = measurement.monitor;
+  const s = m.summary;
   const line = [
-    `${measurement.label} c${measurement.cycle}`,
-    `${measurement.durationMs}ms wall`,
-    `${measurement.cpuMs}ms cpu`,
-    `mon=${s.monitors} sym=${s.symbols} eval=${s.evaluations} emit=${s.signalsEmitted} res=${s.signalsResolved} ne=${s.notEvaluable} noSnap=${s.symbolsWithoutSnapshot} unch=${s.transitionsUnchanged}`,
-    `pg q=${measurement.pg.queries} (${measurement.pg.queryMs}ms) fetched=${measurement.pg.tup_fetched} returned=${measurement.pg.tup_returned} ins=${measurement.pg.tup_inserted} upd=${measurement.pg.tup_updated} del=${measurement.pg.tup_deleted}`,
-    `redis cmds=${measurement.redis.total} in=${Math.round(measurement.redis.inBytes / 1024)}KB out=${Math.round(measurement.redis.outBytes / 1024)}KB resident=${measurement.cacheResident}`,
-    `provider prices=${measurement.provider.dailyPrices}req/${measurement.provider.dailyPriceRows}rows profiles=${measurement.provider.profiles} stmts=${measurement.provider.statements} quotes=${measurement.provider.quoteBatches}b/${measurement.provider.quoteSymbols}s holidays=${measurement.provider.holidays}`,
-    `redis top ${Object.entries(measurement.redis.calls)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([command, count]) => `${command}=${count}`)
-      .join(",")}`,
-    `phases prep=${p.prepare?.ms}ms frame=${p.readFrame?.ms}ms quotes=${p.getCurrentObservations?.ms}ms states=${p.loadSignalStates?.ms}ms trans=${p.applyTransition?.ms}ms/${p.applyTransition?.calls} sweep=${p.resolveUnvisitedSignals?.ms}ms`,
-    `rss ${measurement.rssBeforeMb}->${measurement.rssPeakMb}MB heapPeak=${measurement.heapPeakMb}MB`,
+    `${measurement.step} ${measurement.session} (+${measurement.newSessions})`,
+    `stock-eod ${e.durationMs}ms runs=${e.runs} universe=${e.universe} reads=${e.providerReads} (${e.providerReadsPerSecurity}/security) prices=${e.provider.dailyPrices}req/${e.provider.dailyPriceRows}rows profiles=${e.provider.profiles} stmts=${e.provider.statements} outcomes=${JSON.stringify(e.outcomes)}`,
+    `stock-eod pg q=${e.pg.queries} redis=${e.redis.total}`,
+    `monitor ${m.durationMs}ms cpu=${m.cpuMs}ms members=${s.members} current=${s.membersCurrent} awaiting=${s.membersAwaitingData} sessions=${s.sessionsEvaluated} reconstructed=${s.levelsReconstructed} replayed=${s.membersReplayed} opened=${s.signalsOpened} closed=${s.signalsClosed} transitions=${s.transitionsRecorded} failed=${s.securitiesFailed}`,
+    `monitor pg q=${m.pg.queries} (${m.pg.queryMs}ms) fetched=${m.pg.tup_fetched} ins=${m.pg.tup_inserted} upd=${m.pg.tup_updated} redis=${m.redis.total} provider=${m.provider.dailyPrices + m.provider.profiles + m.provider.statements}`,
+    `frame=${m.phases.readFinalizedEvaluationFrame?.ms ?? 0}ms/${m.phases.readFinalizedEvaluationFrame?.calls ?? 0} apply=${m.phases.applyMemberEvaluation?.ms ?? 0}ms/${m.phases.applyMemberEvaluation?.calls ?? 0} rss=${m.rssPeakMb}MB`,
   ].join(" | ");
   process.stdout.write(`${line}\n`);
 }
 
-const results: CycleMeasurement[] = [];
-
-async function runCycles(label: string, count = args.cycles): Promise<void> {
-  for (let cycle = 1; cycle <= count; cycle += 1) {
-    if (args.flushBetweenCycles && cycle > 1) {
-      const keys = await redis.keys(`${namespace}*`);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
-    }
-    const measurement = await measureCycle(label, cycle);
-    results.push(measurement);
-    report(measurement);
+function sessionsFrom(first: LocalDate, count: number): LocalDate[] {
+  const start = TRADING_DAYS.indexOf(first);
+  if (start < 0 || start + count > TRADING_DAYS.length) {
+    throw new Error(
+      `The synthetic calendar does not hold ${count} sessions from ${first}`,
+    );
   }
+  return TRADING_DAYS.slice(start, start + count);
 }
 
 async function main(): Promise<void> {
   const startedAt = Date.now();
+  const spec = SCENARIOS[args.scenario];
+  if (!spec) {
+    throw new Error(
+      `Unknown scenario ${args.scenario}; known: ${Object.keys(SCENARIOS).join(", ")}`,
+    );
+  }
   process.stdout.write(
-    `capacity bench: scenario=${args.scenario} resident=${args.resident} cycles=${args.cycles} namespace=${namespace}\n`,
+    `capacity bench (EOD): scenario=${args.scenario} days=${args.days} gap=${args.gap} replay=${args.replay} namespace=${namespace}\n`,
+  );
+  // The first session, the idle re-run, `days` steady sessions, then a gap and the catch-up.
+  const sessions = sessionsFrom(
+    FIRST_SESSION,
+    1 + args.days + (args.gap > 0 ? args.gap : 0),
   );
   try {
-    if (args.scenario === "boundary") {
-      const pool = await createSecurities(args.pool ?? Math.max(...args.sizes));
-      const userId = await createUser(0);
-      const strategyId = await createStrategy(userId, "simple");
-      // Warm PostgreSQL coverage for the whole pool once, so every size measures residency alone.
-      const warmMonitor = await createMonitor({
-        userId,
-        strategyId,
-        securities: pool,
-        name: "warm",
-      });
-      await runCycles(`warm(${pool.length})`, 1);
-      await prisma.monitor.update({
-        where: { id: warmMonitor },
-        data: { enabled: false },
-      });
-      for (const size of args.sizes) {
-        const monitorId = await createMonitor({
-          userId,
-          strategyId,
-          securities: pool.slice(0, size),
-          name: `boundary ${size}`,
-        });
-        await runCycles(`U=${size}`, args.cycles);
-        await prisma.monitor.update({
-          where: { id: monitorId },
-          data: { enabled: false },
-        });
-      }
-    } else if (args.scenario === "complexity") {
-      const pool = await createSecurities(args.pool ?? 100);
-      const userId = await createUser(0);
-      const kinds: StrategyKind[] = [
-        "simple",
-        "two-indicator",
-        "trigger",
-        "long-window",
-        "intrinsic",
-        "multi-level",
-      ];
-      const monitorIds = new Map<StrategyKind, string>();
-      for (const kind of kinds) {
-        monitorIds.set(
-          kind,
-          await createMonitor({
-            userId,
-            strategyId: await createStrategy(userId, kind),
-            securities: pool,
-            name: kind,
-            enabled: false,
-          }),
-        );
-      }
-      // Warm coverage with the widest window first, so each kind measures its own cost only.
-      await prisma.monitor.update({
-        where: { id: monitorIds.get("multi-level") as string },
-        data: { enabled: true },
-      });
-      await runCycles("warm(multi-level)", 1);
-      await disableAllBenchMonitors();
-      for (const kind of kinds) {
-        await prisma.monitor.update({
-          where: { id: monitorIds.get(kind) as string },
-          data: { enabled: true },
-        });
-        await runCycles(kind, args.cycles);
-        await prisma.monitor.update({
-          where: { id: monitorIds.get(kind) as string },
-          data: { enabled: false },
-        });
-      }
-      await prisma.monitor.updateMany({
-        where: { id: { in: [...monitorIds.values()] } },
-        data: { enabled: true },
-      });
-      await runCycles("all-six-together", args.cycles);
-    } else {
-      const spec = SCENARIOS[args.scenario];
-      if (!spec) {
-        throw new Error(
-          `Unknown scenario ${args.scenario}; known: ${Object.keys(SCENARIOS).join(", ")}, boundary, complexity`,
-        );
-      }
-      const effective = {
-        ...spec,
-        pool: args.pool ?? spec.pool,
-        users: args.users ?? spec.users,
-      };
-      const built = await buildScenario(effective);
-      process.stdout.write(
-        `built: users=${effective.users} monitors=${built.monitors} pool=${built.securities.length} listSize=${effective.listSize} draw=${effective.draw}\n`,
-      );
-      await runCycles(args.scenario, args.cycles);
+    await pauseForeignMonitors();
+    const effective = {
+      ...spec,
+      pool: args.pool ?? spec.pool,
+      users: args.users ?? spec.users,
+    };
+    const built = await buildScenario(effective);
+    process.stdout.write(
+      `built: users=${effective.users} monitors=${built.monitors} pool=${built.securities.length} listSize=${effective.listSize} draw=${effective.draw}\n`,
+    );
+    await step("cold", sessions[0]!, 1);
+    // The next scan interval on the same evening: nothing new was published.
+    await step("idle", sessions[0]!, 0, 10 * 60_000);
+    for (let day = 1; day <= args.days; day += 1) {
+      await step("steady", sessions[day]!, 1);
+    }
+    if (args.gap > 0) {
+      await step("gap", sessions.at(-1)!, args.gap);
     }
   } finally {
     await cleanup();
+    await restoreForeignMonitors();
     if (args.out) {
       writeFileSync(
         args.out,
@@ -1347,7 +1274,7 @@ async function main(): Promise<void> {
               node: process.version,
               platform: process.platform,
               arch: process.arch,
-              now: NOW.toISOString(),
+              firstSession: FIRST_SESSION,
             },
             results,
           },

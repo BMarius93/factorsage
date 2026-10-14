@@ -14,6 +14,7 @@ import {
   RedlockLoadCoordinator,
   buildValuationTimeline,
   createStockDataRedisClient,
+  addDays,
   monitorWindowCalendarDays,
   valuationRatioColumns,
   type ValuationTimeline,
@@ -38,9 +39,8 @@ import { ComparisonTally } from "./compare";
  * - `strategy-frame`: `getDailyEvaluationFrame` over the product horizon, as a Strategy reads it;
  * - `backtest-window`: `prepareDailyEvaluationData`, then `readDailyEvaluationFrame` per calendar
  *   year with the pinned generation and the prepared inputs, exactly as the backtest worker reads;
- * - `monitor`: `prepareMonitorEvaluationData` and `readMonitorEvaluationFrame` with a provisional
- *   quote: the closed rows, and the provisional row against the reference read with the newest
- *   closed session's statements;
+ * - `monitor`: `readFinalizedEvaluationFrame`, the Monitor's end-of-day frame read from PostgreSQL,
+ *   over up to 400 of the newest sessions;
  * - `stock-details`: `getDailyValuationRatio`, per ratio, over the product horizon.
  *
  * The provider refuses every request and the clock is pinned to each security's own durable
@@ -214,8 +214,7 @@ export const REAL_DATA_LAYERS = [
   "pure",
   "strategy-frame",
   "backtest-window",
-  "monitor-closed",
-  "monitor-provisional",
+  "monitor",
   "stock-details",
 ] as const;
 export type RealDataLayer = (typeof REAL_DATA_LAYERS)[number];
@@ -286,14 +285,6 @@ export type UnavailableInterval = {
   /** Primary reasons inside the interval, with counts. */
   reasons: Record<string, number>;
 };
-
-function weekdayAfter(date: LocalDate): LocalDate {
-  let next = new Date(Date.parse(`${date}T00:00:00.000Z`) + 86_400_000);
-  while (next.getUTCDay() === 0 || next.getUTCDay() === 6) {
-    next = new Date(next.getTime() + 86_400_000);
-  }
-  return next.toISOString().slice(0, 10);
-}
 
 function subtractYearsFrom(date: LocalDate, years: number): LocalDate {
   const [year, month, day] = date.split("-").map(Number) as [
@@ -458,7 +449,7 @@ export async function auditRealData(input: {
         }
         if (layer === "pure") {
           pure.set(`${date} ${ratio}`, value);
-        } else if (layer !== "monitor-provisional") {
+        } else {
           const base = pure.get(`${date} ${ratio}`);
           if (base === undefined || !Object.is(base, value)) {
             layerDisagreements.set(
@@ -685,16 +676,11 @@ export async function auditRealData(input: {
           }
         });
 
-        await guarded("monitor-closed", async () => {
-          const newest = rows.sessions.at(-1) as {
-            date: LocalDate;
-            close: string;
-          };
-          const observationDate = weekdayAfter(newest.date);
-          // As many closed observations as the servable range holds, at most 400.
+        await guarded("monitor", async () => {
+          // As many of the newest sessions as the servable range holds, at most 400.
           let observations = 400;
           const servableDays =
-            (Date.parse(`${observationDate}T00:00:00.000Z`) -
+            (Date.parse(`${rows.coverageEnd}T00:00:00.000Z`) -
               Date.parse(`${serviceFrom}T00:00:00.000Z`)) /
             86_400_000;
           while (
@@ -703,41 +689,29 @@ export async function auditRealData(input: {
           ) {
             observations -= 10;
           }
-          await service.prepareMonitorEvaluationData(
-            security,
-            observations,
+          const from = addDays(
             rows.coverageEnd,
-            operands,
+            -monitorWindowCalendarDays(observations),
           );
-          // A quote 1 % above the newest close: inside the split-sized hold, a real observation. At
-          // the stored precision, so a tiny close still has a positive quote.
-          const quote = Number((Number(newest.close) * 1.01).toFixed(8));
-          clock = new Date(`${observationDate}T15:00:00.000Z`);
-          const monitor = await service.readMonitorEvaluationFrame({
+          const { frame } = await service.readFinalizedEvaluationFrame(
             security,
+            {
+              from: from < serviceFrom ? serviceFrom : from,
+              to: rows.coverageEnd,
+            },
             operands,
-            observations,
-            asOf: observationDate,
-            observation: { price: quote },
-            observationDate,
-          });
-          clock = new Date(`${rows.coverageEnd}T23:00:00.000Z`);
-          if (!monitor) {
-            throw new Error("no Monitor frame");
-          }
-          const { frame } = monitor;
-          const closed = frame.dates.filter(
-            (_, index) => index !== monitor.observationIndex,
           );
+          const read = frame.dates.slice(frame.periodStartIndex);
           checkSessions(
-            "monitor-closed",
-            { from: closed[0] ?? rows.coverageEnd, to: rows.coverageEnd },
-            closed,
+            "monitor",
+            { from: read[0] ?? rows.coverageEnd, to: rows.coverageEnd },
+            read,
           );
-          const provisional = oracle.reading(observationDate, String(quote), {
-            statementDate: newest.date,
-          });
-          for (let index = 0; index < frame.dates.length; index += 1) {
+          for (
+            let index = frame.periodStartIndex;
+            index < frame.dates.length;
+            index += 1
+          ) {
             const date = frame.dates[index] as LocalDate;
             for (const ratio of ORACLE_VALUATION_RATIO_IDS) {
               const value = (
@@ -745,17 +719,7 @@ export async function auditRealData(input: {
                   valuationRatioOperand(ratio as ValuationRatioId),
                 ) as Float64Array
               )[index] as number;
-              if (index === monitor.observationIndex) {
-                record(
-                  "monitor-provisional",
-                  date,
-                  ratio,
-                  value,
-                  provisional[ratio],
-                );
-              } else {
-                record("monitor-closed", date, ratio, value);
-              }
+              record("monitor", date, ratio, value);
             }
           }
         });

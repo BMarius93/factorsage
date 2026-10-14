@@ -105,50 +105,6 @@ export type TransitionRecord = {
   signal: "closed" | "opened" | null;
 };
 
-/**
- * One decided change for one `(monitor, security, level)`.
- *
- * Everything is decided by the cycle before this reaches the repository; the repository only
- * guards and persists. That split keeps the semantics in the pure reducer, where they are tested
- * exhaustively, and keeps concurrency, fencing and atomicity here.
- */
-export type LevelStateWrite = {
-  monitorId: string;
-  /** The Monitor binding this evaluation was decided under. Verified before anything is written. */
-  configVersion: number;
-  securityId: string;
-  levelId: string;
-  levelKind: MonitorLevelKind;
-  /** Recorded on an opened Signal as the version it was decided under. */
-  strategyVersionId: string;
-  signalFingerprint: string;
-  hasTrigger: boolean;
-  now: Date;
-  /** The state this was decided against, or null when there was none. */
-  previous: PersistedSignalState | null;
-  outcome: MonitorEvaluationOutcome;
-  /**
-   * The decided observation, when the outcome was decided. `lastEvaluable*` moves only with one.
-   */
-  decided: { result: "MATCHED" | "NOT_MATCHED"; observation: MonitorObservation } | null;
-  /**
-   * The lifecycle to persist, or `null` to delete the row: its latch belonged to logic that no
-   * longer exists and nothing decidable replaced it.
-   */
-  lifecycle: MonitorLevelLifecycle | null;
-  /** Where and at what price the current lifecycle state was entered, when it changed now. */
-  enteredAt: { observationDate: LocalDate | null; price: number | null } | null;
-  transitions: readonly TransitionRecord[];
-  /** End `previous.activeSignalId`. */
-  close: { reason: MonitorTransitionReason; observationDate: LocalDate | null } | null;
-  /** Begin a new occurrence. */
-  open: {
-    observationDate: LocalDate;
-    price: number;
-    reconstructed: boolean;
-  } | null;
-};
-
 /** Where a recorded change came from; mirrors `MonitorTransitionOrigin`. */
 export type TransitionOrigin = "OBSERVED" | "HISTORY" | "ADMINISTRATIVE";
 
@@ -238,26 +194,14 @@ export type PersistedCheckpoint = {
   membership: { start: LocalDate | null } | undefined;
 };
 
-export type LevelStateResult = {
-  /** False when a concurrent cycle moved this state first; nothing was written. */
-  applied: boolean;
-  /** True when nothing needed to be written. */
-  unchanged?: boolean;
-  /**
-   * True when nothing was written because the Monitor was rebound after this cycle loaded it. The
-   * evaluation described a configuration that is no longer the Monitor's, so discarding it is the
-   * correct outcome rather than a failure.
-   */
-  staleConfiguration?: boolean;
-  openedSignalId: string | null;
-  closedSignalId: string | null;
-  transitions: number;
-};
-
-export interface MonitorRepository {
+/**
+ * What the EOD evaluation needs from durable state (`docs/decisions/monitor-eod-v2.md` §3): the
+ * running Monitors and their states, the reconciliations of what is no longer evaluated, per-member
+ * progress and the one atomic member write.
+ */
+export interface MonitorEvaluationRepository {
   listActiveMonitors(): Promise<ActiveMonitor[]>;
   loadSignalStates(monitorId: string): Promise<Map<string, PersistedSignalState>>;
-  applyLevelState(write: LevelStateWrite): Promise<LevelStateResult>;
   /**
    * Ends the lifecycle of every state the cycle no longer evaluates.
    *
@@ -290,14 +234,6 @@ export interface MonitorRepository {
     monitors: readonly { monitorId: string; configVersion: number }[],
     now: Date,
   ): Promise<void>;
-}
-
-/**
- * What the EOD evaluation needs from durable state (`docs/decisions/monitor-eod-v2.md` §3): the V1
- * reads and reconciliations, plus per-member progress and the one atomic member write.
- */
-export interface MonitorEvaluationRepository
-  extends Omit<MonitorRepository, "applyLevelState"> {
   /**
    * Records which Monitors are running now, and returns when each started being watched.
    *
@@ -347,17 +283,7 @@ export function signalStateKey(securityId: string, levelId: string): string {
   return `${securityId} ${levelId}`;
 }
 
-const NOTHING: LevelStateResult = {
-  applied: true,
-  unchanged: true,
-  openedSignalId: null,
-  closedSignalId: null,
-  transitions: 0,
-};
-
-export class PrismaMonitorRepository
-  implements MonitorRepository, MonitorEvaluationRepository
-{
+export class PrismaMonitorRepository implements MonitorEvaluationRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
@@ -546,205 +472,6 @@ export class PrismaMonitorRepository
         },
       ]),
     );
-  }
-
-  /**
-   * Persists one decided change: state row, Signal occurrence and transition history, in one
-   * transaction guarded twice.
-   *
-   * - The **binding fence** (`configVersion`, under `FOR SHARE`) stops an evaluation of a replaced
-   *   configuration landing in the new one.
-   * - The **optimistic guard** (`stateVersion`) stops two overlapping cycles both applying one
-   *   transition: the loser's `updateMany` matches nothing, the transaction rolls back the Signal
-   *   and transitions it had written, and the caller is told nothing was applied.
-   *
-   * A write that changes nothing opens no transaction at all, which is what keeps a steady-state
-   * cycle free.
-   */
-  async applyLevelState(write: LevelStateWrite): Promise<LevelStateResult> {
-    const previous = write.previous;
-    const nothingToDo =
-      previous !== null &&
-      write.lifecycle !== null &&
-      write.transitions.length === 0 &&
-      write.open === null &&
-      write.close === null &&
-      previous.lastOutcome === write.outcome &&
-      previous.signalFingerprint === write.signalFingerprint &&
-      sameLifecycle(previous.lifecycle, write.lifecycle);
-    if (nothingToDo) {
-      return NOTHING;
-    }
-    if (previous === null && write.lifecycle === null) {
-      return NOTHING;
-    }
-
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        // Take the binding fence first, before any state or Signal row is touched, so the lock
-        // order matches a rebind, which locks the Monitor row before it touches state either.
-        await assertBindingCurrent(tx, write.monitorId, write.configVersion);
-
-        const closedSignalId =
-          write.close && previous?.activeSignalId ? previous.activeSignalId : null;
-        if (closedSignalId && write.close) {
-          await tx.monitorSignal.updateMany({
-            where: { id: closedSignalId, resolvedAt: null },
-            data: {
-              resolvedAt: write.now,
-              resolvedObservationDate: write.close.observationDate
-                ? toDate(write.close.observationDate)
-                : null,
-              resolutionReason: write.close.reason,
-            },
-          });
-        }
-
-        let openedSignalId: string | null = null;
-        if (write.open) {
-          const signal = await tx.monitorSignal.create({
-            data: {
-              monitorId: write.monitorId,
-              securityId: write.securityId,
-              levelId: write.levelId,
-              levelKind: write.levelKind,
-              strategyVersionId: write.strategyVersionId,
-              signalFingerprint: write.signalFingerprint,
-              hasTrigger: write.hasTrigger,
-              observationDate: toDate(write.open.observationDate),
-              observationPrice: write.open.price,
-              detectedAt: write.now,
-              reconstructed: write.open.reconstructed,
-              // The V1 cycle decides on a provider quote: label it so, never as a session close.
-              observationBasis: "LIVE_QUOTE",
-            },
-            select: { id: true },
-          });
-          openedSignalId = signal.id;
-        }
-
-        if (write.lifecycle === null) {
-          if (previous) {
-            guard(
-              await tx.monitorSignalState.deleteMany({
-                where: { id: previous.id, stateVersion: previous.stateVersion },
-              }),
-            );
-          }
-        } else {
-          const lifecycle = write.lifecycle;
-          const activeSignalId =
-            lifecycle.state === "ACTIVE"
-              ? (openedSignalId ?? (closedSignalId ? null : previous?.activeSignalId ?? null))
-              : null;
-          const data = {
-            signalFingerprint: write.signalFingerprint,
-            levelKind: write.levelKind,
-            lastOutcome: write.outcome,
-            lastOutcomeAt: write.now,
-            lifecycleState: lifecycle.state,
-            lifecycleSinceDate: lifecycle.since ? toDate(lifecycle.since) : null,
-            ruleStates: lifecycle.rules as unknown as Prisma.InputJsonValue,
-            activeSignalId,
-            ...(write.enteredAt
-              ? {
-                  lifecycleSince: write.now,
-                  lifecycleSincePrice: write.enteredAt.price,
-                }
-              : {}),
-            ...(write.decided
-              ? {
-                  lastEvaluableResult:
-                    write.decided.result === "MATCHED"
-                      ? MonitorEvaluableResult.MATCHED
-                      : MonitorEvaluableResult.NOT_MATCHED,
-                  lastEvaluableDate: toDate(write.decided.observation.date),
-                  lastEvaluableAt: write.now,
-                }
-              : {}),
-          };
-          if (previous) {
-            guard(
-              await tx.monitorSignalState.updateMany({
-                where: { id: previous.id, stateVersion: previous.stateVersion },
-                data: { ...data, stateVersion: { increment: 1 } },
-              }),
-            );
-          } else {
-            if (!write.decided) {
-              // A row is created only from a decided evaluation; the cycle never asks otherwise.
-              throw new Error("A new Monitor state requires a decided observation");
-            }
-            await tx.monitorSignalState.create({
-              data: {
-                monitorId: write.monitorId,
-                securityId: write.securityId,
-                levelId: write.levelId,
-                ...data,
-                lastEvaluableResult: data.lastEvaluableResult!,
-                lastEvaluableDate: data.lastEvaluableDate!,
-                lastEvaluableAt: data.lastEvaluableAt!,
-              },
-            });
-          }
-        }
-
-        if (write.transitions.length > 0) {
-          await tx.monitorStateTransition.createMany({
-            data: write.transitions.map((transition) => ({
-              monitorId: write.monitorId,
-              securityId: write.securityId,
-              levelId: write.levelId,
-              levelKind: write.levelKind,
-              exitRuleId: transition.exitRuleId,
-              signalFingerprint: transition.signalFingerprint,
-              fromState: transition.from,
-              toState: transition.to,
-              reason: transition.reason,
-              origin: legacyTransitionOrigin(transition.reason),
-              occurredAt: write.now,
-              observationDate: transition.observationDate
-                ? toDate(transition.observationDate)
-                : null,
-              signalId:
-                transition.signal === "opened"
-                  ? openedSignalId
-                  : transition.signal === "closed"
-                    ? closedSignalId
-                    : null,
-            })),
-          });
-        }
-
-        return {
-          applied: true,
-          openedSignalId,
-          closedSignalId,
-          transitions: write.transitions.length,
-        };
-      });
-    } catch (error) {
-      if (error instanceof MonitorBindingChangedError) {
-        return {
-          applied: false,
-          staleConfiguration: true,
-          openedSignalId: null,
-          closedSignalId: null,
-          transitions: 0,
-        };
-      }
-      if (error instanceof MonitorTransitionConflictError || isBenignWriteRace(error)) {
-        // A concurrent cycle won this state, or the Monitor was deleted underneath it. The
-        // transaction rolled back, so nothing this call created survives.
-        return {
-          applied: false,
-          openedSignalId: null,
-          closedSignalId: null,
-          transitions: 0,
-        };
-      }
-      throw error;
-    }
   }
 
   async resolveUnvisitedStates(input: {
@@ -1320,26 +1047,6 @@ export function endedStateOf(
     return "INACTIVE";
   }
   return null;
-}
-
-/**
- * The origin a V1 transition is filed under, by the same mapping the migration backfilled
- * (`docs/decisions/monitor-eod-v2.md` §3): a reconstruction is history, a configuration change is
- * administrative, anything else was observed.
- */
-function legacyTransitionOrigin(reason: MonitorTransitionReason): TransitionOrigin {
-  switch (reason) {
-    case "RECONSTRUCTED":
-      return "HISTORY";
-    case "LOGIC_CHANGED":
-    case "LEVEL_REMOVED":
-    case "MEMBER_REMOVED":
-    case "MONITOR_REBOUND":
-    case "MEMBERSHIP_CHANGED":
-      return "ADMINISTRATIVE";
-    default:
-      return "OBSERVED";
-  }
 }
 
 function membershipStartOf(write: MemberEvaluationWrite): Date | null {

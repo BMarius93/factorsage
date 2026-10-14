@@ -59,8 +59,8 @@ export type EtfTechnicalSnapshots = ReadonlyMap<
  * Loads and computes the technical context of the given ETF series — **once per distinct ETF**,
  * however many securities, conditions or Monitors read it. A failed or unavailable series degrades
  * exactly the conditions naming it (their columns join as NaN, so they are `NOT_EVALUABLE`) and
- * nothing else: an ETF problem is never a run or cycle failure, unlike a quote outage, because it
- * invalidates only the rules that read it.
+ * nothing else: an ETF problem is never a run or cycle failure, because it invalidates only the
+ * rules that read it.
  */
 export async function loadEtfTechnicalSnapshots(input: {
   /** Each named code with the immutable series id it resolves by. */

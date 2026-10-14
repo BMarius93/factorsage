@@ -31,8 +31,8 @@ import { aggregateCompletedWeeks } from "./weekly.js";
  * calculation path the stocks use — `buildDailyDerivedState` over `aggregateCompletedWeeks`, which
  * is `movingAverage`, `calculateWilderRsi` and `calculateRelativeVolume` under one composer — and
  * returns the result as in-memory columns for one backtest run or one Monitor cycle to read. One
- * methodology, two data sources; the values are the kernels' own doubles, the same convention the
- * Monitor's in-memory daily recomputation already established, with no second rounding rule.
+ * methodology, two data sources; the values are the kernels' own doubles, with no second rounding
+ * rule.
  *
  * Three gates keep it historically honest:
  *

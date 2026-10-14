@@ -727,13 +727,6 @@ const MAX_MONITOR_WORKER_PROCESSES = 8;
  * readiness and reaches no provider (`docs/decisions/monitor-eod-v2.md` §3), so the default is the
  * same ten minutes the stock EOD child checks on: a session is evaluated within one interval of
  * being prepared, and a cycle with nothing new costs a readiness read per member.
- *
- * `MONITOR_QUOTE_MAX_AGE_MS` is how stale a provider quote may be and still be used as the
- * provisional current observation. Beyond it the symbol is `NOT_EVALUABLE` for that cycle: a stale
- * quote presented as the current observation would be a fabricated bar, and leaving the durable
- * latch untouched is what keeps an outage from resolving and re-emitting live matches. The default
- * spans a long weekend plus a public holiday, so an ordinary market closure still evaluates against
- * the last real quote rather than silently stopping every night.
  */
 export function getMonitorWorkerConfig(env: Environment = process.env) {
   const processes = Number(optional(env, "MONITOR_WORKER_PROCESSES") ?? "1");
@@ -761,7 +754,6 @@ export function getMonitorWorkerConfig(env: Environment = process.env) {
     ),
     retryBackoffMs: integer(env, ["MONITOR_SCAN_RETRY_BACKOFF_MS"], 60_000),
     symbolConcurrency: integer(env, ["MONITOR_SYMBOL_CONCURRENCY"], 4),
-    quoteMaxAgeMs: integer(env, ["MONITOR_QUOTE_MAX_AGE_MS"], 4 * 24 * 60 * 60_000),
   } as const;
 }
 

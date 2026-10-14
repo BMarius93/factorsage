@@ -90,7 +90,7 @@ export class MarketDataRefreshFailedError extends Error {
  * One pass over the market-overview ETFs (`docs/decisions/etf-market-data-v1.md`).
  *
  * For each series, in display order and one at a time — the provider gate is shared with Stock
- * Details, backtests and the Monitor's quotes, and a sequential pass takes at most one of its
+ * Details, backtests and the stock EOD preparation, and a sequential pass takes at most one of its
  * concurrency slots:
  *
  * 1. decide from PostgreSQL alone whether the latest finalized session needs a provider read;

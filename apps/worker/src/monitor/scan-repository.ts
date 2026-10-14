@@ -237,9 +237,8 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
    *
    * The delay doubles per consecutive failure up to the ceiling, computed from the counter as it is
    * incremented so the two cannot disagree. That counter existed before and nothing read it, which
-   * made every retry equally eager: a provider outage re-issued the entire monitored universe's
-   * quote request on the retry interval — five times more often than the normal scan cadence —
-   * through the request gate a Monitor cycle is explicitly not allowed to exhaust.
+   * made every retry equally eager: a persistent outage re-ran the whole evaluation on the retry
+   * interval — more often than the normal scan cadence — against the stores it was failing on.
    *
    * Raw SQL because the delay derives from the pre-update value of a column in the same write.
    */

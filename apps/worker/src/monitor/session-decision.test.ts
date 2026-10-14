@@ -12,7 +12,6 @@ import {
 } from "@intrinsic/strategy";
 import { describe, expect, it } from "vitest";
 import type {
-  ActiveMonitorMember,
   LevelSessionsWrite,
   PersistedSignalState,
 } from "./monitor-repository.js";
@@ -37,13 +36,6 @@ const DATES = [
   "2026-10-13",
   "2026-10-14",
 ];
-const MEMBER: ActiveMonitorMember = {
-  securityId: "sec-1",
-  symbol: "TEST",
-  buyWindowMode: "FULL",
-  buyWindows: [],
-};
-
 function frame(closes: number[], ema: number[]): EvaluationFrame {
   return createEvaluationFrame({
     securityId: "sec-1",
@@ -120,7 +112,6 @@ describe("deciding finalized sessions in order", () => {
     // Above the EMA on the 6th and 7th only.
     const decision = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: state(level, {
         state: "INACTIVE",
@@ -168,7 +159,6 @@ describe("deciding finalized sessions in order", () => {
     // Crosses above on the 6th (Tue); below again by the 7th; nothing else.
     const decision = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: state(level, {
         state: "INACTIVE",
@@ -220,7 +210,6 @@ describe("deciding finalized sessions in order", () => {
     );
     const decision = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: active,
       frame: frame([12, 12], [Number.NaN, Number.NaN]),
@@ -237,7 +226,6 @@ describe("deciding finalized sessions in order", () => {
     const trigger = levelOf(CROSSES);
     const event = decideLevelSessions({
       level: trigger,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: state(
         trigger,
@@ -275,7 +263,6 @@ describe("deciding finalized sessions in order", () => {
     const level = levelOf(ABOVE);
     const decision = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: state(level, {
         state: "INACTIVE",
@@ -307,7 +294,6 @@ describe("deciding finalized sessions in order", () => {
     // Below on the 5th (resting), above every session since.
     const decision = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: null,
       frame: frame([9, 12, 13, 14], [11, 11, 11, 11]),
@@ -331,7 +317,6 @@ describe("deciding finalized sessions in order", () => {
     const level = levelOf(ABOVE);
     const deeper = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: null,
       frame: frame([12, 13, 14], [11, 11, 11]),
@@ -344,7 +329,6 @@ describe("deciding finalized sessions in order", () => {
 
     const complete = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: null,
       frame: frame([12, 13, 14], [11, 11, 11]),
@@ -360,7 +344,6 @@ describe("deciding finalized sessions in order", () => {
 
     const undecidable = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: null,
       frame: frame([12, 13], [11, Number.NaN]),
@@ -397,7 +380,6 @@ describe("deciding finalized sessions in order", () => {
     };
     const decision = decideLevelSessions({
       level,
-      member: MEMBER,
       strategyVersionId: "v2",
       previous: old,
       frame: frame([9, 12], [11, 11]),
@@ -441,7 +423,6 @@ describe("deciding finalized sessions in order", () => {
     )!;
     const decision = decideLevelSessions({
       level: exit,
-      member: MEMBER,
       strategyVersionId: "v1",
       previous: {
         ...state(exit, {
@@ -496,7 +477,6 @@ describe("deciding finalized sessions in order", () => {
     it("reconstructs a SELL level from the session its ongoing membership began, not before", () => {
       const decision = decideLevelSessions({
         level: sell,
-        member: MEMBER,
         strategyVersionId: "v1",
         previous: null,
         frame: allAbove,
@@ -521,7 +501,6 @@ describe("deciding finalized sessions in order", () => {
     it("reads the same history from its first session when the member is always eligible", () => {
       const decision = decideLevelSessions({
         level: sell,
-        member: MEMBER,
         strategyVersionId: "v1",
         previous: null,
         frame: allAbove,
@@ -546,7 +525,6 @@ describe("deciding finalized sessions in order", () => {
       const level = levelOf(SETUP);
       const decision = decideLevelSessions({
         level,
-        member: MEMBER,
         strategyVersionId: "v1",
         previous: null,
         frame: frame(
@@ -576,7 +554,6 @@ describe("deciding finalized sessions in order", () => {
       const level = levelOf(ABOVE);
       const decision = decideLevelSessions({
         level,
-        member: MEMBER,
         strategyVersionId: "v1",
         previous: null,
         frame: frame(

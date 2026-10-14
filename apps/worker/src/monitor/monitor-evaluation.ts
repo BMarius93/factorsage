@@ -34,10 +34,10 @@ import {
 } from "@intrinsic/strategy";
 import {
   loadEtfTechnicalSnapshots,
+  type EtfContextLoader,
   type EtfTechnicalSnapshots,
 } from "../shared/etf-context.js";
 import { mapWithConcurrency } from "../shared/concurrency.js";
-import type { MonitorEtfContexts } from "./monitor-cycle.js";
 import {
   signalStateKey,
   type ActiveMonitor,
@@ -74,6 +74,17 @@ import { decideLevelSessions } from "./session-decision.js";
  * at its checkpoint — partial progress is per member, never "the Monitor is current" — and a
  * session is never stepped before every ETF its rules read holds that very session.
  */
+
+/**
+ * The ETF histories behind ETF-sourced conditions: the provider-free benchmark reader slice, how a
+ * catalog code resolves to its series, and the publication delay that decides when a session's bar
+ * is final (`docs/decisions/strategy-etf-conditions-v1.md` §5).
+ */
+export type MonitorEtfContexts = {
+  loader: EtfContextLoader;
+  resolveSeriesId: (code: StrategyEtfSourceCode) => Promise<string>;
+  publicationDelayMs: number;
+};
 
 /** What the pass needs from the data layer — provider-free reads only. */
 export interface MonitorEvaluationData {
@@ -549,16 +560,27 @@ export class MonitorEodEvaluation {
         input.etfSnapshots,
         input.now,
       );
+      const persistedOf = (levelId: string) =>
+        entry.prepared.states.get(
+          signalStateKey(entry.member.securityId, levelId),
+        );
       const needsReconstruction =
         resetMembership ||
         entry.prepared.levels.some((level) => {
-          const persisted = entry.prepared.states.get(
-            signalStateKey(entry.member.securityId, level.id),
-          );
+          const persisted = persistedOf(level.id);
           return (
             !persisted || persisted.signalFingerprint !== level.fingerprint
           );
         });
+      // A level whose logic was edited since its state was written is re-decided at once, even with
+      // no new session: an edit takes effect on the next pass, not the next close.
+      const logicChanged = entry.prepared.levels.some((level) => {
+        const persisted = persistedOf(level.id);
+        return (
+          persisted !== undefined &&
+          persisted.signalFingerprint !== level.fingerprint
+        );
+      });
       // A new Monitor's initial universe replays its window: a member listed by the time the
       // window was fixed, never evaluated, with no state. Its first session is the window's, or the
       // membership's when that began later. A member listed afterwards is new, and reconstructed.
@@ -583,12 +605,15 @@ export class MonitorEodEvaluation {
         needsReconstruction: needsReconstruction || replayFrom !== undefined,
         resetMembership,
         replayFrom,
+        logicChanged,
       };
     });
     const work = plans.filter(
       (plan) =>
         plan.through !== undefined &&
-        (plan.from === undefined || plan.from < plan.through),
+        (plan.from === undefined ||
+          plan.from < plan.through ||
+          plan.logicChanged),
     );
     for (const plan of plans) {
       if (plan.waitingOn.length > 0) {
@@ -829,6 +854,7 @@ export class MonitorEodEvaluation {
       through: LocalDate | undefined;
       resetMembership: boolean;
       replayFrom: LocalDate | undefined;
+      logicChanged: boolean;
     },
     frame: EvaluationFrame,
     complete: boolean,
@@ -875,11 +901,20 @@ export class MonitorEodEvaluation {
         ? []
         : indices.filter((index) => frame.dates[index]! >= plan.replayFrom!);
     const replay = window.length > 0;
+    // Already evaluated through its newest session, with a level whose logic changed: that level
+    // alone is reset and reconstructed at the newest session; the rest are left exactly as they are.
+    const redecideEdited =
+      from !== undefined && indices.length === 0 && plan.logicChanged;
+    const newestDecided = redecideEdited ? frame.dates.lastIndexOf(from) : -1;
     const sessions = replay
       ? window
-      : from === undefined
-        ? indices.slice(-1)
-        : indices;
+      : redecideEdited
+        ? newestDecided >= frame.periodStartIndex
+          ? [newestDecided]
+          : []
+        : from === undefined
+          ? indices.slice(-1)
+          : indices;
     const newestIndex = sessions[sessions.length - 1];
     const lastStepped =
       newestIndex === undefined ? undefined : frame.dates[newestIndex];
@@ -894,9 +929,19 @@ export class MonitorEodEvaluation {
     let reconstructed = 0;
     let needsDeeperHistory = false;
     for (const level of entry.prepared.levels) {
+      const persisted = entry.prepared.states.get(
+        signalStateKey(entry.member.securityId, level.id),
+      );
+      if (
+        redecideEdited &&
+        persisted !== undefined &&
+        persisted.signalFingerprint === level.fingerprint
+      ) {
+        // Its session was decided already under this very logic: never decided twice.
+        continue;
+      }
       const decision = decideLevelSessions({
         level,
-        member: entry.member,
         strategyVersionId: entry.prepared.monitor.strategyVersionId,
         // A membership reset ends every state in the same transaction: decide as if none existed.
         previous: plan.resetMembership

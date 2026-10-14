@@ -600,18 +600,12 @@ describeInfrastructure(
           valuation: prepared!.valuation!,
         },
       );
-      // A Monitor's closed sessions behind its provisional observation.
-      await service.prepareMonitorEvaluationData(security, 80, TODAY, operands);
-      const monitor = await service.readMonitorEvaluationFrame({
+      // The Monitor's end-of-day frame: the same projection, read from PostgreSQL.
+      const monitor = await service.readFinalizedEvaluationFrame(
         security,
+        PERIOD,
         operands,
-        observations: 80,
-        asOf: TODAY,
-        // Inside the ex-date hold's band around the newest close, about 131.
-        observation: { price: 130 },
-        observationDate: "2025-01-02",
-      });
-      expect(monitor).not.toBeNull();
+      );
 
       const kinds = { value: 0, negative: 0, unavailable: 0 };
       let compared = 0;
@@ -622,9 +616,7 @@ describeInfrastructure(
           for (const [reader, read] of [
             ["frame", frame],
             ["backtest", window],
-            ...(monitor && monitor.frame.dates.indexOf(point.date) >= 0
-              ? [["monitor", monitor.frame] as const]
-              : []),
+            ["monitor", monitor.frame],
           ] as const) {
             const index = read.dates.indexOf(point.date);
             expect(index, `${reader} ${point.date}`).toBeGreaterThanOrEqual(0);
@@ -645,10 +637,8 @@ describeInfrastructure(
           }
         }
       }
-      // Every session twice, and the Monitor's closed window once more; every kind of reading.
-      expect(compared).toBe(
-        VALUATION_RATIO_IDS.length * (sessions.length * 2 + 80),
-      );
+      // Every session three times — Strategy, backtest, Monitor — and every kind of reading.
+      expect(compared).toBe(VALUATION_RATIO_IDS.length * sessions.length * 3);
       expect(kinds.value).toBeGreaterThan(0);
       expect(kinds.negative).toBeGreaterThan(0);
       expect(kinds.unavailable).toBeGreaterThan(0);

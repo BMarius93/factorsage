@@ -238,11 +238,10 @@ describe("what a live run is composed of", () => {
       /CanonicalBenchmarkDataService|getBenchmarkDailyPrices|BENCHMARK_CATALOG/,
     ],
     ["the trading calendar", /CachedTradingCalendar|getExchangeHolidays/],
-    ["current quotes", /getCurrentQuotes|getCurrentObservations/],
     ["the exchange-wide screener", /\.getStockUniverse\(/],
     [
-      "a Monitor's data preparation",
-      /prepareMonitorEvaluationData|readMonitorEvaluationFrame/,
+      "a Monitor's stock EOD preparation or evaluation",
+      /refreshStockTail|prepareStockOperands|readFinalizedEvaluationFrame/,
     ],
     [
       "a backtest's data preparation",
