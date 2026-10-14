@@ -1,7 +1,7 @@
 import type {
   MonitorDetailResponse,
   MonitorSecurityEvaluationResponse,
-  MonitorSignalResponse,
+  MonitorSignalRowResponse,
   MonitorSummaryResponse,
   StockListSummaryResponse,
   StrategySummaryResponse,
@@ -21,6 +21,7 @@ import { fetchStrategies } from "../../strategies/api/strategies-api";
 import {
   deleteMonitor,
   fetchMonitor,
+  fetchMonitorSignals,
   updateMonitor,
 } from "../api/monitors-api";
 import {
@@ -48,6 +49,7 @@ const useAuthSessionMock = vi.mocked(useAuthSession);
 
 vi.mock("../api/monitors-api", () => ({
   fetchMonitor: vi.fn(),
+  fetchMonitorSignals: vi.fn(),
   updateMonitor: vi.fn(),
   deleteMonitor: vi.fn(),
   createMonitor: vi.fn(),
@@ -62,6 +64,7 @@ vi.mock("../../lists/api/stock-lists-api", () => ({
 }));
 
 const fetchMonitorMock = vi.mocked(fetchMonitor);
+const fetchMonitorSignalsMock = vi.mocked(fetchMonitorSignals);
 const updateMonitorMock = vi.mocked(updateMonitor);
 const deleteMonitorMock = vi.mocked(deleteMonitor);
 const fetchStrategiesMock = vi.mocked(fetchStrategies);
@@ -134,19 +137,40 @@ function evaluation(
   };
 }
 
-function signal(
-  overrides: Partial<MonitorSignalResponse> = {},
-): MonitorSignalResponse {
+function signalRow(
+  overrides: Partial<MonitorSignalRowResponse> = {},
+): MonitorSignalRowResponse {
   return {
     id: "signal-1",
+    state: "ACTIVE",
     security: security("sec-1", "AAA", "Alpha Corp"),
     levelKind: "BUY",
     levelId: "buy-1",
+    levelIndex: 1,
+    levelPercentage: 100,
     kind: "CONDITION",
-    observationDate: "2026-09-11",
-    observationPrice: 101.5,
-    detectedAt: "2026-09-11T15:30:00.000Z",
-    reconstructed: false,
+    sessionDate: "2026-09-11",
+    activatedOn: "2026-09-11",
+    activationPrice: 101.5,
+    observationBasis: "EOD_CLOSE",
+    fromHistory: false,
+    why: {
+      basis: "EVIDENCE",
+      sessionDate: "2026-09-11",
+      rules: [
+        {
+          predicates: [
+            {
+              role: "CONDITION",
+              description: "Price is above SMA 200D",
+              result: "TRUE",
+              metric: 101.5,
+              value: 98.25,
+            },
+          ],
+        },
+      ],
+    },
     ...overrides,
   };
 }
@@ -185,6 +209,7 @@ beforeEach(() => {
   replace.mockReset();
   useAuthSessionMock.mockReturnValue(signedInSession());
   fetchMonitorMock.mockReset();
+  fetchMonitorSignalsMock.mockReset().mockResolvedValue({ rows: [] });
   updateMonitorMock.mockReset();
   deleteMonitorMock.mockReset();
   fetchStrategiesMock.mockReset().mockResolvedValue(STRATEGIES);
@@ -232,12 +257,10 @@ describe("MonitorDetail", () => {
       expect(
         screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
       ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
-      expect(
-        within(screen.getByTestId("monitor-securities")).getByText(
-          "Waiting for trigger",
-        ),
-      ).toBeDefined();
-      expect(screen.getByText("Buy · waiting for trigger")).toBeDefined();
+      // A waiting setup is counted on the status line, and listed by the table's Waiting filter.
+      expect(screen.getByTestId("monitor-status-line").textContent).toBe(
+        "1 waiting for a trigger",
+      );
     });
 
     describe("backtest action for a Guest (UX-002)", () => {
@@ -412,9 +435,9 @@ describe("MonitorDetail", () => {
     await detailReady();
 
     const note = screen.getByTestId("monitor-etf-sources");
-    // The wait is the rule, said once: an ETF is read at the end of its day, never live.
+    // The wait is the rule, said once: a fund is read on its own finalized session, the stock's.
     expect(note.textContent).toContain(
-      "decided at the end of each trading day, on the fund's own completed session",
+      "decided on the fund's own finalized session, the same one as the stock's",
     );
     const sources = screen.getAllByTestId("monitor-etf-source");
     expect(
@@ -486,35 +509,28 @@ describe("MonitorDetail", () => {
     expect(screen.queryByTestId("monitor-etf-sources")).toBeNull();
   });
 
-  it("distinguishes all four security statuses without inventing any", async () => {
+  it("summarises the current members in one line, with how far evaluation has reached", async () => {
     fetchMonitorMock.mockResolvedValue(
       detail({
-        securityCount: 4,
+        securityCount: 5,
+        coverage: {
+          latestSession: "2026-09-12",
+          evaluatedMembers: 3,
+          currentMembers: 4,
+          listedMembers: 5,
+        },
         securities: [
           evaluation({
             security: security("sec-1", "AAA", "Alpha Corp"),
             status: "MATCHED",
-            statusSince: "2026-09-12T13:00:00.000Z",
-            matchedLevels: [
-              {
-                levelId: "buy-1",
-                levelKind: "BUY",
-                kind: "TRIGGER",
-                signalId: "signal-1",
-                observationPrice: 212.5,
-                detectedAt: "2026-09-12T13:00:00.000Z",
-              },
-            ],
           }),
           evaluation({
             security: security("sec-2", "BBB", "Beta Ltd"),
             status: "NO_MATCH",
-            statusSince: "2026-09-12T13:00:00.000Z",
           }),
           evaluation({
             security: security("sec-3", "CCC", "Gamma Inc"),
             status: "NOT_EVALUABLE",
-            statusSince: "2026-09-12T13:00:00.000Z",
           }),
           evaluation({ security: security("sec-4", "DDD", "Delta Co") }),
         ],
@@ -524,151 +540,181 @@ describe("MonitorDetail", () => {
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
 
-    const rows = screen.getAllByTestId("monitor-security-row");
-    expect(rows).toHaveLength(4);
-    // What is happening first, then what could not be decided, then plain non-matches, then what
-    // has not been checked (UI-026).
-    expect(within(rows[0]!).getByText("Matched")).toBeDefined();
-    expect(within(rows[1]!).getByText("Not evaluable")).toBeDefined();
-    expect(within(rows[2]!).getByText("No match")).toBeDefined();
-    expect(within(rows[3]!).getByText("Not checked yet")).toBeDefined();
-    // "Not evaluable" is explained in words once, and the status filter counts every state.
+    expect(screen.getByTestId("monitor-coverage-line").textContent).toBe(
+      "Evaluated through the Sep 12, 2026 close · 3 of 4 current members",
+    );
+    expect(screen.getByTestId("monitor-status-line").textContent).toBe(
+      "1 matching · 1 no match · 1 not evaluable · 1 not checked yet",
+    );
+    expect(
+      screen.getByTestId("monitor-outside-membership").textContent,
+    ).toContain("1 list member is not a current member");
+    // One line, never a per-stock status table.
+    expect(screen.queryByTestId("monitor-security-row")).toBeNull();
     expect(
       screen.getByTestId("monitor-not-evaluable-note").textContent,
     ).toContain("could not decide the rule");
-    const filter = screen.getByTestId("monitor-status-filter");
-    expect(
-      within(filter)
-        .getAllByRole("button")
-        .map((button) => button.textContent),
-    ).toEqual([
-      "All4",
-      "Matched1",
-      "No match1",
-      "Not evaluable1",
-      "Not checked yet1",
-    ]);
-
-    // The matched row explains itself through its Signal, and carries the observed price.
-    expect(within(rows[0]!).getByText("Buy · Trigger")).toBeDefined();
-    expect(within(rows[0]!).getByText("$212.50")).toBeDefined();
-    // A security that did not match has no stored price, so none is shown rather than a fake zero.
-    expect(within(rows[2]!).queryByText(/\$/)).toBeNull();
-    // And a never-checked one has no status timestamp either.
-    expect(within(rows[3]!).queryByText(/Sep/)).toBeNull();
   });
 
-  it("says why an ended signal ended, and dates a history-derived one by its session (UI-026)", async () => {
-    fetchMonitorMock.mockResolvedValue(
-      detail({
-        signals: [
-          signal({
-            id: "signal-ended",
-            resolvedAt: "2026-09-11T20:00:00.000Z",
-            resolutionReason: "MEMBER_REMOVED",
-          }),
-          signal({
-            id: "signal-history",
-            reconstructed: true,
-            observationDate: "2026-09-10",
-          }),
-        ],
-      }),
-    );
-    render(<MonitorDetail monitorId="monitor-1" />);
-    await detailReady();
-
-    const rows = screen.getAllByTestId("monitor-signal-row");
-    expect(
-      within(rows[0]!).getByTestId("monitor-signal-ended").textContent,
-    ).toContain("stock left the list");
-    // The same day format as every other date in the product, never a raw ISO string.
-    expect(rows[1]!.textContent).toContain("Sep 10, 2026 · from history");
-    expect(rows[1]!.textContent).not.toContain("2026-09-10");
-  });
-
-  it("lists recent signals newest-first with their state", async () => {
-    fetchMonitorMock.mockResolvedValue(
-      detail({
-        signals: [
-          signal({ id: "signal-2", kind: "TRIGGER", levelKind: "SELL" }),
-          signal({
-            id: "signal-3",
-            resolvedAt: "2026-09-11T20:00:00.000Z",
-            security: security("sec-2", "BBB", "Beta Ltd"),
-          }),
-        ],
-      }),
-    );
+  it("lists the Signal table in the API's order, each row with its status, date and Why", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorSignalsMock.mockResolvedValue({
+      rows: [
+        signalRow({ id: "signal-2", kind: "TRIGGER", levelKind: "SELL" }),
+        signalRow({
+          id: "signal-ended",
+          state: "RESOLVED",
+          sessionDate: "2026-09-12",
+          resolvedOn: "2026-09-12",
+          resolutionReason: "CONDITIONS_ENDED",
+          security: security("sec-2", "BBB", "Beta Ltd"),
+          why: {
+            basis: "EVIDENCE",
+            sessionDate: "2026-09-12",
+            rules: [
+              {
+                predicates: [
+                  {
+                    role: "CONDITION",
+                    description: "Price is above SMA 200D",
+                    result: "FALSE",
+                    metric: 95,
+                    value: 98.25,
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+        signalRow({
+          id: "signal-history",
+          sessionDate: "2026-09-10",
+          fromHistory: true,
+          observationBasis: "LIVE_QUOTE",
+        }),
+      ],
+    });
 
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
+    const rows = await screen.findAllByTestId("monitor-signal-row");
 
-    const rows = screen.getAllByTestId("monitor-signal-row");
-    expect(rows).toHaveLength(2);
-    // Order is the API's; the page does not re-sort it.
-    expect(within(rows[0]!).getByText("Sell · Trigger")).toBeDefined();
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByText("Sell 1")).toBeDefined();
     expect(within(rows[0]!).getByText("Active")).toBeDefined();
-    expect(within(rows[1]!).getByText("Buy · Condition")).toBeDefined();
-    expect(within(rows[1]!).getByText("Ended")).toBeDefined();
+    expect(within(rows[0]!).getByText("Since Sep 11, 2026")).toBeDefined();
+    expect(within(rows[0]!).getByText("$101.50")).toBeDefined();
+    // The Why reads in the Strategy's words with the values that decided it.
+    expect(within(rows[0]!).getByTestId("monitor-why").textContent).toContain(
+      "Price is above SMA 200D (101.50 vs 98.25)",
+    );
     expect(
-      within(rows[1]!).getByTestId("monitor-signal-ended").textContent,
-    ).toMatch(/Ended\w{3} \d{1,2}, \d{4}/);
-    expect(within(rows[1]!).getByText("$101.50")).toBeDefined();
-    // Under the window cap, so nothing claims to be truncated.
-    expect(screen.queryByTestId("monitor-signals-window")).toBeNull();
+      within(rows[1]!).getByTestId("monitor-signal-status").textContent,
+    ).toBe("Ended · conditions no longer hold");
+    expect(within(rows[1]!).getByText("Ended Sep 12, 2026")).toBeDefined();
+    expect(within(rows[1]!).getByTestId("monitor-why").textContent).toContain(
+      "did not hold",
+    );
+    expect(within(rows[2]!).getByTestId("monitor-signal-history")).toBeDefined();
+    expect(rows[2]!.textContent).toContain("Intraday quote");
+    expect(rows[2]!.textContent).not.toContain("2026-09-10");
+    expect(fetchMonitorSignalsMock).toHaveBeenCalledWith(
+      "monitor-1",
+      { limit: 25 },
+      expect.anything(),
+    );
   });
 
-  it("renders a mark for every monitored security and every signal", async () => {
-    fetchMonitorMock.mockResolvedValue(
-      detail({
-        securities: [
-          evaluation({
-            security: {
-              ...security("sec-1", "AAA", "Alpha Corp"),
-              logoUrl:
-                "https://images.financialmodelingprep.com/symbol/AAA.png",
-            },
-          }),
-          evaluation({ security: security("sec-2", "BBB", "Beta Ltd") }),
-        ],
-        signals: [signal()],
-      }),
-    );
-
+  it("says when a signal was recorded without values, rather than inventing them", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorSignalsMock.mockResolvedValue({
+      rows: [
+        signalRow({
+          why: {
+            basis: "RULE_ONLY",
+            rules: [
+              {
+                predicates: [
+                  { role: "CONDITION", description: "Price is above SMA 200D" },
+                ],
+              },
+            ],
+          },
+        }),
+      ],
+    });
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
-
-    const sources = [...document.querySelectorAll("img")].map((image) =>
-      image.getAttribute("src"),
+    const row = (await screen.findAllByTestId("monitor-signal-row"))[0]!;
+    expect(within(row).getByTestId("monitor-why").textContent).toContain(
+      "Price is above SMA 200D",
     );
-    // The profiled security, the unprofiled one and the signal row all ask the same endpoint —
-    // which is also why the signal's mark is already in cache from the table above it.
-    expect(sources).toContain("/api/logo/AAA");
-    expect(sources).toContain("/api/logo/BBB");
-    expect(
-      within(screen.getAllByTestId("monitor-signal-row")[0]!).getByRole(
-        "link",
-        { name: /AAA/ },
+    expect(within(row).getByTestId("monitor-why-unrecorded")).toBeDefined();
+    expect(within(row).getByTestId("monitor-why").textContent).not.toContain(
+      " vs ",
+    );
+  });
+
+  it("filters by state and action, and lists waiting setups on request", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    await screen.findByTestId("monitor-signals-empty");
+
+    const states = screen.getByTestId("monitor-signal-state-filter");
+    await userEvent.click(within(states).getByRole("button", { name: "Ended" }));
+    await waitFor(() =>
+      expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
+        "monitor-1",
+        { state: "RESOLVED", limit: 25 },
+        expect.anything(),
       ),
-    ).toBeDefined();
+    );
+    await userEvent.click(within(states).getByRole("button", { name: "Waiting" }));
+    await waitFor(() =>
+      expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
+        "monitor-1",
+        { state: "PENDING_TRIGGER", limit: 25 },
+        expect.anything(),
+      ),
+    );
+    expect(
+      (await screen.findByTestId("monitor-signals-empty")).textContent,
+    ).toContain("No setups are waiting for a trigger");
+    await userEvent.selectOptions(
+      screen.getByTestId("monitor-signal-level-filter"),
+      "SELL",
+    );
+    await waitFor(() =>
+      expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
+        "monitor-1",
+        { state: "PENDING_TRIGGER", levelKind: "SELL", limit: 25 },
+        expect.anything(),
+      ),
+    );
   });
 
-  it("is honest that a full page of signals is only the most recent", async () => {
-    fetchMonitorMock.mockResolvedValue(
-      detail({
-        signals: Array.from({ length: 100 }, (_unused, index) =>
-          signal({ id: `signal-${index}` }),
-        ),
-      }),
-    );
-
+  it("pages the Signal table on request", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorSignalsMock
+      .mockResolvedValueOnce({
+        rows: [signalRow({ id: "signal-a" })],
+        nextCursor: "cursor-1",
+      })
+      .mockResolvedValueOnce({ rows: [signalRow({ id: "signal-b" })] });
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
+    await screen.findAllByTestId("monitor-signal-row");
 
-    expect(screen.getByTestId("monitor-signals-window").textContent).toContain(
-      "100 most recent",
+    await userEvent.click(screen.getByTestId("monitor-signals-more"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("monitor-signal-row")).toHaveLength(2),
     );
+    expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith("monitor-1", {
+      limit: 25,
+      cursor: "cursor-1",
+    });
+    expect(screen.queryByTestId("monitor-signals-more")).toBeNull();
   });
 
   it("shows empty sections rather than pretending there is data", async () => {
@@ -679,8 +725,9 @@ describe("MonitorDetail", () => {
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
 
-    expect(screen.getByTestId("monitor-securities-empty")).toBeDefined();
-    expect(screen.getByTestId("monitor-signals-empty")).toBeDefined();
+    expect(
+      (await screen.findByTestId("monitor-signals-empty")).textContent,
+    ).toContain("no current members");
     expect(screen.getByText("No active signals")).toBeDefined();
   });
 

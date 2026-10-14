@@ -7,7 +7,7 @@ import { watchForIssues } from "../utils/page-issues";
 /**
  * The Dashboard's ETF market overview, as a first-time visitor meets it, at every width the product
  * supports (`docs/decisions/etf-market-overview-v1.md`). It opens the page: nothing stands above
- * its tables, and Current matches follows it.
+ * its tables, and the Monitor Activity feed follows it.
  *
  * Needs `pnpm test:personas:seed` (`test:securities:seed` writes the deterministic ETF fixtures: the
  * nineteen `ETF_*` series beside `SP500`, ending on the same session). The returns depend on where
@@ -324,20 +324,21 @@ test.describe("market overview on desktop", () => {
     });
   }
 
-  test("puts Current matches, first row included, on the first screen at 1440×900", async ({
+  test("puts Monitor activity, first row included, on the first screen at 1440×900", async ({
     page,
   }) => {
     await openDashboard(page, 1440, 900);
 
-    const heading = page.getByRole("heading", { level: 2, name: "Current matches" });
+    const heading = page.getByRole("heading", { level: 2, name: "Monitor activity" });
     await expect(heading).toBeVisible();
     // Without scrolling: the page is where it loaded.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(heading).toBeInViewport({ ratio: 1 });
-    await expect(page.getByTestId("dashboard-state-filter")).toBeInViewport({ ratio: 1 });
-    // Even for a Guest, whose sign-in notice sits between the market and the matches.
+    // Even for a Guest, whose sign-in notice sits between the market and the activity.
     await expect(page.getByTestId("dashboard-guest-notice")).toBeVisible();
-    await expect(page.getByTestId("dashboard-signal-row").first()).toBeInViewport({ ratio: 1 });
+    await expect(page.getByTestId("dashboard-activity-row").first()).toBeInViewport({
+      ratio: 1,
+    });
     // What makes room for it: the overview is eleven table rows and their two-line header tall.
     const market = await page.getByTestId("market-overview").boundingBox();
     expect(market?.height).toBeLessThan(400);
@@ -527,15 +528,15 @@ test.describe("market overview on desktop", () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test("opens the page, above Current matches, with no page error or failed read", async ({
+  test("opens the page, above Monitor activity, with no page error or failed read", async ({
     page,
   }) => {
     const issues = watchForIssues(page);
     await openDashboard(page, 1440);
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
 
     const market = await page.getByTestId("market-overview").boundingBox();
-    const matches = await page.getByTestId("dashboard-signals").boundingBox();
+    const matches = await page.getByTestId("dashboard-activity").boundingBox();
     expect((market?.y ?? 0) + (market?.height ?? 0)).toBeLessThan(matches?.y ?? 0);
     // It is the first thing on the page: the summary card that stood above it is gone.
     await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
@@ -723,8 +724,8 @@ test.describe("market overview states", () => {
 
     await expect(page.getByTestId("market-overview-unavailable")).toBeVisible();
     await expect(page.getByTestId("market-overview")).not.toContainText("%");
-    // The matches are unaffected.
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    // The activity is unaffected.
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
   });
 
   test("explains a temporary API failure and recovers on retry", async ({ page }) => {
@@ -747,7 +748,7 @@ test.describe("market overview states", () => {
 
     const error = page.getByTestId("market-overview-error");
     await expect(error).toBeVisible();
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     fail = false;
     await error.getByRole("button", { name: "Try again" }).click();
     await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
@@ -759,7 +760,7 @@ test.describe("the rest of the Dashboard, for a Guest", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
 
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
@@ -769,32 +770,22 @@ test.describe("the rest of the Dashboard, for a Guest", () => {
         .getByRole("navigation", { name: "Primary", exact: true })
         .getByRole("link", { name: "Backtests" }),
     ).toHaveAttribute("href", "/backtests");
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
   });
 
-  test("has no summary card above the market tables, and leaves Current matches as it was", async ({
+  test("has no summary card above the market tables, and names the activity once", async ({
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
 
     await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-matches-total")).toHaveCount(0);
-    await expect(page.getByTestId("dashboard-page")).not.toContainText(/\d+ active · \d+ waiting/);
-    // "Current matches" is said once: by the section that lists them.
-    await expect(page.getByText("Current matches", { exact: true })).toHaveCount(1);
-
-    // That section still counts what it shows, and still filters it.
-    const rows = page.getByTestId("dashboard-signal-row");
-    const total = await rows.count();
-    expect(total).toBeGreaterThan(0);
-    const filter = page.getByTestId("dashboard-state-filter");
-    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(String(total));
-    await filter.getByRole("button", { name: /^Active/ }).click();
+    await expect(page.getByTestId("dashboard-page")).not.toContainText("Current matches");
     await expect(
-      rows.filter({ has: page.locator('[data-state="PENDING_TRIGGER"]') }),
-    ).toHaveCount(0);
-    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(String(total));
+      page.getByRole("heading", { level: 2, name: "Monitor activity" }),
+    ).toHaveCount(1);
+    expect(await page.getByTestId("dashboard-activity-row").count()).toBeGreaterThan(0);
   });
 });

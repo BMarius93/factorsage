@@ -2,6 +2,7 @@ import type {
   MonitorLevelKind,
   MonitorSecurityStatus,
   MonitorSignalKind,
+  MonitorSignalRowState,
   MonitorTransitionReason,
 } from "@intrinsic/contracts";
 import type { StatusTone } from "../../../components/ui/StatusBadge";
@@ -73,6 +74,64 @@ export const SIGNAL_KIND_LABELS: Record<MonitorSignalKind, string> = {
   CONDITION: "Condition",
   TRIGGER: "Trigger",
 };
+
+/**
+ * A value a Monitor decision compared, as recorded: a price, an average, an oscillator, a ratio.
+ * Two decimals in the ordinary range, whole numbers for large values, four for small fractions.
+ */
+export function formatEvidenceValue(value: number): string {
+  const magnitude = Math.abs(value);
+  if (magnitude >= 1000) {
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(
+      value,
+    );
+  }
+  if (magnitude >= 1 || magnitude === 0) {
+    return new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumSignificantDigits: 4,
+  }).format(value);
+}
+
+/** What one row of the Monitor's Signal table is, as the product says it. */
+export const SIGNAL_ROW_STATE_LABELS: Record<MonitorSignalRowState, string> = {
+  ACTIVE: "Active",
+  RESOLVED: "Ended",
+  PENDING_TRIGGER: "Waiting for trigger",
+};
+
+export const SIGNAL_ROW_STATE_TONES: Record<MonitorSignalRowState, StatusTone> =
+  {
+    ACTIVE: "positive",
+    RESOLVED: "neutral",
+    PENDING_TRIGGER: "active",
+  };
+
+/** `Buy 1`, `Sell 2`, `Final exit`: the level, by its position in the version that decided it. */
+export function levelPositionLabel(row: {
+  readonly levelKind: MonitorLevelKind;
+  readonly levelIndex?: number;
+}): string {
+  const kind = LEVEL_KIND_LABELS[row.levelKind];
+  return row.levelIndex === undefined ? kind : `${kind} ${row.levelIndex}`;
+}
+
+/** The status half of a Signal row: `Active`, `Ended · conditions no longer hold`. */
+export function signalRowStatusLabel(row: {
+  readonly state: MonitorSignalRowState;
+  readonly resolutionReason?: MonitorTransitionReason;
+}): string {
+  const base = SIGNAL_ROW_STATE_LABELS[row.state];
+  if (row.state !== "RESOLVED" || !row.resolutionReason) {
+    return base;
+  }
+  const reason = RESOLUTION_REASON_LABELS[row.resolutionReason];
+  return reason === "ended" ? base : `${base} · ${reason}`;
+}
 
 /** An observation price. Monitor prices are plain USD amounts, like every other price surface. */
 export function formatObservationPrice(value: number): string {

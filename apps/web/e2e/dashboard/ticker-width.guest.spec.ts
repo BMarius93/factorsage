@@ -46,12 +46,12 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/");
     const rows = page
-      .getByTestId("dashboard-signal-row")
+      .getByTestId("dashboard-activity-row")
       .filter({ hasText: /QA Built-in Monitor/ });
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(4);
     // The table, not the phone cards.
     await expect(
-      page.getByTestId("dashboard-signals").getByRole("columnheader").first(),
+      page.getByTestId("dashboard-activity").getByRole("columnheader").first(),
     ).toBeVisible();
 
     const tickers = await measureTickers(page);

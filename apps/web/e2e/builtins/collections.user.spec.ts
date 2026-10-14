@@ -131,7 +131,7 @@ test.describe("PRO_USER built-in collections", () => {
       await page.goto("/");
       await expect(
         page
-          .getByTestId("dashboard-signal-row")
+          .getByTestId("dashboard-activity-row")
           .filter({ hasText: QA_MONITOR }),
       ).toHaveCount(0);
 
@@ -144,7 +144,7 @@ test.describe("PRO_USER built-in collections", () => {
       await guestPage.goto("/");
       await expect(
         guestPage
-          .getByTestId("dashboard-signal-row")
+          .getByTestId("dashboard-activity-row")
           .filter({ hasText: QA_MONITOR }),
       ).not.toHaveCount(0);
       expectNoProviderRequests(guestStubs);
@@ -162,7 +162,7 @@ test.describe("PRO_USER built-in collections", () => {
 
     await page.goto("/");
     await expect(
-      page.getByTestId("dashboard-signal-row").filter({ hasText: QA_MONITOR }),
+      page.getByTestId("dashboard-activity-row").filter({ hasText: QA_MONITOR }),
     ).not.toHaveCount(0);
   });
 

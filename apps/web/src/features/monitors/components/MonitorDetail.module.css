@@ -40,13 +40,6 @@
   text-decoration: underline;
 }
 
-.note {
-  margin: 14px 18px 0;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 /* Why an enabled monitor is not scanning. The collection carries the same sentence on its
    pill; the detail page is where a user comes to find out, so it is spelled out here. */
 .blockedNotice {
@@ -66,25 +59,6 @@
   line-height: 1.55;
 }
 
-@media (min-width: 880px) {
-  .note {
-    margin: 14px 24px 0;
-  }
-}
-
-/* An ended signal: the badge, then when and why, as text (UI-026). */
-.ended {
-  display: inline-grid;
-  justify-items: start;
-  gap: 2px;
-}
-
-.endedDetail {
-  color: var(--color-text-secondary);
-  font-size: var(--text-small);
-  white-space: normal;
-}
-
 /* An explanation above a flush table: inset like the table's own cells, with room before it. */
 .sectionNote {
   margin: 0 var(--surface-inset) 16px;
@@ -95,5 +69,57 @@
 
 /* The signals disclosure, inside the flush signals surface, which supplies no body padding. */
 .disclosure {
+  padding: 12px var(--surface-inset) 0;
+}
+
+/* The state filter on the left, the action refinement on the right; they stack on a phone. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+/* How far evaluation has reached, and how the current members stand, above the table: the
+   compact line that replaces a per-stock status table. */
+.coverage {
+  display: grid;
+  gap: 2px;
+  margin: 0 var(--surface-inset) 14px;
+}
+
+.coverageLine {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusLine {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+/* `Since Oct 9, 2026`, with `From history` under it when history established the row. */
+.rowDate {
+  display: inline-grid;
+  justify-items: start;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fromHistory {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+/* "Show more signals", centred under the table inside the same surface. */
+.more {
+  display: flex;
+  justify-content: center;
   padding: 12px var(--surface-inset) 0;
 }

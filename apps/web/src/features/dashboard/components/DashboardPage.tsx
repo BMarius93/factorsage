@@ -1,160 +1,73 @@
 "use client";
 
 import type {
+  DashboardActivityEventResponse,
   DashboardMonitorResponse,
-  DashboardRowResponse,
-  DashboardRowState,
-  MonitorLevelKind,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { createContext, useContext, useState } from "react";
+import { useEffect, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   CardLinks,
   DataTable,
-  IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { DisclosureNote } from "../../legal/components/DisclosureNote";
-import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import { signInHref } from "../../auth/utils/guest-routes";
 import forms from "../../../components/ui/forms.module.css";
-import { formatDateTime } from "../../../lib/dates";
+import { formatDay } from "../../../lib/dates";
 import { useNow } from "../../../lib/use-now";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
+import { MonitorWhy } from "../../monitors/components/MonitorWhy";
 import {
   formatObservationPrice,
-  LEVEL_KIND_LABELS,
+  levelPositionLabel,
+  RESOLUTION_REASON_LABELS,
 } from "../../monitors/utils/format";
 import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
 import { MarketOverview } from "../../market/components/MarketOverview";
-import { useDashboard } from "../hooks/use-dashboard";
-import {
-  FRESHNESS_TONES,
-  ROW_STATE_FILTER_LABELS,
-  ROW_STATE_LABELS,
-  ROW_STATE_TONES,
-  formatAge,
-  freshnessLabel,
-  levelLabel,
-} from "../utils/format";
+import { DASHBOARD_REFRESH_MS, useDashboard } from "../hooks/use-dashboard";
+import { useMonitorActivity } from "../hooks/use-monitor-activity";
+import { FRESHNESS_TONES, freshnessLabel } from "../utils/format";
 import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
 import styles from "./DashboardPage.module.css";
 
-type StateFilter = "ALL" | DashboardRowState;
-type LevelFilter = "ALL" | MonitorLevelKind;
+const ALL_MONITORS = "ALL";
 
-const STATE_FILTERS: readonly { readonly id: StateFilter; readonly label: string }[] =
-  [
-    { id: "ALL", label: "All" },
-    { id: "ACTIVE", label: ROW_STATE_FILTER_LABELS.ACTIVE },
-    { id: "PENDING_TRIGGER", label: ROW_STATE_FILTER_LABELS.PENDING_TRIGGER },
-  ];
-
-const LEVEL_FILTERS: readonly { readonly value: LevelFilter; readonly label: string }[] =
-  [
-    { value: "ALL", label: "All actions" },
-    { value: "BUY", label: LEVEL_KIND_LABELS.BUY },
-    { value: "SELL", label: LEVEL_KIND_LABELS.SELL },
-    { value: "FINAL_EXIT", label: LEVEL_KIND_LABELS.FINAL_EXIT },
-  ];
-
-function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
-  return (
-    <div className={styles.reasons}>
-      {row.reasons.map((reason, index) => (
-        <p key={index} className={styles.reason}>
-          {reason.exitRule !== undefined ? (
-            <span className={styles.reasonRule}>Exit rule {reason.exitRule}: </span>
-          ) : null}
-          {reason.conditions.join(" and ")}
-          {reason.trigger ? (
-            <span className={styles.reasonTrigger}>
-              {reason.conditions.length > 0 ? " · " : ""}
-              {reason.waitingForTrigger ? "Waiting for: " : "Triggered: "}
-              {reason.trigger}
-            </span>
-          ) : null}
-        </p>
-      ))}
-    </div>
-  );
+/** `Activated`, or `Ended · conditions no longer hold`: what the event was, in the product's words. */
+export function activityLabel(event: DashboardActivityEventResponse): string {
+  if (event.kind === "ACTIVATED") {
+    return "Activated";
+  }
+  const reason = RESOLUTION_REASON_LABELS[event.reason];
+  return reason === "ended" ? "Ended" : `Ended · ${reason}`;
 }
 
 /**
- * Strategy, List and Monitor as one line under the stock, for the intermediate desktop band
- * (880–1,279px) only (UI-003). There, three chip columns beside the reason and the price were
- * squeezed to "QA Bu…" and a lone "("; the three columns step out (`foldIntermediate`) and the
- * same references read here in full width instead. Outside that band this block is not
- * displayed, so the references are never exposed twice.
+ * The Monitor that observed the event, at the foot of a phone card under the small label the card
+ * uses for it. The desktop table names it with its column header instead.
  */
-function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
+function CardMonitor({
+  event,
+}: {
+  readonly event: DashboardActivityEventResponse;
+}) {
   return (
-    <IntermediateOnly testId="dashboard-folded-relationships">
-      <EntityReferenceChip
-        kind="strategy"
-        name={row.strategy.name}
-        href={`/strategies/${row.strategy.id}`}
-      />
-      <EntityReferenceChip
-        kind="list"
-        name={row.stockList.name}
-        href={`/lists/${row.stockList.id}`}
-      />
-      <EntityReferenceChip
-        kind="monitor"
-        name={row.monitor.name}
-        href={`/monitors/${row.monitor.id}`}
-      />
-    </IntermediateOnly>
-  );
-}
-
-/**
- * Strategy, List and Monitor at the foot of a phone card, in that order, each pill under a small
- * label naming it.
- *
- * The desktop table names the three with its column headers; a card has none, and three pills in
- * a row left a first-time reader guessing which was which. Each label sits above its pill rather
- * than beside it, so the three still share lines the way the pills alone did and the card grows by
- * one label line, not by a labelled row each. Monitor's label is a step darker than the other two:
- * the signal belongs to the Monitor, and the Strategy and List are what that Monitor is made of.
- * The three columns are desktop-only (`cardRole: "hidden"`), so each reference is displayed once at
- * every width.
- */
-function CardRelationships({ row }: { readonly row: DashboardRowResponse }) {
-  return (
-    <CardLinks testId="dashboard-card-relationships">
+    <CardLinks testId="dashboard-card-monitor">
       <span className={styles.origin}>
-        <span className={styles.originItem}>
-          <span className={styles.originLabel}>Strategy</span>
-          <EntityReferenceChip
-            kind="strategy"
-            name={row.strategy.name}
-            href={`/strategies/${row.strategy.id}`}
-          />
-        </span>
-        <span className={styles.originItem}>
-          <span className={styles.originLabel}>List</span>
-          <EntityReferenceChip
-            kind="list"
-            name={row.stockList.name}
-            href={`/lists/${row.stockList.id}`}
-          />
-        </span>
         <span className={styles.originItem} data-primary="true">
           <span className={styles.originLabel}>Monitor</span>
           <EntityReferenceChip
             kind="monitor"
-            name={row.monitor.name}
-            href={`/monitors/${row.monitor.id}`}
+            name={event.monitor.name}
+            href={`/monitors/${event.monitor.id}`}
           />
         </span>
       </span>
@@ -163,246 +76,108 @@ function CardRelationships({ row }: { readonly row: DashboardRowResponse }) {
 }
 
 /**
- * How long the row's state has held, from `since`.
- *
- * Only the age. `row.reconstructed` — whether the lifecycle was rebuilt from Signal history
- * rather than observed live — is a real and meaningful fact about the *engine*
- * (`docs/decisions/builtin-dashboard-signals-v1.md`), and it stays in the contract and on the
- * Monitor's own page. It is not a fact about this stock: "from history" under a date told a
- * reader on the product's home page nothing they could act on, in the voice of a debug log.
+ * The feed's columns: Stock, what happened, the exchange session it happened on, why, the
+ * activation price and the Monitor that observed it. Strategy and List are one click away from the
+ * Monitor; the feed's job is to say what changed.
  */
-function SinceCell({ row }: { readonly row: DashboardRowResponse }) {
-  const now = useContext(NowContext);
-  return (
-    <span className={styles.since} data-testid="dashboard-since">
-      <time dateTime={row.since}>
-        {formatAge(row.since, now)}
-        <span className={styles.srOnly}> ({formatDateTime(row.since)})</span>
-      </time>
-    </span>
-  );
-}
-
-/**
- * The table's default order (UI-025): what is actionable first — active signals before setups
- * still waiting for a trigger — then by action (BUY, SELL, FINAL EXIT, then level order), then the
- * newest state change first. The API sends newest-first; that stays the final tie-break, and the
- * same security under two monitors is still two rows.
- */
-const STATE_ORDER: Record<DashboardRowState, number> = { ACTIVE: 0, PENDING_TRIGGER: 1 };
-const LEVEL_ORDER: Record<MonitorLevelKind, number> = { BUY: 0, SELL: 1, FINAL_EXIT: 2 };
-
-export function sortDashboardRows(
-  rows: readonly DashboardRowResponse[],
-): DashboardRowResponse[] {
-  return [...rows].sort(
-    (a, b) =>
-      STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
-      LEVEL_ORDER[a.levelKind] - LEVEL_ORDER[b.levelKind] ||
-      (a.levelIndex ?? 0) - (b.levelIndex ?? 0) ||
-      b.since.localeCompare(a.since),
-  );
-}
-
-/** The ticking clock every relative label on the page reads (`useNow`). */
-const NowContext = createContext<Date>(new Date(0));
-
-/**
- * The floor under Strategy, List and Monitor.
- *
- * Eight columns sharing a 1,440px table left these three at the width of "Trend C…", which is
- * where three distinguishable objects stopped being distinguishable. Each is now the product's one
- * reference pill (`EntityReferenceChip`), which sizes to its name up to its own cap, wraps onto a
- * second centred line rather than cutting a name short, and clips with an ellipsis only past two
- * lines, the whole name in its tooltip. `Why` keeps its own floor and its 26rem ceiling, so it
- * stays the dominant column it should be.
- *
- * The value is the widest the table can afford at **1,280px** — the narrowest width at which all
- * eight columns are shown, since 880–1,279px folds these three out. What the other five need there
- * is not negotiable (the ticker, a `Waiting for trigger` badge, a relative time, the reason and a
- * price), and what is left over is this. Asking for more does not make the column wider: it makes
- * `DataTable`'s safety valve scroll the table sideways inside its surface, which is worse than a
- * name truncating. Measured against the QA fixtures, which carry the longest action badge.
- */
-const RELATIONSHIP_COLUMN_MIN_WIDTH = "9.5rem";
-
-/**
- * The share of the table Strategy, List and Monitor ask for above their floor.
- *
- * Without it they never got the width. Auto table layout shares spare width out in proportion to
- * each column's longest content, and the Stock column's full company names and the Why sentences
- * outbid a pill every time: at 1,600px "Trend Confirmation" was still three pixels short. A
- * percentage is served before the auto columns grow, and because it is a share of the table it
- * grows with the screen: from 1,440px every list and strategy name of about twenty characters
- * reads whole, and the width comes out of the two columns that already wrap or truncate gracefully.
- * At 1,280px it costs Stock and Why about 14px each, and the floors above are untouched, so the
- * table still never scrolls sideways.
- */
-const RELATIONSHIP_COLUMN_WIDTH = "14%";
-
-/**
- * The signal table's columns.
- *
- * Strategy, List and Monitor are **three** columns, not one. They are three different objects with
- * three different pages, and collapsing them into one cell made the row's most useful fact — which
- * strategy said this — something the reader had to go looking for. Each is an ordinary entity
- * reference, so the same chip means the same thing here as on a Monitor's own page. They are
- * desktop columns only: a phone card carries the same three pills, each under a small label, below
- * the reason (`CardRelationships`).
- *
- * There is deliberately no per-row Backtest button: it repeated one call to action on every row of
- * a table whose job is to report, and the same backtest is one click away from the Strategy, the
- * List or the Monitor the row already links to.
- */
-const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
+const COLUMNS: readonly DataTableColumn<DashboardActivityEventResponse>[] = [
   {
     key: "stock",
     header: "Stock",
     cardRole: "identity",
-    // A floor under the column that identifies the row: at laptop widths the table's other
-    // columns used to squeeze it to "U." (UX-007). The mark plus a full seven-character ticker;
-    // the company name still truncates.
-    //
-    // `--column-min-width` is a border-box floor, so this has to cover the cell's own 32px of
-    // padding as well as the 28px mark, its 10px gap and the widest ticker the catalog allows
-    // (`QATEST1`, 53px at 13px/600). 7rem left 44px for a 53px ticker and only ever worked
-    // because auto table layout handed the column more than its floor — which stopped being true
-    // once Strategy, List and Monitor were given floors of their own.
     minWidth: "8.5rem",
-    render: (row) => (
+    render: (event) => (
       <span className={styles.stockCell}>
         <StockIdentity
-          symbol={row.security.symbol}
-          name={row.security.name}
-          {...(row.security.logoUrl ? { logoUrl: row.security.logoUrl } : {})}
-          href={stockDetailsHref(row.security.symbol)}
+          symbol={event.security.symbol}
+          name={event.security.name}
+          {...(event.security.logoUrl
+            ? { logoUrl: event.security.logoUrl }
+            : {})}
+          href={stockDetailsHref(event.security.symbol)}
           size="sm"
           testId="dashboard-stock"
         />
-        <FoldedRelationships row={row} />
       </span>
     ),
   },
   {
-    key: "action",
-    header: "Action",
+    key: "signal",
+    header: "Signal",
     cardRole: "status",
     nowrap: true,
-    render: (row) => (
+    render: (event) => (
       <span className={styles.badges}>
         <StatusBadge
-          tone={LEVEL_KIND_TONES[row.levelKind]}
+          tone={LEVEL_KIND_TONES[event.levelKind]}
           variant="outline"
-          dataAttributes={{ "data-level": row.levelKind }}
+          dataAttributes={{ "data-level": event.levelKind }}
         >
-          {levelLabel(row)}
+          {levelPositionLabel(event)}
         </StatusBadge>
         <StatusBadge
-          tone={ROW_STATE_TONES[row.state]}
-          dataAttributes={{ "data-state": row.state }}
+          tone={event.kind === "ACTIVATED" ? "positive" : "neutral"}
+          dataAttributes={{ "data-kind": event.kind }}
         >
-          {ROW_STATE_LABELS[row.state]}
+          {activityLabel(event)}
         </StatusBadge>
       </span>
     ),
   },
   {
-    // When the present state began (UI-025): a signal says how long it has held, not just that it
-    // holds. Relative and ticking, with the exact time beside it for keyboard and screen readers.
-    //
-    // On a phone it is a `summary` cell: "3 days ago" needs no "SINCE" label above it, and paying
-    // a labelled row for it — and another for the price — is how a card grew to a screenful.
-    key: "since",
-    header: "Since",
+    // The exchange session the change was observed on — the end-of-day close it was decided at,
+    // never the moment the evaluation ran.
+    key: "session",
+    header: "Session",
     cardRole: "summary",
     nowrap: true,
-    render: (row) => <SinceCell row={row} />,
+    render: (event) => (
+      <span className={styles.since} data-testid="dashboard-session">
+        <time dateTime={event.sessionDate}>{formatDay(event.sessionDate)}</time>
+        {event.observationBasis === "LIVE_QUOTE" ? (
+          <span className={styles.basis}> · intraday quote</span>
+        ) : null}
+      </span>
+    ),
   },
   {
-    key: "reason",
+    key: "why",
     header: "Why",
-    // No visible label on a card: the value is already a sentence about why this row is here.
-    // The column header still labels the cell for assistive technology.
     cardLabel: null,
     stacked: true,
-    render: (row) => (
+    render: (event) => (
       <>
-        <ReasonCell row={row} />
-        <CardRelationships row={row} />
+        <MonitorWhy why={event.why} testId="dashboard-why" />
+        <CardMonitor event={event} />
       </>
     ),
   },
   {
     key: "price",
     header: "Price",
-    // Shares the card's summary line with `since`, at the other end of it.
     cardRole: "summary",
     align: "right",
     numeric: true,
     nowrap: true,
-    render: (row) =>
-      row.price === undefined ? (
-        <span className={styles.placeholder}>—</span>
+    // The price it activated at, on the session it activated; an ending is explained by its Why.
+    render: (event) =>
+      event.kind === "ACTIVATED" && event.price !== undefined ? (
+        formatObservationPrice(event.price)
       ) : (
-        formatObservationPrice(row.price)
+        <span className={styles.placeholder}>—</span>
       ),
   },
   {
-    key: "strategy",
-    foldIntermediate: true,
-    header: "Strategy",
-    // Desktop only: a phone card shows the three as labelled pills (`CardRelationships`).
-    cardRole: "hidden",
-    // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; the pill wraps inside it rather than the column narrowing past it.
-    minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
-    width: RELATIONSHIP_COLUMN_WIDTH,
-    render: (row) => (
-      <span className={styles.entityCell}>
-        <EntityReferenceChip
-          kind="strategy"
-          name={row.strategy.name}
-          href={`/strategies/${row.strategy.id}`}
-        />
-      </span>
-    ),
-  },
-  {
-    key: "list",
-    foldIntermediate: true,
-    header: "List",
-    // Desktop only: a phone card shows the three as labelled pills (`CardRelationships`).
-    cardRole: "hidden",
-    // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; the pill wraps inside it rather than the column narrowing past it.
-    minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
-    width: RELATIONSHIP_COLUMN_WIDTH,
-    render: (row) => (
-      <span className={styles.entityCell}>
-        <EntityReferenceChip
-          kind="list"
-          name={row.stockList.name}
-          href={`/lists/${row.stockList.id}`}
-        />
-      </span>
-    ),
-  },
-  {
     key: "monitor",
-    foldIntermediate: true,
     header: "Monitor",
-    // Desktop only: a phone card shows the three as labelled pills (`CardRelationships`).
     cardRole: "hidden",
-    // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; the pill wraps inside it rather than the column narrowing past it.
-    minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
-    width: RELATIONSHIP_COLUMN_WIDTH,
-    render: (row) => (
+    minWidth: "9.5rem",
+    render: (event) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="monitor"
-          name={row.monitor.name}
-          href={`/monitors/${row.monitor.id}`}
+          name={event.monitor.name}
+          href={`/monitors/${event.monitor.id}`}
         />
       </span>
     ),
@@ -410,65 +185,55 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
 ];
 
 /**
- * The application home, at `/`: every current match and setup from the monitors the viewer can see.
+ * The application home, at `/`: the market overview, then the Monitor Activity feed
+ * (`docs/decisions/monitor-eod-v2.md` §6).
  *
- * `docs/decisions/builtin-dashboard-signals-v1.md` section 4. One row per monitor outcome — the same
- * stock under two monitors is two rows — showing `ACTIVE` signals and `PENDING_TRIGGER` setups only.
- * A Guest sees the published built-in monitors; a signed-in user sees those they have not hidden,
- * plus their own. Freshness comes from real scan times and is never described as live when it is not.
- *
- * Two things, in this order: the ETF market overview (`docs/decisions/etf-market-overview-v1.md`),
- * which is the market the matches were found in, and the matches themselves. Nothing stands above
- * the market tables — no summary card, no section heading — so the matches begin as high on the
- * first screen as twenty funds allow; how many are matching is on the filters of the section that
- * lists them. The Dashboard reports and starts nothing — a backtest is started from the Backtests
- * area or from the List, Strategy or Monitor it is about — and it is context, not a second
- * information architecture: choosing which monitors feed the table is still a property of a
- * monitor and still lives on the Monitors page, because a configuration panel under the signals
- * competed with them for the screen and made the product's home page look like a settings screen.
+ * The feed lists what the Monitors the viewer can see **observed** after each market close — a stock
+ * becoming a match, or a match ending because its conditions stopped holding — newest session
+ * first, each explained by the values that decided it. History a new Monitor replayed, edits,
+ * removals and a trigger day passing are not activity; they live on each Monitor's own page. A Guest
+ * sees the published built-in Monitors; a signed-in user sees those they have not hidden, plus their
+ * own enabled ones. Nothing is described as live: every row is a finalized end-of-day session.
  */
 export function DashboardPage() {
   const { status, dashboard, reload } = useDashboard();
   const { state: session } = useAuthSession();
-  const [stateFilter, setStateFilter] = useState<StateFilter>("ALL");
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>("ALL");
-  // One clock for the page, ticking while it stays open, so "Updated 12 min ago" and every row's
-  // age stay true without refetching (UI-048).
+  const [monitorFilter, setMonitorFilter] = useState<string>(ALL_MONITORS);
+  const activity = useMonitorActivity(
+    monitorFilter === ALL_MONITORS ? null : monitorFilter,
+  );
+  // One clock for the page, ticking while it stays open, so "Updated 12 min ago" stays true.
   const now = useNow(30_000);
 
-  const rows = sortDashboardRows(dashboard?.rows ?? []);
-  const byLevel = rows.filter(
-    (row) => levelFilter === "ALL" || row.levelKind === levelFilter,
-  );
-  const visibleRows = byLevel.filter(
-    (row) => stateFilter === "ALL" || row.state === stateFilter,
-  );
+  // The feed re-reads its newest page on the Dashboard's slow timer, so a session evaluated while
+  // the page is open shows up.
+  const reloadActivity = activity.reload;
+  useEffect(() => {
+    const timer = setInterval(reloadActivity, DASHBOARD_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [reloadActivity]);
+
   const monitors = dashboard?.monitors ?? [];
   const shownMonitors = monitors.filter((monitor) => monitor.visible);
   const guest =
     dashboard?.viewer === "GUEST" || session.status === "unauthenticated";
+  const loading = status === "loading" || activity.status === "loading";
+  const failed = status === "error" || activity.status === "error";
+  const events = activity.events;
 
   return (
     <PageContainer>
       <div className={styles.page} data-testid="dashboard-page">
-        {/* The page's one heading, and nothing else of the header that used to sit here.
-            A card saying "Dashboard" over a sentence explaining what a dashboard is, with the
-            freshness pill parked in its corner, spent the whole first screen of the product's
-            home page introducing it to a reader who had arrived on purpose. The name is still
-            the document's `h1` — in the tab title, in the landmark tree and under a screen
-            reader's heading key — it just is not a 120px card any more. */}
         <h1 className={styles.srOnly}>Dashboard</h1>
 
-        {/* The market the matches were found in. Its own request and its own failure states:
-            the market is the same for everybody, the matches are not, and neither may blank the
-            other. */}
+        {/* The market the activity happened in. Its own request and its own failure states. */}
         <MarketOverview />
 
         {guest && status === "ready" ? (
-          <div className={styles.guestNotice} data-testid="dashboard-guest-notice">
-            {/* The concept first, in one sentence, for a first-time reader: every row below
-                belongs to a Monitor, and the Strategy and List beside it are what it is made
-                of. The three names are set in the emphasis weight and nothing louder. */}
+          <div
+            className={styles.guestNotice}
+            data-testid="dashboard-guest-notice"
+          >
             <p>
               A <b>Monitor</b> watches a <b>List</b> using a <b>Strategy</b>.
               You&apos;re viewing FactorSage&apos;s built-in monitors. Sign in
@@ -481,22 +246,25 @@ export function DashboardPage() {
           </div>
         ) : null}
 
-        {status === "loading" ? (
-          <SectionCard ariaLabel="Loading dashboard">
+        {loading && !failed ? (
+          <SectionCard ariaLabel="Loading monitor activity">
             <SkeletonList rows={6} />
           </SectionCard>
         ) : null}
 
-        {status === "error" ? (
+        {failed ? (
           <EmptyState
             variant="error"
-            title="The dashboard could not be loaded"
+            title="Monitor activity could not be loaded"
             body={<p>This is usually temporary — try again in a moment.</p>}
             actions={
               <button
                 type="button"
                 className={forms.secondaryButton}
-                onClick={reload}
+                onClick={() => {
+                  reload();
+                  activity.reload();
+                }}
               >
                 Try again
               </button>
@@ -504,65 +272,48 @@ export function DashboardPage() {
           />
         ) : null}
 
-        {status === "ready" && dashboard ? (
+        {!loading && !failed && dashboard ? (
           <SectionCard
-            id="signals"
-            title="Current matches"
-            caption="Active matches stay here while their conditions hold. Setups waiting for a trigger become active when it fires."
-            // Freshness reads as a detail of the matches, beside the heading they belong to,
-            // rather than as a page-level announcement (UI-048). The scan times behind it are
-            // unchanged: it is still the newest `lastScanAt` of the monitors on screen, and it
-            // still refuses to call a stale Dashboard current.
+            id="activity"
+            title="Monitor activity"
+            caption="Matches that began or ended at a market close, newest first. Each is decided on the session's finalized close."
             aside={<OverallFreshness monitors={shownMonitors} now={now} />}
-            flush={rows.length > 0}
+            flush={events.length > 0}
             toolbar={
-              rows.length > 0 ? (
+              shownMonitors.length > 1 ? (
                 <div className={styles.toolbar}>
-                  {/*
-                    Two different questions, so deliberately two different controls. The state is
-                    the primary view and takes the segmented control; the action is a refinement of
-                    whatever is on screen and takes a dropdown. Rendering both as pill groups made
-                    them look like two competing tab bars.
-                  */}
-                  <SegmentedControl
-                    label="Filter by state"
-                    testId="dashboard-state-filter"
-                    value={stateFilter}
-                    onChange={setStateFilter}
-                    options={STATE_FILTERS.map((option) => ({
-                      value: option.id,
-                      label: option.label,
-                      count: byLevel.filter(
-                        (row) => option.id === "ALL" || row.state === option.id,
-                      ).length,
-                    }))}
-                  />
                   <SelectControl
-                    id="dashboard-action-filter"
-                    label="Action"
-                    value={levelFilter}
-                    onChange={(value) => setLevelFilter(value as LevelFilter)}
-                    options={LEVEL_FILTERS}
-                    testId="dashboard-level-filter"
+                    id="dashboard-monitor-filter"
+                    label="Monitor"
+                    value={monitorFilter}
+                    onChange={setMonitorFilter}
+                    options={[
+                      { value: ALL_MONITORS, label: "All monitors" },
+                      ...shownMonitors.map((monitor) => ({
+                        value: monitor.id,
+                        label: monitor.name,
+                      })),
+                    ]}
+                    testId="dashboard-monitor-filter"
                   />
                 </div>
               ) : null
             }
           >
-            {rows.length === 0 ? (
+            {events.length === 0 ? (
               <EmptyState
                 variant="compact"
-                testId="dashboard-signals-empty"
+                testId="dashboard-activity-empty"
                 title={
                   shownMonitors.length === 0
                     ? "No monitors are shown"
-                    : "Nothing is matching right now"
+                    : "No activity yet"
                 }
                 body={
                   <p>
                     {shownMonitors.length === 0
-                      ? "Turn a monitor back on from the Monitors page to see its matches here."
-                      : "Your monitors are running. Matches and setups appear here as soon as a scan finds them."}
+                      ? "Turn a monitor back on from the Monitors page to see its activity here."
+                      : "When a monitor sees a stock start or stop matching at a market close, it appears here. Each monitor's own page shows its full history."}
                   </p>
                 }
                 actions={
@@ -573,40 +324,30 @@ export function DashboardPage() {
                   ) : undefined
                 }
               />
-            ) : visibleRows.length === 0 ? (
-              <EmptyState
-                variant="compact"
-                testId="dashboard-signals-filtered-empty"
-                title="No matches for these filters"
-                actions={
-                  <button
-                    type="button"
-                    className={forms.secondaryButton}
-                    onClick={() => {
-                      setStateFilter("ALL");
-                      setLevelFilter("ALL");
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                }
-              />
             ) : (
-              <NowContext.Provider value={now}>
               <DataTable
-                label="Current matches"
-                testId="dashboard-signals"
-                rowTestId="dashboard-signal-row"
+                label="Monitor activity"
+                testId="dashboard-activity"
+                rowTestId="dashboard-activity-row"
                 clickableRows
                 columns={COLUMNS}
-                rows={visibleRows}
-                getRowKey={(row) => row.id}
+                rows={events}
+                getRowKey={(event) => event.id}
               />
-              </NowContext.Provider>
             )}
-            {/* What the rows above are, in one sentence, from the one shared copy source. Placed
-                inside the section so it travels with the signals rather than floating at the
-                bottom of a page that may also be showing market cards. */}
+            {activity.hasMore ? (
+              <div className={styles.more}>
+                <button
+                  type="button"
+                  className={forms.secondaryButton}
+                  onClick={activity.loadMore}
+                  disabled={activity.loadingMore}
+                  data-testid="dashboard-activity-more"
+                >
+                  {activity.loadingMore ? "Loading…" : "Show older activity"}
+                </button>
+              </div>
+            ) : null}
             <DisclosureNote id="signals" className={styles.disclosure} />
           </SectionCard>
         ) : null}
@@ -616,13 +357,8 @@ export function DashboardPage() {
 }
 
 /**
- * How fresh the matches are: the newest scan among the monitors shown, and a warning when any of
- * them is stale. A Dashboard is never labelled live when its scans are not current.
- *
- * Two treatments, because they are two different statements. `Updated 4 min ago` is reassurance —
- * quiet text beside the section's heading, where a reader can find it and nothing else has to make
- * room for it. Anything else is a caveat about what they are looking at, and keeps the badge it has
- * always had, because a stale or never-scanned Dashboard has to say so at a glance.
+ * How recently the Monitors shown were evaluated: the newest evaluation among them, and a warning
+ * when any of them is stale. Never labelled live.
  */
 function OverallFreshness({
   monitors,

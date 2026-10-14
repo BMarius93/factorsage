@@ -40,7 +40,7 @@ test.describe("not-found page", () => {
 
       await page.getByRole("link", { name: "Go to the Dashboard" }).click();
       await expect(page).toHaveURL("/");
-      await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+      await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     });
   }
 });
