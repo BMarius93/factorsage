@@ -377,6 +377,19 @@ Backtests continue to use closed historical observations according to the canoni
 
 Missing/warm-up/PIT-unavailable inputs remain `NOT_EVALUABLE`; monitoring must not replace them with zero, future data, or fabricated values.
 
+**A rule that reads an ETF has no live observation.** The stock side of a rule is decided against
+the live price; a Condition that names an ETF as its data source (`ai/product/strategies.md`,
+§ ETF-sourced Conditions) is decided only against that ETF's own **completed** session of the same
+date — its end-of-day bar finalized *and* read after it finalized. So during a trading session such
+a rule is `NOT_EVALUABLE` for the current observation, a level that needs it cannot newly match
+intraday, and it is decided on the first scan after the evening refresh confirms the ETF's bar.
+Yesterday's reading is never carried onto today. A level already ACTIVE stays latched through the
+undecidable hours, as for any `NOT_EVALUABLE`. The Monitor's detail says this once and gives each
+ETF's state — ready with its latest completed session, awaiting the session's bar, not synchronized,
+or never bootstrapped — so an ordinary wait is not mistaken for missing data. ETF bars are read from
+the stored benchmark history, never from the provider, and a fund that cannot be read degrades only
+the rules naming it, never the scan.
+
 ### How Monitor evaluation differs from a backtest
 
 Both run the same evaluator over the same frame projection, so operators, the 2% closeness
@@ -401,6 +414,10 @@ trading-day axis) are identical. The differences are the observation, not the la
 - **The last day of a backtest ending today may itself be an in-progress bar**, because the
   provider's EOD feed already lists the current session while it is open (see
   `ai/product/backtests.md`).
+- **An ETF-sourced Condition is the one input both engines read identically**: the ETF's completed
+  sessions, joined by exact date. On completed sessions a Monitor's reconstruction and a backtest
+  decide such a rule on the same numbers; the only difference is that a Monitor's *current*
+  observation has no completed ETF session until the evening.
 
 ## Intrinsic value and price-dependent metrics
 

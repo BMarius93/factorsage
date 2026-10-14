@@ -1,9 +1,13 @@
-# Strategy ETF Conditions — Architecture Audit and Implementation Plan
+# Strategy ETF Conditions — Architecture, Audit and Implementation Record
 
 ## Status
 
-**Phase 1 architecture audit, revised with the owner's final decisions (2026-10-13). Ready to
-implement; no application code has changed on this branch.**
+**Implemented (2026-10-14), in four phases on `feat/strategy-etf-conditions-v1`.** §1–§12 are the
+architecture audit and plan as revised with the owner's final decisions on 2026-10-13, kept as
+written: they are the reasoning the implementation followed. **§13 is the implementation record** —
+what was built, where it departs from the plan's wording, the measured cost, and what remains an
+operational precondition. Where §13 and an earlier section differ on a name or a shape, §13 is what
+the code does.
 
 `docs/decisions/strategy-etf-conditions-v1.md` is the accepted product decision and acceptance gate;
 this document is the technical design derived from it, in the role `strategy-builder.md` played for
@@ -289,8 +293,8 @@ The stored identity is the **benchmark code**; the ticker renders.
 `METRIC_KEYS` admits the key on those four kinds only, so every other kind — and any forged payload —
 is refused structurally; `parseMetric` validates the code against the catalog; `validatePredicate`
 refuses an ETF source in a Trigger slot with a dedicated code. New validation codes (names final at
-implementation): `SOURCE_NOT_SUPPORTED` (wrong metric kind / Trigger part), `SOURCE_UNKNOWN`
-(unknown code). `buildMetric`/`buildSignal` carry the field; `rekeyStrategyDefinition` and duplicate
+implementation — see §13: they landed as `SOURCE_INVALID` and `SOURCE_NOT_ALLOWED_IN_PART`):
+`SOURCE_NOT_SUPPORTED` (wrong metric kind / Trigger part), `SOURCE_UNKNOWN` (unknown code). `buildMetric`/`buildSignal` carry the field; `rekeyStrategyDefinition` and duplicate
 flow inherit it.
 
 ### 5.3 Identity, compatibility, rendering
@@ -495,3 +499,134 @@ occur in production; the branch is only gated as a whole.
 calculation adapter with oracle/parity tests) — pure, user-unreachable until later phases, and the
 place every correctness property is cheapest to prove. Its objective acceptance criteria are listed
 in §10.
+
+---
+
+## 13. Implementation record (2026-10-14)
+
+### 13.1 What was built, by phase
+
+| Phase | Commit subject | Content |
+| --- | --- | --- |
+| A | `feat(strategy): ETF condition sources — contracts, identity and the technical-calculation adapter` | `strategy-etf-sources.ts` + drift guard; the optional `source` through validation, normalization, identity, fingerprints, labels, menus and help; `benchmark-technicals.ts` |
+| B | `feat(backtest,monitor): evaluate ETF-sourced conditions end to end` | the `etf:<code>:…` operand family; `etf-frame-columns.ts`; `apps/worker/src/shared/etf-context.ts`; snapshot `etfSeries` pinning and the fail-closed parse; backtest and Monitor diagnostics; OpenAPI |
+| C | `feat(strategy-builder): Stock/ETF data source in a compact Metric picker` | `PickerPopover` shell, the redesigned `MetricPicker`, source-change semantics and the reset notice, the run-page and Monitor-detail diagnostics, Playwright on desktop and phone |
+| D | `feat(etf-conditions): fixtures, infrastructure proof, measured cost and documentation` | the 240-week floor-anchored ETF fixtures; the PostgreSQL + Redis suite; the two cost fixes of §13.3; the benchmark command; these documents |
+
+### 13.2 Where the code differs from the plan's wording
+
+- **Validation codes** are `SOURCE_INVALID` (a malformed source, an unknown source kind or an ETF
+  the catalog does not define) and `SOURCE_NOT_ALLOWED_IN_PART` (an ETF source on a Trigger). A
+  source on a metric kind that has none is refused structurally, as `UNKNOWN_FIELD`, because the
+  key simply is not one of that kind's keys.
+- **Diagnostics are a status per ETF, not counters per cause** (§7 proposed counters).
+  `BacktestEtfConditionDiagnosticsResponse` is `{code, ticker, status, firstSession?,
+  latestSession?, basisGeneration?}` with `status` one of `READY`, `NOT_BOOTSTRAPPED`,
+  `NOT_SYNCHRONIZED`, `NO_FINALIZED_SESSIONS`, `LOAD_FAILED`. Counting undecidable sessions per
+  cause would have meant threading a reason through the evaluator's tri-state result, which Decision
+  9 rules out ("tri-state semantics unchanged"); the fund's first and latest evaluable session say
+  where pre-listing and unfinalized sessions begin and end, and warm-up is a fixed property of each
+  metric that the Builder's help states. The rows are persisted with the run's result in one new
+  nullable JSONB column, `BacktestRunSummary.etfConditionDiagnostics`
+  (migration `20261013120000_backtest_etf_condition_diagnostics`), and served as
+  `result.etfConditions`. A Monitor's are derived at read time and never stored:
+  `MonitorDetailResponse.etfSources`, with `READY`, `AWAITING_SESSION`, `NOT_SYNCHRONIZED`,
+  `NOT_BOOTSTRAPPED`.
+- **The anchor gate is complete coverage from the floor, not merely coverage that begins there.**
+  `missingBenchmarkCoverage(series, { from: MARKET_OVERVIEW_HISTORY_FLOOR, to: coverageEnd })` must
+  be empty. An interior coverage gap is unverified history exactly as a missing prefix is, so it is
+  refused the same way. The scheduled refresh always reads from the previous coverage end, so its
+  coverage stays one interval.
+- **A Monitor's ETF read failure degrades the conditions naming that ETF; it never fails the cycle**
+  (§4.1 proposed this; recorded here because it is a deliberate difference from a quote outage).
+- **The picker's ETF group names are the catalog's `label`s** — `Benchmarks`, `Sector Performance`,
+  `Macro & Alternatives` — per Decision 8, where the product decision's prose says `Sectors`. One
+  word, one line to change (`MetricPicker.tsx`), and the owner's call.
+- **QA fixtures.** The nineteen `ETF_*` fixtures hold 240 weeks with floor-anchored coverage, so
+  every one of the 21 metrics, the 200-week pair included, is evaluable on the hermetic stack. The
+  `SP500` fixture is unchanged: it is the on-demand backtest benchmark and keeps its exact coverage
+  claim, so **`SPY` reads `NOT_BOOTSTRAPPED` on the hermetic stack** — which is what the browser
+  suite uses to prove the unavailable path.
+
+### 13.3 Measured cost
+
+The plan's §9 estimate ("kernels are linear") was **wrong before measurement and is right after
+two fixes**. Measured with `pnpm --filter @intrinsic/worker bench:etf-context` — the production
+read and compute path over real PostgreSQL and Redis, twenty synthetic ETFs of 8,792 bars each
+(1993-01-29 to 2026-10-12, 34 year chunks) — on an Apple M1, 8 cores, 8 GB, Node 22, local Docker
+PostgreSQL and Redis, 2026-10-14. Local values, not universal ones.
+
+| What | Before | After |
+| --- | --- | --- |
+| Computing one ETF's context (in memory) | 757 ms | **55 ms** |
+| Reading and computing one context, warm Redis | 788 ms | **89 ms** |
+| All twenty, warm Redis | 15.8 s | **1.8 s** |
+
+The two causes, both fixed at the root with the same answers proven by test:
+
+1. `latestCompletedWeeklyBar` — the shared stock helper the daily materializer calls once per
+   trading day — filtered and sorted every weekly bar each time: days × weeks, fifteen million
+   comparisons for a thirty-four-year history. `completedWeeklyBarLookup` orders the bars once and
+   binary-searches each day. `weekly.test.ts` holds it to the definition on every calendar day,
+   for unordered and tied bars, and bounds its comparisons. Stock hydration computes the same
+   state through the same function, so it is faster by the same factor; no value changes, so
+   `DERIVED_STATE_REVISION` does not.
+2. `finalizedBenchmarkBars` converted every stored bar's date to its New York close. A later
+   session finalizes later, so the answer is one cut-off date (`latestFinalizedBenchmarkSession`),
+   found in a step or two. `benchmark-technicals.test.ts` holds it to the per-bar rule across both
+   daylight-saving changes and delays from zero to three days.
+
+The rest, after the fixes:
+
+| Measurement | Value |
+| --- | --- |
+| Context after a Redis loss (rebuilt and republished from PostgreSQL) | 333 ms per ETF |
+| Context from PostgreSQL alone (projection cannot be republished) | 279 ms per ETF |
+| Reads per ETF per run or cycle | 4 service reads, 34 Redis year chunks |
+| Reads while joining columns onto frames | 0 |
+| Provider requests on the evaluation path | 0 |
+| Memory, one context | 1.48 MB of typed arrays; 2.0 MB retained, measured |
+| Memory, all twenty | 29.5 MB of typed arrays; about 40 MB retained |
+| Joining an ordinary strategy's 12 ETF columns onto one year-window frame | about 0.1 ms, 24 KB |
+| The same over 500 securities × 30 year windows | 1.2–1.6 s in total |
+| Joining every fund's every metric (420 columns) onto one frame | about 3 ms, 0.85 MB |
+
+So an ordinary run pays about 0.1 s per distinct ETF once, and a worst-case definition naming all
+twenty pays under 2 s and about 40 MB for the duration of the run or cycle. Nothing scales with
+securities × rules except the column join, which is memory-bound and reads nothing. The
+per-process memoization §9 kept in reserve is **not built**: at these costs it would buy nothing a
+Monitor cycle needs, and it would be the product's first cache of a derived benchmark value.
+
+### 13.4 Evidence, and where it lives
+
+| Claim | Suite |
+| --- | --- |
+| 20 funds × 21 metrics, every refusal, fingerprints byte-identical for stock documents | `packages/contracts/src/strategies.etf-sources.test.ts`; `apps/api/src/strategies/strategy-etf-sources.test.ts` |
+| Stock/ETF bit-parity, independent MA/RSI/RVOL/weekly oracles, finalization, anchor, listing week, warm-up, no look-ahead | `packages/stock-data/src/benchmark-technicals.test.ts` |
+| BUY, SELL and FINAL EXIT on hand-derived sessions; an unavailable ETF; a fund listing inside the period; a missing session never substituted; one read per distinct ETF; snapshot refusals | `apps/worker/src/backtest/backtest-etf-conditions.test.ts` |
+| Monitor: undecidable intraday and while the bar is unconfirmed, activation after the confirmed close, retry idempotence, per-source latches, reconstruction agreeing with the backtest frame | `apps/worker/src/monitor/monitor-etf-conditions.integration.test.ts` |
+| Identical context warm, after a Redis loss and from PostgreSQL alone; re-base as one generation; unanchored series refused; watermark through the real refresh; reads scale with distinct ETFs; zero provider requests | `apps/worker/src/shared/etf-context.integration.test.ts` |
+| Stock-only regression | every pre-existing worker suite composes `stubEtfContexts()`, whose loader throws on any call |
+| The Builder, desktop and phone | `apps/web/e2e/strategies/etf-conditions.user.spec.ts` |
+| The real stack end to end: an always-true ETF rule trades exactly as the control, an always-false one never trades, a 200-week rule waits 200 weeks, an un-bootstrapped fund is reported | `apps/web/e2e/backtests/etf-conditions.user.spec.ts` |
+
+### 13.5 What remains outside the code
+
+- **Production bootstrap.** An ETF is evaluable only once `pnpm benchmarks:prewarm --group
+  market-overview` has loaded it from the floor and the `market-data` refresh child keeps its tail.
+  Whether that has run in a given environment is not recorded in the repository
+  (`docs/decisions/etf-market-data-v1.md` §6). Until it has, every ETF rule there reads
+  `NOT_BOOTSTRAPPED` — visibly, on the run and on the Monitor — and matches nothing. `SP500` in
+  particular is also loaded on demand by backtests, from the run's own start date: on-demand
+  coverage alone never anchors it.
+- **The migration** is additive (one nullable column) and needs no backfill: a run completed before
+  it has no ETF rules to describe.
+- **Replace-not-version reproducibility** (§6): a snapshot pins each ETF's series and records the
+  basis generation at submission, and the result records the generation read; a tail correction or
+  a re-base between two executions of one snapshot can still change the outcome, exactly as it can
+  for a stock.
+- **A backtest ending today** may evaluate the stock's in-progress last bar while withholding the
+  ETF side of a rule for the same session (§4.1). Deliberate, following Decision 1.
+- **Popover above the rule.** A content-sized popover that opens above its row is anchored at its
+  lower edge, so changing family moves its upper edge. Beneath the row nothing moves. The
+  alternative is a held height, which is the blank panel the decision removed.

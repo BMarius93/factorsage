@@ -11,10 +11,19 @@ import type {
   Security,
 } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
-import type {
-  BenchmarkHistory,
-  BenchmarkRefreshState,
+import {
+  buildBenchmarkTechnicalContext,
+  projectEvaluationFrame,
+  withEtfOperandColumns,
+  type BenchmarkHistory,
+  type BenchmarkRefreshState,
 } from "@intrinsic/stock-data";
+import {
+  collectEtfOperands,
+  collectOperands,
+  Evaluability,
+  evaluateMarketSignal,
+} from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { EtfContextLoader } from "../shared/etf-context.js";
@@ -330,7 +339,7 @@ async function signalsOf(monitorId: string) {
 
 describe("ETF-sourced Conditions in a Monitor cycle", () => {
   it(
-    "holds the mixed level NOT_EVALUABLE intraday, activates it once the ETF bar is final and synchronized, " +
+    "holds the mixed level NOT_EVALUABLE intraday and while the bar is unconfirmed, activates it once the ETF bar is final and synchronized, " +
       "and never disturbs the stock-only level",
     async () => {
       // XLK's history ends on Friday the 27th, synchronized after Friday finalized.
@@ -351,16 +360,26 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       expect(signals.map((signal) => signal.levelId)).toEqual(["buy-stock"]);
       const stockSignalId = signals[0]!.id;
 
-      // The same Monday evening: the refresh landed Monday's bar and the watermark proves a read
-      // after it finalized. XLK's RSI on a strictly rising history is exactly 100, so the mixed
-      // level now decides TRUE live and opens its own occurrence.
+      // Monday evening, past the close and the publication delay, with a Monday bar already
+      // stored — but the watermark still says Friday: no read has confirmed that bar since the
+      // session finalized, so it may be the provisional mid-session reading. The clock alone is
+      // not evidence, and the mixed level stays undecidable.
       etfLoader.barsBySeries.set(
         "series-etf_xlk",
         etfBars("series-etf_xlk", weekdaysBetween("2026-01-05", "2026-03-02")),
       );
+      summary = await cycleOf(loader, SESSION_EVENING).run(2);
+      expect(summary.signalsEmitted).toBe(0);
+      expect(
+        (await signalsOf(monitorId)).map((signal) => signal.levelId),
+      ).toEqual(["buy-stock"]);
+
+      // The refresh then reads the tail after Monday finalized, and the watermark proves it.
+      // XLK's RSI on a strictly rising history is exactly 100, so the mixed level now decides
+      // TRUE live and opens its own occurrence.
       etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
 
-      summary = await cycleOf(loader, SESSION_EVENING).run(2);
+      summary = await cycleOf(loader, SESSION_EVENING).run(3);
       expect(summary.signalsEmitted).toBe(1);
       signals = await signalsOf(monitorId);
       expect(signals.map((signal) => signal.levelId).sort()).toEqual([
@@ -378,7 +397,7 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       ).toBe(stockSignalId);
 
       // A retried evening cycle re-derives the same conclusions and writes nothing new.
-      summary = await cycleOf(loader, SESSION_EVENING).run(3);
+      summary = await cycleOf(loader, SESSION_EVENING).run(4);
       expect(summary.signalsEmitted).toBe(0);
       expect(summary.signalsResolved).toBe(0);
       expect((await signalsOf(monitorId)).length).toBe(2);
@@ -398,7 +417,7 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
     etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
 
     const { monitorId, strategyId, loader } = await createFixtureMonitor();
-    await cycleOf(loader, SESSION_EVENING).run(4);
+    await cycleOf(loader, SESSION_EVENING).run(5);
     const before = await signalsOf(monitorId);
     expect(before.map((signal) => signal.levelId).sort()).toEqual([
       "buy-mixed",
@@ -417,7 +436,7 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       },
     });
 
-    const summary = await cycleOf(loader, SESSION_EVENING).run(5);
+    const summary = await cycleOf(loader, SESSION_EVENING).run(6);
     expect(summary.signalsResolved).toBe(1);
     expect(summary.signalsEmitted).toBe(1);
     const after = await signalsOf(monitorId);
@@ -435,4 +454,131 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       after.find((signal) => signal.levelId === "buy-stock")!.id,
     ).toBe(stockSignalId);
   }, 30_000);
+
+  it(
+    "reconstructs a mixed level's activation on the completed session a backtest evaluation first holds",
+    async () => {
+      const { monitorId, security, loader } = await createFixtureMonitor();
+
+      // The stock: flat at 100 for twenty sessions, then rising by one a session. Its Price is
+      // equal to its SMA 20D — not above it — through Friday the 20th, and above it from Monday
+      // the 23rd: the first rising close lifts the price by 1 and the average by a twentieth.
+      const stock = flatHistory(security.id, 100).map((price, index) => {
+        const close = index < 20 ? 100 : 100 + (index - 19);
+        return { ...price, open: close, high: close, low: close, close };
+      });
+      expect(stock[19]!.date).toBe("2026-02-20");
+      expect(stock[stock.length - 1]!.date).toBe("2026-02-27");
+      loader.prices.set(security.id, stock);
+      loader.currentPrice = 106;
+
+      // XLK: lists on Thursday the 5th of February and only rises, so its RSI 14D first exists —
+      // at exactly 100 — on its fifteenth session, Wednesday the 25th.
+      const xlkSessions = weekdaysBetween("2026-02-05", "2026-03-02");
+      expect(xlkSessions[14]).toBe("2026-02-25");
+      etfLoader.barsBySeries.set(
+        "series-etf_xlk",
+        etfBars("series-etf_xlk", xlkSessions),
+      );
+      etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
+
+      // One evening cycle on a Monitor with no state: both levels already match, so each is
+      // reconstructed back to the session its occurrence began on.
+      const summary = await cycleOf(loader, SESSION_EVENING).run(7);
+      expect(summary.levelsReconstructed).toBe(2);
+      const signals = await signalsOf(monitorId);
+      const activation = (levelId: string) => {
+        const signal = signals.find((row) => row.levelId === levelId)!;
+        return {
+          since: signal.observationDate.toISOString().slice(0, 10),
+          reconstructed: signal.reconstructed,
+          open: signal.resolvedAt === null,
+        };
+      };
+      // The stock-only level began the session the stock rule first held …
+      expect(activation("buy-stock")).toEqual({
+        since: "2026-02-23",
+        reconstructed: true,
+        open: true,
+      });
+      // … and the mixed level two sessions later, when XLK's RSI first existed: the 23rd and the
+      // 24th were undecidable for it, never matched on the stock half alone.
+      expect(activation("buy-mixed")).toEqual({
+        since: "2026-02-25",
+        reconstructed: true,
+        open: true,
+      });
+
+      // The backtest's own evaluation of the same completed sessions: the canonical backtest frame
+      // over the same stock closes, the same ETF context joined by the same exact-date rule, and
+      // the one market evaluator both engines call. It first holds on the very session the Monitor
+      // recorded.
+      const definition = definitionOf("ETF_XLK");
+      const context = buildBenchmarkTechnicalContext({
+        seriesId: "series-etf_xlk",
+        history: await etfLoader.readFullBenchmarkHistory(
+          await etfLoader.getSeries("series-etf_xlk"),
+        ),
+        refreshState: await etfLoader.benchmarkRefreshState(
+          await etfLoader.getSeries("series-etf_xlk"),
+        ),
+        missingFromFloor: [],
+        now: SESSION_EVENING,
+        publicationDelayMs: etfContexts.publicationDelayMs,
+      });
+      expect(context.status).toBe("READY");
+      if (context.status !== "READY") {
+        return;
+      }
+      const closes = stock.map((price) => price.close);
+      const backtestFrame = withEtfOperandColumns(
+        projectEvaluationFrame({
+          security,
+          prices: stock,
+          // The stock's SMA 20D as its materialized column holds it: the mean of twenty closes.
+          derived: stock.map((price, index) => ({
+            securityId: security.id,
+            date: price.date,
+            ...(index >= 19
+              ? {
+                  sma20d:
+                    closes
+                      .slice(index - 19, index + 1)
+                      .reduce((sum, close) => sum + close, 0) / 20,
+                }
+              : {}),
+          })),
+          operands: collectOperands(definition),
+          periodStart: stock[0]!.date,
+        }).frame,
+        [...(collectEtfOperands(definition).get("ETF_XLK") ?? [])],
+        new Map([["ETF_XLK" as const, context.snapshot]]),
+      );
+      const firstHeld = (levelId: string) => {
+        const signal = definition.buyLevels.find(
+          (level) => level.id === levelId,
+        )!.signal;
+        return backtestFrame.dates.find(
+          (_, index) =>
+            evaluateMarketSignal(signal, backtestFrame, index) ===
+            Evaluability.TRUE,
+        );
+      };
+      expect(firstHeld("buy-stock")).toBe(activation("buy-stock").since);
+      expect(firstHeld("buy-mixed")).toBe(activation("buy-mixed").since);
+      // And between the two dates the mixed level is undecidable in the backtest frame as well —
+      // not false, and not true on the stock half alone.
+      const mixed = definition.buyLevels[1]!.signal;
+      for (const date of ["2026-02-23", "2026-02-24"]) {
+        expect(
+          evaluateMarketSignal(
+            mixed,
+            backtestFrame,
+            backtestFrame.dates.indexOf(date),
+          ),
+        ).toBe(Evaluability.NOT_EVALUABLE);
+      }
+    },
+    30_000,
+  );
 });

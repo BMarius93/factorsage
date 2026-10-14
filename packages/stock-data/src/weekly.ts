@@ -107,6 +107,56 @@ export function latestCompletedWeeklyBar(
 }
 
 /**
+ * {@link latestCompletedWeeklyBar} for many dates over one set of bars.
+ *
+ * The daily materializer asks the question once per trading day. Answering each by filtering and
+ * sorting every weekly bar again made a thirty-year history cost its days times its weeks — some
+ * fifteen million comparisons, most of a second — for an answer that only ever moves forward. Here
+ * the bars are ordered once and each date is a binary search, so the same history costs its days
+ * times the logarithm of its weeks.
+ *
+ * The answer is the same bar, in every case, including the degenerate ones: bars given in any
+ * order, a date before the first eligible bar (`undefined`), and several bars sharing one eligible
+ * date, where the first of them as given is returned exactly as the sort in
+ * `latestCompletedWeeklyBar` returns it. `weekly.test.ts` holds the two to each other.
+ */
+export function completedWeeklyBarLookup(
+  bars: readonly WeeklyPrice[],
+): (asOf: LocalDate) => WeeklyPrice | undefined {
+  // Ascending, and stable: bars sharing an eligible date keep the order they were given in.
+  const ordered = [...bars].sort((left, right) =>
+    left.eligibleDate.localeCompare(right.eligibleDate),
+  );
+  return (asOf) => {
+    // The first position whose bar is not yet eligible at `asOf`.
+    let low = 0;
+    let high = ordered.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (compareDates(ordered[middle]!.eligibleDate, asOf) <= 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    let index = low - 1;
+    if (index < 0) {
+      return undefined;
+    }
+    while (
+      index > 0 &&
+      compareDates(
+        ordered[index - 1]!.eligibleDate,
+        ordered[index]!.eligibleDate,
+      ) === 0
+    ) {
+      index -= 1;
+    }
+    return ordered[index];
+  };
+}
+
+/**
  * Weekly moving-average values of one completed week, keyed by their materialization field.
  *
  * A field is absent while the indicator has not warmed up. Absent never means zero: a week with

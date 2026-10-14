@@ -9,14 +9,14 @@ document are product decisions. The complete metric compatibility matrix is stil
 Coding agents must not silently fill gaps in the matrix or turn technical implementation choices
 into new product semantics.
 
-## ETF-sourced Strategy Conditions (accepted 2026-10-13)
+## ETF-sourced Strategy Conditions (accepted 2026-10-13, implemented)
 
-See [Strategy ETF Conditions V1](../../docs/decisions/strategy-etf-conditions-v1.md)
-for the **accepted product scope and test gate** for optional, per-condition ETF
-sources (all 20 Dashboard ETFs; 21 existing compatible technical metrics).
-It does **not** alter the currently implemented Strategy contract or grant
-new metric/Trigger compatibility until implementation, validation and review.
-All pre-existing stock and position semantics remain authoritative.
+A Condition may read one of the twenty Dashboard ETFs instead of the evaluated stock:
+`XLK · RSI 14D is above 50`. [Strategy ETF Conditions V1](../../docs/decisions/strategy-etf-conditions-v1.md)
+is the product decision and [`strategy-etf-conditions.md`](../architecture/strategy-etf-conditions.md)
+the architecture; § ETF-sourced Conditions below states the compatibility rules. An ETF is a
+**source of evaluation data** only — never a member of a Stock List, a position or a comparison
+benchmark — and a rule with no source reads the stock exactly as it always did.
 
 ## Domain boundary
 
@@ -637,6 +637,50 @@ Additional technical metrics, fundamentals and other derived metrics must be add
 their own compatible Value types and operators. Do not infer compatibility merely because two
 values are numeric.
 
+### ETF-sourced Conditions
+
+Every row of the table above describes a metric of the **evaluated stock**. Four of them may instead
+name one of the twenty Dashboard ETFs as their **data source**, as a Condition only:
+
+| Metric read from an ETF           | Condition operators                   | Trigger | Value                                                                    | Allowed in            |
+| --------------------------------- | ------------------------------------- | ------- | ------------------------------------------------------------------------ | --------------------- |
+| Price                             | `is above`, `is below`, `is close to` | never   | one of **that ETF's** 14 moving averages — never an intrinsic value      | BUY, SELL, FINAL EXIT |
+| Moving average (14 series)        | `is above`, `is below`, `is close to` | never   | **that ETF's** compatible moving averages — same timeframe, never itself | BUY, SELL, FINAL EXIT |
+| RSI 7D / 14D / 21D                | `is above`, `is below`                | never   | numeric threshold `1..100`                                               | BUY, SELL, FINAL EXIT |
+| RVOL 10 / 20 / 50                 | `is above`, `is below`                | never   | multiple `>= 0`                                                          | BUY, SELL, FINAL EXIT |
+
+That is 1 + 14 + 3 + 3 = **21 metrics** for each of **20 funds**, and nothing else: Fundamentals,
+Valuation Ratios, Margin of Safety, Insider Activity, Congressional Trading, Gain and Loss describe
+a company or a position and have no ETF form. The rules that follow from the source:
+
+- **The source is part of the metric's identity.** `RSI 14D is above 50`, `XLK · RSI 14D is above
+  50` and `XLF · RSI 14D is above 50` are three conditions: all may be ANDed in one Signal, and each
+  fingerprints — and therefore versions, and latches in a Monitor — separately. A rule with no
+  source is the stock's, and serializes exactly as it did before sources existed.
+- **The stored identity is the benchmark code**, never the ticker: `SPY` is the `SP500` series,
+  `XLK` is `ETF_XLK`. The ticker is display. The twenty funds, their three groups and their names
+  are the Dashboard's own catalog (`MARKET_OVERVIEW_ETF_GROUPS`), projected into
+  `@intrinsic/contracts` and held identical to it by a drift test — there is no second list.
+- **A series Value belongs to the metric's own source.** `SPY · Price is above SMA 200D` compares
+  SPY's close with SPY's 200-day average. There is no `Stock vs ETF` comparison.
+- **No ETF-sourced Trigger exists in V1.** The Builder shows the ETF choice disabled on a Trigger
+  row and says why; a stored or submitted document naming one is refused, never evaluated.
+- **An ETF rule is evaluated on the ETF's own completed session of the same date.** The ETF's bar
+  must be finalized — its close plus the publication delay has passed — **and** read after that
+  (the series' tail watermark). On any session the ETF has no such bar — before the fund listed,
+  inside an indicator's warm-up, a session it did not trade, or today before the evening refresh —
+  the rule is `NOT_EVALUABLE`, never decided on an earlier session's reading. A Monitor therefore
+  cannot open a mixed Stock + ETF signal intraday; it opens on the first scan after the ETF's
+  end-of-day bar is confirmed.
+- **An ETF without its bootstrapped history is unavailable, visibly.** Its rules never match, and
+  the backtest result and the Monitor's detail say so per fund rather than looking like a strategy
+  that found nothing.
+- **Changing a rule's source keeps what it can.** The metric is kept wherever the new source offers
+  the same identity (`RSI 14D` → `XLK · RSI 14D` → `XLF · RSI 14D`), with its Condition and Value
+  when they are still valid. Where they are not — an ETF's Price cannot be compared with an
+  intrinsic value — they are reset to the metric's own starting rule and the row says so
+  (`Value was reset to match GLD · Price.`) until the rule itself is next edited.
+
 ### Fundamental Metrics
 
 One metric kind, `FUNDAMENTAL`, parameterized by the stable identity of one of the fifteen metrics in
@@ -901,20 +945,40 @@ Each Signal visually separates:
 - **Conditions** — zero or more rows, combined with AND;
 - **Trigger (optional)** — zero or one row.
 
-### Authoring a rule: Category -> Metric -> Configuration -> Condition -> Value
+### Authoring a rule: Data source -> Metric -> Configuration -> Condition -> Value
 
-A row reads as three controls — **Metric | Condition | Value** — and names its Metric in two steps
-inside the one Metric control rather than in one long list (owner decision, 2026-10-11; it replaced
-the separate Category and Metric selects of 2026-09-28). The control opens a picker showing every
-**Category** at once — Price, Moving averages, Oscillators, Volume, Valuation, Fundamentals,
-Position, Insider activity, Congressional trading — and, below them, the **Metrics** of the category
-being shown. Both come from the registry, so a category the level or the half of the Signal cannot
-use is simply absent: Position (Gain, Loss) in a BUY level, and Volume, Fundamentals and both
-alternative-data categories in a Trigger row. There is no search.
+A row reads as three controls — **Metric | Condition | Value** — and everything about *what* is
+measured lives inside the one Metric control (owner decision, 2026-10-13; it supersedes the
+nine-category picker of 2026-10-11, for the stock and for an ETF alike). The control opens a compact
+picker with two parts:
 
-- The category is a property of the metric, never stored beside it, so the picker can never hold a
-  category and a metric that disagree. Showing a category changes nothing; choosing a metric is the
-  edit, and closes the picker. Reopening it shows the chosen metric's category with the metric marked.
+1. **Data source** — `Stock` (the default: the evaluated security) or `ETF`, with one of the twenty
+   Dashboard funds chosen from a grouped list (Benchmarks, Sector Performance, Macro & Alternatives).
+   A Trigger row shows the ETF choice disabled, with the reason beside it.
+2. **Metric library** — the source's families as tabs: **Technical**, **Fundamentals**,
+   **Valuation**, **Activity** and, where a position exists (SELL, FINAL EXIT), **Position**.
+   A family with several categories lists them as expandable subgroups, one open at a time:
+   Technical holds Price, Moving averages, Oscillators and Volume; Activity holds Insider activity
+   and Congressional trading. An ETF offers Technical alone.
+
+Families, subgroups, funds and metrics all come from the registry, so anything a level kind, a half
+of a Signal or a source cannot use is simply absent: Position in a BUY level; Volume, Fundamentals
+and Activity in a Trigger row; everything but Technical under an ETF. There is no search.
+
+The picker is as tall as what it shows and never taller than its cap: `Price` is one row, not a
+panel of blank space, and a long family scrolls inside its own list while the source and the tabs
+stay put. On a phone it is a bottom sheet.
+
+- The family and the category are properties of the metric, never stored beside it, so the picker
+  can never hold a family, a category and a metric that disagree. Browsing a family or a subgroup
+  changes nothing; choosing a metric is the edit, and closes the picker. Reopening it shows the
+  rule's own source, fund, family and subgroup with the metric marked.
+- Changing the **source or the fund** is an edit made at once when the new source offers the rule's
+  own metric — the metric is kept — and otherwise changes nothing until a metric is chosen, which
+  the picker says (`ROIC TTM is read from the stock only. Choose a metric below to read XLV
+  instead.`).
+- The collapsed control names the source with the metric — `XLK · RSI 14D` — so two rules reading
+  different sources cannot be mistaken for each other.
 - A new row is a complete rule: the first category's first metric (`Price`), with that metric's
   default Condition and Value. There is no row without a valid category and metric.
 - Choosing a metric of **another category** starts that metric's own rule: its default Condition,
@@ -936,8 +1000,9 @@ alternative-data categories in a Trigger row. There is no search.
   is configuration; a filter appears only when it narrows the metric.
 
 One canonical sentence describes a rule everywhere — the Strategy logic preview, a backtest's trade
-reasons and the Dashboard: the metric's identity, the operator and the Value, then the configuration
-in parentheses — `Insider sellers is above 2 (180D · CEO, CFO)`. Enclosed, a configuration's own
+reasons and the Dashboard: the metric's identity, led by its ETF when it reads one, the operator and
+the Value, then the configuration in parentheses — `XLK · RSI 14D is above 50`,
+`Insider sellers is above 2 (180D · CEO, CFO)`. Enclosed, a configuration's own
 comma list can never be read as part of a list of Conditions around it. The row, the Configure dialog, the
 explanation panel and that sentence are all derived from the same stored metric, so none of them can
 disagree with another or with what a backtest or Monitor evaluates.

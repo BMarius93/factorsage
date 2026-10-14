@@ -13,6 +13,7 @@ import {
   benchmarkTechnicalValueOn,
   buildBenchmarkTechnicalContext,
   finalizedBenchmarkBars,
+  latestFinalizedBenchmarkSession,
   type BenchmarkTechnicalContext,
   type BenchmarkTechnicalSnapshot,
 } from "./benchmark-technicals.js";
@@ -274,6 +275,76 @@ describe("finalized-session synchronization (owner decision 1)", () => {
     expect(kept.map((bar) => bar.date)).toEqual(dates.slice(0, 4));
   });
 
+  it("keeps exactly the bars the per-session rule keeps, at every instant and delay", () => {
+    // The rule, stated per bar: the session's close plus the delay has passed, and the watermark
+    // is at or after that instant. The implementation finds one cut-off session instead of
+    // converting every bar's date; this holds it to the rule across both daylight-saving changes,
+    // a delay of zero, an ordinary one, and ones longer than a day.
+    const hour = 60 * 60 * 1000;
+    const rule = (
+      rows: readonly BenchmarkDailyPrice[],
+      now: Date,
+      syncedAt: Date,
+      delayMs: number,
+    ) =>
+      rows.filter((row) => {
+        const finalizedAt = benchmarkSessionFinalizedAt(row.date, delayMs).getTime();
+        return finalizedAt <= now.getTime() && finalizedAt <= syncedAt.getTime();
+      });
+    for (const start of ["2026-03-02", "2026-10-26", "2026-07-06"]) {
+      const window = barsOn(sessions(start, 15));
+      const reversed = [...window].reverse();
+      const first = Date.parse(`${start}T00:00:00.000Z`) - 2 * 24 * hour;
+      for (const delayMs of [0, DELAY_MS, 5 * hour, 30 * hour, 72 * hour]) {
+        for (let step = 0; step < 24 * 26; step += 7) {
+          const now = new Date(first + step * hour + 17 * 60 * 1000);
+          for (const lag of [0, 7, 100]) {
+            const syncedAt = new Date(now.getTime() - lag * hour);
+            const input = {
+              refreshState: { lastTailSyncAt: syncedAt.toISOString() },
+              now,
+              publicationDelayMs: delayMs,
+            };
+            expect(
+              finalizedBenchmarkBars({ rows: window, ...input }),
+              `${start} +${step}h delay ${delayMs} lag ${lag}h`,
+            ).toEqual(rule(window, now, syncedAt, delayMs));
+            // Order is the caller's: nothing here assumes ascending rows.
+            expect(finalizedBenchmarkBars({ rows: reversed, ...input })).toEqual(
+              rule(reversed, now, syncedAt, delayMs),
+            );
+          }
+        }
+      }
+    }
+    // A watermark ahead of the clock proves nothing the clock has not reached.
+    const friday = dates[4]!;
+    const beforeFridayFinal = new Date(
+      benchmarkSessionFinalizedAt(friday, DELAY_MS).getTime() - 1,
+    );
+    expect(
+      latestFinalizedBenchmarkSession({
+        refreshState: { lastTailSyncAt: "2030-01-01T00:00:00.000Z" },
+        now: beforeFridayFinal,
+        publicationDelayMs: DELAY_MS,
+      }),
+    ).toBe(dates[3]);
+    expect(
+      latestFinalizedBenchmarkSession({
+        refreshState: { lastTailSyncAt: "2030-01-01T00:00:00.000Z" },
+        now: new Date(beforeFridayFinal.getTime() + 1),
+        publicationDelayMs: DELAY_MS,
+      }),
+    ).toBe(friday);
+    expect(
+      latestFinalizedBenchmarkSession({
+        refreshState: {},
+        now: new Date("2030-01-01T00:00:00.000Z"),
+        publicationDelayMs: DELAY_MS,
+      }),
+    ).toBeUndefined();
+  });
+
   it("is NOT_SYNCHRONIZED before any tail read has completed", () => {
     const context = buildBenchmarkTechnicalContext({
       seriesId: SERIES_ID,
@@ -352,6 +423,68 @@ describe("listing boundaries and exact-session alignment", () => {
     expect(
       benchmarkTechnicalValueOn(snapshot, twentieth.eligibleDate, "sma20w"),
     ).not.toBeNaN();
+  });
+
+  it("closes a holiday-shortened week on its own last session, counted by hand", () => {
+    // Twenty-three weeks from Monday 2026-01-05, a session's close being 100 plus its position.
+    // Two holidays: a Monday (week 3 opens on a Tuesday) and the Friday of week 21, so that week's
+    // last session — its weekly close, and the day it becomes eligible — is a Thursday.
+    const mondayHoliday = "2026-01-19" as LocalDate;
+    const fridayHoliday = "2026-05-29" as LocalDate;
+    const dates = sessions("2026-01-05", 23 * 5 - 2, [mondayHoliday, fridayHoliday]);
+    expect(dates[dates.length - 1]).toBe("2026-06-12");
+    const bars: BenchmarkDailyPrice[] = dates.map((date, position) => ({
+      seriesId: SERIES_ID,
+      date,
+      open: 100 + position,
+      high: 101 + position,
+      low: 99 + position,
+      close: 100 + position,
+      volume: 1_000_000,
+    }));
+    const snapshot = snapshotOf(readyContext(bars));
+
+    // The weeks, grouped here by plain calendar arithmetic rather than by the production
+    // aggregation: week N holds the sessions of days 7(N-1) .. 7(N-1)+4 after the first Monday.
+    const firstMonday = Date.parse("2026-01-05T00:00:00.000Z");
+    const weekOf = (date: LocalDate) =>
+      Math.floor(
+        (Date.parse(`${date}T00:00:00.000Z`) - firstMonday) / (7 * 86_400_000),
+      ) + 1;
+    const lastSession = new Map<number, LocalDate>();
+    const weeklyClose = new Map<number, number>();
+    bars.forEach((bar) => {
+      lastSession.set(weekOf(bar.date), bar.date);
+      weeklyClose.set(weekOf(bar.date), bar.close);
+    });
+    expect(lastSession.get(21)).toBe("2026-05-28"); // the Thursday
+    expect(weekday(lastSession.get(21)!)).toBe(4);
+    const meanOfWeeks = (from: number, to: number) => {
+      let sum = 0;
+      for (let week = from; week <= to; week += 1) {
+        sum += weeklyClose.get(week)!;
+      }
+      return sum / (to - from + 1);
+    };
+    const sma20wOn = (date: LocalDate) =>
+      benchmarkTechnicalValueOn(snapshot, date, "sma20w");
+
+    // No 20-week average before twenty weeks have completed: not on week 20's Thursday …
+    expect(Number.isNaN(sma20wOn("2026-05-21" as LocalDate))).toBe(true);
+    // … and from week 20's own last session it is the mean of weeks 1..20.
+    expect(lastSession.get(20)).toBe("2026-05-22");
+    expect(sma20wOn("2026-05-22" as LocalDate)).toBeCloseTo(meanOfWeeks(1, 20), 10);
+    // It is carried, unchanged, through the sessions of week 21 that precede its last one …
+    expect(sma20wOn("2026-05-27" as LocalDate)).toBeCloseTo(meanOfWeeks(1, 20), 10);
+    // … and moves on the Thursday the shortened week ends, using that Thursday's close — not on
+    // the Friday that never traded, and not a session early.
+    expect(sma20wOn("2026-05-28" as LocalDate)).toBeCloseTo(meanOfWeeks(2, 21), 10);
+    expect(Number.isNaN(sma20wOn(fridayHoliday))).toBe(true);
+    expect(sma20wOn("2026-06-01" as LocalDate)).toBeCloseTo(meanOfWeeks(2, 21), 10);
+    // Week 3, opened by a holiday, is still one week: twenty weeks were counted, not nineteen.
+    expect(weeklyClose.size).toBe(23);
+    // The last week's own close is never used: a later bar would be needed to prove it is over.
+    expect(sma20wOn("2026-06-12" as LocalDate)).toBeCloseTo(meanOfWeeks(3, 22), 10);
   });
 
   it("answers by exact session only: a missing session reads NaN, never a neighbour", () => {

@@ -179,9 +179,11 @@ export function createBacktestRuntime(
     coordinator,
     {
       // The product horizon, not the stock loader's raw-price retention. A benchmark carries no
-      // derived series (`AGENTS.md` invariant 13), so it has nothing to warm up: its history is
-      // the run's execution calendar and the comparison line, both of which live entirely inside
-      // the backtestable period.
+      // stored derived series (`AGENTS.md` invariant 13), so as a comparison benchmark it has
+      // nothing to warm up: its history is the run's execution calendar and the comparison line,
+      // both of which live entirely inside the backtestable period. An ETF a Condition reads is a
+      // different reader with its own, provider-free path (`etfContexts` below): it takes the whole
+      // stored history, because an indicator's warm-up begins at the fund's first session.
       historyYears: stockDataConfig.productHistoryYears,
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,

@@ -791,14 +791,16 @@ enum BenchmarkSeriesType {
 }
 
 /// Datasets a benchmark materializes. Deliberately separate from `StockDataset`: a benchmark has
-/// no fundamentals, no derived technicals and no intrinsic values, and must never acquire them
-/// merely because it shares a provider with stocks.
+/// no fundamentals, no stored derived technicals and no intrinsic values, and must never acquire
+/// them merely because it shares a provider with stocks. The technicals a Strategy Condition reads
+/// of an ETF are computed from `DAILY_PRICE` at evaluation time and never persisted
+/// (`ai/architecture/strategy-etf-conditions.md`).
 enum BenchmarkDataset {
   DAILY_PRICE
 }
 
 /// A system-owned comparison series. A benchmark is **not** a portfolio `Security`: it is never
-/// bought, never consumes cash or a position slot, and carries no derived series. Its identity is
+/// bought, never consumes cash or a position slot, and carries no stored derived series. Its identity is
 /// snapshotted into every `BacktestRun`, so replacing the data source behind a code (SPY today,
 /// a direct index tomorrow) can never reinterpret a completed run.
 /// Product identity a user selects. Deliberately carries nothing that decides what the numbers

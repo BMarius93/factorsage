@@ -2,6 +2,7 @@ import type { PrismaClient } from "@intrinsic/database";
 import {
   BENCHMARK_CATALOG,
   DEFAULT_BENCHMARK_CODE,
+  MARKET_OVERVIEW_HISTORY_FLOOR,
   MARKET_REFERENCE_SERIES,
   marketOverviewEtfs,
   type BenchmarkDailyPrice,
@@ -254,11 +255,18 @@ export async function seedQaMarketReferenceDataWith(
 }
 
 /**
- * Weeks of history for a market-overview ETF fixture: more than a year plus the read margin, so the
- * `1Y` return and its 53-point trend line exist, and the overview's bounded read is exercised against
- * a series holding more than it asks for.
+ * Weeks of history for a market-overview ETF fixture.
+ *
+ * Two readers size it. The Dashboard needs more than a year plus its read margin, so the `1Y` return
+ * and its 53-point trend line exist and the bounded read is exercised against a series holding more
+ * than it asks for. A Strategy Condition reading the ETF
+ * (`ai/architecture/strategy-etf-conditions.md`) needs far more: `SMA 200W` and `EMA 200W` have no
+ * value before 200 **completed** weeks, and a fixture that could never produce them would leave the
+ * two longest of the 21 ETF metrics untestable anywhere but in a unit test. 240 weeks gives each of
+ * them roughly nine months of values at the end of the series, over every period a seeded backtest
+ * of the 160-week QA security can cover.
  */
-const MARKET_OVERVIEW_ETF_WEEKS = 64;
+export const MARKET_OVERVIEW_ETF_WEEKS = 240;
 
 /**
  * The shape of each seeded ETF: a yearly drift, one slow cycle and a little day-to-day noise.
@@ -569,9 +577,17 @@ export async function seedQaMarketOverviewEtfDataWith(
     await store.saveDailyPriceSync({
       seriesId: benchmark.series.id,
       prices,
-      // Exactly what was generated, through today: the days after the last fixture session are a
-      // claim that nothing traded, the same claim the `SP500` fixture makes.
-      successfulCoverage: [{ from: first.date, to: today }],
+      // From the history floor, through today — the claim the product's own ETF bootstrap makes
+      // (`pnpm benchmarks:prewarm --group market-overview`), and deliberately *not* the `SP500`
+      // fixture's "exactly what was generated". These nineteen series are never hydrated on
+      // demand: only the bootstrap and the evening refresh write them, and both establish coverage
+      // from the floor. That coverage is what proves a fund's first stored bar is its first
+      // session, which a Strategy Condition requires before it will compute a single ETF technical
+      // — a series without it reads `NOT_BOOTSTRAPPED`. The fixture's funds simply "list" on its
+      // first generated session. The days after the last one are the same claim a weekend is:
+      // asked for, nothing traded.
+      successfulCoverage: [{ from: MARKET_OVERVIEW_HISTORY_FLOOR, to: today }],
+      // The tail watermark: every fixture session is finalized and proven read after it closed.
       syncedAt: new Date().toISOString(),
       tailDate: today,
       freshThrough: today,

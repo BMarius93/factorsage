@@ -1,6 +1,7 @@
-import type {
-  StrategyCondition,
-  StrategyDetailResponse,
+import {
+  STRATEGY_SCHEMA_VERSION,
+  type StrategyCondition,
+  type StrategyDetailResponse,
 } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
@@ -960,7 +961,7 @@ test.describe("ETF conditions in the Strategy Builder", () => {
       return body.issues.map(({ code, message }) => ({ code, message }));
     };
     const buyLevel = (signal: unknown) => ({
-      schemaVersion: 1,
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
       buyLevels: [{ id: "b1", percentage: 100, signal }],
       sellLevels: [],
     });

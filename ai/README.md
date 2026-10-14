@@ -128,6 +128,15 @@ their catalog, full Redis residency and its eviction-policy requirement, re-base
 bootstrap, the `market-data` refresh child and the provider-free worker read interface — read
 `../docs/decisions/etf-market-data-v1.md` as well.
 
+For a Strategy Condition that reads an **ETF** instead of the evaluated stock
+(`XLK · RSI 14D is above 50`) — the optional `source` on the four technical metric kinds, its
+identity and fingerprint, the provider-free ETF technical context computed per run or cycle, the
+finalized-and-synchronized session rule, snapshot pinning, the per-ETF diagnostics and the measured
+cost — read `architecture/strategy-etf-conditions.md` (its §13 is the implementation record) with
+the product decision `../docs/decisions/strategy-etf-conditions-v1.md`. `product/strategies.md`
+§ ETF-sourced Conditions states the compatibility rules and `architecture/strategy-builder.md` § 8
+the Metric picker.
+
 For backtest work — the engine, the worker, benchmark data or the run surfaces — read
 `product/backtests.md` first, then `architecture/backtest-execution.md` (the built lifecycle,
 progress model, durable job protocol, worker process model and the versioned execution

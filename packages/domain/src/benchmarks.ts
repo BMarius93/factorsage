@@ -4,9 +4,14 @@ import type { LocalDate } from "./stock-data.js";
  * Benchmarks are a first-class product concept, deliberately separate from `Security`.
  *
  * A benchmark is passive comparison data: it is never bought, never consumes portfolio cash, never
- * occupies a position slot, and carries no derived series — no moving averages, no oscillators, no
- * intrinsic values. Modelling it as `Security.isBenchmark = true` would drag every one of those
- * behaviours along with it, so it has its own identity and its own market-data tables.
+ * occupies a position slot, and carries no **stored** derived series — no moving averages, no
+ * oscillators, no intrinsic values are persisted or cached for it. Modelling it as
+ * `Security.isBenchmark = true` would drag every one of those behaviours along with it, so it has
+ * its own identity and its own market-data tables.
+ *
+ * A Strategy Condition that names an ETF as its data source reads technicals of that ETF. They are
+ * computed at evaluation time from the stored OHLCV, through the stock calculation methodology,
+ * and never stored (`ai/architecture/strategy-etf-conditions.md`).
  *
  * What is *shared* is the loading machinery: coverage reconciliation, the hydration lock, provider
  * retries and cooldown, durable PostgreSQL persistence and the yearly Redis projection all follow
@@ -113,7 +118,10 @@ export type BenchmarkDailyPrice = {
   volume: number;
 };
 
-/** The datasets a benchmark materializes. A benchmark has no fundamentals and no derived state. */
+/**
+ * The datasets a benchmark materializes. A benchmark has no fundamentals and no stored derived
+ * state: what a Strategy Condition reads of an ETF is computed from this one dataset each time.
+ */
 export const BENCHMARK_DATASETS = ["DAILY_PRICE"] as const;
 
 export type BenchmarkDataset = (typeof BENCHMARK_DATASETS)[number];

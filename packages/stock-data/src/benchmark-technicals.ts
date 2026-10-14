@@ -17,6 +17,7 @@ import type {
   BenchmarkHistory,
   BenchmarkRefreshState,
 } from "./benchmark-ports.js";
+import { addDays } from "./dates.js";
 import { buildDailyDerivedState } from "./derived-state.js";
 import { aggregateCompletedWeeks } from "./weekly.js";
 
@@ -115,11 +116,47 @@ export function benchmarkSessionFinalizedAt(
 }
 
 /**
- * The bars that are **finalized and synchronized** at `now`: the session's close plus the
- * publication delay has passed, and the durable tail watermark (`lastTailSyncAt`) proves the series
- * was read at or after that instant. The clock alone is deliberately insufficient — a stored bar
- * whose session has closed may still be the provisional mid-session reading the provider listed,
- * until a later read replaced or confirmed it.
+ * The newest session that is **finalized and synchronized** at `now`, or `undefined` when the
+ * series has never completed a tail read.
+ *
+ * A session qualifies when its close plus the publication delay has passed, and the durable tail
+ * watermark (`lastTailSyncAt`) proves the series was read at or after that instant. The clock alone
+ * is deliberately insufficient — a stored bar whose session has closed may still be the provisional
+ * mid-session reading the provider listed, until a later read replaced or confirmed it.
+ *
+ * A later session finalizes later, so "which sessions qualify" is one date: every session on or
+ * before it does and none after it. It is found by walking back from the instant itself — a step
+ * or two — rather than by converting every stored bar's date to its New York close, which for a
+ * thirty-year history cost more than all twenty indicators together.
+ */
+export function latestFinalizedBenchmarkSession(input: {
+  refreshState: BenchmarkRefreshState;
+  now: Date;
+  publicationDelayMs: number;
+}): LocalDate | undefined {
+  const syncedAt = input.refreshState.lastTailSyncAt;
+  if (syncedAt === undefined) {
+    return undefined;
+  }
+  const limit = Math.min(input.now.getTime(), Date.parse(syncedAt));
+  if (!Number.isFinite(limit)) {
+    return undefined;
+  }
+  // A session's close is on its own calendar date in New York, which is never earlier than the
+  // same date in UTC, so no session after the limit's UTC date can have finalized by it.
+  let session = addDays(new Date(limit).toISOString().slice(0, 10), 1);
+  while (
+    benchmarkSessionFinalizedAt(session, input.publicationDelayMs).getTime() >
+    limit
+  ) {
+    session = addDays(session, -1);
+  }
+  return session;
+}
+
+/**
+ * The bars that are **finalized and synchronized** at `now`: exactly those whose session is on or
+ * before {@link latestFinalizedBenchmarkSession}. No bar is, before any tail read has completed.
  *
  * Bars arrive ascending from the reader and leave ascending; the input is never mutated.
  */
@@ -129,18 +166,11 @@ export function finalizedBenchmarkBars(input: {
   now: Date;
   publicationDelayMs: number;
 }): BenchmarkDailyPrice[] {
-  const syncedAt = input.refreshState.lastTailSyncAt;
-  if (syncedAt === undefined) {
+  const latest = latestFinalizedBenchmarkSession(input);
+  if (latest === undefined) {
     return [];
   }
-  const syncedAtMs = Date.parse(syncedAt);
-  return input.rows.filter((row) => {
-    const finalizedAt = benchmarkSessionFinalizedAt(
-      row.date,
-      input.publicationDelayMs,
-    ).getTime();
-    return finalizedAt <= input.now.getTime() && finalizedAt <= syncedAtMs;
-  });
+  return input.rows.filter((row) => row.date <= latest);
 }
 
 /** A benchmark bar as the one calculation path consumes it: the series id stands as the identity. */

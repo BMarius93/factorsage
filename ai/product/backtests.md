@@ -265,6 +265,19 @@ submitted after the close produces a different final day. The stored result is s
 Whether `endDate` should instead be bounded to the last closed session is an open product decision
 recorded in `ai/architecture/deep-discovery.md` (investigation 5); do not silently change the bound.
 
+**An ETF a rule reads is decided on its completed sessions only.** A Strategy Condition may read one
+of the twenty Dashboard ETFs instead of the stock (`ai/product/strategies.md`, § ETF-sourced
+Conditions). The run's snapshot pins each such ETF's series beside the benchmark and the execution
+calendar, and the worker reads its stored history once per run — never from the provider. A rule
+reading an ETF is `NOT_EVALUABLE` on any session the ETF has no finalized, confirmed bar for: before
+the fund listed, inside an indicator's warm-up, a session it did not trade, and — unlike the stock
+side of the same rule — the current session while it is in progress. A completed run whose strategy
+read an ETF lists, per fund, whether its history could be read and over which sessions; a fund that
+could not be read (most often one whose history was never bootstrapped) is a warning beside the
+results, because its rules never matched and that must not look like a strategy that found nothing.
+The comparison benchmark and portfolio allocation are unaffected: an ETF a rule reads is never
+bought and never compared against.
+
 **What reproducibility does not mean here.** V1 does not keep raw provider responses. If the data
 provider later corrects a historical price, a _new_ backtest of the same period can produce a
 different answer; the completed run's stored results never change. The product does not offer

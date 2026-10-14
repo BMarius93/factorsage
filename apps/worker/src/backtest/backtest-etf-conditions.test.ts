@@ -103,16 +103,27 @@ const GLD_SPIKES: readonly LocalDate[] = ["2024-04-10", "2024-05-15"];
 /** The stock's own RSI fixture: 40 before April, 60 from April the 1st. */
 const STOCK_RSI_RISES = "2024-04-01";
 
-function derivedOn(date: LocalDate, stockRsi?: (date: LocalDate) => number): DailyDerivedState {
-  const row: DailyDerivedState = { securityId: SECURITY.id, date };
-  row.rsi14d = stockRsi ? stockRsi(date) : date >= STOCK_RSI_RISES ? 60 : 40;
+/** The stock's own RSI on one session; the security lets several stocks differ in one run. */
+type StockRsi = (date: LocalDate, securityId: string) => number;
+
+function derivedOn(
+  date: LocalDate,
+  stockRsi?: StockRsi,
+  securityId = SECURITY.id,
+): DailyDerivedState {
+  const row: DailyDerivedState = { securityId, date };
+  row.rsi14d = stockRsi
+    ? stockRsi(date, securityId)
+    : date >= STOCK_RSI_RISES
+      ? 60
+      : 40;
   return row;
 }
 
-function priceOn(date: LocalDate): DailyPrice {
+function priceOn(date: LocalDate, securityId = SECURITY.id): DailyPrice {
   const close = 100 + HISTORY.indexOf(date) * 0.05;
   return {
-    securityId: SECURITY.id,
+    securityId,
     date,
     open: close,
     high: close,
@@ -125,7 +136,7 @@ function priceOn(date: LocalDate): DailyPrice {
 class ProjectingFrameLoader implements BacktestFrameLoader {
   readonly operands: (readonly OperandKey[])[] = [];
 
-  constructor(private readonly stockRsi?: (date: LocalDate) => number) {}
+  constructor(private readonly stockRsi?: StockRsi) {}
 
   async prepareDailyEvaluationData(
     _security: Security,
@@ -153,8 +164,10 @@ class ProjectingFrameLoader implements BacktestFrameLoader {
     const dates = HISTORY.filter((date) => date >= from && date <= range.to);
     return projectEvaluationFrame({
       security,
-      prices: dates.map(priceOn),
-      derived: dates.map((date) => derivedOn(date, this.stockRsi)),
+      prices: dates.map((date) => priceOn(date, security.id)),
+      derived: dates.map((date) =>
+        derivedOn(date, this.stockRsi, security.id),
+      ),
       operands,
       periodStart: range.from,
     }).frame;
@@ -237,6 +250,41 @@ const GLD_BARS: BenchmarkDailyPrice[] = GLD_SESSIONS.map((date) => ({
   volume: GLD_SPIKES.includes(date) ? 2_000_000 : 1_000_000,
 }));
 
+/**
+ * XLE: rises by one a session, then drops a hundred on the step date and stays flat. Its Price is
+ * therefore strictly below its own SMA 20D on the step session and the eighteen after it — while
+ * the twenty-session window still holds a close from before the drop — and never before.
+ */
+const XLE_STEP_DOWN: LocalDate = "2024-05-06";
+const XLE_SESSIONS = weekdays("2024-01-02", END);
+const XLE_STEP_INDEX = XLE_SESSIONS.indexOf(XLE_STEP_DOWN);
+const XLE_BARS: BenchmarkDailyPrice[] = XLE_SESSIONS.map((date, index) => {
+  const close =
+    index < XLE_STEP_INDEX ? 300 + index : 300 + XLE_STEP_INDEX - 100;
+  return {
+    seriesId: "series-xle",
+    date,
+    open: close,
+    high: close + 1,
+    low: close - 1,
+    close,
+    volume: 2_000_000,
+  };
+});
+
+/** XLC: lists inside the run's period, strictly rising from its first session. */
+const XLC_LISTING: LocalDate = "2024-03-18";
+const XLC_SESSIONS = weekdays(XLC_LISTING, END);
+const XLC_BARS: BenchmarkDailyPrice[] = XLC_SESSIONS.map((date, index) => ({
+  seriesId: "series-xlc",
+  date,
+  open: 80 + index,
+  high: 81 + index,
+  low: 79 + index,
+  close: 80 + index,
+  volume: 4_000_000,
+}));
+
 type EtfFixture = {
   bars: BenchmarkDailyPrice[];
   /** Coverage the floor gate reports as missing; empty = anchored. */
@@ -244,9 +292,13 @@ type EtfFixture = {
 };
 
 class FixtureEtfContexts implements EtfContextLoader {
+  /** Every read made of the loader, as `<method>:<seriesId>`, in order. */
+  readonly calls: string[] = [];
+
   constructor(private readonly bySeriesId: ReadonlyMap<string, EtfFixture>) {}
 
   async getSeries(seriesId: string): Promise<BenchmarkSeries> {
+    this.calls.push(`getSeries:${seriesId}`);
     return {
       id: seriesId,
       benchmarkId: `benchmark-${seriesId}`,
@@ -262,6 +314,7 @@ class FixtureEtfContexts implements EtfContextLoader {
   async readFullBenchmarkHistory(
     series: BenchmarkSeries,
   ): Promise<BenchmarkHistory> {
+    this.calls.push(`readFullBenchmarkHistory:${series.id}`);
     const fixture = this.bySeriesId.get(series.id);
     return {
       seriesId: series.id,
@@ -275,6 +328,7 @@ class FixtureEtfContexts implements EtfContextLoader {
   async benchmarkRefreshState(
     series: BenchmarkSeries,
   ): Promise<BenchmarkRefreshState> {
+    this.calls.push(`benchmarkRefreshState:${series.id}`);
     const fixture = this.bySeriesId.get(series.id);
     const latest = fixture?.bars[fixture.bars.length - 1]?.date;
     return {
@@ -288,6 +342,7 @@ class FixtureEtfContexts implements EtfContextLoader {
   async missingBenchmarkCoverage(
     series: BenchmarkSeries,
   ): Promise<Required<DateRange>[]> {
+    this.calls.push(`missingBenchmarkCoverage:${series.id}`);
     return [...(this.bySeriesId.get(series.id)?.missingFromFloor ?? [])];
   }
 }
@@ -296,10 +351,14 @@ const READY_ETF_FIXTURES = new Map<string, EtfFixture>([
   ["series-xlk", { bars: XLK_BARS }],
   ["series-spy", { bars: SPY_BARS }],
   ["series-gld", { bars: GLD_BARS }],
+  ["series-xle", { bars: XLE_BARS }],
+  ["series-xlc", { bars: XLC_BARS }],
 ]);
 
 const ETF_SERIES_PINS: BacktestSnapshotEtfSeries[] = [
   { code: "ETF_GLD", ticker: "GLD", seriesId: "series-gld", seriesVersion: 1, basisGeneration: 3 },
+  { code: "ETF_XLC", ticker: "XLC", seriesId: "series-xlc", seriesVersion: 1, basisGeneration: 3 },
+  { code: "ETF_XLE", ticker: "XLE", seriesId: "series-xle", seriesVersion: 1, basisGeneration: 3 },
   { code: "ETF_XLK", ticker: "XLK", seriesId: "series-xlk", seriesVersion: 1, basisGeneration: 3 },
   { code: "SP500", ticker: "SPY", seriesId: "series-spy", seriesVersion: 1, basisGeneration: 3 },
 ];
@@ -344,6 +403,31 @@ const GLD_RVOL_ABOVE_1_5: StrategyCondition = {
   value: { kind: "MULTIPLE", value: 1.5 },
 };
 
+const XLE_PRICE_BELOW_SMA20: StrategyCondition = {
+  id: "c-xle-price",
+  metric: { kind: "PRICE", source: { kind: "ETF", code: "ETF_XLE" } },
+  operator: "IS_BELOW",
+  value: { kind: "SERIES", seriesId: "SMA_20D" },
+};
+
+const XLC_RSI_ABOVE_50: StrategyCondition = {
+  id: "c-xlc-rsi",
+  metric: {
+    kind: "OSCILLATOR",
+    seriesId: "RSI_14D",
+    source: { kind: "ETF", code: "ETF_XLC" },
+  },
+  operator: "IS_ABOVE",
+  value: { kind: "NUMBER", value: 50 },
+};
+
+const XLK_PRICE_ABOVE_SMA20: StrategyCondition = {
+  id: "c-xlk-price",
+  metric: { kind: "PRICE", source: { kind: "ETF", code: "ETF_XLK" } },
+  operator: "IS_ABOVE",
+  value: { kind: "SERIES", seriesId: "SMA_20D" },
+};
+
 function strategyOf(conditions: StrategyCondition[]): StrategyDefinition {
   return {
     schemaVersion: STRATEGY_SCHEMA_VERSION,
@@ -352,9 +436,48 @@ function strategyOf(conditions: StrategyCondition[]): StrategyDefinition {
   };
 }
 
+/** A BUY level, and optionally a 50% SELL level and a one-rule FINAL EXIT. */
+function leveledStrategy(levels: {
+  buy: StrategyCondition[];
+  sell?: StrategyCondition[];
+  finalExit?: StrategyCondition[];
+}): StrategyDefinition {
+  return {
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
+    buyLevels: [
+      { id: "b1", percentage: 100, signal: { conditions: levels.buy } },
+    ],
+    sellLevels: levels.sell
+      ? [{ id: "s1", percentage: 50, signal: { conditions: levels.sell } }]
+      : [],
+    ...(levels.finalExit
+      ? {
+          finalExit: {
+            id: "x1",
+            rules: [{ id: "r1", signal: { conditions: levels.finalExit } }],
+          },
+        }
+      : {}),
+  };
+}
+
+function securitiesOf(count: number): Security[] {
+  return Array.from({ length: count }, (_, index) =>
+    index === 0
+      ? SECURITY
+      : {
+          ...SECURITY,
+          id: `${SECURITY.id}-${index}`,
+          symbol: `ALF${index}`,
+          name: `Alfa Corp ${index}`,
+        },
+  );
+}
+
 function snapshotOf(
   definition: StrategyDefinition,
   etfSeries: BacktestSnapshotEtfSeries[],
+  securities: readonly Security[] = [SECURITY],
 ): BacktestRunSnapshot {
   return {
     snapshotVersion: BACKTEST_SNAPSHOT_VERSION,
@@ -368,21 +491,22 @@ function snapshotOf(
       definition,
     },
     stockList: { stockListId: "list-1", name: "Fixture list" },
-    securities: [
-      {
-        securityId: SECURITY.id,
-        symbol: SECURITY.symbol,
-        name: SECURITY.name,
-        exchangeCode: SECURITY.exchangeCode,
-        currency: SECURITY.currency,
-        buyWindowMode: "FULL",
-        buyWindows: [],
-      },
-    ],
+    securities: securities.map((security) => ({
+      securityId: security.id,
+      symbol: security.symbol,
+      name: security.name,
+      exchangeCode: security.exchangeCode,
+      currency: security.currency,
+      buyWindowMode: "FULL" as const,
+      buyWindows: [],
+    })),
     ...(etfSeries.length > 0 ? { etfSeries } : {}),
     period: { startDate: START, endDate: END },
     capital: { initialCapital: 100_000, monthlyContribution: 0 },
-    allocation: { maximumPositions: 1, fullPositionFraction: 1 },
+    allocation: {
+      maximumPositions: securities.length,
+      fullPositionFraction: 1 / securities.length,
+    },
     benchmark: {
       benchmarkId: "benchmark-1",
       seriesId: "series-comparison",
@@ -409,27 +533,32 @@ async function execute(
   options: {
     etfSeries?: BacktestSnapshotEtfSeries[];
     etfFixtures?: ReadonlyMap<string, EtfFixture>;
-    stockRsi?: (date: LocalDate) => number;
+    stockRsi?: StockRsi;
+    securities?: number;
   } = {},
 ): Promise<{
   result: BacktestResult;
   write: BacktestResultWrite;
   loader: ProjectingFrameLoader;
+  etfLoader: FixtureEtfContexts;
 }> {
   const loader = new ProjectingFrameLoader(options.stockRsi);
   const repository = new RecordingRepository();
+  const securities = securitiesOf(options.securities ?? 1);
+  const etfLoader = new FixtureEtfContexts(
+    options.etfFixtures ?? READY_ETF_FIXTURES,
+  );
   const processor = new BacktestProcessor(
     {
       repository,
       securities: {
-        findByIds: async () => new Map([[SECURITY.id, SECURITY]]),
+        findByIds: async () =>
+          new Map(securities.map((security) => [security.id, security])),
       },
       stockData: loader,
       benchmarks: new FixtureBenchmarks(),
       etfContexts: {
-        loader: new FixtureEtfContexts(
-          options.etfFixtures ?? READY_ETF_FIXTURES,
-        ),
+        loader: etfLoader,
         publicationDelayMs: 30 * 60 * 1000,
       },
       logger,
@@ -456,6 +585,7 @@ async function execute(
               pin.code,
             ),
           ),
+        securities,
       ),
     },
     lease,
@@ -466,6 +596,7 @@ async function execute(
     result: repository.results[0]!.result,
     write: repository.results[0]!,
     loader,
+    etfLoader,
   };
 }
 
@@ -532,6 +663,49 @@ describe("ETF-sourced Conditions executed by the backtest worker", () => {
     expect(result).toBeDefined();
   });
 
+  it("decides each stock on its own rule and all of them on the one shared ETF context", async () => {
+    // Three stocks under the decision's own four-source BUY signal. The three ETF rules are the
+    // same market context for every stock; only the stock's own RSI differs: the first clears 50
+    // from April, the second only from May, the third never.
+    const definition = strategyOf([
+      STOCK_RSI_ABOVE_50,
+      SPY_PRICE_ABOVE_SMA20,
+      XLK_RSI_ABOVE_50,
+      GLD_RVOL_ABOVE_1_5,
+    ]);
+    const [first, second, third] = securitiesOf(3);
+    const { result, etfLoader } = await execute(definition, {
+      securities: 3,
+      stockRsi: (date, securityId) =>
+        securityId === first!.id
+          ? date >= "2024-04-01"
+            ? 60
+            : 40
+          : securityId === second!.id
+            ? date >= "2024-05-01"
+              ? 60
+              : 40
+            : 10,
+    });
+
+    // Hand-derived per stock: GLD's RVOL rule holds on its two spike sessions only, so each stock
+    // buys on the first spike at or after its own rule starts holding — and the third never does.
+    const buys = result.trades
+      .filter((trade) => trade.source === "STRATEGY" && trade.action === "BUY")
+      .map((trade) => [trade.symbol, trade.date]);
+    expect(buys).toEqual([
+      [first!.symbol, GLD_SPIKES[0]],
+      [second!.symbol, GLD_SPIKES[1]],
+    ]);
+    expect(result.trades.some((trade) => trade.symbol === third!.symbol)).toBe(
+      false,
+    );
+    // Three stocks, one read of each of the three funds.
+    expect(
+      etfLoader.calls.filter((call) => call.startsWith("readFullBenchmarkHistory:")),
+    ).toHaveLength(3);
+  });
+
   it("records per-ETF diagnostics with the result write", async () => {
     const { write } = await execute(
       strategyOf([XLK_RSI_ABOVE_50, GLD_RVOL_ABOVE_1_5, SPY_PRICE_ABOVE_SMA20]),
@@ -589,10 +763,7 @@ describe("ETF-sourced Conditions executed by the backtest worker", () => {
     });
     const { result, write } = await execute(
       strategyOf([XLK_RSI_ABOVE_50, GLD_RVOL_ABOVE_1_5]),
-      {
-        etfSeries: ETF_SERIES_PINS.filter((pin) => pin.code !== "SP500"),
-        etfFixtures: fixtures,
-      },
+      { etfFixtures: fixtures },
     );
     // The GLD condition is NOT_EVALUABLE on every session, so the ANDed signal never fires.
     expect(strategyTrades(result)).toEqual([]);
@@ -624,6 +795,221 @@ describe("ETF-sourced Conditions executed by the backtest worker", () => {
     const trades = strategyTrades(result);
     expect(trades[0]).toEqual([START, "BUY"]);
     expect(XLK_RSI_FIRST > XLK_SESSIONS[0]!).toBe(true);
+  });
+});
+
+/** April only: the stock's own BUY rule holds for one month, so nothing re-enters after an exit. */
+const STOCK_RSI_APRIL_ONLY = (date: LocalDate): number =>
+  date >= "2024-04-01" && date < "2024-05-01" ? 60 : 40;
+
+describe("ETF-sourced Conditions in SELL and FINAL EXIT", () => {
+  it("sells and exits on the sessions the ETF rules first hold, and on no other", async () => {
+    // Hand-derived: the stock's own rule buys on the first April session. GLD's RVOL is exactly
+    // 2.0 on its spike sessions, so the SELL level fires on the first spike after the buy. XLE's
+    // Price drops below its SMA 20D on its step-down session, so FINAL EXIT fires there.
+    const { result, write } = await execute(
+      leveledStrategy({
+        buy: [STOCK_RSI_ABOVE_50],
+        sell: [GLD_RVOL_ABOVE_1_5],
+        finalExit: [XLE_PRICE_BELOW_SMA20],
+      }),
+      { stockRsi: STOCK_RSI_APRIL_ONLY },
+    );
+    expect(strategyTrades(result)).toEqual([
+      ["2024-04-01", "BUY"],
+      ["2024-04-10", "SELL"],
+      [XLE_STEP_DOWN, "FINAL_EXIT"],
+    ]);
+    // The position was closed by the strategy, so nothing was left for the terminal liquidation.
+    expect(
+      result.trades.filter((trade) => trade.source === "END_OF_BACKTEST"),
+    ).toEqual([]);
+    expect(write.etfConditions?.map((row) => [row.ticker, row.status])).toEqual(
+      [
+        ["GLD", "READY"],
+        ["XLE", "READY"],
+      ],
+    );
+  });
+
+  it("neither sells nor exits on a rule whose ETF is unavailable, and still honours the other", async () => {
+    const fixtures = new Map(READY_ETF_FIXTURES);
+    fixtures.set("series-xle", {
+      bars: XLE_BARS,
+      missingFromFloor: [{ from: "1993-01-01", to: "2023-12-29" }],
+    });
+    const { result, write } = await execute(
+      leveledStrategy({
+        buy: [STOCK_RSI_ABOVE_50],
+        sell: [GLD_RVOL_ABOVE_1_5],
+        finalExit: [XLE_PRICE_BELOW_SMA20],
+      }),
+      { stockRsi: STOCK_RSI_APRIL_ONLY, etfFixtures: fixtures },
+    );
+    // XLE's rule is NOT_EVALUABLE on every session: the exit never fires, the step-down included.
+    // GLD is untouched, so the SELL level still fires on its first spike.
+    expect(strategyTrades(result)).toEqual([
+      ["2024-04-01", "BUY"],
+      ["2024-04-10", "SELL"],
+    ]);
+    expect(
+      result.trades.filter((trade) => trade.action === "FINAL_EXIT"),
+    ).toEqual([]);
+    // What the strategy never closed is what the end of the run liquidated: the position was
+    // still open on the step-down session and every session after it.
+    expect(
+      result.trades
+        .filter((trade) => trade.source === "END_OF_BACKTEST")
+        .map((trade) => trade.date),
+    ).toEqual([END]);
+    expect(write.etfConditions?.map((row) => [row.ticker, row.status])).toEqual(
+      [
+        ["GLD", "READY"],
+        ["XLE", "NOT_BOOTSTRAPPED"],
+      ],
+    );
+  });
+
+  it("leaves stock-only SELL and FINAL EXIT rules exactly as they were beside an ETF rule in BUY", async () => {
+    // A stock-only strategy with all three level kinds, and the same strategy with an ETF rule
+    // that holds on every session added to its BUY level. The ETF rule can change nothing, so the
+    // two runs must trade identically — to the share and the cent.
+    const stockSell: StrategyCondition = {
+      id: "c-stock-sell",
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: 65 },
+    };
+    const stockExit: StrategyCondition = {
+      id: "c-stock-exit",
+      metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      operator: "IS_BELOW",
+      value: { kind: "NUMBER", value: 30 },
+    };
+    // 60 from April (BUY), 70 on one session (SELL), 20 from the 20th of May (FINAL EXIT).
+    const stockRsi = (date: LocalDate): number =>
+      date >= "2024-05-20"
+        ? 20
+        : date === "2024-04-22"
+          ? 70
+          : date >= "2024-04-01"
+            ? 60
+            : 40;
+    const stockOnly = await execute(
+      leveledStrategy({
+        buy: [STOCK_RSI_ABOVE_50],
+        sell: [stockSell],
+        finalExit: [stockExit],
+      }),
+      { stockRsi, etfSeries: [] },
+    );
+    const withEtf = await execute(
+      leveledStrategy({
+        buy: [STOCK_RSI_ABOVE_50, XLK_RSI_ABOVE_50],
+        sell: [stockSell],
+        finalExit: [stockExit],
+      }),
+      { stockRsi },
+    );
+    expect(strategyTrades(stockOnly.result)).toEqual([
+      ["2024-04-01", "BUY"],
+      ["2024-04-22", "SELL"],
+      ["2024-05-20", "FINAL_EXIT"],
+    ]);
+    const facts = (result: BacktestResult) =>
+      result.trades.map(({ date, action, source, shares, price }) => ({
+        date,
+        action,
+        source,
+        shares,
+        price,
+      }));
+    expect(facts(withEtf.result)).toEqual(facts(stockOnly.result));
+    // The stock-only run never touched the ETF loader at all.
+    expect(stockOnly.etfLoader.calls).toEqual([]);
+    expect(stockOnly.write.etfConditions).toBeUndefined();
+  });
+});
+
+describe("point-in-time boundaries of an ETF's own history", () => {
+  it("cannot evaluate before a fund that lists inside the period has warmed up", async () => {
+    // XLC's first session is inside the run. Its RSI 14D needs fifteen closes, so the first
+    // session the rule can hold is its fifteenth — counted from its own listing, not the period.
+    const { result } = await execute(strategyOf([XLC_RSI_ABOVE_50]), {
+      stockRsi: () => 10,
+    });
+    expect(XLC_LISTING > START).toBe(true);
+    expect(XLC_SESSIONS[14]).toBe("2024-04-05");
+    expect(strategyTrades(result)[0]).toEqual(["2024-04-05", "BUY"]);
+  });
+
+  it("never substitutes a neighbouring session for one the ETF has no bar for", async () => {
+    // XLK is missing exactly the session GLD first spikes on. Its RSI is 100 the session before
+    // and the session after, so any carry-forward or nearest-session read would buy on the spike.
+    const fixtures = new Map(READY_ETF_FIXTURES);
+    fixtures.set("series-xlk", {
+      bars: XLK_BARS.filter((bar) => bar.date !== GLD_SPIKES[0]),
+    });
+    const { result } = await execute(
+      strategyOf([XLK_RSI_ABOVE_50, GLD_RVOL_ABOVE_1_5]),
+      { etfFixtures: fixtures, stockRsi: () => 10 },
+    );
+    // The signal is undecidable on the first spike and fires on the second.
+    expect(strategyTrades(result)).toEqual([[GLD_SPIKES[1], "BUY"]]);
+  });
+});
+
+describe("how much is read for ETF conditions", () => {
+  it("reads each distinct ETF once per run, however many securities and rules read it", async () => {
+    // Three securities; seven ETF rules across BUY, SELL and FINAL EXIT naming two funds.
+    const definition = leveledStrategy({
+      buy: [
+        STOCK_RSI_ABOVE_50,
+        XLK_RSI_ABOVE_50,
+        XLK_PRICE_ABOVE_SMA20,
+        GLD_RVOL_ABOVE_1_5,
+      ],
+      sell: [
+        { ...XLK_RSI_ABOVE_50, id: "c-xlk-rsi-sell" },
+        { ...GLD_RVOL_ABOVE_1_5, id: "c-gld-rvol-sell" },
+      ],
+      finalExit: [
+        { ...XLK_PRICE_ABOVE_SMA20, id: "c-xlk-price-exit", operator: "IS_BELOW" },
+        { ...GLD_RVOL_ABOVE_1_5, id: "c-gld-rvol-exit" },
+      ],
+    });
+    const { result, loader, etfLoader } = await execute(definition, {
+      securities: 3,
+    });
+
+    // Exactly one of each read per distinct fund: 2 funds x 4 reads, for 3 securities x 7 rules.
+    expect([...etfLoader.calls].sort()).toEqual(
+      [
+        "benchmarkRefreshState:series-gld",
+        "benchmarkRefreshState:series-xlk",
+        "getSeries:series-gld",
+        "getSeries:series-xlk",
+        "missingBenchmarkCoverage:series-gld",
+        "missingBenchmarkCoverage:series-xlk",
+        "readFullBenchmarkHistory:series-gld",
+        "readFullBenchmarkHistory:series-xlk",
+      ].sort(),
+    );
+    // Every security was loaded, and each for its own stock operands alone.
+    expect(loader.operands.length).toBeGreaterThanOrEqual(3);
+    for (const operands of loader.operands) {
+      expect([...operands]).toEqual(["price", "series:RSI_14D"]);
+    }
+    // And the one context decided all three: each security buys on the first GLD spike.
+    const buys = result.trades.filter(
+      (trade) => trade.source === "STRATEGY" && trade.action === "BUY",
+    );
+    expect(buys.map((trade) => trade.date)).toEqual([
+      "2024-04-10",
+      "2024-04-10",
+      "2024-04-10",
+    ]);
+    expect(new Set(buys.map((trade) => trade.symbol)).size).toBe(3);
   });
 });
 
