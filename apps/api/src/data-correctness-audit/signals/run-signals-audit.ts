@@ -336,22 +336,28 @@ export async function runSignalsSection(input: {
               member.security.ipoDate?.toISOString().slice(0, 10) ?? null,
             )
           ).filter((row) => row.date <= session);
-          const windows = member.buyWindows.map((window) => ({
-            start: window.startDate.toISOString().slice(0, 10),
-            end: window.endDate?.toISOString().slice(0, 10) ?? null,
-          }));
+          // The Monitor universe (`docs/decisions/monitor-eod-v2.md` §4), restated independently of
+          // the production predicate: "Always eligible", or the open-ended period's start. It gates
+          // every level, and a member that is not current on the session is not monitored at all.
+          const ongoingStart =
+            member.buyWindowMode === "FULL"
+              ? null
+              : member.buyWindows
+                  .filter((window) => window.endDate === null)
+                  .map((window) => window.startDate.toISOString().slice(0, 10))
+                  .sort()
+                  .at(-1);
+          if (
+            ongoingStart === undefined ||
+            (ongoingStart !== null && ongoingStart > session)
+          ) {
+            continue;
+          }
           for (const level of levels) {
             const observations: Observation[] = rows.map((row, index) => ({
               row,
               previous: index > 0 ? rows[index - 1]! : null,
-              eligible:
-                level.kind !== "BUY" ||
-                member.buyWindowMode === "FULL" ||
-                windows.some(
-                  (window) =>
-                    window.start <= row.date &&
-                    (window.end === null || row.date <= window.end),
-                ),
+              eligible: ongoingStart === null || row.date >= ongoingStart,
             }));
             const rules = replay(level.rules, observations);
             const state = levelState(rules);

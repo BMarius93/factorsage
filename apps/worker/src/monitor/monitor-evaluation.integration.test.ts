@@ -320,6 +320,47 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
   const day = (value: Date | null | undefined) =>
     value?.toISOString().slice(0, 10);
 
+  /** Rewrites one member's List membership, as an edit through the Lists API would leave it. */
+  async function setMembership(
+    monitorId: string,
+    security: Security,
+    windows: readonly { start: string; end: string | null }[] | "FULL",
+  ) {
+    const monitor = await prisma.monitor.findUniqueOrThrow({
+      where: { id: monitorId },
+      select: { stockListId: true },
+    });
+    const item = await prisma.stockListItem.findUniqueOrThrow({
+      where: {
+        stockListId_securityId: {
+          stockListId: monitor.stockListId,
+          securityId: security.id,
+        },
+      },
+    });
+    await prisma.stockListBuyWindow.deleteMany({
+      where: { stockListItemId: item.id },
+    });
+    await prisma.stockListItem.update({
+      where: { id: item.id },
+      data: {
+        buyWindowMode: windows === "FULL" ? "FULL" : "CUSTOM",
+        ...(windows === "FULL"
+          ? {}
+          : {
+              buyWindows: {
+                create: windows.map((window) => ({
+                  startDate: new Date(`${window.start}T00:00:00.000Z`),
+                  endDate: window.end
+                    ? new Date(`${window.end}T00:00:00.000Z`)
+                    : null,
+                })),
+              },
+            }),
+      },
+    });
+  }
+
   it("reconstructs a new Monitor at the newest finalized session, on the EOD close, idempotently", async () => {
     const security = await createSecurity();
     await seed(
@@ -796,6 +837,179 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     expect(
       (await transitions(monitorId)).map((t) => [t.reason, t.origin]),
     ).toEqual([["RECONSTRUCTED", "HISTORY"]]);
+  });
+
+  describe("ongoing List membership", () => {
+    it("ends a member whose membership stopped being ongoing as a membership change, never a market one", async () => {
+      const security = await createSecurity();
+      await seed(
+        security,
+        { "2026-10-12": 90, "2026-10-13": 101, "2026-10-14": 102 },
+        after("2026-10-14"),
+        "2026-10-14",
+      );
+      const monitorId = await createMonitor([security], signalAbove());
+      await evaluation().run(1);
+      expect((await signals(monitorId))[0]!.resolvedAt).toBeNull();
+
+      // Edited to a bounded period — even one ending in the future is not a current membership.
+      await setMembership(monitorId, security, [
+        { start: "2026-01-02", end: "2026-12-31" },
+      ]);
+      const summary = await evaluation().run(2);
+      expect(summary.members).toBe(0);
+      expect(summary.membersNotCurrent).toBe(1);
+      const ended = (await signals(monitorId))[0]!;
+      expect(ended.resolutionReason).toBe("MEMBERSHIP_CHANGED");
+      expect(ended.resolvedObservationDate).toBeNull();
+      expect(
+        (await transitions(monitorId)).map((t) => [t.reason, t.origin]),
+      ).toEqual([
+        ["RECONSTRUCTED", "HISTORY"],
+        ["MEMBERSHIP_CHANGED", "ADMINISTRATIVE"],
+      ]);
+      expect(
+        await prisma.monitorSignalState.count({ where: { monitorId } }),
+      ).toBe(0);
+      expect(await checkpoint(monitorId, security.id)).toBeNull();
+
+      // Not evaluated again while it is not a current member: nothing new is written.
+      await evaluation().run(3);
+      expect(await signals(monitorId)).toHaveLength(1);
+      expect(await transitions(monitorId)).toHaveLength(2);
+    });
+
+    it("waits for an open-ended membership to begin, then rebuilds from its first session only", async () => {
+      const security = await createSecurity();
+      await seed(
+        security,
+        { "2026-10-12": 101, "2026-10-13": 101, "2026-10-14": 101 },
+        after("2026-10-14"),
+        "2026-10-14",
+      );
+      const monitorId = await createMonitor([security], signalAbove());
+      await setMembership(monitorId, security, [
+        { start: "2026-01-02", end: "2026-06-30" },
+        { start: "2026-10-15", end: null },
+      ]);
+
+      // Wednesday evening: the membership begins Thursday. Not evaluated, nothing recorded.
+      const before = await evaluation().run(1);
+      expect(before.membersNotCurrent).toBe(1);
+      expect(await signals(monitorId)).toHaveLength(0);
+      expect(await checkpoint(monitorId, security.id)).toBeNull();
+
+      // Thursday is final: the price has held above its average all week, but the occurrence
+      // begins on the membership's first session — the closed period earlier in the year and the
+      // sessions before Thursday play no part.
+      await seed(
+        security,
+        { "2026-10-15": 101 },
+        after("2026-10-15"),
+        "2026-10-15",
+      );
+      clock.now = after("2026-10-15");
+      const started = await evaluation().run(2);
+      expect(started.members).toBe(1);
+      const opened = await signals(monitorId);
+      expect(opened).toHaveLength(1);
+      expect(day(opened[0]!.observationDate)).toBe("2026-10-15");
+      const row = await checkpoint(monitorId, security.id);
+      expect(day(row?.membershipStart)).toBe("2026-10-15");
+      expect(row?.membershipRecorded).toBe(true);
+    });
+
+    it("rebuilds a re-entered member from its new membership, ending the old one administratively", async () => {
+      const security = await createSecurity();
+      await seed(
+        security,
+        {
+          "2026-10-08": 90,
+          "2026-10-09": 101,
+          "2026-10-12": 101,
+          "2026-10-13": 101,
+          "2026-10-14": 101,
+        },
+        after("2026-10-14"),
+        "2026-10-14",
+      );
+      const monitorId = await createMonitor([security], signalAbove());
+      await evaluation().run(1);
+      const first = (await signals(monitorId))[0]!;
+      expect(day(first.observationDate)).toBe("2026-10-09");
+      const recorded = await checkpoint(monitorId, security.id);
+      expect(recorded?.membershipRecorded).toBe(true);
+      expect(recorded?.membershipStart).toBeNull();
+
+      // Left the List's membership on Friday and re-entered on Tuesday.
+      await setMembership(monitorId, security, [
+        { start: "2026-01-02", end: "2026-10-09" },
+        { start: "2026-10-13", end: null },
+      ]);
+      const summary = await evaluation().run(2);
+      expect(summary.membershipResets).toBe(1);
+      const rows = await signals(monitorId);
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.id).toBe(first.id);
+      expect(rows[0]!.resolutionReason).toBe("MEMBERSHIP_CHANGED");
+      expect(day(rows[1]!.observationDate)).toBe("2026-10-13");
+      expect(rows[1]!.resolvedAt).toBeNull();
+      expect(
+        (await transitions(monitorId)).map((t) => [
+          day(t.observationDate) ?? null,
+          t.reason,
+          t.origin,
+        ]),
+      ).toEqual([
+        ["2026-10-09", "RECONSTRUCTED", "HISTORY"],
+        [null, "MEMBERSHIP_CHANGED", "ADMINISTRATIVE"],
+        ["2026-10-13", "RECONSTRUCTED", "HISTORY"],
+      ]);
+      expect(
+        day((await checkpoint(monitorId, security.id))?.membershipStart),
+      ).toBe("2026-10-13");
+
+      // Idempotent: the new membership is now the recorded one.
+      await evaluation().run(3);
+      expect(await signals(monitorId)).toHaveLength(2);
+    });
+
+    it("adopts progress recorded before memberships were, without resetting it", async () => {
+      const security = await createSecurity();
+      await seed(
+        security,
+        { "2026-10-12": 90, "2026-10-13": 101 },
+        after("2026-10-13"),
+        "2026-10-13",
+      );
+      clock.now = after("2026-10-13");
+      const monitorId = await createMonitor([security], signalAbove());
+      await evaluation().run(1);
+      // As a row written by step 3 would be: no membership recorded.
+      await prisma.monitorEvaluationCheckpoint.update({
+        where: {
+          monitorId_securityId: { monitorId, securityId: security.id },
+        },
+        data: { membershipRecorded: false, membershipStart: null },
+      });
+      await setMembership(monitorId, security, [
+        { start: "2026-10-01", end: null },
+      ]);
+      await seed(
+        security,
+        { "2026-10-14": 102 },
+        after("2026-10-14"),
+        "2026-10-14",
+      );
+      clock.now = after("2026-10-14");
+      const summary = await evaluation().run(2);
+      expect(summary.membershipResets).toBe(0);
+      expect(summary.sessionsEvaluated).toBe(1);
+      expect(await signals(monitorId)).toHaveLength(1);
+      expect(
+        day((await checkpoint(monitorId, security.id))?.membershipStart),
+      ).toBe("2026-10-01");
+    });
   });
 
   it("finishes the members a crashed pass did not reach, without repeating the ones it did", async () => {

@@ -188,7 +188,15 @@ export type MemberEvaluationWrite = {
     previous: LocalDate | null;
     next: LocalDate;
     basisGeneration: number;
+    /** The ongoing membership this progress belongs to: its start, or null for "Always eligible". */
+    membershipStart: LocalDate | null;
   };
+  /**
+   * The member's ongoing membership is not the one its state belongs to (a re-entry, a moved
+   * start): end every state of the member administratively (`MEMBERSHIP_CHANGED`) and delete it,
+   * in the same transaction and before `levels` — which were then decided from no state.
+   */
+  resetMembership?: boolean;
   levels: readonly LevelSessionsWrite[];
 };
 
@@ -208,6 +216,11 @@ export type PersistedCheckpoint = {
   evaluatedThrough: LocalDate;
   configVersion: number;
   basisGeneration: number;
+  /**
+   * The ongoing membership the progress belongs to, or `undefined` for a checkpoint written before
+   * memberships were recorded — adopted under the current one, never reset for it.
+   */
+  membership: { start: LocalDate | null } | undefined;
 };
 
 export type LevelStateResult = {
@@ -246,6 +259,12 @@ export interface MonitorRepository {
     configVersion: number;
     securityIds: readonly string[];
     levelIds: readonly string[];
+    /**
+     * Every security still in the List, when it differs from the evaluated `securityIds`: a listed
+     * security that is not evaluated is no longer a current member there, and its states end with
+     * `MEMBERSHIP_CHANGED` rather than `MEMBER_REMOVED`.
+     */
+    listedSecurityIds?: readonly string[];
     now: Date;
   }): Promise<number>;
   /**
@@ -699,6 +718,7 @@ export class PrismaMonitorRepository
     configVersion: number;
     securityIds: readonly string[];
     levelIds: readonly string[];
+    listedSecurityIds?: readonly string[];
     now: Date;
   }): Promise<number> {
     // An empty security or level list means the cross product the cycle walks is empty, so every
@@ -730,6 +750,7 @@ export class PrismaMonitorRepository
       return 0;
     }
     const members = new Set(input.securityIds);
+    const listed = new Set(input.listedSecurityIds ?? input.securityIds);
     try {
       return await this.prisma.$transaction(async (tx) => {
         // The visited set belongs to the configuration this cycle loaded. If the Monitor has been
@@ -739,7 +760,9 @@ export class PrismaMonitorRepository
         for (const row of orphaned) {
           const reason: MonitorTransitionReason = members.has(row.securityId)
             ? "LEVEL_REMOVED"
-            : "MEMBER_REMOVED";
+            : listed.has(row.securityId)
+              ? "MEMBERSHIP_CHANGED"
+              : "MEMBER_REMOVED";
           const ended = endedStateOf(row.lifecycleState);
           if (row.activeSignalId) {
             resolved += (
@@ -874,6 +897,8 @@ export class PrismaMonitorRepository
         evaluatedThrough: true,
         configVersion: true,
         basisGeneration: true,
+        membershipRecorded: true,
+        membershipStart: true,
       },
     });
     return new Map(
@@ -883,6 +908,13 @@ export class PrismaMonitorRepository
           evaluatedThrough: toLocalDate(row.evaluatedThrough),
           configVersion: row.configVersion,
           basisGeneration: row.basisGeneration,
+          membership: row.membershipRecorded
+            ? {
+                start: row.membershipStart
+                  ? toLocalDate(row.membershipStart)
+                  : null,
+              }
+            : undefined,
         },
       ]),
     );
@@ -918,6 +950,11 @@ export class PrismaMonitorRepository
           let opened = 0;
           let closed = 0;
           let transitions = 0;
+          if (write.resetMembership) {
+            const ended = await this.endMemberStates(tx, write, "MEMBERSHIP_CHANGED");
+            closed += ended.closed;
+            transitions += ended.transitions;
+          }
           for (const level of write.levels) {
             const result = await this.applyLevelSessions(tx, write, level);
             opened += result.opened;
@@ -938,11 +975,15 @@ export class PrismaMonitorRepository
               evaluatedThrough: toDate(write.checkpoint.next),
               configVersion: write.configVersion,
               basisGeneration: write.checkpoint.basisGeneration,
+              membershipRecorded: true,
+              membershipStart: membershipStartOf(write),
             },
             update: {
               evaluatedThrough: toDate(write.checkpoint.next),
               configVersion: write.configVersion,
               basisGeneration: write.checkpoint.basisGeneration,
+              membershipRecorded: true,
+              membershipStart: membershipStartOf(write),
             },
           });
           return {
@@ -969,6 +1010,64 @@ export class PrismaMonitorRepository
       }
       throw error;
     }
+  }
+
+  /**
+   * Ends every state of one member administratively, in the caller's transaction: the occurrence
+   * each one points at is resolved, the ending is recorded, and the rows are deleted — the same
+   * shape as a removed member, under the reason given.
+   */
+  private async endMemberStates(
+    tx: Prisma.TransactionClient,
+    write: Pick<MemberEvaluationWrite, "monitorId" | "securityId" | "now">,
+    reason: MonitorTransitionReason,
+  ): Promise<{ closed: number; transitions: number }> {
+    const rows = await tx.monitorSignalState.findMany({
+      where: { monitorId: write.monitorId, securityId: write.securityId },
+      select: {
+        id: true,
+        levelId: true,
+        levelKind: true,
+        signalFingerprint: true,
+        lifecycleState: true,
+        activeSignalId: true,
+      },
+    });
+    let closed = 0;
+    let transitions = 0;
+    for (const row of rows) {
+      if (row.activeSignalId) {
+        closed += (
+          await tx.monitorSignal.updateMany({
+            where: { id: row.activeSignalId, resolvedAt: null },
+            data: { resolvedAt: write.now, resolutionReason: reason },
+          })
+        ).count;
+      }
+      const ended = endedStateOf(row.lifecycleState);
+      if (ended) {
+        await tx.monitorStateTransition.create({
+          data: {
+            monitorId: write.monitorId,
+            securityId: write.securityId,
+            levelId: row.levelId,
+            levelKind: row.levelKind,
+            signalFingerprint: row.signalFingerprint,
+            fromState: row.lifecycleState,
+            toState: ended,
+            reason,
+            origin: "ADMINISTRATIVE",
+            occurredAt: write.now,
+            signalId: row.activeSignalId,
+          },
+        });
+        transitions += 1;
+      }
+    }
+    await tx.monitorSignalState.deleteMany({
+      where: { id: { in: rows.map((row) => row.id) } },
+    });
+    return { closed, transitions };
   }
 
   /**
@@ -1156,10 +1255,17 @@ function legacyTransitionOrigin(reason: MonitorTransitionReason): TransitionOrig
     case "LEVEL_REMOVED":
     case "MEMBER_REMOVED":
     case "MONITOR_REBOUND":
+    case "MEMBERSHIP_CHANGED":
       return "ADMINISTRATIVE";
     default:
       return "OBSERVED";
   }
+}
+
+function membershipStartOf(write: MemberEvaluationWrite): Date | null {
+  return write.checkpoint.membershipStart === null
+    ? null
+    : toDate(write.checkpoint.membershipStart);
 }
 
 /** Turns a lost optimistic guard into a rollback, so a created Signal never outlives it. */

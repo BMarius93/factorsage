@@ -113,6 +113,7 @@ export const RESOLUTION_REASON_LABELS: Record<MonitorTransitionReason, string> =
     MEMBER_REMOVED: "stock left the list",
     MONITOR_REBOUND: "monitor now watches something else",
     RECONSTRUCTED: "ended",
+    MEMBERSHIP_CHANGED: "no longer a current list member",
   };
 
 /**

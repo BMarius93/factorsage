@@ -5719,7 +5719,12 @@ components:
           MEMBER_REMOVED,
           MONITOR_REBOUND,
           RECONSTRUCTED,
+          MEMBERSHIP_CHANGED,
         ]
+      description: |
+        `MEMBERSHIP_CHANGED` is the administrative ending recorded when a security still in the
+        Stock List stops being a current member there (no open-ended membership period that has
+        begun). `BUY_WINDOW_CLOSED` appears only on rows the earlier live-quote Monitor recorded.
     MonitorSecurityStatus:
       type: string
       enum: [MATCHED, WAITING_FOR_TRIGGER, NO_MATCH, NOT_EVALUABLE, NOT_CHECKED]

@@ -102,6 +102,7 @@ function state(
 }
 
 const observed = () => "OBSERVED" as const;
+const always = () => true;
 
 function summary(write: LevelSessionsWrite | null) {
   return (write?.changes ?? []).map((change) => [
@@ -135,6 +136,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([10, 12, 13, 9], [11, 11, 11, 11]),
       sessions: [0, 1, 2, 3],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(summary(decision.write)).toEqual([
@@ -182,6 +184,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([10, 12, 10, 10], [11, 11, 11, 11]),
       sessions: [1, 2, 3],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(summary(decision.write)).toEqual([
@@ -223,6 +226,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([12, 12], [Number.NaN, Number.NaN]),
       sessions: [0, 1],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(decision.write?.changes).toEqual([]);
@@ -253,6 +257,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([12, 12], [11, Number.NaN]),
       sessions: [1],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(summary(event.write)).toEqual([
@@ -287,6 +292,7 @@ describe("deciding finalized sessions in order", () => {
       sessions: [0, 1, 2],
       historyComplete: false,
       // Watched again from the 7th: what finalized before it was not observed.
+      monitoredOn: always,
       originOf: (date) => (date >= "2026-10-07" ? "OBSERVED" : "HISTORY"),
     });
     expect(summary(decision.write).map((row) => [row[0], row[3]])).toEqual([
@@ -307,6 +313,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([9, 12, 13, 14], [11, 11, 11, 11]),
       sessions: [1, 2, 3],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(decision.reconstructed).toBe(true);
@@ -330,6 +337,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([12, 13, 14], [11, 11, 11]),
       sessions: [2],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(deeper).toMatchObject({ needsDeeperHistory: true, write: null });
@@ -342,6 +350,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([12, 13, 14], [11, 11, 11]),
       sessions: [2],
       historyComplete: true,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(complete.write?.lifecycle).toMatchObject({
@@ -357,6 +366,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([12, 13], [11, Number.NaN]),
       sessions: [1],
       historyComplete: true,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(undecidable).toMatchObject({
@@ -393,6 +403,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([9, 12], [11, 11]),
       sessions: [1],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     const rows = summary(decision.write);
@@ -454,6 +465,7 @@ describe("deciding finalized sessions in order", () => {
       frame: frame([10, 12], [11, 11]),
       sessions: [1],
       historyComplete: false,
+      monitoredOn: always,
       originOf: observed,
     });
     expect(summary(decision.write)).toEqual([
@@ -465,5 +477,60 @@ describe("deciding finalized sessions in order", () => {
         "open@12",
       ],
     ]);
+  });
+
+  describe("ongoing membership gates every level", () => {
+    const sellDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [{ id: "buy-1", percentage: 100, signal: ABOVE }],
+      sellLevels: [{ id: "sell-1", percentage: 100, signal: ABOVE }],
+    } as unknown as StrategyDefinition;
+    const sell = monitorStrategyLevels(sellDefinition).find(
+      (level) => level.kind === "SELL",
+    )!;
+    const allAbove = frame(
+      [12, 12, 12, 12, 12, 12, 12, 12],
+      [11, 11, 11, 11, 11, 11, 11, 11],
+    );
+
+    it("reconstructs a SELL level from the session its ongoing membership began, not before", () => {
+      const decision = decideLevelSessions({
+        level: sell,
+        member: MEMBER,
+        strategyVersionId: "v1",
+        previous: null,
+        frame: allAbove,
+        sessions: [7],
+        historyComplete: true,
+        monitoredOn: (date) => date >= "2026-10-12",
+        originOf: observed,
+      });
+      expect(decision.write?.lifecycle?.state).toBe("ACTIVE");
+      expect(decision.write?.lifecycle?.since).toBe("2026-10-12");
+      expect(summary(decision.write)).toEqual([
+        [
+          "2026-10-12",
+          "INACTIVE->ACTIVE",
+          "RECONSTRUCTED",
+          "HISTORY",
+          "open@12",
+        ],
+      ]);
+    });
+
+    it("reads the same history from its first session when the member is always eligible", () => {
+      const decision = decideLevelSessions({
+        level: sell,
+        member: MEMBER,
+        strategyVersionId: "v1",
+        previous: null,
+        frame: allAbove,
+        sessions: [7],
+        historyComplete: true,
+        monitoredOn: always,
+        originOf: observed,
+      });
+      expect(decision.write?.lifecycle?.since).toBe("2026-10-05");
+    });
   });
 });

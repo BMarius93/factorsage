@@ -70,13 +70,18 @@ export type MonitorLifecycleState = (typeof MONITOR_LIFECYCLE_STATES)[number];
  * - `TRIGGER_FIRED` — the Trigger fired (with the Conditions holding, when there are any);
  * - `CONDITIONS_ENDED` — a required Condition became false;
  * - `EVENT_SESSION_ENDED` — a trigger-only event reached a later real exchange session;
- * - `BUY_WINDOW_CLOSED` — a BUY level's List membership no longer admits the observation date;
+ * - `BUY_WINDOW_CLOSED` — a BUY level's List membership no longer admitted the observation date.
+ *   Recorded only by the earlier live-quote Monitor; the end-of-day Monitor gates every level on
+ *   ongoing membership and records `MEMBERSHIP_CHANGED` instead;
  * - `LOGIC_CHANGED` — the level's canonical logic was edited;
  * - `LEVEL_REMOVED` — the level is no longer evaluated by the Monitor's Strategy;
  * - `MEMBER_REMOVED` — the security left the Monitor's Stock List;
  * - `MONITOR_REBOUND` — the Monitor was pointed at a different Strategy or Stock List;
  * - `RECONSTRUCTED` — the state was established by historical reconstruction rather than
- *   observed live.
+ *   observed live;
+ * - `MEMBERSHIP_CHANGED` — the security is still in the List but is no longer a current member
+ *   there (its open-ended membership period was closed, moved or removed): an administrative
+ *   ending, never a market one.
  */
 export const MONITOR_TRANSITION_REASONS = [
   "CONDITIONS_MET",
@@ -90,6 +95,7 @@ export const MONITOR_TRANSITION_REASONS = [
   "MEMBER_REMOVED",
   "MONITOR_REBOUND",
   "RECONSTRUCTED",
+  "MEMBERSHIP_CHANGED",
 ] as const;
 export type MonitorTransitionReason =
   (typeof MONITOR_TRANSITION_REASONS)[number];
