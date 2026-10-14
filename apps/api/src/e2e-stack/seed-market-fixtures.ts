@@ -22,6 +22,7 @@ import {
   resetE2eFixtureBenchmarkSeries,
   resetE2eFixtureSecurityData,
 } from "./fixture-data";
+import { eodToday } from "../eod-today";
 
 /**
  * The market-data half of `pnpm test:personas:seed`, as two reusable steps.
@@ -68,7 +69,7 @@ export async function seedQaMarketFixtures(input: {
   today?: string;
 }): Promise<QaMarketFixtureSummary> {
   const { prisma, cache, benchmarkCache } = input;
-  const today = input.today ?? new Date().toISOString().slice(0, 10);
+  const today = input.today ?? eodToday();
 
   const securities = await seedQaSecurities(prisma);
   await resetE2eFixtureSecurityData(

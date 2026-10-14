@@ -19,7 +19,9 @@ import {
   type StockSearchResultResponse,
   type ValuationRatioId,
 } from "@intrinsic/contracts";
+import { getEodFinalityConfig } from "@intrinsic/config";
 import {
+  eodCutoffDate,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   DAILY_TECHNICAL_PROJECTION_FIELDS,
@@ -352,7 +354,12 @@ export class StocksController {
    */
   private horizonBounds(): StockHistoryBoundsResponse {
     return stockDetailsHistoryBounds({
-      today: new Date().toISOString().slice(0, 10),
+      // The loader's own "today": the newest date whose bar is final, never the UTC day, so this
+      // edge and the loader agree on where the horizon starts.
+      today: eodCutoffDate(
+        new Date(),
+        getEodFinalityConfig().publicationDelayMs,
+      ),
       retentionYears: this.retentionYears,
     });
   }

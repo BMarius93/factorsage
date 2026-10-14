@@ -9,6 +9,12 @@ import {
   BACKTEST_MIN_MAXIMUM_POSITIONS,
   subtractYears,
 } from "@intrinsic/contracts";
+import { getEodFinalityConfig } from "@intrinsic/config";
+import {
+  eodCutoffDate,
+  tradingSessionDate,
+  type LocalDate,
+} from "@intrinsic/domain";
 import { BadRequestException } from "@nestjs/common";
 
 /**
@@ -107,8 +113,29 @@ function parseAmount(
   return value;
 }
 
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
+/**
+ * The two dates a submission is judged against.
+ *
+ * `today` is the New York trading day: a period ending after it has not happened yet.
+ * `finalizedThrough` is the newest date whose end-of-day bar is final (`eodCutoffDate`): a period
+ * that reaches past it would simulate a session that is still trading, or whose bar the provider is
+ * still publishing, so it is ended there (`docs/decisions/eod-finality-v1.md`).
+ */
+export type BacktestSubmissionClock = {
+  readonly today: LocalDate;
+  readonly finalizedThrough: LocalDate;
+};
+
+export function currentBacktestSubmissionClock(
+  now: Date = new Date(),
+): BacktestSubmissionClock {
+  return {
+    today: tradingSessionDate(now),
+    finalizedThrough: eodCutoffDate(
+      now,
+      getEodFinalityConfig().publicationDelayMs,
+    ),
+  };
 }
 
 /**
@@ -137,8 +164,9 @@ export type ParsedCreateBacktestRunRequest = {
 export function parseCreateBacktestRunRequest(
   body: unknown,
   /** Injectable so the horizon boundary is testable; production reads the real clock. */
-  today: string = todayIsoDate(),
+  clock: BacktestSubmissionClock = currentBacktestSubmissionClock(),
 ): ParsedCreateBacktestRunRequest {
+  const { today, finalizedThrough } = clock;
   const record = asRecord(body);
   rejectUnknownKeys(record, [
     "strategyId",
@@ -152,14 +180,25 @@ export function parseCreateBacktestRunRequest(
   ]);
 
   const startDate = parseCalendarDate(record.startDate, "start date");
-  const endDate = parseCalendarDate(record.endDate, "end date");
-  if (startDate >= endDate) {
+  const requestedEnd = parseCalendarDate(record.endDate, "end date");
+  if (startDate >= requestedEnd) {
     throw backtestInvalid("A backtest period must start before it ends");
   }
   // A period that has not happened yet cannot be simulated, and the future half of one would
   // silently shorten the run instead of reporting that the request was wrong.
-  if (endDate > today) {
+  if (requestedEnd > today) {
     throw backtestInvalid("A backtest period cannot end in the future");
+  }
+  // Today, while its session is still trading or its bar is still being published, is not part of
+  // the market's history yet. The period ends at the newest finalized session instead, and the
+  // snapshot records exactly that — the run never simulates a provisional bar, and its record says
+  // which day it really ended on.
+  const endDate =
+    requestedEnd > finalizedThrough ? finalizedThrough : requestedEnd;
+  if (startDate >= endDate) {
+    throw backtestInvalid(
+      `A backtest period must start before ${finalizedThrough}, the newest completed trading session`,
+    );
   }
   if (endDate > addYears(startDate, BACKTEST_MAX_PERIOD_YEARS)) {
     throw backtestInvalid(
@@ -172,7 +211,7 @@ export function parseCreateBacktestRunRequest(
   // whatever the current clock allowed. The run would complete, report a period it did not
   // simulate, and be irreproducible tomorrow. It is refused here instead, where the caller can
   // see it.
-  const earliest = earliestSelectableBacktestStart(today);
+  const earliest = earliestSelectableBacktestStart(finalizedThrough);
   if (startDate < earliest) {
     throw backtestInvalid(
       `A backtest cannot start before ${earliest}: the product keeps ${BACKTEST_MAX_PERIOD_YEARS} ` +
