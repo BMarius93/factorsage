@@ -136,6 +136,80 @@ export type LevelStateWrite = {
   } | null;
 };
 
+/** Where a recorded change came from; mirrors `MonitorTransitionOrigin`. */
+export type TransitionOrigin = "OBSERVED" | "HISTORY" | "ADMINISTRATIVE";
+
+/**
+ * One recorded lifecycle change of an EOD evaluation, in order, with the occurrence it ends and/or
+ * begins. A catch-up over several sessions produces one per change — never one per session — so an
+ * occurrence that opened on Tuesday and closed on Thursday is two changes with their true dates.
+ */
+export type LevelChange = {
+  transition: TransitionRecord;
+  origin: TransitionOrigin;
+  /** End the occurrence current before this change. */
+  close?: { reason: MonitorTransitionReason; observationDate: LocalDate | null };
+  /** Begin an occurrence on this change. */
+  open?: { observationDate: LocalDate; price: number; reconstructed: boolean };
+};
+
+/** Everything one EOD evaluation decided for one level of one member. */
+export type LevelSessionsWrite = {
+  levelId: string;
+  levelKind: MonitorLevelKind;
+  signalFingerprint: string;
+  hasTrigger: boolean;
+  /** Recorded on an opened Signal as the version it was decided under. */
+  strategyVersionId: string;
+  /** The state this was decided against, or null when there was none. */
+  previous: PersistedSignalState | null;
+  changes: readonly LevelChange[];
+  /** The lifecycle to persist, or `null` to delete the row. */
+  lifecycle: MonitorLevelLifecycle | null;
+  /** The outcome of the newest session evaluated. */
+  outcome: MonitorEvaluationOutcome;
+  /** The newest decided observation; `lastEvaluable*` moves only with one. */
+  decided: { result: "MATCHED" | "NOT_MATCHED"; observation: MonitorObservation } | null;
+  /** Where and at what price the final lifecycle state was entered, when it changed. */
+  enteredAt: { observationDate: LocalDate | null; price: number | null } | null;
+};
+
+/**
+ * One member's EOD evaluation: every level's decisions and the checkpoint they advance, persisted
+ * in **one** transaction or not at all.
+ */
+export type MemberEvaluationWrite = {
+  monitorId: string;
+  configVersion: number;
+  securityId: string;
+  now: Date;
+  checkpoint: {
+    /** The `evaluatedThrough` the evaluation read, or null when the member had no checkpoint. */
+    previous: LocalDate | null;
+    next: LocalDate;
+    basisGeneration: number;
+  };
+  levels: readonly LevelSessionsWrite[];
+};
+
+export type MemberEvaluationResult = {
+  applied: boolean;
+  /** Nothing was written because the Monitor was rebound after the evaluation loaded it. */
+  staleConfiguration?: boolean;
+  /** Nothing was written because another evaluation advanced the checkpoint first. */
+  contended?: boolean;
+  openedSignals: number;
+  closedSignals: number;
+  transitions: number;
+};
+
+/** One member's evaluation progress. */
+export type PersistedCheckpoint = {
+  evaluatedThrough: LocalDate;
+  configVersion: number;
+  basisGeneration: number;
+};
+
 export type LevelStateResult = {
   /** False when a concurrent cycle moved this state first; nothing was written. */
   applied: boolean;
@@ -184,6 +258,45 @@ export interface MonitorRepository {
   ): Promise<void>;
 }
 
+/**
+ * What the EOD evaluation needs from durable state (`docs/decisions/monitor-eod-v2.md` §3): the V1
+ * reads and reconciliations, plus per-member progress and the one atomic member write.
+ */
+export interface MonitorEvaluationRepository
+  extends Omit<MonitorRepository, "applyLevelState"> {
+  /**
+   * Records which Monitors are running now, and returns when each started being watched.
+   *
+   * A running Monitor with no `watchingSince` is stamped `now` — it was created, re-enabled,
+   * unblocked or globally enabled since the last evaluation — and every Monitor that is no longer
+   * running is cleared. A session that became final before a Monitor's `watchingSince` was not
+   * watched when it happened.
+   */
+  markWatching(
+    runningMonitorIds: readonly string[],
+    now: Date,
+  ): Promise<Map<string, Date>>;
+  /** Each member's evaluation progress for one Monitor, keyed by security id. */
+  loadCheckpoints(monitorId: string): Promise<Map<string, PersistedCheckpoint>>;
+  /**
+   * Persists one member's EOD evaluation — every level's changes, Signals and state, and the
+   * checkpoint they advance — in one transaction behind the binding fence, the checkpoint's own
+   * previous value and every state's `stateVersion`. Nothing is written when any of them moved.
+   */
+  applyMemberEvaluation(
+    write: MemberEvaluationWrite,
+  ): Promise<MemberEvaluationResult>;
+  /**
+   * Forgets the progress of members no longer in the Monitor's list, so a member removed and added
+   * back is reconstructed rather than caught up from a stale checkpoint. Fenced like every write.
+   */
+  pruneCheckpoints(input: {
+    monitorId: string;
+    configVersion: number;
+    securityIds: readonly string[];
+  }): Promise<number>;
+}
+
 /** The key a `(securityId, levelId)` pair is looked up by inside one Monitor's state map. */
 export function signalStateKey(securityId: string, levelId: string): string {
   return `${securityId} ${levelId}`;
@@ -197,7 +310,9 @@ const NOTHING: LevelStateResult = {
   transitions: 0,
 };
 
-export class PrismaMonitorRepository implements MonitorRepository {
+export class PrismaMonitorRepository
+  implements MonitorRepository, MonitorEvaluationRepository
+{
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
@@ -447,6 +562,8 @@ export class PrismaMonitorRepository implements MonitorRepository {
               observationPrice: write.open.price,
               detectedAt: write.now,
               reconstructed: write.open.reconstructed,
+              // The V1 cycle decides on a provider quote: label it so, never as a session close.
+              observationBasis: "LIVE_QUOTE",
             },
             select: { id: true },
           });
@@ -531,6 +648,7 @@ export class PrismaMonitorRepository implements MonitorRepository {
               fromState: transition.from,
               toState: transition.to,
               reason: transition.reason,
+              origin: legacyTransitionOrigin(transition.reason),
               occurredAt: write.now,
               observationDate: transition.observationDate
                 ? toDate(transition.observationDate)
@@ -642,6 +760,7 @@ export class PrismaMonitorRepository implements MonitorRepository {
                 fromState: row.lifecycleState,
                 toState: ended,
                 reason,
+                origin: "ADMINISTRATIVE",
                 occurredAt: input.now,
                 signalId: row.activeSignalId,
               },
@@ -686,7 +805,327 @@ export class PrismaMonitorRepository implements MonitorRepository {
       WHERE m."id" = scanned.id AND m."configVersion" = scanned.config_version
     `;
   }
+
+  /**
+   * Raw SQL for the same reason as `markScanned`: being watched is not an edit, so the Monitor's
+   * `updatedAt` must not move.
+   */
+  async markWatching(
+    runningMonitorIds: readonly string[],
+    now: Date,
+  ): Promise<Map<string, Date>> {
+    const running = [...runningMonitorIds];
+    await this.prisma.$executeRaw`
+      UPDATE "Monitor"
+      SET "watchingSince" = NULL
+      WHERE "watchingSince" IS NOT NULL AND NOT ("id" = ANY(${running}::text[]))
+    `;
+    if (running.length === 0) {
+      return new Map();
+    }
+    await this.prisma.$executeRaw`
+      UPDATE "Monitor"
+      SET "watchingSince" = ${now}
+      WHERE "watchingSince" IS NULL AND "id" = ANY(${running}::text[])
+    `;
+    const rows = await this.prisma.monitor.findMany({
+      where: { id: { in: running } },
+      select: { id: true, watchingSince: true },
+    });
+    return new Map(
+      rows.map((row) => [row.id, row.watchingSince ?? now] as const),
+    );
+  }
+
+  async pruneCheckpoints(input: {
+    monitorId: string;
+    configVersion: number;
+    securityIds: readonly string[];
+  }): Promise<number> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await assertBindingCurrent(tx, input.monitorId, input.configVersion);
+        return (
+          await tx.monitorEvaluationCheckpoint.deleteMany({
+            where: {
+              monitorId: input.monitorId,
+              ...(input.securityIds.length > 0
+                ? { securityId: { notIn: [...input.securityIds] } }
+                : {}),
+            },
+          })
+        ).count;
+      });
+    } catch (error) {
+      if (error instanceof MonitorBindingChangedError) {
+        return 0;
+      }
+      throw error;
+    }
+  }
+
+  async loadCheckpoints(
+    monitorId: string,
+  ): Promise<Map<string, PersistedCheckpoint>> {
+    const rows = await this.prisma.monitorEvaluationCheckpoint.findMany({
+      where: { monitorId },
+      select: {
+        securityId: true,
+        evaluatedThrough: true,
+        configVersion: true,
+        basisGeneration: true,
+      },
+    });
+    return new Map(
+      rows.map((row) => [
+        row.securityId,
+        {
+          evaluatedThrough: toLocalDate(row.evaluatedThrough),
+          configVersion: row.configVersion,
+          basisGeneration: row.basisGeneration,
+        },
+      ]),
+    );
+  }
+
+  async applyMemberEvaluation(
+    write: MemberEvaluationWrite,
+  ): Promise<MemberEvaluationResult> {
+    const nothing: MemberEvaluationResult = {
+      applied: false,
+      openedSignals: 0,
+      closedSignals: 0,
+      transitions: 0,
+    };
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          // The fence first, in the order a rebind takes it, then the member's own progress.
+          await assertBindingCurrent(tx, write.monitorId, write.configVersion);
+          const current = await tx.$queryRaw<{ evaluatedThrough: Date }[]>`
+            SELECT "evaluatedThrough"
+            FROM "MonitorEvaluationCheckpoint"
+            WHERE "monitorId" = ${write.monitorId} AND "securityId" = ${write.securityId}
+            FOR UPDATE
+          `;
+          const stored = current[0]
+            ? toLocalDate(current[0].evaluatedThrough)
+            : null;
+          if (stored !== write.checkpoint.previous) {
+            throw new MonitorCheckpointConflictError();
+          }
+
+          let opened = 0;
+          let closed = 0;
+          let transitions = 0;
+          for (const level of write.levels) {
+            const result = await this.applyLevelSessions(tx, write, level);
+            opened += result.opened;
+            closed += result.closed;
+            transitions += result.transitions;
+          }
+
+          await tx.monitorEvaluationCheckpoint.upsert({
+            where: {
+              monitorId_securityId: {
+                monitorId: write.monitorId,
+                securityId: write.securityId,
+              },
+            },
+            create: {
+              monitorId: write.monitorId,
+              securityId: write.securityId,
+              evaluatedThrough: toDate(write.checkpoint.next),
+              configVersion: write.configVersion,
+              basisGeneration: write.checkpoint.basisGeneration,
+            },
+            update: {
+              evaluatedThrough: toDate(write.checkpoint.next),
+              configVersion: write.configVersion,
+              basisGeneration: write.checkpoint.basisGeneration,
+            },
+          });
+          return {
+            applied: true,
+            openedSignals: opened,
+            closedSignals: closed,
+            transitions,
+          };
+        },
+        { timeout: 30_000 },
+      );
+    } catch (error) {
+      if (error instanceof MonitorBindingChangedError) {
+        return { ...nothing, staleConfiguration: true };
+      }
+      if (
+        error instanceof MonitorCheckpointConflictError ||
+        error instanceof MonitorTransitionConflictError ||
+        isBenignWriteRace(error)
+      ) {
+        // Another evaluation moved this member first, or the Monitor or security went away. The
+        // transaction rolled back, so nothing this call created survives.
+        return { ...nothing, contended: true };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * One level's ordered changes: each close ends the occurrence current at that point, each open
+   * begins the next, and the transitions record which occurrence each concerns — so a catch-up that
+   * opened Tuesday and closed Thursday leaves exactly that history.
+   */
+  private async applyLevelSessions(
+    tx: Prisma.TransactionClient,
+    write: MemberEvaluationWrite,
+    level: LevelSessionsWrite,
+  ): Promise<{ opened: number; closed: number; transitions: number }> {
+    const previous = level.previous;
+    const unchanged =
+      previous !== null &&
+      level.lifecycle !== null &&
+      level.changes.length === 0 &&
+      previous.lastOutcome === level.outcome &&
+      previous.signalFingerprint === level.signalFingerprint &&
+      sameLifecycle(previous.lifecycle, level.lifecycle);
+    if (unchanged || (previous === null && level.lifecycle === null)) {
+      return { opened: 0, closed: 0, transitions: 0 };
+    }
+
+    let activeSignalId = previous?.activeSignalId ?? null;
+    let opened = 0;
+    let closed = 0;
+    const transitionRows: Prisma.MonitorStateTransitionCreateManyInput[] = [];
+    for (const change of level.changes) {
+      let closedSignalId: string | null = null;
+      if (change.close && activeSignalId) {
+        closedSignalId = activeSignalId;
+        closed += (
+          await tx.monitorSignal.updateMany({
+            where: { id: activeSignalId, resolvedAt: null },
+            data: signalClose(write.now, change.close),
+          })
+        ).count;
+        activeSignalId = null;
+      }
+      let openedSignalId: string | null = null;
+      if (change.open) {
+        const signal = await tx.monitorSignal.create({
+          data: {
+            monitorId: write.monitorId,
+            securityId: write.securityId,
+            levelId: level.levelId,
+            levelKind: level.levelKind,
+            strategyVersionId: level.strategyVersionId,
+            signalFingerprint: level.signalFingerprint,
+            hasTrigger: level.hasTrigger,
+            observationDate: toDate(change.open.observationDate),
+            observationPrice: change.open.price,
+            observationBasis: "EOD_CLOSE",
+            detectedAt: write.now,
+            reconstructed: change.open.reconstructed,
+          },
+          select: { id: true },
+        });
+        openedSignalId = signal.id;
+        activeSignalId = signal.id;
+        opened += 1;
+      }
+      transitionRows.push({
+        monitorId: write.monitorId,
+        securityId: write.securityId,
+        levelId: level.levelId,
+        levelKind: level.levelKind,
+        exitRuleId: change.transition.exitRuleId,
+        signalFingerprint: change.transition.signalFingerprint,
+        fromState: change.transition.from,
+        toState: change.transition.to,
+        reason: change.transition.reason,
+        origin: change.origin,
+        occurredAt: write.now,
+        observationDate: change.transition.observationDate
+          ? toDate(change.transition.observationDate)
+          : null,
+        signalId:
+          change.transition.signal === "opened"
+            ? openedSignalId
+            : change.transition.signal === "closed"
+              ? closedSignalId
+              : null,
+      });
+    }
+
+    if (level.lifecycle === null) {
+      if (previous) {
+        guard(
+          await tx.monitorSignalState.deleteMany({
+            where: { id: previous.id, stateVersion: previous.stateVersion },
+          }),
+        );
+      }
+    } else {
+      const lifecycle = level.lifecycle;
+      const data = {
+        signalFingerprint: level.signalFingerprint,
+        levelKind: level.levelKind,
+        lastOutcome: level.outcome,
+        lastOutcomeAt: write.now,
+        lifecycleState: lifecycle.state,
+        lifecycleSinceDate: lifecycle.since ? toDate(lifecycle.since) : null,
+        ruleStates: lifecycle.rules as unknown as Prisma.InputJsonValue,
+        activeSignalId: lifecycle.state === "ACTIVE" ? activeSignalId : null,
+        ...(level.enteredAt
+          ? {
+              lifecycleSince: write.now,
+              lifecycleSincePrice: level.enteredAt.price,
+            }
+          : {}),
+        ...(level.decided
+          ? {
+              lastEvaluableResult:
+                level.decided.result === "MATCHED"
+                  ? MonitorEvaluableResult.MATCHED
+                  : MonitorEvaluableResult.NOT_MATCHED,
+              lastEvaluableDate: toDate(level.decided.observation.date),
+              lastEvaluableAt: write.now,
+            }
+          : {}),
+      };
+      if (previous) {
+        guard(
+          await tx.monitorSignalState.updateMany({
+            where: { id: previous.id, stateVersion: previous.stateVersion },
+            data: { ...data, stateVersion: { increment: 1 } },
+          }),
+        );
+      } else {
+        if (!level.decided) {
+          throw new Error("A new Monitor state requires a decided observation");
+        }
+        await tx.monitorSignalState.create({
+          data: {
+            monitorId: write.monitorId,
+            securityId: write.securityId,
+            levelId: level.levelId,
+            ...data,
+            lastEvaluableResult: data.lastEvaluableResult!,
+            lastEvaluableDate: data.lastEvaluableDate!,
+            lastEvaluableAt: data.lastEvaluableAt!,
+          },
+        });
+      }
+    }
+
+    if (transitionRows.length > 0) {
+      await tx.monitorStateTransition.createMany({ data: transitionRows });
+    }
+    return { opened, closed, transitions: transitionRows.length };
+  }
 }
+
+/** The close a level's persisted Signal row receives. */
+type SignalClose = { reason: MonitorTransitionReason; observationDate: LocalDate | null };
 
 /**
  * The state an ended lifecycle moves to when it stops being evaluated: an occurrence resolves, a
@@ -702,6 +1141,25 @@ export function endedStateOf(
     return "INACTIVE";
   }
   return null;
+}
+
+/**
+ * The origin a V1 transition is filed under, by the same mapping the migration backfilled
+ * (`docs/decisions/monitor-eod-v2.md` §3): a reconstruction is history, a configuration change is
+ * administrative, anything else was observed.
+ */
+function legacyTransitionOrigin(reason: MonitorTransitionReason): TransitionOrigin {
+  switch (reason) {
+    case "RECONSTRUCTED":
+      return "HISTORY";
+    case "LOGIC_CHANGED":
+    case "LEVEL_REMOVED":
+    case "MEMBER_REMOVED":
+    case "MONITOR_REBOUND":
+      return "ADMINISTRATIVE";
+    default:
+      return "OBSERVED";
+  }
 }
 
 /** Turns a lost optimistic guard into a rollback, so a created Signal never outlives it. */
@@ -740,6 +1198,23 @@ class MonitorBindingChangedError extends Error {
   constructor() {
     super("Monitor was rebound to a different strategy or stock list");
     this.name = "MonitorBindingChangedError";
+  }
+}
+
+function signalClose(now: Date, close: SignalClose) {
+  return {
+    resolvedAt: now,
+    resolvedObservationDate: close.observationDate
+      ? toDate(close.observationDate)
+      : null,
+    resolutionReason: close.reason,
+  };
+}
+
+class MonitorCheckpointConflictError extends Error {
+  constructor() {
+    super("Monitor member evaluation progress moved concurrently");
+    this.name = "MonitorCheckpointConflictError";
   }
 }
 

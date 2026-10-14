@@ -1415,6 +1415,61 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   }
 
   /**
+   * The evaluation frame of a period of **finalized** sessions, read from PostgreSQL alone — no
+   * provider, no Redis, no LRU admission (`docs/decisions/monitor-eod-v2.md` §3).
+   *
+   * The Monitor's EOD evaluation reads through this: the stock EOD preparation has already made the
+   * sessions durable and final, so the read is a bounded projection of canonical rows — the very
+   * prices and **materialized** derived rows a backtest frame reads, so a Monitor decides a session
+   * on exactly the values a backtest of that session reads. Nothing is recomputed here. Reading the
+   * rows directly rather than through the cached projection is the deliberate choice for a
+   * scheduled sweep over many securities: a short window per security is a handful of rows, and
+   * admitting every monitored security to the bounded resident set would evict the stocks people
+   * are actually looking at.
+   *
+   * The period is widened by the same leading context every frame gets, so its first session has
+   * its `t - 1` value. The price-basis generation is read on both sides of the rows; a replacement
+   * committed in between is refused with `PriceBasisChangedError`, never answered from two bases.
+   */
+  async readFinalizedEvaluationFrame(
+    security: Security,
+    range: Required<DateRange>,
+    operands: readonly OperandKey[],
+  ): Promise<{ frame: EvaluationFrame; priceBasisGeneration: number }> {
+    const period = this.requireBoundedRange(range);
+    const context = this.evaluationContextRange(period, operands);
+    const projection = this.projectionRange(security, context, "BACKTEST");
+    const expected = await this.priceBasisGeneration(security.id);
+    const [prices, derived, alternativeData, valuation] = await Promise.all([
+      projection ? this.store.getDailyPrices(security.id, projection) : [],
+      projection ? this.store.getDailyDerivedState(security.id, projection) : [],
+      this.loadAlternativeDataFacts(security, operands, context, {}),
+      this.loadValuationTimeline(security, operands),
+    ]);
+    const current = await this.priceBasisGeneration(security.id);
+    if (current !== expected) {
+      throw new PriceBasisChangedError(
+        security.id,
+        security.symbol,
+        expected,
+        current,
+      );
+    }
+    return {
+      frame: projectEvaluationFrame({
+        security,
+        prices,
+        derived,
+        operands,
+        periodStart: period.from,
+        alternativeData,
+        ...(valuation ? { valuation: { timeline: valuation } } : {}),
+      }).frame,
+      priceBasisGeneration: expected,
+    };
+  }
+
+  /**
    * Everything one Monitor evaluation cycle needs for one security, read **once**.
    *
    * The cycle calls this per symbol, never per Monitor: `operands` is already the union of every

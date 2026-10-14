@@ -282,7 +282,7 @@ export function decideLevel(input: {
 }
 
 /** A BUY level honours the member's canonical buy window; SELL and FINAL EXIT never do. */
-function eligibleOn(
+export function eligibleOn(
   level: Pick<MonitorStrategyLevel, "kind">,
   member: ActiveMonitorMember,
   date: LocalDate,
@@ -296,7 +296,9 @@ function eligibleOn(
   );
 }
 
-function outcomeOf(evaluability: Evaluability): MonitorEvaluationOutcome {
+export function outcomeOf(
+  evaluability: Evaluability,
+): MonitorEvaluationOutcome {
   return evaluability === Evaluability.TRUE
     ? "MATCHED"
     : evaluability === Evaluability.FALSE
@@ -305,7 +307,7 @@ function outcomeOf(evaluability: Evaluability): MonitorEvaluationOutcome {
 }
 
 /** The reset a logic change makes to a state recorded under the previous logic. */
-function logicChangeReset(previous: PersistedSignalState): {
+export function logicChangeReset(previous: PersistedSignalState): {
   transitions: TransitionRecord[];
   close: LevelStateWrite["close"];
 } {
@@ -330,7 +332,7 @@ function logicChangeReset(previous: PersistedSignalState): {
   };
 }
 
-function historyStep(
+export function historyStep(
   level: MonitorStrategyLevel,
   member: ActiveMonitorMember,
   history: EvaluationFrame,
@@ -359,7 +361,7 @@ function lastHistoryIndex(history: EvaluationFrame, before: LocalDate): number {
  * Scanning backwards means a level that rested recently evaluates a handful of sessions, not the
  * whole window.
  */
-function historySteps(
+export function historySteps(
   level: MonitorStrategyLevel,
   member: ActiveMonitorMember,
   history: EvaluationFrame,
@@ -420,7 +422,10 @@ export function needsDeeperHistory(input: {
   return steps.length === 0 || !isRestingMonitorStep(steps[0]!);
 }
 
-function closeOn(frame: EvaluationFrame, date: LocalDate): number | null {
+export function closeOn(
+  frame: EvaluationFrame,
+  date: LocalDate,
+): number | null {
   const index = frameIndexOf(frame, date);
   if (index < 0) {
     return null;

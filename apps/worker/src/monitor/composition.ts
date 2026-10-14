@@ -8,12 +8,12 @@ import {
   getStockDataConfig,
 } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
-import type { Security, SecurityId } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
+  EodFinalityPolicy,
   CanonicalBenchmarkDataService,
   CanonicalStockDataService,
   PrismaBenchmarkDataStore,
@@ -30,26 +30,21 @@ import {
   RedlockLoadCoordinator,
   createStockDataRedisClient,
   logPriceBasisEvent,
-  monitorWindowObservations,
-  requiredDailySeries,
   type ProviderRequestEvent,
   type TradingCalendar,
 } from "@intrinsic/stock-data";
-import { requiredAlternativeDataLeadingSessions, type OperandKey } from "@intrinsic/strategy";
-import type {
-  MonitorDataLoader,
-  MonitorEtfContexts,
-} from "./monitor-cycle.js";
-import {
-  PrismaMonitorRepository,
-  type MonitorRepository,
-} from "./monitor-repository.js";
+import type { MonitorEtfContexts } from "./monitor-cycle.js";
+import type { MonitorEvaluationData } from "./monitor-evaluation.js";
+import { PrismaMonitorRepository } from "./monitor-repository.js";
 import { PrismaMonitorScanRepository } from "./scan-repository.js";
 
 export type MonitorRuntime = {
   scans: PrismaMonitorScanRepository;
-  monitors: MonitorRepository;
-  data: MonitorDataLoader;
+  monitors: PrismaMonitorRepository;
+  /** Provider-free reads of finalized sessions: the EOD evaluation reaches no provider. */
+  data: MonitorEvaluationData;
+  /** The finality policy — the same delay and calendar every loader and the stock EOD child use. */
+  policy: EodFinalityPolicy;
   calendar: TradingCalendar;
   /** The ETF histories behind ETF-sourced conditions: the provider-free reader slice only. */
   etfContexts: MonitorEtfContexts;
@@ -60,15 +55,14 @@ export type MonitorRuntime = {
  * The monitor worker's composition root.
  *
  * It mirrors `../backtest/composition.ts` deliberately: the same store, the same Redis cache, the
- * same shared FMP gate and the same load coordinator, built from the same configuration. A Monitor
- * cycle must never call the provider itself or keep a second implementation of Redis lookup,
- * coverage reconciliation or derived calculation — `AGENTS.md` invariant 6 makes API and worker
- * different processes, not different business implementations, and a monitor child is one more
- * process of the same kind.
+ * same shared FMP gate and the same load coordinator, built from the same configuration, and no
+ * second implementation of any of them (`AGENTS.md` invariant 6).
  *
- * Sharing the gate matters here more than anywhere else: a Monitor cycle touching the whole
- * monitored universe would otherwise be able to exhaust the provider budget Stock Details depends
- * on. It goes through `RedisFmpRequestGate` like everything else and is throttled with it.
+ * The EOD evaluation it serves reaches **no** price provider (`docs/decisions/monitor-eod-v2.md`
+ * §3): `data` exposes only provider-free reads of finalized sessions — the readiness answer and the
+ * PostgreSQL frame — and the ETF histories are read through the provider-free benchmark reader. The
+ * stock EOD child owns every price read. The gated provider here serves the venue holiday schedule
+ * alone, throttled with everyone else's traffic.
  */
 export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
   const stockDataConfig = getStockDataConfig();
@@ -94,7 +88,6 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       requestLeaseMs: fmpTraffic.timeoutMs * 2,
     }),
   });
-
 
   // The alternative-data loader, built from the **same gated provider**: an insider or congressional
   // ingest spends the same Redis-coordinated allowance as a price read, so it can never starve one.
@@ -189,7 +182,15 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
   return {
     scans: new PrismaMonitorScanRepository(prisma),
     monitors: new PrismaMonitorRepository(prisma),
-    data: new PrismaMonitorDataLoader(stockData),
+    data: {
+      findSecurities: (ids) => stockData.findSecuritiesByIds(ids),
+      stockRefreshState: (security) => stockData.stockRefreshState(security),
+      readFinalizedEvaluationFrame: (security, range, operands) =>
+        stockData.readFinalizedEvaluationFrame(security, range, operands),
+      reconstructionHistoryStart: (security) =>
+        stockData.evaluationHistoryStart(security),
+    },
+    policy: new EodFinalityPolicy(eod),
     etfContexts,
     // Built from the same gated provider as everything else, so a schedule fetch is throttled with
     // the rest of the cycle's traffic. Its cache is process memory by design — see
@@ -200,72 +201,4 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       await prisma.$disconnect();
     },
   };
-}
-
-/**
- * The cycle's view of the data layer.
- *
- * Securities are read by id rather than by symbol: a Monitor's universe comes from `StockListItem`,
- * which already references the canonical catalog, and re-resolving a symbol would reintroduce the
- * ticker as an identity the product does not use it as.
- */
-class PrismaMonitorDataLoader implements MonitorDataLoader {
-  constructor(private readonly stockData: CanonicalStockDataService) {}
-
-  async findSecurities(securityIds: readonly SecurityId[]): Promise<Security[]> {
-    return this.stockData.findSecuritiesByIds(securityIds);
-  }
-
-  async getCurrentObservations(securities: readonly Security[]) {
-    return this.stockData.getCurrentObservations(securities);
-  }
-
-  async prepareMonitorEvaluationData(
-    security: Security,
-    observations: number,
-    asOf: string,
-    operands: readonly OperandKey[] = [],
-  ): Promise<void> {
-    await this.stockData.prepareMonitorEvaluationData(
-      security,
-      observations,
-      asOf,
-      operands,
-    );
-  }
-
-  async readMonitorEvaluationFrame(
-    input: Parameters<MonitorDataLoader["readMonitorEvaluationFrame"]>[0],
-  ) {
-    return this.stockData.readMonitorEvaluationFrame(input);
-  }
-
-  monitorWindowObservations(operands: readonly OperandKey[]): number {
-    return monitorWindowObservations(
-      requiredDailySeries(operands),
-      // The longest alternative-data lookback must fit inside the loaded window, or the one session a
-      // Monitor evaluates would report NOT_EVALUABLE for a metric whose data is fully present.
-      requiredAlternativeDataLeadingSessions(operands),
-    );
-  }
-
-  async prepareReconstructionData(
-    security: Security,
-    range: { from: string; to: string },
-    operands: readonly OperandKey[] = [],
-  ): Promise<void> {
-    await this.stockData.prepareDailyEvaluationData(security, range, operands);
-  }
-
-  async readReconstructionFrame(
-    security: Security,
-    range: { from: string; to: string },
-    operands: readonly OperandKey[],
-  ) {
-    return this.stockData.readDailyEvaluationFrame(security, range, operands);
-  }
-
-  reconstructionHistoryStart(security: Security): string {
-    return this.stockData.evaluationHistoryStart(security);
-  }
 }

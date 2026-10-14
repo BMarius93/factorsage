@@ -1,23 +1,17 @@
-import { loadRootEnv } from "@intrinsic/config";
+import { getEodFinalityConfig, loadRootEnv } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
-import type { Security, SecurityId } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
-import type {
-  CurrentObservation,
-  TradingCalendar,
-} from "@intrinsic/stock-data";
+import { EodFinalityPolicy, type TradingCalendar } from "@intrinsic/stock-data";
 import { createMonitorRuntime } from "./composition.js";
-import { MonitorCycle, type MonitorDataLoader } from "./monitor-cycle.js";
+import { MonitorEodEvaluation } from "./monitor-evaluation.js";
 
 /**
- * One real Monitor cycle at a chosen past session, for the data-correctness audit
+ * One real Monitor EOD evaluation at a chosen past session, for the data-correctness audit
  * (`docs/data-correctness-audit/`).
  *
- * Everything is the production path — repository, reconstruction, frame projection, reducer,
- * persistence — except the two inputs a past session cannot get from the live provider:
- *
- * - the "live" quote is that session's persisted close, stamped 16:00 New York time;
- * - the exchange calendar is the pinned SP500 series' own bars (the execution calendar).
+ * Everything is the production path — repository, readiness, PostgreSQL frame, reconstruction,
+ * reducer, persistence — with the clock pinned after that session finalized, and the exchange
+ * calendar read from the pinned SP500 series' own bars (the execution calendar).
  *
  * It refuses to run anywhere but the dedicated QA-matrix database.
  *
@@ -65,39 +59,22 @@ try {
       return sessions.has(date);
     },
   };
-  const quotedAt = `${asOf}T20:00:00.000Z`;
-  const data: MonitorDataLoader = Object.assign(
-    Object.create(Object.getPrototypeOf(runtime.data)),
-    runtime.data,
-    {
-      async getCurrentObservations(
-        securities: readonly Security[],
-      ): Promise<Map<SecurityId, CurrentObservation>> {
-        const rows = await prisma.$queryRawUnsafe<
-          { securityId: string; close: string }[]
-        >(
-          `select "securityId", close::text as close from "DailyPrice" where date = $1::date and "securityId" = any($2)`,
-          asOf,
-          securities.map((security) => security.id),
-        );
-        return new Map(
-          rows.map((row) => [
-            row.securityId,
-            { price: Number(row.close), quotedAt },
-          ]),
-        );
-      },
-    },
-  );
-  const cycle = new MonitorCycle(
+  // After the session's close plus the publication delay in either daylight-saving regime, so the
+  // pass evaluates exactly that finalized session from the stored closes — the production path.
+  const clock = new Date(`${asOf}T23:00:00.000Z`);
+  const cycle = new MonitorEodEvaluation(
     runtime.monitors,
-    data,
-    calendar,
+    runtime.data,
+    new EodFinalityPolicy({
+      calendar,
+      publicationDelayMs: getEodFinalityConfig().publicationDelayMs,
+      now: () => clock,
+    }),
     logger,
     {
-      symbolConcurrency: 4,
-      quoteMaxAgeMs: 6 * 60 * 60 * 1000,
-      now: () => new Date(`${asOf}T21:00:00.000Z`),
+      securityConcurrency: 4,
+      dependencyGiveUpMs: getEodFinalityConfig().sessionGiveUpMs,
+      now: () => clock,
     },
     runtime.etfContexts,
   );

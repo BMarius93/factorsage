@@ -2,11 +2,15 @@ import {
   runWithLogContext,
   type StructuredLogger,
 } from "@intrinsic/observability";
-import type { MonitorCycle } from "./monitor-cycle.js";
 import type {
   ClaimedMonitorScan,
   MonitorScanRepository,
 } from "./scan-repository.js";
+
+/** What the loop runs once per claim: the Monitor EOD evaluation in production. */
+export type MonitorPass = {
+  run(cycleSequence: number, isAborted: () => boolean): Promise<unknown>;
+};
 
 export type MonitorWorkerLoopOptions = {
   /** Stable identity of this process, written as `claimedBy` on every cycle it claims. */
@@ -43,7 +47,7 @@ export class MonitorWorkerLoop {
 
   constructor(
     private readonly repository: MonitorScanRepository,
-    private readonly cycle: MonitorCycle,
+    private readonly cycle: MonitorPass,
     private readonly logger: StructuredLogger,
     private readonly options: MonitorWorkerLoopOptions,
   ) {
