@@ -11,6 +11,7 @@ import {
   canonicalBacktestSnapshotDocument,
   normalizeStrategyDefinition,
   strategyDefinitionFingerprint,
+  type BacktestEtfConditionDiagnosticsResponse,
   type BacktestLiveSnapshotResponse,
   type BacktestProgressResponse,
   type BacktestRunDetailResponse,
@@ -2262,5 +2263,438 @@ describe("backtests", () => {
     const body = detail.body as BacktestRunDetailResponse;
     expect(body.failure?.phase).toBeNull();
     expect(body.failure?.code).toBe("EXECUTION_FAILED");
+  });
+
+  describe("ETF condition sources are pinned at submission", () => {
+    /** A strategy whose one BUY level reads XLK's RSI and SPY's Price. */
+    async function createEtfStrategy(): Promise<string> {
+      const etfDefinition = normalizeStrategyDefinition({
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: "buy-etf-1",
+            percentage: 25,
+            signal: {
+              conditions: [
+                {
+                  id: "condition-etf-1",
+                  metric: {
+                    kind: "OSCILLATOR",
+                    seriesId: "RSI_14D",
+                    source: { kind: "ETF", code: "ETF_XLK" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 50 },
+                },
+                {
+                  id: "condition-etf-2",
+                  metric: {
+                    kind: "PRICE",
+                    source: { kind: "ETF", code: "SP500" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "SERIES", seriesId: "SMA_200D" },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [],
+      } satisfies StrategyDefinition);
+      const etfStrategy = await prisma.strategy.create({
+        data: {
+          userId: ownerUserId,
+          name: "ETF context strategy",
+          versions: {
+            create: {
+              versionNumber: 1,
+              definition: etfDefinition as unknown as object,
+              definitionHash: createHash("sha256")
+                .update(strategyDefinitionFingerprint(etfDefinition))
+                .digest("hex"),
+            },
+          },
+        },
+      });
+      return etfStrategy.id;
+    }
+
+    /** Marks a submitted run completed with a minimal summary, as the worker's result write does. */
+    async function completeWith(
+      runId: string,
+      etfConditionDiagnostics?: BacktestEtfConditionDiagnosticsResponse[],
+    ): Promise<void> {
+      const completedAt = new Date();
+      await prisma.backtestRun.update({
+        where: { id: runId },
+        data: { status: "COMPLETED", startedAt: completedAt, completedAt },
+      });
+      await prisma.backtestRunSummary.create({
+        data: {
+          runId,
+          firstSimulatedDate: new Date("2024-01-02T00:00:00.000Z"),
+          lastSimulatedDate: new Date("2024-12-31T00:00:00.000Z"),
+          tradingDays: 252,
+          investedCapital: 100_000,
+          finalCash: 100_000,
+          finalPositionsValue: 0,
+          finalValue: 100_000,
+          netProfit: 0,
+          portfolioReturnPercent: 0,
+          benchmarkReturnPercent: 5,
+          alphaPercent: -5,
+          portfolioCagrPercent: 0,
+          maxDrawdownPercent: 0,
+          benchmarkMaxDrawdownPercent: 4,
+          realizedPnl: 0,
+          unrealizedPnl: 0,
+          totalTrades: 0,
+          buyTrades: 0,
+          sellTrades: 0,
+          finalExitTrades: 0,
+          winningTrades: 0,
+          losingTrades: 0,
+          openPositions: 0,
+          // Omitted, the column stays NULL: exactly a run completed before it existed.
+          ...(etfConditionDiagnostics === undefined
+            ? {}
+            : { etfConditionDiagnostics: etfConditionDiagnostics as object[] }),
+        },
+      });
+    }
+
+    it("freezes each named ETF's immutable series and basis generation, and only those", async () => {
+      const run = await submit({ strategyId: await createEtfStrategy() });
+      const row = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true },
+      });
+      const snapshot = row.snapshot as unknown as BacktestRunSnapshot;
+
+      // The reconciled catalog's current series, pinned by id — exactly as the comparison
+      // benchmark and the execution calendar are — sorted by code, with the price basis in force
+      // (generation 0: nothing has re-based these fixtures).
+      const pins = snapshot.etfSeries ?? [];
+      expect(pins.map((pin) => [pin.code, pin.ticker])).toEqual([
+        ["ETF_XLK", "XLK"],
+        ["SP500", "SPY"],
+      ]);
+      for (const pin of pins) {
+        const benchmark = await prisma.benchmark.findUniqueOrThrow({
+          where: { code: pin.code },
+          include: { series: { orderBy: { version: "desc" }, take: 1 } },
+        });
+        expect(pin.seriesId).toBe(benchmark.series[0]?.id);
+        expect(pin.basisGeneration).toBe(0);
+      }
+      // The snapshot version is untouched: pre-launch there are no mixed worker deployments, and
+      // the pinned section plus the worker's own source refusal are the correctness mechanism.
+      expect(snapshot.snapshotVersion).toBe(1);
+
+      // A stock-only submission still writes no section at all, byte-identical to before.
+      const stockRun = await submit();
+      const stockRow = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: stockRun.id },
+        select: { snapshot: true },
+      });
+      expect(
+        (stockRow.snapshot as unknown as BacktestRunSnapshot).etfSeries,
+      ).toBeUndefined();
+    });
+
+    it("serves the per-ETF diagnostics a run wrote, and names a basis restated after submission", async () => {
+      // Submitted on generation 0 for both funds (the pins above). The worker then read XLK on
+      // generation 1 — the provider re-based it in between — and could not read SPY at all.
+      const run = await submit({ strategyId: await createEtfStrategy() });
+      await completeWith(run.id, [
+        {
+          code: "ETF_XLK",
+          ticker: "XLK",
+          status: "READY",
+          firstSession: "1998-12-22",
+          latestSession: "2024-12-31",
+          basisGeneration: 1,
+        },
+        { code: "SP500", ticker: "SPY", status: "NOT_BOOTSTRAPPED" },
+      ]);
+
+      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+        .body as BacktestRunDetailResponse;
+      expect(detail.result?.etfConditions).toEqual([
+        {
+          code: "ETF_XLK",
+          ticker: "XLK",
+          status: "READY",
+          firstSession: "1998-12-22",
+          latestSession: "2024-12-31",
+          basisGeneration: 1,
+          // From the immutable snapshot, beside the generation actually read: never stored.
+          submittedBasisGeneration: 0,
+        },
+        // The unavailable fund is served as written: a status, never a zero.
+        { code: "SP500", ticker: "SPY", status: "NOT_BOOTSTRAPPED" },
+      ]);
+      // A zero-trade result and its cause arrive together, so a client cannot mistake one for a
+      // strategy that simply matched nothing.
+      expect(detail.result?.summary.totalTrades).toBe(0);
+
+      // Read on the generation it was submitted on, a row says nothing more.
+      const sameBasis = await submit({ strategyId: await createEtfStrategy() });
+      await completeWith(sameBasis.id, [
+        {
+          code: "ETF_XLK",
+          ticker: "XLK",
+          status: "READY",
+          firstSession: "1998-12-22",
+          latestSession: "2024-12-31",
+          basisGeneration: 0,
+        },
+        {
+          code: "SP500",
+          ticker: "SPY",
+          status: "READY",
+          firstSession: "1993-01-29",
+          latestSession: "2024-12-31",
+          basisGeneration: 0,
+        },
+      ]);
+      const unchanged = (
+        await owner.get(`/backtests/${sameBasis.id}`).expect(200)
+      ).body as BacktestRunDetailResponse;
+      expect(
+        unchanged.result?.etfConditions?.map(
+          (row) => row.submittedBasisGeneration,
+        ),
+      ).toEqual([undefined, undefined]);
+    });
+
+    it("still reads a completed run whose summary predates the diagnostics column", async () => {
+      // The migration added one nullable column and backfilled nothing, so every summary written
+      // before it holds NULL there. Such a run reads exactly as it always did.
+      const run = await submit();
+      await completeWith(run.id);
+      const stored = await prisma.backtestRunSummary.findUniqueOrThrow({
+        where: { runId: run.id },
+        select: { etfConditionDiagnostics: true },
+      });
+      expect(stored.etfConditionDiagnostics).toBeNull();
+
+      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+        .body as BacktestRunDetailResponse;
+      expect(detail.status).toBe("COMPLETED");
+      expect(detail.result?.summary.tradingDays).toBe(252);
+      expect(detail.result).not.toHaveProperty("etfConditions");
+      const listed = (await owner.get("/backtests").expect(200))
+        .body as BacktestRunSummaryResponse[];
+      expect(listed.some((row) => row.id === run.id)).toBe(true);
+    });
+
+    describe("Stock's Sector", () => {
+      /** BUY reads XLK by name and each stock's own sector ETF; nothing else reads a fund. */
+      async function createSectorStrategy(): Promise<string> {
+        const sectorDefinition = normalizeStrategyDefinition({
+          schemaVersion: STRATEGY_SCHEMA_VERSION,
+          buyLevels: [
+            {
+              id: "buy-sector-1",
+              percentage: 25,
+              signal: {
+                conditions: [
+                  {
+                    id: "condition-named",
+                    metric: {
+                      kind: "OSCILLATOR",
+                      seriesId: "RSI_14D",
+                      source: { kind: "ETF", code: "ETF_XLK" },
+                    },
+                    operator: "IS_ABOVE",
+                    value: { kind: "NUMBER", value: 50 },
+                  },
+                  {
+                    id: "condition-sector",
+                    metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+                    operator: "IS_ABOVE",
+                    value: { kind: "SERIES", seriesId: "SMA_50D" },
+                  },
+                ],
+              },
+            },
+          ],
+          sellLevels: [],
+        } satisfies StrategyDefinition);
+        const row = await prisma.strategy.create({
+          data: {
+            userId: ownerUserId,
+            name: "Sector context strategy",
+            versions: {
+              create: {
+                versionNumber: 1,
+                definition: sectorDefinition as unknown as object,
+                definitionHash: createHash("sha256")
+                  .update(strategyDefinitionFingerprint(sectorDefinition))
+                  .digest("hex"),
+              },
+            },
+          },
+        });
+        return row.id;
+      }
+
+      /** The suite's three securities, classified for one test and restored after it. */
+      async function classify(
+        sectors: Record<"A" | "B" | "C", string | null>,
+      ): Promise<void> {
+        for (const [letter, sector] of Object.entries(sectors)) {
+          await prisma.security.update({
+            where: { id: securityIdsBySymbol.get(symbolOf(letter)) ?? "" },
+            data: { sector },
+          });
+        }
+      }
+
+      afterEach(async () => {
+        await classify({ A: null, B: null, C: null });
+      });
+
+      it("freezes each stock's sector and its fund at submission, and pins every fund read once", async () => {
+        await classify({ A: "Technology", B: "Financial Services", C: null });
+        const run = await submit({ strategyId: await createSectorStrategy() });
+        const snapshot = (
+          await prisma.backtestRun.findUniqueOrThrow({
+            where: { id: run.id },
+            select: { snapshot: true },
+          })
+        ).snapshot as unknown as BacktestRunSnapshot;
+
+        expect(
+          snapshot.securities.map((security) => [security.symbol, security.sector]),
+        ).toEqual([
+          [symbolOf("A"), { name: "Technology", etfCode: "ETF_XLK" }],
+          [symbolOf("B"), { name: "Financial Services", etfCode: "ETF_XLF" }],
+          [symbolOf("C"), { name: null, etfCode: null }],
+        ]);
+        // XLK is named by one rule and read by A's sector rule: one pin. XLF only through B. No
+        // pin stands in for C, which has no sector.
+        expect(snapshot.etfSeries?.map((pin) => [pin.code, pin.ticker])).toEqual([
+          ["ETF_XLF", "XLF"],
+          ["ETF_XLK", "XLK"],
+        ]);
+        for (const pin of snapshot.etfSeries ?? []) {
+          const benchmark = await prisma.benchmark.findUniqueOrThrow({
+            where: { code: pin.code },
+            include: { series: { orderBy: { version: "desc" }, take: 1 } },
+          });
+          expect(pin.seriesId).toBe(benchmark.series[0]?.id);
+        }
+        // Still snapshot version 1: the sector is an optional field on a security.
+        expect(snapshot.snapshotVersion).toBe(1);
+      });
+
+      it("keeps a submitted run on its frozen sectors when the catalog reclassifies a stock", async () => {
+        await classify({ A: "Technology", B: "Financial Services", C: null });
+        const run = await submit({ strategyId: await createSectorStrategy() });
+        const before = (
+          await prisma.backtestRun.findUniqueOrThrow({
+            where: { id: run.id },
+            select: { snapshot: true },
+          })
+        ).snapshot;
+
+        await classify({ A: "Energy", B: "Financial Services", C: "Utilities" });
+        const after = (
+          await prisma.backtestRun.findUniqueOrThrow({
+            where: { id: run.id },
+            select: { snapshot: true },
+          })
+        ).snapshot;
+        expect(after).toEqual(before);
+
+        // The completed run reports the sectors it read — the frozen ones — not today's.
+        await completeWith(run.id, [
+          {
+            code: "ETF_XLF",
+            ticker: "XLF",
+            status: "READY",
+            firstSession: "1998-12-22",
+            latestSession: "2020-12-31",
+            basisGeneration: 0,
+          },
+          {
+            code: "ETF_XLK",
+            ticker: "XLK",
+            status: "READY",
+            firstSession: "1998-12-22",
+            latestSession: "2020-12-31",
+            basisGeneration: 0,
+          },
+        ]);
+        const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+          .body as BacktestRunDetailResponse;
+        expect(detail.result?.stockSectors).toEqual([
+          { symbol: symbolOf("A"), sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          {
+            symbol: symbolOf("B"),
+            sector: "Financial Services",
+            code: "ETF_XLF",
+            ticker: "XLF",
+          },
+          { symbol: symbolOf("C"), sector: null, code: null, ticker: null },
+        ]);
+
+        // The next submission freezes the new classification and pins the funds it now reads.
+        const next = await submit({ strategyId: await createSectorStrategy() });
+        const nextSnapshot = (
+          await prisma.backtestRun.findUniqueOrThrow({
+            where: { id: next.id },
+            select: { snapshot: true },
+          })
+        ).snapshot as unknown as BacktestRunSnapshot;
+        expect(nextSnapshot.securities.map((security) => security.sector?.etfCode)).toEqual([
+          "ETF_XLE",
+          "ETF_XLF",
+          "ETF_XLU",
+        ]);
+        expect(nextSnapshot.etfSeries?.map((pin) => pin.code)).toEqual([
+          "ETF_XLE",
+          "ETF_XLF",
+          "ETF_XLK",
+          "ETF_XLU",
+        ]);
+      });
+
+      it("freezes no sector for a strategy that reads none, and serves none", async () => {
+        await classify({ A: "Technology", B: "Financial Services", C: "Energy" });
+        const named = await submit({ strategyId: await createEtfStrategy() });
+        const namedSnapshot = (
+          await prisma.backtestRun.findUniqueOrThrow({
+            where: { id: named.id },
+            select: { snapshot: true },
+          })
+        ).snapshot as unknown as BacktestRunSnapshot;
+        for (const security of namedSnapshot.securities) {
+          expect(security).not.toHaveProperty("sector");
+        }
+        expect(namedSnapshot.etfSeries?.map((pin) => pin.code)).toEqual([
+          "ETF_XLK",
+          "SP500",
+        ]);
+        await completeWith(named.id, []);
+        const detail = (await owner.get(`/backtests/${named.id}`).expect(200))
+          .body as BacktestRunDetailResponse;
+        expect(detail.result).not.toHaveProperty("stockSectors");
+
+        const stockOnly = await submit();
+        const stockSnapshot = (
+          await prisma.backtestRun.findUniqueOrThrow({
+            where: { id: stockOnly.id },
+            select: { snapshot: true },
+          })
+        ).snapshot as unknown as BacktestRunSnapshot;
+        for (const security of stockSnapshot.securities) {
+          expect(security).not.toHaveProperty("sector");
+        }
+        expect(stockSnapshot.etfSeries).toBeUndefined();
+      });
+    });
   });
 });

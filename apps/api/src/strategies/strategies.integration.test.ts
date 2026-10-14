@@ -1228,6 +1228,194 @@ describe("strategies", () => {
   });
 
   /**
+   * Stock's Sector across the HTTP boundary and back out of PostgreSQL: the source is stored as its
+   * kind alone and survives create, read, edit and duplicate; a forged or misplaced one is refused.
+   */
+  describe("Stock's Sector conditions", () => {
+    function sectorDefinition(): StrategyDefinition {
+      return definition({
+        buyLevels: [
+          {
+            id: nextId("buy"),
+            percentage: 25,
+            signal: {
+              conditions: [
+                priceAbove("EMA_200D"),
+                {
+                  id: nextId("condition"),
+                  metric: {
+                    kind: "OSCILLATOR",
+                    seriesId: "RSI_14D",
+                    source: { kind: "ETF", code: "ETF_XLK" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 50 },
+                },
+                {
+                  id: nextId("condition"),
+                  metric: {
+                    kind: "OSCILLATOR",
+                    seriesId: "RSI_14D",
+                    source: { kind: "STOCK_SECTOR" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 50 },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [
+          {
+            id: nextId("sell"),
+            percentage: 50,
+            signal: {
+              conditions: [
+                {
+                  id: nextId("condition"),
+                  metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+                  operator: "IS_BELOW",
+                  value: { kind: "SERIES", seriesId: "SMA_50D" },
+                },
+              ],
+            },
+          },
+        ],
+      });
+    }
+
+    it("stores the source as its kind alone and reads it back, edits and duplicates included", async () => {
+      const created = await createStrategy(owner, {
+        name: `Sector source ${suffix}`,
+        definition: sectorDefinition(),
+      });
+      const read = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      const conditions = read.definition.buyLevels[0]?.signal.conditions ?? [];
+      expect(conditions.map((condition) => condition.metric)).toEqual([
+        { kind: "PRICE" },
+        { kind: "OSCILLATOR", seriesId: "RSI_14D", source: { kind: "ETF", code: "ETF_XLK" } },
+        { kind: "OSCILLATOR", seriesId: "RSI_14D", source: { kind: "STOCK_SECTOR" } },
+      ]);
+      const stored = await prisma.strategyVersion.findFirstOrThrow({
+        where: { strategyId: created.id },
+        select: { definition: true },
+      });
+      expect(
+        (stored.definition as unknown as StrategyDefinition).sellLevels[0]?.signal
+          .conditions[0]?.metric,
+      ).toEqual({ kind: "PRICE", source: { kind: "STOCK_SECTOR" } });
+      expect(
+        describeStrategy(read.definition).flatMap((line) =>
+          "text" in line ? [line.text] : [],
+        ),
+      ).toContain("Stock's Sector · RSI 14D is above 50");
+
+      // An edit that changes the threshold keeps the source.
+      const edited = sectorDefinition();
+      const sectorRule = edited.buyLevels[0]!.signal.conditions[2]!;
+      edited.buyLevels[0]!.signal.conditions[2] = {
+        ...sectorRule,
+        value: { kind: "NUMBER", value: 60 },
+      } as StrategyCondition;
+      const replaced = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: edited })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(replaced.definition.buyLevels[0]?.signal.conditions[2]).toMatchObject({
+        metric: { source: { kind: "STOCK_SECTOR" } },
+        value: { kind: "NUMBER", value: 60 },
+      });
+
+      const copy = (
+        await owner
+          .post(`/strategies/${created.id}/duplicate`)
+          .send({ name: `Sector copy ${suffix}` })
+          .expect(201)
+      ).body as StrategyDetailResponse;
+      expect(strategyDefinitionFingerprint(copy.definition)).toBe(
+        strategyDefinitionFingerprint(replaced.definition),
+      );
+      expect(copy.definition.buyLevels[0]?.signal.conditions[2]?.metric).toEqual({
+        kind: "OSCILLATOR",
+        seriesId: "RSI_14D",
+        source: { kind: "STOCK_SECTOR" },
+      });
+      await owner.delete(`/strategies/${copy.id}`).expect(204);
+      await owner.delete(`/strategies/${created.id}`).expect(204);
+    });
+
+    it("refuses a Stock's Sector source carrying a fund, and one on a Trigger", async () => {
+      const forged = await owner
+        .post("/strategies")
+        .send({
+          name: `Sector forged ${suffix}`,
+          definition: definition({
+            buyLevels: [
+              {
+                id: nextId("buy"),
+                percentage: 25,
+                signal: {
+                  conditions: [
+                    {
+                      id: nextId("condition"),
+                      metric: {
+                        kind: "PRICE",
+                        source: { kind: "STOCK_SECTOR", code: "ETF_XLK" },
+                      },
+                      operator: "IS_ABOVE",
+                      value: { kind: "SERIES", seriesId: "SMA_50D" },
+                    } as unknown as StrategyCondition,
+                  ],
+                },
+              },
+            ],
+          }),
+        })
+        .expect(400);
+      expect(
+        (forged.body as StrategyValidationErrorResponse).issues.map((issue) => issue.code),
+      ).toEqual(["UNKNOWN_FIELD"]);
+
+      const triggered = await owner
+        .post("/strategies")
+        .send({
+          name: `Sector trigger ${suffix}`,
+          definition: definition({
+            buyLevels: [
+              {
+                id: nextId("buy"),
+                percentage: 25,
+                signal: {
+                  conditions: [],
+                  trigger: {
+                    id: nextId("trigger"),
+                    metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+                    operator: "CROSSES_ABOVE",
+                    value: { kind: "SERIES", seriesId: "SMA_50D" },
+                  },
+                },
+              },
+            ],
+          }),
+        })
+        .expect(400);
+      expect(
+        (triggered.body as StrategyValidationErrorResponse).issues.map(
+          (issue) => issue.code,
+        ),
+      ).toEqual(["SOURCE_NOT_ALLOWED_IN_PART"]);
+      expect(
+        await prisma.strategy.count({
+          where: { name: { startsWith: "Sector " }, user: { email: ownerEmail } },
+        }),
+      ).toBe(0);
+    });
+  });
+
+  /**
    * FINAL EXIT's Exit Rules across the HTTP boundary and back out of PostgreSQL.
    *
    * The definition is a JSON document, so "does it round-trip" is not a formality: every rule, its

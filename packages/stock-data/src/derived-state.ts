@@ -18,7 +18,7 @@ import {
 import { calculateDailyTechnicals } from "./technicals.js";
 import {
   calculateWeeklyTechnicalValues,
-  latestCompletedWeeklyBar,
+  completedWeeklyBarLookup,
   type WeeklyPrice,
 } from "./weekly.js";
 
@@ -140,8 +140,10 @@ export function buildDailyDerivedState(input: {
       ({ securityId: _securityId, date, ...values }) => [date, values],
     ),
   );
+  // One ordering of the weekly bars for the whole history, not one per trading day.
+  const completedWeekOn = completedWeeklyBarLookup(weeklyBars);
   return calculateDailyTechnicals(input.prices).map((row) => {
-    const weekly = latestCompletedWeeklyBar(weeklyBars, row.date);
+    const weekly = completedWeekOn(row.date);
     const withWeekly = weekly
       ? {
           ...row,

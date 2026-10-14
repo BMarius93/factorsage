@@ -1,3 +1,4 @@
+import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
 import type { ContentOwnershipResponse } from "./builtins.js";
 import type {
   MonitorBlockedReason,
@@ -236,6 +237,27 @@ export type MonitorSecurityEvaluationResponse = {
   statusSince?: string;
 };
 
+/**
+ * The current availability of one ETF source the Monitor's Strategy reads, derived at read time
+ * from the series' durable refresh state — never persisted, because it describes the data's state
+ * now, not an evaluation (`ai/architecture/strategy-etf-conditions.md` §7).
+ *
+ * - `READY` — the newest stored session is finalized and synchronized; conditions evaluate
+ *   through it.
+ * - `AWAITING_SESSION` — synchronized, but the current session's end-of-day bar is not final yet,
+ *   so ETF conditions are not evaluable for it until the evening refresh lands (strict
+ *   same-session alignment; nothing is carried forward).
+ * - `NOT_SYNCHRONIZED` — no completed tail read proves any stored bar final.
+ * - `NOT_BOOTSTRAPPED` — the series' history was never bootstrapped; an operator action.
+ */
+export type MonitorEtfSourceStatusResponse = {
+  code: string;
+  ticker: string;
+  status: "READY" | "AWAITING_SESSION" | "NOT_SYNCHRONIZED" | "NOT_BOOTSTRAPPED";
+  /** The newest finalized, synchronized session, when one exists. */
+  latestSession?: string;
+};
+
 export type MonitorDetailResponse = MonitorSummaryResponse & {
   /**
    * Every security in the Monitor's current Stock List, with its current status. Ordered by
@@ -243,6 +265,17 @@ export type MonitorDetailResponse = MonitorSummaryResponse & {
    */
   securities: MonitorSecurityEvaluationResponse[];
   signals: MonitorSignalResponse[];
+  /**
+   * One row per ETF source the Monitor's Strategy currently reads, in catalog order; absent when
+   * it reads none. A non-`READY` row is why an ETF condition reports "not evaluable" right now.
+   */
+  etfSources?: MonitorEtfSourceStatusResponse[];
+  /**
+   * Which sector ETF each monitored stock's Stock's Sector rules read **now**, by symbol; absent
+   * unless the Strategy reads Stock's Sector. Derived at read time from each stock's current FMP
+   * sector. Every sector ETF named here also has its row in `etfSources`.
+   */
+  stockSectors?: StockSectorAssignmentResponse[];
 };
 
 export type CreateMonitorRequest = {

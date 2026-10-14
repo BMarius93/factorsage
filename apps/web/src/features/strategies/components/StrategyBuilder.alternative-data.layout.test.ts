@@ -51,6 +51,19 @@ describe("the alternative-data operand summary", () => {
   });
 });
 
+describe("the rule's change notice", () => {
+  it("spans the whole rule row on a phone and starts under the fields on a desktop, like the row's error", () => {
+    expect(ruleBody(".rowNotice")).toContain("grid-column: 1 / -1");
+    const desktop = css.indexOf("@media (min-width: 600px)");
+    expect(ruleBody(".rowNotice", desktop)).toContain("grid-column: 2 / -1");
+  });
+
+  it("is informational ink, never the error's", () => {
+    expect(ruleBody(".rowNotice")).toContain("var(--color-text-secondary)");
+    expect(ruleBody(".rowNotice")).not.toContain("--color-negative");
+  });
+});
+
 describe("the Metric / Condition / Value fields", () => {
   it("lay out by the width the list actually has, not by the viewport", () => {
     // The same list is full-width on a tablet and two-thirds of the page beside the explanation

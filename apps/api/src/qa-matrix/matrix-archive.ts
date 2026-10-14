@@ -8,10 +8,14 @@ import type {
   StrategyValue,
   TriggerOperator,
 } from "@intrinsic/contracts";
-import { IS_CLOSE_TO_TOLERANCE } from "@intrinsic/contracts";
+import {
+  IS_CLOSE_TO_TOLERANCE,
+  strategyMetricSource,
+} from "@intrinsic/contracts";
 import {
   alternativeDataOperand,
   fundamentalMetricOperand,
+  metricOperand,
   relativeVolumeOperand,
   valuationRatioOperand,
 } from "@intrinsic/strategy";
@@ -84,6 +88,14 @@ function metricSeries(
   frame: ArchiveFrame,
   metric: StrategyMetric,
 ): readonly number[] | null {
+  // An ETF-sourced metric reads its own etf-keyed column, never the stock's column of the same
+  // identity — through the canonical key builder, so the archive reads exactly what the evaluator
+  // read.
+  const source = strategyMetricSource(metric);
+  if (source) {
+    const key = metricOperand(metric);
+    return key === null ? null : column(frame, key);
+  }
   switch (metric.kind) {
     case "PRICE":
       return frame.closes;

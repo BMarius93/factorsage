@@ -198,9 +198,11 @@ type SaveOutcome = {
  *   whole history in one transaction under a new generation (`historical-price-basis-v1.md` §12).
  *   Index series cannot split and keep the plain path.
  *
- * What it deliberately does **not** do is calculate anything. A benchmark has no moving averages,
- * no oscillators and no intrinsic values: it is a comparison series, and materializing derived
- * state for it merely because it shares a provider with stocks would be waste.
+ * What it deliberately does **not** do is calculate or materialize anything. A benchmark has no
+ * stored moving averages, oscillators or intrinsic values: materializing derived state for it
+ * merely because it shares a provider with stocks would be waste. The one reader that needs an
+ * ETF's technicals — a Strategy Condition naming it as its data source — computes them from this
+ * service's provider-free reads, per run or cycle, in `benchmark-technicals.ts`.
  */
 export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   private readonly recentPriceFreshnessMs: number;

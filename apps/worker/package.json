@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/testing build && vitest run",
     "bench:monitor": "tsx src/monitor/capacity-bench.ts",
+    "bench:etf-context": "node --expose-gc --import tsx src/shared/etf-context-bench.ts",
     "monitor:scan-once": "tsx src/monitor/scan-once.ts",
     "market-data:refresh-once": "tsx src/market-data/refresh-once.ts"
   },

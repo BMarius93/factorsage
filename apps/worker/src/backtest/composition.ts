@@ -5,6 +5,7 @@ import {
   getFmpTrafficConfig,
   getRedisConfig,
   getStockDataConfig,
+  getMarketDataWorkerConfig,
 } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -38,6 +39,7 @@ import {
 import type {
   BacktestBenchmarkLoader,
   BacktestFrameLoader,
+  BacktestProcessorDependencies,
 } from "./backtest-processor.js";
 import {
   PrismaBacktestJobRepository,
@@ -53,6 +55,8 @@ export type BacktestRuntime = {
   securities: BacktestSecurityCatalog;
   stockData: BacktestFrameLoader;
   benchmarks: BacktestBenchmarkLoader;
+  /** The provider-free ETF condition reads; see the composition below. */
+  etfContexts: BacktestProcessorDependencies["etfContexts"];
   /**
    * Present only when `BACKTEST_DEBUG_ARCHIVE` asked for it, so an unconfigured worker has no
    * archive object at all rather than a disabled one.
@@ -175,9 +179,11 @@ export function createBacktestRuntime(
     coordinator,
     {
       // The product horizon, not the stock loader's raw-price retention. A benchmark carries no
-      // derived series (`AGENTS.md` invariant 13), so it has nothing to warm up: its history is
-      // the run's execution calendar and the comparison line, both of which live entirely inside
-      // the backtestable period.
+      // stored derived series (`AGENTS.md` invariant 13), so as a comparison benchmark it has
+      // nothing to warm up: its history is the run's execution calendar and the comparison line,
+      // both of which live entirely inside the backtestable period. An ETF a Condition reads is a
+      // different reader with its own, provider-free path (`etfContexts` below): it takes the whole
+      // stored history, because an indicator's warm-up begins at the fund's first session.
       historyYears: stockDataConfig.productHistoryYears,
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
@@ -192,6 +198,22 @@ export function createBacktestRuntime(
     securities: new PrismaBacktestSecurityCatalog(prisma),
     stockData,
     benchmarks,
+    // ETF condition sources read through the same canonical service, but through the provider-free
+    // reader slice only: the ETF condition path may never hydrate
+    // (`docs/decisions/strategy-etf-conditions-v1.md` §5 — no FMP requests during evaluation). The
+    // finalized-session convention shares the refresh child's own publication delay.
+    etfContexts: {
+      loader: {
+        getSeries: (seriesId) => benchmarks.getSeries(seriesId),
+        readFullBenchmarkHistory: (series, through) =>
+          benchmarks.readFullBenchmarkHistory(series, through),
+        benchmarkRefreshState: (series) =>
+          benchmarks.benchmarkRefreshState(series),
+        missingBenchmarkCoverage: (series, period) =>
+          benchmarks.missingBenchmarkCoverage(series, period),
+      },
+      publicationDelayMs: getMarketDataWorkerConfig().publicationDelayMs,
+    },
     ...(debugArchiveConfig.enabled
       ? {
           debugArchives: new FilesystemBacktestDebugArchives({

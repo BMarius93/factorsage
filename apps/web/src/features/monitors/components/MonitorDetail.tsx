@@ -34,6 +34,7 @@ import {
   type SegmentedOption,
 } from "../../../components/ui/SegmentedControl";
 import { formatDay, formatRelative } from "../../../lib/dates";
+import { etfSourceLines } from "../utils/etf-sources";
 import { useNow } from "../../../lib/use-now";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { stockCountLabel } from "../../lists/utils/format";
@@ -62,6 +63,7 @@ import { MonitorFormDialog } from "./MonitorFormDialog";
 import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
 import { useDocumentTitle } from "../../../lib/use-document-title";
 import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
+import { summarizeStockSectors } from "../../strategies/utils/stock-sector-assignments";
 import styles from "./MonitorDetail.module.css";
 
 /** What the newest-first Signal window the API returns is capped at. */
@@ -213,6 +215,11 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const sortedSecurities = [...view.securities].sort(
     (a, b) => SECURITY_STATUS_ORDER[a.status] - SECURITY_STATUS_ORDER[b.status],
   );
+  const etfSources = etfSourceLines(view.etfSources);
+  // Which sector ETF each watched stock's Stock's Sector rules read now, and which stocks have none.
+  const stockSectors = view.stockSectors
+    ? summarizeStockSectors(view.stockSectors)
+    : null;
   const statusCounts = Object.fromEntries(
     MONITOR_SECURITY_STATUSES.map((status) => [
       status,
@@ -629,6 +636,47 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               }
             : {})}
         >
+          {etfSources || stockSectors ? (
+            // A rule reading an ETF is decided on the fund's own completed session, so it waits for
+            // the end of the day while its stock half is already decided on the live price. Said
+            // once, with each fund's own state, so a wait is never mistaken for missing data.
+            <p className={styles.sectionNote} data-testid="monitor-etf-sources">
+              <strong>ETF conditions</strong> are decided at the end of each
+              trading day, on the fund&apos;s own completed session — a rule
+              reading one shows &ldquo;Not evaluable&rdquo; for the current
+              session until then.{" "}
+              {(etfSources ?? []).map((source, index) => (
+                <span
+                  key={source.code}
+                  data-testid="monitor-etf-source"
+                  data-ticker={source.ticker}
+                  data-ready={source.ready ? "true" : "false"}
+                >
+                  {index === 0 ? "" : " · "}
+                  <strong>{source.ticker}</strong>: {source.text}
+                </span>
+              ))}
+              {etfSources ? "." : null}
+              {stockSectors ? (
+                // Stock's Sector reads a different fund per stock, from each one's current FMP
+                // sector: which reads which, and which stocks have none and cannot be evaluated.
+                <span
+                  data-testid="monitor-stock-sectors"
+                  data-unresolved={String(stockSectors.unresolvedCount)}
+                >
+                  {" "}
+                  <strong>Stock&apos;s Sector</strong>:{" "}
+                  {stockSectors.resolved ?? "no stock has a sector ETF"}
+                  {stockSectors.unresolved
+                    ? `; no sector ETF for ${stockSectors.unresolved}, so ${
+                        stockSectors.unresolvedCount === 1 ? "its" : "their"
+                      } Stock's Sector rules cannot be evaluated`
+                    : ""}
+                  .
+                </span>
+              ) : null}
+            </p>
+          ) : null}
           {statusCounts.NOT_EVALUABLE > 0 ? (
             // What "Not evaluable" means, once, in words (UI-026). The per-stock cause is not
             // recorded yet — see ui-system.md, known read-model gaps.

@@ -61,6 +61,7 @@ const loop = new BacktestWorkerLoop(
       securities: runtime.securities,
       stockData: runtime.stockData,
       benchmarks: runtime.benchmarks,
+      etfContexts: runtime.etfContexts,
       logger,
       ...(runtime.debugArchives
         ? { debugArchives: runtime.debugArchives }

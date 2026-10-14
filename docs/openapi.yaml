@@ -3356,6 +3356,8 @@ components:
               LOOKBACK_UNSUPPORTED,
               SCOPE_INVALID,
               FILTER_INVALID,
+              SOURCE_INVALID,
+              SOURCE_NOT_ALLOWED_IN_PART,
             ]
         message: { type: string }
         path:
@@ -4296,17 +4298,21 @@ components:
       oneOf:
         - type: object
           required: [kind]
-          properties: { kind: { type: string, const: PRICE } }
+          properties:
+            kind: { type: string, const: PRICE }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, seriesId]
           properties:
             kind: { type: string, const: MOVING_AVERAGE }
             seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, seriesId]
           properties:
             kind: { type: string, const: OSCILLATOR }
             seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, period]
           description: |
@@ -4316,6 +4322,7 @@ components:
           properties:
             kind: { type: string, const: RELATIVE_VOLUME }
             period: { type: integer, enum: [10, 20, 50] }
+            source: { $ref: "#/components/schemas/StrategyMetricSource" }
         - type: object
           required: [kind, sourceId]
           description: Margin of safety against one intrinsic-value series. Percent domain, at most 100.
@@ -4424,6 +4431,82 @@ components:
                 type: string
                 enum:
                   [SELF, SPOUSE, JOINT, CHILD, DEPENDENT, OTHER, UNSPECIFIED]
+
+    StrategyMetricSource:
+      description: |
+        The data source of one technical condition metric. Absent means the evaluated stock itself —
+        exactly what every document saved before data sources existed says by carrying nothing.
+        `ETF` names one of the twenty Dashboard ETFs by its stable benchmark code
+        (`docs/decisions/strategy-etf-conditions-v1.md`): the condition is then evaluated against
+        that ETF's own completed end-of-day history, identically for every candidate stock on the
+        same eligible session. `SP500` is the SPY ETF. `STOCK_SECTOR` (Stock's Sector) names no
+        fund: each evaluated stock reads the Select Sector SPDR ETF its current FMP sector maps to
+        (Technology reads XLK, Financial Services XLF, …), and a stock whose sector is missing or not
+        one of FMP's eleven is not evaluable. Only `PRICE`, `MOVING_AVERAGE`, `OSCILLATOR` and
+        `RELATIVE_VOLUME` accept the field — on any other metric kind it is refused with
+        `UNKNOWN_FIELD` — an unknown kind or code is refused with `SOURCE_INVALID`, a code beside
+        `STOCK_SECTOR` with `UNKNOWN_FIELD`, and a trigger naming any source is refused with
+        `SOURCE_NOT_ALLOWED_IN_PART`: sourced triggers are deliberately not part of V1.
+      oneOf:
+        - $ref: "#/components/schemas/StrategyEtfMetricSource"
+        - $ref: "#/components/schemas/StrategyStockSectorMetricSource"
+      discriminator:
+        propertyName: kind
+        mapping:
+          ETF: "#/components/schemas/StrategyEtfMetricSource"
+          STOCK_SECTOR: "#/components/schemas/StrategyStockSectorMetricSource"
+
+    StrategyEtfMetricSource:
+      type: object
+      additionalProperties: false
+      required: [kind, code]
+      properties:
+        kind: { type: string, const: ETF }
+        code:
+          type: string
+          enum:
+            [
+              SP500,
+              ETF_QQQ,
+              ETF_DIA,
+              ETF_IWM,
+              ETF_RSP,
+              ETF_XLK,
+              ETF_XLF,
+              ETF_XLE,
+              ETF_XLV,
+              ETF_XLI,
+              ETF_XLY,
+              ETF_XLP,
+              ETF_XLU,
+              ETF_XLB,
+              ETF_XLRE,
+              ETF_XLC,
+              ETF_GLD,
+              ETF_USO,
+              ETF_TLT,
+              ETF_HYG,
+            ]
+
+    StrategyStockSectorMetricSource:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, const: STOCK_SECTOR }
+
+    StockSectorAssignment:
+      type: object
+      required: [symbol, sector, code, ticker]
+      description: |
+        Which sector ETF one stock's Stock's Sector rules read. `code` and `ticker` are null when the
+        stock's FMP sector is missing (`sector` null) or not one of the eleven: those rules were not
+        evaluable for that stock, never read from another fund.
+      properties:
+        symbol: { type: string }
+        sector: { type: [string, "null"] }
+        code: { type: [string, "null"] }
+        ticker: { type: [string, "null"] }
 
     AlternativeDataLookback:
       type: integer
@@ -5471,6 +5554,57 @@ components:
           maxItems: 1500
           description: Downsampled to a bounded number of points for rendering.
           items: { $ref: "#/components/schemas/BacktestCurvePoint" }
+        etfConditions:
+          type: array
+          description: |
+            One row per ETF source the run's strategy read, in the definition's catalog order;
+            absent for a run whose strategy reads none. A non-READY row is why the ETF conditions
+            could not evaluate.
+          items: { $ref: "#/components/schemas/BacktestEtfConditionDiagnostics" }
+        stockSectors:
+          type: array
+          description: |
+            Which sector ETF each stock's Stock's Sector rules read, exactly as the run's snapshot
+            froze it at submission, by symbol; absent unless the strategy reads Stock's Sector.
+            Derived at read time from the snapshot: the classification stored when the run was
+            submitted, applied to every date of the period — not a historical sector record.
+          items: { $ref: "#/components/schemas/StockSectorAssignment" }
+
+    BacktestEtfConditionDiagnostics:
+      type: object
+      required: [code, ticker, status]
+      description: |
+        Whether one ETF condition source could be evaluated by a completed run, in the aggregate.
+        READY still does not promise every session — dates before `firstSession`, indicator warm-up
+        and gaps are per-session absences — but a non-READY status names the operational cause:
+        NOT_BOOTSTRAPPED (the series' history was never bootstrapped), NOT_SYNCHRONIZED (no
+        completed tail read proves any stored bar final), NO_FINALIZED_SESSIONS, or LOAD_FAILED
+        (re-running retries it).
+      properties:
+        code: { type: string }
+        ticker: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              READY,
+              NOT_BOOTSTRAPPED,
+              NOT_SYNCHRONIZED,
+              NO_FINALIZED_SESSIONS,
+              LOAD_FAILED,
+            ]
+        firstSession: { type: string, format: date }
+        latestSession: { type: string, format: date }
+        basisGeneration:
+          type: integer
+          description: The price-basis generation the run read the ETF's history under.
+        submittedBasisGeneration:
+          type: integer
+          description: |
+            The generation the run's snapshot recorded at submission, present only when it differs
+            from `basisGeneration`: the provider restated the fund's history (a re-base) after the
+            run was submitted, and the run computed on the restated history. Derived at read time
+            from the immutable snapshot and result; never stored.
 
     BacktestRunDetail:
       type: object
@@ -5720,6 +5854,32 @@ components:
               type: array
               description: The newest signals, newest first.
               items: { $ref: "#/components/schemas/MonitorSignal" }
+            etfSources:
+              type: array
+              description: |
+                One row per ETF source the Monitor's strategy currently reads, in catalog order;
+                absent when it reads none. Derived at read time from the series' durable refresh
+                state. AWAITING_SESSION means the current session's end-of-day bar is not final
+                yet, so ETF conditions are not evaluable for it until the evening refresh lands.
+              items: { $ref: "#/components/schemas/MonitorEtfSourceStatus" }
+            stockSectors:
+              type: array
+              description: |
+                Which sector ETF each monitored stock's Stock's Sector rules read now, from its
+                current FMP sector, by symbol; absent unless the strategy reads Stock's Sector.
+                Every sector ETF named here also has its row in `etfSources`.
+              items: { $ref: "#/components/schemas/StockSectorAssignment" }
+
+    MonitorEtfSourceStatus:
+      type: object
+      required: [code, ticker, status]
+      properties:
+        code: { type: string }
+        ticker: { type: string }
+        status:
+          type: string
+          enum: [READY, AWAITING_SESSION, NOT_SYNCHRONIZED, NOT_BOOTSTRAPPED]
+        latestSession: { type: string, format: date }
 
     # -------------------------------------------------------------------------------------------
     # Dashboard and built-in content

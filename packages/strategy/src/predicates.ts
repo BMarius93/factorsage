@@ -1,7 +1,9 @@
 import {
   IS_CLOSE_TO_TOLERANCE,
+  strategyMetricSource,
   type ConditionOperator,
   type StrategyCondition,
+  type StrategyMetricSource,
   type StrategySignal,
   type StrategyTrigger,
   type StrategyValue,
@@ -103,14 +105,21 @@ function bothResolved(metric: number, value: number): boolean {
   return Number.isFinite(metric) && Number.isFinite(value);
 }
 
-/** Resolves the right-hand side of a predicate at one frame index. */
+/**
+ * Resolves the right-hand side of a predicate at one frame index.
+ *
+ * `source` is the predicate metric's own data source: a `SERIES` Value compares with the same
+ * instrument its Metric reads, so an ETF-sourced condition resolves both sides from the same ETF's
+ * columns and a stock one from the security's.
+ */
 function resolveValue(
   value: StrategyValue,
+  source: StrategyMetricSource | undefined,
   frame: EvaluationFrame,
   index: number,
 ): number {
   if (value.kind === "SERIES") {
-    const key = valueOperand(value);
+    const key = valueOperand(value, source);
     return key === null ? Number.NaN : readOperand(frame, key, index);
   }
   return value.value;
@@ -135,7 +144,12 @@ export function evaluateMarketCondition(
   return evaluateConditionValues(
     condition.operator,
     readOperand(frame, key, index),
-    resolveValue(condition.value, frame, index),
+    resolveValue(
+      condition.value,
+      strategyMetricSource(condition.metric),
+      frame,
+      index,
+    ),
   );
 }
 
@@ -149,12 +163,13 @@ export function evaluateMarketTrigger(
     // At frame index 0 there is no previous eligible value, so every Trigger is NOT_EVALUABLE.
     return Evaluability.NOT_EVALUABLE;
   }
+  const source = strategyMetricSource(trigger.metric);
   return evaluateTriggerValues(
     trigger.operator,
     readOperand(frame, key, index),
-    resolveValue(trigger.value, frame, index),
+    resolveValue(trigger.value, source, frame, index),
     readOperand(frame, key, index - 1),
-    resolveValue(trigger.value, frame, index - 1),
+    resolveValue(trigger.value, source, frame, index - 1),
   );
 }
 

@@ -1,3 +1,4 @@
+import { stubEtfContexts } from "../shared/etf-context.test-helper.js";
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -359,6 +360,7 @@ function processorWith(input: {
       },
       stockData: input.stockData ?? new FixtureFrameLoader(),
       benchmarks: new FixtureBenchmarks(),
+      etfContexts: stubEtfContexts(),
       logger,
       ...(input.debugArchives ? { debugArchives: input.debugArchives } : {}),
     },

@@ -191,6 +191,8 @@ export * from "./alternative-data.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";
 export * from "./strategies.js";
+export * from "./strategy-etf-sources.js";
+export * from "./stock-sector-etfs.js";
 export * from "./dates.js";
 export * from "./backtests.js";
 export * from "./monitors.js";

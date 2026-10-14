@@ -124,7 +124,11 @@ function PreviewLines({
           );
         }
         return (
-          <li key={index} className={styles.previewRule}>
+          <li
+            key={index}
+            className={styles.previewRule}
+            data-testid="preview-rule"
+          >
             {line.connector ? (
               <span className={styles.previewConnector}>{line.connector} </span>
             ) : null}

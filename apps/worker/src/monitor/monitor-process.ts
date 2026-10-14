@@ -57,10 +57,17 @@ const runtime = createMonitorRuntime(logger);
 
 const loop = new MonitorWorkerLoop(
   runtime.scans,
-  new MonitorCycle(runtime.monitors, runtime.data, runtime.calendar, logger, {
-    symbolConcurrency: config.symbolConcurrency,
-    quoteMaxAgeMs: config.quoteMaxAgeMs,
-  }),
+  new MonitorCycle(
+    runtime.monitors,
+    runtime.data,
+    runtime.calendar,
+    logger,
+    {
+      symbolConcurrency: config.symbolConcurrency,
+      quoteMaxAgeMs: config.quoteMaxAgeMs,
+    },
+    runtime.etfContexts,
+  ),
   logger,
   {
     workerId,

@@ -43,8 +43,8 @@ export type BenchmarkDatasetStateRecord = {
  * Durable persistence for benchmark identity and market data.
  *
  * Deliberately a **separate port** from `StockDataStore`: a benchmark has no profile, no
- * fundamentals, no derived state and no weekly aggregate, and folding it into the stock port would
- * hand every benchmark implementation and fake a surface it can never satisfy. What is shared is
+ * fundamentals, no stored derived state and no stored weekly aggregate, and folding it into the
+ * stock port would hand every benchmark implementation and fake a surface it can never satisfy. What is shared is
  * the *shape* of the contract — coverage intervals mean the same thing here as they do there.
  */
 export interface BenchmarkDataStore {

@@ -4,8 +4,18 @@ import {
   collectActorGroupIds,
   collectActorIds,
   collectAlternativeDataMetrics,
+  collectStrategyEtfSources,
+  findStrategyEtfSource,
+  resolveStockSectorEtf,
+  stockSectorEtfTicker,
+  strategyReadsStockSector,
+  type BacktestEtfConditionDiagnosticsResponse,
+  type BacktestSnapshotSecuritySector,
+  type StockSectorAssignmentResponse,
+  type StrategyEtfSourceCode,
   type BacktestSnapshotActor,
   type BacktestSnapshotActorGroup,
+  type BacktestSnapshotEtfSeries,
   type StrategyDefinition,
   type StrategyScopeNames,
   backtestAnnualReturns,
@@ -209,6 +219,59 @@ function asDocument(value: unknown): Record<string, unknown> | null {
  * structural check is corruption rather than an expected state: it fails loudly here instead of
  * reaching the browser as a half-described configuration.
  */
+/**
+ * Each ETF's diagnostics row, with the basis generation its snapshot recorded at submission when
+ * the run read another one.
+ *
+ * Both sides are immutable — the snapshot written at submission, the rows written with the result —
+ * so this is a fact about the run, derived at read time rather than stored. A different generation
+ * means the provider restated the fund's history (a re-base) after submission and the run computed
+ * on the restated history: one basis, read once, but not the one in force when it was submitted.
+ */
+function withSubmittedBasis(
+  rows: readonly BacktestEtfConditionDiagnosticsResponse[],
+  pins: readonly BacktestSnapshotEtfSeries[],
+): BacktestEtfConditionDiagnosticsResponse[] {
+  return rows.map((row) => {
+    const pinned = pins.find((pin) => pin.code === row.code)?.basisGeneration;
+    return pinned !== undefined &&
+      row.basisGeneration !== undefined &&
+      pinned !== row.basisGeneration
+      ? { ...row, submittedBasisGeneration: pinned }
+      : row;
+  });
+}
+
+/** The run's frozen sector assignments, by symbol; nothing when no rule reads Stock's Sector. */
+function stockSectorsOf(
+  snapshot: BacktestRunSnapshot,
+): { stockSectors?: StockSectorAssignmentResponse[] } {
+  if (!snapshot.securities.some((security) => security.sector !== undefined)) {
+    return {};
+  }
+  return {
+    stockSectors: snapshot.securities.map((security) => ({
+      symbol: security.symbol,
+      sector: security.sector?.name ?? null,
+      code: security.sector?.etfCode ?? null,
+      ticker: security.sector?.etfCode
+        ? stockSectorEtfTicker(security.sector.etfCode as StrategyEtfSourceCode)
+        : null,
+    })),
+  };
+}
+
+/** One stock's sector as a snapshot freezes it: the stored FMP name and its sector ETF, or nulls. */
+function frozenSector(
+  sector: string | null | undefined,
+): BacktestSnapshotSecuritySector {
+  const resolution = resolveStockSectorEtf(sector);
+  return {
+    name: sector?.trim() ? sector.trim() : null,
+    etfCode: resolution.status === "RESOLVED" ? resolution.code : null,
+  };
+}
+
 function readSnapshot(value: Prisma.JsonValue): BacktestRunSnapshot {
   const document = asDocument(value);
   if (
@@ -825,6 +888,12 @@ export class BacktestsService {
       );
     }
 
+    // Stock's Sector rules read, for each stock, the sector ETF its FMP sector maps to. The stock's
+    // sector as stored now is frozen beside it — the product's accepted rule is the current
+    // classification, not a historical one — so the run, and any re-execution of it, reads one fund
+    // per stock whatever the catalog says later. Only when a rule needs it: every other snapshot is
+    // byte-for-byte what it always was.
+    const readsSector = strategyReadsStockSector(definition);
     // Sorted by symbol so two submissions of the same list produce byte-identical documents, which
     // is what makes `snapshotHash` a usable identity for "these are the same inputs".
     const securities: BacktestSnapshotSecurity[] = stockList.items
@@ -848,6 +917,9 @@ export class BacktestsService {
             startDate: range.startDate,
             endDate: range.endDate,
           })),
+          ...(readsSector
+            ? { sector: frozenSector(item.security.sector) }
+            : {}),
         };
       })
       .sort(
@@ -865,6 +937,12 @@ export class BacktestsService {
     // definition below. What is frozen here is who they are: the bioguide id and the name each had
     // today, so the completed run can still say whose activity it counted.
     const actors = await this.freezeActors(definition);
+    // The ETF series behind every ETF-sourced condition, pinned exactly as the comparison
+    // benchmark and the execution calendar are: the definition names a stable code, this resolves
+    // the immutable series it means today, and execution reads that id back whatever the catalog
+    // does afterwards. The price-basis generation in force now is recorded beside it, so a later
+    // re-executed run whose numbers differ is explainable rather than mysterious.
+    const etfSeries = await this.freezeEtfSeries(definition, securities);
 
     const snapshot: BacktestRunSnapshot = {
       // The lowest version able to express this run. A strategy that selects no member directly is
@@ -886,6 +964,7 @@ export class BacktestsService {
       // carries the field when it means something.
       ...(actorGroups.length > 0 ? { actorGroups } : {}),
       ...(actors.length > 0 ? { actors } : {}),
+      ...(etfSeries.length > 0 ? { etfSeries } : {}),
       period: { startDate: input.startDate, endDate: input.endDate },
       capital: {
         initialCapital: input.initialCapital,
@@ -1285,10 +1364,72 @@ export class BacktestsService {
       where: { runId: run.id },
       orderBy: { date: "asc" },
     });
+    const etfConditions = run.summary.etfConditionDiagnostics;
     return {
       summary: resultSummaryOf(run.summary),
       annualReturns: annualReturnsOf(equity, run),
       curve: downsampleCurve(equity.map(curvePointOf)),
+      // Written by the worker with the rest of the result. Absent for every run whose strategy
+      // reads no ETF — and for every run completed before the column existed, whose value is NULL.
+      ...(Array.isArray(etfConditions) && etfConditions.length > 0
+        ? {
+            etfConditions: withSubmittedBasis(
+              etfConditions as unknown as BacktestEtfConditionDiagnosticsResponse[],
+              readSnapshot(run.snapshot).etfSeries ?? [],
+            ),
+          }
+        : {}),
+      // Which sector ETF each stock's Stock's Sector rules read, exactly as the snapshot froze it.
+      ...stockSectorsOf(readSnapshot(run.snapshot)),
     };
+  }
+
+  /**
+   * The immutable ETF series behind each source the definition reads, with the price basis now in
+   * force. Every source is one of the twenty catalog ETFs, which the validator already proved, so a
+   * code that cannot resolve here is a system problem — an unreconciled catalog — and the
+   * submission is refused the way an unregistered execution calendar is, not blamed on the caller.
+   */
+  private async freezeEtfSeries(
+    definition: StrategyDefinition,
+    securities: readonly BacktestSnapshotSecurity[],
+  ): Promise<BacktestSnapshotEtfSeries[]> {
+    // The funds the definition names, and the sector ETFs its Stock's Sector rules will read for
+    // these stocks — each pinned once, however many stocks share it.
+    const codes = [
+      ...new Set<StrategyEtfSourceCode>([
+        ...collectStrategyEtfSources(definition),
+        ...securities.flatMap((security) =>
+          security.sector?.etfCode
+            ? [security.sector.etfCode as StrategyEtfSourceCode]
+            : [],
+        ),
+      ]),
+    ];
+    const frozen: BacktestSnapshotEtfSeries[] = [];
+    for (const code of codes) {
+      const benchmark = await this.prisma.benchmark.findFirst({
+        where: { code, isActive: true },
+        include: { series: { orderBy: { version: "desc" }, take: 1 } },
+      });
+      const series = benchmark?.series[0];
+      if (!series) {
+        throw new BacktestUnavailableError(
+          `Backtests using ${findStrategyEtfSource(code)?.ticker ?? code} are temporarily unavailable: its market-data series is not registered.`,
+        );
+      }
+      const basis = await this.prisma.benchmarkSeriesPriceBasis.findUnique({
+        where: { seriesId: series.id },
+      });
+      frozen.push({
+        code,
+        ticker: findStrategyEtfSource(code)?.ticker ?? code,
+        seriesId: series.id,
+        seriesVersion: series.version,
+        // No row means generation 0: the series has never been re-based.
+        basisGeneration: basis?.generation ?? 0,
+      });
+    }
+    return frozen.sort((left, right) => left.code.localeCompare(right.code));
   }
 }

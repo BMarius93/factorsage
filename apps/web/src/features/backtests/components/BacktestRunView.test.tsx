@@ -365,6 +365,183 @@ describe("BacktestRunView", () => {
     ).toBeTruthy();
   });
 
+  it("warns first, above the chart, when an ETF the strategy reads could not be evaluated", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...testResult(),
+          etfConditions: [
+            {
+              code: "ETF_XLK",
+              ticker: "XLK",
+              status: "READY",
+              firstSession: "1998-12-22",
+              latestSession: "2025-12-31",
+              basisGeneration: 0,
+            },
+            { code: "ETF_GLD", ticker: "GLD", status: "NOT_BOOTSTRAPPED" },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const notice = screen.getByTestId("backtest-etf-conditions");
+    expect(notice.getAttribute("data-tone")).toBe("warning");
+    expect(notice.textContent).toContain(
+      "Some ETF conditions could not be evaluated",
+    );
+    const lines = screen.getAllByTestId("backtest-etf-condition");
+    expect(
+      lines.map((line) => [
+        line.getAttribute("data-ticker"),
+        line.getAttribute("data-ready"),
+      ]),
+    ).toEqual([
+      ["XLK", "true"],
+      ["GLD", "false"],
+    ]);
+    expect(lines[1]!.textContent).toContain("has not been loaded");
+    // What it means and what to do — with the way to do it, the header's own rerun action,
+    // directly above it rather than repeated inside it.
+    const note = screen.getByTestId("backtest-etf-conditions-note").textContent;
+    expect(note).toContain("Rules that read GLD never matched in this run");
+    expect(note).toContain("Use “Edit and run again”");
+    const rerun = screen.getByTestId("backtest-edit-and-rerun");
+    expect(rerun.getAttribute("href")).toContain("/backtests/new");
+    expect(
+      rerun.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The first thing said about the result: inside the result's own card, before the chart and
+    // before every number.
+    const hero = screen.getByTestId("backtest-hero");
+    expect(hero.contains(notice)).toBe(true);
+    for (const after of ["backtest-chart", "backtest-results"]) {
+      expect(
+        notice.compareDocumentPosition(screen.getByTestId(after)) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        `${after} follows the warning`,
+      ).toBeTruthy();
+    }
+  });
+
+  it("says a zero-trade run's ETF data was missing in its title", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...testResult(),
+          summary: { ...testResult().summary, totalTrades: 0 },
+          etfConditions: [
+            { code: "SP500", ticker: "SPY", status: "NOT_BOOTSTRAPPED" },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    expect(screen.getByTestId("backtest-etf-conditions").textContent).toContain(
+      "This run made no trades, and its ETF conditions could not be evaluated",
+    );
+  });
+
+  it("states that every ETF was read, beside the results rather than above them", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...testResult(),
+          summary: { ...testResult().summary, totalTrades: 0 },
+          etfConditions: [
+            {
+              code: "ETF_XLE",
+              ticker: "XLE",
+              status: "READY",
+              firstSession: "1998-12-22",
+              latestSession: "2025-12-31",
+              basisGeneration: 0,
+            },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // A valid zero-match result: information, not a warning, and it says why the zero is real.
+    const notice = screen.getByTestId("backtest-etf-conditions");
+    expect(notice.getAttribute("data-tone")).toBe("info");
+    expect(notice.textContent).toContain("ETF conditions were evaluated");
+    expect(notice.textContent).toContain("that is the strategy's own result");
+    expect(notice.textContent).not.toContain("Edit and run again");
+    expect(screen.getByTestId("backtest-hero").contains(notice)).toBe(false);
+    expect(
+      notice.compareDocumentPosition(screen.getByTestId("run-configuration")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("warns inside the result when a stock had no sector ETF for its Stock's Sector rules", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...testResult(),
+          etfConditions: [
+            {
+              code: "ETF_XLK",
+              ticker: "XLK",
+              status: "READY",
+              firstSession: "1998-12-22",
+              latestSession: "2025-12-31",
+              basisGeneration: 0,
+            },
+          ],
+          stockSectors: [
+            { symbol: "AAPL", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+            { symbol: "NOSEC", sector: null, code: null, ticker: null },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // Every fund was read, yet one stock had no fund at all: missing data, so a warning.
+    const notice = screen.getByTestId("backtest-etf-conditions");
+    expect(notice.getAttribute("data-tone")).toBe("warning");
+    expect(screen.getByTestId("backtest-hero").contains(notice)).toBe(true);
+    const lines = screen.getAllByTestId("backtest-etf-condition");
+    expect(
+      lines.map((line) => [
+        line.getAttribute("data-ticker"),
+        line.getAttribute("data-ready"),
+      ]),
+    ).toEqual([
+      ["XLK", "true"],
+      ["Stock's Sector", "false"],
+    ]);
+    expect(lines[1]!.textContent).toContain(
+      "AAPL reads XLK. No sector ETF for NOSEC (no FMP sector)",
+    );
+    expect(screen.getByTestId("backtest-etf-conditions-note").textContent).toContain(
+      "The Stock's Sector rules of NOSEC never matched in this run",
+    );
+  });
+
+  it("shows no ETF notice for a run whose strategy reads none", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    expect(screen.queryByTestId("backtest-etf-conditions")).toBeNull();
+  });
+
   it("renders the eight result numbers as one flat section, not a card in a card", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", { result: testResult() }),

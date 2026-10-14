@@ -1,17 +1,23 @@
-import type { StrategyDetailResponse } from "@intrinsic/contracts";
+import {
+  STRATEGY_METRIC_CATEGORY_FAMILIES,
+  type StrategyDetailResponse,
+  type StrategyMetricCategoryId,
+} from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 import {
   categoryLabels,
   chooseMetric,
+  familyLabels,
   openPicker,
   showCategory,
+  showFamily,
 } from "../utils/strategy-builder";
 
 /**
- * The Metric (category -> metric, in one picker) -> Configuration -> Condition -> Value row, for
- * PRO_USER.
+ * The Metric (data source -> family -> metric, in one picker) -> Configuration -> Condition -> Value
+ * row, for PRO_USER.
  *
  * What only a browser against the real API can prove: that a configurable metric's identity and its
  * configuration read the same on every surface — the Metric picker, the row's summary, the Configure
@@ -98,6 +104,45 @@ async function configure(
   await expect(dialog).toHaveCount(0);
 }
 
+/**
+ * An open Metric picker is on the stock, on the family of `category`, with that category's metrics on
+ * show — its subgroup open, where the family has several — and `metricLabel` the pressed one.
+ */
+async function expectPickerShows(
+  picker: Locator,
+  category: { value: string; label: string },
+  metricLabel: string,
+): Promise<void> {
+  await expect(
+    picker.locator('[data-testid="metric-picker-source"][data-value="STOCK"]'),
+  ).toBeChecked();
+  await expect(
+    picker.locator('[data-testid="metric-picker-family"][aria-selected="true"]'),
+  ).toHaveAttribute(
+    "data-value",
+    STRATEGY_METRIC_CATEGORY_FAMILIES[
+      category.value as StrategyMetricCategoryId
+    ],
+  );
+  const pressed = picker.locator(
+    '[data-testid="metric-picker-option"][aria-pressed="true"]',
+  );
+  await expect(pressed).toHaveText(metricLabel);
+  await expect(
+    picker.locator(
+      '[data-option-grid]:has([data-testid="metric-picker-option"][aria-pressed="true"])',
+    ),
+  ).toHaveAttribute("data-category", category.value);
+  // A family of several categories lists them as subgroups: the metric's own is the open one.
+  const subgroup = picker.locator(
+    `[data-testid="metric-picker-category"][data-value="${category.value}"]`,
+  );
+  if ((await subgroup.count()) > 0) {
+    await expect(subgroup).toHaveAttribute("aria-expanded", "true");
+    await expect(subgroup).toHaveAttribute("data-label", category.label);
+  }
+}
+
 /** Every surface that names the row's metric, asserted against one expectation. */
 async function expectRowReads(
   page: Page,
@@ -113,16 +158,9 @@ async function expectRowReads(
   const metric = row.getByTestId("metric-picker");
   await expect(metric).toHaveAttribute("data-value", expected.metric.value);
   await expect(metric).toHaveText(expected.metric.label);
-  // Reopening the picker restores the metric and its category.
+  // Reopening the picker restores the metric, its family and its category.
   const picker = await openPicker(row);
-  const category = picker.locator(
-    '[data-testid="metric-picker-category"][aria-pressed="true"]',
-  );
-  await expect(category).toHaveAttribute("data-value", expected.category.value);
-  await expect(category).toHaveText(expected.category.label);
-  await expect(
-    picker.locator('[data-testid="metric-picker-option"][aria-pressed="true"]'),
-  ).toHaveText(expected.metric.label);
+  await expectPickerShows(picker, expected.category, expected.metric.label);
   await page.keyboard.press("Escape");
   await expect(picker).toBeHidden();
   await expect(row.getByTestId("operand-configuration-summary")).toHaveText(
@@ -423,12 +461,25 @@ test.describe("configurable metrics in the Strategy Builder", () => {
     await expect(
       trigger.getByTestId("operator-select").locator("option"),
     ).toHaveText(["crosses above", "crosses below"]);
-    expect(await categoryLabels(await openPicker(trigger))).toEqual([
+    const triggerPanel = await openPicker(trigger);
+    expect(await familyLabels(triggerPanel)).toEqual([
+      "Technical",
+      "Valuation",
+    ]);
+    expect(await categoryLabels(triggerPanel)).toEqual([
       "Price",
       "Moving averages",
       "Oscillators",
-      "Valuation",
     ]);
+    // An ETF is read by a condition only: a trigger shows the choice, disabled, and says why.
+    await expect(
+      triggerPanel.locator(
+        '[data-testid="metric-picker-source"][data-value="ETF"]',
+      ),
+    ).toBeDisabled();
+    await expect(triggerPanel.getByTestId("metric-picker-hint")).toHaveText(
+      "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
+    );
   });
 
   test("E: another measure of the same family keeps the applied filters, and saves them", async ({
@@ -553,69 +604,125 @@ test.describe("configurable metrics in the Strategy Builder", () => {
     expect(last.x + last.width).toBeLessThanOrEqual(card!.x + card!.width);
 
     // The popover opens beside the row — beneath it, or above it when the viewport has more room
-    // there — never over it and never off screen, with the eight BUY categories as two rows of four.
+    // there — never over it and never off screen.
     const panel = await openPicker(row);
-    const panelBox = (await panel.boundingBox())!;
     const viewport = page.viewportSize()!;
-    expect(
-      panelBox.y >= metric!.y + metric!.height ||
-        panelBox.y + panelBox.height <= metric!.y,
-    ).toBe(true);
-    expect(panelBox.y).toBeGreaterThanOrEqual(0);
-    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(viewport.height);
-    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(viewport.width);
-    const tiles = await Promise.all(
-      (await panel.getByTestId("metric-picker-category").all()).map((tile) =>
-        tile.boundingBox(),
+    const besideTheRow = async () => {
+      const box = (await panel.boundingBox())!;
+      expect(
+        box.y >= metric!.y + metric!.height || box.y + box.height <= metric!.y,
+      ).toBe(true);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      return box;
+    };
+    await besideTheRow();
+
+    // The data source leads, on the stock; the four BUY families follow as one row of tabs.
+    await expect(
+      panel.locator('[data-testid="metric-picker-source"][data-value="STOCK"]'),
+    ).toBeChecked();
+    expect(await familyLabels(panel)).toEqual([
+      "Technical",
+      "Fundamentals",
+      "Valuation",
+      "Activity",
+    ]);
+    const tabs = await Promise.all(
+      (await panel.getByTestId("metric-picker-family").all()).map((tab) =>
+        tab.boundingBox(),
       ),
     );
-    expect(tiles).toHaveLength(8);
-    const rows = [...new Set(tiles.map((tile) => Math.round(tile!.y)))];
-    expect(rows).toHaveLength(2);
-    expect(
-      tiles.filter((tile) => Math.round(tile!.y) === rows[0]),
-    ).toHaveLength(4);
-
-    // A category's metrics sit below in two columns; only they scroll, and neither a change of
-    // category nor scrolling moves the categories.
-    const tileTop = async () =>
-      (await panel.getByTestId("metric-picker-category").first().boundingBox())!
+    expect(new Set(tabs.map((tab) => Math.round(tab!.y))).size).toBe(1);
+    const tabTop = async () =>
+      (await panel.getByTestId("metric-picker-family").first().boundingBox())!
         .y;
-    await showCategory(panel, "FUNDAMENTALS");
-    expect(await tileTop()).toBe(tiles[0]!.y);
+    // The edge beside the rule: whatever the popover shows, it stays attached there.
+    const side = await panel.getAttribute("data-placement");
+    const anchoredEdge = async () => {
+      const box = await besideTheRow();
+      return Math.round(side === "above" ? box.y + box.height : box.y);
+    };
+    const anchor = await anchoredEdge();
+
+    // The popover is as tall as what it shows. A short family ends where its last metric does, with
+    // nothing to scroll and no blank area held open beneath it.
+    const scroller = panel.getByTestId("metric-picker-options");
     const options = panel.getByTestId("metric-picker-option");
+    const headers = panel.getByTestId("metric-picker-category");
+    const slack = async () => {
+      const box = (await panel.boundingBox())!;
+      const last = (await options.last().boundingBox())!;
+      const header =
+        (await headers.count()) > 0
+          ? await headers.last().boundingBox()
+          : null;
+      return (
+        box.y +
+        box.height -
+        Math.max(last.y + last.height, header ? header.y + header.height : 0)
+      );
+    };
+    await showCategory(panel, "PRICE");
+    const short = await besideTheRow();
+    expect(
+      await scroller.evaluate(
+        (element) => element.scrollHeight - element.clientHeight,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(await slack()).toBeLessThanOrEqual(24);
+
+    // A long family grows the popover — to its cap and no further — from the edge beside the rule.
+    // Its metrics sit in two columns; only they scroll, and scrolling moves neither the page nor
+    // the tabs.
+    await showFamily(panel, "FUNDAMENTALS");
+    const long = await besideTheRow();
+    expect(long.height).toBeGreaterThan(short.height);
+    expect(long.height).toBeLessThanOrEqual(440);
+    expect(await anchoredEdge()).toBe(anchor);
+    expect(await slack()).toBeLessThanOrEqual(24);
     const [firstOption, secondOption, thirdOption] = await Promise.all(
       [0, 1, 2].map((index) => options.nth(index).boundingBox()),
     );
     expect(Math.abs(firstOption!.y - secondOption!.y)).toBeLessThanOrEqual(1);
     expect(secondOption!.x).toBeGreaterThan(firstOption!.x);
     expect(thirdOption!.y).toBeGreaterThan(firstOption!.y);
-    const scroller = panel.getByTestId("metric-picker-options");
     await expect(scroller).toHaveCSS("overflow-y", "auto");
+    const top = await tabTop();
+    const pageScroll = await page.evaluate(() => window.scrollY);
     await scroller.evaluate((element) =>
       element.scrollTo(0, element.scrollHeight),
     );
     await expect(options.last()).toBeInViewport();
-    expect(await tileTop()).toBe(tiles[0]!.y);
-    await showCategory(panel, "PRICE");
-    expect(await tileTop()).toBe(tiles[0]!.y);
+    expect(await tabTop()).toBe(top);
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageScroll);
 
-    // Choosing closes it; reopening restores both the metric and its category.
-    await showCategory(panel, "FUNDAMENTALS");
+    // Technical is the family of several categories: they are subgroups, one open at a time.
+    await showFamily(panel, "TECHNICAL");
+    expect(await categoryLabels(panel)).toEqual([
+      "Price",
+      "Moving averages",
+      "Oscillators",
+      "Volume",
+    ]);
+    await showCategory(panel, "OSCILLATORS");
+    await expect(
+      panel.locator('[data-testid="metric-picker-category"][aria-expanded="true"]'),
+    ).toHaveCount(1);
+    expect(await anchoredEdge()).toBe(anchor);
+
+    // Choosing closes it; reopening restores the metric, its family and its category.
+    await showFamily(panel, "FUNDAMENTALS");
     await options.filter({ hasText: "ROIC TTM" }).click();
     await expect(panel).toBeHidden();
     await expect(row.getByTestId("metric-picker")).toHaveText("ROIC TTM");
     await openPicker(row);
-    await expect(
-      panel.locator(
-        '[data-testid="metric-picker-category"][aria-pressed="true"]',
-      ),
-    ).toHaveText("Fundamentals");
-    await expect(
-      panel.locator(
-        '[data-testid="metric-picker-option"][aria-pressed="true"]',
-      ),
-    ).toHaveText("ROIC TTM");
+    await expectPickerShows(
+      panel,
+      { value: "FUNDAMENTALS", label: "Fundamentals" },
+      "ROIC TTM",
+    );
     // A press elsewhere — here the explanation rail beside it — closes it without changing the rule.
     await page
       .getByTestId("explanation-panel")

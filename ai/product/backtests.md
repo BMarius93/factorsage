@@ -265,6 +265,34 @@ submitted after the close produces a different final day. The stored result is s
 Whether `endDate` should instead be bounded to the last closed session is an open product decision
 recorded in `ai/architecture/deep-discovery.md` (investigation 5); do not silently change the bound.
 
+**An ETF a rule reads is decided on its completed sessions only.** A Strategy Condition may read one
+of the twenty Dashboard ETFs instead of the stock (`ai/product/strategies.md`, § ETF-sourced
+Conditions). The run's snapshot pins each such ETF's series beside the benchmark and the execution
+calendar, and the worker reads its stored history once per run — never from the provider. A rule
+reading an ETF is `NOT_EVALUABLE` on any session the ETF has no finalized, confirmed bar for: before
+the fund listed, inside an indicator's warm-up, a session it did not trade, and — unlike the stock
+side of the same rule — the current session while it is in progress. A completed run whose strategy
+read an ETF lists, per fund, whether its history could be read and over which sessions. A fund that
+could not be read (most often one whose history was never bootstrapped) is a **warning at the top
+of the result**, above the chart and every number: its rules never matched, so the result — a
+zero-trade one above all — is not what the strategy does with that fund's data, and the warning
+says so and points to "Edit and run again". When every fund was read, the page says so as information
+beside the results, so a genuine zero-match reads as the strategy's own result. A run reads each
+ETF once, on the price basis in force then; if the provider restated the fund's history after
+submission, the run uses the restated history and its result says so.
+The comparison benchmark and portfolio allocation are unaffected: an ETF a rule reads is never
+bought and never compared against.
+
+**Stock's Sector is frozen at submission.** A rule reading Stock's Sector (`ai/product/strategies.md`,
+§ Stock's Sector) reads, per stock, the sector ETF its FMP sector maps to. The run's snapshot records
+each stock's sector as stored when the run was submitted and the fund it maps to (or none), and pins
+each distinct sector fund's series beside the named ones; the worker reads only that record, never
+the catalog's current sector, so a reclassification while the run waits or executes changes nothing
+in it, and the next submission uses the new sector. Each distinct fund is read once per run however
+many stocks share it. The result names the fund each stock read; a stock with no sector ETF is a
+warning, as an unreadable fund is. The sector is the current classification applied to every date of
+the period — there is no historical sector record.
+
 **What reproducibility does not mean here.** V1 does not keep raw provider responses. If the data
 provider later corrects a historical price, a _new_ backtest of the same period can produce a
 different answer; the completed run's stored results never change. The product does not offer

@@ -1,6 +1,5 @@
 import {
   SELECTABLE_SERIES_GROUP_LABELS,
-  strategyMetricCategories,
   type StrategyMetric,
   type StrategyValue,
 } from "@intrinsic/contracts";
@@ -11,7 +10,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { MetricPicker } from "./MetricPicker";
 import { OperandPicker, type OperandPickerCategory } from "./OperandPicker";
 import { ValueControl } from "./ValueControl";
 import {
@@ -282,90 +280,6 @@ describe("OperandPicker", () => {
   });
 });
 
-describe("MetricPicker", () => {
-  function renderMetric(
-    metric: StrategyMetric,
-    levelKind: "BUY" | "SELL" = "BUY",
-    part: "CONDITION" | "TRIGGER" = "CONDITION",
-  ) {
-    const onChange = vi.fn();
-    render(
-      <MetricPicker
-        levelKind={levelKind}
-        part={part}
-        metric={metric}
-        label="Metric"
-        invalid={false}
-        onChange={onChange}
-        onFocus={() => {}}
-        onBlur={() => {}}
-      />,
-    );
-    return onChange;
-  }
-
-  it("offers exactly the registry's categories and metrics for the level and the half of a Signal", async () => {
-    const user = userEvent.setup();
-    renderMetric(
-      { kind: "OSCILLATOR", seriesId: "RSI_14D" },
-      "SELL",
-      "TRIGGER",
-    );
-    await user.click(trigger());
-    const expected = strategyMetricCategories("SELL", "TRIGGER");
-    expect(categoryLabels(panel()!)).toEqual(
-      expected.map((category) => category.label),
-    );
-    for (const category of expected) {
-      await showCategory(user, panel()!, category.id);
-      expect(optionLabels(panel()!)).toEqual(
-        category.options.map((option) => option.label),
-      );
-    }
-  });
-
-  it("hands the registry's own instance of the chosen metric to the row", async () => {
-    const user = userEvent.setup();
-    const onChange = renderMetric({ kind: "PRICE" });
-    await user.click(trigger());
-    await showCategory(user, panel()!, "INSIDER_ACTIVITY");
-    await user.click(within(panel()!).getByText("Insider sellers"));
-    expect(onChange).toHaveBeenCalledWith({
-      kind: "INSIDER_ACTIVITY",
-      measure: "SELLERS",
-      lookback: 20,
-    });
-  });
-
-  it("keeps a configured metric selected: its identity, not its configuration, is the choice", async () => {
-    const user = userEvent.setup();
-    renderMetric({
-      kind: "CONGRESS_ACTIVITY",
-      measure: "SALES",
-      lookback: 180,
-      scope: { kind: "ANY" },
-      chamber: "SENATE",
-    });
-    expect(trigger().textContent).toBe("Congress sales");
-    await user.click(trigger());
-    expect(activeCategory(panel()!)).toBe("CONGRESSIONAL_TRADING");
-    expect(pressed(panel()!, "metric-picker-option")).toEqual([
-      "CONGRESS_ACTIVITY:SALES",
-    ]);
-  });
-
-  it("reads a metric the level no longer offers as unavailable, never as another metric", async () => {
-    const user = userEvent.setup();
-    renderMetric({ kind: "GAIN" }, "BUY");
-    expect(trigger().textContent).toBe("Unavailable metric");
-    await user.click(trigger());
-    // Position is not a BUY category, so the popover opens on the first one with nothing marked.
-    expect(categoryLabels(panel()!)).not.toContain("Position");
-    expect(activeCategory(panel()!)).toBe("PRICE");
-    expect(pressed(panel()!, "metric-picker-option")).toEqual([]);
-  });
-});
-
 describe("the Value picker", () => {
   function renderValue(metric: StrategyMetric, value: StrategyValue) {
     const onChange = vi.fn();
@@ -435,41 +349,56 @@ describe("the Value picker", () => {
 
 /**
  * The responsive rules, asserted as declarations: jsdom has no layout, and each rule is decided by a
- * single declaration (`ai/architecture/strategy-builder.md` § 8–9).
+ * single declaration (`ai/architecture/strategy-builder.md` § 8–9). The trigger and the panel are the
+ * shell's stylesheet; the tiles and the options are this picker's.
  */
 describe("the picker's layout", () => {
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "OperandPicker.module.css"),
-    "utf8",
-  );
-  function ruleBody(selector: string, after = 0): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const shell = readFileSync(join(here, "PickerPopover.module.css"), "utf8");
+  const body = readFileSync(join(here, "OperandPicker.module.css"), "utf8");
+  function ruleBody(css: string, selector: string, after = 0): string {
     const start = css.indexOf(`${selector} {`, after);
     expect(start, `${selector} is declared`).toBeGreaterThan(-1);
     return css.slice(start, css.indexOf("}", start));
   }
 
   it("is a bottom sheet on a phone and an anchored popover from 600px", () => {
-    expect(ruleBody(".panel")).toContain("position: fixed");
-    const wide = css.indexOf("@media (min-width: 600px)");
+    expect(ruleBody(shell, ".panel")).toContain("position: fixed");
+    const wide = shell.indexOf("@media (min-width: 600px)");
     expect(wide).toBeGreaterThan(-1);
-    expect(ruleBody(".panel", wide)).toContain("position: absolute");
+    expect(ruleBody(shell, ".panel", wide)).toContain("position: absolute");
+  });
+
+  it("holds a tile picker's height above its trigger, and never a content-sized one's", () => {
+    const wide = shell.indexOf("@media (min-width: 600px)");
+    // Above the trigger a held panel keeps the height its longest category needs…
+    expect(ruleBody(shell, '.panel[data-placement="above"]', wide)).toContain(
+      "height: var(--picker-height, auto)",
+    );
+    // …while a content-sized one is only ever capped, to the room its side of the viewport has.
+    const content = ruleBody(shell, '.panel[data-sizing="content"]', wide);
+    expect(content).toContain("var(--picker-max-height, 100vh)");
+    expect(content).not.toMatch(/(^|[^-])height:/);
   });
 
   it("lays the categories four to a row where there is room, and never scrolls them", () => {
-    const wide = css.indexOf("@container operand-picker (min-width: 440px)");
+    expect(ruleBody(shell, ".panel")).toContain(
+      "container: picker-panel / inline-size",
+    );
+    const wide = body.indexOf("@container picker-panel (min-width: 440px)");
     expect(wide).toBeGreaterThan(-1);
-    expect(ruleBody(".categories", wide)).toContain(
+    expect(ruleBody(body, ".categories", wide)).toContain(
       "grid-template-columns: repeat(4, minmax(0, 1fr))",
     );
-    expect(ruleBody(".categories")).toContain("flex: none");
-    expect(ruleBody(".categories")).not.toContain("overflow");
+    expect(ruleBody(body, ".categories")).toContain("flex: none");
+    expect(ruleBody(body, ".categories")).not.toContain("overflow");
   });
 
   it("lists the options two to a row, and scrolls only them", () => {
-    expect(ruleBody(".optionGrid")).toContain(
+    expect(ruleBody(body, ".optionGrid")).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr))",
     );
-    expect(ruleBody(".options")).toContain("overflow-y: auto");
-    expect(ruleBody(".options")).toContain("min-height: 0");
+    expect(ruleBody(body, ".options")).toContain("overflow-y: auto");
+    expect(ruleBody(body, ".options")).toContain("min-height: 0");
   });
 });

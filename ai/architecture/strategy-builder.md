@@ -250,10 +250,16 @@ presentation choice — a technical decision, not a product bound.
 ### Exported functions
 
 ```ts
-strategyMetricOptions(levelKind, part): readonly StrategyMetricOption[]      // flat, in category order
-strategyMetricCategories(levelKind, part): readonly StrategyMetricCategory[] // the same, partitioned
+// `source?` is an ETF data source; omitted, every function answers for the evaluated stock.
+strategyMetricOptions(levelKind, part, source?): readonly StrategyMetricOption[]      // flat, in category order
+strategyMetricCategories(levelKind, part, source?): readonly StrategyMetricCategory[] // the same, partitioned
+strategyMetricFamilies(levelKind, part, source?): readonly StrategyMetricFamily[]     // categories, by picker family
 strategyMetricCategory(metric): StrategyMetricCategoryId                    // derived, never stored
-defaultStrategyMetric(levelKind, part, category?): StrategyMetric | undefined
+strategyMetricFamily(metric): StrategyMetricFamilyId                        // derived from the category
+strategyMetricSource(metric): StrategyMetricSource | undefined              // undefined = the stock
+strategyEtfSourcesOffered(levelKind, part): boolean                         // false for a Trigger
+strategyMetricUnderSource(levelKind, part, metric, source?): StrategyMetric | undefined // same identity, another source
+defaultStrategyMetric(levelKind, part, category?, source?): StrategyMetric | undefined
 conditionOperatorsFor(metric): readonly ConditionOperator[]
 triggerOperatorsFor(metric): readonly TriggerOperator[]
 valueSpecFor(metric, operator): StrategyValueSpec   // resolves per-instance series sets
@@ -315,10 +321,25 @@ INSIDER_ACTIVITY → CONGRESSIONAL_TRADING` (`STRATEGY_METRIC_CATEGORIES`, label
 `STRATEGY_METRIC_CATEGORY_LABELS`), and inside the catalog-backed categories the order is the
 catalog's own (daily moving averages before weekly; the fifteen Fundamental Metrics in the order of
 `FUNDAMENTAL_METRIC_CATALOG`). That top-level categorization is Strategy metadata the catalog does not define, so it lives
-here once. The Builder names a metric with one picker over it — every category at once, then the
-metrics of the category being shown (§ 8) — and `strategyMetricCategories` is all it reads; a category
-with nothing to offer a level kind or a half of a Signal is absent rather than empty. A metric's category is a property of its kind, so
-it is never stored and a row can never hold a category and a metric that disagree.
+here once. The Builder names a metric with one picker over it (§ 8), which groups the categories into
+**families** — `TECHNICAL` (Price, Moving averages, Oscillators, Volume), `FUNDAMENTALS`, `VALUATION`,
+`ACTIVITY` (Insider activity, Congressional trading) and `POSITION` — through
+`STRATEGY_METRIC_CATEGORY_FAMILIES`, a total map so a new category must choose a family.
+`strategyMetricFamilies` is all the picker reads; a family or category with nothing to offer a level
+kind, a half of a Signal or a data source is absent rather than empty. A metric's category and family
+are properties of its kind, so neither is ever stored and a row can never hold a family, a category
+and a metric that disagree.
+
+**ETF data sources.** `PRICE`, `MOVING_AVERAGE`, `OSCILLATOR` and `RELATIVE_VOLUME` — and no other
+kind — accept an optional `source: { kind: "ETF", code }` naming one of `STRATEGY_ETF_SOURCES`
+(`strategy-etf-sources.ts`, the contracts projection of the Dashboard's ETF catalog). The source is
+part of the metric's identity: `strategyMetricKey`, the predicate identity and the signal fingerprint
+all carry it, appended **only when present**, so every stock-only document, hash and Monitor latch is
+byte-identical to what it was. `valueSpecFor` narrows an ETF Price to the fourteen moving averages,
+`strategyMetricLabel` leads with the ticker (`XLK · RSI 14D`), and the validator refuses an unknown
+code (`SOURCE_INVALID`), a source on any other kind (`UNKNOWN_FIELD`) and any ETF-sourced Trigger
+(`SOURCE_NOT_ALLOWED_IN_PART`). [`strategy-etf-conditions.md`](strategy-etf-conditions.md) covers
+evaluation.
 
 The legacy builder prioritized a "Most used" section that was reordered per BUY/SELL tone
 (`displayPriorityByTone` in `ConditionBuilder.tsx`). **Do not port it.** Invariant 9 forbids a
@@ -598,8 +619,10 @@ apps/web/src/features/strategies/
     FinalExitCard.tsx        # FINAL EXIT: one card, its Exit Rules, the OR dividers, + Add exit rule
     SignalEditor.tsx         # Conditions block + optional Trigger block
     PredicateRow.tsx         # Metric / operator / Value — one component, two modes
-    OperandPicker.tsx        # category tiles + a two-column option grid, in one popover
-    MetricPicker.tsx  OperatorSelect.tsx  ValueControl.tsx  # Value: OperandPicker for a series
+    PickerPopover.tsx        # the shell both pickers share: trigger, popover / bottom sheet, focus, placement
+    MetricPicker.tsx         # Data source (Stock | ETF + fund), family tabs, expandable subgroups
+    OperandPicker.tsx        # the series Value: category tiles + a two-column option grid
+    OperatorSelect.tsx  ValueControl.tsx
     LevelPercentageSelect.tsx
     ExplanationPanel.tsx     # desktop right column
     LogicPreview.tsx         # renders StrategyPreviewLine[]
@@ -716,17 +739,40 @@ beneath the fields: `Configure` and its configuration summary. `AND` connectors 
 condition rows, not as a control — the product forbids exposing boolean-expression vocabulary as an
 editable operator.
 
-**The Metric picker** (`OperandPicker`, wrapped by `MetricPicker`) is a trigger that reads like the
-product's select and a popover anchored to the row's fields (`.predicateFields` is positioned): every
-category the registry offers is a tile, four to a row where the popover is at least 440px wide — so a
-BUY condition's eight categories read as two rows of four — and the category being shown lists its
-metrics beneath in a two-column grid. Only that grid scrolls. There is no search. Browsing a
-category changes nothing; choosing a metric dispatches `chooseMetric` and closes the popover;
-reopening starts on the chosen metric's category with it marked. Escape (focus returns to the
-trigger), a press outside and tabbing away close it. It opens beneath the row unless the viewport has
-more room above, decided once per opening from the height its longest category needs, and above the
-row it is held at that height so switching categories never moves the tiles. A series Value uses the
-same component, its categories the series catalog's own groups and its options exactly
+**The Metric picker** (`MetricPicker`, inside the shared `PickerPopover` shell) is a trigger that
+reads like the product's select and a popover anchored to the row's fields (`.predicateFields` is
+positioned). From the top it holds:
+
+- **Data source** — two native radios drawn as one segmented control, `Stock` and `ETF`, and, while
+  the source is an ETF, the product's grouped select of the twenty funds. A Trigger row has the ETF
+  radio disabled and one line saying why.
+- **Family tabs** — a `tablist` of the families `strategyMetricFamilies` returns for the source being
+  shown; an ETF has the single tab `Technical`.
+- **The library** — the shown family's metrics in the two-column option grid. A family of several
+  categories lists each as an expandable subgroup header with its count, one open at a time; a
+  single-category family is the grid alone. This is the only part that scrolls.
+
+The popover is **content-sized** (`sizing="content"`): as tall as what it shows, capped at
+`min(440px, 70vh)` and at the room its side of the viewport has, so `Price` is one row under its
+header and a long family scrolls inside the library. It opens beneath the row unless the viewport has
+clearly more room above; the side is decided once per opening, and the edge beside the row never
+moves — beneath the row the popover grows downward, above it upward.
+
+Browsing a family or a subgroup changes nothing; choosing a metric dispatches `chooseMetric` and
+closes the popover; reopening starts on the rule's own source, fund, family and subgroup with the
+metric marked and focused. Changing the source or the fund dispatches `chooseMetric` at once with
+`strategyMetricUnderSource(...)` when that source offers the rule's metric, and otherwise only
+changes what is browsed, with a `PENDING` hint. Whatever a change of metric or source could not keep
+is reset by the reducer (`chooseMetricOutcome`) and reported by the row (`metricResetNotice`,
+`data-testid="row-change-notice"`, `role="status"`) and inside the open popover; the notice
+accumulates across consecutive changes and is cleared by the next edit of the operator, the Value or
+the configuration. Keyboard: the radios are a native group, the tabs rove with the arrow keys, Home
+and End, the library walks by arrows (Right opens and Left closes a subgroup from its header), Enter
+chooses and returns focus to the trigger, and Escape, a press outside or tabbing away close it.
+There is no search.
+
+A series Value uses `OperandPicker` in the same shell, held at one height above the row as before:
+its categories are the series catalog's own groups and its options exactly
 `valueSpecFor(metric).seriesIds`; a numeric Value stays an input.
 
 **Tone.** BUY = `--color-positive` / `--color-positive-soft`, SELL = `--color-negative` /
@@ -776,8 +822,10 @@ Metric on the first line, Condition and Value on the second):
   fixed product constant) and RSI is a free 1…100 value.
 - The remove control is a trailing icon on line 1, so it never claims a row of its own.
 - The Metric and series-Value pickers open as a **bottom sheet** over a scrim rather than a popover:
-  the full width, three category tiles to a row, the options two to a row beneath and the only part
-  that scrolls, with a title and a close button. A press reports its focus with its click rather than
+  the full width, with a title and a close button. The Metric sheet holds the data source, the
+  family tabs and the library with 38px targets; the Value sheet three category tiles to a row. In
+  both the options are two to a row and the only part that scrolls, and the sheet is as tall as its
+  content up to `min(80dvh, 640px)`. A press reports its focus with its click rather than
   on the way down, so the explanation moving under the row can never shift the trigger between press
   and release and swallow the tap.
 - Section labels (`CONDITIONS`, `TRIGGER (OPTIONAL)`) stay visible on mobile: they are what keeps
@@ -1001,10 +1049,17 @@ families, an empty level and a level with a trigger.
   `setOperator` to a trigger operator keeps a compatible Value and replaces an incompatible one;
 - `PredicateRow`: switching Metric swaps the Value control from a series select to a numeric input
   and narrows the operator list;
-- `MetricPicker` inside a BUY level offers no `Position` category (`Gain`/`Loss`);
-- `OperandPicker` (`OperandPicker.test.tsx`): every category at once, opening on the chosen metric's
-  category with it marked, browsing without an edit, choose-and-close, reopen-restores, Escape /
-  outside / Tab-out, and the series Value grouped by catalog group;
+- `MetricPicker` (`MetricPicker.test.tsx`): exactly the registry's families, subgroups and metrics
+  for every level kind and half of a Signal; no `Position` family in a BUY level; one subgroup open
+  at a time; the twenty funds under the catalog's three groups; an ETF offering Technical's 21
+  metrics alone; source changes that keep the metric, wait for one or are refused for a Trigger;
+  arrow-key navigation, focus on open and on close; and the content-sized layout as declarations;
+- `OperandPicker` (`OperandPicker.test.tsx`): the series Value grouped by catalog group, opening on
+  the chosen series' category with it marked, browsing without an edit, choose-and-close,
+  reopen-restores, Escape / outside / Tab-out;
+- `StrategyBuilder.etf-conditions.test.tsx` and `strategy-draft.etf-sources.test.ts`: independent
+  Stock and ETF rules in BUY, SELL and FINAL EXIT, the saved payload, source-change resets and
+  their notice, and every one of the 20 x 21 x 3 ETF rules reachable through the reducer;
 - an inline error is absent before touch and present after;
 - `LogicPreview` renders `AND` connectors, marks the trigger line, and shows a placeholder for an
   empty level;

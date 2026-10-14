@@ -89,11 +89,18 @@ try {
       },
     },
   );
-  const cycle = new MonitorCycle(runtime.monitors, data, calendar, logger, {
-    symbolConcurrency: 4,
-    quoteMaxAgeMs: 6 * 60 * 60 * 1000,
-    now: () => new Date(`${asOf}T21:00:00.000Z`),
-  });
+  const cycle = new MonitorCycle(
+    runtime.monitors,
+    data,
+    calendar,
+    logger,
+    {
+      symbolConcurrency: 4,
+      quoteMaxAgeMs: 6 * 60 * 60 * 1000,
+      now: () => new Date(`${asOf}T21:00:00.000Z`),
+    },
+    runtime.etfContexts,
+  );
   const summary = await cycle.run(Date.now());
   process.stdout.write(`${JSON.stringify({ asOf, summary })}\n`);
 } finally {

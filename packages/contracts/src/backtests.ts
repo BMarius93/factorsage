@@ -1,3 +1,4 @@
+import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
 import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
 import { alternativeDataScope } from "./alternative-data.js";
 import {
@@ -778,11 +779,59 @@ export const BACKTEST_RESULT_MAX_CURVE_POINTS = 1_500;
  *
  * Final holdings are not here either, and deliberately so: a completed run ends in cash.
  */
+/**
+ * Whether one ETF condition source could be evaluated by a run, in the aggregate: the actionable
+ * answer to "why did my ETF conditions never fire?" (`ai/architecture/strategy-etf-conditions.md`
+ * §7). `READY` still does not promise every session — dates before `firstSession`, indicator
+ * warm-up and gaps are per-session absences — but a non-`READY` status names the operational cause.
+ */
+export type BacktestEtfConditionStatus =
+  | "READY"
+  /** The ETF's history was never bootstrapped to the floor; an operator action, not a data gap. */
+  | "NOT_BOOTSTRAPPED"
+  /** No completed tail read proves any stored bar final yet. */
+  | "NOT_SYNCHRONIZED"
+  /** Anchored and synchronized, but no finalized session holds a bar. */
+  | "NO_FINALIZED_SESSIONS"
+  /** The read failed during this run; re-running retries it. */
+  | "LOAD_FAILED";
+
+export type BacktestEtfConditionDiagnosticsResponse = {
+  /** The stored source identity (`SP500`, `ETF_XLK`). */
+  code: string;
+  /** The display identity (`SPY`, `XLK`). */
+  ticker: string;
+  status: BacktestEtfConditionStatus;
+  /** The first and newest finalized session the run's snapshot held, when `READY`. */
+  firstSession?: string;
+  latestSession?: string;
+  /** The price-basis generation the run's ETF bars were read under, for reproducibility. */
+  basisGeneration?: number;
+  /**
+   * The generation the run's snapshot recorded at submission, present only when it differs from
+   * `basisGeneration`: the provider restated the fund's history (a re-base) between submission and
+   * the run reading it, so the run computed on the restated history. Derived at read time from the
+   * immutable snapshot and the immutable result; never stored.
+   */
+  submittedBasisGeneration?: number;
+};
+
 export type BacktestResultResponse = {
   summary: BacktestResultSummaryResponse;
   /** Per-calendar-year returns, non-cumulative. Empty for a run with no simulated year. */
   annualReturns: BacktestAnnualReturnResponse[];
   curve: BacktestCurvePointResponse[];
+  /**
+   * One row per ETF source the run's strategy read, in the definition's catalog order; absent for
+   * a run whose strategy reads none — every run that existed before ETF conditions did. A sector
+   * ETF a Stock's Sector rule read for some stock has its row here like any other.
+   */
+  etfConditions?: BacktestEtfConditionDiagnosticsResponse[];
+  /**
+   * Which sector ETF each stock's Stock's Sector rules read, from the run's snapshot, by symbol;
+   * absent unless the strategy reads Stock's Sector. Derived at read time, never stored.
+   */
+  stockSectors?: StockSectorAssignmentResponse[];
 };
 
 // ---------------------------------------------------------------------------
@@ -921,6 +970,23 @@ export type BacktestSnapshotSecurity = {
   buyWindowMode: BuyWindowMode;
   /** Canonical normalized ranges as of submission; always empty for `FULL`. */
   buyWindows: BuyWindowRangeResponse[];
+  /**
+   * Present on every security, and only, when the strategy reads Stock's Sector: the stock's FMP
+   * sector as stored at submission and the sector ETF it resolved to — frozen here so the run, and
+   * any re-execution of it, reads one fund per stock whatever the catalog says later
+   * (`stock-sector-etfs.ts`). Absent otherwise, so every other snapshot is byte-for-byte unchanged.
+   */
+  sector?: BacktestSnapshotSecuritySector;
+};
+
+/**
+ * One stock's frozen sector: the stored FMP name (null when it had none) and the sector ETF's code,
+ * null when the sector was missing or not one of FMP's eleven. A null code makes the stock's
+ * Stock's Sector rules not evaluable for the whole run; no other fund is substituted.
+ */
+export type BacktestSnapshotSecuritySector = {
+  name: string | null;
+  etfCode: string | null;
 };
 
 /**
@@ -947,6 +1013,23 @@ export type BacktestSnapshotActor = {
   actorId: string;
   externalId: string;
   displayName: string;
+};
+
+/**
+ * One ETF condition source as a run froze it: the stable code the definition names, the immutable
+ * series it resolved to at submission, and the price basis then in force.
+ *
+ * The series is binding — execution reads that `seriesId` and nothing else. The basis generation is
+ * a record, not a requirement: like a stock's, an ETF's basis is the one in force when the run
+ * reads it, read once and never mixed (`docs/decisions/historical-price-basis-v1.md` §9). When it
+ * differs from the one recorded here, the result says so (`submittedBasisGeneration`).
+ */
+export type BacktestSnapshotEtfSeries = {
+  code: string;
+  ticker: string;
+  seriesId: string;
+  seriesVersion: number;
+  basisGeneration: number;
 };
 
 /**
@@ -1072,6 +1155,28 @@ export type BacktestRunSnapshot = {
    * byte-identical.
    */
   actors?: BacktestSnapshotActor[];
+  /**
+   * The ETF series behind every ETF-sourced condition of the frozen definition, pinned at
+   * submission (`docs/decisions/strategy-etf-conditions-v1.md`;
+   * `ai/architecture/strategy-etf-conditions.md` §6).
+   *
+   * The definition names a stable **code**; this section pins the immutable `seriesId` that code
+   * resolved to, exactly as `benchmark` and `executionCalendar` pin theirs, so a catalog appending
+   * a new series version can never change what a queued run's conditions read. Execution resolves
+   * each context series by this id and never by code. `basisGeneration` is the price basis in
+   * force at submission, recorded — not enforced — so a run that read a restated history says so
+   * in its result, and a re-executed run whose numbers differ is explainable. ETF bars, like stock
+   * bars, are replaced rather than versioned, which is the documented reproducibility boundary; a
+   * run never mixes bases within itself either way, because it reads each ETF exactly once.
+   *
+   * **Optional, and absent on every run whose strategy reads no ETF** — including every run that
+   * existed before the feature — so those snapshots and their `snapshotHash` stay byte-for-byte
+   * what they always were. Sorted by `code`, so two submissions of one configuration are
+   * byte-identical. The worker's snapshot parse requires this section and the definition's ETF
+   * sources to agree exactly, and refuses the run otherwise: a definition reading an ETF nothing
+   * pinned must never execute by silently resolving the catalog's current series.
+   */
+  etfSeries?: BacktestSnapshotEtfSeries[];
   period: {
     startDate: string;
     endDate: string;

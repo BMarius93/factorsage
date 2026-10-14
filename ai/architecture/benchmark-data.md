@@ -5,12 +5,23 @@ A benchmark is a first-class product concept, deliberately **not** a `Security`.
 ## Why it is separate
 
 A benchmark is passive comparison data. It is never bought, never consumes portfolio cash, never
-occupies a position slot, and has no fundamentals, no derived technicals and no intrinsic values.
+occupies a position slot, and has no fundamentals, no **stored** derived technicals and no intrinsic
+values.
 
 `Security.isBenchmark = true` would drag every one of those behaviours along with it: the benchmark
 would enter the stock catalog and its search, occupy a slot in the resident-stock LRU, and invite a
 derived-state rebuild that calculates RSI and DCF for an index proxy for no reason. Benchmark
 identity and benchmark market data therefore stay explicit.
+
+**Technicals are computed from this data, never stored beside it.** A Strategy Condition may name
+one of the twenty Dashboard ETFs as its data source (`XLK · RSI 14D is above 50`). Its moving
+averages, RSI and Relative Volume are computed at evaluation time from the stored OHLCV below,
+through the one stock calculation methodology, once per distinct ETF per backtest run or Monitor
+cycle, held in process memory for that run or cycle, and discarded. Nothing derived is written to
+PostgreSQL, published to Redis or fetched from a provider, and no benchmark becomes a `Security`.
+The reads are the provider-free ones this document already describes (`readFullBenchmarkHistory`,
+`benchmarkRefreshState`, `missingBenchmarkCoverage`); the gates, the snapshot pinning and the
+measured cost are in [`strategy-etf-conditions.md`](strategy-etf-conditions.md).
 
 ```text
 Benchmark                         product identity: code, name, description, active,

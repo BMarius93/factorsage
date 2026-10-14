@@ -66,8 +66,13 @@ Read `ai/README.md` before substantial work.
     without bumping its version.
 13. A Benchmark is a first-class concept, never a `Security` and never `Security.isBenchmark`. It is
     passive comparison data: never bought, never consuming cash or a position slot, and carrying no
-    derived series. `BENCHMARK_CATALOG` in `@intrinsic/domain` is the one source of benchmark
-    metadata, and a provider symbol never crosses an API contract. Benchmark loading reuses the
+    **stored** derived series — nothing derived from a benchmark is ever persisted, cached in a
+    namespace of its own or requested from a provider. The one consumer of benchmark technicals, a
+    Strategy Condition that names an ETF as its data source, computes them at evaluation time from
+    the stored benchmark OHLCV through the stock calculation methodology, once per distinct ETF per
+    backtest run or Monitor cycle, and discards them; see
+    `ai/architecture/strategy-etf-conditions.md`. `BENCHMARK_CATALOG` in `@intrinsic/domain` is the
+    one source of benchmark metadata, and a provider symbol never crosses an API contract. Benchmark loading reuses the
     canonical provider adapter, coverage reconciliation, hydration lock, provider gate and Redis
     projection principles under its own namespace; see `ai/architecture/benchmark-data.md`.
     **One infrastructure, several series.** `isActive` (does the system maintain it) and

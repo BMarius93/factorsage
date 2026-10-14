@@ -251,3 +251,17 @@
 .disclosure {
   margin-top: 16px;
 }
+
+/* One line per ETF the strategy reads, inside the shared notice: a plain list, no markers. */
+/* The ETF notice inside the result hero, between its header and the chart. */
+.etfConditionsFrame {
+  min-width: 0;
+}
+
+.etfConditions {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

@@ -1,4 +1,5 @@
 import type {
+  BacktestEtfConditionDiagnosticsResponse,
   BacktestFailureCode,
   BacktestFailurePhase,
   BacktestLiveSnapshotResponse,
@@ -108,6 +109,12 @@ export type BacktestResultWrite = {
   workerId: string;
   now: Date;
   result: BacktestResult;
+  /**
+   * The per-ETF availability of the run's ETF condition sources, when its strategy reads any —
+   * persisted with the summary so the completed detail page can say why an ETF condition could not
+   * evaluate (`ai/architecture/strategy-etf-conditions.md` §7). Absent for every other run.
+   */
+  etfConditions?: readonly BacktestEtfConditionDiagnosticsResponse[];
 };
 
 export type BacktestFailureWrite = {
@@ -661,6 +668,12 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
             winningTrades: summary.winningTrades,
             losingTrades: summary.losingTrades,
             openPositions: summary.openPositions,
+            ...(write.etfConditions === undefined
+              ? {}
+              : {
+                  etfConditionDiagnostics:
+                    write.etfConditions as unknown as Prisma.InputJsonValue,
+                }),
           },
         });
 

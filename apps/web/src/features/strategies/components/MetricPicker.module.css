@@ -1,0 +1,287 @@
+/*
+ * What the Metric picker's panel holds: the data source, the metric families, and the library of
+ * the family being shown. The trigger and the panel are the shell's (`PickerPopover.module.css`);
+ * the option grid and its options are the Value picker's (`OperandPicker.module.css`), so a metric
+ * and a series are chosen from rows that look alike.
+ *
+ * The panel is content-sized: nothing here has a fixed height, the source and the families never
+ * scroll, and the library is the one area that does once the panel reaches its cap.
+ */
+
+/* --- Data source: Stock or ETF, and the ETF itself --- */
+
+.source {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sourceLabel {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+/* Two native radios drawn as one segmented control: the keyboard and a screen reader get a radio
+   group, and the eye gets the product's tinted selection. */
+.sourceChoices {
+  display: inline-grid;
+  flex: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(64px, auto);
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.sourceChoice {
+  position: relative;
+  display: flex;
+}
+
+.sourceChoice + .sourceChoice {
+  border-inline-start: 1px solid var(--color-border-strong);
+}
+
+/* The radio itself covers its face, invisible: it stays the thing that is focused and pressed. */
+.sourceInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sourceFace {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  /* A phone target, like the options beneath; the popover's own density from 600px. */
+  min-height: 38px;
+  padding: 0 14px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+}
+
+.sourceInput:hover + .sourceFace {
+  color: var(--color-text-primary);
+  background: var(--color-row-hover);
+}
+
+.sourceInput:checked + .sourceFace {
+  color: var(--color-primary-ink);
+  background: var(--color-surface-selected);
+}
+
+.sourceInput:focus-visible + .sourceFace {
+  box-shadow: var(--focus-ring-inset);
+}
+
+.sourceInput:disabled {
+  cursor: not-allowed;
+}
+
+.sourceInput:disabled + .sourceFace {
+  color: var(--color-text-muted);
+  background: var(--color-surface-soft);
+}
+
+/* The ETF select takes whatever the line has left, and a line of its own where it has none. */
+.etf {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/*
+ * Stock's Sector chooses no fund: the line says how each stock's is chosen, in the select's place —
+ * on a line of its own, where two or three lines of text read as a sentence, not a column.
+ */
+.sectorNote {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+/* Inside the picker the select keeps the picker's own density rather than the row's phone one. */
+.etf select[data-density="compact"] {
+  min-height: 38px;
+  padding: 0 30px 0 10px;
+  background-position: right 10px center;
+  font-size: 13px;
+}
+
+.hint {
+  flex: none;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+/* --- Families: the library's top level, as tabs --- */
+
+.families {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.family {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* An ETF offers one family: it names what is listed, as a tab its own size rather than a bar. */
+.family:only-child {
+  flex: 0 1 auto;
+  padding-inline: 16px;
+}
+
+.family:hover {
+  color: var(--color-text-primary);
+  background: var(--color-row-hover);
+}
+
+.family[aria-selected="true"] {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+  background: var(--color-surface-selected);
+}
+
+.family:focus-visible,
+.subgroupHeader:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Where the rule's metric lives, while another family or subgroup is being browsed. */
+.family[data-current="true"]::after,
+.subgroupHeader[data-current="true"] .subgroupLabel::after {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+}
+
+/* --- Library: the one area that scrolls --- */
+
+.library {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for the focus ring of an option against the scroller's own edge. */
+  padding: 8px 3px 3px;
+  margin: 0 -3px -3px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.subgroup {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* One line per subgroup: closed, a family of four is four lines however many metrics it holds. */
+.subgroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-body);
+  background: var(--color-surface-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+  text-align: start;
+  cursor: pointer;
+}
+
+.subgroupHeader:hover {
+  background: var(--color-row-hover);
+}
+
+.subgroupHeader[aria-expanded="true"] {
+  color: var(--color-text-primary);
+}
+
+/* The disclosure caret: pointing along the line when closed, down when open. */
+.subgroupChevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-inline-start: 5px solid var(--color-text-muted);
+}
+
+.subgroupHeader[aria-expanded="true"] .subgroupChevron {
+  transform: rotate(90deg);
+}
+
+.subgroupLabel {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.subgroupCount {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- From 600px: the anchored popover's compact density --- */
+
+@media (min-width: 600px) {
+  .sourceFace {
+    min-height: 32px;
+  }
+
+  .etf select[data-density="compact"],
+  .family,
+  .subgroupHeader {
+    min-height: 34px;
+  }
+}

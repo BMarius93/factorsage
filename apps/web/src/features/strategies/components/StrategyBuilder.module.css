@@ -506,6 +506,19 @@
 }
 
 /*
+ * What a change of metric or data source replaced in the rule: a quiet line under the fields, where
+ * the rule's own error would be. Informational, so it is the secondary ink and never the negative
+ * one — nothing is wrong with the rule, it simply no longer says what it said a moment ago.
+ */
+.rowNotice {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/*
  * The configured first operand's own line: a trigger to open its configuration, and the subtle
  * summary of what was narrowed.
  *
@@ -720,6 +733,11 @@
   }
 
   .rowError {
+    grid-column: 2 / -1;
+  }
+
+  /* Under the fields, exactly as the row's error is. */
+  .rowNotice {
     grid-column: 2 / -1;
   }
 
