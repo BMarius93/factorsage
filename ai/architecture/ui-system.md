@@ -724,9 +724,10 @@ These are UI requirements the current contracts cannot satisfy truthfully. Each 
 addition, not something to work around in the browser.
 
 1. ~~**Dashboard aggregate matches.**~~ Closed by `GET /dashboard`
-   (`docs/decisions/builtin-dashboard-signals-v1.md`), which returns every current `ACTIVE` and
-   `PENDING_TRIGGER` row of the monitors the viewer can see, with security, level, reason, monitor,
-   strategy, list, price and freshness, in one request.
+   (`docs/decisions/builtin-dashboard-signals-v1.md`), and since Monitor EOD V2 by
+   `GET /dashboard/activity` (`docs/decisions/monitor-eod-v2.md` §6): the observed activations and
+   endings of the monitors the viewer can see, each with the version and evidence that decided it,
+   paged newest session first.
 
 2. ~~**Clickable entities in the Backtests collection.**~~ Closed (UI-034):
    `BacktestRunSummaryResponse` now carries the run's nullable `strategyId` / `stockListId`, the

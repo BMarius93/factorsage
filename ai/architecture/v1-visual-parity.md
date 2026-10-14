@@ -146,13 +146,13 @@ or allocation state, never V1 credits.
 
 ### The Dashboard market overview
 
-The Dashboard opens with the ETF market overview and continues with the Current matches table.
+The Dashboard opens with the ETF market overview and continues with the Monitor activity feed.
 Nothing stands above the overview: no opening strip, no summary card and no section heading. V1's
 five-card row (`Run Backtest · S&P 500 · DJIA · VIX · Real-time Matches`) is retired whole. The
 market overview (`docs/decisions/etf-market-overview-v1.md`) answers what its three index cards
 gestured at, across twenty funds and six periods; a backtest starts from the Backtests area or from
-the List, Strategy or Monitor it is about; and the matches are counted where they are listed, on
-the Current matches filters. The overview is a feature-owned composition on the page canvas, not a
+the List, Strategy or Monitor it is about; and what monitors observe is listed in the Monitor
+activity feed under it. The overview is a feature-owned composition on the page canvas, not a
 `SectionCard`.
 
 - **flat, not elevated.** V1 gives each card a soft drop shadow. V2 surfaces use `--shadow-surface`
@@ -313,10 +313,10 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
 ### Dashboard
 
 - No redundant visible “Dashboard” heading.
-- Current matches are the first primary dataset: the "Current signals" table (desktop) / record
-  cards (phone), one row per monitor outcome, filterable by state and action, row click to Stock
-  Details (`docs/decisions/builtin-dashboard-signals-v1.md` section 4). It replaced the V2 summary
-  strip, which reported collection counts only while the aggregate contract did not exist.
+- Monitor activity is the first primary dataset: the feed table (desktop) / record cards (phone),
+  one row per observed activation or ending, newest session first, narrowed by Monitor, row click
+  to Stock Details (`docs/decisions/monitor-eod-v2.md` §7). It replaced the "Current matches"
+  table of current states, which itself replaced the V2 summary strip.
 - Below it, the monitors feeding the table as quiet cards with a switch each and honest freshness.
 - A Guest sees the same page with a restrained sign-in notice; nothing on it is a dead end.
 

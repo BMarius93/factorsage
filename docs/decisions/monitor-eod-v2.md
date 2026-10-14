@@ -16,6 +16,7 @@ never intent.
 | 4 | `feat/monitor-eligibility` | Ongoing membership gating every level; administrative membership endings (§4) |
 | 5 | `feat/monitor-replay-evidence` | The 90-day initial replay; evidence and version on every transition (§5) |
 | 6 | `feat/monitor-read-models` | The Activity feed, the Signal table, Why from evidence, coverage (§6) |
+| 7 | `feat/monitor-web-ux` | Dashboard Monitor activity, the Monitor's one Signal table, coverage line, E2E (§7) |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -414,4 +415,44 @@ are current, and how many the List holds — the data behind "EOD 2026-10-13 · 
 
 Contracts (`@intrinsic/contracts`), `docs/openapi.yaml` and `ai/architecture/rate-limiting.md`
 describe both routes; both are `standard-read` and readable by a Guest where the Monitor is.
+
+## 7. The web: Monitor activity and the one Signal table
+
+**Dashboard.** "Current matches" — the table of current `ACTIVE` and `PENDING_TRIGGER` states — is
+replaced by **Monitor activity**, read from `GET /dashboard/activity` (§6.1). The market overview
+still opens the page and nothing stands above it. Columns: Stock, Signal (`Buy 1` beside
+`Activated` or `Ended · conditions no longer hold`), Session (the exchange session, with a quiet
+`· intraday quote` on an occurrence the live-quote Monitor recorded), Why (`MonitorWhy`), Price (the
+activation price, on an activation only — an ending is explained by its Why) and Monitor. A phone
+card keeps the identity, the status, one unlabelled summary line (session and price), the Why and
+the Monitor under its small label. A Monitor dropdown narrows the feed when more than one Monitor
+is shown; 15 events open it and "Show older activity" appends the next keyset page; the newest page
+is re-read on the Dashboard's 60-second timer. The freshness fact ("Updated 3 min ago") stays beside
+the section heading. Nothing is called live.
+
+**Monitor page.** The per-stock "Monitored stocks" table and the newest-100 "Recent signals" list
+are replaced by one **Signals** section:
+
+- the **coverage line** ("Evaluated through the Oct 13, 2026 close · 497 of 500 current members",
+  from `coverage`), a one-line count of how the current members stand ("12 matching · 3 waiting for
+  a trigger · …", from `securities`), and how many listed members are not current members;
+- the ETF and "Not evaluable" notes, reworded for finalized sessions;
+- **one Signal table** from `GET /monitors/:id/signals` (§6.2): Stock, Signal (`Buy 1` beside
+  `Active`, `Ended · <reason>` or `Waiting for trigger`), Date (`Since …` or `Ended …`, with
+  `From history` and `Intraday quote` when they apply), Why and Price; a state filter (Active &
+  ended / Active / Ended / Waiting) and an action filter; "Show more signals" pages.
+
+**`MonitorWhy`** (`apps/web/src/features/monitors/components/MonitorWhy.tsx`) renders a Why: each
+rule in the Strategy's own words, each predicate marked held / did not hold / could not be decided
+(as text for assistive technology, a mark visually), with the compared values in a quieter ink —
+`(101.50 vs 98.25)`, or `(95.00 → 105.00 vs 100.00)` for a Trigger — `n/a` where a value did not
+resolve, and "Values were not recorded for this signal" for a `RULE_ONLY` Why.
+
+**Deterministic E2E content.** `seedQaBuiltIns` now writes the QA built-ins' changes as the
+evaluation writes them: observed transitions with the real Strategy version and evidence (QATEST1
+activated under Monitor A on Sep 1, ended Sep 8 and activated again Sep 10; activated under Monitor
+B Sep 11; QATEST2 waiting for its trigger since Sep 14), Signals carrying the real version id, and a
+checkpoint at each member's newest seeded session under its recorded membership, so the running
+E2E worker has nothing new to decide and the declared state stays exact. It also clears any
+replay request and stamps `watchingSince` before those sessions.
 
