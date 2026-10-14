@@ -5566,7 +5566,8 @@ components:
           description: |
             Which sector ETF each stock's Stock's Sector rules read, exactly as the run's snapshot
             froze it at submission, by symbol; absent unless the strategy reads Stock's Sector.
-            Derived at read time; the stock's current classification, not a historical one.
+            Derived at read time from the snapshot: the classification stored when the run was
+            submitted, applied to every date of the period — not a historical sector record.
           items: { $ref: "#/components/schemas/StockSectorAssignment" }
 
     BacktestEtfConditionDiagnostics:
