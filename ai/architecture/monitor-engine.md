@@ -333,6 +333,9 @@ written — a repeated scan writes nothing at all — and `signalId` is nullable
 exists before any occurrence does. `origin` is `OBSERVED`, `HISTORY` or `ADMINISTRATIVE`
 (`docs/decisions/monitor-eod-v2.md` §3.4), decided by `Monitor.watchingSince`.
 
+Since step 5 every change a session decided carries `strategyVersionId` and `evidence` — per rule,
+each predicate's compared operands and result, from `explainMarketSignal` (§5.3 of the record).
+
 `MonitorEvaluationCheckpoint` is one row per `(monitor, security)`: `evaluatedThrough`, the newest
 session every level of that member was decided through, advanced only in the transaction that wrote
 what those sessions produced (§3.2 of the record).
@@ -389,8 +392,12 @@ session entered the state. Only a decidable newest session creates a row, so a l
 decided yet waits, and a history read that fails leaves the level for a later cycle rather than
 starting it from nothing.
 
-Because reconstruction is keyed on "no current state", it covers new Monitors, new or re-added
-members, rebinds and edited levels with one mechanism. `resolveUnvisitedStates` therefore deletes the
+**A new Monitor replays instead** (`docs/decisions/monitor-eod-v2.md` §5): the same reconstruction
+anchored at the session before its 90-day window gives the exact state before it, and every window
+session is then stepped and recorded. Everything else below still applies to it.
+
+Because reconstruction is keyed on "no current state", it covers new members, re-added members,
+rebinds, edited levels and legacy state with one mechanism. `resolveUnvisitedStates` therefore deletes the
 state of a removed member or level (after closing its occurrence and recording why) instead of
 keeping a reset row.
 

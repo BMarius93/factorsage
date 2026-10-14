@@ -14,6 +14,7 @@ never intent.
 | 2 | `feat/stock-eod-worker` | The `stock-eod` child and the ongoing-membership predicate (§1, §2) |
 | 3 | `feat/monitor-eod-evaluator` | The per-session EOD evaluation, checkpoints and origins (§3) |
 | 4 | `feat/monitor-eligibility` | Ongoing membership gating every level; administrative membership endings (§4) |
+| 5 | `feat/monitor-replay-evidence` | The 90-day initial replay; evidence and version on every transition (§5) |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -170,9 +171,8 @@ the **newest finalized session** rather than at a live quote. One change is reco
 session's origin. A logic change's reset is `ADMINISTRATIVE`. An undecidable newest session writes
 nothing and waits.
 
-Step 5 replaces this for **new Monitors** with a bounded 90-session replay that records every
-transition of the window; the newest-session reconstruction remains for new members, edited levels
-and legacy state.
+Step 5 replaces this for **new Monitors** with the 90-day replay of §5; the newest-session
+reconstruction remains for later members, edited levels, rebinds and legacy state.
 
 ### 3.4 Origins and the watching stamp
 
@@ -274,4 +274,81 @@ release never writes the value and ignores the columns.
 nothing in a backtest calls the Monitor predicate. The stock EOD child already prepared current
 members only (§2). The V1 cycle kept for the capacity bench keeps its BUY-window rule until step 8
 removes it. The data-correctness signals audit's independent oracle now restates the ongoing rule.
+
+## 5. The initial replay and transition evidence
+
+### 5.1 Which Monitors replay
+
+A Monitor created through the API, or a built-in created by the bootstrap, has
+`initialReplayRequested = true`. Existing Monitors default to `false` — the cutover backfills nothing
+— and a rebind clears the request and the window (`reboundMonitorFields`), so a rebound Monitor is
+reconstructed at its newest session as before. Editing a Strategy or a List, re-enabling, and an
+unblocked plan follow their existing paths (§3, §4); none replays.
+
+The **window** is fixed once, by the first pass that evaluates the Monitor (`fixReplayWindow`, a
+fenced conditional update): the 90 calendar days ending at that pass's newest finalized session,
+stored as `replayWindowStart` with `replayWindowFixedAt`. Fixing it at the first evaluation rather
+than at creation means a Monitor created switched off, or blocked by its plan, replays the 90 days
+before it first runs, not a longer stretch.
+
+A **member replays** when it was listed by the time the window was fixed, has no checkpoint and no
+state. Its first session is the window's, or its ongoing membership's start when that is later
+(§4). A member listed afterwards is a new member and is reconstructed at its newest session. A
+member whose data arrives late replays the same window when it does.
+
+### 5.2 How a level replays
+
+`decideLevelSessions` with `replay`:
+
+1. **The exact state before the window.** A reconstruction at the session just before the first
+   window session, from the closed history before it — the same `reconstructMonitorLevel`, resting
+   point and deepening read as every reconstruction, anchored earlier. A setup whose Trigger fired
+   before the window and whose Conditions still hold is therefore `ACTIVE` since that Trigger; a
+   90-day cutoff never resets it to `PENDING_TRIGGER`. A security whose history begins inside the
+   window starts from nothing, exactly.
+2. When that state is `ACTIVE` or `PENDING_TRIGGER`, one `RECONSTRUCTED` change records it on its
+   true activation session (origin `HISTORY`; an `ACTIVE` one opens a `reconstructed` occurrence at
+   that session's close).
+3. **Every window session in order**, through `stepMonitorLevel`, recording every change it makes on
+   its own session — activations and market resolutions alike, never a repeated `ACTIVE -> ACTIVE`.
+   Origins come from `watchingSince` as always: sessions before the Monitor was first watched are
+   `HISTORY`, and an occurrence opened on one is marked `reconstructed`.
+
+The member's levels, Signals, transitions and checkpoint are written in **one transaction**, so a
+crash mid-window leaves nothing to double-insert: the next pass finds no checkpoint and replays the
+member again, from the same fixed window. A level with no decidable session in the window or just
+before it writes nothing and is reconstructed later, as any undecidable level is.
+
+The frame is read once per security, from far enough before the earliest window to reconstruct the
+state before it, through the horizon. The Dashboard feed (step 6) never shows `HISTORY`, so a
+replayed window is visible only in the Monitor's own history.
+
+### 5.3 Evidence and version on every transition
+
+`MonitorStateTransition` gains `strategyVersionId` and `evidence`:
+
+- **`strategyVersionId`** is the version whose logic decided the change, for every change a session
+  decided. It is null for an administrative change — a logic-change reset belongs to logic that no
+  longer exists — and for rows written earlier.
+- **`evidence`** (`MonitorTransitionEvidence`, version 1) is what the decision read on the change's
+  session: per rule — only the Exit Rule that drove a FINAL EXIT change — each market-derived
+  predicate with its id, role, result and the operands it compared (`metric`, `value`, and a
+  Trigger's previous-session pair). It is computed by `explainMarketSignal` in `@intrinsic/strategy`
+  from the same `readOperand`, value resolution and comparison the evaluator uses, so it cannot
+  disagree with the decision; an operand that did not resolve is `null`, never zero.
+
+A resolved occurrence's Why is then the evidence on its ending transition, under the version on that
+row — never recomputed from an edited Strategy. Administrative changes and older rows carry none;
+their reason alone explains them. Rendering is step 6.
+
+### 5.4 Migration `20261015120000_monitor_replay_evidence`
+
+Additive: `Monitor.initialReplayRequested` (default `false`), `replayWindowStart`,
+`replayWindowFixedAt`, `MonitorStateTransition.strategyVersionId` and `evidence` (both nullable). No
+existing row changes.
+
+### 5.5 Also changed
+
+An occurrence opened on a `HISTORY` session by any catch-up — a paused Monitor resuming, not only a
+replay — is now marked `reconstructed`: history, not an observation, established it.
 
