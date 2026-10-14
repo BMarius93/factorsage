@@ -7,6 +7,8 @@ import {
   isActorScopeId,
   isBacktestSnapshotVersion,
   isStrategyEtfSourceCode,
+  resolveStockSectorEtf,
+  strategyReadsStockSector,
   TRIGGER_OPERATORS,
   withExecutableStrategyDefinition,
   type BacktestRunSnapshot,
@@ -160,12 +162,15 @@ function refuseUndefinedSources(definition: StrategyDefinition): void {
       return;
     }
     const source = raw.source as { kind?: unknown; code?: unknown };
+    const known =
+      (source?.kind === "ETF" && isStrategyEtfSourceCode(source.code)) ||
+      (source?.kind === "STOCK_SECTOR" &&
+        Object.keys(source).every((key) => key === "kind"));
     if (
       !(ETF_COMPATIBLE_METRIC_KINDS as readonly string[]).includes(
         metric.kind,
       ) ||
-      source?.kind !== "ETF" ||
-      !isStrategyEtfSourceCode(source.code)
+      !known
     ) {
       throw new BacktestSnapshotError(
         `snapshot.strategy.definition.${at}.metric.source is not a source this engine defines`,
@@ -173,7 +178,7 @@ function refuseUndefinedSources(definition: StrategyDefinition): void {
     }
     if (part === "TRIGGER") {
       throw new BacktestSnapshotError(
-        `snapshot.strategy.definition.${at}.metric.source: an ETF-sourced trigger is not part of V1`,
+        `snapshot.strategy.definition.${at}.metric.source: an ETF-sourced or Stock's Sector trigger is not part of V1`,
       );
     }
   };
@@ -200,7 +205,12 @@ function refuseUndefinedSources(definition: StrategyDefinition): void {
  * that does not say what it means. Either way the run is refused at the parse, before any data.
  */
 function refuseUnpinnedEtfSeries(snapshot: BacktestRunSnapshot): void {
-  const named = collectStrategyEtfSources(snapshot.strategy.definition);
+  const named = [
+    ...new Set<string>([
+      ...collectStrategyEtfSources(snapshot.strategy.definition),
+      ...frozenSectorEtfCodes(snapshot),
+    ]),
+  ];
   const pinned = snapshot.etfSeries ?? [];
   for (const entry of pinned) {
     if (typeof entry.seriesId !== "string" || entry.seriesId.trim() === "") {
@@ -218,12 +228,61 @@ function refuseUnpinnedEtfSeries(snapshot: BacktestRunSnapshot): void {
     }
   }
   for (const entry of pinned) {
-    if (!(named as readonly string[]).includes(entry.code)) {
+    if (!named.includes(entry.code)) {
       throw new BacktestSnapshotError(
         `snapshot.etfSeries pins ${entry.code}, which the definition does not read`,
       );
     }
   }
+}
+
+/**
+ * The sector ETFs the snapshot froze for its securities, after checking the freeze is whole.
+ *
+ * A definition reading Stock's Sector must carry a frozen sector on **every** security — the one
+ * the run will read for it, decided at submission — and a definition that does not must carry none:
+ * either way the snapshot says exactly what the run reads. The frozen fund must be the one the
+ * canonical mapping gives the frozen sector name — null for a missing or unsupported one — so a
+ * snapshot that contradicts itself is refused rather than half-believed. Execution never consults
+ * the catalog's current sector, so a classification changed while the run waited, or while it runs,
+ * cannot change which fund a stock reads.
+ */
+function frozenSectorEtfCodes(snapshot: BacktestRunSnapshot): string[] {
+  const readsSector = strategyReadsStockSector(snapshot.strategy.definition);
+  const codes = new Set<string>();
+  snapshot.securities.forEach((security, index) => {
+    const frozen = security.sector;
+    if (!readsSector) {
+      if (frozen !== undefined) {
+        throw new BacktestSnapshotError(
+          `snapshot.securities[${index}].sector is frozen, but the definition reads no Stock's Sector rule`,
+        );
+      }
+      return;
+    }
+    if (
+      frozen === undefined ||
+      frozen === null ||
+      typeof frozen !== "object" ||
+      !(frozen.name === null || typeof frozen.name === "string") ||
+      !(frozen.etfCode === null || typeof frozen.etfCode === "string")
+    ) {
+      throw new BacktestSnapshotError(
+        `snapshot.securities[${index}].sector does not say which sector ETF the run reads for ${security.symbol}`,
+      );
+    }
+    const resolution = resolveStockSectorEtf(frozen.name);
+    const expected = resolution.status === "RESOLVED" ? resolution.code : null;
+    if (frozen.etfCode !== expected) {
+      throw new BacktestSnapshotError(
+        `snapshot.securities[${index}].sector freezes ${String(frozen.etfCode)} for ${security.symbol}, but its sector ${JSON.stringify(frozen.name)} maps to ${String(expected)}`,
+      );
+    }
+    if (frozen.etfCode !== null) {
+      codes.add(frozen.etfCode);
+    }
+  });
+  return [...codes];
 }
 
 /**

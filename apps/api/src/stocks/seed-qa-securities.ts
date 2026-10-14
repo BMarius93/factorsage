@@ -27,6 +27,10 @@ export const MISSING_TEST_DATABASE_QA_SEED_MESSAGE =
  *
  * They contain catalog identity only. `seedQaStockData` separately gives the first of them the
  * deterministic market data the Stock Details E2E suite needs.
+ *
+ * The first is classified `Technology`, one of FMP's eleven sectors, so a Stock's Sector rule reads
+ * XLK for it — the one sector ETF fixture that only rises. The second deliberately has **no**
+ * sector, which is the browser suite's stock whose Stock's Sector rules cannot be evaluated.
  */
 export const QA_SECURITIES = [
   {
@@ -36,6 +40,7 @@ export const QA_SECURITIES = [
     exchangeCode: "NASDAQ",
     exchangeName: "NASDAQ Global Select",
     currency: "USD",
+    sector: "Technology",
     type: "STOCK",
     isAdr: false,
     isActivelyTrading: true,
@@ -47,6 +52,7 @@ export const QA_SECURITIES = [
     exchangeCode: "NASDAQ",
     exchangeName: "NASDAQ Global Select",
     currency: "USD",
+    sector: null,
     type: "STOCK",
     isAdr: false,
     isActivelyTrading: true,

@@ -6,7 +6,10 @@ import {
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createStrategy } from "../api/strategies-api";
+import {
+  createStrategy,
+  replaceStrategyDefinition,
+} from "../api/strategies-api";
 import { StrategyBuilder } from "./StrategyBuilder";
 import {
   activeCategory,
@@ -15,6 +18,7 @@ import {
   chooseEtf,
   chooseEtfMetric,
   chooseMetric,
+  chooseSectorMetric,
   chooseSeriesValue,
   chooseSource,
   etfSelect,
@@ -479,7 +483,7 @@ describe("ETF conditions in SELL and FINAL EXIT", () => {
       .find((radio) => radio.getAttribute("data-value") === "ETF") as HTMLInputElement;
     expect(etf.disabled).toBe(true);
     expect(within(triggerPanel).getByTestId("metric-picker-hint").textContent).toBe(
-      "An ETF can be read by a condition only, not by a trigger.",
+      "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
     );
     await user.keyboard("{Escape}");
 
@@ -577,5 +581,192 @@ describe("a saved ETF strategy in the Builder", () => {
       "Read from XLRE (Real Estate) rather than the evaluated stock",
     );
     expect(explanation.textContent).toContain("end-of-day bar is final");
+  });
+});
+
+describe("a Stock's Sector condition in the Builder", () => {
+  const replaceDefinitionMock = vi.mocked(replaceStrategyDefinition);
+
+  it("authors Stock, ETF and Stock's Sector rules side by side and saves the source with no fund", async () => {
+    const user = userEvent.setup();
+    createStrategyMock.mockResolvedValue(
+      strategyWith({
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [],
+        sellLevels: [],
+      }),
+    );
+    render(<StrategyBuilder />);
+    await user.type(screen.getByLabelText("Name"), "Sector context");
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-condition"));
+    await user.click(screen.getByTestId("add-condition"));
+    const [stock, xlk, sector] = rowsOf("level-card-BUY");
+
+    await chooseMetric(user, stock!, "OSCILLATORS", "OSCILLATOR:RSI_14D");
+    await chooseEtfMetric(
+      user,
+      xlk!,
+      "ETF_XLK",
+      "OSCILLATORS",
+      "ETF(ETF_XLK)|OSCILLATOR:RSI_14D",
+    );
+    await chooseSectorMetric(user, sector!, "OSCILLATORS", "STOCK_SECTOR|OSCILLATOR:RSI_14D");
+
+    // Three sources of the same metric: three conditions, none a duplicate of another.
+    expect([stock, xlk, sector].map((row) => pickerText(row!))).toEqual([
+      "RSI 14D",
+      "XLK · RSI 14D",
+      "Stock's Sector · RSI 14D",
+    ]);
+    for (const row of [stock, xlk, sector]) {
+      expect(within(row!).queryByRole("alert")).toBeNull();
+    }
+    expect(previewTexts()).toEqual([
+      "RSI 14D is above 50",
+      "XLK · RSI 14D is above 50",
+      "Stock's Sector · RSI 14D is above 50",
+    ]);
+    // Still the three controls.
+    expect(
+      within(sector!)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["Metric: Stock's Sector · RSI 14D", "Remove condition 3"]);
+
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(createStrategyMock).toHaveBeenCalledTimes(1));
+    const saved =
+      createStrategyMock.mock.calls[0]?.[0].definition.buyLevels[0]?.signal
+        .conditions ?? [];
+    expect(saved.map(({ metric }) => metric)).toEqual([
+      { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+      {
+        kind: "OSCILLATOR",
+        seriesId: "RSI_14D",
+        source: { kind: "ETF", code: "ETF_XLK" },
+      },
+      // No code, no ticker, no sector name: the evaluated stock decides.
+      { kind: "OSCILLATOR", seriesId: "RSI_14D", source: { kind: "STOCK_SECTOR" } },
+    ]);
+  });
+
+  it("says so when a move to Stock's Sector cannot keep the rule's Value", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    const row = screen.getByTestId("predicate-row");
+    await user.selectOptions(within(row).getByTestId("operator-select"), "IS_BELOW");
+    await chooseSeriesValue(user, row, "BALANCED");
+
+    const panel = await openPicker(user, row);
+    await chooseSource(user, panel, "STOCK_SECTOR");
+    const sentence = "Condition and value were reset to match Stock's Sector · Price.";
+    expect(within(panel).getByTestId("metric-picker-hint").textContent).toBe(sentence);
+    expect(within(row).getByTestId("row-change-notice").textContent).toBe(sentence);
+    expect(pickerText(row, "value-control")).toBe("SMA 20D");
+    expect(previewTexts()).toEqual(["Stock's Sector · Price is above SMA 20D"]);
+
+    // Its Value is the sector fund's own moving averages, and no intrinsic value.
+    await user.keyboard("{Escape}");
+    const values = await openPicker(user, row, "value-control");
+    expect(categoryLabels(values)).toEqual([
+      "Moving averages — Daily",
+      "Moving averages — Weekly",
+    ]);
+  });
+
+  it("refuses the same Stock's Sector rule twice", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-condition"));
+    const [first, second] = rowsOf("level-card-BUY");
+    await chooseSectorMetric(user, first!, "OSCILLATORS", "STOCK_SECTOR|OSCILLATOR:RSI_14D");
+    await chooseSectorMetric(user, second!, "OSCILLATORS", "STOCK_SECTOR|OSCILLATOR:RSI_14D");
+    expect(within(second!).getByRole("alert").textContent).toContain(
+      "repeats condition 1",
+    );
+  });
+
+  it("authors a Stock's Sector rule in SELL and FINAL EXIT too, and offers it no Trigger", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-level-SELL"));
+    await user.click(screen.getByTestId("add-level-FINAL_EXIT"));
+    const sell = rowsOf("level-card-SELL")[0]!;
+    await chooseSectorMetric(user, sell, "PRICE", "STOCK_SECTOR|PRICE:");
+    expect(pickerText(sell)).toBe("Stock's Sector · Price");
+    const exit = rowsOf("level-card-FINAL_EXIT")[0]!;
+    await chooseSectorMetric(user, exit, "VOLUME", "STOCK_SECTOR|RELATIVE_VOLUME:20");
+    expect(pickerText(exit)).toBe("Stock's Sector · RVOL 20");
+    expect(previewTexts()).toContain("Stock's Sector · Price is above SMA 20D");
+    expect(previewTexts()).toContain("Stock's Sector · RVOL 20 is above 1.0x");
+  });
+
+  const SAVED = strategyWith({
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
+    buyLevels: [
+      {
+        id: "b1",
+        percentage: 50,
+        signal: {
+          conditions: [
+            {
+              id: "c1",
+              metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+              operator: "IS_BELOW",
+              value: { kind: "NUMBER", value: 40 },
+            },
+            {
+              id: "c2",
+              metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+              operator: "IS_ABOVE",
+              value: { kind: "SERIES", seriesId: "SMA_200D" },
+            },
+          ],
+        },
+      },
+    ],
+    sellLevels: [],
+  });
+
+  it("reads a saved Stock's Sector rule back as it was saved, unchanged until edited", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={SAVED} />);
+    expect(screen.getByTestId("save-strategy")).toHaveProperty("disabled", true);
+    const [, sector] = screen.getAllByTestId("predicate-row");
+    expect(pickerText(sector!)).toBe("Stock's Sector · Price");
+    expect(pickerText(sector!, "value-control")).toBe("SMA 200D");
+    expect(previewTexts()).toEqual([
+      "RSI 14D is below 40",
+      "Stock's Sector · Price is above SMA 200D",
+    ]);
+    const panel = await openPicker(user, sector!);
+    expect(shownSource(panel)).toBe("STOCK_SECTOR");
+    expect(etfSelect(panel)).toBeNull();
+    expect(activeCategory(panel)).toBe("PRICE");
+    await user.keyboard("{Escape}");
+
+    const explanation = screen.getByTestId("explanation-panel");
+    expect(explanation.textContent).toContain("Technology reads XLK");
+    expect(explanation.textContent).toContain("current");
+  });
+
+  it("keeps the source through an edit of the rule's Value, saved as a new version", async () => {
+    const user = userEvent.setup();
+    replaceDefinitionMock.mockResolvedValue(SAVED);
+    render(<StrategyBuilder strategy={SAVED} />);
+    const [, sector] = screen.getAllByTestId("predicate-row");
+    await chooseSeriesValue(user, sector!, "SMA_50D");
+    await user.click(screen.getByTestId("save-strategy"));
+    await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalledTimes(1));
+    const definition = replaceDefinitionMock.mock.calls[0]?.[1];
+    expect(definition?.buyLevels[0]?.signal.conditions[1]).toMatchObject({
+      metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+      operator: "IS_ABOVE",
+      value: { kind: "SERIES", seriesId: "SMA_50D" },
+    });
   });
 });

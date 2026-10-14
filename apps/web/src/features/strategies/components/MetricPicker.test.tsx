@@ -33,6 +33,7 @@ import {
 } from "./__testing__/operand-picker";
 
 const XLK: StrategyMetricSource = { kind: "ETF", code: "ETF_XLK" };
+const SECTOR: StrategyMetricSource = { kind: "STOCK_SECTOR" };
 const RSI_14D: StrategyMetric = { kind: "OSCILLATOR", seriesId: "RSI_14D" };
 
 /** A picker holding its own metric, as a rule row holds it. */
@@ -482,7 +483,7 @@ describe("the Metric picker's data source", () => {
     expect(etf.disabled).toBe(true);
     const hint = within(shown).getByTestId("metric-picker-hint");
     expect(hint.textContent).toBe(
-      "An ETF can be read by a condition only, not by a trigger.",
+      "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
     );
     expect(
       within(shown).getByRole("radiogroup").getAttribute("aria-describedby"),
@@ -512,6 +513,152 @@ describe("the Metric picker's data source", () => {
     expect(hint.textContent).toBe("Value was reset to match SPY · Price.");
     // The row's own line is the live region; this copy is for the eye only.
     expect(hint.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+describe("the Metric picker's Stock's Sector source", () => {
+  const sourceLabels = (shown: HTMLElement) =>
+    within(shown)
+      .getAllByTestId("metric-picker-source")
+      .map((radio) => radio.closest("label")?.textContent);
+
+  it("offers three sources, in order: Stock, ETF, Stock's Sector", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={RSI_14D} />);
+    const shown = await open(user);
+    expect(sourceLabels(shown)).toEqual(["Stock", "ETF", "Stock's Sector"]);
+    expect(
+      within(shown)
+        .getAllByTestId("metric-picker-source")
+        .map((radio) => radio.getAttribute("data-value")),
+    ).toEqual(["STOCK", "ETF", "STOCK_SECTOR"]);
+  });
+
+  it("moves a technical rule to Stock's Sector at once, with no fund to choose and the rule explained", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={RSI_14D} onChange={onChange} />);
+    const shown = await open(user);
+    await chooseSource(user, shown, "STOCK_SECTOR");
+    expect(onChange).toHaveBeenLastCalledWith({
+      kind: "OSCILLATOR",
+      seriesId: "RSI_14D",
+      source: { kind: "STOCK_SECTOR" },
+    });
+    expect(panel()).not.toBeNull();
+    expect(shownSource(shown)).toBe("STOCK_SECTOR");
+    // No ETF select: the stock's own sector chooses the fund.
+    expect(etfSelect(shown)).toBeNull();
+    expect(within(shown).getByTestId("metric-picker-sector-note").textContent).toBe(
+      "Each stock reads the sector ETF of its own FMP sector — Technology reads XLK, Financial Services reads XLF, Energy reads XLE. A stock without one of the eleven sectors cannot be evaluated.",
+    );
+    expect(trigger().textContent).toBe("Stock's Sector · RSI 14D");
+    expect(trigger().getAttribute("data-value")).toBe("STOCK_SECTOR|OSCILLATOR:RSI_14D");
+    expect(trigger().getAttribute("aria-label")).toBe(
+      "Metric: Stock's Sector · RSI 14D",
+    );
+    expect(pressedOptions(shown)).toEqual(["STOCK_SECTOR|OSCILLATOR:RSI_14D"]);
+  });
+
+  it("offers Technical alone: the same 21 metrics an ETF offers, each under the sector source", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ ...RSI_14D, source: SECTOR }} levelKind="FINAL_EXIT" />);
+    const shown = await open(user);
+    expect(shownSource(shown)).toBe("STOCK_SECTOR");
+    expect(familyLabels(shown)).toEqual(["Technical"]);
+    const keys: string[] = [];
+    for (const category of ["PRICE", "MOVING_AVERAGES", "OSCILLATORS", "VOLUME"]) {
+      await showCategory(user, shown, category);
+      keys.push(...optionKeys(shown));
+    }
+    expect(keys).toHaveLength(21);
+    expect(keys.every((key) => key.startsWith("STOCK_SECTOR|"))).toBe(true);
+  });
+
+  it("switches Stock's Sector ↔ ETF ↔ Stock, keeping the metric and never a stale fund", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={{ ...RSI_14D, source: XLK }} onChange={onChange} />);
+    const shown = await open(user);
+    await chooseSource(user, shown, "STOCK_SECTOR");
+    expect(onChange).toHaveBeenLastCalledWith({ ...RSI_14D, source: SECTOR });
+    expect(etfSelect(shown)).toBeNull();
+    // Back to ETF: the fund the rule last read, not a reset to the first.
+    await chooseSource(user, shown, "ETF");
+    expect(onChange).toHaveBeenLastCalledWith({ ...RSI_14D, source: XLK });
+    expect(etfSelect(shown)!.value).toBe("ETF_XLK");
+    expect(within(shown).queryByTestId("metric-picker-sector-note")).toBeNull();
+    await chooseSource(user, shown, "STOCK_SECTOR");
+    await chooseSource(user, shown, "STOCK");
+    expect(onChange).toHaveBeenLastCalledWith(RSI_14D);
+    expect(Object.keys(onChange.mock.lastCall![0] as object)).not.toContain("source");
+    expect(trigger().textContent).toBe("RSI 14D");
+  });
+
+  it("reopens a saved Stock's Sector rule on its own source", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ kind: "PRICE", source: SECTOR }} />);
+    expect(trigger().textContent).toBe("Stock's Sector · Price");
+    const shown = await open(user);
+    expect(shownSource(shown)).toBe("STOCK_SECTOR");
+    expect(etfSelect(shown)).toBeNull();
+    expect(pressedOptions(shown)).toEqual(["STOCK_SECTOR|PRICE:"]);
+  });
+
+  it("changes nothing for a stock-only metric until a sector metric is chosen, and says so", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Harness
+        initial={{ kind: "VALUATION_RATIO", ratioId: "PRICE_TO_EARNINGS_TTM" }}
+        onChange={onChange}
+      />,
+    );
+    const shown = await open(user);
+    await chooseSource(user, shown, "STOCK_SECTOR");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(within(shown).getByTestId("metric-picker-hint").textContent).toBe(
+      "P/E is read from the stock only. Choose a metric below to read each stock's sector ETF instead.",
+    );
+    await showCategory(user, shown, "MOVING_AVERAGES");
+    await user.click(within(shown).getByText("SMA 50D"));
+    expect(onChange).toHaveBeenCalledWith({
+      kind: "MOVING_AVERAGE",
+      seriesId: "SMA_50D",
+      source: SECTOR,
+    });
+    expect(trigger().textContent).toBe("Stock's Sector · SMA 50D");
+  });
+
+  it("offers a Trigger no Stock's Sector either: shown disabled, with the reason", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={{ kind: "PRICE" }} part="TRIGGER" onChange={onChange} />);
+    const shown = await open(user);
+    const sector = within(shown)
+      .getAllByTestId("metric-picker-source")
+      .find(
+        (radio) => radio.getAttribute("data-value") === "STOCK_SECTOR",
+      ) as HTMLInputElement;
+    expect(sector.disabled).toBe(true);
+    await user.click(sector);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(shownSource(shown)).toBe("STOCK");
+  });
+
+  it("is reachable and operable from the keyboard: arrows move along the three sources", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={RSI_14D} onChange={onChange} />);
+    const shown = await open(user);
+    const radios = within(shown).getAllByTestId("metric-picker-source");
+    radios[0]!.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(radios[1]);
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(radios[2]);
+    expect(onChange).toHaveBeenLastCalledWith({ ...RSI_14D, source: SECTOR });
+    expect(shownSource(shown)).toBe("STOCK_SECTOR");
   });
 });
 

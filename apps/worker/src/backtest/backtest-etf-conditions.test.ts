@@ -4,6 +4,7 @@ import {
   STRATEGY_SCHEMA_VERSION,
   type BacktestRunSnapshot,
   type BacktestSnapshotEtfSeries,
+  type BacktestSnapshotSecuritySector,
   type StrategyCondition,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
@@ -272,6 +273,18 @@ const XLE_BARS: BenchmarkDailyPrice[] = XLE_SESSIONS.map((date, index) => {
   };
 });
 
+/** XLF: strictly falling all year, so Price sits strictly below its own SMA 20D once warm. */
+const XLF_SESSIONS = weekdays("2024-01-02", END);
+const XLF_BARS: BenchmarkDailyPrice[] = XLF_SESSIONS.map((date, index) => ({
+  seriesId: "series-xlf",
+  date,
+  open: 500 - index,
+  high: 501 - index,
+  low: 499 - index,
+  close: 500 - index,
+  volume: 2_500_000,
+}));
+
 /** XLC: lists inside the run's period, strictly rising from its first session. */
 const XLC_LISTING: LocalDate = "2024-03-18";
 const XLC_SESSIONS = weekdays(XLC_LISTING, END);
@@ -355,12 +368,14 @@ const READY_ETF_FIXTURES = new Map<string, EtfFixture>([
   ["series-gld", { bars: GLD_BARS }],
   ["series-xle", { bars: XLE_BARS }],
   ["series-xlc", { bars: XLC_BARS }],
+  ["series-xlf", { bars: XLF_BARS }],
 ]);
 
 const ETF_SERIES_PINS: BacktestSnapshotEtfSeries[] = [
   { code: "ETF_GLD", ticker: "GLD", seriesId: "series-gld", seriesVersion: 1, basisGeneration: 3 },
   { code: "ETF_XLC", ticker: "XLC", seriesId: "series-xlc", seriesVersion: 1, basisGeneration: 3 },
   { code: "ETF_XLE", ticker: "XLE", seriesId: "series-xle", seriesVersion: 1, basisGeneration: 3 },
+  { code: "ETF_XLF", ticker: "XLF", seriesId: "series-xlf", seriesVersion: 1, basisGeneration: 3 },
   { code: "ETF_XLK", ticker: "XLK", seriesId: "series-xlk", seriesVersion: 1, basisGeneration: 3 },
   { code: "SP500", ticker: "SPY", seriesId: "series-spy", seriesVersion: 1, basisGeneration: 3 },
 ];
@@ -463,23 +478,31 @@ function leveledStrategy(levels: {
   };
 }
 
-function securitiesOf(count: number): Security[] {
-  return Array.from({ length: count }, (_, index) =>
-    index === 0
-      ? SECURITY
-      : {
-          ...SECURITY,
-          id: `${SECURITY.id}-${index}`,
-          symbol: `ALF${index}`,
-          name: `Alfa Corp ${index}`,
-        },
-  );
+function securitiesOf(
+  count: number,
+  catalogSectors: readonly (string | undefined)[] = [],
+): Security[] {
+  return Array.from({ length: count }, (_, index) => {
+    const security =
+      index === 0
+        ? SECURITY
+        : {
+            ...SECURITY,
+            id: `${SECURITY.id}-${index}`,
+            symbol: `ALF${index}`,
+            name: `Alfa Corp ${index}`,
+          };
+    // The catalog's *current* sector: what a run must never consult once its snapshot froze one.
+    const sector = catalogSectors[index];
+    return sector === undefined ? security : { ...security, sector };
+  });
 }
 
 function snapshotOf(
   definition: StrategyDefinition,
   etfSeries: BacktestSnapshotEtfSeries[],
   securities: readonly Security[] = [SECURITY],
+  frozenSectors?: readonly BacktestSnapshotSecuritySector[],
 ): BacktestRunSnapshot {
   return {
     snapshotVersion: BACKTEST_SNAPSHOT_VERSION,
@@ -493,7 +516,7 @@ function snapshotOf(
       definition,
     },
     stockList: { stockListId: "list-1", name: "Fixture list" },
-    securities: securities.map((security) => ({
+    securities: securities.map((security, index) => ({
       securityId: security.id,
       symbol: security.symbol,
       name: security.name,
@@ -501,6 +524,7 @@ function snapshotOf(
       currency: security.currency,
       buyWindowMode: "FULL" as const,
       buyWindows: [],
+      ...(frozenSectors ? { sector: frozenSectors[index]! } : {}),
     })),
     ...(etfSeries.length > 0 ? { etfSeries } : {}),
     period: { startDate: START, endDate: END },
@@ -537,6 +561,10 @@ async function execute(
     etfFixtures?: ReadonlyMap<string, EtfFixture>;
     stockRsi?: StockRsi;
     securities?: number;
+    /** One frozen sector per security, as the API froze it at submission. */
+    frozenSectors?: readonly BacktestSnapshotSecuritySector[];
+    /** One current catalog sector per security, which execution must ignore. */
+    catalogSectors?: readonly (string | undefined)[];
   } = {},
 ): Promise<{
   result: BacktestResult;
@@ -546,7 +574,13 @@ async function execute(
 }> {
   const loader = new ProjectingFrameLoader(options.stockRsi);
   const repository = new RecordingRepository();
-  const securities = securitiesOf(options.securities ?? 1);
+  const securities = securitiesOf(
+    options.securities ?? options.frozenSectors?.length ?? 1,
+    options.catalogSectors,
+  );
+  const frozenCodes = (options.frozenSectors ?? []).flatMap((frozen) =>
+    frozen.etfCode ? [frozen.etfCode] : [],
+  );
   const etfLoader = new FixtureEtfContexts(
     options.etfFixtures ?? READY_ETF_FIXTURES,
   );
@@ -582,12 +616,14 @@ async function execute(
       snapshot: snapshotOf(
         definition,
         options.etfSeries ??
-          ETF_SERIES_PINS.filter((pin) =>
-            (collectStrategyEtfSources(definition) as readonly string[]).includes(
-              pin.code,
-            ),
+          ETF_SERIES_PINS.filter(
+            (pin) =>
+              (collectStrategyEtfSources(definition) as readonly string[]).includes(
+                pin.code,
+              ) || frozenCodes.includes(pin.code),
           ),
         securities,
+        options.frozenSectors,
       ),
     },
     lease,
@@ -1133,5 +1169,428 @@ describe("the snapshot parse fails closed on ETF sources it cannot honour", () =
     expect(() =>
       parseRunSnapshot(snapshotOf(strategyOf([STOCK_RSI_ABOVE_50]), [])),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stock's Sector: one rule, each stock's own sector ETF
+// ---------------------------------------------------------------------------
+
+const STOCK_SECTOR = { kind: "STOCK_SECTOR" } as const;
+
+const SECTOR_PRICE_ABOVE_SMA20: StrategyCondition = {
+  id: "c-sector-price-above",
+  metric: { kind: "PRICE", source: STOCK_SECTOR },
+  operator: "IS_ABOVE",
+  value: { kind: "SERIES", seriesId: "SMA_20D" },
+};
+
+const SECTOR_PRICE_BELOW_SMA20: StrategyCondition = {
+  id: "c-sector-price-below",
+  metric: { kind: "PRICE", source: STOCK_SECTOR },
+  operator: "IS_BELOW",
+  value: { kind: "SERIES", seriesId: "SMA_20D" },
+};
+
+const SECTOR_RSI_ABOVE_50: StrategyCondition = {
+  id: "c-sector-rsi-above",
+  metric: { kind: "OSCILLATOR", seriesId: "RSI_14D", source: STOCK_SECTOR },
+  operator: "IS_ABOVE",
+  value: { kind: "NUMBER", value: 50 },
+};
+
+const SECTOR_RSI_BELOW_50: StrategyCondition = {
+  ...SECTOR_RSI_ABOVE_50,
+  id: "c-sector-rsi-below",
+  operator: "IS_BELOW",
+};
+
+/**
+ * The frozen sectors, written out by hand rather than through the mapping under test: what the API
+ * stores on each snapshot security for a strategy that reads Stock's Sector.
+ */
+const TECHNOLOGY: BacktestSnapshotSecuritySector = { name: "Technology", etfCode: "ETF_XLK" };
+const FINANCIALS: BacktestSnapshotSecuritySector = {
+  name: "Financial Services",
+  etfCode: "ETF_XLF",
+};
+const ENERGY: BacktestSnapshotSecuritySector = { name: "Energy", etfCode: "ETF_XLE" };
+const COMMUNICATION: BacktestSnapshotSecuritySector = {
+  name: "Communication Services",
+  etfCode: "ETF_XLC",
+};
+const NO_SECTOR: BacktestSnapshotSecuritySector = { name: null, etfCode: null };
+const UNSUPPORTED: BacktestSnapshotSecuritySector = {
+  name: "Conglomerates",
+  etfCode: null,
+};
+
+/**
+ * `[symbol, date, action]`, ordered, for comparing whole multi-stock trade lists; the terminal
+ * liquidation (a SELL whose source is the end of the run) reads `END_OF_BACKTEST`.
+ */
+function tradesBySymbol(result: BacktestResult): [string, string, string][] {
+  return result.trades
+    .map((trade): [string, string, string] => [
+      trade.symbol,
+      trade.date,
+      trade.source === "END_OF_BACKTEST" ? "END_OF_BACKTEST" : trade.action,
+    ])
+    .sort((left, right) => left.join("|").localeCompare(right.join("|")));
+}
+
+function historyReads(etfLoader: FixtureEtfContexts): string[] {
+  return etfLoader.calls
+    .filter((call) => call.startsWith("readFullBenchmarkHistory:"))
+    .sort();
+}
+
+describe("Stock's Sector conditions executed by the backtest worker", () => {
+  it("reads each stock's own sector ETF in BUY and FINAL EXIT beside a stock rule and a named-ETF SELL", async () => {
+    // Six stocks of one list: two Technology (XLK, rising), one Financial Services (XLF, falling),
+    // one Energy (XLE, rising until its step-down on 2024-05-06), one with no sector, one whose
+    // sector is not one of the eleven. The second stock's own RSI clears 50 only from May.
+    const [, second] = securitiesOf(6);
+    const { result, write, etfLoader, loader } = await execute(
+      leveledStrategy({
+        buy: [STOCK_RSI_ABOVE_50, SECTOR_PRICE_ABOVE_SMA20],
+        sell: [GLD_RVOL_ABOVE_1_5],
+        finalExit: [SECTOR_PRICE_BELOW_SMA20],
+      }),
+      {
+        frozenSectors: [TECHNOLOGY, TECHNOLOGY, FINANCIALS, ENERGY, NO_SECTOR, UNSUPPORTED],
+        stockRsi: (date, securityId) =>
+          date >= (securityId === second!.id ? "2024-05-01" : "2024-04-01") ? 60 : 40,
+      },
+    );
+
+    // Hand-derived per stock, from the funds' constructions alone:
+    // - ALFA (XLK): buys on the stock rule's first session — a rising close is above its SMA 20D —
+    //   sells half on the first GLD spike after, never exits (XLK is never below), and is
+    //   liquidated at the end.
+    // - ALF1 (XLK): the same fund, its own stock rule: buys on 1 May, sells on the 15 May spike.
+    // - ALF2 (XLF): a falling close is never above its SMA 20D, so on the very sessions ALFA buys
+    //   under the same rule, it does not — never.
+    // - ALF3 (XLE): buys and sells like ALFA, then exits on XLE's step-down session.
+    // - ALF4 (no sector) and ALF5 (unsupported): their Stock's Sector rule is never evaluable.
+    expect(tradesBySymbol(result)).toEqual(
+      [
+        ["ALFA", "2024-04-01", "BUY"],
+        ["ALFA", "2024-04-10", "SELL"],
+        ["ALFA", END, "END_OF_BACKTEST"],
+        ["ALF1", "2024-05-01", "BUY"],
+        ["ALF1", "2024-05-15", "SELL"],
+        ["ALF1", END, "END_OF_BACKTEST"],
+        ["ALF3", "2024-04-01", "BUY"],
+        ["ALF3", "2024-04-10", "SELL"],
+        ["ALF3", XLE_STEP_DOWN, "FINAL_EXIT"],
+      ].sort((left, right) => left.join("|").localeCompare(right.join("|"))),
+    );
+
+    // Four funds read, each once: XLK for two stocks, XLF and XLE for one each, GLD for the SELL
+    // rule. Nothing for the two stocks without a sector ETF, and never a substitute such as SPY.
+    expect(historyReads(etfLoader)).toEqual([
+      "readFullBenchmarkHistory:series-gld",
+      "readFullBenchmarkHistory:series-xle",
+      "readFullBenchmarkHistory:series-xlf",
+      "readFullBenchmarkHistory:series-xlk",
+    ]);
+    expect(write.etfConditions?.map((row) => [row.ticker, row.status])).toEqual([
+      ["GLD", "READY"],
+      ["XLE", "READY"],
+      ["XLF", "READY"],
+      ["XLK", "READY"],
+    ]);
+    // The per-security loads stayed the stock's own operands: no sector column is loaded per stock.
+    for (const operands of loader.operands) {
+      expect([...operands]).toEqual(["price", "series:RSI_14D"]);
+    }
+  });
+
+  it("trades exactly as the explicit fund does: Stock's Sector of a Technology stock is XLK", async () => {
+    // The equivalence oracle: for a stock of each sector, a strategy whose BUY, SELL and FINAL EXIT
+    // read Stock's Sector must trade identically, to the share and the cent, to the same strategy
+    // naming that stock's sector ETF outright.
+    const facts = (result: BacktestResult) =>
+      result.trades.map(({ date, action, source, shares, price }) => ({
+        date,
+        action,
+        source,
+        shares,
+        price,
+      }));
+    for (const [frozen, code] of [
+      [TECHNOLOGY, "ETF_XLK"],
+      [FINANCIALS, "ETF_XLF"],
+      [ENERGY, "ETF_XLE"],
+      [COMMUNICATION, "ETF_XLC"],
+    ] as const) {
+      const named = { kind: "ETF", code } as const;
+      const withSource = (
+        condition: StrategyCondition,
+        source: typeof STOCK_SECTOR | typeof named,
+      ): StrategyCondition =>
+        ({
+          ...condition,
+          metric: { ...condition.metric, source },
+        }) as StrategyCondition;
+      const shape = (source: typeof STOCK_SECTOR | typeof named) =>
+        leveledStrategy({
+          buy: [STOCK_RSI_ABOVE_50, withSource(SECTOR_PRICE_ABOVE_SMA20, source)],
+          sell: [withSource(SECTOR_RSI_BELOW_50, source)],
+          finalExit: [withSource(SECTOR_PRICE_BELOW_SMA20, source)],
+        });
+      const bySector = await execute(shape(STOCK_SECTOR), {
+        frozenSectors: [frozen],
+        stockRsi: STOCK_RSI_APRIL_ONLY,
+      });
+      const byName = await execute(shape(named), { stockRsi: STOCK_RSI_APRIL_ONLY });
+      expect(facts(bySector.result), code).toEqual(facts(byName.result));
+      expect(bySector.write.etfConditions).toEqual(byName.write.etfConditions);
+    }
+  });
+
+  it("degrades only the stocks whose sector ETF cannot be read, and records why", async () => {
+    // XLF is falling, so its RSI is 0 and a Financial Services stock's "below 50" rule holds on
+    // every period session; XLK is rising, so a Technology stock's never does.
+    const control = await execute(strategyOf([SECTOR_RSI_BELOW_50]), {
+      frozenSectors: [TECHNOLOGY, FINANCIALS],
+      stockRsi: () => 10,
+    });
+    expect(tradesBySymbol(control.result).filter(([, , action]) => action === "BUY")).toEqual([
+      ["ALF1", START, "BUY"],
+    ]);
+
+    const fixtures = new Map(READY_ETF_FIXTURES);
+    fixtures.set("series-xlf", {
+      bars: XLF_BARS,
+      missingFromFloor: [{ from: "1993-01-01", to: "2023-12-29" }],
+    });
+    const { result, write } = await execute(strategyOf([SECTOR_RSI_BELOW_50]), {
+      frozenSectors: [TECHNOLOGY, FINANCIALS],
+      stockRsi: () => 10,
+      etfFixtures: fixtures,
+    });
+    expect(result.trades).toEqual([]);
+    expect(write.etfConditions).toEqual([
+      { code: "ETF_XLF", ticker: "XLF", status: "NOT_BOOTSTRAPPED" },
+      {
+        code: "ETF_XLK",
+        ticker: "XLK",
+        status: "READY",
+        firstSession: XLK_SESSIONS[0],
+        latestSession: XLK_SESSIONS[XLK_SESSIONS.length - 1],
+        basisGeneration: 3,
+      },
+    ]);
+  });
+
+  it("cannot evaluate a stock whose sector ETF lists inside the period before the fund has warmed up", async () => {
+    const { result } = await execute(strategyOf([SECTOR_RSI_ABOVE_50]), {
+      frozenSectors: [COMMUNICATION],
+      stockRsi: () => 10,
+    });
+    expect(XLC_SESSIONS[14]).toBe("2024-04-05");
+    expect(strategyTrades(result)[0]).toEqual(["2024-04-05", "BUY"]);
+  });
+
+  it("never carries a sector ETF's reading onto a session the fund has no bar for", async () => {
+    const fixtures = new Map(READY_ETF_FIXTURES);
+    fixtures.set("series-xlk", {
+      bars: XLK_BARS.filter((bar) => bar.date !== GLD_SPIKES[0]),
+    });
+    const { result } = await execute(
+      strategyOf([SECTOR_RSI_ABOVE_50, GLD_RVOL_ABOVE_1_5]),
+      { frozenSectors: [TECHNOLOGY], etfFixtures: fixtures, stockRsi: () => 10 },
+    );
+    expect(strategyTrades(result)).toEqual([[GLD_SPIKES[1], "BUY"]]);
+  });
+
+  it("reads the sector the snapshot froze, never the catalog's current one", async () => {
+    // Submitted when the stock was Financial Services; reclassified as Technology before the worker
+    // ran. XLF's falling close is never above its SMA 20D; XLK's rising one always is — so a run
+    // that consulted the catalog would buy on the first session.
+    const frozenRun = await execute(strategyOf([SECTOR_PRICE_ABOVE_SMA20]), {
+      frozenSectors: [FINANCIALS],
+      catalogSectors: ["Technology"],
+      stockRsi: () => 10,
+    });
+    expect(frozenRun.result.trades).toEqual([]);
+    expect(historyReads(frozenRun.etfLoader)).toEqual([
+      "readFullBenchmarkHistory:series-xlf",
+    ]);
+
+    // The next submission freezes the new classification, and that run reads the new fund.
+    const resubmitted = await execute(strategyOf([SECTOR_PRICE_ABOVE_SMA20]), {
+      frozenSectors: [TECHNOLOGY],
+      catalogSectors: ["Technology"],
+      stockRsi: () => 10,
+    });
+    expect(strategyTrades(resubmitted.result)[0]).toEqual([START, "BUY"]);
+    expect(historyReads(resubmitted.etfLoader)).toEqual([
+      "readFullBenchmarkHistory:series-xlk",
+    ]);
+  });
+
+  it("never lets a stock without a sector ETF trade on another fund's reading", async () => {
+    // XLK is the only fund this run reads, and its rule holds on every session — so a stock whose
+    // sector resolved to no fund would buy at once if its rule were read from any fund at all.
+    const { result, etfLoader } = await execute(strategyOf([SECTOR_PRICE_ABOVE_SMA20]), {
+      frozenSectors: [NO_SECTOR, UNSUPPORTED, TECHNOLOGY],
+      stockRsi: () => 10,
+    });
+    expect(tradesBySymbol(result).filter(([, , action]) => action === "BUY")).toEqual([
+      ["ALF2", START, "BUY"],
+    ]);
+    expect(historyReads(etfLoader)).toEqual(["readFullBenchmarkHistory:series-xlk"]);
+  });
+
+  it("is deterministic: the same snapshot executed twice persists the same result", async () => {
+    const run = () =>
+      execute(
+        leveledStrategy({
+          buy: [STOCK_RSI_ABOVE_50, SECTOR_PRICE_ABOVE_SMA20],
+          sell: [GLD_RVOL_ABOVE_1_5],
+          finalExit: [SECTOR_PRICE_BELOW_SMA20],
+        }),
+        {
+          frozenSectors: [TECHNOLOGY, FINANCIALS, ENERGY, NO_SECTOR],
+          stockRsi: STOCK_RSI_APRIL_ONLY,
+        },
+      );
+    const first = await run();
+    const second = await run();
+    expect(second.result.trades).toEqual(first.result.trades);
+    expect(second.write.etfConditions).toEqual(first.write.etfConditions);
+  });
+
+  it("shares one read between a named XLK rule and the Technology stocks' Stock's Sector rules", async () => {
+    const { result, etfLoader } = await execute(
+      strategyOf([XLK_RSI_ABOVE_50, SECTOR_PRICE_ABOVE_SMA20]),
+      { frozenSectors: [TECHNOLOGY, FINANCIALS, TECHNOLOGY], stockRsi: () => 10 },
+    );
+    // The named XLK rule holds for everyone; the sector rule only for the Technology stocks.
+    expect(
+      tradesBySymbol(result).filter(([, , action]) => action === "BUY"),
+    ).toEqual([
+      ["ALF2", START, "BUY"],
+      ["ALFA", START, "BUY"],
+    ]);
+    expect(historyReads(etfLoader)).toEqual([
+      "readFullBenchmarkHistory:series-xlf",
+      "readFullBenchmarkHistory:series-xlk",
+    ]);
+  });
+});
+
+describe("the snapshot parse fails closed on Stock's Sector freezes it cannot honour", () => {
+  const definition = strategyOf([SECTOR_RSI_ABOVE_50]);
+  const [alfa, alf1] = securitiesOf(2);
+  const pins = (...codes: string[]) =>
+    ETF_SERIES_PINS.filter((pin) => codes.includes(pin.code));
+
+  it("accepts a whole, consistent freeze with exactly the resolved funds pinned", () => {
+    expect(() =>
+      parseRunSnapshot(
+        snapshotOf(definition, pins("ETF_XLK", "ETF_XLF"), [alfa!, alf1!], [
+          TECHNOLOGY,
+          FINANCIALS,
+        ]),
+      ),
+    ).not.toThrow();
+    // No resolved fund at all is still a whole freeze: nothing to pin, every rule not evaluable.
+    expect(() =>
+      parseRunSnapshot(
+        snapshotOf(definition, [], [alfa!, alf1!], [NO_SECTOR, UNSUPPORTED]),
+      ),
+    ).not.toThrow();
+  });
+
+  it("refuses a security with no frozen sector when the definition reads Stock's Sector", () => {
+    const snapshot = snapshotOf(definition, pins("ETF_XLK"), [alfa!, alf1!], [TECHNOLOGY, TECHNOLOGY]);
+    delete (snapshot.securities[1] as { sector?: unknown }).sector;
+    expect(() => parseRunSnapshot(snapshot)).toThrow(
+      /securities\[1\]\.sector does not say which sector ETF/,
+    );
+  });
+
+  it("refuses a frozen sector on a definition that reads none", () => {
+    expect(() =>
+      parseRunSnapshot(
+        snapshotOf(strategyOf([STOCK_RSI_ABOVE_50]), [], [alfa!], [TECHNOLOGY]),
+      ),
+    ).toThrow(/reads no Stock's Sector rule/);
+  });
+
+  it("refuses a freeze that contradicts the mapping, or names a fund no sector maps to", () => {
+    expect(() =>
+      parseRunSnapshot(
+        snapshotOf(definition, pins("ETF_XLF"), [alfa!], [
+          { name: "Technology", etfCode: "ETF_XLF" },
+        ]),
+      ),
+    ).toThrow(/maps to ETF_XLK/);
+    expect(() =>
+      parseRunSnapshot(
+        snapshotOf(definition, pins("SP500"), [alfa!], [
+          { name: "Conglomerates", etfCode: "SP500" },
+        ]),
+      ),
+    ).toThrow(/maps to null/);
+    expect(() =>
+      parseRunSnapshot(
+        snapshotOf(definition, [], [alfa!], [
+          { name: 7, etfCode: null } as unknown as BacktestSnapshotSecuritySector,
+        ]),
+      ),
+    ).toThrow(/does not say which sector ETF/);
+  });
+
+  it("refuses a resolved sector fund the snapshot pins no series for, and a pin nothing reads", () => {
+    expect(() =>
+      parseRunSnapshot(snapshotOf(definition, pins("ETF_XLK"), [alfa!, alf1!], [TECHNOLOGY, FINANCIALS])),
+    ).toThrow(/reads ETF_XLF but snapshot.etfSeries pins no series/);
+    expect(() =>
+      parseRunSnapshot(snapshotOf(definition, pins("ETF_XLK", "ETF_XLE"), [alfa!], [TECHNOLOGY])),
+    ).toThrow(/pins ETF_XLE, which the definition does not read/);
+  });
+
+  it("refuses a forged Stock's Sector source and a Stock's Sector trigger", () => {
+    const forged = strategyOf([
+      {
+        ...SECTOR_RSI_ABOVE_50,
+        metric: {
+          kind: "OSCILLATOR",
+          seriesId: "RSI_14D",
+          source: { kind: "STOCK_SECTOR", code: "ETF_XLK" },
+        } as unknown as StrategyCondition["metric"],
+      },
+    ]);
+    expect(() =>
+      parseRunSnapshot(snapshotOf(forged, pins("ETF_XLK"), [alfa!], [TECHNOLOGY])),
+    ).toThrow(/not a source this engine defines/);
+
+    const triggered: StrategyDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "b1",
+          percentage: 100,
+          signal: {
+            conditions: [],
+            trigger: {
+              id: "t1",
+              metric: { kind: "PRICE", source: STOCK_SECTOR },
+              operator: "CROSSES_ABOVE",
+              value: { kind: "SERIES", seriesId: "SMA_20D" },
+            },
+          },
+        },
+      ],
+      sellLevels: [],
+    };
+    expect(() =>
+      parseRunSnapshot(snapshotOf(triggered, pins("ETF_XLK"), [alfa!], [TECHNOLOGY])),
+    ).toThrow(/Stock's Sector trigger is not part of V1/);
   });
 });

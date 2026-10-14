@@ -13,7 +13,11 @@ import {
   collectStrategyEtfSources,
   findStrategyEtfSource,
   normalizeStrategyDefinition,
+  STRATEGY_ETF_SOURCES,
+  stockSectorAssignment,
+  strategyReadsStockSector,
   type MonitorEtfSourceStatusResponse,
+  type StockSectorAssignmentResponse,
   type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
@@ -354,13 +358,18 @@ export class MonitorsService {
         row.userId === null
           ? Promise.resolve(new Map<string, MonitorEligibility>())
           : this.entitlements.getMonitorExecutionEligibility(row.userId),
-        this.etfSourceStatuses(row.strategyId),
+        this.etfSourceStatuses(row.strategyId, row.stockListId),
       ]);
     return {
       ...summaryOf(row, eligibility.get(row.id), viewer),
       securities: await this.listSecurityEvaluations(row, monitoredLevelIds),
       signals,
-      ...(etfSources.length > 0 ? { etfSources } : {}),
+      ...(etfSources.statuses.length > 0
+        ? { etfSources: etfSources.statuses }
+        : {}),
+      ...(etfSources.stockSectors
+        ? { stockSectors: etfSources.stockSectors }
+        : {}),
     };
   }
 
@@ -369,11 +378,21 @@ export class MonitorsService {
    * time from the series' durable refresh state, never persisted, and never a provider request.
    * Empty for a Strategy that reads none, and empty rather than failing when the Strategy cannot
    * be read: the availability note must not take the whole detail page down.
+   *
+   * A Strategy reading Stock's Sector also reads, for each monitored stock, the sector ETF its
+   * current FMP sector maps to — exactly as the next scan will resolve it — so those funds have
+   * their rows here too, and `stockSectors` says which stock reads which, or that a stock's sector
+   * is missing or unsupported and its Stock's Sector rules cannot be evaluated.
    */
   private async etfSourceStatuses(
     strategyId: string,
-  ): Promise<MonitorEtfSourceStatusResponse[]> {
+    stockListId: string,
+  ): Promise<{
+    statuses: MonitorEtfSourceStatusResponse[];
+    stockSectors?: StockSectorAssignmentResponse[];
+  }> {
     let codes: readonly StrategyEtfSourceCode[];
+    let stockSectors: StockSectorAssignmentResponse[] | undefined;
     try {
       const version = await this.prisma.strategyVersion.findFirst({
         where: { strategyId },
@@ -381,16 +400,34 @@ export class MonitorsService {
         select: { definition: true },
       });
       if (!version) {
-        return [];
+        return { statuses: [] };
       }
-      codes = collectStrategyEtfSources(
-        normalizeStrategyDefinition(version.definition),
-      );
+      const definition = normalizeStrategyDefinition(version.definition);
+      codes = collectStrategyEtfSources(definition);
+      if (strategyReadsStockSector(definition)) {
+        const items = await this.prisma.stockListItem.findMany({
+          where: { stockListId },
+          select: { security: { select: { symbol: true, sector: true } } },
+        });
+        stockSectors = items
+          .map((item) =>
+            stockSectorAssignment(item.security.symbol, item.security.sector),
+          )
+          .sort((left, right) => left.symbol.localeCompare(right.symbol));
+        const sectorCodes = new Set(
+          stockSectors.flatMap((assignment) =>
+            assignment.code ? [assignment.code] : [],
+          ),
+        );
+        codes = STRATEGY_ETF_SOURCES.map((etf) => etf.code).filter(
+          (code) => codes.includes(code) || sectorCodes.has(code),
+        );
+      }
     } catch {
-      return [];
+      return { statuses: [] };
     }
     if (codes.length === 0) {
-      return [];
+      return { statuses: [], ...(stockSectors ? { stockSectors } : {}) };
     }
     const statuses: MonitorEtfSourceStatusResponse[] = [];
     for (const code of codes) {
@@ -442,7 +479,7 @@ export class MonitorsService {
         statuses.push({ code, ticker, status: "NOT_SYNCHRONIZED" });
       }
     }
-    return statuses;
+    return { statuses, ...(stockSectors ? { stockSectors } : {}) };
   }
 
   /**

@@ -110,18 +110,21 @@ export async function showFamily(
 }
 
 /** The data source an open Metric picker is showing. */
-export function shownSource(panel: HTMLElement): "STOCK" | "ETF" {
+export function shownSource(
+  panel: HTMLElement,
+): "STOCK" | "ETF" | "STOCK_SECTOR" {
   const checked = within(panel)
     .getAllByTestId("metric-picker-source")
     .find((radio) => (radio as HTMLInputElement).checked);
-  return checked?.getAttribute("data-value") === "ETF" ? "ETF" : "STOCK";
+  const value = checked?.getAttribute("data-value");
+  return value === "ETF" || value === "STOCK_SECTOR" ? value : "STOCK";
 }
 
 /** Chooses the data source of an open Metric picker. */
 export async function chooseSource(
   user: Clicker,
   panel: HTMLElement,
-  source: "STOCK" | "ETF",
+  source: "STOCK" | "ETF" | "STOCK_SECTOR",
 ): Promise<void> {
   const radio = within(panel)
     .getAllByTestId("metric-picker-source")
@@ -275,6 +278,30 @@ export async function chooseEtfMetric(
     .find((candidate) => candidate.getAttribute("data-value") === metric);
   if (!option) {
     throw new Error(`metric ${metric} is not offered by ${code} in ${category}`);
+  }
+  await user.click(option);
+}
+
+/** Moves one rule to Stock's Sector and chooses one of its metrics, leaving the popover closed. */
+export async function chooseSectorMetric(
+  user: Clicker,
+  row: HTMLElement,
+  category: string,
+  metric: string,
+): Promise<void> {
+  const panel = await openPicker(user, row, "metric-picker");
+  await chooseSource(user, panel, "STOCK_SECTOR");
+  // Switching may already have made the rule that metric; the picker is still open either way.
+  if (pickerValue(row) === metric) {
+    await user.click(pickerTrigger(row));
+    return;
+  }
+  await showCategory(user, panel, category);
+  const option = within(panel)
+    .queryAllByTestId("metric-picker-option")
+    .find((candidate) => candidate.getAttribute("data-value") === metric);
+  if (!option) {
+    throw new Error(`metric ${metric} is not offered by Stock's Sector in ${category}`);
   }
   await user.click(option);
 }

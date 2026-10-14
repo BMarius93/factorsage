@@ -1,6 +1,7 @@
 import {
   normalizeStrategyDefinition,
   type StrategyDefinition,
+  resolveStockSectorEtf,
   type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
 import {
@@ -21,6 +22,7 @@ import {
 } from "@intrinsic/stock-data";
 import {
   collectEtfOperands,
+  collectSectorOperands,
   collectOperands,
   monitorStrategyLevels,
   type EvaluationFrame,
@@ -342,6 +344,14 @@ export class MonitorCycle {
       }
     }
 
+    const securityIds = [...operandsBySecurity.keys()];
+    summary.symbols = securityIds.length;
+    // Deliberately no early return when the universe is empty. Every call below is a no-op on an
+    // empty list — including the current-data read, which makes no provider request — and the
+    // per-Monitor pass still has to run: a Monitor whose list was emptied has states to reconcile,
+    // and returning here would leave its Signals active against securities nobody watches.
+    const securities = await this.data.findSecurities(securityIds);
+
     // Each distinct ETF any active Monitor reads, loaded and computed **once per cycle** — never
     // per Monitor, per symbol or per condition — from the series currently in force, through the
     // provider-free reader, finalized-and-synchronized sessions only (owner decisions 1 and 2).
@@ -349,13 +359,51 @@ export class MonitorCycle {
     // unlike a quote outage it never fails the cycle, because it invalidates only those rules.
     const etfOperandSet = new Set<OperandKey>();
     const etfCodes = new Set<StrategyEtfSourceCode>();
-    for (const { definition } of prepared) {
+    const sectorReaders = new Set<SecurityId>();
+    for (const { monitor, definition } of prepared) {
       for (const [code, keys] of collectEtfOperands(definition)) {
         etfCodes.add(code);
         for (const key of keys) {
           etfOperandSet.add(key);
         }
       }
+      const sectorKeys = collectSectorOperands(definition);
+      for (const key of sectorKeys) {
+        etfOperandSet.add(key);
+      }
+      if (sectorKeys.length > 0) {
+        for (const member of monitor.members) {
+          sectorReaders.add(member.securityId);
+        }
+      }
+    }
+    // Stock's Sector: the sector ETF each watched security reads, decided **once per cycle** from
+    // its current FMP sector, so every Monitor and every frame of this cycle — the live observation
+    // and the reconstruction alike — agree on it. A classification changed between two cycles is
+    // read by the next one; it never changes the fund partway through a cycle. A security whose
+    // sector is missing or not one of the eleven reads no fund at all: its Stock's Sector rules are
+    // NOT_EVALUABLE, never read from another ETF.
+    const sectorCodeBySecurity = new Map<SecurityId, StrategyEtfSourceCode | null>();
+    const unresolvedSectors: string[] = [];
+    for (const security of securities) {
+      if (!sectorReaders.has(security.id)) {
+        continue;
+      }
+      const resolution = resolveStockSectorEtf(security.sector);
+      if (resolution.status === "RESOLVED") {
+        sectorCodeBySecurity.set(security.id, resolution.code);
+        etfCodes.add(resolution.code);
+      } else {
+        sectorCodeBySecurity.set(security.id, null);
+        unresolvedSectors.push(security.symbol);
+      }
+    }
+    if (unresolvedSectors.length > 0) {
+      this.logger.warn({
+        event: "monitor.stock-sector.unresolved",
+        cycleSequence,
+        symbols: unresolvedSectors.sort(),
+      });
     }
     const etfOperands = [...etfOperandSet].sort();
     let etfSnapshots: EtfTechnicalSnapshots = new Map();
@@ -394,13 +442,6 @@ export class MonitorCycle {
       }
     }
 
-    const securityIds = [...operandsBySecurity.keys()];
-    summary.symbols = securityIds.length;
-    // Deliberately no early return when the universe is empty. Every call below is a no-op on an
-    // empty list — including the current-data read, which makes no provider request — and the
-    // per-Monitor pass still has to run: a Monitor whose list was emptied has states to reconcile,
-    // and returning here would leave its Signals active against securities nobody watches.
-    const securities = await this.data.findSecurities(securityIds);
     const now = this.now();
     // The cycle's own exchange session, resolved the same way every observation date is. It only
     // bounds the history read behind the observation, and durable history can never run past the
@@ -495,6 +536,7 @@ export class MonitorCycle {
           cycleSequence,
           etfOperands,
           etfSnapshots,
+          sectorCode: sectorCodeBySecurity.get(security.id) ?? null,
         });
         const targets = needsReconstruction.get(security.id);
         if (snapshot.frame && targets) {
@@ -507,6 +549,7 @@ export class MonitorCycle {
             summary,
             etfOperands,
             etfSnapshots,
+            sectorCode: sectorCodeBySecurity.get(security.id) ?? null,
           });
         }
         snapshots.set(security.id, snapshot);
@@ -566,6 +609,8 @@ export class MonitorCycle {
     cycleSequence: number;
     etfOperands: readonly OperandKey[];
     etfSnapshots: EtfTechnicalSnapshots;
+    /** The sector ETF this security's Stock's Sector rules read this cycle; null for none. */
+    sectorCode: StrategyEtfSourceCode | null;
   }): Promise<SymbolSnapshot> {
     const { security, operands, observation, asOf } = input;
     const windowObservations = this.data.monitorWindowObservations(operands);
@@ -595,6 +640,7 @@ export class MonitorCycle {
             frame.frame,
             input.etfOperands,
             input.etfSnapshots,
+            input.sectorCode,
           ),
         };
       }
@@ -640,6 +686,7 @@ export class MonitorCycle {
     summary: MonitorCycleSummary;
     etfOperands: readonly OperandKey[];
     etfSnapshots: EtfTechnicalSnapshots;
+    sectorCode: StrategyEtfSourceCode | null;
   }): Promise<ReconstructionHistory | null> {
     const { security, snapshot, targets } = input;
     const observationDate = snapshot.frame!.observationDate;
@@ -669,6 +716,7 @@ export class MonitorCycle {
                   readFrame,
                   input.etfOperands,
                   input.etfSnapshots,
+                  input.sectorCode,
                 )
               : readFrame,
           complete,

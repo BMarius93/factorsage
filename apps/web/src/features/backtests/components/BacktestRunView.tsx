@@ -483,6 +483,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     completed && result
       ? etfConditionsGuidance(result.etfConditions, {
           totalTrades: result.summary.totalTrades,
+          ...(result.stockSectors ? { stockSectors: result.stockSectors } : {}),
         })
       : null;
 

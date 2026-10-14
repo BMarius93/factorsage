@@ -6,7 +6,13 @@ import {
   collectAlternativeDataMetrics,
   collectStrategyEtfSources,
   findStrategyEtfSource,
+  resolveStockSectorEtf,
+  stockSectorEtfTicker,
+  strategyReadsStockSector,
   type BacktestEtfConditionDiagnosticsResponse,
+  type BacktestSnapshotSecuritySector,
+  type StockSectorAssignmentResponse,
+  type StrategyEtfSourceCode,
   type BacktestSnapshotActor,
   type BacktestSnapshotActorGroup,
   type BacktestSnapshotEtfSeries,
@@ -234,6 +240,36 @@ function withSubmittedBasis(
       ? { ...row, submittedBasisGeneration: pinned }
       : row;
   });
+}
+
+/** The run's frozen sector assignments, by symbol; nothing when no rule reads Stock's Sector. */
+function stockSectorsOf(
+  snapshot: BacktestRunSnapshot,
+): { stockSectors?: StockSectorAssignmentResponse[] } {
+  if (!snapshot.securities.some((security) => security.sector !== undefined)) {
+    return {};
+  }
+  return {
+    stockSectors: snapshot.securities.map((security) => ({
+      symbol: security.symbol,
+      sector: security.sector?.name ?? null,
+      code: security.sector?.etfCode ?? null,
+      ticker: security.sector?.etfCode
+        ? stockSectorEtfTicker(security.sector.etfCode as StrategyEtfSourceCode)
+        : null,
+    })),
+  };
+}
+
+/** One stock's sector as a snapshot freezes it: the stored FMP name and its sector ETF, or nulls. */
+function frozenSector(
+  sector: string | null | undefined,
+): BacktestSnapshotSecuritySector {
+  const resolution = resolveStockSectorEtf(sector);
+  return {
+    name: sector?.trim() ? sector.trim() : null,
+    etfCode: resolution.status === "RESOLVED" ? resolution.code : null,
+  };
 }
 
 function readSnapshot(value: Prisma.JsonValue): BacktestRunSnapshot {
@@ -852,6 +888,12 @@ export class BacktestsService {
       );
     }
 
+    // Stock's Sector rules read, for each stock, the sector ETF its FMP sector maps to. The stock's
+    // sector as stored now is frozen beside it — the product's accepted rule is the current
+    // classification, not a historical one — so the run, and any re-execution of it, reads one fund
+    // per stock whatever the catalog says later. Only when a rule needs it: every other snapshot is
+    // byte-for-byte what it always was.
+    const readsSector = strategyReadsStockSector(definition);
     // Sorted by symbol so two submissions of the same list produce byte-identical documents, which
     // is what makes `snapshotHash` a usable identity for "these are the same inputs".
     const securities: BacktestSnapshotSecurity[] = stockList.items
@@ -875,6 +917,9 @@ export class BacktestsService {
             startDate: range.startDate,
             endDate: range.endDate,
           })),
+          ...(readsSector
+            ? { sector: frozenSector(item.security.sector) }
+            : {}),
         };
       })
       .sort(
@@ -897,7 +942,7 @@ export class BacktestsService {
     // the immutable series it means today, and execution reads that id back whatever the catalog
     // does afterwards. The price-basis generation in force now is recorded beside it, so a later
     // re-executed run whose numbers differ is explainable rather than mysterious.
-    const etfSeries = await this.freezeEtfSeries(definition);
+    const etfSeries = await this.freezeEtfSeries(definition, securities);
 
     const snapshot: BacktestRunSnapshot = {
       // The lowest version able to express this run. A strategy that selects no member directly is
@@ -1334,6 +1379,8 @@ export class BacktestsService {
             ),
           }
         : {}),
+      // Which sector ETF each stock's Stock's Sector rules read, exactly as the snapshot froze it.
+      ...stockSectorsOf(readSnapshot(run.snapshot)),
     };
   }
 
@@ -1345,8 +1392,20 @@ export class BacktestsService {
    */
   private async freezeEtfSeries(
     definition: StrategyDefinition,
+    securities: readonly BacktestSnapshotSecurity[],
   ): Promise<BacktestSnapshotEtfSeries[]> {
-    const codes = collectStrategyEtfSources(definition);
+    // The funds the definition names, and the sector ETFs its Stock's Sector rules will read for
+    // these stocks — each pinned once, however many stocks share it.
+    const codes = [
+      ...new Set<StrategyEtfSourceCode>([
+        ...collectStrategyEtfSources(definition),
+        ...securities.flatMap((security) =>
+          security.sector?.etfCode
+            ? [security.sector.etfCode as StrategyEtfSourceCode]
+            : [],
+        ),
+      ]),
+    ];
     const frozen: BacktestSnapshotEtfSeries[] = [];
     for (const code of codes) {
       const benchmark = await this.prisma.benchmark.findFirst({

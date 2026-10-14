@@ -1,3 +1,4 @@
+import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
 import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
 import { alternativeDataScope } from "./alternative-data.js";
 import {
@@ -822,9 +823,15 @@ export type BacktestResultResponse = {
   curve: BacktestCurvePointResponse[];
   /**
    * One row per ETF source the run's strategy read, in the definition's catalog order; absent for
-   * a run whose strategy reads none — every run that existed before ETF conditions did.
+   * a run whose strategy reads none — every run that existed before ETF conditions did. A sector
+   * ETF a Stock's Sector rule read for some stock has its row here like any other.
    */
   etfConditions?: BacktestEtfConditionDiagnosticsResponse[];
+  /**
+   * Which sector ETF each stock's Stock's Sector rules read, from the run's snapshot, by symbol;
+   * absent unless the strategy reads Stock's Sector. Derived at read time, never stored.
+   */
+  stockSectors?: StockSectorAssignmentResponse[];
 };
 
 // ---------------------------------------------------------------------------
@@ -963,6 +970,23 @@ export type BacktestSnapshotSecurity = {
   buyWindowMode: BuyWindowMode;
   /** Canonical normalized ranges as of submission; always empty for `FULL`. */
   buyWindows: BuyWindowRangeResponse[];
+  /**
+   * Present on every security, and only, when the strategy reads Stock's Sector: the stock's FMP
+   * sector as stored at submission and the sector ETF it resolved to — frozen here so the run, and
+   * any re-execution of it, reads one fund per stock whatever the catalog says later
+   * (`stock-sector-etfs.ts`). Absent otherwise, so every other snapshot is byte-for-byte unchanged.
+   */
+  sector?: BacktestSnapshotSecuritySector;
+};
+
+/**
+ * One stock's frozen sector: the stored FMP name (null when it had none) and the sector ETF's code,
+ * null when the sector was missing or not one of FMP's eleven. A null code makes the stock's
+ * Stock's Sector rules not evaluable for the whole run; no other fund is substituted.
+ */
+export type BacktestSnapshotSecuritySector = {
+  name: string | null;
+  etfCode: string | null;
 };
 
 /**

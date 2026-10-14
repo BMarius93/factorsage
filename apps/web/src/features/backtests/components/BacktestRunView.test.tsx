@@ -484,6 +484,54 @@ describe("BacktestRunView", () => {
     ).toBeTruthy();
   });
 
+  it("warns inside the result when a stock had no sector ETF for its Stock's Sector rules", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...testResult(),
+          etfConditions: [
+            {
+              code: "ETF_XLK",
+              ticker: "XLK",
+              status: "READY",
+              firstSession: "1998-12-22",
+              latestSession: "2025-12-31",
+              basisGeneration: 0,
+            },
+          ],
+          stockSectors: [
+            { symbol: "AAPL", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+            { symbol: "NOSEC", sector: null, code: null, ticker: null },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // Every fund was read, yet one stock had no fund at all: missing data, so a warning.
+    const notice = screen.getByTestId("backtest-etf-conditions");
+    expect(notice.getAttribute("data-tone")).toBe("warning");
+    expect(screen.getByTestId("backtest-hero").contains(notice)).toBe(true);
+    const lines = screen.getAllByTestId("backtest-etf-condition");
+    expect(
+      lines.map((line) => [
+        line.getAttribute("data-ticker"),
+        line.getAttribute("data-ready"),
+      ]),
+    ).toEqual([
+      ["XLK", "true"],
+      ["Stock's Sector", "false"],
+    ]);
+    expect(lines[1]!.textContent).toContain(
+      "AAPL reads XLK. No sector ETF for NOSEC (no FMP sector)",
+    );
+    expect(screen.getByTestId("backtest-etf-conditions-note").textContent).toContain(
+      "The Stock's Sector rules of NOSEC never matched in this run",
+    );
+  });
+
   it("shows no ETF notice for a run whose strategy reads none", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", { result: testResult() }),

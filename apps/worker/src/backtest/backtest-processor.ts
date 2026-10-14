@@ -8,6 +8,7 @@ import {
   type BacktestRunSnapshot,
   type BacktestSnapshotSecurity,
   type BacktestTradeReasonIndex,
+  type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
 import { BacktestRunStatus } from "@intrinsic/database";
 import type {
@@ -20,6 +21,7 @@ import type {
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   collectEtfOperands,
+  collectSectorOperands,
   collectOperands,
   createBacktestSimulation,
   methodologyMismatches,
@@ -170,6 +172,12 @@ export function frozenActorGroupResolver(
 /** One run security after `PREPARING_DATA`: its resolved identity and what its history covers. */
 type PreparedSecurity = {
   security: Security;
+  /**
+   * The sector ETF this security's Stock's Sector rules read, as the snapshot froze it at
+   * submission; null when the strategy reads no such rule or the sector did not resolve, which
+   * leaves those rules NOT_EVALUABLE for this security rather than reading another fund.
+   */
+  sectorEtfCode: StrategyEtfSourceCode | null;
   /** Persisted price coverage inside the requested period. Never null for a kept security. */
   coverage: DailyPriceBounds;
   /**
@@ -557,15 +565,33 @@ export class BacktestProcessor implements BacktestJobProcessor {
       archive,
     );
 
-    // Each distinct ETF the definition reads, computed once for the whole run — never per security
-    // or per condition — through the provider-free reader, from the series the snapshot pinned.
+    // Each distinct ETF the run reads, computed once for the whole run — never per security or per
+    // condition — through the provider-free reader, from the series the snapshot pinned: the funds
+    // the definition names, and the sector ETFs its Stock's Sector rules read for the run's stocks
+    // as the snapshot froze them. Ten stocks of one sector read that sector's history once.
     const etfOperandsByCode = collectEtfOperands(snapshot.strategy.definition);
-    const etfOperands = [...etfOperandsByCode.values()].flat().sort();
+    const sectorOperands = collectSectorOperands(snapshot.strategy.definition);
+    const etfOperands = [
+      ...[...etfOperandsByCode.values()].flat(),
+      ...sectorOperands,
+    ].sort();
+    const etfCodes = [
+      ...new Set<StrategyEtfSourceCode>([
+        ...etfOperandsByCode.keys(),
+        ...(sectorOperands.length === 0
+          ? []
+          : snapshot.securities.flatMap((member) =>
+              member.sector?.etfCode
+                ? [member.sector.etfCode as StrategyEtfSourceCode]
+                : [],
+            )),
+      ]),
+    ].sort();
     const { snapshots: etfSnapshots, diagnostics: etfDiagnostics } =
-      etfOperandsByCode.size === 0
+      etfCodes.length === 0
         ? { snapshots: new Map(), diagnostics: [] }
         : await loadEtfTechnicalSnapshots({
-            series: [...etfOperandsByCode.keys()].map((code) => {
+            series: etfCodes.map((code) => {
               const pinned = (snapshot.etfSeries ?? []).find(
                 (entry) => entry.code === code,
               );
@@ -784,6 +810,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
     return {
       prepared: {
         security,
+        sectorEtfCode:
+          (member.sector?.etfCode as StrategyEtfSourceCode | null | undefined) ??
+          null,
         coverage,
         ...(coverage.priceBasisGeneration === undefined
           ? {}
@@ -1219,6 +1248,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
           frame,
           prepared.etfOperands,
           prepared.etfSnapshots,
+          entry.sectorEtfCode,
         );
       } catch (err) {
         if (err instanceof PriceBasisChangedError) {

@@ -6,6 +6,7 @@ import { relativeVolumeDefinition } from "@intrinsic/domain";
 import {
   createEvaluationFrame,
   decodeEtfOperand,
+  decodeSectorOperand,
   operandRelativeVolumePeriod,
   operandSeriesId,
   PRICE_OPERAND,
@@ -30,26 +31,37 @@ import {
  * is missing entirely (its coverage gate failed, or its read failed this run or cycle) joins
  * all-NaN columns, so exactly the conditions naming it degrade and nothing else does.
  *
- * Only keys of the ETF family are accepted, and every one must decode to a snapshot field: an
- * undecodable key is refused rather than joined as an always-absent column, the same fail-closed
- * stance the per-security projector takes on a key it does not know.
+ * **Stock's Sector** keys (`sector:…`) name no fund: they are joined from the snapshot of
+ * `sectorCode`, the sector ETF this frame's security resolved to. A security with no resolved
+ * sector — `null` — joins all-NaN columns, so its Stock's Sector rules are `NOT_EVALUABLE` and no
+ * other fund ever stands in.
+ *
+ * Only keys of the ETF and Stock's Sector families are accepted, and every one must decode to a
+ * snapshot field: an undecodable key is refused rather than joined as an always-absent column, the
+ * same fail-closed stance the per-security projector takes on a key it does not know.
  */
 export function withEtfOperandColumns(
   frame: EvaluationFrame,
   operands: readonly OperandKey[],
   snapshots: ReadonlyMap<StrategyEtfSourceCode, BenchmarkTechnicalSnapshot>,
+  sectorCode: StrategyEtfSourceCode | null = null,
 ): EvaluationFrame {
   if (operands.length === 0) {
     return frame;
   }
   const columns = new Map(frame.columns);
   for (const key of operands) {
-    const decoded = decodeEtfOperand(key);
+    const sectorBase = decodeSectorOperand(key);
+    const decoded =
+      sectorBase !== null
+        ? { code: sectorCode, base: sectorBase }
+        : decodeEtfOperand(key);
     if (!decoded) {
       throw new Error(`Unsupported ETF evaluation operand: ${key}`);
     }
     const field = etfSnapshotField(decoded.base);
-    const snapshot = snapshots.get(decoded.code);
+    const snapshot =
+      decoded.code === null ? undefined : snapshots.get(decoded.code);
     const column = new Float64Array(frame.dates.length).fill(Number.NaN);
     if (snapshot) {
       frame.dates.forEach((date, index) => {

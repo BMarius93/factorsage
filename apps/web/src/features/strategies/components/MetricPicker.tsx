@@ -13,7 +13,12 @@ import {
   strategyMetricLabel,
   strategyMetricOptions,
   strategyMetricSource,
+  strategyMetricSourceKey,
   strategyMetricUnderSource,
+  FMP_STOCK_SECTORS,
+  STOCK_SECTOR_ETF_CODES,
+  STOCK_SECTOR_SOURCE_LABEL,
+  stockSectorEtfTicker,
   type StrategyEtfSourceCode,
   type StrategyLevelKind,
   type StrategyMetric,
@@ -48,10 +53,19 @@ type MetricPickerProps = {
   readonly onBlur: () => void;
 };
 
-/** The source a browse or a rule reads, as one comparable string. */
-function sourceKey(source: StrategyMetricSource | undefined): string {
-  return source ? `ETF:${source.code}` : "STOCK";
-}
+/**
+ * What Stock's Sector reads, said where the ETF select would be: the first three mappings of the
+ * canonical table as examples, so the sentence can never name a fund the mapping does not.
+ */
+const SECTOR_NOTE = `Each stock reads the sector ETF of its own FMP sector — ${FMP_STOCK_SECTORS.slice(
+  0,
+  3,
+)
+  .map(
+    (sector) =>
+      `${sector} reads ${stockSectorEtfTicker(STOCK_SECTOR_ETF_CODES[sector])}`,
+  )
+  .join(", ")}. A stock without one of the eleven sectors cannot be evaluated.`;
 
 /** The ETF a rule moves to when it first leaves the stock: the catalog's first. */
 const FIRST_ETF_CODE = STRATEGY_ETF_SOURCES[0]?.code;
@@ -97,9 +111,10 @@ function gridColumns(grid: Element | null | undefined): number {
  * The row keeps its three controls — Metric, Condition, Value — and everything about *what* is
  * measured lives behind the first (`docs/decisions/strategy-etf-conditions-v1.md` §4):
  *
- * 1. **Data source.** `Stock` — the evaluated security itself, the default — or `ETF`, with one of
- *    the twenty Dashboard funds chosen from the product's own grouped select. An ETF source is a
- *    Condition capability only, so a Trigger row shows the choice disabled and says why.
+ * 1. **Data source.** `Stock` — the evaluated security itself, the default — `ETF`, with one of
+ *    the twenty Dashboard funds chosen from the product's own grouped select, or `Stock's Sector`,
+ *    which chooses no fund: each evaluated stock reads the sector ETF its own FMP sector maps to.
+ *    Both are Condition capabilities only, so a Trigger row shows them disabled and says why.
  * 2. **Metric library.** The registry's families for that source, level kind and half of a Signal —
  *    Technical, Fundamentals, Valuation, Activity, Position — as tabs. A family with several
  *    categories lists them as expandable subgroups, one open at a time, so `Price` is one compact
@@ -139,7 +154,7 @@ export function MetricPicker({
     StrategyMetricSource | undefined
   >(committedSource);
   const [etfCode, setEtfCode] = useState<StrategyEtfSourceCode | undefined>(
-    committedSource?.code ?? FIRST_ETF_CODE,
+    committedSource?.kind === "ETF" ? committedSource.code : FIRST_ETF_CODE,
   );
   const [familyId, setFamilyId] = useState<StrategyMetricFamilyId | null>(null);
   // `undefined`: nothing chosen yet, so the subgroup holding the rule's metric — or the family's
@@ -165,7 +180,9 @@ export function MetricPicker({
       : expandedId;
   // Browsing a source the rule does not read: only possible where that source cannot offer the
   // rule's metric, since a source that can is committed the moment it is chosen.
-  const pending = sourceKey(shownSource) !== sourceKey(committedSource);
+  const pending =
+    strategyMetricSourceKey(shownSource) !==
+    strategyMetricSourceKey(committedSource);
 
   // A saved strategy can carry a metric this level no longer offers — `Gain` in a BUY level after a
   // product change. It reads as unavailable instead of silently showing another metric; validation
@@ -173,9 +190,11 @@ export function MetricPicker({
   const offered = strategyMetricOptions(levelKind, part, committedSource).some(
     (option) => strategyMetricKey(option.metric) === selectedKey,
   );
-  const shownEtf = shownSource
-    ? findStrategyEtfSource(shownSource.code)
-    : undefined;
+  const shownEtf =
+    shownSource?.kind === "ETF"
+      ? findStrategyEtfSource(shownSource.code)
+      : undefined;
+  const sectorShown = shownSource?.kind === "STOCK_SECTOR";
 
   /**
    * Shows another data source, and moves the rule to it at once when it offers the rule's metric.
@@ -341,12 +360,12 @@ export function MetricPicker({
     !etfOffered
       ? {
           kind: "UNAVAILABLE",
-          text: "An ETF can be read by a condition only, not by a trigger.",
+          text: "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
         }
-      : pending && shownEtf
+      : pending && (shownEtf || sectorShown)
         ? {
             kind: "PENDING",
-            text: `${strategyMetricLabel(metric)} is read from the stock only. Choose a metric below to read ${shownEtf.ticker} instead.`,
+            text: `${strategyMetricLabel(metric)} is read from the stock only. Choose a metric below to read ${shownEtf ? shownEtf.ticker : "each stock's sector ETF"} instead.`,
           }
         : movedSource && notice
           ? { kind: "OUTCOME", text: notice }
@@ -366,7 +385,7 @@ export function MetricPicker({
       sizing="content"
       onOpen={() => {
         setBrowseSource(committedSource);
-        if (committedSource) {
+        if (committedSource?.kind === "ETF") {
           setEtfCode(committedSource.code);
         }
         setFamilyId(null);
@@ -415,7 +434,7 @@ export function MetricPicker({
                   name={`${baseId}-source`}
                   data-testid="metric-picker-source"
                   data-value="ETF"
-                  checked={shownSource !== undefined}
+                  checked={shownSource?.kind === "ETF"}
                   disabled={!etfOffered || etfCode === undefined}
                   onChange={() => {
                     if (etfCode !== undefined) {
@@ -425,8 +444,33 @@ export function MetricPicker({
                 />
                 <span className={styles.sourceFace}>ETF</span>
               </label>
+              <label className={styles.sourceChoice}>
+                <input
+                  type="radio"
+                  className={styles.sourceInput}
+                  name={`${baseId}-source`}
+                  data-testid="metric-picker-source"
+                  data-value="STOCK_SECTOR"
+                  checked={sectorShown}
+                  disabled={!etfOffered}
+                  onChange={() => showSource({ kind: "STOCK_SECTOR" })}
+                />
+                <span className={styles.sourceFace}>
+                  {STOCK_SECTOR_SOURCE_LABEL}
+                </span>
+              </label>
             </div>
-            {shownSource ? (
+            {sectorShown ? (
+              // No fund to choose: each evaluated stock decides its own. Said where the ETF select
+              // would be, so the absence of a picker reads as a rule rather than as a gap.
+              <p
+                className={styles.sectorNote}
+                data-testid="metric-picker-sector-note"
+              >
+                {SECTOR_NOTE}
+              </p>
+            ) : null}
+            {shownSource?.kind === "ETF" ? (
               <div className={styles.etf}>
                 <Select
                   density="compact"

@@ -158,11 +158,35 @@ export function relativeVolumeLabel(period: RelativeVolumePeriod): string {
  * kinds carry it (`ETF_COMPATIBLE_METRIC_KINDS`); every other kind refuses the field structurally,
  * and an ETF source is a Condition capability only — a Trigger naming one is refused by the
  * validator, which keeps ETF-sourced Triggers the explicit product follow-up the decision defers.
+ *
+ * `STOCK_SECTOR` — **Stock's Sector** — names no ETF: each evaluated stock reads the sector ETF its
+ * own current FMP sector maps to (`stock-sector-etfs.ts`), so one condition reads XLK for AAPL and
+ * XLF for JPM. It is the same ETF evaluation under every other rule — the same 21 metrics, the same
+ * Values from the same fund, Conditions only — with the fund chosen per stock instead of per rule.
  */
-export type StrategyMetricSource = {
+export type StrategyEtfMetricSource = {
   kind: "ETF";
   code: StrategyEtfSourceCode;
 };
+
+export type StrategyStockSectorMetricSource = { kind: "STOCK_SECTOR" };
+
+export type StrategyMetricSource =
+  | StrategyEtfMetricSource
+  | StrategyStockSectorMetricSource;
+
+/** How the product names the Stock's Sector source: `Stock's Sector · RSI 14D`. */
+export const STOCK_SECTOR_SOURCE_LABEL = "Stock's Sector";
+
+/** One comparable string per source — `ETF:ETF_XLK`, `STOCK_SECTOR` — and `STOCK` for none. */
+export function strategyMetricSourceKey(
+  source: StrategyMetricSource | undefined,
+): string {
+  if (!source) {
+    return "STOCK";
+  }
+  return source.kind === "ETF" ? `ETF:${source.code}` : "STOCK_SECTOR";
+}
 
 /**
  * A Strategy Metric.
@@ -929,7 +953,11 @@ export function strategyMetricKey(metric: StrategyMetric): string {
   // `XLK · RSI 14D` must be two options, two rows and two selections. A stock metric's key is
   // byte-identical to what it always was, so nothing keyed by it moves.
   const source = strategyMetricSource(metric);
-  const prefix = source ? `ETF(${source.code})|` : "";
+  const prefix = !source
+    ? ""
+    : source.kind === "ETF"
+      ? `ETF(${source.code})|`
+      : "STOCK_SECTOR|";
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
@@ -1370,7 +1398,7 @@ function metricMenu(
   if (!source) {
     return METRIC_MENU_BY_LEVEL[levelKind][part];
   }
-  const key = `${source.code}|${levelKind}|${part}`;
+  const key = `${strategyMetricSourceKey(source)}|${levelKind}|${part}`;
   const cached = ETF_METRIC_MENUS.get(key);
   if (cached) {
     return cached;
@@ -1633,9 +1661,11 @@ export function strategyMetricLabel(metric: StrategyMetric): string {
   // rule reads. A drifted code renders raw rather than throwing, like every other label here.
   const source = strategyMetricSource(metric);
   if (source) {
-    return `${strategyEtfSourceTicker(source.code)} · ${strategyMetricLabel(
-      withoutMetricSource(metric),
-    )}`;
+    const named =
+      source.kind === "ETF"
+        ? strategyEtfSourceTicker(source.code)
+        : STOCK_SECTOR_SOURCE_LABEL;
+    return `${named} · ${strategyMetricLabel(withoutMetricSource(metric))}`;
   }
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
@@ -1813,7 +1843,7 @@ export function collectStrategyEtfSources(
     }
     for (const predicate of predicates) {
       const source = strategyMetricSource(predicate.metric);
-      if (source) {
+      if (source?.kind === "ETF") {
         named.add(source.code);
       }
     }
@@ -1830,6 +1860,28 @@ export function collectStrategyEtfSources(
   return STRATEGY_ETF_SOURCES.filter((etf) =>
     named.has(etf.code),
   ).map((etf) => etf.code);
+}
+
+/**
+ * Whether any rule of a definition reads Stock's Sector — the question that decides whether a
+ * backtest freezes its stocks' sectors and whether a Monitor resolves them. Which ETFs that means
+ * depends on the stocks evaluated, so it is answered with the stock list, never here.
+ */
+export function strategyReadsStockSector(
+  definition: StrategyDefinition,
+): boolean {
+  const readsSector = (signal: StrategySignal): boolean =>
+    [...signal.conditions, ...(signal.trigger ? [signal.trigger] : [])].some(
+      (predicate) =>
+        strategyMetricSource(predicate.metric)?.kind === "STOCK_SECTOR",
+    );
+  return (
+    definition.buyLevels.some((level) => readsSector(level.signal)) ||
+    definition.sellLevels.some((level) => readsSector(level.signal)) ||
+    (definition.finalExit?.rules ?? []).some((rule) =>
+      readsSector(rule.signal),
+    )
+  );
 }
 
 /** Why {@link embedActorGroupScopes} could not rewrite a definition. */
@@ -2422,6 +2474,19 @@ export function strategyMetricHelp(metric: StrategyMetric): StrategyHelpEntry {
   // own completed end-of-day history — never the evaluated stock's, and never a live ETF quote —
   // and is evaluated identically for every candidate stock on the same session.
   const source = strategyMetricSource(metric);
+  if (source?.kind === "STOCK_SECTOR") {
+    const stockHelp = strategyMetricHelp(withoutMetricSource(metric));
+    return {
+      ...stockHelp,
+      notes: [
+        "Read from the sector ETF of each evaluated stock: the Select Sector SPDR fund its FMP sector maps to — Technology reads XLK, Financial Services XLF, Energy XLE — so one rule can read a different fund for every stock in the list. The fund's own completed end-of-day history is compared, never the stock's.",
+        "The stock's current FMP sector is used for every date, in a backtest as in a Monitor: a company that was classified differently in the past is evaluated against today's sector ETF throughout.",
+        ...(stockHelp.notes ?? []),
+      ],
+      notEvaluableWhen:
+        "The stock has no FMP sector, or one that is not one of the eleven, or its sector ETF has no completed, synchronized session for the date — before the fund's own history begins, inside an indicator's warm-up, during the current session before the ETF's end-of-day bar is final, or where its stored history has a gap. Another fund is never used instead.",
+    };
+  }
   if (source) {
     const etf = findStrategyEtfSource(source.code);
     const stockHelp = strategyMetricHelp(withoutMetricSource(metric));
@@ -3113,10 +3178,11 @@ function parseActorSelection(
  * Reads a metric's optional data source.
  *
  * `undefined` means "the evaluated stock", which is what every document saved before ETF sources
- * existed says by carrying nothing. The set is closed twice over: the only source kind is `ETF`,
- * and the only codes are the twenty of the catalog — an unknown code is refused rather than read
- * as the stock, because a condition silently evaluated against a different instrument than the one
- * it names is the exact misinterpretation the source exists to prevent.
+ * existed says by carrying nothing. The set is closed twice over: the only source kinds are `ETF`
+ * and `STOCK_SECTOR`, and the only codes are the twenty of the catalog — an unknown code is refused
+ * rather than read as the stock, because a condition silently evaluated against a different
+ * instrument than the one it names is the exact misinterpretation the source exists to prevent.
+ * `STOCK_SECTOR` carries nothing but its kind.
  */
 function parseMetricSource(
   raw: unknown,
@@ -3133,6 +3199,12 @@ function parseMetricSource(
       "Choose the data source this rule reads.",
     );
     return "INVALID";
+  }
+  if (raw.kind === "STOCK_SECTOR") {
+    // Stock's Sector names no fund: the evaluated stock's sector chooses it, so a code here would be
+    // a second, contradicting answer.
+    issues.rejectUnknownKeys(raw, ["kind"], path);
+    return { kind: "STOCK_SECTOR" };
   }
   if (raw.kind !== "ETF") {
     issues.add(
@@ -3522,7 +3594,11 @@ function predicateMetricKey(metric: StrategyMetric): string {
   // two different conditions and may be ANDed in one Signal, and two rows naming the same ETF are
   // still one rule written twice. A stock metric's key is unchanged.
   const source = strategyMetricSource(metric);
-  const sourceKey = source ? `etf(${source.code}):` : "";
+  const sourceKey = !source
+    ? ""
+    : source.kind === "ETF"
+      ? `etf(${source.code}):`
+      : "stock-sector:";
   switch (metric.kind) {
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
@@ -3632,7 +3708,11 @@ function validatePredicate(
     issues.add(
       "SOURCE_NOT_ALLOWED_IN_PART",
       predicatePath(location, "METRIC"),
-      `${strategyMetricLabel(metric)} reads an ETF, so it can be used as a condition only, not as a trigger.`,
+      `${strategyMetricLabel(metric)} reads ${
+        strategyMetricSource(metric)?.kind === "STOCK_SECTOR"
+          ? "the stock's sector ETF"
+          : "an ETF"
+      }, so it can be used as a condition only, not as a trigger.`,
     );
     return undefined;
   }
@@ -4146,9 +4226,11 @@ function buildMetric(metric: StrategyMetric): StrategyMetric {
   // every create, read, duplicate, Monitor cycle and backtest submission goes through, and a source
   // dropped here would silently turn `XLK · RSI 14D` back into the stock's own RSI.
   const source = strategyMetricSource(metric);
-  const rebuiltSource: { source?: StrategyMetricSource } = source
-    ? { source: { kind: "ETF", code: source.code } }
-    : {};
+  const rebuiltSource: { source?: StrategyMetricSource } = !source
+    ? {}
+    : source.kind === "ETF"
+      ? { source: { kind: "ETF", code: source.code } }
+      : { source: { kind: "STOCK_SECTOR" } };
   switch (metric.kind) {
     case "MOVING_AVERAGE":
       return {
@@ -4455,8 +4537,16 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
           return [input.kind, null];
       }
     };
+    // An ETF source appends `etf:<code>` and Stock's Sector `stock-sector`: distinct from each
+    // other and from every stock tuple, so a change of source is a change of logic and resets the
+    // level's latch rather than inheriting the old source's state.
     const source = strategyMetricSource(input);
-    return source ? [...base(input), `etf:${source.code}`] : base(input);
+    return !source
+      ? base(input)
+      : [
+          ...base(input),
+          source.kind === "ETF" ? `etf:${source.code}` : "stock-sector",
+        ];
   };
   const predicate = (input: StrategyCondition | StrategyTrigger): unknown => [
     metric(input.metric),

@@ -200,6 +200,46 @@ export function isEtfOperand(key: OperandKey): boolean {
   return key.startsWith(ETF_PREFIX);
 }
 
+const SECTOR_PREFIX = "sector:";
+
+/**
+ * One Stock's Sector reading: the stock operand encoding under its own family —
+ * `sector:series:RSI_14D`, `sector:price`. The key names no fund because a definition does not:
+ * which sector ETF's column is joined under it is decided per security, from the security's own
+ * sector, when the frame is assembled (`@intrinsic/stock-data`, `etf-frame-columns.ts`). Like the
+ * ETF family it never reaches a per-security projector or the Monitor's warm-up sizing.
+ */
+export function sectorOperand(base: OperandKey): OperandKey {
+  return `${SECTOR_PREFIX}${base}`;
+}
+
+/** The underlying stock encoding a Stock's Sector key addresses, or null for any other key. */
+export function decodeSectorOperand(key: OperandKey): OperandKey | null {
+  if (!key.startsWith(SECTOR_PREFIX)) {
+    return null;
+  }
+  const base = key.slice(SECTOR_PREFIX.length);
+  return base.length === 0 ? null : base;
+}
+
+/** Whether a key belongs to the Stock's Sector family at all, decodable or not. */
+export function isSectorOperand(key: OperandKey): boolean {
+  return key.startsWith(SECTOR_PREFIX);
+}
+
+/** The key one source reads a stock encoding under: the stock's own, an ETF's, or the sector's. */
+function sourcedOperand(
+  base: OperandKey,
+  source: StrategyMetricSource | undefined,
+): OperandKey {
+  if (!source) {
+    return base;
+  }
+  return source.kind === "ETF"
+    ? etfOperand(source.code, base)
+    : sectorOperand(base);
+}
+
 /**
  * Margin of Safety against one explicitly selected intrinsic-value source.
  *
@@ -232,7 +272,7 @@ export function metricOperand(metric: StrategyMetric): OperandKey | null {
   const source = strategyMetricSource(metric);
   if (source) {
     const base = metricOperand(withoutMetricSource(metric));
-    return base === null ? null : etfOperand(source.code, base);
+    return base === null ? null : sourcedOperand(base, source);
   }
   switch (metric.kind) {
     case "PRICE":
@@ -273,8 +313,7 @@ export function valueOperand(
   if (value.kind !== "SERIES") {
     return null;
   }
-  const base = seriesOperand(value.seriesId);
-  return source ? etfOperand(source.code, base) : base;
+  return sourcedOperand(seriesOperand(value.seriesId), source);
 }
 
 /** One walk over every predicate of a definition, shared by the two collectors below. */
@@ -353,7 +392,7 @@ export function collectEtfOperands(
   const byCode = new Map<StrategyEtfSourceCode, Set<OperandKey>>();
   walkPredicates(definition, (predicate) => {
     const source = strategyMetricSource(predicate.metric);
-    if (!source) {
+    if (source?.kind !== "ETF") {
       return;
     }
     const keys = byCode.get(source.code) ?? new Set<OperandKey>();
@@ -372,6 +411,34 @@ export function collectEtfOperands(
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([code, keys]) => [code, [...keys].sort()]),
   );
+}
+
+/**
+ * Every Stock's Sector frame column a strategy version references, ascending and deduplicated.
+ *
+ * One list for the whole definition, because the keys name no fund: each security's frame joins
+ * them from the one sector ETF that security resolved to, so ten stocks of two sectors read two
+ * histories however many Stock's Sector rules there are.
+ */
+export function collectSectorOperands(
+  definition: StrategyDefinition,
+): readonly OperandKey[] {
+  const keys = new Set<OperandKey>();
+  walkPredicates(definition, (predicate) => {
+    const source = strategyMetricSource(predicate.metric);
+    if (source?.kind !== "STOCK_SECTOR") {
+      return;
+    }
+    const metric = metricOperand(predicate.metric);
+    if (metric) {
+      keys.add(metric);
+    }
+    const value = valueOperand(predicate.value, source);
+    if (value) {
+      keys.add(value);
+    }
+  });
+  return [...keys].sort();
 }
 
 /**

@@ -434,6 +434,51 @@ describe("MonitorDetail", () => {
     );
   });
 
+  it("says which sector ETF each stock's Stock's Sector rules read, and which stocks have none", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        etfSources: [
+          {
+            code: "ETF_XLK",
+            ticker: "XLK",
+            status: "READY",
+            latestSession: "2026-10-13",
+          },
+        ],
+        stockSectors: [
+          { symbol: "AAPL", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          { symbol: "MSFT", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          { symbol: "NOSEC", sector: null, code: null, ticker: null },
+        ],
+      }),
+    );
+
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const sectors = screen.getByTestId("monitor-stock-sectors");
+    expect(sectors.getAttribute("data-unresolved")).toBe("1");
+    expect(sectors.textContent).toBe(
+      " Stock's Sector: AAPL and MSFT read XLK; no sector ETF for NOSEC (no FMP sector), so its Stock's Sector rules cannot be evaluated.",
+    );
+    // Inside the one ETF note, after the funds' own states.
+    expect(screen.getByTestId("monitor-etf-sources").contains(sectors)).toBe(true);
+  });
+
+  it("says so when no watched stock has a sector ETF at all", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        stockSectors: [{ symbol: "NOSEC", sector: null, code: null, ticker: null }],
+      }),
+    );
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    expect(screen.getByTestId("monitor-stock-sectors").textContent).toBe(
+      " Stock's Sector: no stock has a sector ETF; no sector ETF for NOSEC (no FMP sector), so its Stock's Sector rules cannot be evaluated.",
+    );
+    expect(screen.queryAllByTestId("monitor-etf-source")).toEqual([]);
+  });
+
   it("says nothing about ETFs for a strategy that reads none", async () => {
     fetchMonitorMock.mockResolvedValue(detail());
     render(<MonitorDetail monitorId="monitor-1" />);

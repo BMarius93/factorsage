@@ -63,6 +63,7 @@ import { MonitorFormDialog } from "./MonitorFormDialog";
 import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
 import { useDocumentTitle } from "../../../lib/use-document-title";
 import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
+import { summarizeStockSectors } from "../../strategies/utils/stock-sector-assignments";
 import styles from "./MonitorDetail.module.css";
 
 /** What the newest-first Signal window the API returns is capped at. */
@@ -215,6 +216,10 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     (a, b) => SECURITY_STATUS_ORDER[a.status] - SECURITY_STATUS_ORDER[b.status],
   );
   const etfSources = etfSourceLines(view.etfSources);
+  // Which sector ETF each watched stock's Stock's Sector rules read now, and which stocks have none.
+  const stockSectors = view.stockSectors
+    ? summarizeStockSectors(view.stockSectors)
+    : null;
   const statusCounts = Object.fromEntries(
     MONITOR_SECURITY_STATUSES.map((status) => [
       status,
@@ -631,7 +636,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               }
             : {})}
         >
-          {etfSources ? (
+          {etfSources || stockSectors ? (
             // A rule reading an ETF is decided on the fund's own completed session, so it waits for
             // the end of the day while its stock half is already decided on the live price. Said
             // once, with each fund's own state, so a wait is never mistaken for missing data.
@@ -640,7 +645,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               trading day, on the fund&apos;s own completed session — a rule
               reading one shows &ldquo;Not evaluable&rdquo; for the current
               session until then.{" "}
-              {etfSources.map((source, index) => (
+              {(etfSources ?? []).map((source, index) => (
                 <span
                   key={source.code}
                   data-testid="monitor-etf-source"
@@ -651,7 +656,25 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   <strong>{source.ticker}</strong>: {source.text}
                 </span>
               ))}
-              .
+              {etfSources ? "." : null}
+              {stockSectors ? (
+                // Stock's Sector reads a different fund per stock, from each one's current FMP
+                // sector: which reads which, and which stocks have none and cannot be evaluated.
+                <span
+                  data-testid="monitor-stock-sectors"
+                  data-unresolved={String(stockSectors.unresolvedCount)}
+                >
+                  {" "}
+                  <strong>Stock&apos;s Sector</strong>:{" "}
+                  {stockSectors.resolved ?? "no stock has a sector ETF"}
+                  {stockSectors.unresolved
+                    ? `; no sector ETF for ${stockSectors.unresolved}, so ${
+                        stockSectors.unresolvedCount === 1 ? "its" : "their"
+                      } Stock's Sector rules cannot be evaluated`
+                    : ""}
+                  .
+                </span>
+              ) : null}
             </p>
           ) : null}
           {statusCounts.NOT_EVALUABLE > 0 ? (

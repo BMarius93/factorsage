@@ -1,3 +1,4 @@
+import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
 import type { ContentOwnershipResponse } from "./builtins.js";
 import type {
   MonitorBlockedReason,
@@ -269,6 +270,12 @@ export type MonitorDetailResponse = MonitorSummaryResponse & {
    * it reads none. A non-`READY` row is why an ETF condition reports "not evaluable" right now.
    */
   etfSources?: MonitorEtfSourceStatusResponse[];
+  /**
+   * Which sector ETF each monitored stock's Stock's Sector rules read **now**, by symbol; absent
+   * unless the Strategy reads Stock's Sector. Derived at read time from each stock's current FMP
+   * sector. Every sector ETF named here also has its row in `etfSources`.
+   */
+  stockSectors?: StockSectorAssignmentResponse[];
 };
 
 export type CreateMonitorRequest = {

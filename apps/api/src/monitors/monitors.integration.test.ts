@@ -1321,4 +1321,147 @@ describe("monitors", () => {
     await owner.delete(`/monitors/${monitor.id}`).expect(204);
     await owner.get(`/monitors/${monitor.id}`).expect(404);
   });
+
+  describe("Stock's Sector", () => {
+    /** One BUY level: the stock's own Price and its sector ETF's RSI 14D. */
+    function sectorDefinition(): StrategyDefinition {
+      return {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: "buy-sector",
+            percentage: 25,
+            signal: {
+              conditions: [
+                {
+                  id: "condition-stock",
+                  metric: { kind: "PRICE" },
+                  operator: "IS_ABOVE",
+                  value: { kind: "SERIES", seriesId: "EMA_200D" },
+                },
+                {
+                  id: "condition-sector",
+                  metric: {
+                    kind: "OSCILLATOR",
+                    seriesId: "RSI_14D",
+                    source: { kind: "STOCK_SECTOR" },
+                  },
+                  operator: "IS_ABOVE",
+                  value: { kind: "NUMBER", value: 50 },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [],
+      };
+    }
+
+    it("says which sector ETF each monitored stock reads now, and which cannot be evaluated", async () => {
+      const ownerId = (
+        await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } })
+      ).id;
+      const tag = suffix.slice(0, 6).toUpperCase();
+      const created = [];
+      for (const [letter, sector] of [
+        ["A", "Technology"],
+        ["B", "Financial Services"],
+        ["C", "Technology"],
+        ["D", null],
+        ["E", "Conglomerates"],
+      ] as const) {
+        created.push(
+          await prisma.security.create({
+            data: {
+              providerSymbol: `SECT${letter}.${suffix.slice(0, 8)}`,
+              symbol: `SC${letter}${tag}`,
+              name: `Sector ${letter}`,
+              exchangeCode: "NASDAQ",
+              currency: "USD",
+              type: "STOCK",
+              isAdr: false,
+              isActivelyTrading: true,
+              sector,
+            },
+          }),
+        );
+      }
+      const listId = (
+        await prisma.stockList.create({
+          data: {
+            userId: ownerId,
+            name: "Sector List",
+            items: {
+              create: created.map((security) => ({ securityId: security.id })),
+            },
+          },
+        })
+      ).id;
+      const sectorStrategyId = await createStrategyRow(
+        ownerId,
+        "Sector Strategy",
+        sectorDefinition(),
+      );
+      try {
+        const monitor = await createMonitor(owner, {
+          name: "Sector Monitor",
+          strategyId: sectorStrategyId,
+          stockListId: listId,
+        });
+        const detail = (await owner.get(`/monitors/${monitor.id}`).expect(200))
+          .body as MonitorDetailResponse;
+        expect(detail.stockSectors).toEqual([
+          { symbol: `SCA${tag}`, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          {
+            symbol: `SCB${tag}`,
+            sector: "Financial Services",
+            code: "ETF_XLF",
+            ticker: "XLF",
+          },
+          { symbol: `SCC${tag}`, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          { symbol: `SCD${tag}`, sector: null, code: null, ticker: null },
+          { symbol: `SCE${tag}`, sector: "Conglomerates", code: null, ticker: null },
+        ]);
+        // The funds those stocks read get an availability row each, once, in catalog order — and
+        // no fund stands in for the two stocks without one.
+        expect(detail.etfSources?.map((row) => [row.code, row.ticker])).toEqual([
+          ["ETF_XLK", "XLK"],
+          ["ETF_XLF", "XLF"],
+        ]);
+
+        // Reclassified in the catalog: a Monitor reads the current sector, so the detail follows
+        // at once, as the next scan will.
+        await prisma.security.update({
+          where: { id: created[1]!.id },
+          data: { sector: "Energy" },
+        });
+        const after = (await owner.get(`/monitors/${monitor.id}`).expect(200))
+          .body as MonitorDetailResponse;
+        expect(after.stockSectors?.[1]).toEqual({
+          symbol: `SCB${tag}`,
+          sector: "Energy",
+          code: "ETF_XLE",
+          ticker: "XLE",
+        });
+        expect(after.etfSources?.map((row) => row.ticker)).toEqual(["XLK", "XLE"]);
+
+        // A Monitor whose Strategy reads no Stock's Sector rule says nothing about sectors.
+        const plain = await createMonitor(owner, {
+          name: "Plain Monitor",
+          strategyId,
+          stockListId: listId,
+        });
+        const plainDetail = (await owner.get(`/monitors/${plain.id}`).expect(200))
+          .body as MonitorDetailResponse;
+        expect(plainDetail).not.toHaveProperty("stockSectors");
+        expect(plainDetail).not.toHaveProperty("etfSources");
+      } finally {
+        await prisma.monitor.deleteMany({ where: { stockListId: listId } });
+        await prisma.stockList.delete({ where: { id: listId } });
+        await prisma.security.deleteMany({
+          where: { id: { in: created.map((security) => security.id) } },
+        });
+      }
+    });
+  });
 });

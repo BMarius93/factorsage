@@ -939,7 +939,7 @@ test.describe("ETF conditions in the Strategy Builder", () => {
     const triggerPanel = await openPicker(trigger);
     await expect(sourceChoice(triggerPanel, "ETF")).toBeDisabled();
     await expect(triggerPanel.getByTestId("metric-picker-hint")).toHaveText(
-      "An ETF can be read by a condition only, not by a trigger.",
+      "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
     );
     await expect(triggerPanel.getByTestId("metric-picker-etf")).toHaveCount(0);
     await page.keyboard.press("Escape");

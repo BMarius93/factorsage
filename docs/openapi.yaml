@@ -4433,19 +4433,33 @@ components:
                   [SELF, SPOUSE, JOINT, CHILD, DEPENDENT, OTHER, UNSPECIFIED]
 
     StrategyMetricSource:
-      type: object
-      required: [kind, code]
       description: |
         The data source of one technical condition metric. Absent means the evaluated stock itself —
-        exactly what every document saved before ETF sources existed says by carrying nothing.
-        Present, it names one of the twenty Dashboard ETFs by its stable benchmark code
+        exactly what every document saved before data sources existed says by carrying nothing.
+        `ETF` names one of the twenty Dashboard ETFs by its stable benchmark code
         (`docs/decisions/strategy-etf-conditions-v1.md`): the condition is then evaluated against
         that ETF's own completed end-of-day history, identically for every candidate stock on the
-        same eligible session. `SP500` is the SPY ETF. Only `PRICE`, `MOVING_AVERAGE`, `OSCILLATOR`
-        and `RELATIVE_VOLUME` accept the field — on any other metric kind it is refused with
-        `UNKNOWN_FIELD` — an unknown code is refused with `SOURCE_INVALID`, and a trigger naming a
-        source is refused with `SOURCE_NOT_ALLOWED_IN_PART`: ETF-sourced triggers are deliberately
-        not part of V1.
+        same eligible session. `SP500` is the SPY ETF. `STOCK_SECTOR` (Stock's Sector) names no
+        fund: each evaluated stock reads the Select Sector SPDR ETF its current FMP sector maps to
+        (Technology reads XLK, Financial Services XLF, …), and a stock whose sector is missing or not
+        one of FMP's eleven is not evaluable. Only `PRICE`, `MOVING_AVERAGE`, `OSCILLATOR` and
+        `RELATIVE_VOLUME` accept the field — on any other metric kind it is refused with
+        `UNKNOWN_FIELD` — an unknown kind or code is refused with `SOURCE_INVALID`, a code beside
+        `STOCK_SECTOR` with `UNKNOWN_FIELD`, and a trigger naming any source is refused with
+        `SOURCE_NOT_ALLOWED_IN_PART`: sourced triggers are deliberately not part of V1.
+      oneOf:
+        - $ref: "#/components/schemas/StrategyEtfMetricSource"
+        - $ref: "#/components/schemas/StrategyStockSectorMetricSource"
+      discriminator:
+        propertyName: kind
+        mapping:
+          ETF: "#/components/schemas/StrategyEtfMetricSource"
+          STOCK_SECTOR: "#/components/schemas/StrategyStockSectorMetricSource"
+
+    StrategyEtfMetricSource:
+      type: object
+      additionalProperties: false
+      required: [kind, code]
       properties:
         kind: { type: string, const: ETF }
         code:
@@ -4473,6 +4487,26 @@ components:
               ETF_TLT,
               ETF_HYG,
             ]
+
+    StrategyStockSectorMetricSource:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, const: STOCK_SECTOR }
+
+    StockSectorAssignment:
+      type: object
+      required: [symbol, sector, code, ticker]
+      description: |
+        Which sector ETF one stock's Stock's Sector rules read. `code` and `ticker` are null when the
+        stock's FMP sector is missing (`sector` null) or not one of the eleven: those rules were not
+        evaluable for that stock, never read from another fund.
+      properties:
+        symbol: { type: string }
+        sector: { type: [string, "null"] }
+        code: { type: [string, "null"] }
+        ticker: { type: [string, "null"] }
 
     AlternativeDataLookback:
       type: integer
@@ -5527,6 +5561,13 @@ components:
             absent for a run whose strategy reads none. A non-READY row is why the ETF conditions
             could not evaluate.
           items: { $ref: "#/components/schemas/BacktestEtfConditionDiagnostics" }
+        stockSectors:
+          type: array
+          description: |
+            Which sector ETF each stock's Stock's Sector rules read, exactly as the run's snapshot
+            froze it at submission, by symbol; absent unless the strategy reads Stock's Sector.
+            Derived at read time; the stock's current classification, not a historical one.
+          items: { $ref: "#/components/schemas/StockSectorAssignment" }
 
     BacktestEtfConditionDiagnostics:
       type: object
@@ -5820,6 +5861,13 @@ components:
                 state. AWAITING_SESSION means the current session's end-of-day bar is not final
                 yet, so ETF conditions are not evaluable for it until the evening refresh lands.
               items: { $ref: "#/components/schemas/MonitorEtfSourceStatus" }
+            stockSectors:
+              type: array
+              description: |
+                Which sector ETF each monitored stock's Stock's Sector rules read now, from its
+                current FMP sector, by symbol; absent unless the strategy reads Stock's Sector.
+                Every sector ETF named here also has its row in `etfSources`.
+              items: { $ref: "#/components/schemas/StockSectorAssignment" }
 
     MonitorEtfSourceStatus:
       type: object

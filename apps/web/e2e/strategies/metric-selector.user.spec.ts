@@ -478,7 +478,7 @@ test.describe("configurable metrics in the Strategy Builder", () => {
       ),
     ).toBeDisabled();
     await expect(triggerPanel.getByTestId("metric-picker-hint")).toHaveText(
-      "An ETF can be read by a condition only, not by a trigger.",
+      "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
     );
   });
 

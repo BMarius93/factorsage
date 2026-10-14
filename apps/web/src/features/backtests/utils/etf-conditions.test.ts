@@ -128,3 +128,97 @@ describe("etfConditionsGuidance", () => {
     });
   });
 });
+
+describe("etfConditionsGuidance with Stock's Sector rules", () => {
+  const READY_XLF: BacktestEtfConditionDiagnosticsResponse = {
+    code: "ETF_XLF",
+    ticker: "XLF",
+    status: "READY",
+    firstSession: "1998-12-22",
+    latestSession: "2026-10-13",
+    basisGeneration: 0,
+  };
+  const TECH = (symbol: string) => ({
+    symbol,
+    sector: "Technology",
+    code: "ETF_XLK",
+    ticker: "XLK",
+  });
+
+  it("says which fund each stock read, as information, when every stock had one", () => {
+    const guidance = etfConditionsGuidance([READY_XLF, READY_XLK], {
+      totalTrades: 3,
+      stockSectors: [
+        TECH("AAPL"),
+        { symbol: "JPM", sector: "Financial Services", code: "ETF_XLF", ticker: "XLF" },
+        TECH("MSFT"),
+      ],
+    })!;
+    expect(guidance.tone).toBe("info");
+    expect(guidance.lines.at(-1)).toEqual({
+      code: "STOCK_SECTOR",
+      ticker: "Stock's Sector",
+      ready: true,
+      text: "Read per stock from its FMP sector: JPM reads XLF, AAPL and MSFT read XLK.",
+    });
+  });
+
+  it("warns, naming the stocks and why, when a stock had no sector ETF — even with every fund read", () => {
+    const guidance = etfConditionsGuidance([READY_XLK], {
+      totalTrades: 0,
+      stockSectors: [
+        TECH("AAPL"),
+        { symbol: "NOSEC", sector: null, code: null, ticker: null },
+        { symbol: "ODD", sector: "Conglomerates", code: null, ticker: null },
+      ],
+    })!;
+    expect(guidance.tone).toBe("warning");
+    expect(guidance.title).toBe(
+      "This run made no trades, and its ETF conditions could not be evaluated",
+    );
+    expect(guidance.lines.at(-1)).toEqual({
+      code: "STOCK_SECTOR",
+      ticker: "Stock's Sector",
+      ready: false,
+      text: "Read per stock from its FMP sector: AAPL reads XLK. No sector ETF for NOSEC (no FMP sector) and ODD (“Conglomerates” is not one of the eleven sectors), so their Stock's Sector rules were not evaluated.",
+    });
+    expect(guidance.note).toBe(
+      "The Stock's Sector rules of NOSEC and ODD never matched in this run, so its trades — or its having none — do not show what this strategy does with that data. Use “Edit and run again” to change those rules, or run the backtest again once the data is available.",
+    );
+  });
+
+  it("names an unreadable sector fund and an unclassified stock in one note", () => {
+    const guidance = etfConditionsGuidance(
+      [{ code: "ETF_XLF", ticker: "XLF", status: "NOT_BOOTSTRAPPED" }, READY_XLK],
+      {
+        totalTrades: 2,
+        stockSectors: [
+          TECH("AAPL"),
+          { symbol: "JPM", sector: "Financial Services", code: "ETF_XLF", ticker: "XLF" },
+          { symbol: "NOSEC", sector: null, code: null, ticker: null },
+        ],
+      },
+    )!;
+    expect(guidance.tone).toBe("warning");
+    expect(guidance.title).toBe("Some ETF conditions could not be evaluated");
+    expect(guidance.note).toContain(
+      "Rules that read XLF and the Stock's Sector rules of NOSEC never matched in this run",
+    );
+  });
+
+  it("speaks for a sector-only run even when no stock resolved to a fund", () => {
+    const guidance = etfConditionsGuidance([], {
+      totalTrades: 0,
+      stockSectors: [{ symbol: "NOSEC", sector: null, code: null, ticker: null }],
+    })!;
+    expect(guidance.tone).toBe("warning");
+    expect(guidance.lines).toEqual([
+      {
+        code: "STOCK_SECTOR",
+        ticker: "Stock's Sector",
+        ready: false,
+        text: "No sector ETF for NOSEC (no FMP sector), so its Stock's Sector rules were not evaluated.",
+      },
+    ]);
+  });
+});
