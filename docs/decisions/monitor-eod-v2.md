@@ -13,6 +13,7 @@ never intent.
 | 1 | `feat/eod-finality` | Finalized EOD bars everywhere (`eod-finality-v1.md`) |
 | 2 | `feat/stock-eod-worker` | The `stock-eod` child and the ongoing-membership predicate (§1, §2) |
 | 3 | `feat/monitor-eod-evaluator` | The per-session EOD evaluation, checkpoints and origins (§3) |
+| 4 | `feat/monitor-eligibility` | Ongoing membership gating every level; administrative membership endings (§4) |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -33,8 +34,7 @@ not a current membership. Earlier closed periods stay in storage and play no par
 `isBuyWindowEligible` — every period a member ever had, BUY only — unchanged; nothing in a backtest
 calls the new predicate.
 
-Step 2 uses it to decide which securities are prepared. Applying it to evaluation (BUY, SELL and
-FINAL EXIT alike) and to the administrative closure of a membership edited away is step 4.
+Step 2 uses it to decide which securities are prepared; step 4 applies it to evaluation (§4).
 
 ## 2. Stock EOD preparation: the `stock-eod` child
 
@@ -217,8 +217,7 @@ rollback needs no down-migration.
 
 ### 3.7 What stays, and limitations
 
-- **Eligibility is still V1's** in this step: the BUY window gates BUY, SELL and FINAL EXIT are
-  decided for every member. Step 4 applies ongoing membership (§1) to all three.
+- **Eligibility** was still V1's in this step (BUY window, BUY only); step 4 replaced it (§4).
 - **The V1 cycle** (`monitor-cycle.ts`), the quote read and the Monitor frame projection remain for
   the capacity bench and their tests until step 8 removes them. The V1 write path now labels what it
   writes `LIVE_QUOTE` with the backfill's origin mapping, so its rows can never pass for EOD ones.
@@ -229,4 +228,50 @@ rollback needs no down-migration.
   newer session supersedes it. Until then a halted security's members report the last session it
   printed — the truth — and are never moved past a session it might still print. When it prints
   again, its new bars are stepped in order; the halted days have no bar and are never observed.
+
+## 4. Ongoing membership in the evaluation
+
+Step 4 applies §1 to the evaluation. A member is **current** on the expected session when
+`ongoingMembershipStart` is `null` ("Always eligible") or a start on or before that session.
+
+**Gating.** A member that is not current is not evaluated at all — no frame read, no level, no
+checkpoint — and is counted in the pass summary as `membersNotCurrent`. A current member is
+evaluated on every level alike: `decideLevelSessions` receives `monitoredOn(date)` (the membership
+had begun by `date`) in place of V1's BUY-only `eligibleOn`. A catch-up never steps a session before
+the membership's start, and a reconstruction's history treats those sessions as ineligible — a
+resting step for every level — so the state it reaches is the full replay **from the membership's
+start**. Closed periods play no part.
+
+**Membership ending: `MEMBERSHIP_CHANGED`.** A new value of `MonitorTransitionReason`: the security is
+still in the List but is no longer a current member there. The reconciliation receives the listed
+securities beside the evaluated ones; a state whose security is listed but not current is ended
+with `MEMBERSHIP_CHANGED` (origin `ADMINISTRATIVE`, no session date), its occurrence resolved and its
+row and checkpoint deleted — the same shape as `MEMBER_REMOVED`, which stays for a security that
+left the List. It is never `CONDITIONS_ENDED`: an edit is not a market observation.
+`BUY_WINDOW_CLOSED` is no longer recorded by the Monitor (catch-up sessions are always member
+sessions) and stays on V1 rows as recorded; there is no data migration of reasons.
+
+**A changed ongoing membership resets the member.** The checkpoint now records which membership its
+progress belongs to (`membershipRecorded`, `membershipStart`). When the member's current ongoing
+start differs — a re-entry after a gap, a start moved either way, `FULL` replaced by an open period —
+the state was built from sessions that are not this membership's. The member is then decided as if
+it had no state, and `applyMemberEvaluation` (`resetMembership`) ends every existing state of the
+member with `MEMBERSHIP_CHANGED` and deletes it **in the same transaction** as the rebuilt states and
+the new checkpoint, so a crash leaves either the old membership or the new one, never neither.
+Checkpoints written before the columns existed (`membershipRecorded = false`) are adopted under the
+member's current membership without a reset, as are members with V1 state and no checkpoint: the
+cutover replays nothing.
+
+**API.** The Monitor detail lists the current members only (on the newest finalized date), so a
+stock outside the universe is not shown as unchecked or undecided. The List's own size is unchanged
+in the summary; the coverage line of step 6 says how many members are current.
+
+**Migration `20261015090000_monitor_ongoing_membership`.** Adds the enum value and the two checkpoint
+columns (`membershipRecorded` default `false`, `membershipStart` nullable). Additive; the previous
+release never writes the value and ignores the columns.
+
+**Unchanged.** Backtests keep `isBuyWindowEligible`, BUY only, over every period a member ever had;
+nothing in a backtest calls the Monitor predicate. The stock EOD child already prepared current
+members only (§2). The V1 cycle kept for the capacity bench keeps its BUY-window rule until step 8
+removes it. The data-correctness signals audit's independent oracle now restates the ongoing rule.
 

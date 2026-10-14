@@ -133,6 +133,13 @@ session is observed.
 
 ### 2.5 Buy-window interaction
 
+> **Superseded for Monitors (2026-10-15)** by `monitor-eod-v2.md` §4: a Monitor's universe is the
+> List's *current* members — `FULL`, or an open-ended period that has begun — gating BUY, SELL and
+> FINAL EXIT alike, and a member edited out ends with `MEMBERSHIP_CHANGED`. The built-in Lists'
+> "date → Present" periods are current memberships from their start, so every built-in member stays
+> monitored; only SELL and FINAL EXIT now also begin at that start. Backtests keep the rule below.
+> Kept as the record of the V1 decision.
+
 Canonical List BUY eligibility continues to gate **BUY only**.
 
 For BUY levels:

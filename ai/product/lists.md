@@ -65,8 +65,9 @@ half-written configuration and a failure leaves nothing behind.
 > existing positions.
 
 That paragraph is the definition; everything below is how it is enforced. Each list item
-independently restricts when a strategy/backtest may open a **new BUY** in that stock, and equally
-when a Monitor may report a **BUY** Signal for it. Selling is never restricted.
+independently restricts when a strategy/backtest may open a **new BUY** in that stock. Selling is
+never restricted. A Monitor reads the same periods differently — only the **ongoing** one counts,
+and it gates every level (§ Membership under a Monitor).
 
 **The user-facing name is "membership".** `buyWindow` stays the internal name — schema, domain,
 contracts, engine, Monitor — because it is what the mechanism _does_, and renaming it across the
@@ -107,20 +108,31 @@ The API replaces an item's complete configuration atomically
 result; there is no incremental range endpoint. Switching CUSTOM → FULL deletes every persisted
 row. The browser may pre-validate, but the API response is what gets rendered after save.
 
-### Buy windows under a Monitor
+### Membership under a Monitor
 
-A backtest covers a date range; a Monitor evaluates **one** date — its current observation. The same
-eligibility rule applies to that single date:
+A backtest asks "was this stock a member on that past date?" over every period it ever had. A
+Monitor asks a different question — "is this stock a member **now**?" — and the answer is its
+**ongoing** membership only (`docs/decisions/monitor-eod-v2.md` §4):
 
-- a BUY level neither starts a setup nor opens a Signal for a symbol whose buy window does not
-  admit the current observation date, and an active BUY Signal whose window closes is resolved;
-- SELL and FINAL EXIT are unrestricted, exactly as they are in a backtest.
+| Membership | Monitored? |
+| --- | --- |
+| `FULL` ("Always eligible") | yes |
+| `CUSTOM` with an open-ended period (`Present`) that has begun | yes, from that period's start |
+| `CUSTOM` with an open-ended period starting later | not yet |
+| `CUSTOM` with bounded periods only — even one ending in the future | no |
 
-`isBuyWindowEligible` in `@intrinsic/domain` is the one implementation of that question; the backtest
-engine and the Monitor cycle both call it and neither restates it.
+`Present` is an open-ended meaning, not a comparison with today: a period ending in 2030 is not a
+current membership. Earlier closed periods stay stored and play no part.
 
-A Monitor's membership handling is deliberately **not** symmetric with a SELL: a member whose
-window has closed stops producing BUY Signals and nothing else happens. Membership ending is not a
+The rule gates the **whole Strategy** — BUY, SELL and FINAL EXIT alike: a stock that is not a
+current member produces no Signal of any kind, and sessions before its ongoing period began are not
+part of its Monitor history. When an edit makes a member stop being current, its active Signals end
+with the administrative reason "no longer a current list member" (`MEMBERSHIP_CHANGED`) — never as
+if its conditions had ended. When an edit changes which period is ongoing (a re-entry after a gap,
+a moved start), its state is ended the same way and rebuilt from the new period.
+
+`isOngoingListMember` in `@intrinsic/domain` is the Monitor's predicate; `isBuyWindowEligible` stays
+the backtest's, and neither consumer calls the other's. Membership ending is still not a
 liquidation event, and there is no forced exit anywhere in the product.
 
 Do not ship a historical index-membership dataset, and do not derive membership from anything but
@@ -132,7 +144,7 @@ A `StockList` is mutable configuration. **A completed or running backtest must n
 current state of a list.** A backtest snapshots the selected universe and each member's buy-window
 configuration at submission time, so editing or deleting a list later cannot retroactively change
 historical results (`backtests.md`). A Monitor is the deliberate opposite: it snapshots nothing and
-reads the list's current membership and windows at the start of every scan cycle, so an edit is
+reads the list's current membership and periods at the start of every scan cycle, so an edit is
 watched from the next cycle on and a removed member's active Signals are resolved by that cycle
 (`monitors.md`, "Lifecycle in one place"). The two consumers of a list therefore answer "which
 universe?" differently, and both on purpose.
