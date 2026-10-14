@@ -474,6 +474,15 @@ describeInfrastructure("ETF technical contexts over PostgreSQL and Redis", () =>
       basisGeneration: 0,
       latestSession: "2026-10-05",
     });
+    // What a backtest submitted now would pin: the API reads the same row (`freezeEtfSeries`),
+    // and no row means generation 0.
+    const pinnedAtSubmission =
+      (
+        await prisma.benchmarkSeriesPriceBasis.findUnique({
+          where: { seriesId: series.id },
+        })
+      )?.generation ?? 0;
+    expect(pinnedAtSubmission).toBe(0);
 
     // The scheduled refresh — a provider user by design — meets a 4:1 split the provider folded
     // into every earlier bar, and replaces the stored history in one generation.
@@ -485,6 +494,16 @@ describeInfrastructure("ETF technical contexts over PostgreSQL and Redis", () =>
     expect(refresh).toMatchObject({ status: "REBASED", basisGeneration: 1 });
 
     const after = await load(["ETF_XLK"]);
+    // The run reads the basis in force now and reports it, so its result can say it differs from
+    // what its submission pinned: the pin's source and the reader agree on the new generation.
+    expect(
+      (
+        await prisma.benchmarkSeriesPriceBasis.findUniqueOrThrow({
+          where: { seriesId: series.id },
+        })
+      ).generation,
+    ).toBe(1);
+    expect(after.diagnostics[0]?.basisGeneration).not.toBe(pinnedAtSubmission);
 
     expect(refusing.requests).toEqual([]);
     expect(after.diagnostics).toEqual([

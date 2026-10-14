@@ -806,6 +806,13 @@ export type BacktestEtfConditionDiagnosticsResponse = {
   latestSession?: string;
   /** The price-basis generation the run's ETF bars were read under, for reproducibility. */
   basisGeneration?: number;
+  /**
+   * The generation the run's snapshot recorded at submission, present only when it differs from
+   * `basisGeneration`: the provider restated the fund's history (a re-base) between submission and
+   * the run reading it, so the run computed on the restated history. Derived at read time from the
+   * immutable snapshot and the immutable result; never stored.
+   */
+  submittedBasisGeneration?: number;
 };
 
 export type BacktestResultResponse = {
@@ -987,6 +994,11 @@ export type BacktestSnapshotActor = {
 /**
  * One ETF condition source as a run froze it: the stable code the definition names, the immutable
  * series it resolved to at submission, and the price basis then in force.
+ *
+ * The series is binding — execution reads that `seriesId` and nothing else. The basis generation is
+ * a record, not a requirement: like a stock's, an ETF's basis is the one in force when the run
+ * reads it, read once and never mixed (`docs/decisions/historical-price-basis-v1.md` §9). When it
+ * differs from the one recorded here, the result says so (`submittedBasisGeneration`).
  */
 export type BacktestSnapshotEtfSeries = {
   code: string;
@@ -1128,9 +1140,10 @@ export type BacktestRunSnapshot = {
    * resolved to, exactly as `benchmark` and `executionCalendar` pin theirs, so a catalog appending
    * a new series version can never change what a queued run's conditions read. Execution resolves
    * each context series by this id and never by code. `basisGeneration` is the price basis in
-   * force at submission, recorded so a re-executed run whose numbers differ is explainable — ETF
-   * bars, like stock bars, are replaced rather than versioned, which is the documented
-   * reproducibility boundary; a run never mixes bases within itself either way.
+   * force at submission, recorded — not enforced — so a run that read a restated history says so
+   * in its result, and a re-executed run whose numbers differ is explainable. ETF bars, like stock
+   * bars, are replaced rather than versioned, which is the documented reproducibility boundary; a
+   * run never mixes bases within itself either way, because it reads each ETF exactly once.
    *
    * **Optional, and absent on every run whose strategy reads no ETF** — including every run that
    * existed before the feature — so those snapshots and their `snapshotHash` stay byte-for-byte

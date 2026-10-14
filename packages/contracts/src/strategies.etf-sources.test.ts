@@ -97,6 +97,22 @@ describe("the ETF source catalog", () => {
     ]);
   });
 
+  it("names the groups in the Metric picker as the decision does, leaving the Dashboard's names alone", () => {
+    // The picker's groups (owner ruling, 2026-10-14): `Sectors`, not the Dashboard's
+    // `Sector Performance` heading. The Dashboard's own names stay exactly the catalog's — the
+    // drift guard in `apps/api` holds `label` and `shortLabel` to it.
+    expect(STRATEGY_ETF_SOURCE_GROUPS.map((group) => group.pickerLabel)).toEqual([
+      "Benchmarks",
+      "Sectors",
+      "Macro & Alternatives",
+    ]);
+    expect(STRATEGY_ETF_SOURCE_GROUPS.map((group) => group.label)).toEqual([
+      "Benchmarks",
+      "Sector Performance",
+      "Macro & Alternatives",
+    ]);
+  });
+
   it("stores the benchmark code, with SPY naming the existing SP500 series", () => {
     expect(findStrategyEtfSource("SP500")?.ticker).toBe("SPY");
     expect(isStrategyEtfSourceCode("SP500")).toBe(true);

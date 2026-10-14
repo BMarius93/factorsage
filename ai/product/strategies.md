@@ -953,7 +953,7 @@ nine-category picker of 2026-10-11, for the stock and for an ETF alike). The con
 picker with two parts:
 
 1. **Data source** — `Stock` (the default: the evaluated security) or `ETF`, with one of the twenty
-   Dashboard funds chosen from a grouped list (Benchmarks, Sector Performance, Macro & Alternatives).
+   Dashboard funds chosen from a grouped list (Benchmarks, Sectors, Macro & Alternatives).
    A Trigger row shows the ETF choice disabled, with the reason beside it.
 2. **Metric library** — the source's families as tabs: **Technical**, **Fundamentals**,
    **Valuation**, **Activity** and, where a position exists (SELL, FINAL EXIT), **Position**.

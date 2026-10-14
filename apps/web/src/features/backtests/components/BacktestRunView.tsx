@@ -34,6 +34,7 @@ import forms from "../../../components/ui/forms.module.css";
 import { useBacktestRun } from "../hooks/use-backtest-run";
 import { useBacktestTrades } from "../hooks/use-backtest-trades";
 import { failureGuidance } from "../utils/failure";
+import { etfConditionsGuidance } from "../utils/etf-conditions";
 import { rerunHref } from "../utils/prefill";
 import {
   formatCount,
@@ -476,6 +477,14 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   }
   const snapshot = failed ? null : (arrived ?? lastSnapshotRef.current);
   const curve = snapshot?.curve ?? [];
+  // Read only from the durable result, so it appears with the numbers it qualifies and never
+  // beside the last live snapshot.
+  const etfGuidance =
+    completed && result
+      ? etfConditionsGuidance(result.etfConditions, {
+          totalTrades: result.summary.totalTrades,
+        })
+      : null;
 
   return (
     <PageContainer>
@@ -523,6 +532,14 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 }
               : {})}
           />
+
+          {/* A fund whose data the run could not read is the first thing said about the result:
+              its rules never matched, so every number below — no trades above all — has to be read
+              in that light. Placed before the chart, where it is seen before any of them; the way
+              to act on it is the header's own "Edit and run again", directly above. */}
+          {etfGuidance?.tone === "warning" ? (
+            <BacktestEtfConditions guidance={etfGuidance} />
+          ) : null}
 
           {terminal ? null : (
             <div data-testid="backtest-progress" aria-label="Backtest progress">
@@ -645,10 +662,11 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           )}
         </SectionCard>
 
-        {/* Whether the ETFs the strategy reads could be evaluated: beside the result it explains,
-            and present only for a completed run whose strategy reads one. */}
-        {completed ? (
-          <BacktestEtfConditions rows={run.result?.etfConditions} />
+        {/* That every ETF the strategy reads could be evaluated: beside the result it explains,
+            and present only for a completed run whose strategy reads one. A fund that could not
+            be read is a warning instead, at the top of the result (above). */}
+        {etfGuidance?.tone === "info" ? (
+          <BacktestEtfConditions guidance={etfGuidance} />
         ) : null}
 
         {/* The inputs follow the outcome, and stay out of the way until asked for. */}

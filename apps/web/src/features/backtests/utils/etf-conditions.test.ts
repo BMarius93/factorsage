@@ -20,7 +20,7 @@ describe("etfConditionsGuidance", () => {
   it("states the sessions each readable fund was read over, as information", () => {
     const guidance = etfConditionsGuidance([READY_XLK])!;
     expect(guidance.tone).toBe("info");
-    expect(guidance.title).toBe("ETF conditions");
+    expect(guidance.title).toBe("ETF conditions were evaluated");
     expect(guidance.lines).toEqual([
       {
         code: "ETF_XLK",
@@ -29,9 +29,32 @@ describe("etfConditionsGuidance", () => {
         text: "Read from its first session, Dec 22, 1998, through Oct 13, 2026.",
       },
     ]);
+    // A rule that did not match on available data is the strategy's own answer — said, so a
+    // zero-match run is distinguishable from one whose data was missing.
+    expect(guidance.note).toContain(
+      "Every ETF this strategy reads had data for this run",
+    );
+    expect(guidance.note).toContain("that is the strategy's own result");
     // Why a rule may still not have fired: pre-listing dates and warm-up, said once.
     expect(guidance.note).toContain("Before a fund's first session");
     expect(guidance.note).toContain("warming up");
+  });
+
+  it("stays information on a zero-trade run whose ETF data was all there", () => {
+    expect(etfConditionsGuidance([READY_XLK], { totalTrades: 0 })).toMatchObject({
+      tone: "info",
+      title: "ETF conditions were evaluated",
+    });
+  });
+
+  it("says when the run read a history restated after it was submitted", () => {
+    const guidance = etfConditionsGuidance([
+      { ...READY_XLK, basisGeneration: 2, submittedBasisGeneration: 1 },
+    ])!;
+    expect(guidance.tone).toBe("info");
+    expect(guidance.lines[0]?.text).toBe(
+      "Read from its first session, Dec 22, 1998, through Oct 13, 2026. Its price history was restated after this backtest was submitted, so the run used the restated history.",
+    );
   });
 
   it("warns as soon as one fund could not be read, naming the cause of each", () => {
@@ -53,21 +76,41 @@ describe("etfConditionsGuidance", () => {
     ]);
     const text = (ticker: string) =>
       guidance.lines.find((line) => line.ticker === ticker)?.text;
-    expect(text("GLD")).toContain("has not been loaded yet");
+    expect(text("GLD")).toContain("has not been loaded");
     expect(text("TLT")).toContain("has not completed a refresh");
     expect(text("HYG")).toContain("no completed session");
     // The one cause a re-run can fix says so.
     expect(text("USO")).toContain("Run the backtest again");
+    // What the missing data did to this run, and what to do about it, naming every fund.
     expect(guidance.note).toBe(
-      "A condition that cannot be evaluated never matches, so a signal that needs it did not fire in this run.",
+      "Rules that read GLD, TLT, HYG and USO never matched in this run, so its trades — or its having none — do not show what this strategy does with those funds' data. Use “Edit and run again” to change the rules that read them, or run the backtest again once the data is available.",
     );
   });
 
   it("says so plainly when none of them could be read", () => {
-    const guidance = etfConditionsGuidance([
-      { code: "ETF_GLD", ticker: "GLD", status: "NOT_BOOTSTRAPPED" },
-    ])!;
+    const guidance = etfConditionsGuidance(
+      [{ code: "ETF_GLD", ticker: "GLD", status: "NOT_BOOTSTRAPPED" }],
+      { totalTrades: 4 },
+    )!;
     expect(guidance.title).toBe("The ETF conditions could not be evaluated");
+    expect(guidance.note).toBe(
+      "Rules that read GLD never matched in this run, so its trades — or its having none — do not show what this strategy does with that fund's data. Use “Edit and run again” to change the rules that read it, or run the backtest again once the data is available.",
+    );
+  });
+
+  it("puts a zero-trade result and the missing data in one title", () => {
+    // The result most easily mistaken for a strategy that found nothing: both facts, side by
+    // side, without claiming one caused the other.
+    for (const rows of [
+      [{ code: "SP500", ticker: "SPY", status: "NOT_BOOTSTRAPPED" }],
+      [READY_XLK, { code: "SP500", ticker: "SPY", status: "LOAD_FAILED" }],
+    ] as BacktestEtfConditionDiagnosticsResponse[][]) {
+      expect(etfConditionsGuidance(rows, { totalTrades: 0 })).toMatchObject({
+        tone: "warning",
+        title:
+          "This run made no trades, and its ETF conditions could not be evaluated",
+      });
+    }
   });
 
   it("reads a status it does not know as unavailable, never as fine", () => {

@@ -447,8 +447,11 @@ test.describe("PRO_USER backtests", () => {
       const response = await page.request.get(
         `${apiBaseUrl()}/backtests/${runIdFromUrl(runUrl)}`,
       );
+      expect(response.ok()).toBe(true);
       const detail = (await response.json()) as BacktestRunDetailResponse;
-      return detail.result?.curve.length ?? 0;
+      return detail.status === "COMPLETED"
+        ? (detail.result?.curve.length ?? 0)
+        : 0;
     };
     await expect.poll(durableCurvePoints).toBeGreaterThan(0);
     await expect(chart).toHaveAttribute(

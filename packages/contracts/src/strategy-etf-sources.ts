@@ -37,9 +37,17 @@ export type StrategyEtfSource = {
 
 export type StrategyEtfSourceGroup = {
   readonly id: StrategyEtfGroupId;
+  /** The Dashboard's heading for the group, mirrored from the market-overview catalog. */
   readonly label: string;
-  /** The compact name where the full label does not fit. */
+  /** The Dashboard's compact name where the full label does not fit, mirrored likewise. */
   readonly shortLabel: string;
+  /**
+   * How the Strategy Metric picker names the group: the product decision's picker groups,
+   * `Benchmarks`, `Sectors` and `Macro & Alternatives` (owner ruling, 2026-10-14). Strategy display
+   * metadata only — the Dashboard's `label` and `shortLabel` above are untouched by it, and no
+   * identity is derived from it.
+   */
+  readonly pickerLabel: string;
   readonly etfs: readonly StrategyEtfSource[];
 };
 
@@ -49,6 +57,7 @@ export const STRATEGY_ETF_SOURCE_GROUPS = [
     id: "BENCHMARKS",
     label: "Benchmarks",
     shortLabel: "Benchmarks",
+    pickerLabel: "Benchmarks",
     etfs: [
       { code: "SP500", ticker: "SPY", label: "S&P 500", group: "BENCHMARKS" },
       {
@@ -81,6 +90,7 @@ export const STRATEGY_ETF_SOURCE_GROUPS = [
     id: "US_SECTORS",
     label: "Sector Performance",
     shortLabel: "Sectors",
+    pickerLabel: "Sectors",
     etfs: [
       {
         code: "ETF_XLK",
@@ -149,6 +159,7 @@ export const STRATEGY_ETF_SOURCE_GROUPS = [
     id: "MACRO_ALTERNATIVES",
     label: "Macro & Alternatives",
     shortLabel: "Macro",
+    pickerLabel: "Macro & Alternatives",
     etfs: [
       {
         code: "ETF_GLD",

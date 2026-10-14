@@ -287,6 +287,8 @@ const XLC_BARS: BenchmarkDailyPrice[] = XLC_SESSIONS.map((date, index) => ({
 
 type EtfFixture = {
   bars: BenchmarkDailyPrice[];
+  /** The price basis the store holds now; the pins below record 3. */
+  basisGeneration?: number;
   /** Coverage the floor gate reports as missing; empty = anchored. */
   missingFromFloor?: Required<DateRange>[];
 };
@@ -318,7 +320,7 @@ class FixtureEtfContexts implements EtfContextLoader {
     const fixture = this.bySeriesId.get(series.id);
     return {
       seriesId: series.id,
-      basisGeneration: 3,
+      basisGeneration: fixture?.basisGeneration ?? 3,
       rows: fixture ? [...fixture.bars] : [],
       missing: [],
       source: "POSTGRESQL",
@@ -928,6 +930,34 @@ describe("ETF-sourced Conditions in SELL and FINAL EXIT", () => {
     // The stock-only run never touched the ETF loader at all.
     expect(stockOnly.etfLoader.calls).toEqual([]);
     expect(stockOnly.write.etfConditions).toBeUndefined();
+  });
+});
+
+describe("an ETF's price basis restated between submission and execution", () => {
+  it("computes on the one basis the run reads, records it, and is not refused", async () => {
+    // Submitted when XLK was on generation 3 (the pin); by the time the worker reads it the
+    // provider has re-based it to generation 4, and the bars below are the restated ones. As for
+    // a stock (`historical-price-basis-v1.md` §9), the basis is the one in force when the run
+    // reads it: the pin records what was in force at submission and binds nothing.
+    const restated = new Map(READY_ETF_FIXTURES);
+    restated.set("series-xlk", { bars: XLK_BARS, basisGeneration: 4 });
+    const { result, write, etfLoader } = await execute(
+      strategyOf([XLK_RSI_ABOVE_50, GLD_RVOL_ABOVE_1_5]),
+      { etfFixtures: restated, stockRsi: () => 10 },
+    );
+    // The same hand-derived trades as on any basis: every XLK value comes from the bars read.
+    expect(strategyTrades(result)).toEqual([["2024-04-10", "BUY"]]);
+    // The generation actually read is what the result records, beside the unchanged GLD.
+    expect(
+      write.etfConditions?.map((row) => [row.ticker, row.basisGeneration]),
+    ).toEqual([
+      ["GLD", 3],
+      ["XLK", 4],
+    ]);
+    // Read exactly once: a run cannot meet two bases of one fund, whatever happens after the read.
+    expect(
+      etfLoader.calls.filter((call) => call === "readFullBenchmarkHistory:series-xlk"),
+    ).toHaveLength(1);
   });
 });
 

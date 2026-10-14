@@ -379,7 +379,7 @@ executions of one snapshot can change results, exactly as `DERIVED_STATE_REVISIO
 `basisGeneration` and the run's diagnostics record the generation actually read, so a difference is
 explainable rather than mysterious. Exact re-execution from retained data is not guaranteed today
 for stocks and is not claimed for ETF conditions; a run never mixes bases *within* itself (one
-consistent read per ETF).
+consistent read per ETF). §13.6 states precisely what this means, as built and tested.
 
 ## 7. Unavailability diagnostics (Decision 9)
 
@@ -519,9 +519,11 @@ in §10.
   the catalog does not define) and `SOURCE_NOT_ALLOWED_IN_PART` (an ETF source on a Trigger). A
   source on a metric kind that has none is refused structurally, as `UNKNOWN_FIELD`, because the
   key simply is not one of that kind's keys.
-- **Diagnostics are a status per ETF, not counters per cause** (§7 proposed counters).
-  `BacktestEtfConditionDiagnosticsResponse` is `{code, ticker, status, firstSession?,
-  latestSession?, basisGeneration?}` with `status` one of `READY`, `NOT_BOOTSTRAPPED`,
+- **Diagnostics are a status per ETF, not counters per cause** (§7 proposed counters; accepted by
+  the owner on 2026-10-14, provided missing data is clearly distinguishable from a valid zero-match
+  result — see §13.7). `BacktestEtfConditionDiagnosticsResponse` is `{code, ticker, status,
+  firstSession?, latestSession?, basisGeneration?, submittedBasisGeneration?}` with `status` one of
+  `READY`, `NOT_BOOTSTRAPPED`,
   `NOT_SYNCHRONIZED`, `NO_FINALIZED_SESSIONS`, `LOAD_FAILED`. Counting undecidable sessions per
   cause would have meant threading a reason through the evaluator's tri-state result, which Decision
   9 rules out ("tri-state semantics unchanged"); the fund's first and latest evaluable session say
@@ -539,9 +541,10 @@ in §10.
   coverage stays one interval.
 - **A Monitor's ETF read failure degrades the conditions naming that ETF; it never fails the cycle**
   (§4.1 proposed this; recorded here because it is a deliberate difference from a quote outage).
-- **The picker's ETF group names are the catalog's `label`s** — `Benchmarks`, `Sector Performance`,
-  `Macro & Alternatives` — per Decision 8, where the product decision's prose says `Sectors`. One
-  word, one line to change (`MetricPicker.tsx`), and the owner's call.
+- **The picker's ETF group names are `Benchmarks`, `Sectors` and `Macro & Alternatives`** (owner
+  ruling, 2026-10-14). They are the contracts projection's own `pickerLabel`, Strategy display
+  metadata beside the mirrored Dashboard `label` and `shortLabel`, which stay the catalog's — the
+  Dashboard still heads the group `Sector Performance`, and no identity changes.
 - **QA fixtures.** The nineteen `ETF_*` fixtures hold 240 weeks with floor-anchored coverage, so
   every one of the 21 metrics, the 200-week pair included, is evaluable on the hermetic stack. The
   `SP500` fixture is unchanged: it is the on-demand backtest benchmark and keeps its exact coverage
@@ -621,12 +624,62 @@ Monitor cycle needs, and it would be the product's first cache of a derived benc
   coverage alone never anchors it.
 - **The migration** is additive (one nullable column) and needs no backfill: a run completed before
   it has no ETF rules to describe.
-- **Replace-not-version reproducibility** (§6): a snapshot pins each ETF's series and records the
-  basis generation at submission, and the result records the generation read; a tail correction or
-  a re-base between two executions of one snapshot can still change the outcome, exactly as it can
-  for a stock.
+- **Replace-not-version reproducibility** (§6, made precise in §13.6): a snapshot pins each ETF's
+  series and records the basis generation at submission, and the result records the generation
+  read; a tail correction or a re-base between two executions of one snapshot can still change the
+  outcome, exactly as it can for a stock.
 - **A backtest ending today** may evaluate the stock's in-progress last bar while withholding the
   ETF side of a rule for the same session (§4.1). Deliberate, following Decision 1.
 - **Popover above the rule.** A content-sized popover that opens above its row is anchored at its
   lower edge, so changing family moves its upper edge. Beneath the row nothing moves. The
   alternative is a held height, which is the blank panel the decision removed.
+
+### 13.6 The price basis of an ETF a run reads: what is and is not reproducible
+
+Verified on 2026-10-14 at the owner's request. The rule is the stock rule of
+`docs/decisions/historical-price-basis-v1.md` §9 — a run's basis is the one in force when it reads
+the data, held for the attempt, never mixed — applied to a fund read exactly once.
+
+| Moment | What happens | Proven by |
+| --- | --- | --- |
+| Submission | The snapshot pins the ETF's immutable `seriesId` and records the basis generation then in force (`BenchmarkSeriesPriceBasis.generation`; no row is 0). | `backtests.integration.test.ts` "freezes each named ETF's immutable series and basis generation" |
+| Execution | The worker reads the pinned series once, on the basis in force at that moment, and computes the whole context from that one read. The series pin is binding; the recorded generation is not a requirement, and a different one is neither refused nor reconciled. | `backtest-etf-conditions.test.ts` "computes on the one basis the run reads, records it, and is not refused"; `etf-context.integration.test.ts` re-base case |
+| During the run | Nothing is read again, so a re-base after the read cannot reach the run: no mixture of bases is possible. | the same worker test (one `readFullBenchmarkHistory` per fund) |
+| Result | `etfConditions[].basisGeneration` is the generation read. When it differs from the snapshot's, the API adds `submittedBasisGeneration` — derived at read time from the two immutable documents, never stored — and the run page says the run used a history restated after submission. | `backtests.integration.test.ts` "serves the per-ETF diagnostics a run wrote, and names a basis restated after submission"; `etf-conditions.test.ts` |
+
+**Reproducible:** a completed run's stored result, which never changes; the computation itself
+(the same stored bars give bit-identical values, warm, after a Redis loss or from PostgreSQL
+alone); which series every rule read; which basis generation it read; and whether that differed
+from the one in force at submission.
+
+**Not reproducible:** the inputs of a run after its fund's history changed. Bars are replaced, not
+versioned, so after a re-base (generation bump) or an ordinary correction of a recent bar (no bump)
+the earlier bars no longer exist. Re-executing an old snapshot then computes on today's bars — on a
+re-base the restated ones, which correct indicator windows that straddle the split — and can give a
+different result. That is the same boundary as for stocks, and the reason a completed run's stored
+result, not a re-execution, is the record.
+
+**Why not refuse a restated basis.** Refusing would make a queued run fail for a correction that
+only improves its inputs, while a stock re-based in the same window is simply read on its new basis
+(§9 of the price-basis decision fails a stock only when the basis changes *during* its reads). Every
+ETF rule is self-relative — a fund's Price against its own averages, a unitless RSI threshold, a
+volume multiple — so a uniform restatement changes only windows that straddle the ex-date, and the
+restated history is the correct one for them.
+
+### 13.7 Owner rulings on the PR (2026-10-14)
+
+1. The Metric picker names the ETF groups `Benchmarks`, `Sectors`, `Macro & Alternatives`
+   (`pickerLabel`); canonical identifiers and the Dashboard catalog's names are unchanged.
+2. The content-sized, bottom-anchored popover stands; no fixed-height panel.
+3. Per-ETF availability diagnostics stand instead of per-cause counters, provided missing data is
+   clearly distinguishable from a valid zero-match result. As built: a fund that could not be read
+   is a **warning at the top of the result**, inside the run's own card above the chart and every
+   number, saying that rules reading it never matched, that the result does not show what the
+   strategy does with that fund's data, and what to do — pointing at the run's own "Edit and run
+   again" directly above it; a zero-trade run says both facts in its title. When every fund was read the page says so as
+   information beside the results — "that is the strategy's own result" — so a genuine zero-match
+   reads as one. The API carries the same distinction in `result.etfConditions[].status`.
+4. The Backtest E2E race fix stands: it waits for the API to report the run `COMPLETED` with its
+   durable curve and for the chart to show exactly that curve's points before reading the chart;
+   either wait failing fails the test, and every original assertion still runs after it.
+

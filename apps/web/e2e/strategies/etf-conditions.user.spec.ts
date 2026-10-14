@@ -48,7 +48,7 @@ const ETF_GROUPS = [
     ],
   },
   {
-    label: "Sector Performance",
+    label: "Sectors",
     funds: [
       { code: "ETF_XLK", ticker: "XLK", market: "Technology" },
       { code: "ETF_XLF", ticker: "XLF", market: "Financials" },

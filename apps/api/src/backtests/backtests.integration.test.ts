@@ -11,6 +11,7 @@ import {
   canonicalBacktestSnapshotDocument,
   normalizeStrategyDefinition,
   strategyDefinitionFingerprint,
+  type BacktestEtfConditionDiagnosticsResponse,
   type BacktestLiveSnapshotResponse,
   type BacktestProgressResponse,
   type BacktestRunDetailResponse,
@@ -2265,7 +2266,8 @@ describe("backtests", () => {
   });
 
   describe("ETF condition sources are pinned at submission", () => {
-    it("freezes each named ETF's immutable series and basis generation, and only those", async () => {
+    /** A strategy whose one BUY level reads XLK's RSI and SPY's Price. */
+    async function createEtfStrategy(): Promise<string> {
       const etfDefinition = normalizeStrategyDefinition({
         schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
@@ -2314,8 +2316,55 @@ describe("backtests", () => {
           },
         },
       });
+      return etfStrategy.id;
+    }
 
-      const run = await submit({ strategyId: etfStrategy.id });
+    /** Marks a submitted run completed with a minimal summary, as the worker's result write does. */
+    async function completeWith(
+      runId: string,
+      etfConditionDiagnostics?: BacktestEtfConditionDiagnosticsResponse[],
+    ): Promise<void> {
+      const completedAt = new Date();
+      await prisma.backtestRun.update({
+        where: { id: runId },
+        data: { status: "COMPLETED", startedAt: completedAt, completedAt },
+      });
+      await prisma.backtestRunSummary.create({
+        data: {
+          runId,
+          firstSimulatedDate: new Date("2024-01-02T00:00:00.000Z"),
+          lastSimulatedDate: new Date("2024-12-31T00:00:00.000Z"),
+          tradingDays: 252,
+          investedCapital: 100_000,
+          finalCash: 100_000,
+          finalPositionsValue: 0,
+          finalValue: 100_000,
+          netProfit: 0,
+          portfolioReturnPercent: 0,
+          benchmarkReturnPercent: 5,
+          alphaPercent: -5,
+          portfolioCagrPercent: 0,
+          maxDrawdownPercent: 0,
+          benchmarkMaxDrawdownPercent: 4,
+          realizedPnl: 0,
+          unrealizedPnl: 0,
+          totalTrades: 0,
+          buyTrades: 0,
+          sellTrades: 0,
+          finalExitTrades: 0,
+          winningTrades: 0,
+          losingTrades: 0,
+          openPositions: 0,
+          // Omitted, the column stays NULL: exactly a run completed before it existed.
+          ...(etfConditionDiagnostics === undefined
+            ? {}
+            : { etfConditionDiagnostics: etfConditionDiagnostics as object[] }),
+        },
+      });
+    }
+
+    it("freezes each named ETF's immutable series and basis generation, and only those", async () => {
+      const run = await submit({ strategyId: await createEtfStrategy() });
       const row = await prisma.backtestRun.findUniqueOrThrow({
         where: { id: run.id },
         select: { snapshot: true },
@@ -2351,6 +2400,93 @@ describe("backtests", () => {
       expect(
         (stockRow.snapshot as unknown as BacktestRunSnapshot).etfSeries,
       ).toBeUndefined();
+    });
+
+    it("serves the per-ETF diagnostics a run wrote, and names a basis restated after submission", async () => {
+      // Submitted on generation 0 for both funds (the pins above). The worker then read XLK on
+      // generation 1 — the provider re-based it in between — and could not read SPY at all.
+      const run = await submit({ strategyId: await createEtfStrategy() });
+      await completeWith(run.id, [
+        {
+          code: "ETF_XLK",
+          ticker: "XLK",
+          status: "READY",
+          firstSession: "1998-12-22",
+          latestSession: "2024-12-31",
+          basisGeneration: 1,
+        },
+        { code: "SP500", ticker: "SPY", status: "NOT_BOOTSTRAPPED" },
+      ]);
+
+      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+        .body as BacktestRunDetailResponse;
+      expect(detail.result?.etfConditions).toEqual([
+        {
+          code: "ETF_XLK",
+          ticker: "XLK",
+          status: "READY",
+          firstSession: "1998-12-22",
+          latestSession: "2024-12-31",
+          basisGeneration: 1,
+          // From the immutable snapshot, beside the generation actually read: never stored.
+          submittedBasisGeneration: 0,
+        },
+        // The unavailable fund is served as written: a status, never a zero.
+        { code: "SP500", ticker: "SPY", status: "NOT_BOOTSTRAPPED" },
+      ]);
+      // A zero-trade result and its cause arrive together, so a client cannot mistake one for a
+      // strategy that simply matched nothing.
+      expect(detail.result?.summary.totalTrades).toBe(0);
+
+      // Read on the generation it was submitted on, a row says nothing more.
+      const sameBasis = await submit({ strategyId: await createEtfStrategy() });
+      await completeWith(sameBasis.id, [
+        {
+          code: "ETF_XLK",
+          ticker: "XLK",
+          status: "READY",
+          firstSession: "1998-12-22",
+          latestSession: "2024-12-31",
+          basisGeneration: 0,
+        },
+        {
+          code: "SP500",
+          ticker: "SPY",
+          status: "READY",
+          firstSession: "1993-01-29",
+          latestSession: "2024-12-31",
+          basisGeneration: 0,
+        },
+      ]);
+      const unchanged = (
+        await owner.get(`/backtests/${sameBasis.id}`).expect(200)
+      ).body as BacktestRunDetailResponse;
+      expect(
+        unchanged.result?.etfConditions?.map(
+          (row) => row.submittedBasisGeneration,
+        ),
+      ).toEqual([undefined, undefined]);
+    });
+
+    it("still reads a completed run whose summary predates the diagnostics column", async () => {
+      // The migration added one nullable column and backfilled nothing, so every summary written
+      // before it holds NULL there. Such a run reads exactly as it always did.
+      const run = await submit();
+      await completeWith(run.id);
+      const stored = await prisma.backtestRunSummary.findUniqueOrThrow({
+        where: { runId: run.id },
+        select: { etfConditionDiagnostics: true },
+      });
+      expect(stored.etfConditionDiagnostics).toBeNull();
+
+      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+        .body as BacktestRunDetailResponse;
+      expect(detail.status).toBe("COMPLETED");
+      expect(detail.result?.summary.tradingDays).toBe(252);
+      expect(detail.result).not.toHaveProperty("etfConditions");
+      const listed = (await owner.get("/backtests").expect(200))
+        .body as BacktestRunSummaryResponse[];
+      expect(listed.some((row) => row.id === run.id)).toBe(true);
     });
   });
 });

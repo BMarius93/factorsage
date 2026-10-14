@@ -1,44 +1,42 @@
-import type { BacktestEtfConditionDiagnosticsResponse } from "@intrinsic/contracts";
 import { Notice } from "../../../components/ui/Notice";
-import { etfConditionsGuidance } from "../utils/etf-conditions";
+import type { EtfConditionsGuidance } from "../utils/etf-conditions";
 import styles from "./BacktestRunView.module.css";
 
 /**
  * Whether the ETFs a run's strategy reads could be evaluated, per fund.
  *
- * Rendered for a completed run whose strategy reads an ETF and absent for every other run. It is a
- * statement about the run's inputs, so it sits with the result rather than with the configuration:
- * a fund that could not be read is why its rules never matched, and that has to be visible next to
- * the numbers it explains rather than only in a log.
+ * Rendered for a completed run whose strategy reads an ETF and absent for every other run. A fund
+ * that could not be read is why its rules never matched, so its warning is placed by the run page
+ * at the top of the result, above the chart and the numbers it qualifies — a zero-trade run must
+ * never read as a strategy that simply found nothing. The information that every fund was read
+ * sits beside the results instead, where it explains rather than interrupts.
  */
 export function BacktestEtfConditions({
-  rows,
+  guidance,
 }: {
-  readonly rows: readonly BacktestEtfConditionDiagnosticsResponse[] | undefined;
+  readonly guidance: EtfConditionsGuidance;
 }) {
-  const guidance = etfConditionsGuidance(rows);
-  if (!guidance) {
-    return null;
-  }
   return (
-    <Notice
-      tone={guidance.tone}
-      title={guidance.title}
-      testId="backtest-etf-conditions"
+    <div
+      className={styles.etfConditionsFrame}
+      data-testid="backtest-etf-conditions"
+      data-tone={guidance.tone}
     >
-      <ul className={styles.etfConditions}>
-        {guidance.lines.map((line) => (
-          <li
-            key={line.code}
-            data-testid="backtest-etf-condition"
-            data-ticker={line.ticker}
-            data-ready={line.ready ? "true" : "false"}
-          >
-            <strong>{line.ticker}</strong> — {line.text}
-          </li>
-        ))}
-      </ul>
-      <p>{guidance.note}</p>
-    </Notice>
+      <Notice tone={guidance.tone} title={guidance.title}>
+        <ul className={styles.etfConditions}>
+          {guidance.lines.map((line) => (
+            <li
+              key={line.code}
+              data-testid="backtest-etf-condition"
+              data-ticker={line.ticker}
+              data-ready={line.ready ? "true" : "false"}
+            >
+              <strong>{line.ticker}</strong> — {line.text}
+            </li>
+          ))}
+        </ul>
+        <p data-testid="backtest-etf-conditions-note">{guidance.note}</p>
+      </Notice>
+    </div>
   );
 }

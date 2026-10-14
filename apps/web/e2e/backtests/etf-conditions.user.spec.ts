@@ -303,16 +303,19 @@ test.describe("ETF conditions through a real backtest and Monitor", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/backtests/${alwaysTrue.run.id}`);
     const notice = page.getByTestId("backtest-etf-conditions");
+    const hero = page.getByTestId("backtest-hero");
     await expect(notice).toBeVisible({ timeout: 20_000 });
-    await expect(notice).toContainText("ETF conditions");
+    await expect(notice).toHaveAttribute("data-tone", "info");
+    await expect(notice).toContainText("ETF conditions were evaluated");
     const row = notice.getByTestId("backtest-etf-condition");
     await expect(row).toHaveCount(1);
     await expect(row).toHaveAttribute("data-ticker", "XLK");
     await expect(row).toHaveAttribute("data-ready", "true");
     await expect(row).toContainText("XLK — Read from its first session");
     await expect(notice).toContainText(
-      "An ETF condition is decided on the ETF's own completed sessions.",
+      "An ETF rule is decided on the fund's own completed sessions.",
     );
+    await expect(hero.getByTestId("backtest-etf-conditions")).toHaveCount(0);
     // … and every trade's reason names the fund the rule read.
     await expect(
       page
@@ -325,21 +328,57 @@ test.describe("ETF conditions through a real backtest and Monitor", () => {
     await expect(notice).toBeVisible();
     await expectNoHorizontalScroll(page);
 
-    // … a fund that could not be read is a warning that says what that did to the run …
-    await page.goto(`/backtests/${unavailable.run.id}`);
+    // A rule that read its fund and never matched is a genuine zero-trade result, and the page
+    // says so — information, not a warning, and nothing to fix.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/backtests/${alwaysFalse.run.id}`);
     await expect(notice).toBeVisible({ timeout: 20_000 });
+    await expect(notice).toHaveAttribute("data-tone", "info");
     await expect(notice).toContainText(
-      "The ETF conditions could not be evaluated",
+      "Every ETF this strategy reads had data for this run, so where its rules did not match, that is the strategy's own result.",
     );
-    await expect(row).toHaveAttribute("data-ticker", "SPY");
-    await expect(row).toHaveAttribute("data-ready", "false");
-    await expect(row).toContainText(
-      "SPY — Its market history has not been loaded yet, so no condition reading it could be evaluated.",
-    );
-    await expect(notice).toContainText(
-      "A condition that cannot be evaluated never matches, so a signal that needs it did not fire in this run.",
-    );
-    await expectNoHorizontalScroll(page);
+    await expect(page.getByTestId("metric-trades")).toContainText("0");
+    await expect(notice).not.toContainText("Edit and run again");
+
+    // A fund that could not be read is the first thing the page says about the result: a
+    // warning inside the result's own card, above the chart and every number, on screen without
+    // scrolling, saying what it did to the run and offering the way to fix it.
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/backtests/${unavailable.run.id}`);
+      const warning = hero.getByTestId("backtest-etf-conditions");
+      await expect(warning).toBeVisible({ timeout: 20_000 });
+      await expect(warning).toHaveAttribute("data-tone", "warning");
+      await expect(warning).toBeInViewport();
+      const warningBox = (await warning.boundingBox())!;
+      const chartBox = (await page.getByTestId("backtest-chart").boundingBox())!;
+      const resultsBox = (await page
+        .getByTestId("backtest-results")
+        .boundingBox())!;
+      expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(chartBox.y);
+      expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(
+        resultsBox.y,
+      );
+      await expect(warning).toContainText(
+        "This run made no trades, and its ETF conditions could not be evaluated",
+      );
+      await expect(row).toHaveAttribute("data-ticker", "SPY");
+      await expect(row).toHaveAttribute("data-ready", "false");
+      await expect(row).toContainText(
+        "SPY — Its market history has not been loaded, so no rule reading it could be evaluated.",
+      );
+      await expect(warning).toContainText(
+        "Rules that read SPY never matched in this run, so its trades — or its having none — do not show what this strategy does with that fund's data. Use “Edit and run again” to change the rules that read it, or run the backtest again once the data is available.",
+      );
+      // The action it names is the header's, on screen with it.
+      const rerun = page.getByTestId("backtest-edit-and-rerun");
+      await expect(rerun).toBeInViewport();
+      await expect(rerun).toHaveAttribute("href", /\/backtests\/new\?/);
+      await expectNoHorizontalScroll(page);
+    }
 
     // … and a run whose strategy reads no ETF says nothing about ETFs at all.
     await page.goto(`/backtests/${control.run.id}`);

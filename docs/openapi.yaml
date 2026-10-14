@@ -5553,7 +5553,16 @@ components:
             ]
         firstSession: { type: string, format: date }
         latestSession: { type: string, format: date }
-        basisGeneration: { type: integer }
+        basisGeneration:
+          type: integer
+          description: The price-basis generation the run read the ETF's history under.
+        submittedBasisGeneration:
+          type: integer
+          description: |
+            The generation the run's snapshot recorded at submission, present only when it differs
+            from `basisGeneration`: the provider restated the fund's history (a re-base) after the
+            run was submitted, and the run computed on the restated history. Derived at read time
+            from the immutable snapshot and result; never stored.
 
     BacktestRunDetail:
       type: object

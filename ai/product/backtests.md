@@ -272,9 +272,14 @@ calendar, and the worker reads its stored history once per run — never from th
 reading an ETF is `NOT_EVALUABLE` on any session the ETF has no finalized, confirmed bar for: before
 the fund listed, inside an indicator's warm-up, a session it did not trade, and — unlike the stock
 side of the same rule — the current session while it is in progress. A completed run whose strategy
-read an ETF lists, per fund, whether its history could be read and over which sessions; a fund that
-could not be read (most often one whose history was never bootstrapped) is a warning beside the
-results, because its rules never matched and that must not look like a strategy that found nothing.
+read an ETF lists, per fund, whether its history could be read and over which sessions. A fund that
+could not be read (most often one whose history was never bootstrapped) is a **warning at the top
+of the result**, above the chart and every number: its rules never matched, so the result — a
+zero-trade one above all — is not what the strategy does with that fund's data, and the warning
+says so and points to "Edit and run again". When every fund was read, the page says so as information
+beside the results, so a genuine zero-match reads as the strategy's own result. A run reads each
+ETF once, on the price basis in force then; if the provider restated the fund's history after
+submission, the run uses the restated history and its result says so.
 The comparison benchmark and portfolio allocation are unaffected: an ETF a rule reads is never
 bought and never compared against.
 

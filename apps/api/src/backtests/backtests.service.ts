@@ -213,6 +213,29 @@ function asDocument(value: unknown): Record<string, unknown> | null {
  * structural check is corruption rather than an expected state: it fails loudly here instead of
  * reaching the browser as a half-described configuration.
  */
+/**
+ * Each ETF's diagnostics row, with the basis generation its snapshot recorded at submission when
+ * the run read another one.
+ *
+ * Both sides are immutable — the snapshot written at submission, the rows written with the result —
+ * so this is a fact about the run, derived at read time rather than stored. A different generation
+ * means the provider restated the fund's history (a re-base) after submission and the run computed
+ * on the restated history: one basis, read once, but not the one in force when it was submitted.
+ */
+function withSubmittedBasis(
+  rows: readonly BacktestEtfConditionDiagnosticsResponse[],
+  pins: readonly BacktestSnapshotEtfSeries[],
+): BacktestEtfConditionDiagnosticsResponse[] {
+  return rows.map((row) => {
+    const pinned = pins.find((pin) => pin.code === row.code)?.basisGeneration;
+    return pinned !== undefined &&
+      row.basisGeneration !== undefined &&
+      pinned !== row.basisGeneration
+      ? { ...row, submittedBasisGeneration: pinned }
+      : row;
+  });
+}
+
 function readSnapshot(value: Prisma.JsonValue): BacktestRunSnapshot {
   const document = asDocument(value);
   if (
@@ -1301,12 +1324,14 @@ export class BacktestsService {
       summary: resultSummaryOf(run.summary),
       annualReturns: annualReturnsOf(equity, run),
       curve: downsampleCurve(equity.map(curvePointOf)),
-      // Written by the worker with the rest of the result; served verbatim. Absent for every run
-      // whose strategy reads no ETF.
+      // Written by the worker with the rest of the result. Absent for every run whose strategy
+      // reads no ETF — and for every run completed before the column existed, whose value is NULL.
       ...(Array.isArray(etfConditions) && etfConditions.length > 0
         ? {
-            etfConditions:
+            etfConditions: withSubmittedBasis(
               etfConditions as unknown as BacktestEtfConditionDiagnosticsResponse[],
+              readSnapshot(run.snapshot).etfSeries ?? [],
+            ),
           }
         : {}),
     };

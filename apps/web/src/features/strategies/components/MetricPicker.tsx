@@ -440,7 +440,8 @@ export function MetricPicker({
                     }
                   }}
                   groups={STRATEGY_ETF_SOURCE_GROUPS.map((group) => ({
-                    label: group.label,
+                    // The picker's own group names (`Sectors`), never the Dashboard's headings.
+                    label: group.pickerLabel,
                     options: group.etfs.map((etf) => ({
                       value: etf.code,
                       label: `${etf.ticker} — ${etf.label}`,

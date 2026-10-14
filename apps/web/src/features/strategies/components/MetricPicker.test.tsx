@@ -283,20 +283,22 @@ describe("the Metric picker's data source", () => {
     ).toBeDefined();
   });
 
-  it("lists the twenty funds under the catalog's three groups, each by ticker and market", async () => {
+  it("lists the twenty funds under the decision's three groups, each by ticker and market", async () => {
     const user = userEvent.setup();
     render(<Harness initial={RSI_14D} />);
     const shown = await open(user);
     await chooseSource(user, shown, "ETF");
     const select = etfSelect(shown)!;
     const groups = [...select.querySelectorAll("optgroup")];
+    // `Sectors`, as the decision names the group (owner ruling, 2026-10-14) — not the
+    // Dashboard's `Sector Performance` heading, which stays the catalog's.
     expect(groups.map((group) => group.label)).toEqual([
       "Benchmarks",
-      "Sector Performance",
+      "Sectors",
       "Macro & Alternatives",
     ]);
     expect(groups.map((group) => group.label)).toEqual(
-      STRATEGY_ETF_SOURCE_GROUPS.map((group) => group.label),
+      STRATEGY_ETF_SOURCE_GROUPS.map((group) => group.pickerLabel),
     );
     expect(groups.map((group) => group.querySelectorAll("option").length)).toEqual(
       [5, 11, 4],
