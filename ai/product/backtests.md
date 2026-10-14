@@ -283,6 +283,16 @@ submission, the run uses the restated history and its result says so.
 The comparison benchmark and portfolio allocation are unaffected: an ETF a rule reads is never
 bought and never compared against.
 
+**Stock's Sector is frozen at submission.** A rule reading Stock's Sector (`ai/product/strategies.md`,
+§ Stock's Sector) reads, per stock, the sector ETF its FMP sector maps to. The run's snapshot records
+each stock's sector as stored when the run was submitted and the fund it maps to (or none), and pins
+each distinct sector fund's series beside the named ones; the worker reads only that record, never
+the catalog's current sector, so a reclassification while the run waits or executes changes nothing
+in it, and the next submission uses the new sector. Each distinct fund is read once per run however
+many stocks share it. The result names the fund each stock read; a stock with no sector ETF is a
+warning, as an unreadable fund is. The sector is the current classification applied to every date of
+the period — there is no historical sector record.
+
 **What reproducibility does not mean here.** V1 does not keep raw provider responses. If the data
 provider later corrects a historical price, a _new_ backtest of the same period can produce a
 different answer; the completed run's stored results never change. The product does not offer

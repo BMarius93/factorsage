@@ -390,6 +390,16 @@ or never bootstrapped — so an ordinary wait is not mistaken for missing data. 
 the stored benchmark history, never from the provider, and a fund that cannot be read degrades only
 the rules naming it, never the scan.
 
+**Stock's Sector is resolved once per scan.** A rule reading Stock's Sector reads, per watched stock,
+the sector ETF its **current** FMP sector maps to, under exactly the completed-session rule above.
+Each scan resolves every stock's sector once, so all of its levels and its reconstruction agree on
+one fund. A stock reclassified between two scans is read from its new fund by the next scan: an
+ordinary change of data, decided by the normal lifecycle (an ACTIVE level whose rule no longer holds
+ends with `CONDITIONS_ENDED`) — not a logic change, because the rule did not change. A stock with no
+sector, or one that is not one of the eleven, has no fund: its Stock's Sector rules are
+`NOT_EVALUABLE`, which, as always, holds an ACTIVE level latched rather than ending it. The detail says
+which fund each stock reads now and names every stock that has none.
+
 ### How Monitor evaluation differs from a backtest
 
 Both run the same evaluator over the same frame projection, so operators, the 2% closeness

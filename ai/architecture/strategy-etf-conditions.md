@@ -7,7 +7,8 @@ architecture audit and plan as revised with the owner's final decisions on 2026-
 written: they are the reasoning the implementation followed. **§13 is the implementation record** —
 what was built, where it departs from the plan's wording, the measured cost, and what remains an
 operational precondition. Where §13 and an earlier section differ on a name or a shape, §13 is what
-the code does.
+the code does. **§14 is the Stock's Sector extension** (owner request, 2026-10-14, same PR): a third
+data source that reads each stock's own sector ETF.
 
 `docs/decisions/strategy-etf-conditions-v1.md` is the accepted product decision and acceptance gate;
 this document is the technical design derived from it, in the role `strategy-builder.md` played for
@@ -683,3 +684,155 @@ restated history is the correct one for them.
    durable curve and for the chart to show exactly that curve's points before reading the chart;
    either wait failing fails the test, and every original assertion still runs after it.
 
+
+---
+
+## 14. Stock's Sector (extension, 2026-10-14)
+
+The owner extended PR #98 with a third Data Source, **Stock's Sector**: a Condition that names no
+fund and reads, for each evaluated stock, the Select Sector SPDR ETF its stored FMP sector maps to.
+The product decision is the "Extension" section of `docs/decisions/strategy-etf-conditions-v1.md`;
+this section is what the code does.
+
+### 14.1 Contracts
+
+- **Source.** `StrategyMetricSource = { kind: "ETF"; code } | { kind: "STOCK_SECTOR" }`, on the same
+  four technical kinds. `STOCK_SECTOR` carries its kind alone: a `code` (or any other key) beside it
+  is `UNKNOWN_FIELD`; a Trigger naming it is `SOURCE_NOT_ALLOWED_IN_PART` ("… reads the stock's
+  sector ETF, so it can be used as a condition only, not as a trigger."). Everything the ETF path
+  derives from "has a source" — the 21-metric Technical menu, the Value narrowing (Price compares
+  with the fund's own moving averages only), operators, defaults, domains — applies unchanged.
+- **Identity.** Label `Stock's Sector · RSI 14D` (`STOCK_SECTOR_SOURCE_LABEL`); option key prefix
+  `STOCK_SECTOR|`; duplicate key `stock-sector:`; fingerprint element `"stock-sector"` appended
+  exactly where an ETF rule appends `etf:<code>`. Stock fingerprints are byte-identical (pinned by
+  test), and `Stock's Sector · RSI 14D` is a different condition from `XLK · RSI 14D` even for a
+  Technology stock — it would read XLF for a bank — so switching between them is a logic change.
+- **Mapping.** `stock-sector-etfs.ts`: `FMP_STOCK_SECTORS` (FMP's eleven names), `STOCK_SECTOR_ETF_CODES`
+  (sector → benchmark code, typed `satisfies Record<FmpStockSector, StrategyEtfSourceCode>`),
+  `resolveStockSectorEtf` → `RESOLVED {sector, code}` | `MISSING` | `UNSUPPORTED {sector}`, matching
+  FMP's names after trimming, collapsing whitespace and case-folding — nothing else.
+  `strategyReadsStockSector(definition)` is the one "does this definition need sectors" question;
+  `collectStrategyEtfSources` still answers only named funds.
+- **Audit of the stored values (development database, read-only, 2026-10-14).** 9,768 securities:
+  9,766 carry one of exactly the eleven FMP strings, spelled exactly as `FMP_STOCK_SECTORS`
+  (Financial Services 2,794, Healthcare 1,745, Technology 1,267, Industrials 988, Consumer Cyclical
+  770, Energy 441, Real Estate 422, Basic Materials 416, Communication Services 389, Consumer
+  Defensive 339, Utilities 195); 2 have none; 0 hold any other value. Hence no alias table.
+
+### 14.2 Evaluation
+
+- **Operands.** A sector rule's keys are the stock encoding under `sector:` (`sector:series:RSI_14D`,
+  `sector:price`) — they name no fund. `collectSectorOperands(definition)` returns them once for
+  the whole definition; `collectOperands` (per-security load) and `collectEtfOperands` (named funds)
+  never see them.
+- **Join.** `withEtfOperandColumns(frame, operands, snapshots, sectorCode)` joins `sector:` keys from
+  the snapshot of `sectorCode`, the fund *this* frame's security resolved to, by the same
+  exact-session rule; `null` (missing/unsupported sector) or a fund without a snapshot joins all-NaN
+  columns — `NOT_EVALUABLE`, never another fund.
+
+### 14.3 Backtest: resolved at submission, frozen in the snapshot
+
+- The API (`BacktestsService`) freezes, **only when the definition reads Stock's Sector**, each
+  snapshot security's `sector: { name, etfCode }` — the stored FMP name (null when none) and the fund
+  it maps to (null when missing or unsupported). Absent otherwise, so every other snapshot is
+  byte-identical; the snapshot stays version 1. `etfSeries` pins the named funds **and** every
+  distinct frozen sector fund, each once (XLK named and read by a Technology stock: one pin).
+- The worker's parse refuses a snapshot that does not say exactly what the run reads: a definition
+  reading Stock's Sector with any security lacking a frozen sector; a frozen sector on a definition
+  that reads none; a frozen fund that is not what the canonical mapping gives the frozen name
+  (`{ name: "Technology", etfCode: "ETF_XLF" }`, or a code for an unsupported name); a resolved fund
+  with no pin; a pin nothing reads; a forged source; a Stock's Sector Trigger.
+- Execution reads the frozen code per security (`PreparedSecurity.sectorEtfCode`), never the
+  catalog's current sector. The context loader is asked for the union of named and frozen codes, so
+  each distinct fund is read once per run however many stocks share it; per-fund diagnostics cover
+  sector funds exactly as named ones.
+- The completed result serves `result.stockSectors` — `{ symbol, sector, code, ticker }` per snapshot
+  security — derived at read time from the snapshot, not stored twice. The run page adds a
+  `Stock's Sector` line to the ETF notice (`AAPL and MSFT read XLK, JPM reads XLF`); a stock with no
+  sector fund makes it a **warning** in the result hero, naming the stock and why, exactly as an
+  unreadable fund does.
+
+### 14.4 Monitor: resolved once per cycle
+
+- The cycle reads the watched securities first, then resolves the sector of every security watched
+  by a Monitor whose definition has sector operands — **once per cycle** — and adds the resolved
+  funds to the cycle's single ETF load. Every level, the live observation and any reconstruction of
+  that cycle use the same fund for a stock. Unresolved stocks are logged once per cycle
+  (`monitor.stock-sector.unresolved`, symbols only).
+- **A sector changed between two scans** is read by the next scan from the new fund. The definition
+  did not change, so it is a data change decided by the normal lifecycle: an ACTIVE level whose rule
+  no longer holds ends with `CONDITIONS_ENDED`; a stock reclassified back opens a fresh occurrence;
+  a sector that disappears makes the rule `NOT_EVALUABLE`, which holds an ACTIVE level latched. A
+  retried scan re-derives the same conclusions and writes nothing new. Changing a rule's source from
+  `XLK` to `Stock's Sector` is a logic change (`LOGIC_CHANGED`) even for a Technology stock.
+- The Monitor detail serves `stockSectors` from the stocks' **current** sectors (what the next scan
+  will read) and adds the funds they resolve to the `etfSources` availability rows, in catalog order.
+
+### 14.5 Builder
+
+The Data Source radio group gains a third choice, `Stock's Sector`, disabled with the ETF one on a
+Trigger row (hint: "An ETF or the stock's sector can be read by a condition only, not by a
+trigger."). It shows no fund select; a line in its place says how the fund is chosen, built from the
+canonical table ("… Technology reads XLK, Financial Services reads XLF, Energy reads XLE. A stock
+without one of the eleven sectors cannot be evaluated."). Switching keeps the metric where it can and
+reports a reset exactly as an ETF change does ("Condition and value were reset to match Stock's
+Sector · Price."); a stock-only metric waits with "… Choose a metric below to read each stock's
+sector ETF instead.". The metric's help explains the per-stock fund, the current-sector limitation and
+when it is not evaluable. Three row controls; the popover's layout is unchanged.
+
+### 14.6 Evidence
+
+- **Mapping:** all eleven sectors to the stated fund (table restated independently in the test); a
+  bijection onto the catalog's eleven sector funds and never a broad-market or macro fund;
+  null/empty/blank → `MISSING`; case/whitespace tolerated; sixteen aliases and near-misses (GICS
+  names, `Financial`, `Health Care`, tickers, `Conglomerates`) → `UNSUPPORTED`.
+- **Numerical oracles:** the join of all 21 metrics for three stocks over two funds (one listing 60
+  sessions in, one with a provider gap), 1,100 sessions each — 69,300 reads — against naive SMA/EMA,
+  Wilder RSI, prior-session-mean RVOL and an independently written weekly aggregation, to 1e-8.
+- **Backtest worker** (`backtest-etf-conditions.test.ts`, 15 Stock's Sector cases): a six-stock list
+  over four sector funds (two Technology, Financial Services, Energy, none, unsupported) with stock
+  BUY, named-ETF SELL and Stock's Sector BUY/FINAL EXIT — hand-derived trades per stock, one rule
+  passing for one stock and failing for another on the same session; trade-for-trade equivalence of
+  Stock's Sector and the explicitly named fund for four sectors; an unreadable sector fund degrading
+  only its stocks; a sector fund listing inside the period; no carry-forward over a fund's missing
+  session; the frozen sector beating a reclassified catalog, and the next submission reading the new
+  one; determinism; a stock without a sector never trading on another fund; one read per distinct
+  fund (4 reads for six stocks); and every parse refusal of 14.3.
+- **Monitor (PostgreSQL)**: per-stock funds under the strict same-session rule, a stock without a
+  sector and one with an unsupported sector undecidable, idempotent retry; reclassification
+  Technology → Financial Services → Technology → none across four scans; `XLK` → `Stock's Sector` as
+  `LOGIC_CHANGED`; reconstruction equal to a backtest evaluation of the same sessions.
+- **API (PostgreSQL)**: freeze and pins at submission; a reclassification after submission leaving
+  the snapshot and `result.stockSectors` unchanged while the next submission freezes and pins the new
+  funds; nothing frozen for named-only and stock-only strategies; Monitor detail sectors and fund
+  rows following the current catalog; HTTP create/read/edit/duplicate round trip and refusals.
+- **Mutation run:** 16 mutants of the mapping, identity, validation, join, backtest, Monitor, API and
+  Builder — every one killed by the suites named for it, every file restored byte-for-byte.
+- **Real data (development database, read-only, provider refused, lock refused):** all eleven sector
+  funds READY; one representative per sector (AAPL, AXP, CVX, AMGN, BA, HD, KO, SHW, DIS; Utilities and
+  Real Estate have no stored stock prices in that database, so AEE and AAT were joined on their fund's
+  own sessions) — the production join of all 21 metrics on four sample sessions each against
+  PostgreSQL window functions and from-scratch EMA/RSI: 922 values, worst relative difference
+  6.4e-15; 567 reads on stock sessions the fund has no bar for (all before the fund's first session)
+  all NaN; 0 provider requests.
+- **Cost** (`bench:etf-context`, M1, 8 GB, warm Redis): a 500-stock list spread over the eleven
+  sector funds reads 11 funds with 44 loader calls (4 per fund) in 924 ms; joining all 21 sector
+  metrics costs 201 µs per 252-session frame, an ordinary three-rule strategy 24 µs; 0 loader calls
+  during the join; ~2.0 MB retained per fund context.
+- **Browser (hermetic stack):** Builder desktop and phone (three sources, note, 21 metrics, keyboard,
+  reset notice, save/reload/edit/duplicate), a real backtest (QATEST1 → XLK equal to the named-XLK run
+  and the control; QATEST2, seeded without a sector, warned about) and a Monitor detail.
+
+### 14.7 Limitations and decisions awaiting a ruling
+
+- **Not point-in-time (accepted).** The current classification is applied to every date. A backtest
+  freezes the sector at submission; a Monitor reads it per scan. A company FMP has reclassified is
+  evaluated against its current sector's fund on every date, including dates before the change.
+- **Decisions made here, not yet ruled:** a stock without a sector fund turns the backtest's ETF
+  notice into a warning, like an unreadable fund; the sector is frozen for every list member, even one
+  later skipped for lack of prices; the Monitor detail shows the current classification (what the
+  next scan reads), not the one any past signal was decided on; unresolved sectors are a per-cycle
+  warning log, not a persisted diagnostic.
+- **Pre-existing, not changed:** the explanation panel renders help notes as plain text, so the
+  Insider/Congress notes' `**people**`-style emphasis shows literal asterisks; the Stock's Sector note
+  avoids it.

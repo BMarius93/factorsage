@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { loadRootEnv } from "@intrinsic/config";
 import {
+  STOCK_SECTOR_ETF_CODES,
   STRATEGY_ETF_SOURCES,
   type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
@@ -32,7 +33,9 @@ import {
 } from "@intrinsic/stock-data";
 import {
   createEvaluationFrame,
+  decodeEtfOperand,
   etfOperand,
+  sectorOperand,
   type OperandKey,
 } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -57,7 +60,9 @@ import {
  * - how much memory one context holds;
  * - what joining ETF columns onto every security's frames costs, for an ordinary strategy and for
  *   the worst case of every fund and every metric;
- * - that what is read grows with the distinct ETFs, never with the securities or rules.
+ * - that what is read grows with the distinct ETFs, never with the securities or rules;
+ * - what a Stock's Sector strategy over a list spread across the eleven sectors reads and costs:
+ *   each distinct sector fund once, and every security's frame joined from its own fund.
  *
  * It writes only to the dedicated test database (`useTestDatabase`) and to a namespaced Redis key
  * space, and removes both afterwards. It never touches the development database and never calls
@@ -461,13 +466,20 @@ async function main(): Promise<void> {
         columns: new Map(),
         periodStartIndex: 0,
       });
-    const joinProfile = (operands: readonly OperandKey[], windows: number) => {
+    const joinProfile = (
+      operands: readonly OperandKey[],
+      windows: number,
+      sectorCodeOf: (security: number) => StrategyEtfSourceCode | null = () => null,
+      from: ReadonlyMap<StrategyEtfSourceCode, BenchmarkTechnicalSnapshot> = snapshots,
+    ) => {
       const started = process.hrtime.bigint();
       let columns = 0;
       for (let security = 0; security < args.securities; security += 1) {
         const frame = frameOf(security);
+        const sectorCode = sectorCodeOf(security);
         for (let window = 0; window < windows; window += 1) {
-          columns += withEtfOperandColumns(frame, operands, snapshots).columns.size;
+          columns += withEtfOperandColumns(frame, operands, from, sectorCode).columns
+            .size;
         }
       }
       const totalMs = elapsed(started);
@@ -493,6 +505,66 @@ async function main(): Promise<void> {
     const ordinary = joinProfile(ordinaryOperands, args.years);
     const worstOneWindow = joinProfile(worstOperands, 1);
     const readsDuringJoin = { redisChunks: client.chunkReads, loaderCalls: calls.count };
+
+    // --- 5. Stock's Sector: one rule, each security's own sector fund ------------------------
+    // The list is spread round-robin over the sector funds in the universe, the most a list can
+    // spread. The run reads the distinct funds its stocks resolve to — each once — and joins every
+    // security's frame from its own fund.
+    const sectorFunds = funds.filter((fund) =>
+      (Object.values(STOCK_SECTOR_ETF_CODES) as string[]).includes(fund.code),
+    );
+    let stockSector: Record<string, unknown> | null = null;
+    if (sectorFunds.length > 0) {
+      const sectorOf = (security: number): StrategyEtfSourceCode =>
+        sectorFunds[security % sectorFunds.length]!.code;
+      const distinct = [
+        ...new Set(
+          Array.from({ length: args.securities }, (_, security) => sectorOf(security)),
+        ),
+      ];
+      calls.count = 0;
+      client.chunkReads = 0;
+      const loadStarted = process.hrtime.bigint();
+      const sectorLoad = await loadEtfTechnicalSnapshots({
+        series: distinct.map((code) => ({
+          code,
+          seriesId: seriesByCode.get(code)!.id,
+        })),
+        loader: loaderOver(service(refusing)),
+        now,
+        publicationDelayMs,
+        logger,
+      });
+      const sectorLoadMs = elapsed(loadStarted);
+      const loaderCallsForList = calls.count;
+      const redisChunksForList = client.chunkReads;
+      // Every one of the 21 metrics under Stock's Sector — the worst case one rule set can name —
+      // and an ordinary three-rule strategy over every year window.
+      const everySectorKey = everyOperandOf(sectorFunds[0]!.code).map((key) =>
+        sectorOperand(decodeEtfOperand(key)!.base),
+      );
+      calls.count = 0;
+      const sectorEvery = joinProfile(everySectorKey, 1, sectorOf, sectorLoad.snapshots);
+      const sectorOrdinary = joinProfile(
+        everySectorKey.slice(0, 3),
+        args.years,
+        sectorOf,
+        sectorLoad.snapshots,
+      );
+      stockSector = {
+        description:
+          "A Stock's Sector strategy over a list spread round-robin across the sector funds",
+        securities: args.securities,
+        distinctSectorFunds: distinct.length,
+        loaderCallsForList,
+        loaderCallsPerDistinctFund: loaderCallsForList / distinct.length,
+        redisChunkReadsForList: redisChunksForList,
+        contextLoadMs: Math.round(sectorLoadMs * 100) / 100,
+        everyMetricOneWindow: sectorEvery,
+        ordinaryStrategy: sectorOrdinary,
+        loaderCallsDuringJoin: calls.count,
+      };
+    }
 
     const perEtf = (totals: readonly number[]) =>
       summary(totals.map((total) => total / funds.length));
@@ -546,6 +618,7 @@ async function main(): Promise<void> {
         everyFundEveryMetricOneWindow: worstOneWindow,
         readsDuringJoin,
       },
+      stockSector,
       providerRequestsOnEvaluationPath: refusing.requests,
     };
     const text = JSON.stringify(report, null, 2);

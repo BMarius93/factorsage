@@ -320,3 +320,35 @@ rules remain unchanged, old strategies/snapshots/Monitor state are safe,
 the popup is compact and accessible, and deterministic historical and live
 validation demonstrates **no look-ahead, no cross-source state confusion,
 no unintended provider traffic**. Anything less is **not accepted**.
+
+## Extension: Stock's Sector (owner request, 2026-10-14)
+
+Added to the same PR (#98) at the owner's request. A Condition's **Data Source** is
+`Stock`, `ETF` or **`Stock's Sector`**. Stock's Sector names no fund: each evaluated
+stock reads the Select Sector SPDR ETF its stored FMP sector maps to, so one rule
+reads XLK for a Technology stock and XLF for a Financial Services one.
+
+- **One canonical mapping** (`STOCK_SECTOR_ETF_CODES`, `@intrinsic/contracts`):
+  Technology → XLK, Financial Services → XLF, Energy → XLE, Healthcare → XLV,
+  Industrials → XLI, Consumer Cyclical → XLY, Consumer Defensive → XLP,
+  Utilities → XLU, Basic Materials → XLB, Real Estate → XLRE,
+  Communication Services → XLC. Aliases only where verified in the data — the
+  audit of every stored security found exactly these eleven strings, so there are
+  none. Missing, unsupported or ambiguous sectors are `NOT_EVALUABLE`; no fund is
+  guessed or substituted (never SPY), and no sector is derived from a ticker.
+- **No historical sector point-in-time.** Backtests and Monitors use the stock's
+  current stored sector; the limitation is documented and said in the product.
+  A backtest resolves it once at submission and freezes it in the run's immutable
+  snapshot; a Monitor resolves it once per scan. A sector change between Monitor
+  scans is explicit and deterministic (§14.4 of the architecture record).
+- **Same capability as an ETF rule:** the 21 technical metrics, values from the
+  resolved sector ETF, Conditions only (no Stock's Sector Trigger), BUY / SELL /
+  FINAL EXIT; never Fundamentals, Valuation, Insider, Congress, intrinsic values,
+  Gain or Loss. Label `Stock's Sector · RSI 14D`; three row controls; source-aware
+  identity and fingerprints.
+- **Data:** reuse the eleven bootstrapped sector ETF histories; no FMP during
+  evaluation; no new tables, Redis namespaces, engines or sector history; each
+  distinct sector ETF read once per backtest run and once per Monitor cycle.
+
+`ai/architecture/strategy-etf-conditions.md` §14 records the design, the
+evidence and the remaining limitations.

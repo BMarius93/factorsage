@@ -18,6 +18,11 @@ the architecture; § ETF-sourced Conditions below states the compatibility rules
 **source of evaluation data** only — never a member of a Stock List, a position or a comparison
 benchmark — and a rule with no source reads the stock exactly as it always did.
 
+**Stock's Sector** (extension of 2026-10-14, implemented) is the third source:
+`Stock's Sector · RSI 14D is above 50` reads, for each evaluated stock, the Select Sector SPDR fund
+its own FMP sector maps to — XLK for a Technology stock, XLF for a Financial Services one — so one
+rule reads a different fund per stock. § Stock's Sector below states the mapping and its rules.
+
 ## Domain boundary
 
 A **Strategy** defines reusable investment signal logic.
@@ -681,6 +686,48 @@ a company or a position and have no ETF form. The rules that follow from the sou
   intrinsic value — they are reset to the metric's own starting rule and the row says so
   (`Value was reset to match GLD · Price.`) until the rule itself is next edited.
 
+### Stock's Sector
+
+The third data source names no fund. Each evaluated stock reads the sector ETF its own **FMP
+sector** maps to, by this one canonical table (`STOCK_SECTOR_ETF_CODES` in `@intrinsic/contracts`,
+`stock-sector-etfs.ts`):
+
+| FMP sector             | Sector ETF |
+| ---------------------- | ---------- |
+| Technology             | XLK        |
+| Financial Services     | XLF        |
+| Energy                 | XLE        |
+| Healthcare             | XLV        |
+| Industrials            | XLI        |
+| Consumer Cyclical      | XLY        |
+| Consumer Defensive     | XLP        |
+| Utilities              | XLU        |
+| Basic Materials        | XLB        |
+| Real Estate            | XLRE       |
+| Communication Services | XLC        |
+
+- **Exactly FMP's eleven names.** An audit of every stored security on 2026-10-14 found these eleven
+  strings and nothing else, so there is no alias table. Matching tolerates case and whitespace only.
+  A stock with no stored sector, or a value that is not one of the eleven, has **no** sector ETF: its
+  Stock's Sector rules are `NOT_EVALUABLE` on every date. No fund is ever substituted — not SPY, not
+  a guess from the ticker, the industry or the name.
+- **The current sector, for every date.** There is no historical sector record. A backtest uses the
+  stock's sector as stored **when the run was submitted**, frozen into the run's snapshot, for every
+  date of the run; a Monitor uses the stock's sector as stored when each scan runs. A company that
+  was classified differently in the past is evaluated against today's sector ETF throughout — an
+  accepted V1 limitation, said in the metric's help.
+- **Everything else is the ETF rule's.** The same 21 technical metrics, the same Values (the sector
+  fund's own moving averages for Price and a moving average), the same completed-session rule, the
+  same unavailability, Conditions only — no Stock's Sector Trigger — in BUY, SELL and FINAL EXIT.
+- **Its own identity.** `Stock's Sector · RSI 14D` is a different condition from `RSI 14D` and from
+  `XLK · RSI 14D`, even for a Technology stock: it fingerprints as `stock-sector`, so changing a rule
+  from XLK to Stock's Sector is a logic change that resets that level's Monitor latch. It is stored as
+  `{ "kind": "STOCK_SECTOR" }` and nothing more: a code beside it is refused.
+- **Said where the result is read.** A completed backtest and a Monitor's detail list which fund each
+  stock read (`AAPL and MSFT read XLK, JPM reads XLF`) and name every stock that had none and why
+  (`no FMP sector`, `“Conglomerates” is not one of the eleven sectors`); a stock without one makes the
+  backtest's notice a warning, exactly like a fund that could not be read.
+
 ### Fundamental Metrics
 
 One metric kind, `FUNDAMENTAL`, parameterized by the stable identity of one of the fifteen metrics in
@@ -952,9 +999,11 @@ measured lives inside the one Metric control (owner decision, 2026-10-13; it sup
 nine-category picker of 2026-10-11, for the stock and for an ETF alike). The control opens a compact
 picker with two parts:
 
-1. **Data source** — `Stock` (the default: the evaluated security) or `ETF`, with one of the twenty
-   Dashboard funds chosen from a grouped list (Benchmarks, Sectors, Macro & Alternatives).
-   A Trigger row shows the ETF choice disabled, with the reason beside it.
+1. **Data source** — `Stock` (the default: the evaluated security), `ETF`, with one of the twenty
+   Dashboard funds chosen from a grouped list (Benchmarks, Sectors, Macro & Alternatives), or
+   `Stock's Sector`, which chooses no fund: a short line in the select's place says each stock reads
+   its own FMP sector's ETF, with examples. A Trigger row shows both non-stock choices disabled, with
+   the reason beside them.
 2. **Metric library** — the source's families as tabs: **Technical**, **Fundamentals**,
    **Valuation**, **Activity** and, where a position exists (SELL, FINAL EXIT), **Position**.
    A family with several categories lists them as expandable subgroups, one open at a time:
@@ -963,7 +1012,8 @@ picker with two parts:
 
 Families, subgroups, funds and metrics all come from the registry, so anything a level kind, a half
 of a Signal or a source cannot use is simply absent: Position in a BUY level; Volume, Fundamentals
-and Activity in a Trigger row; everything but Technical under an ETF. There is no search.
+and Activity in a Trigger row; everything but Technical under an ETF or Stock's Sector. There is no
+search.
 
 The picker is as tall as what it shows and never taller than its cap: `Price` is one row, not a
 panel of blank space, and a long family scrolls inside its own list while the source and the tabs
