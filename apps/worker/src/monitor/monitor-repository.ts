@@ -18,6 +18,7 @@ import {
   parseMonitorRuleStates,
   sameLifecycle,
   type MonitorLevelLifecycle,
+  type MonitorTransitionEvidence,
 } from "@intrinsic/strategy";
 
 /**
@@ -50,6 +51,16 @@ export type ActiveMonitor = {
   /** The canonical normalized definition document, still unparsed: the cycle validates it. */
   definition: unknown;
   members: readonly ActiveMonitorMember[];
+  /**
+   * The initial replay (`docs/decisions/monitor-eod-v2.md` §5): whether this Monitor asks for one,
+   * and its window once the first evaluation fixed it. Absent where a caller builds Monitors by
+   * hand; it is then never replayed.
+   */
+  replay?: {
+    requested: boolean;
+    windowStart: LocalDate | null;
+    fixedAt: Date | null;
+  };
 };
 
 /** One list membership, with the buy eligibility the canonical list model attaches to it. */
@@ -58,6 +69,8 @@ export type ActiveMonitorMember = {
   symbol: string;
   buyWindowMode: "FULL" | "CUSTOM";
   buyWindows: readonly { startDate: LocalDate; endDate: LocalDate | null }[];
+  /** When the security joined the List: a member listed after the replay window was fixed is new. */
+  listedAt?: Date;
 };
 
 /** The durable state of one `(monitor, security, level)`. */
@@ -151,6 +164,8 @@ export type LevelChange = {
   close?: { reason: MonitorTransitionReason; observationDate: LocalDate | null };
   /** Begin an occurrence on this change. */
   open?: { observationDate: LocalDate; price: number; reconstructed: boolean };
+  /** What the decision read on the change's session; absent for a change no session made. */
+  evidence?: MonitorTransitionEvidence;
 };
 
 /** Everything one EOD evaluation decided for one level of one member. */
@@ -306,6 +321,17 @@ export interface MonitorEvaluationRepository
     write: MemberEvaluationWrite,
   ): Promise<MemberEvaluationResult>;
   /**
+   * Fixes a new Monitor's replay window, once: the first evaluation's answer stands for every later
+   * one. Returns the stored window — this call's, or the one an earlier evaluation fixed — or null
+   * when the Monitor was rebound meanwhile or no longer asks for a replay.
+   */
+  fixReplayWindow(input: {
+    monitorId: string;
+    configVersion: number;
+    windowStart: LocalDate;
+    now: Date;
+  }): Promise<{ windowStart: LocalDate; fixedAt: Date } | null>;
+  /**
    * Forgets the progress of members no longer in the Monitor's list, so a member removed and added
    * back is reconstructed rather than caught up from a stale checkpoint. Fenced like every write.
    */
@@ -401,9 +427,17 @@ export class PrismaMonitorRepository
         configVersion: row.configVersion,
         strategyVersionId: version.id,
         definition: version.definition,
+        replay: {
+          requested: row.initialReplayRequested,
+          windowStart: row.replayWindowStart
+            ? toLocalDate(row.replayWindowStart)
+            : null,
+          fixedAt: row.replayWindowFixedAt,
+        },
         members: row.stockList.items.map((item) => ({
           securityId: item.securityId,
           symbol: item.security.symbol,
+          listedAt: item.createdAt,
           buyWindowMode: item.buyWindowMode,
           buyWindows: item.buyWindows
             .map((window) => ({
@@ -860,6 +894,45 @@ export class PrismaMonitorRepository
     );
   }
 
+  async fixReplayWindow(input: {
+    monitorId: string;
+    configVersion: number;
+    windowStart: LocalDate;
+    now: Date;
+  }): Promise<{ windowStart: LocalDate; fixedAt: Date } | null> {
+    // Raw SQL: fixing the window is not an edit, so `updatedAt` must not move.
+    await this.prisma.$executeRaw`
+      UPDATE "Monitor"
+      SET "replayWindowStart" = ${input.windowStart}::date, "replayWindowFixedAt" = ${input.now}
+      WHERE "id" = ${input.monitorId}
+        AND "configVersion" = ${input.configVersion}
+        AND "initialReplayRequested"
+        AND "replayWindowStart" IS NULL
+    `;
+    const row = await this.prisma.monitor.findUnique({
+      where: { id: input.monitorId },
+      select: {
+        configVersion: true,
+        initialReplayRequested: true,
+        replayWindowStart: true,
+        replayWindowFixedAt: true,
+      },
+    });
+    if (
+      !row ||
+      row.configVersion !== input.configVersion ||
+      !row.initialReplayRequested ||
+      !row.replayWindowStart ||
+      !row.replayWindowFixedAt
+    ) {
+      return null;
+    }
+    return {
+      windowStart: toLocalDate(row.replayWindowStart),
+      fixedAt: row.replayWindowFixedAt,
+    };
+  }
+
   async pruneCheckpoints(input: {
     monitorId: string;
     configVersion: number;
@@ -1152,6 +1225,13 @@ export class PrismaMonitorRepository
             : change.transition.signal === "closed"
               ? closedSignalId
               : null,
+        // A session decided this change under the current version; an administrative one (a
+        // logic-change reset) belongs to logic that no longer exists, so it names none.
+        strategyVersionId:
+          change.origin === "ADMINISTRATIVE" ? null : level.strategyVersionId,
+        ...(change.evidence
+          ? { evidence: change.evidence as unknown as Prisma.InputJsonValue }
+          : {}),
       });
     }
 

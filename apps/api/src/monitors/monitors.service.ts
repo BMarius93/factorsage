@@ -42,7 +42,10 @@ import { isOngoingListMember } from "@intrinsic/domain";
 import { PrismaService } from "../database/prisma.service";
 import { eodToday } from "../eod-today";
 import { EntitlementsService } from "../entitlements/entitlements.service";
-import { crossMonitorConfigurationBoundary } from "./monitor-configuration-boundary";
+import {
+  crossMonitorConfigurationBoundary,
+  reboundMonitorFields,
+} from "./monitor-configuration-boundary";
 import { BENCHMARK_DATA_SERVICE } from "../benchmarks/benchmarks.tokens";
 import {
   MONITOR_ETF_STATUS_OPTIONS,
@@ -311,6 +314,8 @@ export class MonitorsService {
           strategyId: input.strategyId,
           stockListId: input.stockListId,
           enabled: input.enabled,
+          // Its first evaluation replays recent history (`docs/decisions/monitor-eod-v2.md` §5).
+          initialReplayRequested: true,
         },
         include: MONITOR_INCLUDE,
       });
@@ -937,9 +942,7 @@ export class MonitorsService {
           ...(system ? { updatedByUserId: userId } : {}),
           strategyId: nextStrategyId,
           stockListId: nextStockListId,
-          ...(rebound
-            ? { configVersion: { increment: 1 }, lastScanAt: null }
-            : {}),
+          ...(rebound ? reboundMonitorFields() : {}),
         },
         include: MONITOR_INCLUDE,
       });

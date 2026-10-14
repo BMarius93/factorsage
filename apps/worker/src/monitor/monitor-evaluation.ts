@@ -102,6 +102,9 @@ export type MonitorEvaluationOptions = {
 
 export const DEFAULT_RECONSTRUCTION_SESSIONS = 252;
 
+/** A new Monitor's initial replay: the calendar days ending at the newest finalized session. */
+export const INITIAL_REPLAY_CALENDAR_DAYS = 90;
+
 export type MonitorEvaluationSummary = {
   expectedSession: LocalDate;
   calendar: FinalizedSession["calendar"];
@@ -117,6 +120,8 @@ export type MonitorEvaluationSummary = {
   membersNotCurrent: number;
   /** Members whose ongoing membership changed under their state, which was ended and rebuilt. */
   membershipResets: number;
+  /** Members of a new Monitor whose initial window was replayed this pass. */
+  membersReplayed: number;
   /** Members whose checkpoint reached the expected session by the end of the pass. */
   membersCurrent: number;
   /** Members whose security has no bar proven final and materialized yet. */
@@ -149,6 +154,10 @@ type PreparedMonitor = {
   readsSector: boolean;
   /** The members evaluated this pass: current members of the List on the expected session. */
   currentMemberIds: SecurityId[];
+  /** The initial replay window, when this Monitor asked for one (`monitor-eod-v2.md` §5). */
+  replayWindow: { windowStart: LocalDate; fixedAt: Date } | null;
+  /** Securities with any persisted state: never replayed, whatever their checkpoint says. */
+  securitiesWithState: ReadonlySet<string>;
 };
 
 type Entry = {
@@ -212,6 +221,7 @@ export class MonitorEodEvaluation {
       reconstructionHistoryExtensions: 0,
       membersNotCurrent: 0,
       membershipResets: 0,
+      membersReplayed: 0,
       contended: 0,
       staleConfiguration: 0,
       securitiesFailed: 0,
@@ -234,16 +244,24 @@ export class MonitorEodEvaluation {
         continue;
       }
       try {
+        const states = await this.repository.loadSignalStates(
+          monitor.monitorId,
+        );
         prepared.push({
           monitor,
           definition,
           levels: monitorStrategyLevels(definition),
-          states: await this.repository.loadSignalStates(monitor.monitorId),
+          states,
           checkpoints: await this.repository.loadCheckpoints(monitor.monitorId),
           watchingSince: watching.get(monitor.monitorId) ?? now,
           etfCodes: [...collectEtfOperands(definition).keys()].sort(),
           readsSector: collectSectorOperands(definition).length > 0,
           currentMemberIds: [],
+          replayWindow: await this.replayWindowOf(monitor, expected, now),
+          // Keys are `signalStateKey(securityId, levelId)`; a security id holds no space.
+          securitiesWithState: new Set(
+            [...states.keys()].map((key) => key.split(" ")[0]!),
+          ),
         });
       } catch (err) {
         this.logger.error({
@@ -541,14 +559,30 @@ export class MonitorEodEvaluation {
             !persisted || persisted.signalFingerprint !== level.fingerprint
           );
         });
+      // A new Monitor's initial universe replays its window: a member listed by the time the
+      // window was fixed, never evaluated, with no state. Its first session is the window's, or the
+      // membership's when that began later. A member listed afterwards is new, and reconstructed.
+      const window = entry.prepared.replayWindow;
+      const replayFrom =
+        window !== null &&
+        !checkpoint &&
+        !entry.prepared.securitiesWithState.has(entry.member.securityId) &&
+        entry.member.listedAt !== undefined &&
+        entry.member.listedAt <= window.fixedAt
+          ? entry.membershipStart !== null &&
+            entry.membershipStart > window.windowStart
+            ? entry.membershipStart
+            : window.windowStart
+          : undefined;
       return {
         entry,
         stored,
         from,
         through,
         waitingOn,
-        needsReconstruction,
+        needsReconstruction: needsReconstruction || replayFrom !== undefined,
         resetMembership,
+        replayFrom,
       };
     });
     const work = plans.filter(
@@ -618,14 +652,24 @@ export class MonitorEodEvaluation {
     // newest session it may be decided through.
     const steadyFrom = work.reduce<LocalDate>((oldest, plan) => {
       const first =
-        plan.from !== undefined
+        plan.replayFrom ??
+        (plan.from !== undefined
           ? addDays(plan.from, 1)
-          : (plan.through ?? horizon);
+          : (plan.through ?? horizon));
       return first < oldest ? first : oldest;
+    }, horizon);
+    // Where a reconstruction is anchored: a replay's state is established before its window, any
+    // other at the newest session it is decided through.
+    const reconstructionBase = work.reduce<LocalDate>((oldest, plan) => {
+      if (!plan.needsReconstruction) {
+        return oldest;
+      }
+      const anchor = plan.replayFrom ?? plan.through ?? horizon;
+      return anchor < oldest ? anchor : oldest;
     }, horizon);
     for (;;) {
       const reconstructionFrom = anyReconstruction
-        ? addDays(horizon, -monitorWindowCalendarDays(sessions))
+        ? addDays(reconstructionBase, -monitorWindowCalendarDays(sessions))
         : horizon;
       let from =
         steadyFrom < reconstructionFrom ? steadyFrom : reconstructionFrom;
@@ -684,6 +728,7 @@ export class MonitorEodEvaluation {
           continue;
         }
         summary.levelsReconstructed += item.reconstructed;
+        summary.membersReplayed += item.replayed ? 1 : 0;
         await this.persist(
           item.plan.entry,
           security,
@@ -740,6 +785,34 @@ export class MonitorEodEvaluation {
     return { through, waitingOn };
   }
 
+  /**
+   * A new Monitor's replay window, fixed by the first evaluation that sees it: the 90 calendar days
+   * ending at the newest finalized session (`docs/decisions/monitor-eod-v2.md` §5). Null when the
+   * Monitor does not ask for a replay — every Monitor older than the replay, and every rebound one.
+   */
+  private async replayWindowOf(
+    monitor: ActiveMonitor,
+    expected: FinalizedSession,
+    now: Date,
+  ): Promise<{ windowStart: LocalDate; fixedAt: Date } | null> {
+    const replay = monitor.replay;
+    if (!replay?.requested) {
+      return null;
+    }
+    if (replay.windowStart !== null && replay.fixedAt !== null) {
+      return { windowStart: replay.windowStart, fixedAt: replay.fixedAt };
+    }
+    return this.repository.fixReplayWindow({
+      monitorId: monitor.monitorId,
+      configVersion: monitor.configVersion,
+      windowStart: addDays(
+        expected.session,
+        -(INITIAL_REPLAY_CALENDAR_DAYS - 1),
+      ),
+      now,
+    });
+  }
+
   /** The newest date whose finalization is older than the dependency give-up bound. */
   private abandonedThrough(now: Date): LocalDate {
     return eodCutoffDate(
@@ -755,6 +828,7 @@ export class MonitorEodEvaluation {
       from: LocalDate | undefined;
       through: LocalDate | undefined;
       resetMembership: boolean;
+      replayFrom: LocalDate | undefined;
     },
     frame: EvaluationFrame,
     complete: boolean,
@@ -768,6 +842,7 @@ export class MonitorEodEvaluation {
     sessions: number;
     reconstructed: number;
     needsDeeperHistory: boolean;
+    replayed: boolean;
   } {
     const { entry, from, through } = plan;
     const start = entry.membershipStart;
@@ -793,7 +868,18 @@ export class MonitorEodEvaluation {
     }
     // A member with no checkpoint is decided on its newest session alone: a catch-up of state it
     // already has, or a reconstruction there — never a regenerated history.
-    const sessions = from === undefined ? indices.slice(-1) : indices;
+    // A replay decides every window session it has; with none (a security whose newest bar is
+    // older than the window) it falls back to the newest-session reconstruction.
+    const window =
+      plan.replayFrom === undefined
+        ? []
+        : indices.filter((index) => frame.dates[index]! >= plan.replayFrom!);
+    const replay = window.length > 0;
+    const sessions = replay
+      ? window
+      : from === undefined
+        ? indices.slice(-1)
+        : indices;
     const newestIndex = sessions[sessions.length - 1];
     const lastStepped =
       newestIndex === undefined ? undefined : frame.dates[newestIndex];
@@ -823,6 +909,7 @@ export class MonitorEodEvaluation {
         historyComplete: complete,
         originOf,
         monitoredOn,
+        replay,
       });
       needsDeeperHistory ||= decision.needsDeeperHistory;
       reconstructed += decision.reconstructed ? 1 : 0;
@@ -846,6 +933,7 @@ export class MonitorEodEvaluation {
       sessions: sessions.length,
       reconstructed,
       needsDeeperHistory,
+      replayed: replay,
     };
   }
 

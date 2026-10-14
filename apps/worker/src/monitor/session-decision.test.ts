@@ -533,4 +533,96 @@ describe("deciding finalized sessions in order", () => {
       expect(decision.write?.lifecycle?.since).toBe("2026-10-05");
     });
   });
+
+  describe("the initial replay", () => {
+    const SETUP: StrategySignal = {
+      conditions: ABOVE.conditions,
+      trigger: CROSSES.trigger!,
+    };
+
+    it("keeps a trigger consumed before the window latched, instead of restarting the setup", () => {
+      // Crossed on Oct 6 and held: a replay that started blank at the window would wait for a
+      // crossing that already happened.
+      const level = levelOf(SETUP);
+      const decision = decideLevelSessions({
+        level,
+        member: MEMBER,
+        strategyVersionId: "v1",
+        previous: null,
+        frame: frame(
+          [95, 105, 106, 107, 108, 109, 110, 111],
+          [100, 100, 100, 100, 100, 100, 100, 100],
+        ),
+        sessions: [4, 5, 6, 7],
+        historyComplete: true,
+        monitoredOn: always,
+        originOf: () => "HISTORY",
+        replay: true,
+      });
+      expect(decision.write?.lifecycle?.state).toBe("ACTIVE");
+      expect(decision.write?.lifecycle?.since).toBe("2026-10-06");
+      expect(summary(decision.write)).toEqual([
+        [
+          "2026-10-06",
+          "INACTIVE->ACTIVE",
+          "RECONSTRUCTED",
+          "HISTORY",
+          "open@105",
+        ],
+      ]);
+    });
+
+    it("records every change inside the window with its session and evidence", () => {
+      const level = levelOf(ABOVE);
+      const decision = decideLevelSessions({
+        level,
+        member: MEMBER,
+        strategyVersionId: "v1",
+        previous: null,
+        frame: frame(
+          [95, 95, 95, 105, 95, 95, 105, 105],
+          [100, 100, 100, 100, 100, 100, 100, 100],
+        ),
+        sessions: [2, 3, 4, 5, 6, 7],
+        historyComplete: true,
+        monitoredOn: always,
+        originOf: () => "HISTORY",
+        replay: true,
+      });
+      expect(summary(decision.write)).toEqual([
+        [
+          "2026-10-08",
+          "INACTIVE->ACTIVE",
+          "CONDITIONS_MET",
+          "HISTORY",
+          "open@105",
+        ],
+        [
+          "2026-10-09",
+          "ACTIVE->RESOLVED",
+          "CONDITIONS_ENDED",
+          "HISTORY",
+          "close",
+        ],
+        [
+          "2026-10-13",
+          "RESOLVED->ACTIVE",
+          "CONDITIONS_MET",
+          "HISTORY",
+          "open@105",
+        ],
+      ]);
+      const changes = decision.write!.changes;
+      expect(changes.every((change) => change.evidence?.v === 1)).toBe(true);
+      expect(changes[1]!.evidence?.rules[0]?.predicates[0]).toMatchObject({
+        id: "c1",
+        result: "FALSE",
+        metric: 95,
+        value: 100,
+      });
+      // History established them: both occurrences are reconstructed.
+      expect(changes[0]!.open?.reconstructed).toBe(true);
+      expect(changes[2]!.open?.reconstructed).toBe(true);
+    });
+  });
 });

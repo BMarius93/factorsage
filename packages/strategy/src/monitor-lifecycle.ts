@@ -11,6 +11,8 @@ import type { MonitorStrategyLevel } from "./monitor.js";
 import {
   evaluateMarketCondition,
   evaluateMarketTrigger,
+  explainMarketSignal,
+  type PredicateEvidence,
 } from "./predicates.js";
 
 /**
@@ -417,6 +419,36 @@ function observeSignal(
       ? evaluateMarketTrigger(signal.trigger, frame, index)
       : null,
   };
+}
+
+/**
+ * The evidence behind one lifecycle change: per rule of the level (only the Exit Rule that drove it,
+ * for a FINAL EXIT change that names one), every market-derived predicate with the operands it
+ * compared on that session. Version 1 of the stored shape; a reader treats anything else as absent.
+ */
+export type MonitorTransitionEvidence = {
+  v: 1;
+  rules: { ruleId: string; predicates: PredicateEvidence[] }[];
+};
+
+export function explainMonitorLevel(
+  level: Pick<MonitorStrategyLevel, "rules" | "ruleIds">,
+  frame: EvaluationFrame,
+  index: number,
+  exitRuleId: string | null = null,
+): MonitorTransitionEvidence {
+  const rules: MonitorTransitionEvidence["rules"] = [];
+  level.rules.forEach((signal, position) => {
+    const ruleId = level.ruleIds[position]!;
+    if (exitRuleId !== null && ruleId !== exitRuleId) {
+      return;
+    }
+    rules.push({
+      ruleId,
+      predicates: explainMarketSignal(signal, frame, index),
+    });
+  });
+  return { v: 1, rules };
 }
 
 /**
