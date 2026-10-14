@@ -104,7 +104,14 @@ Read `ai/README.md` before substantial work.
     lifecycle (`INACTIVE | PENDING_TRIGGER | ACTIVE | RESOLVED`) decided only by the pure reducer in
     `@intrinsic/strategy` (`monitor-lifecycle.ts`); a Trigger controls entry into `ACTIVE` and is
     then latched, and a level with no state is reconstructed from history, never started blank
-    (`docs/decisions/builtin-dashboard-signals-v1.md`). `ai/product/product-overview.md`
+    (`docs/decisions/builtin-dashboard-signals-v1.md`). A Monitor evaluates **finalized end-of-day
+    sessions only**, each at most once per member and in order, from the member's durable
+    `MonitorEvaluationCheckpoint`, advanced in the same transaction as the Signals and transitions
+    those sessions produced; its cycle reads PostgreSQL and makes no provider request, and every
+    transition records whether it was observed, history or administrative
+    (`docs/decisions/monitor-eod-v2.md` §3). Do not reintroduce a live-quote observation, a jump
+    from a stale checkpoint to the newest session, or a Monitor-cycle provider read.
+    `ai/product/product-overview.md`
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
     PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP

@@ -4,7 +4,7 @@ This document is the canonical product definition for FactorSage monitoring.
 
 ## Purpose
 
-A Monitor evaluates the existing canonical Strategy logic against current market data and produces Signals for symbols that match.
+A Monitor evaluates the existing canonical Strategy logic against each **finalized end-of-day session** of its watched stocks, in order, and produces Signals for symbols that match (`docs/decisions/monitor-eod-v2.md`).
 
 Monitoring is not a second strategy language. Strategy semantics remain owned by `ai/product/strategies.md`; the Monitor consumes those semantics.
 
@@ -16,7 +16,7 @@ For V1, the user controls whether a Monitor is `enabled` or `disabled`.
 
 The user does **not** configure the monitoring interval/cadence. Cadence is an application/infrastructure decision.
 
-Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics.
+Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics, and catches up the sessions it missed in order — recorded as history, not as newly observed activity (§ Transition history).
 
 `enabled` is intent, not a promise that the Monitor is scanning. After a downgrade an enabled
 Monitor can be `BLOCKED_BY_ENTITLEMENT` — over the plan's active-Monitor count
@@ -105,18 +105,16 @@ The occurrence stays `ACTIVE` for the session it fired in. It does not end at mi
 scan of the same session, or on a weekend or holiday: a Friday event is active through the weekend
 and resolved by Monday's observation.
 
-#### A daily trigger is evaluated against the previous closed day
+#### A daily trigger is evaluated between two finalized sessions
 
-A daily trigger is evaluated **from the previous closed daily observation to the current provisional
-daily observation**. It is not a tick-to-tick intraday trigger. The `t - 1` half is the last closed
-trading day and does not move during a session, so for the rest of that session the crossing
-predicate degenerates into the plain relationship it crossed into. That is why a crossing can fire at
-most once per session, and why the latch above — not the predicate — is what keeps a triggered
-occurrence alive.
+A daily trigger is evaluated **from the previous finalized session to the session being evaluated**,
+both end-of-day bars that can no longer change. It is not an intraday trigger. Each session is
+evaluated once per member, in order, so a crossing fires at most once per session, and the latch
+above — not the predicate — is what keeps a triggered occurrence alive.
 
-**Only a real current observation advances anything.** A cycle that produced no observation — a
-weekend, a holiday, a symbol the provider did not price — has observed no session and changes
-nothing. A `NOT_EVALUABLE` caused by missing current data carries **no** observation date at all.
+**Only a real session advances anything.** A weekend, a holiday or a day a stock did not trade has
+no bar, so nothing is observed and nothing changes. A session whose bar is not yet proven final is
+waited for, never guessed.
 
 The implementation must preserve enough durable prior state to distinguish a genuine transition from
 a process restart or cache miss; `ai/architecture/monitor-engine.md` describes it.
@@ -149,11 +147,25 @@ reason, the session it was observed on (or none, for a rebind, removal or edit) 
 concerns. A `INACTIVE -> PENDING_TRIGGER` change is recorded before any Signal exists, so history is
 keyed to the Monitor, the security and the level.
 
+Each change also records its **origin**:
+
+- **Observed** — a session decided while the Monitor was being watched. Sessions missed during an
+  infrastructure outage are caught up in order and are still observed: the user was owed them.
+- **History** — a session the Monitor was not watching when it became final: a reconstruction, or
+  the sessions a disabled or plan-paused Monitor catches up when it resumes. These are never
+  presented as new activity.
+- **Administrative** — a configuration change that observed no session: an edit, a removal, a
+  rebind.
+
+Every Signal records how its price was observed. Occurrences decided by the earlier live-quote
+Monitor keep their intraday price and are labelled as such; every later one is its session's
+finalized close.
+
 ### Historical reconstruction
 
 A level with no current state — a new Monitor, a new member, a rebind, an edited level — does not
 start as if nothing had happened before. The first cycle replays closed sessions through the same
-evaluator and the same lifecycle, then applies the live observation, and persists only the result:
+evaluator and the same lifecycle up to the newest finalized session, and persists only the result:
 at most one occurrence (marked `reconstructed`, dated to its real activation session) and one
 `RECONSTRUCTED` transition. It never writes the replayed history. The result is always the one a
 replay of the security's **whole** history would reach — a setup whose Conditions have held for
@@ -199,7 +211,7 @@ metrics that happen to return `NOT_EVALUABLE`":
 
 | | Meaning |
 | --- | --- |
-| `NOT_EVALUABLE` | a **Monitor-supported** metric whose market or derived input was unavailable — warm-up, missing history, no current quote |
+| `NOT_EVALUABLE` | a **Monitor-supported** metric whose market or derived input was unavailable — warm-up, missing history, no finalized bar |
 | Excluded | `Gain` and `Loss`, which a Monitor does not evaluate at all |
 
 A Strategy using them is **never rejected**, and neither is a Monitor over it. Creating, editing and
@@ -235,7 +247,7 @@ Backtests are unaffected. They hold real simulated position state and continue t
 
 - **Create.** A customer's Monitor references a Strategy and a Stock List that both belong to the
   caller, verified in the transaction that inserts it. It starts `enabled` unless created otherwise.
-  Its first cycle reconstructs each level's state from history.
+  Its first cycle reconstructs each level's state from history at the newest finalized session.
 - **Evaluate.** Every enabled Monitor is evaluated in every scan cycle. The cycle is a singleton
   claim across all worker processes, so two cycles never run at once by design; if a lease is lost
   and one overlaps anyway, the durable transition state's optimistic version guard means at most
@@ -243,7 +255,8 @@ Backtests are unaffected. They hold real simulated position state and continue t
 - **Disable.** Stops future evaluations from the next cycle on (a cycle already running finishes
   with the enabled set it loaded). Persisted transition state and active Signals are left exactly
   as they were: a disabled Monitor still shows the Signals that were active when it was disabled.
-- **Re-enable.** Resumes from that persisted state. An occurrence that was already active is not
+- **Re-enable.** Resumes from that persisted state, catching up the sessions missed while disabled
+  in order and recording their changes as history. An occurrence that was already active is not
   re-emitted; a latched trigger stays latched.
 - **Edit the Strategy.** Takes effect from the next cycle. Only levels whose canonical logic
   changed have their occurrence closed (`LOGIC_CHANGED`) and their state reset and reconstructed;
@@ -342,53 +355,54 @@ because that is the one case where all of it should go.
 
 ## Only a trading session produces an observation
 
-A provisional observation exists only for a day the exchange actually held a session.
+An observation is a stored, finalized end-of-day bar, so it exists only for a day the stock actually
+traded.
 
-- **Weekends** are excluded without asking anyone: they are closed on every venue V1 admits.
-- **Fully closed exchange holidays** are excluded using the venue's published holiday schedule.
+- **Weekends and fully closed holidays** have no bar and are never observed.
 - **Early closes are ordinary sessions.** The venue opened and closed sooner; the day's bar is a
-  normal one and is not filtered.
+  normal one.
+- **A halted or delisted stock** prints nothing for the days it did not trade; those days are never
+  observed. Once the newest expected session has been given up on, a member already through every
+  session the stock printed is marked as evaluated through it, without an observation.
 
 This is a correctness rule, not tidiness. A bar on a day nothing traded lengthens every rolling
 window by one observation — which can move an average past a price that never moved and read as a
 crossing — and it names a session later than the previous real one, which would end a Trigger
-Signal that fired there. Neither is acceptable, so neither is allowed to happen.
+Signal that fired there. Because the Monitor only reads bars the market produced, neither can happen.
 
-If the schedule needed to answer the question cannot be obtained, the cycle **fails**. Not knowing
-whether the exchange opened is not the same as knowing it did, and only one of those may produce an
-observation. The schedule is resolved per exchange, shared by every symbol listed there, and held in
-process memory; nothing about it is cached in Redis, and it is not a general trading-calendar
-subsystem — it answers one question for the venues V1 admits.
+The venue's published holiday schedule decides which session is *expected* — what the stock EOD
+preparation asks for and what "current" means. It is resolved per exchange, held in process memory,
+and never cached in Redis. If it cannot be read, weekdays stand in and the fact is logged; that can
+only change when an unprinted session is given up on, never what is observed.
 
-## Current-data semantics
+## End-of-day semantics
 
-A Monitor uses current market data, while backtests remain deterministic historical evaluations.
+A Monitor evaluates **finalized end-of-day sessions** (`docs/decisions/eod-finality-v1.md`,
+`docs/decisions/monitor-eod-v2.md`). A session is final at its 16:00 New York close plus the
+publication delay, and a stock's bar is evaluated only once it has been read after that point. There
+is no intraday or live-quote evaluation: a Monitor's daily indicators (EMA, SMA, RSI, …) are the
+materialized end-of-day values and never move during a trading day.
 
-For daily market-derived series, Monitor evaluation uses:
-
-```text
-persisted closed daily history
-+ current live FMP price as the provisional current daily observation
-```
-
-Therefore daily indicators used by a Monitor (for example EMA, SMA, RSI) may include the provisional current-day observation and can move intraday.
+Each member is evaluated **from its own checkpoint**: every session after the last one it was
+decided through, in order, once. If the service was down for two days, the next evaluation steps
+both missed sessions in order before the newest; it never jumps to "today". A member whose newest
+bar is not proven final yet waits at its checkpoint; the other members carry on.
 
 Backtests continue to use closed historical observations according to the canonical backtest methodology. Do not silently change backtest semantics to make them match Monitor execution.
 
 Missing/warm-up/PIT-unavailable inputs remain `NOT_EVALUABLE`; monitoring must not replace them with zero, future data, or fabricated values.
 
-**A rule that reads an ETF has no live observation.** The stock side of a rule is decided against
-the live price; a Condition that names an ETF as its data source (`ai/product/strategies.md`,
-§ ETF-sourced Conditions) is decided only against that ETF's own **completed** session of the same
-date — its end-of-day bar finalized *and* read after it finalized. So during a trading session such
-a rule is `NOT_EVALUABLE` for the current observation, a level that needs it cannot newly match
-intraday, and it is decided on the first scan after the evening refresh confirms the ETF's bar.
-Yesterday's reading is never carried onto today. A level already ACTIVE stays latched through the
-undecidable hours, as for any `NOT_EVALUABLE`. The Monitor's detail says this once and gives each
-ETF's state — ready with its latest completed session, awaiting the session's bar, not synchronized,
-or never bootstrapped — so an ordinary wait is not mistaken for missing data. ETF bars are read from
-the stored benchmark history, never from the provider, and a fund that cannot be read degrades only
-the rules naming it, never the scan.
+**A rule that reads an ETF waits for the ETF's own session.** A Condition that names an ETF as its
+data source (`ai/product/strategies.md`, § ETF-sourced Conditions) is decided only against that
+ETF's **completed** session of the same date — its end-of-day bar finalized *and* read after it
+finalized. A member whose rules read an ETF that does not hold the session yet waits for it, so the
+session is decided on the stock's and the ETF's bars together. The wait is bounded: a day after the
+session became final, it is decided without that ETF, whose rules are then `NOT_EVALUABLE` — an
+ACTIVE level stays latched — and yesterday's reading is never carried onto today. The Monitor's
+detail gives each ETF's state — ready with its latest completed session, awaiting the session's bar,
+not synchronized, or never bootstrapped — so an ordinary wait is not mistaken for missing data. ETF
+bars are read from the stored benchmark history, never from the provider, and a fund that cannot be
+read degrades only the rules naming it, never the scan.
 
 **Stock's Sector is resolved once per scan.** A rule reading Stock's Sector reads, per watched stock,
 the sector ETF its **current** FMP sector maps to, under exactly the completed-session rule above.
@@ -402,37 +416,23 @@ which fund each stock reads now and names every stock that has none.
 
 ### How Monitor evaluation differs from a backtest
 
-Both run the same evaluator over the same frame projection, so operators, the 2% closeness
-tolerance, buy-window gating, `NOT_EVALUABLE` and the choice of `t - 1` (the previous row of the
-trading-day axis) are identical. The differences are the observation, not the language:
+Both run the same evaluator over the same frame projection of the same stored, finalized bars and
+**materialized** derived columns — daily and weekly series, per-day intrinsic values, Fundamental
+Metrics — so operators, the 2% closeness tolerance, `NOT_EVALUABLE`, the choice of `t - 1` (the
+previous row of the trading-day axis) and every value a rule reads are identical on a given session.
+The differences are framing, not data:
 
-- **The observation is live.** A backtest evaluates the closed bar; a Monitor evaluates the last
-  trade at scan time, pre-market and after-hours included. A crossing the close never confirms can
-  fire a Monitor Signal and would not appear in a backtest; both are correct for what they observe.
-- **Daily averages and oscillators are recomputed** over a bounded window whose warm-up is derived
-  from each series' definition, so the seed's influence is below `1e-6` of the value; a backtest
-  reads the full-history materialized columns. A strict comparison decided inside that tolerance
-  could differ by design; nothing else can.
-- **Weekly series, intrinsic values and Fundamental Metrics are carried forward** from the newest
-  closed derived row — none can change intraday — where a backtest reads each day's own row. A
-  statement takes effect on the first session on or after it became public, when that session's
-  derived state is materialized, so on that first session a Monitor still evaluates the previous
-  session's fundamentals until the close; from the next observation on both agree.
 - **Position-dependent metrics** (`Gain`, `Loss`) are **excluded** from Monitor evaluation and live
   for a backtest: a Monitor skips the whole level that uses one, where a backtest decides it against
   simulated position state.
 - **A backtest never reads an unfinished session**: a period requested through today ends at the
   newest finalized session (`ai/product/backtests.md`, `docs/decisions/eod-finality-v1.md`).
-- **An ETF-sourced Condition is the one input both engines read identically**: the ETF's completed
-  sessions, joined by exact date. On completed sessions a Monitor's reconstruction and a backtest
-  decide such a rule on the same numbers; the only difference is that a Monitor's *current*
-  observation has no completed ETF session until the evening.
+- **Signals made by the earlier live-quote Monitor** were decided on an intraday price and keep it;
+  they are labelled as live-quote observations and are never compared with a backtest's close.
 
 ## Intrinsic value and price-dependent metrics
 
-Do not rerun expensive fundamental/intrinsic calculations merely because the live price changed if their underlying inputs have not changed.
-
-Where a derived metric depends on a persisted intrinsic value plus current price (for example Margin of Safety), reuse the valid intrinsic value and recompute only the price-dependent result.
+A Monitor reads each session's materialized intrinsic values and price-dependent results (for example Margin of Safety) exactly as a backtest does; it never recomputes an intrinsic-value model of its own.
 
 The canonical formulas and PIT rules remain owned by the existing calculated-series / intrinsic-value architecture.
 
@@ -447,16 +447,9 @@ Do not add new Redis-backed product semantics merely for monitoring. Redis may s
 These are known and accepted for V1. They are limitations, not defects, and none of them can produce
 a wrong Signal.
 
-- **Monitored universe versus the resident-stock bound.** Symbol data is read through the existing
-  shared stock-data cache, whose resident set is bounded. A monitored universe larger than that bound
-  re-hydrates symbols from durable storage each cycle. This is a throughput limitation. Do not
-  redesign Redis or add a Monitor-specific cache for it.
-- **A quote is refused rather than trusted** when it is older than the configured maximum age, when
-  it is dated in a session later than the cycle's own, or when its timestamp is present but cannot
-  be read. Each of those would otherwise fabricate an observation. A quote that carries **no**
-  timestamp at all is taken at its word and dated to the cycle's own session; for a symbol that did
-  not trade that day this can append a bar the market never produced. Accepted in V1 because failing
-  closed would stop monitoring every symbol whose feed omits the field.
+- **Evaluation reads PostgreSQL, not the Redis projection.** The Monitor frame is read from stored
+  bars and materialized derived rows, so a monitored universe larger than the resident-stock bound
+  costs no re-hydration. Do not add a Monitor-specific cache.
 - **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
   100 Signals and nothing pages further back; older rows are durable but not yet addressable
   through the API. Pagination is a contract addition for the web slice, not a redesign.
@@ -474,11 +467,9 @@ a wrong Signal.
   size, so one very large monitored List sets the cycle's provider, hydration and memory cost.
   Backtests cap a run at `BACKTEST_MAX_SECURITIES`; Monitors have no equivalent yet, and adding
   one is a product decision to make deliberately rather than a silent engine limit.
-- **Current-data failure is all-or-nothing.** If the current-data read for a cycle fails, the cycle
-  **fails** — it is not absorbed and completed as if it had evaluated something. Partial cycles are
-  not a V1 concept. The failure takes the worker's normal failure and retry path, so it is recorded
-  as a failure and retried after a backoff rather than counted as a successful scan. Nothing is
-  persisted before that point, so every durable latch is preserved and the next cycle continues.
+- **A failure is per stock.** A stock whose evaluation fails is logged and counted, and the cycle
+  completes the others. Each member's sessions, Signals, transitions and checkpoint are written in
+  one transaction, so nothing is half-applied, and the next cycle resumes from the checkpoints.
 
 ## Source-of-truth boundaries
 
@@ -527,22 +518,21 @@ label; a row's own badge and reason text keep the precise `Waiting for trigger`.
 Recorded so they are decided deliberately rather than by whichever code path is touched next. Each
 is traced in `ai/architecture/deep-discovery.md`.
 
-1. **A member that stops trading.** A delisted or indefinitely halted security yields no usable
-   quote, so every evaluation is `NOT_EVALUABLE`, the lifecycle never moves and its active
-   occurrences stay active indefinitely with `lastOutcome = NOT_EVALUABLE`. Nothing
-   resolves them today; the catalog sync marks the security inactive but the List still holds it.
-   Options: resolve on deactivation like a removed member, or surface "no current data since" and
-   leave the Signal. Not decided.
-2. **Scanning outside trading sessions.** The cycle runs on the same cadence around the clock; on a
-   weekend or overnight it re-observes the last session with an unchanged or after-hours quote,
-   spending one provider batch per 50 symbols per cycle for no new information (after-hours moves
-   can still resolve and re-emit condition Signals, which is the live-observation rule, not a
-   defect). Idling while no admitted venue has a session is an application-side change the
-   calendar already makes possible. Not decided.
+1. **A member that stops trading.** A delisted or indefinitely halted security prints no new
+   session, so nothing is observed, the lifecycle never moves and its active occurrences stay
+   active indefinitely, evaluated through the last session it printed. Nothing resolves them
+   today; the catalog sync marks the security inactive but the List still holds it. Options:
+   resolve on deactivation like a removed member, or surface "no data since" and leave the Signal.
+   Not decided.
+2. **Scanning outside trading sessions.** Decided by the end-of-day evaluation
+   (`docs/decisions/monitor-eod-v2.md` §3): a cycle reads PostgreSQL readiness only and spends no
+   provider request, so a cycle with no new session costs one readiness read per watched stock and
+   changes nothing.
 3. **Monitored-universe size.** No total cap on a List exists (investigation 10 quantifies the
    cost beyond the resident-stock bound). A cap is a product rule, not an engine limit.
 4. **Signal history beyond the newest 100.** The contract has no paging; the web slice needs it.
-5. **A backtest ending today** simulates an in-progress last day (`backtests.md`).
+5. **A backtest ending today** is decided: it ends at the newest finalized session
+   (`docs/decisions/eod-finality-v1.md`).
 
 ## Out of scope / do not invent
 

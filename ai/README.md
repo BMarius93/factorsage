@@ -164,9 +164,11 @@ For Monitor, Dashboard or built-in content work, read
 the Dashboard and the built-in catalog), then `product/product-overview.md` (the domain map) and
 `product/monitors.md`, then `architecture/monitor-engine.md`, `architecture/deep-discovery.md` (verified end-to-end behaviour, invariants and open product questions, one investigation per entry),
 `product/strategies.md`, `architecture/strategy-evaluation.md`, and `architecture/calculated-series.md`.
-Monitor reuses the canonical Strategy language but evaluates it against current data. The V1 architecture
-loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
-transient per-cycle reuse, and persists correctness-critical transition state durably. Do not add a new
+Monitor reuses the canonical Strategy language but evaluates it against finalized end-of-day sessions,
+in order, from a durable per-member checkpoint (`../docs/decisions/monitor-eod-v2.md` is the Monitor
+EOD V2 implementation record). It reads each symbol's frame once from PostgreSQL, evaluates per Monitor,
+uses process memory for transient per-cycle reuse, and persists correctness-critical transition state
+durably; the stock EOD child, not the Monitor, makes the provider reads. Do not add a new
 Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1. Monitor V1
 shipped as API (`apps/api/src/monitors`), worker (`apps/worker/src/monitor`) and web
 (`apps/web/src/features/monitors`). The web slice manages monitors and presents one: the collection

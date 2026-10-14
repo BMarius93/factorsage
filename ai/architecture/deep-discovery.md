@@ -234,6 +234,11 @@ drops any provider row outside the requested range, stamps the watermark with th
 and replaces the six-hour timer with a session decision, so a stored bar is always one read after its
 session became final.
 
+**Follow-up (2026-10-14, Monitor EOD V2 step 3).** The Monitor observation is no longer a quote:
+`docs/decisions/monitor-eod-v2.md` §3 evaluates each member's finalized sessions from PostgreSQL, in
+order, from a durable checkpoint, so the quote-dating rules above describe only the V1 cycle kept
+for the capacity bench until step 8. Occurrences it recorded are labelled `LIVE_QUOTE`.
+
 ---
 
 ## 4. Signal identity and lifecycle
@@ -618,6 +623,11 @@ session's first trade.
 **Finding.** **Performance risk** (provider budget) and a **Product decision required**: idle the
 cycle while no admitted venue has a session in progress. Not changed — cadence is an application
 decision the product owner should make explicitly.
+
+**Follow-up (2026-10-14, Monitor EOD V2 step 3).** Resolved by the EOD evaluation
+(`docs/decisions/monitor-eod-v2.md` §3): a cycle makes no provider request, every ten minutes by
+default, and a cycle with no new finalized session costs one PostgreSQL readiness read per watched
+security and writes nothing.
 
 ---
 
