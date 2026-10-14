@@ -180,10 +180,9 @@ the first place. A test reads the source for both.
 | ----------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | Security catalog synchronization                                  | `company-screener`                   | Provider-wide: every listing on an exchange                                                                    |
 | Member catalog synchronization                                    | `senate-profile`                     | Provider-wide: the whole directory of members of Congress, which is about no security                          |
-| Current quotes (a Monitor cycle's current observation)            | `batch-quote`                        | Takes whatever symbol list its caller built; current data, not history. Refused even for approved symbols      |
-| Exchange trading calendar                                         | `holidays-by-exchange`               | Provider-wide: a venue's schedule, held in memory by the Monitor worker and never stored                       |
+| Exchange trading calendar                                         | `holidays-by-exchange`               | Provider-wide: a venue's schedule, held in memory by the workers and never stored                              |
 | Benchmark series (SPY, `^GSPC`, `^DJI`, `^VIX`)                   | `historical-price-eod/full`          | Each is another provider symbol, not one of the approved securities                                            |
-| Monitor scans, including the built-in Monitors' thirty securities | quotes, calendar, prices, statements | Hydrates every member of every active Monitor's list. No worker is started, and a worker holds no provider key |
+| Stock EOD preparation for Monitors, incl. the built-ins' thirty   | calendar, prices, statements         | Hydrates every current member of every running Monitor's list. No worker is started, and a worker holds no key |
 | Backtests and the QA matrix                                       | prices, statements, a benchmark      | Hydrates a whole Stock List, up to 200 securities, and 33 for the matrix                                       |
 | Form 13F institutional holdings                                   | —                                    | Not part of the product (`AGENTS.md` invariant 23)                                                             |
 | Company logos                                                     | —                                    | The web app reads the provider's unmetered image host; no key, no dataset                                      |
@@ -193,8 +192,9 @@ Consequences worth knowing before relying on a live-hydrated database:
 - **No benchmark data.** The market overview and a backtest's comparison need the benchmark series,
   which this command does not load.
 - **The QA matrix is still not possible in the cloud.** It needs 33 securities.
-- **A Monitor on a live-hydrated security does not evaluate** in a stack without a provider key: its
-  cycle needs current quotes and the exchange calendar.
+- **A Monitor on a live-hydrated security decides only the sessions already stored** in a stack
+  without a provider key. The Monitor evaluation reads PostgreSQL alone, but the stock EOD
+  preparation that stores each new session needs the provider (`docs/decisions/monitor-eod-v2.md`).
 - **A stack without a provider key can read the data only while it is fresh.** Once a newer session
   is final (16:30 New York) — or after six hours for statements — the loader wants to refresh the
   recent tail, cannot, and the read fails. Run the command again (it asks only for what is stale), or

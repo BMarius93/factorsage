@@ -115,8 +115,8 @@ Read `ai/README.md` before substantial work.
     `isBuyWindowEligible` and must never call the Monitor predicate (§4). Only a newly created
     Monitor replays its 90-day window, from the exact state before it, and every session-decided
     transition stores its `strategyVersionId` and operand `evidence` (§5). Do not reintroduce a
-    live-quote observation, a jump from a stale checkpoint to the newest session, or a
-    Monitor-cycle provider read.
+    live-quote observation or a quote endpoint (the FMP client has none, §8), a jump from a stale
+    checkpoint to the newest session, or a Monitor-cycle provider read.
     `ai/product/product-overview.md`
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from

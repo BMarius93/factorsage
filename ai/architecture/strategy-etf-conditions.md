@@ -12,7 +12,17 @@ data source that reads each stock's own sector ETF.
 
 `docs/decisions/strategy-etf-conditions-v1.md` is the accepted product decision and acceptance gate;
 this document is the technical design derived from it, in the role `strategy-builder.md` played for
-the Create/Edit Strategy slice. The owner's rulings incorporated here, verbatim in intent:
+the Create/Edit Strategy slice.
+
+**Monitor EOD V2 (2026-10-14/15).** The Monitor plug-in points named below — the V1 cycle
+(`monitor-cycle.ts`), the provisional frame (`monitor-frame.ts`) and their test suite — were replaced
+by the per-session EOD evaluation and then deleted (`docs/decisions/monitor-eod-v2.md` §3, §8). ETF
+rules now read the fund's own finalized session behind a bounded wait (§3.5 there), and the ETF
+Monitor cases live in `apps/worker/src/monitor/monitor-etf-conditions.integration.test.ts` over that
+evaluation. Ruling 1 below holds unchanged; "intraday" no longer arises, because a Monitor decides
+only finalized sessions.
+
+The owner's rulings incorporated here, verbatim in intent:
 
 | # | Decision | Ruling |
 | --- | --- | --- |

@@ -289,8 +289,9 @@ Monitor (user-owned with `enabled`, or SYSTEM built-in with isPublished / isGlob
   |    Signals, clears lastScanAt and keeps Signal history)
   +-- cadence, lease and retry are application configuration, never user input
   +-- deleting a referenced Strategy or StockList is refused while the Monitor exists
-  +-- evaluates every BUY / SELL / FINAL EXIT level against current data (closed history
-  |   plus the live quote as the provisional observation), BUY gated by the member's buy window
+  +-- evaluates every BUY / SELL / FINAL EXIT level on each finalized EOD session, in order, from
+  |   a durable checkpoint (PostgreSQL only, no quote), for current members under ongoing
+  |   membership (docs/decisions/monitor-eod-v2.md)
   |
   +-- durable (Monitor, Security, level) lifecycle: INACTIVE / PENDING_TRIGGER / ACTIVE / RESOLVED,
   |   keyed to the level's own canonical fingerprint (a Strategy edit resets only changed levels)

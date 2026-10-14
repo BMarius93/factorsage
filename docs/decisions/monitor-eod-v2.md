@@ -17,6 +17,7 @@ never intent.
 | 5 | `feat/monitor-replay-evidence` | The 90-day initial replay; evidence and version on every transition (§5) |
 | 6 | `feat/monitor-read-models` | The Activity feed, the Signal table, Why from evidence, coverage (§6) |
 | 7 | `feat/monitor-web-ux` | Dashboard Monitor activity, the Monitor's one Signal table, coverage line, E2E (§7) |
+| 8 | `feat/monitor-eod-cleanup` | The real-time paths removed, the V1 suites ported, the capacity bench re-measured (§8) |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -220,9 +221,9 @@ rollback needs no down-migration.
 ### 3.7 What stays, and limitations
 
 - **Eligibility** was still V1's in this step (BUY window, BUY only); step 4 replaced it (§4).
-- **The V1 cycle** (`monitor-cycle.ts`), the quote read and the Monitor frame projection remain for
-  the capacity bench and their tests until step 8 removes them. The V1 write path now labels what it
-  writes `LIVE_QUOTE` with the backfill's origin mapping, so its rows can never pass for EOD ones.
+- **The V1 cycle** (`monitor-cycle.ts`), the quote read and the Monitor frame projection remained
+  for the capacity bench and their tests in this step, its write path labelling what it wrote
+  `LIVE_QUOTE`; step 8 removed all of them (§8).
 - **`MONITOR_SCAN_INTERVAL_MS` defaults to ten minutes**, the stock EOD child's cadence. A pass with
   nothing new costs one readiness read per watched security.
 - **A halted security's members stay at its last bar on weekdays.** Only the *expected* session is
@@ -456,3 +457,60 @@ checkpoint at each member's newest seeded session under its recorded membership,
 E2E worker has nothing new to decide and the declared state stays exact. It also clears any
 replay request and stamps `watchingSince` before those sessions.
 
+## 8. Removing the real-time paths
+
+Step 8 deletes everything that could read or expose a price that is not a finalized EOD close, once
+steps 1–7 had replaced every consumer (`docs/audits/monitor-eod-v2-intraday-inventory.md`).
+
+**Removed.**
+
+| Layer | What is gone |
+| --- | --- |
+| `packages/fmp` | `getCurrentQuotes` and its batching constant, the quote DTO, mapping and `FmpCurrentQuoteProviderPort`, and the request guard's `batch-quote` endpoint with its `SYMBOL_LIST` subject. The client's endpoint inventory test pins the seven endpoints left; the guard refuses `batch-quote` as unknown. |
+| `packages/stock-data` | `getCurrentObservations`, `prepareMonitorEvaluationData`, `readMonitorEvaluationFrame`, the provisional Monitor frame (`monitor-frame.ts`), `monitorWindowObservations`, `requiredDailySeries`, `monitorWindowRange`, the `MONITOR_CURRENT_DATA` request reason, the `CURRENT_QUOTE` dataset and the moving-average subset `calculateDailyTechnicals` accepted only for that frame. `monitorWindowCalendarDays` stays, in `evaluation-window.ts`, for the reconstruction and alternative-data windows. |
+| `packages/config` | `MONITOR_QUOTE_MAX_AGE_MS` (`quoteMaxAgeMs`), in code, tests and `.env.example`. |
+| `apps/worker` | The V1 cycle (`monitor-cycle.ts`), `decideLevel`, its `needsDeeperHistory` and BUY-window default, `applyLevelState` with `LevelStateWrite` and the legacy origin mapping, and the `MonitorRepository` interface, folded into `MonitorEvaluationRepository`. `applyMemberEvaluation` is the only Monitor write path. |
+| `apps/api` | The fake FMP's `batch-quote` answer: in the hermetic stack a quote request is now an unexpected endpoint, which fails the Playwright run. |
+
+No migration. `MonitorSignal.observationBasis` keeps `LIVE_QUOTE` so the occurrences the V1 cycle
+recorded still read truthfully; nothing writes it any more.
+
+**Tests.** The V1 cycle's suites (`monitor-cycle.integration.test.ts`, `monitor-frame*.test.ts`,
+`alternative-data-monitor-frame.test.ts`, the cycle fixtures) are deleted, and every behaviour that
+still describes the product was ported to the EOD evaluation over real PostgreSQL:
+
+- `monitor-evaluation.semantics.integration.test.ts` (new): which Monitors run, one read per
+  security with the union of operands, a read failure isolated to its security, FINAL EXIT with two
+  rules and under schema version 1, warm-up, position-dependent levels and their edit and revert,
+  logic changes, an edit applied on the next pass, built-ins, `updatedAt` untouched, abort, the
+  rebind fence, state loss and the conditions-plus-trigger lifecycle, a Fundamental Condition;
+- `monitor-transitions.fixture.test.ts`, `monitor-actor-scope.integration.test.ts` and
+  `monitor-etf-conditions.integration.test.ts`, re-driven through `MonitorEodEvaluation` over the
+  shared `EodFixtureData` helper;
+- `monitor-valuation-audit.integration.test.ts`, now over the real `CanonicalStockDataService`
+  through `readFinalizedEvaluationFrame`: no Signal on a withheld ratio, every session from Mar 13
+  to Nov 19, 2024 decided in order and **equal to the lifecycle the backtest frame produces**, an
+  open Signal held through withheld sessions to its resolution, the basis race refused, no provider.
+
+Not ported, because the behaviour no longer exists: quote age and absence, a quote dated after the
+cycle, intraday whipsaws and same-day re-entries, a split-sized quote, the provisional row on a
+closure, BUY-window gating in the Monitor (superseded by §4), and the per-session calendar call
+counts of the quote path (`EodFinalityPolicy` resolves the session once per pass and is covered by
+`eod-finality.test.ts`).
+
+**Behaviour fixed on the way.** A Strategy edit made after an evening's evaluation no longer waits
+for the next close: a level whose fingerprint changed is re-decided at the newest session the
+member already reached, on the next pass, and a level whose logic is unchanged is never decided
+twice. A level the edit **added** still starts with the next session: with no state row it cannot be
+told apart from a level whose sessions were never decidable, and re-reading those on every pass
+would cost a frame read per member every ten minutes.
+
+**Capacity.** `apps/worker/src/monitor/capacity-bench.ts` (`bench:monitor`) now drives the stock EOD
+preparation and the Monitor EOD evaluation over a simulated clock. With 500 securities and 9,000
+members, the stock EOD child made 8 provider requests per new security and 2 per security per
+session, a five-session gap included, and none on an idle scan. The Monitor pass made no provider
+request and no Redis data command in any step. It took 15–18 s per new session, about 3 s when
+nothing was new, and 65 s for a 90-day replay of every member. The resident bound
+(`STOCK_CACHE_MAX_RESIDENT_STOCKS`) now applies to the stock EOD child once per session: 190 s at
+R = 100 against 80 s at R = 1,000. The measurements and their environment are in
+`ai/architecture/production-capacity.md`.

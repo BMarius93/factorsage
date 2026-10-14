@@ -794,9 +794,9 @@ larger than the market capitalisation makes the enterprise value negative. A new
 public by then; nothing is stored per session. A ratio is **unavailable** — `NOT_EVALUABLE`, so the
 Condition does not match — where an input is missing, a denominator is not positive (a loss-maker
 has no P/E), a statement reports another currency than the trading one, or around a corporate action
-the data cannot put on one price and share basis. A Monitor reads the live quote with the newest
-closed session's statements, and keeps an active Signal through an unavailable observation, as for
-every metric. The methodology and the price-basis rules are the decision's, not restated here.
+the data cannot put on one price and share basis. A Monitor reads each finalized session's close
+with that session's statements, exactly as a backtest does, and keeps an active Signal through an
+unavailable session, as for every metric. The methodology and the price-basis rules are the decision's, not restated here.
 
 **Accepted V1 limitation** (owner, 2026-10-02). FMP is the only source. A corporate action that
 changed the price basis, that FMP does not report and that FactorSage cannot otherwise detect is not

@@ -2,7 +2,8 @@
 
 What the current architecture does under realistic load, measured on the production code path
 rather than reasoned about. Read `deep-discovery.md` first for the semantics this document takes
-as given (what a cycle evaluates, what is shared, what Redis holds). This document answers: what
+as given (what a pass evaluates, what is shared, what Redis holds). The current Monitor numbers are
+in "Monitor EOD V2" below; the sections after it are the record of the V1 cycle. This document answers: what
 does it cost, where does it stop being cheap, and what should an operator watch.
 
 **Every number here was measured on one developer machine.** Treat them as ratios and shapes, not
@@ -14,7 +15,101 @@ byte columns below as upper bounds; `pnpm bench:daily-state-cache` measures the 
 `../../docs/decisions/retain-wide-column-calculated-series-storage.md` ("Redis chunk layout") holds
 its numbers.
 
-## Environment and methodology
+## Monitor EOD V2 (measured 2026-10-15)
+
+Monitor EOD V2 (`../../docs/decisions/monitor-eod-v2.md`) split the Monitor's work in two. The
+**stock EOD child** does all provider and cache work, once per security per finalized session. The
+**Monitor pass** reads PostgreSQL alone and decides each member's finalized sessions in order from
+a durable checkpoint. This section measures both. The sections after it measured the V1 live-quote
+cycle, which step 8 deleted; they are kept as the record they were.
+
+### Harness
+
+`pnpm --filter @intrinsic/worker bench:monitor -- --scenario=<name> [--days=N] [--gap=N] [--replay] [--resident=R]`
+(`apps/worker/src/monitor/capacity-bench.ts`) drives the production `StockEodRefreshRun` over
+`CanonicalStockDataService` (real PostgreSQL, Redis cache and Redlock), then `MonitorEodEvaluation`
+over `PrismaMonitorRepository` and the same provider-free reads `createMonitorRuntime` composes.
+Two things are replaced: the provider, by a counting stub that publishes one EOD bar per simulated
+session (plus a profile, empty statements and the real holiday schedule), and the clock, which steps
+from one session's evening to the next. Each simulated day runs the stock EOD preparation to
+completion, follow-up runs included, then one Monitor pass. Concurrency is the production default:
+2 securities for the stock EOD child, 4 for the Monitor pass. `productHistoryYears` is 8, as before.
+
+Steps: **cold** (first session: every security hydrated, every member reconstructed, or its 90-day
+window replayed with `--replay`), **idle** (the same evening ten minutes later: what most scan
+intervals see), **steady** (one new session) and **gap** (one run after an outage of five sessions).
+
+Same machine and versions as the V1 record below: Apple M1, 8 GB, Node 22.23.2, PostgreSQL 16.15
+and Redis 7.4.11 in Docker Desktop.
+
+| Scenario | Users | Monitors | Securities (U) | Members | Strategies |
+| --- | --- | --- | --- | --- | --- |
+| normal | 10 | 20 | 98–100 | 400 | two-indicator, trigger |
+| growing | 100 | 300 | 500 | 9,000 | simple, two-indicator, trigger |
+
+### The stock EOD child
+
+| Step | normal, U = 100, R = 100 | growing, U = 500, R = 100 | growing, U = 500, R = 1,000 |
+| --- | --- | --- | --- |
+| cold: provider requests | 800 (8 per security) | 4,000 (8 per security) | 4,000 (8 per security) |
+| cold: wall | 113 s, 1 run | 626 s, 3 runs (4-minute budget) | 671 s, 3 runs |
+| idle: provider requests, wall | 0, 0.3 s | 0, 1.4 s | 0, 1.4 s |
+| steady: provider requests | 200 (2 per security) | 1,000 (2 per security) | 1,000 (2 per security) |
+| steady: wall | 14 s | **190 s** | 80 s |
+| steady: Redis commands | 53 k | **4.38 M** | 267 k |
+| gap of 5 sessions: provider requests, wall | 200, 14 s | 1,000, 188 s | — |
+
+- **Provider requests are per security, per session, and nothing else.** A first hydration is
+  1 profile, 1 price walk and 6 statement reads. Each later session is one bounded tail read plus
+  the earliest-row check the price-basis rules make before saving beside stored history. An outage
+  of five sessions costs the same two requests, because the tail read covers the gap. An idle scan
+  costs none. Statements are read again only when a Monitor's operands read them.
+- **The resident bound moved here.** The child prepares each security through the canonical loader,
+  which keeps it resident in Redis. With `U > R` every session re-materializes the evicted
+  securities, as the V1 cycle did every five minutes: 2.4 times the wall and 16 times the Redis
+  commands at U = 500, R = 100. It happens once per session now, not once per scan, and 190 s still
+  fits the 4-minute run budget, but sizing `STOCK_CACHE_MAX_RESIDENT_STOCKS` to the monitored
+  universe still matters.
+
+### The Monitor pass
+
+| Step | normal: 400 members | growing: 9,000 members |
+| --- | --- | --- |
+| cold, reconstructed | 3.1 s | 31 s (41 s at R = 1,000) |
+| cold, 90-day replay (`--replay`) | 6.0 s, 24,800 sessions | 65 s, 558,000 sessions |
+| idle (nothing new) | 0.36–0.41 s | 3.0–3.5 s |
+| steady (one session) | 1.0–1.4 s | 15–18 s |
+| gap of 5 sessions | 1.1 s, 2,000 sessions | 18 s, 45,000 sessions |
+| PostgreSQL queries, steady | ~3.0 k | ~53.5 k |
+| Provider requests, any step | 0 | 0 |
+| Redis data commands, any step | 0 | 0 |
+
+- **The pass reaches neither the provider nor Redis.** The only Redis traffic in these windows is
+  the harness's own `INFO` and the client's `PING`.
+- **Cost is per member per new session.** Each member advances its checkpoint in one transaction
+  per new session, about six queries and one row update per member, which dominates a steady pass.
+  A catch-up of five sessions costs barely more than one, because the frame is read once and the
+  write is still one transaction per member.
+- **An idle pass is cheap.** It is one readiness read per security plus the per-Monitor loads, so
+  the ten-minute scan interval costs a few seconds an hour at 9,000 members.
+- **The replay is a one-off.** A new Monitor's 90-day window is about two times its reconstruction.
+
+Steady daily provider budget: about `2 × U` requests per trading session, plus 8 for each security
+seen for the first time, plus one calendar request per exchange a day. At U = 500 that is about
+1,000 requests a session. The V1 cycle needed about 17,000 a day.
+
+**Runs and caveats.** `stress` and `shared-50` were not re-run: a thousand-security cold hydration
+takes about 25 minutes here, and the per-member and per-security costs above scale linearly.
+The growing `--replay` steady step (262 s, two runs) overlapped a repository-wide lint and
+typecheck on the same machine, so its wall time is not comparable. Its counts are.
+
+## V1 live-quote cycle: environment and methodology (2026-09-11)
+
+*The workload, measurement, scaling, provider, market-closed, cold-start and failure sections below
+measured the V1 cycle with the old harness. Their quote, scan-cadence and Monitor-residency
+conclusions no longer describe Monitor evaluation; their loader costs (first hydration,
+re-materialization, the `SET_REGISTERED` growth) still describe the stock EOD child. Observability,
+health and the operational limits are kept current.*
 
 | Item | Value |
 | --- | --- |
@@ -23,9 +118,9 @@ its numbers.
 | PostgreSQL | 16.15 (Docker Desktop VM: 4 CPUs, 4 GB, `shared_buffers` 128 MB) |
 | Redis | 7.4.11 (same VM) |
 | Date | 2026-09-11 |
-| Harness | `pnpm --filter @intrinsic/worker bench:monitor -- --scenario=<name>` (`apps/worker/src/monitor/capacity-bench.ts`) |
+| Harness | the V1 `bench:monitor` (`apps/worker/src/monitor/capacity-bench.ts` before Monitor EOD V2 step 8) |
 
-The harness drives the real `MonitorCycle`, `PrismaMonitorRepository`, `CanonicalStockDataService`,
+The harness drove the real V1 cycle, `PrismaMonitorRepository`, `CanonicalStockDataService`,
 `RedisStockDataCache`, `RedlockLoadCoordinator` and `CachedTradingCalendar` against the dedicated
 test database and a namespaced Redis key space. Exactly one boundary is replaced: the provider is
 a synthetic, deterministic, counting stub (twelve years of weekday bars per symbol, a live quote
@@ -158,23 +253,15 @@ Derived from the execution flow and confirmed by the counters:
 | Event | Requests | Endpoint |
 | --- | --- | --- |
 | A security's first hydration | 1 profile + 1 price walk (paginated, ≥1) + 6 statements (3 types × 2 cadences) | `profile`, `historical-price-eod/full`, statements |
-| Every cycle | `ceil(U / 50)` | `batch-quote` |
 | Once per finalized session per read security (`docs/decisions/eod-finality-v1.md`; the six-hour price timer is gone) | 1 tail price, + 1 earliest-rows check when the read adds a row | `historical-price-eod/full` |
 | Every `STOCK_FUNDAMENTALS_FRESHNESS_MS` (6 h) per read security | 6 statements (quarterly limit 12, annual limit 3) | statements |
 | Every 24 h per admitted exchange | 1 | `holidays-by-exchange` |
 | Redis flush or eviction | **0** — coverage and freshness timestamps are persisted in PostgreSQL | — |
-| Process restart | 0 beyond the cycle's quotes and a cold calendar | — |
+| Process restart | 0 beyond a cold calendar | — |
 
-*The budget below was measured before EOD finality and the Monitor's EOD evaluation; it is
-re-measured when the quote path is removed. Price tails are now read once per session, not four
-times a day.*
-
-Steady daily budget for `U` monitored securities: `288 × ceil(U / 50)` quotes + `28 × U` refresh
-requests. For U = 100: 576 + 2,800 ≈ 3,400/day. For U = 500: 2,880 + 14,000 ≈ 17,000/day
-(~12/min on average). The refresh half **dominates** above ~50 securities and is bursty: every
-security hydrated at the same time expires together, so a universe hydrated in one cycle refreshes
-in one cycle six hours later — 3,500 requests through a 20/s gate is a ~3-minute cycle every six
-hours at U = 500. Jittering the freshness windows would flatten this; not changed.
+*Superseded (2026-10-15).* The budget that stood here — `288 × ceil(U / 50)` quotes plus
+`28 × U` refresh requests a day — described the V1 cycle. There are no quotes any more, and a price
+tail is read once per finalized session; the measured EOD budget is in "Monitor EOD V2" above.
 
 Unexpected-spike sources found: a List of never-seen securities added to a Monitor (8 requests
 each, all in the next cycle); a security whose profile the provider cannot supply is re-asked on
@@ -183,6 +270,10 @@ every hydration because a sync is only recorded when a profile was saved (narrow
 first touch (deliberate). Redis being flushed causes **no** provider traffic.
 
 ## Market-closed scanning
+
+*Resolved by Monitor EOD V2 (2026-10-15).* A Monitor pass makes no provider request and decides
+only finalized sessions, so a pass with nothing new costs PostgreSQL readiness reads and nothing
+else (measured in "Monitor EOD V2" above). The analysis below is the V1 record.
 
 The domain's session window is 04:00–20:00 New York on trading days; the cadence is 5 minutes
 around the clock.
@@ -234,7 +325,7 @@ retention) and a shortened schedule — interval 15 s, lease 20 s, heartbeat 5 s
 | Normal start, cold | First cycle hydrated two securities from the provider in 34 s and emitted two Signals; second cycle 0.6 s | — | — | `monitor.cycle.completed` with counts; the 34 s cycle raised `monitor.cycle.over-cadence` |
 | Graceful stop (SIGTERM) between cycles | `monitor.child.stopping` → `monitor.child.stopped` in 3 ms; claim released | immediate | none | yes |
 | `kill -9` 0.5 s after a claim | The dead claim held the row until its lease expired; a second process claimed the next cycle **20.4 s** after the kill (= lease) and re-derived the cycle: no duplicate Signal | ≤ lease | one cycle's evaluation | **was not**: the direct reclaim path logged only a fresh `claimed`. Now logs `monitor.cycle.recovered` with `takenOverFrom` |
-| Provider 429 / 500 / timeout during the quote batch | `monitor.current-data.failed` with the FMP error class, then `monitor.cycle.failed`; the schedule records the failure and backs off (10 s, doubling to the interval); nothing persisted | next due cycle | the cycle's provider batch | yes; error class named |
+| *(V1)* Provider 429 / 500 / timeout during the quote batch — the batch no longer exists; under EOD V2 a provider failure fails securities in the stock EOD child, never a Monitor pass | `monitor.current-data.failed` with the FMP error class, then `monitor.cycle.failed`; the schedule records the failure and backs off (10 s, doubling to the interval); nothing persisted | next due cycle | the cycle's provider batch | yes; error class named |
 | Redis unreachable | Every cycle fails at the quote batch: the request gate cannot reach Redis, which surfaced as `FmpTransientError` "provider temporarily unavailable" after 7–31 s of gate retries; ioredis printed unstructured `[ioredis] Unhandled error event: connect ECONNREFUSED` lines to stderr every reconnect | when Redis returns | one failed cycle per backoff step | **was misleading**: the log blamed the provider. Now the transient error carries the Redis error as `cause` (serialized by the logger) and the client logs `stock-data.redis.error` |
 | PostgreSQL unreachable | The child fails fatally at startup (`monitor.child.failed`, `PrismaClientInitializationError: Can't reach database server`) and exits 1; the supervisor restarts it with 1–30 s backoff until the database returns | when PostgreSQL returns | none | yes |
 | Shutdown during expensive computation | The loop stops at the next Monitor boundary; a stop during the symbol phase waits for the phase (no persisted work there); the supervisor kills after 30 s | see `api-worker.md` | at most one symbol phase | `monitor.child.stopping` |
@@ -248,17 +339,17 @@ only); the injected failures cover the same code path from the quote batch onwar
 Answered from the logs the worker already emits (`monitor.cycle.claimed`,
 `monitor.cycle.completed` with `durationMs` and the summary counts, `monitor.cycle.failed`,
 `monitor.cycle.failure-recorded`, `monitor.cycle.recovered`, `monitor.cycle.lease-lost`,
-`monitor.current-data.failed`, `monitor.symbol.failed`, `stock-data.provider.request` with a
-reason, `worker.child.*`, `worker.heartbeat`) and the durable `MonitorScanSchedule` row:
+`monitor.symbol.failed`, `stock-data.provider.request` with a reason, `worker.child.*`,
+`worker.heartbeat`) and the durable `MonitorScanSchedule` row:
 
 | Question | Answer today | Gap |
 | --- | --- | --- |
 | Is the Monitor worker alive? | `worker.heartbeat` every 60 s (supervisor) and `monitor.child.ready`; the schedule row's `heartbeatAt` while a cycle runs | No process-level probe; the schedule row is the source of truth |
 | When did the last successful cycle finish? | `MonitorScanSchedule.lastCompletedAt`; `monitor.cycle.completed` | none |
-| How many Monitors, unique securities, evaluations, Signals? | `monitor.cycle.completed` carries `monitors`, `symbols`, `evaluations`, `signalsEmitted`, `signalsResolved`, `notEvaluable`, `transitionsUnchanged`, `transitionsContended` | none |
+| How many Monitors, unique securities, evaluations, Signals? | `monitor.cycle.completed` carries the pass summary: `monitors`, `securities`, `members`, `membersCurrent`, `membersAwaitingData`, `membersAwaitingEtf`, `sessionsEvaluated`, `signalsOpened`, `signalsClosed`, `transitionsRecorded`, `contended`, `securitiesFailed` | none |
 | How long did the cycle take? | `durationMs` on `monitor.cycle.completed` / `.failed` | no explicit "over cadence" signal; compare `durationMs` with `MONITOR_SCAN_INTERVAL_MS` |
 | Cache versus hydration work? | `stock-data.provider.request` (debug) says why the provider was called; nothing says how many securities were re-materialized from PostgreSQL | **gap**: re-materialization is invisible at `info` |
-| Is FMP failing or rate-limiting? | `monitor.current-data.failed` with the FMP error name (`FmpRateLimitError`, `FmpTransientError`), `monitor.cycle.failed`, `consecutiveFailures`/`lastError` on the schedule row | none for the Monitor path; the gate's cooldown is not logged |
+| Is FMP failing or rate-limiting? | The Monitor pass reaches no provider. The stock EOD child logs `stock-eod.security.failed` with the error for each failed security and `stock-eod.run.summary` with `failed`/`deferred`; the run fails as a whole only when every attempted security failed | the gate's cooldown is not logged |
 | Is Redis failing? | `stock-data.redis.error` on every reconnect attempt; `monitor.cycle.failed` whose error now carries the Redis `cause`; `GET /health/ready` | none |
 | Is PostgreSQL failing? | `monitor.cycle.claim.failed`, `monitor.cycle.heartbeat.failed`, `monitor.state.load-failed`; `GET /health/ready` | none |
 | Are jobs backing up? | `BacktestJob` rows by status and `availableAt`; the schedule's `dueAt` versus now | no log of queue depth (a query answers it) |
@@ -287,28 +378,33 @@ supervisor heartbeat.
 
 | Limit | Protects | Evidence | Kind | When |
 | --- | --- | --- | --- | --- |
-| **`STOCK_CACHE_MAX_RESIDENT_STOCKS` ≥ the monitored universe** (operational, not user-facing) | cycle latency, PostgreSQL read volume, Redis write volume | boundary table: 10–20× cost past the bound; Redis cost ≈ 0.7 MB per resident security at 12 years, ~2 MB at 34 | hard (configuration) | before production |
+| **`STOCK_CACHE_MAX_RESIDENT_STOCKS` ≥ the monitored universe** (operational, not user-facing) | the stock EOD child's run time and Redis write volume (once per session since EOD V2) | EOD V2: 190 s vs 80 s and 4.38 M vs 267 k Redis commands per session at U = 500; V1 boundary table; Redis cost ≈ 0.7 MB per resident security at 12 years, ~2 MB at 34 | hard (configuration) | before production |
 | Securities per List: none needed for V1 with the above | — | 500-security Lists were fine at R ≥ U | — | postpone |
-| Total distinct securities monitored per deployment: budget `R` and Redis memory for it | Redis memory, provider refresh budget (28/day each) | provider model; ~2 MB Redis per security | soft (capacity plan) | before production |
-| Enabled Monitors per user | nothing measurable; ~3 ms per Monitor per cycle | shared-50 | none | not justified |
+| Total distinct securities monitored per deployment: budget `R` and Redis memory for it | Redis memory, provider budget (about 2 requests each per session) | EOD V2 measurements; ~2 MB Redis per security | soft (capacity plan) | before production |
+| Enabled Monitors per user | nothing measurable; a pass costs per member and new session (~1.7 ms each at 9,000 members) | EOD V2 growing | none | not justified |
 | Strategy complexity | nothing; window is the driver and the widest window is already bounded by the catalog | complexity table | none | not justified |
 | Concurrent backtests | `BACKTEST_WORKER_PROCESSES` already bounds it; each run is sequential | existing design | existing | — |
 
 No user-facing limit is justified by these measurements. The limit that matters is operational:
 the resident bound and the Redis memory behind it must be sized to the deployment's monitored
-universe, and the provider plan must cover `28 × U` refresh requests per day plus quotes.
+universe, and the provider plan must cover the stock EOD child's requests (about two per security
+per session, measured in "Monitor EOD V2" above).
 
 ## Product decisions with evidence
 
 | Question | Classification | Evidence |
 | --- | --- | --- |
-| Idle the scan when no admitted venue can produce an observation? | **evidence strongly suggests yes** | 54 % of cycles and quote requests are provably no-ops; the calendar exists; no semantic loss |
+| Idle the scan when no admitted venue can produce an observation? | **resolved by Monitor EOD V2** | a pass with no new finalized session makes no provider request and writes almost nothing |
 | Cap List size? | **safe to postpone** | cost is per distinct security across the deployment, not per List; a cap protects nothing the resident bound does not |
 | Is the 100-security resident bound appropriate? | **evidence strongly suggests no as a default for a multi-user deployment** | it is an arbitrary cache parameter chosen for a single-user development stack; `U > R` makes every cycle a full re-materialization; the right value is ≥ the monitored universe, bounded by Redis memory |
 | What limits before production? | one: size `R` and Redis to the universe; watch `overCadence` | tables above |
 | A member that stops trading, Signal paging, backtest ending today | **still product decisions** | unaffected by capacity |
 
 ## Known bottlenecks and the next wall
+
+*V1 record. Under Monitor EOD V2 the frame read below is a PostgreSQL read once per security per
+pass with something new, and the resident bound applies to the stock EOD child once per session
+(see "Monitor EOD V2").*
 
 The known wall is the resident bound. Two changes remove it cheaply when wanted: raise `R` with
 matching Redis memory (2 MB per resident security at 34 years), or read the Monitor's bounded

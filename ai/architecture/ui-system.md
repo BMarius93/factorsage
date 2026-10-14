@@ -744,7 +744,7 @@ addition, not something to work around in the browser.
    latest-close projection on the benchmark catalog.
 
 5. **Why a stock is "Not evaluable".** The Monitor page explains what the state means in words
-   (UI-026), but the specific cause for one security — warm-up, missing history, no quote — is
+   (UI-026), but the specific cause for one security — warm-up, missing history, a session not yet final — is
    recorded only as the outcome `NOT_EVALUABLE` (`MonitorSignalState.lastOutcome`). _Needed:_ an
    evaluation-reason code persisted with the outcome and projected on
    `MonitorSecurityEvaluationResponse`.
