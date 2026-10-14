@@ -161,3 +161,50 @@ The auditor must explicitly investigate and report:
 - `apps/worker/src/index.ts`, `apps/worker/src/monitor/*`, `apps/worker/src/market-data/*`.
 - `packages/stock-data/src/service.ts`, `packages/stock-data/src/market-data-refresh.ts`, `packages/strategy/src/monitor-lifecycle.ts`.
 - `apps/web/src/features/dashboard/components/DashboardPage.tsx`, `apps/web/src/features/monitors/components/MonitorDetail.tsx`, `apps/web/src/features/monitors/components/MonitorsPage.tsx`.
+
+## 9. Mandatory global EOD-only cutover and audit reconciliation (owner clarification 2026-10-14)
+
+**Scope strengthened after the read-only audit:** FactorSage's product-facing **market price** inputs are to be **verified EOD-only across the entire application**, not merely in Monitor and the Dashboard. The EOD migration is **incomplete** if the Monitor quote calls are removed but `Stock Details`, valuation/technical snapshots or a Backtest ending today can still consume a provisional same-day bar returned by the historical FMP EOD endpoint.
+
+The dedicated inventory and hard acceptance gate are in:
+
+**`docs/audits/monitor-eod-v2-intraday-inventory.md`**
+
+It inventories direct `batch-quote` use, quote-only types/projectors/configuration, and the separate **provisional EOD historical bar** path used by shared `DailyPrice` consumers. Its initial call-site inventory is **not exhaustive**; implementers must trace transitive producers and consumers repository-wide, classify each KEEP/MIGRATE/DELETE, prove no realtime price use remains, and report evidence after removing dead code. The order is **finalized price readiness → migrate consumers → delete obsolete realtime quote code/tests/config → runtime/API proof**. No mass deletion of durable historical price data or unrelated "live FMP" test tooling.
+
+**Additional P0 cutover requirements:**
+- Make `stockRefreshState` / `refreshStockTail(expectedSession)` and session/bar/watermark freshness real before changing Monitor computation. The old 6-hour wall-clock freshness heuristic cannot prove EOD finality.
+- All current-price stock API paths, Stock Details header/charts/indicators/intrinsic and valuation read models, latest-price summaries and Backtest windows that include an unfinished session must be audited and clamped/rejected/handled transparently against the **latest verified finalized session**, not the UTC date. Define contract behavior and `asOf` accurately.
+- Keep the existing EOD endpoint and canonical historical bars; avoid exposing a potentially provisional same-day saved row to any caller. A price row is not final merely because the endpoint name says EOD.
+- Remove unused FMP `batch-quote` adapter/port/mapping and provisional-frame projector, quote aging settings, related tests and stale doc claims **only once replacements exist**, and prove zero production quote-network calls.
+- Apply data finality to derived series, corporate-action consistency, backtest snapshots and history; changing the Monitor worker alone cannot enforce it.
+
+### 9.1 Core audit corrections to integrate before coding
+
+The read-only audit's verdict was **READY WITH CHANGES**, with four P0s:
+1. Stock finality requires a finalized-session bar + a post-finalization durable sync watermark.
+2. Add a durable `(monitorId, securityId)` evaluated-through checkpoint (and basis/config fence), advanced transactionally with emitted transitions, enabling ordered catch-up and partial progress.
+3. For initial 90-day replay, reconstruct exact lifecycle **as of the beginning of the window** from the strictly earlier historical prefix; then replay window sessions in sequence and persist transitions. V1 latest-resting-point reconstruction cannot stand in for this.
+4. Persist `strategyVersionId` and compact predicate/operand evidence **on transitions**, so both ACTIVE and resolved `Why` reflect actual historical decision values, with a truthful reason-only fallback for older rows.
+
+Other changes: introduce `isOngoingListMember` distinct from `isBuyWindowEligible` (Backtest remains unchanged); prefer a `stock-eod` supervised child in existing `dev:worker`, not a new top-level service; gate Monitor session checkpoints on same-session finalized ETF dependencies; distinguish absent bars from `NOT_EVALUABLE`; use `origin` for event feed; version/migrate pre-cutover live-quote Signals rather than rewriting them.
+
+**Data efficiency:** A proposal to read Monitor frames from PostgreSQL is acceptable **inside the same canonical stock-data service**, using a provider-free, bounded, non-LRU-admitting read path as appropriate. Do not fork valuation/technical derivation or create a separate computation/cache subsystem. Benchmark ETF canonical PostgreSQL + Redis residency remains unchanged. The precise hot-cache versus PG trade-off must be benchmarked.
+
+**Provider/capacity gate:** Do not accept the initial audit's 1–2-minute estimate for 500 stocks and 4,500 requests/day as a measured guarantee. At the configured limit of 20 requests/second those requests alone need at least 225 seconds *in a theoretical, perfectly saturated gate*, before network latency, concurrency (configured 4), provider retries, warm/cold symbols or DB writes. Recalculate from actual request traces, and avoid re-fetching all fundamental datasets daily when Strategies don't require them. Keep the existing commercial list/Monitor limits unless a measured cost/capacity review shows they must change.
+
+### 9.2 Owner-aligned V2 scope choices to preserve in the implementation plan
+
+- **At cutover:** no automatic mass 90-day backfill for legacy Monitors; only newly created Monitors receive it. Preserve old Signal history, tagging prior observed prices as `LIVE_QUOTE` and new ones as `EOD_CLOSE`; display the historical distinction quietly.
+- **Disabling / plan block:** restore current state without fabricating new Dashboard events for intervals the user was not actively monitoring. **Infrastructure outages** are different: missed sessions should be replayed chronologically as observed session events, with precise provenance and visibility rules. Audit the exact re-enable rule so no synthetic "today" events appear.
+- **ETF late data:** prefer waiting and retrying with explicit partial coverage rather than permanently advancing a checkpoint as falsely decided. Escalation/operational alert if dependencies remain unavailable; define a safe resolution policy and maximum waiting/retention bound before implementation.
+- **Trigger-only:** session-ended transitions remain in Monitor history; exclude automatic one-session `EVENT_SESSION_ENDED` resolutions from the main Dashboard Activity feed.
+- **Monitor details:** one compact Signal table showing ACTIVE first and resolved afterward, with a compact coverage/status line for no-match, pending and not-evaluable members; **no separate giant per-stock status table**.
+- **Membership ending:** prefer an explicit administrative reason such as `MEMBERSHIP_CHANGED` to misleading `Conditions ended`, but audit a safe migration from current reasons and avoid adding gratuitous duplicate enum variants.
+- **No new commercial cap** unless evidence justifies it; bound provider requests globally and track unique eligible securities.
+
+These choices do **not** override the mandatory P0 investigations or allow irreversible migration of older Signals.
+
+### 9.3 Gate before implementation PRs
+
+The design-update PR is not ready to be treated as implemented until both the architecture audit and the **application-wide intraday exposure inventory** are reconciled into a concrete replacement/removal checklist. Implementation PRs should separate: canonical EOD finality, stock-eod supervised preparation, durable session evaluator and migration, backfill/evidence, API & UX, and final quote-path removal plus repo-wide runtime proof.
