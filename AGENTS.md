@@ -288,6 +288,17 @@ Read `ai/README.md` before substantial work.
     provider, reconstruct `Φ`, add a confidence framework, withhold history before verification, or
     build detection for it in unrelated work; independent detection of provider-unreported events
     is a later enhancement, not a V1 blocker.
+25. Every market price FactorSage stores, computes from or shows is a **finalized end-of-day bar**
+    (`docs/decisions/eod-finality-v1.md`). A session's bar is final at its 16:00 New York close plus
+    `MARKET_DATA_EOD_PUBLICATION_DELAY_MS`; `eodCutoffDate` in `@intrinsic/domain` is the one clock.
+    Every loader request, coverage interval, retention horizon and product read ends at that cutoff,
+    never at the UTC day, and a provider row outside the requested range is dropped. A recent tail is
+    re-read when the newest finalized session has not been read after it became final — a session
+    question decided by `decideEodTailRefresh`, never a timer. A backtest period requested through
+    an unfinished session ends at the newest finalized one. Do not reintroduce a wall-clock price
+    freshness window, a `today()` from the UTC date, or a read of a bar whose session was still
+    trading; `EOD_TAIL_REFRESH=frozen` exists only for deterministic environments over a frozen
+    dataset.
 
 ## Dependency rules
 

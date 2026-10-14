@@ -421,9 +421,8 @@ trading-day axis) are identical. The differences are the observation, not the la
 - **Position-dependent metrics** (`Gain`, `Loss`) are **excluded** from Monitor evaluation and live
   for a backtest: a Monitor skips the whole level that uses one, where a backtest decides it against
   simulated position state.
-- **The last day of a backtest ending today may itself be an in-progress bar**, because the
-  provider's EOD feed already lists the current session while it is open (see
-  `ai/product/backtests.md`).
+- **A backtest never reads an unfinished session**: a period requested through today ends at the
+  newest finalized session (`ai/product/backtests.md`, `docs/decisions/eod-finality-v1.md`).
 - **An ETF-sourced Condition is the one input both engines read identically**: the ETF's completed
   sessions, joined by exact date. On completed sessions a Monitor's reconstruction and a backtest
   decide such a rule on the same numbers; the only difference is that a Monitor's *current*

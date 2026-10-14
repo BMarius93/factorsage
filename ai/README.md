@@ -107,6 +107,12 @@ detection, single-transaction replacement, measured re-bases, the price-basis ge
 ex-date hold and the basis factor `K`. V1 is FMP-only (owner, 2026-10-01): no second provider and no
 historical distribution factor `Φ`, so Margin of Safety's historical bias is disclosed, not fixed.
 
+For anything that reads, refreshes or shows a market price — a loader, a read model, a backtest
+period, a seed — read `../docs/decisions/eod-finality-v1.md` first: every stored and shown bar is a
+**finalized** end-of-day bar, every read ends at the EOD cutoff (16:00 New York plus the publication
+delay), and a tail is re-read once a newer session is final, never on a timer (`AGENTS.md`
+invariant 25). `stockRefreshState` / `refreshStockTail` are the stock EOD readiness interfaces.
+
 For valuation ratios (P/E, P/S, P/B, P/FCF, EV/EBITDA), read
 `../docs/decisions/valuation-ratios-v1.md` as well. It is their canonical V1 design: computed per
 session from the research close, the share count and point-in-time TTM inputs, never stored, and

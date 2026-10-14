@@ -486,9 +486,10 @@ In a clean run the server sees only: the Monitor worker's `batch-quote` for the 
 `SPY` bars older than the seeded window. Nothing hydrates a fixture security from it.
 
 **How time and freshness are controlled.** The seeds anchor every series to the day they run and
-stamp their watermarks with the seed time. The launcher sets `STOCK_RECENT_PRICE_FRESHNESS_MS` and
-`STOCK_FUNDAMENTALS_FRESHNESS_MS` to thirty days for the API and worker only, so a seed from this
-morning, yesterday or last week is still fresh and nothing re-reads a tail. Were a tail ever re-read,
+stamp their watermarks with the seed time; they write bars through the EOD cutoff, never past it.
+The launcher sets `EOD_TAIL_REFRESH=frozen` and `STOCK_FUNDAMENTALS_FRESHNESS_MS` to thirty days for
+the API and worker only, so a seed from this morning, yesterday or last week is never re-read
+(`docs/decisions/eod-finality-v1.md`). Were a tail ever re-read,
 the fixture server would answer it with no bars, which changes nothing. There is no fake clock: the
 product, the browser and the seeds all use the real date, and the fixture window moves with the seed.
 
