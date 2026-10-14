@@ -1,5 +1,10 @@
-import type { AuthUser, DashboardResponse } from "@intrinsic/contracts";
+import type {
+  AuthUser,
+  DashboardActivityResponse,
+  DashboardResponse,
+} from "@intrinsic/contracts";
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,6 +12,7 @@ import {
   NotFoundException,
   Param,
   Put,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
@@ -14,10 +20,14 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
 import { Viewer } from "../auth/viewer.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
-import { parseVisibilityRequest } from "./dashboard-requests";
+import {
+  parseActivityQuery,
+  parseVisibilityRequest,
+} from "./dashboard-requests";
 import {
   BuiltInMonitorNotFoundError,
   DashboardService,
+  InvalidActivityCursorError,
 } from "./dashboard.service";
 
 /**
@@ -39,6 +49,30 @@ export class DashboardController {
   @UseGuards(OptionalCookieAuthGuard)
   async read(@Viewer() viewer: AuthUser | null): Promise<DashboardResponse> {
     return this.dashboard.getDashboard(viewer);
+  }
+
+  /**
+   * The Monitor Activity feed: observed activations and market resolutions on the Monitors this
+   * viewer's Dashboard shows, newest session first. Readable by a Guest, like the Dashboard.
+   */
+  @RateLimit("standard-read")
+  @Get("activity")
+  @UseGuards(OptionalCookieAuthGuard)
+  async activity(
+    @Viewer() viewer: AuthUser | null,
+    @Query() query: unknown,
+  ): Promise<DashboardActivityResponse> {
+    try {
+      return await this.dashboard.getActivity(
+        viewer,
+        parseActivityQuery(query),
+      );
+    } catch (error) {
+      if (error instanceof InvalidActivityCursorError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
   }
 
   @RateLimit("mutation")

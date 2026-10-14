@@ -100,6 +100,68 @@ export const MONITOR_TRANSITION_REASONS = [
 export type MonitorTransitionReason =
   (typeof MONITOR_TRANSITION_REASONS)[number];
 
+/**
+ * How a Signal's price was observed: `EOD_CLOSE` is its session's finalized end-of-day close;
+ * `LIVE_QUOTE` marks occurrences the earlier live-quote Monitor decided on an intraday price, kept as
+ * recorded (`docs/decisions/monitor-eod-v2.md` §3).
+ */
+export const MONITOR_OBSERVATION_BASES = ["LIVE_QUOTE", "EOD_CLOSE"] as const;
+export type MonitorObservationBasis =
+  (typeof MONITOR_OBSERVATION_BASES)[number];
+
+/**
+ * One predicate of a Why: the rule's own wording, in the canonical Strategy description language,
+ * with the values the decision compared when they were recorded.
+ */
+export type MonitorWhyPredicateResponse = {
+  role: "CONDITION" | "TRIGGER";
+  description: string;
+  /** Absent when no evidence was recorded for the decision. */
+  result?: "TRUE" | "FALSE" | "NOT_EVALUABLE";
+  /** The left operand on the session; `null` when it did not resolve. Absent without evidence. */
+  metric?: number | null;
+  /** The right operand on the session; `null` when it did not resolve. Absent without evidence. */
+  value?: number | null;
+  /** A Trigger's previous-session operands, when recorded. */
+  previousMetric?: number | null;
+  previousValue?: number | null;
+};
+
+export type MonitorWhyRuleResponse = {
+  /** The FINAL EXIT Exit Rule's 1-based position when there are several; absent otherwise. */
+  exitRule?: number;
+  predicates: MonitorWhyPredicateResponse[];
+};
+
+/**
+ * Why a lifecycle change happened, from the Strategy version that decided it — never from the
+ * Strategy as it reads today (`docs/decisions/monitor-eod-v2.md` §5–§6).
+ *
+ * - `EVIDENCE` — every predicate with the values recorded on `sessionDate`;
+ * - `RULE_ONLY` — the decided rule's wording without values: the change predates recorded evidence,
+ *   and nothing is recomputed to fill the gap.
+ */
+export type MonitorWhyResponse = {
+  basis: "EVIDENCE" | "RULE_ONLY";
+  sessionDate?: string;
+  rules: MonitorWhyRuleResponse[];
+};
+
+/**
+ * How far the Monitor's evaluation has reached: the newest finalized session any current member was
+ * evaluated through, and how many current members have reached it.
+ */
+export type MonitorCoverageResponse = {
+  /** The newest session any current member has been evaluated through; absent before the first. */
+  latestSession?: string;
+  /** Current members evaluated through `latestSession`. */
+  evaluatedMembers: number;
+  /** Members currently in the Monitor universe (`ai/product/lists.md`, membership under a Monitor). */
+  currentMembers: number;
+  /** Every member of the Stock List, current or not. */
+  listedMembers: number;
+};
+
 /** One row of `GET /monitors`. */
 export type MonitorSummaryResponse = ContentOwnershipResponse & {
   id: string;
@@ -158,12 +220,16 @@ export type MonitorSignalResponse = {
   /** The canonical level id inside the Strategy definition the Signal was decided under. */
   levelId: string;
   kind: MonitorSignalKind;
-  /** The provisional observation this Signal was decided on. */
+  /** The session this occurrence became active on. */
   observationDate: string;
   observationPrice: number;
+  /** How `observationPrice` was observed. */
+  observationBasis?: MonitorObservationBasis;
   detectedAt: string;
   /** Absent while the matched state is still active. */
   resolvedAt?: string;
+  /** The session the occurrence ended on, when a session ended it. */
+  resolvedObservationDate?: string;
   /** Why the occurrence ended. Absent while it is active. */
   resolutionReason?: MonitorTransitionReason;
   /**
@@ -264,6 +330,52 @@ export type MonitorEtfSourceStatusResponse = {
   latestSession?: string;
 };
 
+/**
+ * One row of the Monitor's Signal table (`GET /monitors/:monitorId/signals`): an occurrence that is
+ * active or resolved, or — only when asked for — a setup waiting for its Trigger.
+ */
+export const MONITOR_SIGNAL_ROW_STATES = [
+  "ACTIVE",
+  "RESOLVED",
+  "PENDING_TRIGGER",
+] as const;
+export type MonitorSignalRowState = (typeof MONITOR_SIGNAL_ROW_STATES)[number];
+
+export type MonitorSignalRowResponse = {
+  /** The Signal's id, or the waiting setup's own opaque id. */
+  id: string;
+  state: MonitorSignalRowState;
+  security: StockListSecurityResponse;
+  levelKind: MonitorLevelKind;
+  levelId: string;
+  /** The level's position among levels of its kind, in the version that decided it. */
+  levelIndex?: number;
+  levelPercentage?: number;
+  kind: MonitorSignalKind;
+  /** The session the row is dated by: its activation, or its resolution once resolved. */
+  sessionDate: string;
+  /** The session the occurrence (or setup) began on. */
+  activatedOn?: string;
+  activationPrice?: number;
+  observationBasis?: MonitorObservationBasis;
+  /** The session it ended on, when a session ended it. */
+  resolvedOn?: string;
+  resolutionReason?: MonitorTransitionReason;
+  /** History, not an observation the Monitor made, established it. */
+  fromHistory: boolean;
+  /**
+   * Why it is active (the activating decision) or why it ended (the ending decision); absent when the
+   * version that decided it cannot be read.
+   */
+  why?: MonitorWhyResponse;
+};
+
+export type MonitorSignalPageResponse = {
+  rows: MonitorSignalRowResponse[];
+  /** Opaque; pass back as `cursor` for the next page. Absent on the last page. */
+  nextCursor?: string;
+};
+
 export type MonitorDetailResponse = MonitorSummaryResponse & {
   /**
    * Every security in the Monitor's current Stock List, with its current status. Ordered by
@@ -282,6 +394,8 @@ export type MonitorDetailResponse = MonitorSummaryResponse & {
    * sector. Every sector ETF named here also has its row in `etfSources`.
    */
   stockSectors?: StockSectorAssignmentResponse[];
+  /** How far evaluation has reached across the current members. */
+  coverage?: MonitorCoverageResponse;
 };
 
 export type CreateMonitorRequest = {

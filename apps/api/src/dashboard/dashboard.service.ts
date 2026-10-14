@@ -1,11 +1,10 @@
 import {
-  asAlternativeDataMetric,
-  collectActorIds,
   describeCondition,
   describeTrigger,
   normalizeStrategyDefinition,
-  type AlternativeDataMetric,
   type AuthUser,
+  type DashboardActivityEventResponse,
+  type DashboardActivityResponse,
   type DashboardFreshness,
   type DashboardMonitorResponse,
   type DashboardResponse,
@@ -26,6 +25,15 @@ import type { ContentViewer } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { monitorStateSince } from "../monitors/signal-since";
+import {
+  decodeCursor,
+  encodeCursor,
+  loadStoredLevels,
+  parseTransitionEvidence,
+  scopeNamesFor,
+  whyOf,
+} from "../monitors/signal-why";
+import type { ActivityQuery } from "./dashboard-requests";
 import { DASHBOARD_LOGGER, DASHBOARD_OPTIONS } from "./dashboard.tokens";
 
 export type DashboardOptions = {
@@ -33,6 +41,14 @@ export type DashboardOptions = {
   staleAfterMs: number;
   now?: () => Date;
 };
+
+/** An Activity cursor this API did not issue. */
+export class InvalidActivityCursorError extends Error {
+  constructor() {
+    super("Invalid activity cursor");
+    this.name = "InvalidActivityCursorError";
+  }
+}
 
 /** A built-in the viewer asked to hide or show does not exist or is not published. */
 export class BuiltInMonitorNotFoundError extends Error {
@@ -333,6 +349,247 @@ export class DashboardService {
   }
 
   /**
+   * The Monitor Activity feed (`docs/decisions/monitor-eod-v2.md` §6): the important changes the
+   * Monitors on this viewer's Dashboard **observed**, newest session first.
+   *
+   * An event is an occurrence that became `ACTIVE`, or one a market observation ended
+   * (`CONDITIONS_ENDED`). Never shown: history (an initial replay, a reconstruction, a paused
+   * Monitor's catch-up), administrative endings (an edit, a removal, a membership change, a
+   * rebind), a trigger day passing (`EVENT_SESSION_ENDED`) and setups waiting for a trigger. The
+   * Monitors are the ones the Dashboard shows the viewer — published built-ins they have not
+   * hidden, and their own enabled Monitors — and each event explains itself from the version and
+   * evidence recorded with it. Keyset-paged on `(session, sequence)`, so a page is stable while new
+   * sessions arrive.
+   */
+  async getActivity(
+    viewer: ContentViewer,
+    query: ActivityQuery,
+  ): Promise<DashboardActivityResponse> {
+    const now = this.now();
+    const [monitors, preferences] = await Promise.all([
+      this.prisma.monitor.findMany({
+        where: viewer
+          ? {
+              OR: [
+                { ownership: "SYSTEM", isPublished: true },
+                { userId: viewer.id },
+              ],
+            }
+          : { ownership: "SYSTEM", isPublished: true },
+        select: {
+          id: true,
+          name: true,
+          ownership: true,
+          enabled: true,
+          strategy: { select: { id: true, name: true } },
+          stockList: { select: { id: true, name: true } },
+        },
+      }),
+      viewer
+        ? this.prisma.userBuiltInMonitorPreference.findMany({
+            where: { userId: viewer.id, enabled: false },
+            select: { monitorId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const hidden = new Set(preferences.map((entry) => entry.monitorId));
+    const visible = new Map(
+      monitors
+        .filter((monitor) =>
+          monitor.ownership === "SYSTEM"
+            ? !hidden.has(monitor.id)
+            : monitor.enabled,
+        )
+        .map((monitor) => [monitor.id, monitor]),
+    );
+    const monitorIds =
+      query.monitorId === undefined
+        ? [...visible.keys()]
+        : visible.has(query.monitorId)
+          ? [query.monitorId]
+          : [];
+    const empty: DashboardActivityResponse = {
+      viewer: viewer ? "AUTHENTICATED" : "GUEST",
+      generatedAt: now.toISOString(),
+      events: [],
+    };
+    if (monitorIds.length === 0) {
+      return empty;
+    }
+
+    const cursor = query.cursor ? decodeCursor(query.cursor) : null;
+    if (
+      query.cursor &&
+      (cursor === null ||
+        typeof cursor.d !== "string" ||
+        typeof cursor.s !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(cursor.d) ||
+        !/^\d+$/.test(cursor.s))
+    ) {
+      throw new InvalidActivityCursorError();
+    }
+    const after = cursor
+      ? {
+          date: new Date(`${cursor.d as string}T00:00:00.000Z`),
+          sequence: BigInt(cursor.s as string),
+        }
+      : null;
+    const rows = await this.prisma.monitorStateTransition.findMany({
+      where: {
+        monitorId: { in: monitorIds },
+        origin: "OBSERVED",
+        observationDate: { not: null },
+        AND: [
+          {
+            OR: [
+              { toState: "ACTIVE" },
+              { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
+            ],
+          },
+          ...(after
+            ? [
+                {
+                  OR: [
+                    { observationDate: { lt: after.date } },
+                    {
+                      observationDate: after.date,
+                      sequence: { lt: after.sequence },
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      orderBy: [{ observationDate: "desc" }, { sequence: "desc" }],
+      take: query.limit + 1,
+      select: {
+        id: true,
+        sequence: true,
+        monitorId: true,
+        levelId: true,
+        levelKind: true,
+        toState: true,
+        reason: true,
+        observationDate: true,
+        strategyVersionId: true,
+        evidence: true,
+        security: {
+          select: {
+            id: true,
+            symbol: true,
+            name: true,
+            exchangeCode: true,
+            exchangeName: true,
+            profile: { select: { logoUrl: true } },
+          },
+        },
+        signal: {
+          select: {
+            id: true,
+            observationPrice: true,
+            observationBasis: true,
+            strategyVersionId: true,
+          },
+        },
+      },
+    });
+    const page = rows.slice(0, query.limit);
+    const versionOf = (row: (typeof page)[number]) =>
+      row.strategyVersionId ?? row.signal?.strategyVersionId ?? null;
+    const levelsByVersion = await loadStoredLevels(
+      this.prisma,
+      page.flatMap((row) => {
+        const version = versionOf(row);
+        return version ? [version] : [];
+      }),
+      (versionId, err) =>
+        this.logger.error({
+          event: "dashboard.activity.version-unreadable",
+          strategyVersionId: versionId,
+          err,
+        }),
+    );
+    const scopeNames = await scopeNamesFor(
+      this.prisma,
+      [...levelsByVersion.values()].flatMap((levels) =>
+        [...levels.values()].flatMap((level) =>
+          level.rules.map((rule) => rule.signal),
+        ),
+      ),
+    );
+
+    const events: DashboardActivityEventResponse[] = page.map((row) => {
+      const monitor = visible.get(row.monitorId)!;
+      const version = versionOf(row);
+      const level = version
+        ? levelsByVersion.get(version)?.get(row.levelId)
+        : undefined;
+      const sessionDate = row.observationDate!.toISOString().slice(0, 10);
+      return {
+        id: row.id,
+        kind: row.toState === "ACTIVE" ? "ACTIVATED" : "RESOLVED",
+        reason: row.reason,
+        sessionDate,
+        security: {
+          id: row.security.id,
+          symbol: row.security.symbol,
+          name: row.security.name,
+          exchangeCode: row.security.exchangeCode,
+          ...(row.security.exchangeName
+            ? { exchangeName: row.security.exchangeName }
+            : {}),
+          ...(row.security.profile?.logoUrl
+            ? { logoUrl: row.security.profile.logoUrl }
+            : {}),
+        },
+        levelKind: row.levelKind,
+        ...(level?.index === undefined ? {} : { levelIndex: level.index }),
+        ...(level?.percentage === undefined
+          ? {}
+          : { levelPercentage: level.percentage }),
+        monitor: {
+          id: monitor.id,
+          name: monitor.name,
+          ownership: monitor.ownership,
+        },
+        strategy: { id: monitor.strategy.id, name: monitor.strategy.name },
+        stockList: { id: monitor.stockList.id, name: monitor.stockList.name },
+        ...(row.signal
+          ? {
+              signalId: row.signal.id,
+              price: Number(row.signal.observationPrice),
+              observationBasis: row.signal.observationBasis,
+            }
+          : {}),
+        ...(level
+          ? {
+              why: whyOf(
+                level,
+                parseTransitionEvidence(row.evidence),
+                scopeNames,
+                sessionDate,
+              ),
+            }
+          : {}),
+      };
+    });
+    const last = page[page.length - 1];
+    return {
+      ...empty,
+      events,
+      ...(rows.length > query.limit && last
+        ? {
+            nextCursor: encodeCursor({
+              d: last.observationDate!.toISOString().slice(0, 10),
+              s: last.sequence.toString(),
+            }),
+          }
+        : {}),
+    };
+  }
+
+  /**
    * Records a signed-in customer's choice to show or hide a published built-in.
    *
    * Only the override is stored, and it changes this user's Dashboard alone — the shared Monitor
@@ -393,35 +650,13 @@ export class DashboardService {
   private async scopeNamesOf(
     levelsByMonitor: ReadonlyMap<string, ReadonlyMap<string, LevelDescription>>,
   ): Promise<StrategyScopeNames> {
-    const metrics: AlternativeDataMetric[] = [];
+    const signals: StrategySignal[] = [];
     for (const levels of levelsByMonitor.values()) {
       for (const level of levels.values()) {
-        for (const rule of level.rules) {
-          for (const predicate of [
-            ...rule.signal.conditions,
-            ...(rule.signal.trigger ? [rule.signal.trigger] : []),
-          ]) {
-            const metric = asAlternativeDataMetric(predicate.metric);
-            if (metric) {
-              metrics.push(metric);
-            }
-          }
-        }
+        signals.push(...level.rules.map((rule) => rule.signal));
       }
     }
-    const actorIds = collectActorIds(metrics);
-    if (actorIds.length === 0) {
-      return {};
-    }
-    const actors = await this.prisma.alternativeDataActor.findMany({
-      where: { id: { in: actorIds } },
-      select: { id: true, displayName: true },
-    });
-    return {
-      actors: Object.fromEntries(
-        actors.map((actor) => [actor.id, actor.displayName]),
-      ),
-    };
+    return scopeNamesFor(this.prisma, signals);
   }
 
   /**

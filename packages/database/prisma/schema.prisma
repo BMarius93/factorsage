@@ -1661,6 +1661,8 @@ model MonitorStateTransition {
 
   @@index([monitorId, securityId, levelId, sequence], map: "MonitorStateTransition_identity_idx")
   @@index([monitorId, sequence])
+  /// The Monitor Activity feed: a Monitor's changes, newest session first, in insertion order.
+  @@index([monitorId, observationDate, sequence])
   @@index([securityId])
   @@index([signalId])
 }
