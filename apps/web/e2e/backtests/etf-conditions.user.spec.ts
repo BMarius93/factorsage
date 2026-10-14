@@ -30,6 +30,8 @@ import { apiBaseUrl } from "../utils/entitlements";
  */
 
 const QA_SYMBOL = "QATEST1";
+/** Seeded with no FMP sector (`seed-qa-securities.ts`): its Stock's Sector rules cannot be read. */
+const QA_UNCLASSIFIED = "QATEST2";
 
 type Json = Record<string, unknown>;
 
@@ -51,6 +53,14 @@ function etfPriceAbove(
     value: { kind: "SERIES", seriesId },
   };
 }
+
+/** QATEST1 is classified Technology, so this reads XLK for it — which only rises. */
+const SECTOR_PRICE_ABOVE_SMA200: StrategyCondition = {
+  id: "c-sector",
+  metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+  operator: "IS_ABOVE",
+  value: { kind: "SERIES", seriesId: "SMA_200D" },
+};
 
 const SPY_RSI_ABOVE_1: StrategyCondition = {
   id: "c-etf",
@@ -475,5 +485,186 @@ test.describe("ETF conditions through a real backtest and Monitor", () => {
       timeout: 20_000,
     });
     await expect(page.getByTestId("monitor-etf-sources")).toHaveCount(0);
+  });
+
+  test("reads each stock's own sector ETF for Stock's Sector rules, and says which fund each stock read", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    await page.goto("/backtests");
+    const find = async (symbol: string) =>
+      (
+        await get<{ id: string; symbol: string }[]>(page, `/stocks/search?q=${symbol}`)
+      ).find((row) => row.symbol === symbol);
+    const classified = await find(QA_SYMBOL);
+    const unclassified = await find(QA_UNCLASSIFIED);
+    test.skip(
+      !classified || !unclassified,
+      "The QA securities are not in the catalog. Run `pnpm test:securities:seed` against this stack.",
+    );
+    const stamp = Date.now();
+    const technologyOnly = await post<{ id: string }>(page, "/lists", {
+      name: `E2E sector list ${stamp}`,
+      securityIds: [classified!.id],
+    });
+    created.lists.push(technologyOnly.id);
+    const withUnclassified = await post<{ id: string }>(page, "/lists", {
+      name: `E2E sector mixed list ${stamp}`,
+      securityIds: [classified!.id, unclassified!.id],
+    });
+    created.lists.push(withUnclassified.id);
+
+    const strategyOf = async (
+      label: string,
+      conditions: readonly StrategyCondition[],
+    ) => {
+      const id = await createStrategy(page, `E2E sector ${label} ${stamp}`, conditions);
+      created.strategies.push(id);
+      return id;
+    };
+    const controlId = await strategyOf("control", [STOCK_PRICE_BELOW_EMA]);
+    const sectorId = await strategyOf("rule", [
+      STOCK_PRICE_BELOW_EMA,
+      SECTOR_PRICE_ABOVE_SMA200,
+    ]);
+    const namedId = await strategyOf("named xlk", [
+      STOCK_PRICE_BELOW_EMA,
+      etfPriceAbove("ETF_XLK", "SMA_200D"),
+    ]);
+
+    const control = await runBacktest(page, controlId, technologyOnly.id);
+    expect(control.strategyTrades.length).toBeGreaterThan(0);
+    expect(control.run.result).not.toHaveProperty("stockSectors");
+
+    // QATEST1 is Technology, so its Stock's Sector rule reads XLK: exactly the run that names XLK,
+    // and — XLK only rising — exactly the control's trades, to the share.
+    const bySector = await runBacktest(page, sectorId, technologyOnly.id);
+    const byName = await runBacktest(page, namedId, technologyOnly.id);
+    expect(tradeFacts(bySector.strategyTrades)).toEqual(tradeFacts(byName.strategyTrades));
+    expect(tradeFacts(bySector.strategyTrades)).toEqual(tradeFacts(control.strategyTrades));
+    expect(bySector.run.result?.stockSectors).toEqual([
+      { symbol: QA_SYMBOL, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+    ]);
+    expect(bySector.run.result?.etfConditions).toEqual(byName.run.result?.etfConditions);
+    expect(bySector.run.result?.etfConditions?.[0]).toMatchObject({
+      code: "ETF_XLK",
+      status: "READY",
+    });
+
+    // The same strategy over a list that also holds a stock with no FMP sector: the classified
+    // stock trades exactly as before, the other's Stock's Sector rule is never read from any fund.
+    const mixed = await runBacktest(page, sectorId, withUnclassified.id);
+    expect(tradeFacts(mixed.strategyTrades)).toEqual(tradeFacts(control.strategyTrades));
+    expect(mixed.run.result?.stockSectors).toEqual([
+      { symbol: QA_SYMBOL, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+      { symbol: QA_UNCLASSIFIED, sector: null, code: null, ticker: null },
+    ]);
+    expect(mixed.run.result?.etfConditions?.map((row) => row.code)).toEqual(["ETF_XLK"]);
+
+    // The run page names the fund each stock read, beside the results …
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/backtests/${bySector.run.id}`);
+    const notice = page.getByTestId("backtest-etf-conditions");
+    await expect(notice).toBeVisible({ timeout: 20_000 });
+    await expect(notice).toHaveAttribute("data-tone", "info");
+    const lines = notice.getByTestId("backtest-etf-condition");
+    await expect(lines).toHaveCount(2);
+    await expect(lines.nth(1)).toHaveAttribute("data-ticker", "Stock's Sector");
+    await expect(lines.nth(1)).toHaveAttribute("data-ready", "true");
+    await expect(lines.nth(1)).toContainText(
+      "Read per stock from its FMP sector: QATEST1 reads XLK.",
+    );
+    await expect(
+      page
+        .getByTestId("backtest-trade-row")
+        .filter({ hasText: "Stock's Sector · Price is above SMA 200D" })
+        .first(),
+    ).toBeVisible();
+    await expectNoHorizontalScroll(page);
+
+    // … and warns, inside the result, when a stock had no sector ETF at all.
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/backtests/${mixed.run.id}`);
+      const warning = page.getByTestId("backtest-hero").getByTestId("backtest-etf-conditions");
+      await expect(warning).toBeVisible({ timeout: 20_000 });
+      await expect(warning).toHaveAttribute("data-tone", "warning");
+      await expect(warning).toBeInViewport();
+      await expect(warning).toContainText("Some ETF conditions could not be evaluated");
+      const sectorLine = warning
+        .getByTestId("backtest-etf-condition")
+        .filter({ hasText: "Stock's Sector" });
+      await expect(sectorLine).toHaveAttribute("data-ready", "false");
+      await expect(sectorLine).toContainText(
+        "QATEST1 reads XLK. No sector ETF for QATEST2 (no FMP sector), so its Stock's Sector rules were not evaluated.",
+      );
+      await expect(warning).toContainText(
+        "The Stock's Sector rules of QATEST2 never matched in this run",
+      );
+      await expectNoHorizontalScroll(page);
+    }
+  });
+
+  test("tells a Monitor's watcher which sector ETF each stock reads now, and which stock has none", async ({
+    page,
+  }) => {
+    await page.goto("/monitors");
+    const find = async (symbol: string) =>
+      (
+        await get<{ id: string; symbol: string }[]>(page, `/stocks/search?q=${symbol}`)
+      ).find((row) => row.symbol === symbol);
+    const classified = await find(QA_SYMBOL);
+    const unclassified = await find(QA_UNCLASSIFIED);
+    test.skip(
+      !classified || !unclassified,
+      "The QA securities are not in the catalog. Run `pnpm test:securities:seed` against this stack.",
+    );
+    const stamp = Date.now();
+    const list = await post<{ id: string }>(page, "/lists", {
+      name: `E2E sector monitor list ${stamp}`,
+      securityIds: [classified!.id, unclassified!.id],
+    });
+    created.lists.push(list.id);
+    const strategyId = await createStrategy(page, `E2E sector monitor ${stamp}`, [
+      STOCK_PRICE_BELOW_EMA,
+      SECTOR_PRICE_ABOVE_SMA200,
+    ]);
+    created.strategies.push(strategyId);
+    const monitor = await post<{ id: string }>(page, "/monitors", {
+      name: `E2E sector watch ${stamp}`,
+      strategyId,
+      stockListId: list.id,
+      enabled: false,
+    });
+    created.monitors.push(monitor.id);
+
+    const detail = await get<MonitorDetailResponse>(page, `/monitors/${monitor.id}`);
+    expect(detail.stockSectors).toEqual([
+      { symbol: QA_SYMBOL, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+      { symbol: QA_UNCLASSIFIED, sector: null, code: null, ticker: null },
+    ]);
+    // The one fund those stocks read, and no other standing in for QATEST2.
+    expect(detail.etfSources?.map(({ code, status }) => [code, status])).toEqual([
+      ["ETF_XLK", "READY"],
+    ]);
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/monitors/${monitor.id}`);
+      const note = page.getByTestId("monitor-etf-sources");
+      await expect(note).toBeVisible({ timeout: 20_000 });
+      const sectors = note.getByTestId("monitor-stock-sectors");
+      await expect(sectors).toHaveAttribute("data-unresolved", "1");
+      await expect(sectors).toHaveText(
+        "Stock's Sector: QATEST1 reads XLK; no sector ETF for QATEST2 (no FMP sector), so its Stock's Sector rules cannot be evaluated.",
+      );
+      await expectNoHorizontalScroll(page);
+    }
   });
 });

@@ -11,6 +11,7 @@ import {
   chooseEtf,
   chooseEtfMetric,
   chooseMetric,
+  chooseSectorMetric,
   chooseSeriesValue,
   chooseSource,
   familyLabels,
@@ -1072,6 +1073,292 @@ test.describe("ETF conditions in the Strategy Builder", () => {
   });
 });
 
+/** What the picker says in place of a fund select when Stock's Sector is the source. */
+const SECTOR_NOTE =
+  "Each stock reads the sector ETF of its own FMP sector — Technology reads XLK, Financial Services reads XLF, Energy reads XLE. A stock without one of the eleven sectors cannot be evaluated.";
+
+test.describe("Stock's Sector in the Strategy Builder", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("offers Stock's Sector as a third source: no fund to choose, the same 21 metrics, said plainly, keyboard included", async ({
+    page,
+  }) => {
+    const row = await startStrategy(page, `E2E sector source ${Date.now()}`);
+    const control = row.getByTestId("metric-picker");
+    const panel = await openPicker(row);
+
+    // Three sources, in the decision's order, in the one compact radio group.
+    const sources = panel.getByTestId("metric-picker-source");
+    await expect(sources).toHaveCount(3);
+    expect(
+      await panel
+        .getByTestId("metric-picker-sources")
+        .locator("label")
+        .allTextContents(),
+    ).toEqual(["Stock", "ETF", "Stock's Sector"]);
+    await expect(sourceChoice(panel, "STOCK_SECTOR")).toBeEnabled();
+
+    await chooseSource(panel, "STOCK_SECTOR");
+    // No fund is asked for — the stock's own sector chooses it — and the line says how.
+    await expect(panel.getByTestId("metric-picker-etf")).toHaveCount(0);
+    await expect(panel.getByTestId("metric-picker-sector-note")).toHaveText(SECTOR_NOTE);
+    await expect(control).toHaveText("Stock's Sector · Price");
+    await expect(control).toHaveAttribute("data-value", "STOCK_SECTOR|PRICE:");
+    await expect(control).toHaveAccessibleName("Metric: Stock's Sector · Price");
+
+    // Technical alone, four subgroups, exactly the 21 metrics an ETF offers.
+    expect(await familyLabels(panel)).toEqual(["Technical"]);
+    const offered: string[] = [];
+    for (const [category, metrics] of Object.entries(ETF_METRICS)) {
+      await showCategory(panel, category);
+      expect(await optionLabels(panel)).toEqual([...metrics]);
+      offered.push(...(await optionLabels(panel)));
+    }
+    expect(offered).toHaveLength(21);
+    await showCategory(panel, "OSCILLATORS");
+    await panel
+      .locator(
+        '[data-testid="metric-picker-option"][data-value="STOCK_SECTOR|OSCILLATOR:RSI_14D"]',
+      )
+      .click();
+    await expect(panel).toBeHidden();
+    await expect(control).toHaveText("Stock's Sector · RSI 14D");
+    expect(await previewSentences(page)).toEqual([
+      "Stock's Sector · RSI 14D is above 50",
+    ]);
+
+    // The explanation names the rule, its examples and its limitation.
+    await control.focus();
+    const help = page.getByTestId("explanation-panel");
+    await expect(help.getByRole("heading")).toHaveText("Stock's Sector · RSI 14D");
+    await expect(help.getByTestId("help-notes")).toContainText("Technology reads XLK");
+    await expect(help.getByTestId("help-notes")).toContainText("current");
+    await expect(help.getByTestId("help-not-evaluable")).toContainText(
+      "Another fund is never used instead.",
+    );
+
+    // From the keyboard: the arrows walk Stock → ETF → Stock's Sector → Stock, the rule following.
+    await control.press("Enter");
+    await expect(panel).toBeVisible();
+    await expect(sourceChoice(panel, "STOCK_SECTOR")).toBeChecked();
+    await sourceChoice(panel, "STOCK_SECTOR").focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(sourceChoice(panel, "STOCK")).toBeChecked();
+    await expect(control).toHaveText("RSI 14D");
+    await page.keyboard.press("ArrowRight");
+    await expect(sourceChoice(panel, "ETF")).toBeChecked();
+    await expect(control).toHaveText("SPY · RSI 14D");
+    await page.keyboard.press("ArrowRight");
+    await expect(sourceChoice(panel, "STOCK_SECTOR")).toBeChecked();
+    await expect(sourceChoice(panel, "STOCK_SECTOR")).toBeFocused();
+    await expect(control).toHaveText("Stock's Sector · RSI 14D");
+    await expect(panel.getByTestId("metric-picker-etf")).toHaveCount(0);
+    // Tab goes from the sources straight to the family: there is no fund control to pass through.
+    await page.keyboard.press("Tab");
+    await expect(
+      panel.locator('[data-testid="metric-picker-family"][data-value="TECHNICAL"]'),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(control).toBeFocused();
+
+    // A Trigger row offers it disabled, with the reason.
+    const buy = page.getByTestId("level-card-BUY").first();
+    await buy.getByTestId("add-trigger").click();
+    const triggerRow = buy.getByTestId("predicate-row").last();
+    const triggerPanel = await openPicker(triggerRow);
+    await expect(sourceChoice(triggerPanel, "STOCK_SECTOR")).toBeDisabled();
+    await expect(triggerPanel.getByTestId("metric-picker-hint")).toHaveText(
+      "An ETF or the stock's sector can be read by a condition only, not by a trigger.",
+    );
+    await page.keyboard.press("Escape");
+    await expectNoHorizontalScroll(page);
+  });
+
+  test("authors Stock, ETF and Stock's Sector rules in BUY, SELL and FINAL EXIT through save, reload, edit and duplicate", async ({
+    page,
+  }) => {
+    const name = `E2E sector mixed ${Date.now()}`;
+    let sourceId: string | null = null;
+    let copyId: string | null = null;
+    try {
+      await startStrategy(page, name);
+      const buy = page.getByTestId("level-card-BUY").first();
+      await buy.getByTestId("add-condition").click();
+      await buy.getByTestId("add-condition").click();
+      const [stock, xlk, sector] = await buy.getByTestId("predicate-row").all();
+      await chooseMetric(stock!, "OSCILLATORS", "OSCILLATOR:RSI_14D");
+      await chooseEtfMetric(xlk!, "ETF_XLK", "OSCILLATORS", "ETF(ETF_XLK)|OSCILLATOR:RSI_14D");
+
+      // A Price compared with an intrinsic value cannot keep that Value under Stock's Sector: the
+      // rule is reset to the sector metric's own starting rule, and says so.
+      await sector!.getByTestId("operator-select").selectOption("IS_BELOW");
+      await chooseSeriesValue(sector!, "BALANCED");
+      const panel = await openPicker(sector!);
+      await chooseSource(panel, "STOCK_SECTOR");
+      const sentence = "Condition and value were reset to match Stock's Sector · Price.";
+      await expect(panel.getByTestId("metric-picker-hint")).toHaveText(sentence);
+      await page.keyboard.press("Escape");
+      await expect(sector!.getByTestId("row-change-notice")).toHaveText(sentence);
+      await expect(sector!.getByTestId("value-control")).toHaveAttribute(
+        "data-value",
+        "SMA_20D",
+      );
+      // Its Value list is the sector fund's own moving averages.
+      const values = await openPicker(sector!, "value-control");
+      expect(await categoryLabels(values)).toEqual([
+        "Moving averages — Daily",
+        "Moving averages — Weekly",
+      ]);
+      await page.keyboard.press("Escape");
+      await chooseSeriesValue(sector!, "SMA_200D");
+      await expect(sector!.getByTestId("row-change-notice")).toHaveCount(0);
+
+      // SELL and FINAL EXIT each read the stock's sector too.
+      await page.getByTestId("add-level-SELL").click();
+      const sell = rows(page, "level-card-SELL").first();
+      await chooseSectorMetric(sell, "OSCILLATORS", "STOCK_SECTOR|OSCILLATOR:RSI_14D");
+      await sell.getByTestId("value-control").fill("70");
+      await page.getByTestId("add-level-FINAL_EXIT").click();
+      const exit = rows(page, "level-card-FINAL_EXIT").first();
+      await chooseSectorMetric(exit, "PRICE", "STOCK_SECTOR|PRICE:");
+      await exit.getByTestId("operator-select").selectOption("IS_BELOW");
+      await chooseSeriesValue(exit, "SMA_50D");
+
+      const controls = [
+        "RSI 14D",
+        "XLK · RSI 14D",
+        "Stock's Sector · Price",
+        "Stock's Sector · RSI 14D",
+        "Stock's Sector · Price",
+      ];
+      const sentences = [
+        "RSI 14D is above 50",
+        "XLK · RSI 14D is above 50",
+        "Stock's Sector · Price is above SMA 200D",
+        "Stock's Sector · RSI 14D is above 70",
+        "Stock's Sector · Price is below SMA 50D",
+      ];
+      const expectBuilderReads = async (
+        expectedControls: readonly string[],
+        expectedSentences: readonly string[],
+      ) => {
+        await expect(
+          page.getByTestId("strategy-builder").getByTestId("metric-picker"),
+        ).toHaveText([...expectedControls]);
+        expect(await previewSentences(page)).toEqual([...expectedSentences]);
+      };
+      await expectBuilderReads(controls, sentences);
+      // Still three controls a rule.
+      await expect(sector!.getByTestId("metric-picker-etf")).toHaveCount(0);
+      await expect(sector!.getByTestId("operand-config-button")).toHaveCount(0);
+
+      await page.getByTestId("save-strategy").click();
+      await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/);
+      sourceId = strategyIdOf(page);
+      const saved = await readStrategy(page, sourceId);
+      // Stored as the source kind alone: no fund, no ticker, no sector name.
+      expect(saved.definition.buyLevels[0]?.signal.conditions.map(rule)).toEqual([
+        {
+          metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+          operator: "IS_ABOVE",
+          value: { kind: "NUMBER", value: 50 },
+        },
+        {
+          metric: {
+            kind: "OSCILLATOR",
+            seriesId: "RSI_14D",
+            source: { kind: "ETF", code: "ETF_XLK" },
+          },
+          operator: "IS_ABOVE",
+          value: { kind: "NUMBER", value: 50 },
+        },
+        {
+          metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+          operator: "IS_ABOVE",
+          value: { kind: "SERIES", seriesId: "SMA_200D" },
+        },
+      ]);
+      expect(saved.definition.sellLevels[0]?.signal.conditions.map(rule)).toEqual([
+        {
+          metric: {
+            kind: "OSCILLATOR",
+            seriesId: "RSI_14D",
+            source: { kind: "STOCK_SECTOR" },
+          },
+          operator: "IS_ABOVE",
+          value: { kind: "NUMBER", value: 70 },
+        },
+      ]);
+      expect(saved.definition.finalExit?.rules[0]?.signal.conditions.map(rule)).toEqual([
+        {
+          metric: { kind: "PRICE", source: { kind: "STOCK_SECTOR" } },
+          operator: "IS_BELOW",
+          value: { kind: "SERIES", seriesId: "SMA_50D" },
+        },
+      ]);
+
+      // Reload: the same rules, and the sector rule reopens on its own source with no fund shown.
+      await page.reload();
+      await expectBuilderReads(controls, sentences);
+      await expect(page.getByTestId("save-strategy")).toBeDisabled();
+      const reloadedSector = rows(page, "level-card-BUY").nth(2);
+      const reopened = await openPicker(reloadedSector);
+      await expect(sourceChoice(reopened, "STOCK_SECTOR")).toBeChecked();
+      await expect(reopened.getByTestId("metric-picker-etf")).toHaveCount(0);
+      await expect(reopened.getByTestId("metric-picker-sector-note")).toBeVisible();
+      await expect(
+        reopened.locator('[data-testid="metric-picker-option"][aria-pressed="true"]'),
+      ).toHaveText("Price");
+      await page.keyboard.press("Escape");
+
+      // Edit: the SELL rule's sector RSI threshold. A new version, the source untouched.
+      await rows(page, "level-card-SELL").first().getByTestId("value-control").fill("65");
+      await page.getByTestId("save-strategy").click();
+      await expect(page.getByText("All changes saved")).toBeVisible();
+      const editedSentences = sentences.map((text) =>
+        text === "Stock's Sector · RSI 14D is above 70"
+          ? "Stock's Sector · RSI 14D is above 65"
+          : text,
+      );
+      await page.reload();
+      await expectBuilderReads(controls, editedSentences);
+      const edited = await readStrategy(page, sourceId);
+      expect(edited.versionNumber).toBe(2);
+      expect(edited.definition.sellLevels[0]?.signal.conditions.map(rule)[0]).toEqual({
+        metric: {
+          kind: "OSCILLATOR",
+          seriesId: "RSI_14D",
+          source: { kind: "STOCK_SECTOR" },
+        },
+        operator: "IS_ABOVE",
+        value: { kind: "NUMBER", value: 65 },
+      });
+
+      // Duplicate: the copy reads and stores the same logic.
+      await page.goto("/strategies");
+      const collectionRow = page
+        .getByTestId("strategies-grid")
+        .locator("tbody tr")
+        .filter({ hasText: name });
+      await chooseFromOverflowMenu(page, name, "Duplicate", collectionRow);
+      const dialog = page.getByTestId("duplicate-dialog");
+      await dialog.getByLabel("Name").fill(`${name} (copy)`);
+      await dialog.getByLabel("Name").press("Enter");
+      await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/, {
+        timeout: 20_000,
+      });
+      copyId = strategyIdOf(page);
+      expect(copyId).not.toBe(sourceId);
+      await expectBuilderReads(controls, editedSentences);
+      const copy = await readStrategy(page, copyId);
+      expect(withoutIds(copy.definition)).toEqual(withoutIds(edited.definition));
+    } finally {
+      await deleteStrategies(page, [copyId, sourceId]);
+    }
+  });
+});
+
 test.describe("ETF conditions on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -1219,6 +1506,74 @@ test.describe("ETF conditions on a phone", () => {
         category: "MOVING_AVERAGES",
         metric: "EMA 200W",
       });
+      await expectNoHorizontalScroll(page);
+    } finally {
+      await deleteStrategies(page, [id]);
+    }
+  });
+
+  test("chooses Stock's Sector from the bottom sheet: three sources fit, the note wraps, and it saves", async ({
+    page,
+  }) => {
+    const name = `E2E sector phone ${Date.now()}`;
+    let id: string | null = null;
+    try {
+      const row = await startStrategy(page, name);
+      const viewport = page.viewportSize()!;
+      const sheet = await openPicker(row);
+      await chooseSource(sheet, "STOCK_SECTOR");
+      await expect(row.getByTestId("metric-picker")).toHaveText("Stock's Sector · Price");
+      const note = sheet.getByTestId("metric-picker-sector-note");
+      await expect(note).toBeInViewport();
+      await expect(note).toHaveText(SECTOR_NOTE);
+      // The three sources are thumb-sized and on screen; the note wraps inside the sheet.
+      for (const face of await sheet.locator('[class*="sourceFace"]').all()) {
+        const box = (await face.boundingBox())!;
+        expect(box.height).toBeGreaterThanOrEqual(38);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      }
+      const noteBox = (await note.boundingBox())!;
+      expect(noteBox.x + noteBox.width).toBeLessThanOrEqual(viewport.width);
+      await expectNoHorizontalScroll(page);
+      // As tall as what it shows: a source line, a note, the family and the four subgroups.
+      expect((await sheet.boundingBox())!.height).toBeLessThan(viewport.height * 0.6);
+
+      await showCategory(sheet, "VOLUME");
+      await sheet
+        .locator(
+          '[data-testid="metric-picker-option"][data-value="STOCK_SECTOR|RELATIVE_VOLUME:50"]',
+        )
+        .click();
+      await expect(sheet).toBeHidden();
+      const control = row.getByTestId("metric-picker");
+      await expect(control).toHaveText("Stock's Sector · RVOL 50");
+      expect(
+        await control
+          .locator("span")
+          .first()
+          .evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      await row.getByTestId("value-control").fill("1.5");
+      await page.getByTestId("save-strategy").click();
+      await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/);
+      id = strategyIdOf(page);
+      const saved = await readStrategy(page, id);
+      expect(saved.definition.buyLevels[0]?.signal.conditions.map(rule)).toEqual([
+        {
+          metric: {
+            kind: "RELATIVE_VOLUME",
+            period: 50,
+            source: { kind: "STOCK_SECTOR" },
+          },
+          operator: "IS_ABOVE",
+          value: { kind: "MULTIPLE", value: 1.5 },
+        },
+      ]);
+      await page.reload();
+      await expect(
+        page.getByTestId("strategy-builder").getByTestId("metric-picker"),
+      ).toHaveText(["Stock's Sector · RVOL 50"]);
       await expectNoHorizontalScroll(page);
     } finally {
       await deleteStrategies(page, [id]);

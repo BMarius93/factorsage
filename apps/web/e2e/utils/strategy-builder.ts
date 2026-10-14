@@ -47,7 +47,9 @@ export async function showFamily(panel: Locator, family: string): Promise<void> 
 }
 
 /** One of the two data-source choices of an open Metric picker. */
-export function sourceChoice(panel: Locator, source: "STOCK" | "ETF"): Locator {
+export type PickerSource = "STOCK" | "ETF" | "STOCK_SECTOR";
+
+export function sourceChoice(panel: Locator, source: PickerSource): Locator {
   return panel.locator(
     `[data-testid="metric-picker-source"][data-value="${source}"]`,
   );
@@ -61,7 +63,7 @@ export function sourceChoice(panel: Locator, source: "STOCK" | "ETF"): Locator {
  */
 export async function chooseSource(
   panel: Locator,
-  source: "STOCK" | "ETF",
+  source: PickerSource,
 ): Promise<void> {
   const radio = sourceChoice(panel, source);
   if (!(await radio.isChecked())) {
@@ -162,6 +164,25 @@ export async function chooseEtfMetric(
 ): Promise<void> {
   const panel = await openPicker(row, "metric-picker");
   await chooseEtf(panel, code);
+  await showCategory(panel, category);
+  await panel
+    .locator(`[data-testid="metric-picker-option"][data-value="${metric}"]`)
+    .click();
+  await expect(panel).toBeHidden();
+  await expect(row.getByTestId("metric-picker")).toHaveAttribute(
+    "data-value",
+    metric,
+  );
+}
+
+/** Moves one rule to Stock's Sector and chooses one of its metrics (`STOCK_SECTOR|PRICE:`). */
+export async function chooseSectorMetric(
+  row: Locator,
+  category: string,
+  metric: string,
+): Promise<void> {
+  const panel = await openPicker(row, "metric-picker");
+  await chooseSource(panel, "STOCK_SECTOR");
   await showCategory(panel, category);
   await panel
     .locator(`[data-testid="metric-picker-option"][data-value="${metric}"]`)
