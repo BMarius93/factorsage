@@ -246,7 +246,8 @@ describeInfrastructure("PIT revisions through the real refresh path", () => {
       };
     });
     const provider = new ScriptedProvider(truth);
-    const t1At = `${T1}T12:00:00.000Z`;
+    // Read after T1's close plus the publication delay, so T1 is a finalized session.
+    const t1At = `${T1}T22:00:00.000Z`;
     await store.saveDailyPriceSync({
       securityId: row.id,
       prices: truth.filter((price) => price.date <= T1),
@@ -291,7 +292,6 @@ describeInfrastructure("PIT revisions through the real refresh path", () => {
           productHistoryYears: 30,
           now: () => new Date(now),
           fundamentalsFreshnessMs: 6 * 60 * 60 * 1_000,
-          recentPriceFreshnessMs: 6 * 60 * 60 * 1_000,
         },
       );
     const allColumns = async () => {
@@ -436,7 +436,7 @@ describeInfrastructure("PIT revisions through the real refresh path", () => {
       try {
         const range = { from: FIRST_SESSION, to: T2 };
         await fixture
-          .service(`${T1}T12:00:00.000Z`)
+          .service(`${T1}T23:00:00.000Z`)
           .getDailyDerivedState(fixture.symbol, {
             from: FIRST_SESSION,
             to: T1,
@@ -580,7 +580,7 @@ describeInfrastructure("PIT revisions through the real refresh path", () => {
           "getFinancialStatements",
         );
         await fixture
-          .service(`${T1}T12:00:00.000Z`)
+          .service(`${T1}T23:00:00.000Z`)
           .getDailyDerivedState(fixture.symbol, { from: firstSession, to: T1 });
         counts[firstSession] = {
           statementReads:

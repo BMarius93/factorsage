@@ -1,4 +1,4 @@
-import { getStockDataConfig } from "@intrinsic/config";
+import { getEodFinalityConfig, getStockDataConfig } from "@intrinsic/config";
 import type { PrismaClient } from "@intrinsic/database";
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -13,6 +13,7 @@ import {
   type LoadCoordinator,
   type ProviderRequestEvent,
   type RedisCacheClient,
+  type TradingCalendar,
 } from "@intrinsic/stock-data";
 
 /**
@@ -37,6 +38,11 @@ export function createBenchmarkDataService(options: {
   readonly onProviderRequest?: (event: ProviderRequestEvent) => void;
   /** Where price-basis decisions and failed Redis publications are logged. */
   readonly logger?: StructuredLogger;
+  /**
+   * The NYSE schedule a tail-freshness decision asks which weekday was a session. Absent, every
+   * weekday is taken to be one (`EodFinalityPolicy`).
+   */
+  readonly calendar?: TradingCalendar;
 }): BenchmarkDataService {
   const config = getStockDataConfig();
   const logger = options.logger;
@@ -55,7 +61,10 @@ export function createBenchmarkDataService(options: {
     ),
     options.coordinator,
     {
-      recentPriceFreshnessMs: config.recentPriceFreshnessMs,
+      eod: {
+        ...getEodFinalityConfig(),
+        ...(options.calendar ? { calendar: options.calendar } : {}),
+      },
       recentTailCalendarDays: config.recentTailCalendarDays,
       ...(options.onProviderRequest
         ? { onProviderRequest: options.onProviderRequest }

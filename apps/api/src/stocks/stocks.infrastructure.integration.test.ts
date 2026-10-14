@@ -75,8 +75,12 @@ import {
 
 const SLOW = 120_000;
 
-/** Deterministic "today": a Monday, so weekend availability scenarios are stable. */
-const T0 = "2026-08-24T12:00:00.000Z";
+/**
+ * Deterministic "today": a Monday, so weekend availability scenarios are stable — at 18:00 in New
+ * York, after the session's close plus the publication delay, so Monday is its newest final
+ * session (`docs/decisions/eod-finality-v1.md`).
+ */
+const T0 = "2026-08-24T22:00:00.000Z";
 const TODAY = "2026-08-24";
 const HISTORY_YEARS = 4;
 /** The product horizon at `HISTORY_YEARS`: the oldest day any surface may expose. */
@@ -92,8 +96,11 @@ const RETENTION_START = subtractYears(
   priceRetentionYears(HISTORY_YEARS),
 );
 // Fundamentals retention reaches back historyYears + 7 warm-up years, i.e. to 2015-08-24.
-const PRICE_FRESHNESS_MS = 60 * 60 * 1000;
-const FUNDAMENTALS_FRESHNESS_MS = 120 * 60 * 1000;
+/**
+ * Longer than one day, so a price refresh driven by the next finalized session is not also a
+ * statement refresh: the lifecycle cases below separate the two causes by the calendar.
+ */
+const FUNDAMENTALS_FRESHNESS_MS = 26 * 60 * 60 * 1000;
 /**
  * A deeper retention horizon for the widening scenario, and its canonical start.
  *
@@ -481,7 +488,6 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
               defaultHistoryDays: 365,
               productHistoryYears:
                 input.historyYears ?? HISTORY_YEARS,
-              recentPriceFreshnessMs: PRICE_FRESHNESS_MS,
               fundamentalsFreshnessMs: FUNDAMENTALS_FRESHNESS_MS,
               recentTailCalendarDays: 10,
               now: () => clock.instant,
@@ -2274,7 +2280,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
 
   describe("refresh lifecycle against real infrastructure", () => {
     // These tests advance the deterministic clock, so they run last: every earlier
-    // scenario depends on hydration staying fresh at T0.
+    // scenario depends on hydration staying fresh at T0. Price refreshes are driven by the next
+    // session becoming final, statement refreshes by their own freshness window, so the calendar
+    // is what separates the two causes (`docs/decisions/eod-finality-v1.md`).
+    const NEXT = "2026-08-25";
+    const LAST = "2026-08-27";
     it(
       "price-only refresh updates prices and technicals but rematerializes intrinsic state coherently",
       async () => {
@@ -2291,26 +2301,30 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           await readDbDerivedRows(securityId, { from: TODAY, to: TODAY })
         )[0];
 
-        // A refined EOD close arrives for the latest trading day; fundamentals unchanged.
+        // A refined EOD close arrives for Monday, and Tuesday's session is published; statements
+        // unchanged.
         const lastRow = fixture.prices.at(-1)!;
         lastRow.close += 5;
         lastRow.high += 5;
+        fixture.prices.push({ ...lastRow, date: NEXT, close: lastRow.close + 1 });
         const priceCallsBefore = provider.dailyPriceCalls.length;
         const statementCallsBefore = provider.statementCalls.length;
-        advanceClockMinutes(90); // price freshness (60m) exceeded, fundamentals (120m) not
+        // Tuesday 16:35 in New York: Tuesday is final, statements (26h) are still fresh.
+        advanceClockMinutes(22 * 60 + 35);
         const response = await http()
-          .get(`/stocks/${symbol}/prices?from=2026-08-01&to=${TODAY}`)
+          .get(`/stocks/${symbol}/prices?from=2026-08-01&to=${NEXT}`)
           .expect(200);
 
         // The tail, then the short look at the earliest stored sessions that a load changing a
-        // stored row makes before it saves (`historical-price-basis-v1.md`, §7, rule 2).
+        // stored row makes before it saves (`historical-price-basis-v1.md`, §7, rule 2). The tail
+        // reaches back over the previous read's own window, so Monday's correction is read too.
         expect(provider.dailyPriceCalls.length).toBe(priceCallsBefore + 2);
         const [tail, earliestRows] =
           provider.dailyPriceCalls.slice(priceCallsBefore);
         expect(tail).toEqual({
           symbol,
           from: addDays(TODAY, -10),
-          to: TODAY,
+          to: NEXT,
         });
         expect(earliestRows).toEqual({
           symbol,
@@ -2322,8 +2336,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           await prisma.financialStatement.count({ where: { securityId } }),
         ).toBe(statementsBefore);
 
-        // HTTP, PostgreSQL, and Redis all see the refined close.
-        expect(response.body.at(-1).close).toBe(lastRow.close);
+        // HTTP, PostgreSQL, and Redis all see the refined close, and the new session.
+        expect(response.body.at(-1).date).toBe(NEXT);
+        expect(
+          response.body.find((row: { date: string }) => row.date === TODAY).close,
+        ).toBe(lastRow.close);
         const dbLastPrice = await prisma.dailyPrice.findFirst({
           where: { securityId, date: new Date(`${TODAY}T00:00:00.000Z`) },
         });
@@ -2343,7 +2360,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         ).toBe(chunk2025Before);
         await expectApiDbRedisConsistent(symbol, securityId, {
           from: "2026-08-01",
-          to: TODAY,
+          to: NEXT,
         });
       },
       SLOW,
@@ -2381,8 +2398,10 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
             ),
           );
         const priceCallsBefore = provider.dailyPriceCalls.length;
-        advanceClockMinutes(40); // fundamentals stale (130m), prices fresh again (40m)
-        await http().get(`/stocks/${symbol}?from=2026-08-01&to=${TODAY}`).expect(200);
+        // Wednesday 00:35Z: statements are 26h35m old and stale; prices are fresh — Tuesday is the
+        // newest final session and was read after it became final.
+        advanceClockMinutes(4 * 60);
+        await http().get(`/stocks/${symbol}?from=2026-08-01&to=${NEXT}`).expect(200);
 
         // Strictly fundamentals-only: no price provider call, price data unchanged.
         expect(provider.dailyPriceCalls.length).toBe(priceCallsBefore);
@@ -2423,7 +2442,10 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           allDerivedBefore.filter((row) => row.date < TODAY),
         );
         const changed = allDerivedAfter.at(-1);
-        expect(changed?.date).toBe(TODAY);
+        expect(changed?.date).toBe(NEXT);
+        expect(
+          allDerivedAfter.find((row) => row.date === TODAY)?.graham,
+        ).toBeCloseTo(157.25, 6);
         // TTM EPS becomes 2 + 2 + 2 + 2.5 = 8.5 -> Graham 8.5 * 18.5.
         expect(changed?.graham).toBeCloseTo(157.25, 6);
         expect(changed?.grahamSourceAsOf).toBe("2026-08-22T00:00:00.000Z");
@@ -2447,7 +2469,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(chunk2026.at(-1)?.intrinsicValues?.GRAHAM).toBeCloseTo(157.25, 6);
         await expectApiDbRedisConsistent(symbol, securityId, {
           from: "2026-08-01",
-          to: TODAY,
+          to: NEXT,
         });
       },
       SLOW,
@@ -2459,13 +2481,17 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const symbol = symbols.lifecycle;
         const securityId = await securityIdOf(symbol);
         const fixture = provider.fixtures.get(symbol)!;
-        const tradingDays = businessDays("2025-01-02", TODAY).length;
+        const tradingDays = businessDays("2025-01-02", LAST).length;
         const rowBefore = (
-          await readDbDerivedRows(securityId, { from: TODAY, to: TODAY })
+          await readDbDerivedRows(securityId, { from: NEXT, to: NEXT })
         )[0];
 
+        // Tuesday's close is refined, and Wednesday and Thursday are published.
         const lastRow = fixture.prices.at(-1)!;
         lastRow.close += 3;
+        for (const date of ["2026-08-26", LAST]) {
+          fixture.prices.push({ ...lastRow, date, close: lastRow.close + 0.5 });
+        }
         fixture.statements
           .get("BALANCE_SHEET:QUARTERLY")!
           .push(
@@ -2477,15 +2503,16 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
               "2026-08-21",
             ),
           );
-        advanceClockMinutes(130); // both price (170m) and fundamentals (130m) stale
-        await http().get(`/stocks/${symbol}?from=2026-08-01&to=${TODAY}`).expect(200);
+        // Thursday 16:35 in New York: a new session is final and the statements are 44h old.
+        advanceClockMinutes(44 * 60);
+        await http().get(`/stocks/${symbol}?from=2026-08-01&to=${LAST}`).expect(200);
 
         // Exactly one unified row per trading day; no parallel or stale methodology rows.
         expect(
           await prisma.dailyDerivedState.count({ where: { securityId } }),
         ).toBe(tradingDays);
         const rowAfter = (
-          await readDbDerivedRows(securityId, { from: TODAY, to: TODAY })
+          await readDbDerivedRows(securityId, { from: NEXT, to: NEXT })
         )[0];
         // Technical and intrinsic fields coexist and both causes landed.
         expect(rowAfter?.sma20d).not.toBe(rowBefore?.sma20d);
@@ -2494,12 +2521,12 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(rowAfter?.residualIncomeSourceAsOf).toBe("2026-08-22T00:00:00.000Z");
         expect(rowAfter?.intrinsicCurrency).toBe("USD");
         const dbLastPrice = await prisma.dailyPrice.findFirst({
-          where: { securityId, date: new Date(`${TODAY}T00:00:00.000Z`) },
+          where: { securityId, date: new Date(`${NEXT}T00:00:00.000Z`) },
         });
         expect(Number(dbLastPrice?.close)).toBe(lastRow.close);
         await expectApiDbRedisConsistent(symbol, securityId, {
           from: "2026-08-01",
-          to: TODAY,
+          to: LAST,
         });
       },
       SLOW,

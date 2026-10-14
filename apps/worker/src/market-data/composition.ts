@@ -1,4 +1,5 @@
 import {
+  getEodFinalityConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
@@ -63,6 +64,9 @@ export function createMarketDataRuntime(
       requestLeaseMs: fmpTraffic.timeoutMs * 2,
     }),
   });
+  // Process memory with a TTL, one schedule request per exchange and year, through the gate. The
+  // run's expected session and the loader's tail freshness ask the same one.
+  const calendar = new CachedTradingCalendar(provider);
   const benchmarks = new CanonicalBenchmarkDataService(
     new PrismaBenchmarkDataStore(prisma),
     provider,
@@ -74,7 +78,7 @@ export function createMarketDataRuntime(
       lockWaitMs: stockDataConfig.loadLockWaitMs,
     }),
     {
-      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      eod: { ...getEodFinalityConfig(), calendar },
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest: (request) => {
         logger.debug({ event: "stock-data.provider.request", ...request });
@@ -87,8 +91,7 @@ export function createMarketDataRuntime(
   return {
     schedule: new PrismaMarketDataRefreshScheduleRepository(prisma),
     benchmarks,
-    // Process memory with a TTL, one schedule request per exchange and year, through the gate.
-    calendar: new CachedTradingCalendar(provider),
+    calendar,
     inspectEvictionPolicy: () =>
       inspectRedisEvictionPolicy(redis, {
         ...getRedisEvictionPolicyConfig(),

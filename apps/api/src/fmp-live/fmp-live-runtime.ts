@@ -1,6 +1,7 @@
 import { STOCK_DETAILS_MAX_HISTORY_YEARS } from "@intrinsic/contracts";
 import {
   getAlternativeDataConfig,
+  getEodFinalityConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
@@ -207,7 +208,9 @@ export function createLiveFmpRuntime(input: {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
       productHistoryYears: stockDataConfig.productHistoryYears,
       stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
-      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      // Finality without a venue schedule: the live run composes no trading calendar (its guard
+      // refuses every request that is not about an approved security), so weekdays are sessions.
+      eod: getEodFinalityConfig(),
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest: (request) => {

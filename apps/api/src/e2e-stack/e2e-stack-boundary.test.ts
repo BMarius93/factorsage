@@ -13,6 +13,7 @@ import {
   getFmpConfig,
   getGoogleOAuthConfig,
   getSmtpConfig,
+  getEodFinalityConfig,
   getStockDataConfig,
   getStripeBillingConfig,
   getTestPersonaCredentials,
@@ -77,7 +78,7 @@ const DEVELOPER_ENV = {
   STRIPE_PRICE_STARTER_YEARLY: "price_developer_2",
   STRIPE_PRICE_PRO_MONTHLY: "price_developer_3",
   STRIPE_PRICE_PRO_YEARLY: "price_developer_4",
-  STOCK_RECENT_PRICE_FRESHNESS_MS: "21600000",
+  EOD_TAIL_REFRESH: "scheduled",
   DATABASE_URL: "postgresql://localhost/intrinsic_value",
 };
 
@@ -121,13 +122,14 @@ describe("E2E stack environment", () => {
     },
   );
 
-  it("keeps seeded data fresh for thirty days without touching the product default", () => {
-    const e2e = getStockDataConfig(overlaid("worker"));
-    expect(e2e.recentPriceFreshnessMs).toBe(E2E_DATA_FRESHNESS_MS);
-    expect(e2e.fundamentalsFreshnessMs).toBe(E2E_DATA_FRESHNESS_MS);
-    expect(getStockDataConfig({}).recentPriceFreshnessMs).toBe(
-      6 * 60 * 60 * 1000,
-    );
+  it("freezes seeded price tails and keeps statements fresh for thirty days, never the product default", () => {
+    for (const role of ["api", "worker"] as const) {
+      expect(getEodFinalityConfig(overlaid(role)).frozenTails).toBe(true);
+      expect(getStockDataConfig(overlaid(role)).fundamentalsFreshnessMs).toBe(
+        E2E_DATA_FRESHNESS_MS,
+      );
+    }
+    expect(getEodFinalityConfig({}).frozenTails).toBe(false);
   });
 
   it("preloads the egress guard in every role, keeping inherited NODE_OPTIONS", () => {

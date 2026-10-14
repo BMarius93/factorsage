@@ -163,7 +163,8 @@ describeReuse("provider reuse across repeated reads", () => {
       new InMemoryLoadCoordinator(),
       {
         productHistoryYears: 30,
-        now: () => new Date(`${today}T12:00:00.000Z`),
+        // After that day's close plus the publication delay: `today` is the newest final session.
+        now: () => new Date(`${today}T23:00:00.000Z`),
       },
     );
   }
@@ -174,7 +175,7 @@ describeReuse("provider reuse across repeated reads", () => {
       provider,
       benchmarkCache,
       new InMemoryLoadCoordinator(),
-      { historyYears: 30, now: () => new Date(`${today}T12:00:00.000Z`) },
+      { historyYears: 30, now: () => new Date(`${today}T23:00:00.000Z`) },
     );
   }
 
@@ -354,7 +355,8 @@ describeReuse("provider reuse across repeated reads", () => {
     await clearRedis();
 
     const provider = new CountingStockProvider(priceRows);
-    // A day later, the tail is stale but the decades behind it are not.
+    // A day later, once the next session is final, the tail is stale but the decades behind it are
+    // not.
     const stale = new CanonicalStockDataService(
       store,
       provider,
@@ -363,7 +365,7 @@ describeReuse("provider reuse across repeated reads", () => {
       {
         productHistoryYears: 30,
         recentTailCalendarDays: 10,
-        now: () => new Date("2020-07-01T12:00:00.000Z"),
+        now: () => new Date("2020-07-01T23:00:00.000Z"),
       },
     );
     await stale.getDailyPrices(securities[0]!.symbol, {

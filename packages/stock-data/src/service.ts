@@ -122,6 +122,14 @@ import {
   type MonitorEvaluationFrame,
 } from "./monitor-frame.js";
 import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
+import {
+  EodFinalityPolicy,
+  withinRequestedRange,
+  type EodFinalityOptions,
+  type EodTailDecision,
+  type EodTailState,
+} from "./eod-finality.js";
+import type { FinalizedSession } from "./market-data-refresh.js";
 
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
@@ -241,6 +249,8 @@ const PROVIDER_BOUNDARY_MIN_GAP_DAYS = 7;
  * series this product can hold starts before it.
  */
 const EARLIEST_PERSISTED_PRICE_DATE = "1900-01-01";
+/** An upper bound no stored bar can pass, for a "newest stored bar" aggregate. */
+const LATEST_PERSISTED_PRICE_DATE = "9999-12-31";
 
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
@@ -423,7 +433,23 @@ export type CanonicalStockDataServiceOptions = {
    * exactly what it exposes. A backtest names its own period and is unaffected.
    */
   stockDetailsHistoryYears?: number;
-  recentPriceFreshnessMs?: number;
+  /**
+   * End-of-day finality (`docs/decisions/eod-finality-v1.md`): the publication delay after a
+   * session's close at which its bar is final, the retry spacing and give-up bound for a session the
+   * provider has not published, the venue calendar, and whether stored tails are frozen.
+   *
+   * There is deliberately no wall-clock price freshness window: a stock's recent tail is re-read when
+   * the newest finalized session has not been read after it became final, and only then.
+   */
+  eod?: Omit<EodFinalityOptions, "now"> & {
+    /**
+     * Treat stored tails as maintained and never re-read them. For deterministic environments over
+     * a frozen dataset — the hermetic E2E stack, the QA matrix, the data-correctness audit — and
+     * never for production. Coverage gaps are still loaded, and reads are still bounded at the EOD
+     * cutoff.
+     */
+    frozenTails?: boolean;
+  };
   fundamentalsFreshnessMs?: number;
   recentTailCalendarDays?: number;
   now?: () => Date;
@@ -539,15 +565,62 @@ export class PriceBasisChangedError extends Error {
   }
 }
 
+/** What durable storage proves about one stock's end-of-day tail (`stockRefreshState`). */
+export type StockRefreshState = {
+  /** The newest stored bar. */
+  latestBar?: LocalDate;
+  /** When the newest leading-edge provider read was issued. */
+  lastTailSyncAt?: string;
+  /** The newest date that read asked for. */
+  tailDate?: LocalDate;
+  /** The newest date whose stored bar was read after its session became final. */
+  verifiedThrough?: LocalDate;
+  /** The newest stored bar on or before `verifiedThrough`: the newest canonical close. */
+  latestVerifiedBar?: LocalDate;
+  /** The newest date the materialized derived state covers. */
+  derivedThrough?: LocalDate;
+  priceBasisGeneration: number;
+};
+
+/** How one EOD preparation of one stock ended (`refreshStockTail`). */
+export type StockTailRefreshResult = {
+  status:
+    /** The expected session's bar is stored and proven final. */
+    | "READY"
+    /** The provider has not published the session yet; asked again on the retry spacing. */
+    | "AWAITING_PUBLICATION"
+    /** Still missing past the give-up bound: the security did not trade the session. */
+    | "NOT_PUBLISHED"
+    /** Tails are frozen in this environment, and storage does not hold the session. */
+    | "FROZEN";
+  state: StockRefreshState;
+};
+
+/** How one freshness check is made. */
+export type StockFreshnessOptions = {
+  /**
+   * The session the caller is preparing for. Defaults to the newest finalized session on the
+   * security's venue; the stock EOD preparation passes the one it resolved once for its whole run,
+   * so every security of that run is held to the same session.
+   */
+  expectedSession?: FinalizedSession;
+  /**
+   * `skip` leaves the statements as stored: an EOD preparation for strategies that read no
+   * statement-derived operand must not spend six provider requests per security per day on them.
+   */
+  fundamentals?: "if-stale" | "skip";
+};
+
 export class CanonicalStockDataService implements StockDetailsDataService {
   private readonly defaultHistoryDays: number;
   private readonly productHistoryYears: number;
   private readonly priceRetentionYears: number;
   private readonly stockDetailsHistoryYears: number;
-  private readonly recentPriceFreshnessMs: number;
   private readonly fundamentalsFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
+  private readonly finality: EodFinalityPolicy;
+  private readonly frozenTails: boolean;
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
   private readonly onPriceBasisEvent: (event: PriceBasisObservation) => void;
   private readonly alternativeData?: CanonicalAlternativeDataService;
@@ -573,12 +646,13 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       this.productHistoryYears,
       options.stockDetailsHistoryYears ?? this.productHistoryYears,
     );
-    this.recentPriceFreshnessMs =
-      options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.fundamentalsFreshnessMs =
       options.fundamentalsFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
+    const { frozenTails, ...finality } = options.eod ?? {};
+    this.finality = new EodFinalityPolicy({ ...finality, now: this.now });
+    this.frozenTails = frozenTails === true;
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
     this.onPriceBasisEvent = options.onPriceBasisEvent ?? (() => {});
     if (options.alternativeData) {
@@ -587,7 +661,6 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     for (const [name, value] of Object.entries({
       defaultHistoryDays: this.defaultHistoryDays,
       productHistoryYears: this.productHistoryYears,
-      recentPriceFreshnessMs: this.recentPriceFreshnessMs,
       fundamentalsFreshnessMs: this.fundamentalsFreshnessMs,
       recentTailCalendarDays: this.recentTailCalendarDays,
     })) {
@@ -667,15 +740,23 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   async ensureStockFresh(
     security: Security,
     required: Required<DateRange>,
+    options: StockFreshnessOptions = {},
   ): Promise<void> {
+    const fundamentalsDue = (candidate: StockManifest | null) =>
+      options.fundamentals !== "skip" &&
+      this.isFundamentalsFreshnessStale(candidate);
     let manifest = await this.cache.getManifest(security.id);
     if (!this.covers(manifest, required)) {
       await this.ensureStockHydrated(security, required);
       manifest = await this.cache.getManifest(security.id);
     }
     if (
-      !this.isPriceFreshnessStale(manifest) &&
-      !this.isFundamentalsFreshnessStale(manifest)
+      !(await this.isPriceTailStale(
+        security,
+        manifest,
+        options.expectedSession,
+      )) &&
+      !fundamentalsDue(manifest)
     ) {
       return;
     }
@@ -689,9 +770,12 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       if (!this.isCurrent(lockedManifest)) {
         return;
       }
-      const refreshPrices = this.isPriceFreshnessStale(lockedManifest);
-      const refreshFundamentals =
-        this.isFundamentalsFreshnessStale(lockedManifest);
+      const refreshPrices = await this.isPriceTailStale(
+        security,
+        lockedManifest,
+        options.expectedSession,
+      );
+      const refreshFundamentals = fundamentalsDue(lockedManifest);
       if (!refreshPrices && !refreshFundamentals) {
         return;
       }
@@ -807,6 +891,114 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         throw new Error("Stock cache hydration generation changed");
       }
     });
+  }
+
+  /**
+   * What durable storage proves about one stock's end-of-day tail. Provider-free and Redis-free.
+   *
+   * The newest stored bar, the newest leading-edge provider read (when it was issued, and the
+   * newest date it asked for), and from those the newest date whose bar is **proven final**: a bar
+   * dated at or before `verifiedThrough` was read after its session became final, so it is the
+   * canonical close. `derivedThrough` is the newest date the materialized derived state covers, so
+   * a consumer can refuse a session whose indicators have not been rebuilt yet.
+   *
+   * This is the stock counterpart of `benchmarkRefreshState`, and what the stock EOD preparation and
+   * the Monitor evaluation read to agree on which session a security is ready for.
+   */
+  async stockRefreshState(security: Security): Promise<StockRefreshState> {
+    const [freshness, derived, bounds] = await Promise.all([
+      this.store.getDatasetState(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_FRESHNESS_VARIANT,
+      ),
+      this.store.getDatasetState(
+        security.id,
+        "DAILY_DERIVED_STATE",
+        DAILY_DERIVED_STATE_VARIANT,
+      ),
+      this.store.getDailyPriceBounds(security.id, {
+        from: EARLIEST_PERSISTED_PRICE_DATE,
+        to: LATEST_PERSISTED_PRICE_DATE,
+      }),
+    ]);
+    const lastTailSyncAt = freshness?.lastSyncedAt;
+    const tailDate = freshness?.latestDate;
+    const verifiedThrough =
+      lastTailSyncAt !== undefined && tailDate !== undefined
+        ? minDate(tailDate, this.finality.cutoffDate(new Date(lastTailSyncAt)))
+        : undefined;
+    const latestVerifiedBar =
+      verifiedThrough === undefined || bounds === null
+        ? undefined
+        : bounds.lastDate <= verifiedThrough
+          ? bounds.lastDate
+          : (
+              await this.store.getDailyPriceBounds(security.id, {
+                from: EARLIEST_PERSISTED_PRICE_DATE,
+                to: verifiedThrough,
+              })
+            )?.lastDate;
+    return {
+      ...(bounds ? { latestBar: bounds.lastDate } : {}),
+      ...(lastTailSyncAt ? { lastTailSyncAt } : {}),
+      ...(tailDate ? { tailDate } : {}),
+      ...(verifiedThrough ? { verifiedThrough } : {}),
+      ...(latestVerifiedBar ? { latestVerifiedBar } : {}),
+      ...(derived?.latestDate ? { derivedThrough: derived.latestDate } : {}),
+      priceBasisGeneration: await this.priceBasisGeneration(security.id),
+    };
+  }
+
+  /**
+   * Prepares one stock for an end-of-day session: its history from `from`, a recent tail read after
+   * `expectedSession` became final, and — when `operands` name them — the alternative-data and
+   * split-list inputs, all through the one canonical hydration path.
+   *
+   * The provider is asked only when the durable record says it must be: a tail already read after
+   * the session became final costs nothing, an unpublished session is re-asked on the retry spacing,
+   * and statements are left alone unless `fundamentals` asks for them. Several Monitors watching the
+   * same stock share one call: this is per security, never per Monitor.
+   *
+   * Reports what storage then proves, not what the provider happened to answer, so a caller can
+   * count a security READY only when its session bar is final in PostgreSQL.
+   */
+  async refreshStockTail(
+    security: Security,
+    input: {
+      expectedSession: FinalizedSession;
+      /** The oldest date the caller will read. Extended by the derived warm-up, like every load. */
+      from: LocalDate;
+      fundamentals?: "if-stale" | "skip";
+      operands?: readonly OperandKey[];
+    },
+  ): Promise<StockTailRefreshResult> {
+    const load = this.loadTarget(security, {
+      from: minDate(input.from, this.today()),
+      to: this.today(),
+    });
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load, {
+      expectedSession: input.expectedSession,
+      fundamentals: input.fundamentals ?? "skip",
+    });
+    if (input.operands && input.operands.length > 0) {
+      await this.ensureAlternativeDataIngested(security, input.operands);
+      await this.ensureValuationInputsIngested(security, input.operands);
+    }
+    const state = await this.stockRefreshState(security);
+    const decision = this.finality.decide(state, input.expectedSession);
+    const status: StockTailRefreshResult["status"] =
+      decision.action === "SKIP"
+        ? decision.reason === "UP_TO_DATE"
+          ? "READY"
+          : decision.reason === "SESSION_NOT_PUBLISHED"
+            ? "NOT_PUBLISHED"
+            : "AWAITING_PUBLICATION"
+        : this.frozenTails
+          ? "FROZEN"
+          : "AWAITING_PUBLICATION";
+    return { status, state };
   }
 
   async getStockDetails(
@@ -1673,6 +1865,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         : bounded;
     });
     const loaded = [];
+    // When the reads below were issued: the synchronization watermark records this, never the moment
+    // the save ran, so it can only ever claim a read that began after every session it holds had
+    // become final (`docs/decisions/eod-finality-v1.md`).
+    const readIssuedAt = this.nowInstant();
     for (const delta of missing) {
       this.onProviderRequest({
         symbol: security.symbol,
@@ -1683,11 +1879,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         to: delta.to,
       });
       loaded.push(
-        ...(await this.provider.getDailyPrices(
-          security.symbol,
-          security.id,
+        ...withinRequestedRange(
+          await this.provider.getDailyPrices(
+            security.symbol,
+            security.id,
+            delta,
+          ),
           delta,
-        )),
+        ),
       );
     }
     lease.assertOwned();
@@ -1752,7 +1951,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
           securityId: security.id,
           prices: hold.rows,
           successfulCoverage,
-          syncedAt: this.nowInstant(),
+          syncedAt: readIssuedAt,
           tailDate: target.to,
           ...(hold.heldFrom === undefined &&
           missing.some(
@@ -2422,16 +2621,18 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       from: readRange.from,
       to: readRange.to,
     });
+    // Issued now: the replacement's watermark is the instant the whole read began.
+    const detectedAt = this.nowInstant();
     // Ascending, whatever order the provider answered in: the hold and the split below read it so.
-    const fresh = (
+    const fresh = withinRequestedRange(
       await this.provider.getDailyPrices(
         security.symbol,
         security.id,
         readRange,
-      )
+      ),
+      readRange,
     ).sort((left, right) => left.date.localeCompare(right.date));
     const stored = await this.store.getDailyPrices(security.id, readRange);
-    const detectedAt = this.nowInstant();
     const comparison = comparePriceHistories({
       securityId: security.id,
       generation: (basis?.generation ?? 0) + 1,
@@ -2591,6 +2792,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       "DAILY_PRICE",
       DAILY_PRICE_VARIANT,
     );
+    // The watermark is the instant the read was issued, so it never claims a session that finalized
+    // while the request was in flight.
+    const syncedAt = this.nowInstant();
     this.onProviderRequest({
       symbol: security.symbol,
       securityId: security.id,
@@ -2599,12 +2803,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       from: refreshRange.from,
       to: refreshRange.to,
     });
-    const loaded = await this.provider.getDailyPrices(
-      security.symbol,
-      security.id,
+    const loaded = withinRequestedRange(
+      await this.provider.getDailyPrices(
+        security.symbol,
+        security.id,
+        refreshRange,
+      ),
       refreshRange,
     );
-    const syncedAt = this.nowInstant();
 
     // Nothing is saved beside the stored history until its earliest row confirms the provider has
     // not re-based it (`historical-price-basis-v1.md`, §7, rule 2). A tail read after a re-base
@@ -3083,14 +3289,53 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     );
   }
 
-  private isPriceFreshnessStale(manifest: StockManifest | null): boolean {
-    if (!this.isCurrent(manifest) || !manifest.lastPriceRefreshAt) {
-      return true;
+  /**
+   * Whether this stock's recent tail needs a provider read: the session question, never a timer.
+   *
+   * The tail is stale exactly when the newest finalized session on the security's venue is not
+   * stored as read after it became final — which is also what re-reads a bar some earlier read
+   * stored while its session was still trading. A session the provider has not published is asked
+   * for again on the retry spacing, and not at all past the give-up bound
+   * (`decideEodTailRefresh`).
+   *
+   * Decided from the READY manifest: `lastPriceRefreshAt` is when the newest leading-edge read was
+   * issued, `coverageEnd` the date it reached and `canonicalHistoryEnd` the newest stored bar.
+   */
+  private async priceTailDecision(
+    security: Security,
+    manifest: StockManifest | null,
+    expected?: FinalizedSession,
+  ): Promise<EodTailDecision> {
+    if (!this.isCurrent(manifest)) {
+      return { action: "REFRESH", reason: "NEVER_SYNCED" };
     }
-    const lastRefresh = Date.parse(manifest.lastPriceRefreshAt);
+    if (this.frozenTails) {
+      // The stored data is the dataset. Coverage gaps are still loaded by hydration; a tail is not.
+      return { action: "SKIP", reason: "UP_TO_DATE" };
+    }
+    const state: EodTailState = {
+      ...(manifest.canonicalHistoryEnd
+        ? { latestBar: manifest.canonicalHistoryEnd }
+        : {}),
+      ...(manifest.lastPriceRefreshAt
+        ? { lastTailSyncAt: manifest.lastPriceRefreshAt }
+        : {}),
+      ...(manifest.coverageEnd ? { tailDate: manifest.coverageEnd } : {}),
+    };
+    return this.finality.decide(
+      state,
+      expected ?? (await this.finality.expectedSession(security.exchangeCode)),
+    );
+  }
+
+  private async isPriceTailStale(
+    security: Security,
+    manifest: StockManifest | null,
+    expected?: FinalizedSession,
+  ): Promise<boolean> {
     return (
-      !Number.isFinite(lastRefresh) ||
-      this.now().valueOf() - lastRefresh >= this.recentPriceFreshnessMs
+      (await this.priceTailDecision(security, manifest, expected)).action ===
+      "REFRESH"
     );
   }
 
@@ -3423,8 +3668,15 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     );
   }
 
+  /**
+   * The newest date whose end-of-day bar is final — the **EOD cutoff**, never the UTC day.
+   *
+   * Every load target, provider request, retention horizon and product read ends here, so a bar for
+   * a session that is still trading (or inside its publication delay) is never requested, stored or
+   * returned (`docs/decisions/eod-finality-v1.md`).
+   */
   private today(): string {
-    return this.now().toISOString().slice(0, 10);
+    return this.finality.cutoffDate(this.now());
   }
 
   private nowInstant(): string {
@@ -3630,3 +3882,4 @@ function sameStoredValue(
 function namesValuationRatio(operands: readonly OperandKey[]): boolean {
   return operands.some((key) => operandValuationRatioId(key) !== null);
 }
+

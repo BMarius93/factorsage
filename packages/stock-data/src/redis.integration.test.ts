@@ -1372,7 +1372,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
           variant: DAILY_PRICE_VARIANT,
           fromDate: new Date("2015-01-01T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
-          lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
+          lastSuccessfulSyncAt: new Date("2026-08-24T23:00:00.000Z"),
         },
       });
       await prismaA.stockDatasetState.create({
@@ -1382,7 +1382,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
           variant: "split-adjusted-eod-full:recent-tail",
           earliestDate: new Date("2026-08-24T00:00:00.000Z"),
           latestDate: new Date("2026-08-24T00:00:00.000Z"),
-          lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
+          lastSuccessfulSyncAt: new Date("2026-08-24T23:00:00.000Z"),
         },
       });
       // Verified under the current loader, so no first verification re-reads the history.
@@ -1390,7 +1390,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         data: {
           securityId: security.id,
           generation: 1,
-          verifiedAt: new Date("2026-08-24T12:00:00.000Z"),
+          verifiedAt: new Date("2026-08-24T23:00:00.000Z"),
         },
       });
       // Both callers reach past the product horizon, so both load targets snap to the shared
@@ -1421,7 +1421,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         }),
         {
           productHistoryYears: 30,
-          now: () => new Date("2026-08-24T12:00:00.000Z"),
+          now: () => new Date("2026-08-24T23:00:00.000Z"),
         },
       );
       const serviceB = new CanonicalStockDataService(
@@ -1434,7 +1434,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         }),
         {
           productHistoryYears: 30,
-          now: () => new Date("2026-08-24T12:00:00.000Z"),
+          now: () => new Date("2026-08-24T23:00:00.000Z"),
         },
       );
 
@@ -2149,7 +2149,9 @@ describeInfrastructure("cross-process canonical hydration", () => {
 describeInfrastructure(
   "Fundamental Metrics on the canonical derived-state path",
   () => {
-    const NOW = new Date("2026-08-24T12:00:00.000Z");
+    // After the Monday close plus the publication delay (20:30Z), so the 24th is the newest final
+    // session — and early enough that a later refresh is still observed on the 24th.
+    const NOW = new Date("2026-08-24T21:00:00.000Z");
     const TODAY = "2026-08-24";
     const SYNCED_AT = NOW.toISOString();
     const PRODUCT_YEARS = 30;
@@ -2200,7 +2202,7 @@ describeInfrastructure(
         now?: Date,
         options?: {
           fundamentalsFreshnessMs?: number;
-          recentPriceFreshnessMs?: number;
+          eod?: { frozenTails?: boolean };
         },
       ) => CanonicalStockDataService;
       namespaceKeys: () => Promise<string[]>;
@@ -2821,10 +2823,11 @@ describeInfrastructure(
         ]);
         const derivedWrites = vi.spyOn(fixture.store, "saveDailyDerivedState");
         const refreshed = fixture.service(
-          new Date("2026-08-24T19:00:00.000Z"),
+          new Date("2026-08-25T06:00:00.000Z"),
           {
             fundamentalsFreshnessMs: 6 * 60 * 60 * 1_000,
-            recentPriceFreshnessMs: 30 * 24 * 60 * 60 * 1_000,
+            // Prices are not the subject: their stored tails stay as provisioned.
+            eod: { frozenTails: true },
           },
         );
         await refreshed.getDailyDerivedState(fixture.symbol, range);
@@ -2945,9 +2948,11 @@ describeInfrastructure(
             },
           ]);
           await fixture
-            .service(new Date("2026-08-24T19:00:00.000Z"), {
-              fundamentalsFreshnessMs: 6 * 60 * 60 * 1_000,
-              recentPriceFreshnessMs: 30 * 24 * 60 * 60 * 1_000,
+            .service(new Date("2026-08-24T23:30:00.000Z"), {
+              // Stale two and a half hours after the provisioning read, still on the 24th.
+              fundamentalsFreshnessMs: 60 * 60 * 1_000,
+              // Prices are not the subject: their stored tails stay as provisioned.
+              eod: { frozenTails: true },
             })
             .getDailyDerivedState(fixture.symbol, range);
 

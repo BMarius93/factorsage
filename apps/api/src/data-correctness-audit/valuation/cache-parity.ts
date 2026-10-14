@@ -73,7 +73,8 @@ export async function auditCacheParity(input: {
       {
         productHistoryYears: 30,
         now: () => clock,
-        recentPriceFreshnessMs: tenYears,
+        // A frozen copy: its stored tails are the dataset, never re-read (`EOD_TAIL_REFRESH=frozen`).
+        eod: { frozenTails: true },
         fundamentalsFreshnessMs: tenYears,
       },
     );
@@ -137,7 +138,7 @@ export async function auditCacheParity(input: {
       input.securityIds.map((id) => readOracleRows(input.prisma, id)),
     );
     for (const rows of securities) {
-      clock = new Date(`${rows.coverageEnd}T12:00:00.000Z`);
+      clock = new Date(`${rows.coverageEnd}T23:00:00.000Z`);
       const range = {
         from: rows.sessions.at(-750)?.date ?? rows.sessions[0]!.date,
         to: rows.coverageEnd,
@@ -190,7 +191,7 @@ export async function auditCacheParity(input: {
     const [first, second] = securities;
     if (first && second) {
       const answer = async (rows: typeof first) => {
-        clock = new Date(`${rows.coverageEnd}T12:00:00.000Z`);
+        clock = new Date(`${rows.coverageEnd}T23:00:00.000Z`);
         const range = {
           from: rows.sessions.at(-750)?.date ?? rows.sessions[0]!.date,
           to: rows.coverageEnd,

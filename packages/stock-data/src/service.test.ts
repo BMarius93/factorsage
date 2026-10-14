@@ -82,7 +82,7 @@ vi.mock("./valuation-ratios.js", async (importOriginal) => {
   };
 });
 
-const NOW = "2026-08-24T12:00:00.000Z";
+const NOW = "2026-08-24T22:00:00.000Z";
 /** The product horizon: the oldest day any surface may select, chart, query or backtest. */
 const CANONICAL_RANGE = { from: "1996-08-24", to: "2026-08-24" };
 /**
@@ -902,7 +902,6 @@ function createService(
 ) {
   return new CanonicalStockDataService(store, provider, cache, coordinator, {
     productHistoryYears: 30,
-    recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
     fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
     recentTailCalendarDays: 10,
     now,
@@ -1473,7 +1472,6 @@ describe("canonical full-stock hydration", () => {
       {
         productHistoryYears: 30,
         stockDetailsHistoryYears: 10,
-        recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
         fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
         recentTailCalendarDays: 10,
         now: () => new Date(NOW),
@@ -2514,17 +2512,63 @@ describe("canonical full-stock hydration", () => {
     );
     const requested = { from: "2026-08-20", to: "2026-08-24" };
 
+    // Monday 18:00 in New York: Monday's session is final and the provider returns no bar for it.
     await loader.getDailyPrices("AAPL", requested);
     await loader.getDailyPrices("AAPL", requested);
     expect(provider.ranges).toHaveLength(1);
-
-    now = new Date("2026-08-24T19:00:00.000Z");
-    await loader.getDailyPrices("AAPL", requested);
-    expect(provider.ranges).toHaveLength(2);
     expect(provider.ranges[0]).toEqual({
       from: "2026-08-14",
       to: "2026-08-24",
     });
+
+    // Asked 90 minutes after the session became final, so not again for another 90.
+    now = new Date("2026-08-24T23:00:00.000Z");
+    await loader.getDailyPrices("AAPL", requested);
+    expect(provider.ranges).toHaveLength(1);
+    now = new Date("2026-08-24T23:31:00.000Z");
+    await loader.getDailyPrices("AAPL", requested);
+    expect(provider.ranges).toHaveLength(2);
+
+    // The next session is a new question: once Tuesday is final it is asked for at once.
+    now = new Date("2026-08-25T20:31:00.000Z");
+    await loader.getDailyPrices("AAPL", { from: "2026-08-20", to: "2026-08-25" });
+    expect(provider.ranges).toHaveLength(3);
+    expect(provider.ranges[2]?.to).toBe("2026-08-25");
+  });
+
+  it("stops asking for a session the provider never prints, past the give-up bound", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    let now = new Date(NOW);
+    const loader = new CanonicalStockDataService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      {
+        productHistoryYears: 30,
+        fundamentalsFreshnessMs: 30 * 24 * 60 * 60 * 1000,
+        recentTailCalendarDays: 10,
+        eod: { sessionGiveUpMs: 2 * 60 * 60 * 1000 },
+        now: () => now,
+      },
+    );
+    const requested = { from: "2026-08-20", to: "2026-08-24" };
+    await loader.getDailyPrices("AAPL", requested);
+    const afterFirst = provider.ranges.length;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    // Monday became final at 20:30Z; two hours on, a still-missing bar is no longer asked for.
+    for (const instant of [
+      "2026-08-24T23:31:00.000Z",
+      "2026-08-25T02:00:00.000Z",
+      "2026-08-25T12:00:00.000Z",
+    ]) {
+      now = new Date(instant);
+      await loader.getDailyPrices("AAPL", requested);
+    }
+    expect(provider.ranges.length).toBe(afterFirst);
   });
 
   it("does not persist or publish READY after definitive lease loss", async () => {
@@ -2731,7 +2775,9 @@ describe("the leading edge of price coverage", () => {
       to: "2026-09-03",
     });
 
-    // Eleven days later the provider has every session; the Friday was never fetched before.
+    // Eleven days later the provider has every session; the Friday was never fetched before. It is
+    // 11:00 in New York, so the provider also lists the 15th's in-progress bar — which is not final,
+    // so it is neither asked for nor returned.
     now = new Date("2026-09-15T15:00:00.000Z");
     provider.market = sessions("2026-08-03", "2026-09-15").map((date) =>
       price(date, 100),
@@ -2742,8 +2788,12 @@ describe("the leading edge of price coverage", () => {
     });
 
     expect(rows.map((row) => row.date)).toEqual(
-      sessions("2026-09-01", "2026-09-15"),
+      sessions("2026-09-01", "2026-09-14"),
     );
+    expect(provider.ranges.every((range) => range.to <= "2026-09-14")).toBe(
+      true,
+    );
+    expect(store.prices.some((row) => row.date === "2026-09-15")).toBe(false);
   });
 
   it("replaces an in-session bar with the final one however long the next read takes", async () => {
@@ -2766,6 +2816,11 @@ describe("the leading edge of price coverage", () => {
       from: "2026-08-24",
       to: "2026-09-09",
     });
+    // The open session's bar is never even asked for: the read ends at the EOD cutoff, the 8th.
+    expect(store.prices.some((row) => row.date === "2026-09-09")).toBe(false);
+    expect(provider.ranges.every((range) => range.to <= "2026-09-08")).toBe(
+      true,
+    );
 
     // The session closed at 135.61. The next read comes thirteen days later, when 09-09 is already
     // outside the ten-day tail behind the new day.
@@ -5026,7 +5081,9 @@ describe("a backtest executes exactly the period it snapshotted", () => {
   // NOW is 2026-08-24, so the earliest selectable start is 1996-08-24 and the retention floor —
   // four warm-up years wider — is 1992-08-24.
   const PERIOD = { from: "1996-08-24", to: "2026-08-24" };
-  const JUST_AFTER_MIDNIGHT = "2026-08-25T00:01:00.000Z";
+  // The first instant the product day moves on: the next session's close plus the publication
+  // delay (16:31 in New York), not UTC midnight — every bound follows the EOD cutoff.
+  const JUST_AFTER_MIDNIGHT = "2026-08-25T20:31:00.000Z";
   const A_WEEK_LATER = "2026-08-31T09:00:00.000Z";
   /**
    * One day past the point where the retained horizon itself would clip the period.
@@ -5249,7 +5306,6 @@ describe("re-base-safe price loading", () => {
       new InMemoryLoadCoordinator(),
       {
         productHistoryYears: 30,
-        recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
         fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
         recentTailCalendarDays: 10,
         now: () => new Date(NOW),
@@ -5637,7 +5693,6 @@ describe("the price basis around a refused whole read and in the preparation pha
       new InMemoryLoadCoordinator(),
       {
         productHistoryYears: 30,
-        recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
         fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
         recentTailCalendarDays: 10,
         now: () => new Date(NOW),

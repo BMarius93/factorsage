@@ -9,6 +9,7 @@ import {
   getBacktestWorkerConfig,
   getFmpConfig,
   getGoogleOAuthConfig,
+  getEodFinalityConfig,
   getMarketDataWorkerConfig,
   getRedisConfig,
   getRedisEvictionPolicyConfig,
@@ -505,6 +506,41 @@ describe("production API configuration", () => {
     expect(() => getMonitorWorkerConfig(workerEnv)).not.toThrow();
     expect(() => getMarketDataWorkerConfig(workerEnv)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(workerEnv).enabled).toBe(false);
+  });
+});
+
+describe("EOD finality configuration", () => {
+  it("shares the market-data publication delay and retry spacing, and bounds a missing session", () => {
+    const config = getEodFinalityConfig({});
+    expect(config.publicationDelayMs).toBe(30 * 60_000);
+    expect(config.sessionRetryMs).toBe(30 * 60_000);
+    expect(config.sessionGiveUpMs).toBe(24 * 60 * 60_000);
+    expect(config.frozenTails).toBe(false);
+  });
+
+  it("freezes stored tails only when asked by name, and refuses anything else", () => {
+    expect(getEodFinalityConfig({ EOD_TAIL_REFRESH: "frozen" }).frozenTails).toBe(
+      true,
+    );
+    expect(
+      getEodFinalityConfig({ EOD_TAIL_REFRESH: "scheduled" }).frozenTails,
+    ).toBe(false);
+    expect(() => getEodFinalityConfig({ EOD_TAIL_REFRESH: "off" })).toThrow(
+      /EOD_TAIL_REFRESH/,
+    );
+  });
+
+  it("reads the very key the market-data refresh reads, so the two can never disagree", () => {
+    const env = {
+      MARKET_DATA_EOD_PUBLICATION_DELAY_MS: "2700000",
+      MARKET_DATA_SERIES_RETRY_MS: "600000",
+    };
+    expect(getEodFinalityConfig(env).publicationDelayMs).toBe(
+      getMarketDataWorkerConfig(env).publicationDelayMs,
+    );
+    expect(getEodFinalityConfig(env).sessionRetryMs).toBe(
+      getMarketDataWorkerConfig(env).seriesRetryMs,
+    );
   });
 });
 

@@ -354,7 +354,8 @@ export async function auditRealData(input: {
     {
       productHistoryYears: 30,
       now: () => clock,
-      recentPriceFreshnessMs: tenYears,
+      // A frozen copy: its stored tails are the dataset, never re-read (`EOD_TAIL_REFRESH=frozen`).
+      eod: { frozenTails: true },
       fundamentalsFreshnessMs: tenYears,
     },
   );
@@ -376,7 +377,7 @@ export async function auditRealData(input: {
   try {
     for (const securityId of input.securityIds) {
       const rows = await readOracleRows(input.prisma, securityId);
-      clock = new Date(`${rows.coverageEnd}T12:00:00.000Z`);
+      clock = new Date(`${rows.coverageEnd}T23:00:00.000Z`);
       const horizonStart = subtractYearsFrom(rows.coverageEnd, 30);
       const oracle = createValuationOracle(rows.security);
       const reference = new Map<LocalDate, OracleValuationReading>();
@@ -720,7 +721,7 @@ export async function auditRealData(input: {
             observation: { price: quote },
             observationDate,
           });
-          clock = new Date(`${rows.coverageEnd}T12:00:00.000Z`);
+          clock = new Date(`${rows.coverageEnd}T23:00:00.000Z`);
           if (!monitor) {
             throw new Error("no Monitor frame");
           }

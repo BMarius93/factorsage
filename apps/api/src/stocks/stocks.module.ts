@@ -7,6 +7,7 @@ import {
   getFmpTrafficConfig,
   getRedisConfig,
   getRedisEvictionPolicyConfig,
+  getEodFinalityConfig,
   getStockDataConfig,
 } from "@intrinsic/config";
 import { FmpClient } from "@intrinsic/fmp";
@@ -15,6 +16,7 @@ import {
   CanonicalAlternativeDataService,
   CanonicalCongressMemberCatalogService,
   CanonicalSecurityCatalogService,
+  CachedTradingCalendar,
   CanonicalStockDataService,
   DEFAULT_HYDRATION_TTL_MS,
   PrismaAlternativeDataStore,
@@ -251,7 +253,13 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
             // backtest still reaches for, and the loader's own raw-price retention reaches
             // further back again without any surface seeing it.
             stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
-            recentPriceFreshnessMs: getStockDataConfig().recentPriceFreshnessMs,
+            // End-of-day finality (`docs/decisions/eod-finality-v1.md`): every read ends at the
+            // newest final session, and a tail is re-read only once a newer session is final. The
+            // venue schedule comes through the same gated provider as everything else.
+            eod: {
+              ...getEodFinalityConfig(),
+              calendar: new CachedTradingCalendar(provider),
+            },
             fundamentalsFreshnessMs:
               getStockDataConfig().fundamentalsFreshnessMs,
             recentTailCalendarDays: getStockDataConfig().recentTailCalendarDays,

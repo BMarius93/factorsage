@@ -2,6 +2,7 @@ import { getApiConfig } from "@intrinsic/config";
 import type { FmpClient } from "@intrinsic/fmp";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import {
+  CachedTradingCalendar,
   IoredisCacheClient,
   type BenchmarkDataService,
   type LoadCoordinator,
@@ -67,6 +68,8 @@ import { BENCHMARK_DATA_SERVICE, BENCHMARKS_LOGGER } from "./benchmarks.tokens";
             logger.debug({ event: "benchmark.provider.request", ...request });
           },
           logger,
+          // The NYSE schedule end-of-day freshness asks, through the same gated provider.
+          calendar: new CachedTradingCalendar(provider),
         }),
     },
     BenchmarkCatalogService,

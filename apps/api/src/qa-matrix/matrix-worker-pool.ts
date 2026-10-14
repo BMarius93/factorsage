@@ -166,7 +166,9 @@ export class MatrixWorkerPool {
       MARKET_DATA_WORKER_PROCESSES: "0",
       // Provider requests are logged at debug; without this the sweep cannot count them.
       LOG_LEVEL: "debug",
-      STOCK_RECENT_PRICE_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,
+      // The matrix database is a frozen copy: its stored price tails are the dataset and are never
+      // re-read (`docs/decisions/eod-finality-v1.md`).
+      EOD_TAIL_REFRESH: "frozen",
       STOCK_FUNDAMENTALS_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,
       // The alternative-data domains are pinned for exactly the same reason, and they need it more:
       // their ordinary window is twelve hours, so *every* run of a sweep would re-ingest insider and

@@ -33,13 +33,13 @@ export const E2E_FAKE_FMP_DEFAULT_PORT = 3011;
 export const E2E_FAKE_FMP_API_KEY = "e2e-fixture-provider";
 
 /**
- * How long seeded market data stays fresh on the E2E stack: thirty days.
+ * How long seeded statements and alternative data stay fresh on the E2E stack: thirty days.
  *
- * The seeds stamp their freshness watermarks with the seed's own time, and production treats a tail
- * older than six hours as stale and re-reads it from the provider. On the E2E stack that re-read
- * would be answered by the fixture server — correctly, and harmlessly, but it is still provider
- * traffic the suite did not ask for. A thirty-day window removes the wall clock from the working
- * day, the next morning and a paused branch alike, without touching the product default.
+ * The seeds stamp their freshness watermarks with the seed's own time, and production re-reads
+ * statements and disclosures on a timer. On the E2E stack that re-read would be answered by the
+ * fixture server — correctly, and harmlessly, but it is still provider traffic the suite did not ask
+ * for. Prices need no window: the stack runs with `EOD_TAIL_REFRESH=frozen`, so a seeded tail is
+ * never re-read whatever the clock says.
  */
 export const E2E_DATA_FRESHNESS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -358,7 +358,9 @@ export function e2eStackEnvironment(
     DATABASE_URL: testDatabaseUrl,
     FMP_BASE_URL: e2eFakeFmpBaseUrl(input.fakeFmpPort),
     FMP_API_KEY: E2E_FAKE_FMP_API_KEY,
-    STOCK_RECENT_PRICE_FRESHNESS_MS: freshness,
+    // Seeded prices are the dataset: their tails are never re-read, so no session finalizing during
+    // a run turns into fixture traffic (`docs/decisions/eod-finality-v1.md`).
+    EOD_TAIL_REFRESH: "frozen",
     STOCK_FUNDAMENTALS_FRESHNESS_MS: freshness,
     ALT_DATA_FRESHNESS_MS: freshness,
     ...(input.role === "worker"

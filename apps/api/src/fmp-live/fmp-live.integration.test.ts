@@ -22,6 +22,7 @@ import { admitApprovedSecurities } from "./fmp-live-identity";
 import { formatLiveFmpReport } from "./fmp-live-report";
 import { executeLiveFmpRun, liveFmpHistoryRange } from "./fmp-live-run";
 import { createLiveFmpRuntime, type LiveFmpRuntime } from "./fmp-live-runtime";
+import { eodToday } from "../eod-today";
 
 /**
  * A whole live run, offline: the real composition (`createLiveFmpRuntime`), the real loaders, the
@@ -67,7 +68,8 @@ if (!redisUrl && process.env.CI === "true") {
 const describeInfrastructure = redisUrl ? describe : describe.skip;
 
 const IPO_DATE = "2019-01-02";
-const TODAY = new Date().toISOString().slice(0, 10);
+// The loaders' "today": the newest date whose bar is final, never the UTC day.
+const TODAY = eodToday();
 
 /** Weekdays from the listing date to today, newest first, as the endpoint answers. */
 function syntheticBars(symbol: string, from: string, to: string) {
