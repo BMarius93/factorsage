@@ -746,7 +746,7 @@ test.describe("PRO_USER backtests", () => {
     test.setTimeout(RUN_TIMEOUT_MS + 120_000);
 
     const startDate = seededPeriodStart();
-    await submitBacktest(page, { startDate });
+    const runUrl = await submitBacktest(page, { startDate });
 
     const run = page.getByTestId("backtest-run");
     const chart = page.getByTestId("backtest-chart");
@@ -826,6 +826,26 @@ test.describe("PRO_USER backtests", () => {
     await expect(chart).toHaveAttribute("data-interaction", "bounded");
     await expect(chart).toHaveAttribute("data-period-start", startDate);
     await expect(chart).toHaveAttribute("data-period-end", periodEnd ?? "");
+    // The same gap as in "reaches its result without a reload": the status turns to Completed one
+    // request before the durable result arrives, and the last live curve — which ends on a year
+    // boundary, a live sample being one year window — stays on screen until it does. Measured
+    // inside that gap, "fully zoomed out" was that partial curve, and the reset below then
+    // compared it with the whole run. The chart is first held to the durable curve itself.
+    const durableCurvePoints = async () => {
+      const response = await page.request.get(
+        `${apiBaseUrl()}/backtests/${runIdFromUrl(runUrl)}`,
+      );
+      expect(response.ok()).toBe(true);
+      const detail = (await response.json()) as BacktestRunDetailResponse;
+      return detail.status === "COMPLETED"
+        ? (detail.result?.curve.length ?? 0)
+        : 0;
+    };
+    await expect.poll(durableCurvePoints).toBeGreaterThan(0);
+    await expect(chart).toHaveAttribute(
+      "data-strategy-points",
+      String(await durableCurvePoints()),
+    );
 
     const plot = page.getByRole("img", { name: /Strategy portfolio value/ });
     const box = await plot.boundingBox();
