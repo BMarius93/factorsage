@@ -467,7 +467,7 @@ export function MonitorsPage() {
       <div className={styles.page} data-testid="monitors-page">
         <PageHeader
           title="Monitors"
-          lead="Watch a strategy against current market data and collect the signals it produces."
+          lead="Watch a strategy over a stock list at every market close and collect the signals it produces."
           {...(activeMeter ? { aside: activeMeter } : {})}
           actions={headerAction}
         />

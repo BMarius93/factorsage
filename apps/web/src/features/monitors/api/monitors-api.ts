@@ -1,6 +1,9 @@
 import type {
   CreateMonitorRequest,
   MonitorDetailResponse,
+  MonitorLevelKind,
+  MonitorSignalPageResponse,
+  MonitorSignalRowState,
   MonitorSummaryResponse,
   UpdateBuiltInMonitorVisibilityRequest,
   UpdateMonitorRequest,
@@ -76,4 +79,30 @@ export async function setBuiltInMonitorVisibility(
   body: UpdateBuiltInMonitorVisibilityRequest,
 ): Promise<void> {
   await apiPut(`/dashboard/monitors/${monitorId}/visibility`, body);
+}
+
+/**
+ * One page of the Monitor's Signal table: active occurrences first, then resolved ones — or the
+ * waiting setups when `state` is `PENDING_TRIGGER`.
+ */
+export function fetchMonitorSignals(
+  monitorId: string,
+  query: {
+    state?: MonitorSignalRowState;
+    levelKind?: MonitorLevelKind;
+    limit?: number;
+    cursor?: string;
+  } = {},
+  options: { signal?: AbortSignal } = {},
+) {
+  const params = new URLSearchParams();
+  if (query.state) params.set("state", query.state);
+  if (query.levelKind) params.set("levelKind", query.levelKind);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
+  const search = params.toString();
+  return apiGet<MonitorSignalPageResponse>(
+    `/monitors/${monitorId}/signals${search ? `?${search}` : ""}`,
+    options,
+  );
 }

@@ -5,10 +5,9 @@ import { formatDay } from "../../../lib/dates";
  * What a Monitor's ETF source statuses mean to the person watching it
  * (`ai/architecture/strategy-etf-conditions.md` §7).
  *
- * A stock is evaluated against its live price; an ETF only ever against its own **completed**
- * sessions, so a rule reading one is not evaluable for the current session until that session's
- * end-of-day data is in. Without this a watcher sees `Not evaluable` all day and cannot tell an
- * ordinary wait from a fund whose history was never loaded. The status is the contract's and the
+ * A stock's session is decided only once every fund its rules read holds that same **completed**
+ * session (`docs/decisions/monitor-eod-v2.md` §3.5), so a fund's state is what explains a wait.
+ * Without this a watcher cannot tell an ordinary wait from a fund whose history was never loaded. The status is the contract's and the
  * sentence is this file's; a status this build does not know reads as unavailable, never as fine.
  */
 export type EtfSourceLine = {

@@ -10,8 +10,12 @@ import { BUILT_IN_STRATEGIES } from "./builtin-catalog";
  * The real catalog needs real securities and real market data, which the deterministic E2E stack
  * never has. This one is built over the fictional QA securities with the canonical Trend
  * Confirmation logic, and its Monitor state is written directly — one security active under two
- * monitors, one setup waiting for its trigger — so the browser can be asserted against exact rows.
- * Its keys are namespaced `qa-builtin-`, and it only ever reaches `TEST_DATABASE_URL`.
+ * monitors, one setup waiting for its trigger, and one earlier occurrence that a later session ended
+ * — so the browser can be asserted against exact rows. Each change is written as the EOD evaluation
+ * writes it (`docs/decisions/monitor-eod-v2.md` §3–§6): an observed transition with the version
+ * that decided it and the evidence it compared, and a checkpoint at the newest seeded session so a
+ * running worker has nothing left to evaluate and never moves the declared state. Its keys are
+ * namespaced `qa-builtin-`, and it only ever reaches `TEST_DATABASE_URL`.
  */
 export const QA_BUILT_IN_KEYS = {
   listA: "qa-builtin-list-a",
@@ -76,7 +80,12 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
     where: {
       systemKey: { in: [QA_BUILT_IN_KEYS.monitorA, QA_BUILT_IN_KEYS.monitorB] },
     },
-    select: { id: true, systemKey: true },
+    select: { id: true, systemKey: true, configVersion: true },
+  });
+  const version = await prisma.strategyVersion.findFirstOrThrow({
+    where: { strategy: { systemKey: QA_BUILT_IN_KEYS.strategy } },
+    orderBy: { versionNumber: "desc" },
+    select: { id: true },
   });
   const monitorIds = monitors.map((monitor) => monitor.id);
   const byKey = new Map(
@@ -91,6 +100,17 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
   });
   const securityId = new Map(
     securities.map((security) => [security.symbol, security.id]),
+  );
+  // The newest seeded session per security: the checkpoint every member is evaluated through.
+  const newestBars = await prisma.dailyPrice.groupBy({
+    by: ["securityId"],
+    where: { securityId: { in: securities.map((security) => security.id) } },
+    _max: { date: true },
+  });
+  const newestBar = new Map(
+    newestBars.flatMap((row) =>
+      row._max.date ? [[row.securityId, row._max.date] as const] : [],
+    ),
   );
   const level = BUILT_IN_STRATEGIES[1]!.definition.buyLevels[0]!;
   const buyLevel = level.id;
@@ -113,10 +133,132 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
     await tx.userBuiltInMonitorPreference.deleteMany({
       where: { monitorId: { in: monitorIds } },
     });
+    await tx.monitorEvaluationCheckpoint.deleteMany({
+      where: { monitorId: { in: monitorIds } },
+    });
     await tx.monitor.updateMany({
       where: { id: { in: monitorIds } },
-      data: { lastScanAt: now, isPublished: true, isGloballyEnabled: true },
+      data: {
+        lastScanAt: now,
+        isPublished: true,
+        isGloballyEnabled: true,
+        // Declared state, not a fresh Monitor: nothing to replay.
+        initialReplayRequested: false,
+        replayWindowStart: null,
+        replayWindowFixedAt: null,
+        watchingSince: new Date("2026-09-01T00:00:00.000Z"),
+      },
     });
+
+    // What the Trend Confirmation BUY level compared on a session, as the worker records it.
+    const evidence = (input: {
+      golden: boolean;
+      trend: boolean;
+      crossed: boolean;
+      price: number;
+    }) => ({
+      v: 1,
+      rules: [
+        {
+          ruleId: buyLevel,
+          predicates: [
+            {
+              id: "trend-confirmation-buy-golden",
+              role: "CONDITION",
+              result: input.golden ? "TRUE" : "FALSE",
+              metric: 98.4,
+              value: 92.1,
+            },
+            {
+              id: "trend-confirmation-buy-trend",
+              role: "CONDITION",
+              result: input.trend ? "TRUE" : "FALSE",
+              metric: input.price,
+              value: 92.1,
+            },
+            {
+              id: "trend-confirmation-buy-momentum",
+              role: "TRIGGER",
+              result: input.crossed ? "TRUE" : "FALSE",
+              metric: input.price,
+              value: input.price - 1.5,
+              previousMetric: input.price - 3,
+              previousValue: input.price - 1.4,
+            },
+          ],
+        },
+      ],
+    });
+
+    // An earlier occurrence of Monitor A that a later session ended, for the activity feed and
+    // the Signal table's ended rows.
+    {
+      const monitorId = byKey.get(QA_BUILT_IN_KEYS.monitorA)!;
+      const security = securityId.get(QA_ALPHA.symbol)!;
+      const ended = await tx.monitorSignal.create({
+        data: {
+          monitorId,
+          securityId: security,
+          levelId: buyLevel,
+          levelKind: "BUY",
+          strategyVersionId: version.id,
+          signalFingerprint: fingerprint,
+          hasTrigger: true,
+          observationDate: new Date("2026-09-01T00:00:00.000Z"),
+          observationPrice: 97.5,
+          detectedAt: new Date("2026-09-01T22:00:00.000Z"),
+          resolvedAt: new Date("2026-09-08T22:00:00.000Z"),
+          resolvedObservationDate: new Date("2026-09-08T00:00:00.000Z"),
+          resolutionReason: "CONDITIONS_ENDED",
+        },
+      });
+      await tx.monitorStateTransition.createMany({
+        data: [
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "INACTIVE",
+            toState: "ACTIVE",
+            reason: "TRIGGER_FIRED",
+            origin: "OBSERVED",
+            occurredAt: new Date("2026-09-01T22:00:00.000Z"),
+            observationDate: new Date("2026-09-01T00:00:00.000Z"),
+            signalId: ended.id,
+            strategyVersionId: version.id,
+            evidence: evidence({
+              golden: true,
+              trend: true,
+              crossed: true,
+              price: 97.5,
+            }),
+          },
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "ACTIVE",
+            toState: "RESOLVED",
+            reason: "CONDITIONS_ENDED",
+            origin: "OBSERVED",
+            occurredAt: new Date("2026-09-08T22:00:00.000Z"),
+            observationDate: new Date("2026-09-08T00:00:00.000Z"),
+            signalId: ended.id,
+            strategyVersionId: version.id,
+            evidence: evidence({
+              golden: true,
+              trend: false,
+              crossed: false,
+              price: 90.25,
+            }),
+          },
+        ],
+      });
+    }
 
     const rows = [
       {
@@ -154,7 +296,7 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
                 securityId: security,
                 levelId: buyLevel,
                 levelKind: "BUY",
-                strategyVersionId: "qa-seed",
+                strategyVersionId: version.id,
                 signalFingerprint: fingerprint,
                 hasTrigger: true,
                 observationDate: day,
@@ -187,6 +329,76 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
             },
           },
           activeSignalId: signal?.id ?? null,
+        },
+      });
+      await tx.monitorStateTransition.create({
+        data: {
+          monitorId,
+          securityId: security,
+          levelId: buyLevel,
+          levelKind: "BUY",
+          signalFingerprint: fingerprint,
+          // Monitor A's first occurrence ended on Sep 8, so its second begins from RESOLVED.
+          fromState:
+            row.state === "ACTIVE" && row.monitor === QA_BUILT_IN_KEYS.monitorA
+              ? "RESOLVED"
+              : "INACTIVE",
+          toState: row.state,
+          reason: row.state === "ACTIVE" ? "TRIGGER_FIRED" : "SETUP_STARTED",
+          origin: "OBSERVED",
+          occurredAt: new Date(`${row.date}T22:00:00.000Z`),
+          observationDate: day,
+          signalId: signal?.id ?? null,
+          strategyVersionId: version.id,
+          evidence: evidence({
+            golden: true,
+            trend: true,
+            crossed: row.state === "ACTIVE",
+            price: row.price,
+          }),
+        },
+      });
+    }
+
+    // Every member evaluated through its newest seeded session, under the membership it has:
+    // a running worker finds nothing new to decide and leaves the declared state as it is.
+    const memberships = [
+      {
+        monitor: QA_BUILT_IN_KEYS.monitorA,
+        symbol: QA_ALPHA.symbol,
+        start: null,
+      },
+      {
+        monitor: QA_BUILT_IN_KEYS.monitorB,
+        symbol: QA_ALPHA.symbol,
+        start: null,
+      },
+      {
+        monitor: QA_BUILT_IN_KEYS.monitorB,
+        symbol: QA_BETA.symbol,
+        start: "2024-01-02",
+      },
+    ] as const;
+    for (const member of memberships) {
+      const security = securityId.get(member.symbol)!;
+      const through = newestBar.get(security);
+      const monitor = monitors.find(
+        (entry) => entry.systemKey === member.monitor,
+      );
+      if (!through || !monitor) {
+        continue;
+      }
+      await tx.monitorEvaluationCheckpoint.create({
+        data: {
+          monitorId: monitor.id,
+          securityId: security,
+          evaluatedThrough: through,
+          configVersion: monitor.configVersion,
+          basisGeneration: 0,
+          membershipRecorded: true,
+          membershipStart: member.start
+            ? new Date(`${member.start}T00:00:00.000Z`)
+            : null,
         },
       });
     }

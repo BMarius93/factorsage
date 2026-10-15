@@ -444,7 +444,7 @@ test.describe("ETF conditions through a real backtest and Monitor", () => {
     const note = page.getByTestId("monitor-etf-sources");
     await expect(note).toBeVisible({ timeout: 20_000 });
     await expect(note).toContainText(
-      "ETF conditions are decided at the end of each trading day, on the fund's own completed session",
+      "ETF conditions are decided on the fund's own finalized session, the same one as the stock's",
     );
     const sources = note.getByTestId("monitor-etf-source");
     await expect(sources).toHaveCount(2);

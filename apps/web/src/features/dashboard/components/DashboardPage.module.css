@@ -178,3 +178,16 @@
 .disclosure {
   padding: 12px var(--surface-inset) 0;
 }
+
+/* `· intraday quote`: an occurrence the earlier live-quote Monitor decided, said quietly. */
+.basis {
+  color: var(--color-text-muted);
+  font-size: var(--text-secondary);
+}
+
+/* "Show older activity", centred under the feed inside the same surface. */
+.more {
+  display: flex;
+  justify-content: center;
+  padding: 12px var(--surface-inset) 0;
+}

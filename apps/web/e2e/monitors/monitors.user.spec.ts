@@ -392,14 +392,15 @@ test.describe("PRO_USER monitors", () => {
     await expect(monitorCard(page, RENAMED_MONITOR)).toHaveCount(0);
   });
 
-  test("reports every monitored stock as unchecked before the first scan", async ({
+  test("summarises the monitored stocks in one line and lists signals in one table", async ({
     page,
   }) => {
-    // The evaluation table is a projection of durable worker state, so what a suite without a
-    // worker can prove deterministically is the honest pre-scan state: a real member of the list,
-    // reported as not checked rather than as a decided non-match. The other three statuses are
-    // pinned against real persisted rows in `monitors.integration.test.ts`, and against the
-    // contract payloads in `MonitorDetail.test.tsx`.
+    // The page is a projection of durable worker state, and the worker may already have evaluated
+    // (and replayed) the new Monitor by the time the page opens, so what is pinned here is the
+    // shape: one coverage line over the current members, never a per-stock status table, and one
+    // Signal table (or its empty state). The statuses and rows themselves are pinned against
+    // persisted rows in the API integration suites and against the contract payloads in
+    // `MonitorDetail.test.tsx`.
     const seeded = await createList(page, LIST_NAME_SEEDED, {
       withQaSecurity: true,
     });
@@ -435,18 +436,16 @@ test.describe("PRO_USER monitors", () => {
       timeout: 20_000,
     });
 
-    const row = page.getByTestId("monitor-security-row").filter({
-      hasText: QA_SYMBOL,
-    });
-    await expect(row).toHaveCount(1);
-    // Never evaluated is never "No match".
-    await expect(row.getByTestId("monitor-security-status")).toHaveText(
-      "Not checked yet",
+    await expect(page.getByTestId("monitor-coverage-line")).toContainText(
+      /1 current member/,
     );
-    await expect(page.getByTestId("monitor-signals-empty")).toBeVisible();
-    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
-      "Not checked yet",
-    );
+    await expect(page.getByTestId("monitor-security-row")).toHaveCount(0);
+    await expect(
+      page
+        .getByTestId("monitor-signals")
+        .or(page.getByTestId("monitor-signals-empty")),
+    ).toBeVisible();
+    await expect(page.getByTestId("monitor-signal-state-filter")).toBeVisible();
 
     await expectNoHorizontalScroll(page);
     await page.setViewportSize({ width: 390, height: 844 });

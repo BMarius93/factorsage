@@ -4,8 +4,8 @@ import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
- * The Dashboard for a signed-in customer (PRO persona): the ETF market overview and the matches
- * under it.
+ * The Dashboard for a signed-in customer (PRO persona): the ETF market overview and the Monitor
+ * Activity feed under it.
  *
  * Needs `pnpm test:personas:seed`. The market overview is the same deterministic ETF fixture the
  * Guest suite reads — proving the point rather than assuming it: a fund closed where it closed, and
@@ -13,7 +13,7 @@ import { apiBaseUrl } from "../utils/entitlements";
  */
 
 function qaRows(page: Page) {
-  return page.getByTestId("dashboard-signal-row");
+  return page.getByTestId("dashboard-activity-row");
 }
 
 async function dismissConsent(page: Page) {
@@ -57,7 +57,7 @@ test.describe("PRO_USER dashboard", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     // The Dashboard's own call to action is gone…
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
@@ -107,58 +107,17 @@ test.describe("PRO_USER dashboard", () => {
     ]);
   });
 
-  test("counts this viewer's matches on the section's own filters, with no summary card", async ({
+  test("lists this viewer's activity with no summary card, and its rows still open Stock Details", async ({
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
+    expect(await qaRows(page).count()).toBeGreaterThan(0);
 
-    const rows = await qaRows(page).count();
-    const active = await qaRows(page)
-      .filter({ has: page.locator('[data-state="ACTIVE"]') })
-      .count();
-    const waiting = await qaRows(page)
-      .filter({ has: page.locator('[data-state="PENDING_TRIGGER"]') })
-      .count();
-    expect(active + waiting).toBe(rows);
-    const filter = page.getByTestId("dashboard-state-filter");
-    await expect(filter.getByRole("button", { name: /^All/ })).toContainText(
-      String(rows),
-    );
-    await expect(
-      filter.getByRole("button", { name: /^Active/ }),
-    ).toContainText(String(active));
-    await expect(
-      filter.getByRole("button", { name: /^Waiting/ }),
-    ).toContainText(String(waiting));
-  });
-
-  test("leaves the signal table's filtering and row links working", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    await expect(page.getByTestId("dashboard-signals")).toBeVisible();
-    const before = await qaRows(page).count();
-    expect(before).toBeGreaterThan(0);
-
-    await page
-      .getByTestId("dashboard-state-filter")
-      .getByRole("button", { name: /^Waiting/ })
-      .click();
-    await expect(
-      qaRows(page).filter({ has: page.locator('[data-state="ACTIVE"]') }),
-    ).toHaveCount(0);
-
-    await page
-      .getByTestId("dashboard-state-filter")
-      .getByRole("button", { name: /^All/ })
-      .click();
-    await expect(qaRows(page)).toHaveCount(before);
-
-    // A row still goes to Stock Details, not to a backtest.
-    await qaRows(page).first().click();
+    // A row goes to Stock Details, not to a backtest.
+    await qaRows(page).first().getByTestId("dashboard-session").click();
     await expect(page).toHaveURL(/\/stocks\/QATEST\d$/);
   });
 

@@ -481,9 +481,11 @@ Anything else — another endpoint, a real symbol, the wrong key — gets `404`/
 missing fixture, an `UNEXPECTED` line on the server's stderr, and a journal entry that fails the
 Playwright run. The client treats those statuses as non-retryable, so a gap fails at once.
 
-In a clean run the server sees only: the Monitor worker's `batch-quote` for the fixture universe
-(current quotes cannot be seeded), and — once per reseed — the thirty-year PRO run's request for
-`SPY` bars older than the seeded window. Nothing hydrates a fixture security from it.
+In a clean run the server sees only the venue holiday schedule (once per worker process and year)
+and — once per reseed — the thirty-year PRO run's request for `SPY` bars older than the seeded
+window. The Monitor worker reads PostgreSQL alone and asks nothing
+(`docs/decisions/monitor-eod-v2.md` §3), and the stock EOD child, under `EOD_TAIL_REFRESH=frozen`,
+finds every fixture security already prepared. Nothing hydrates a fixture security from it.
 
 **How time and freshness are controlled.** The seeds anchor every series to the day they run and
 stamp their watermarks with the seed time; they write bars through the EOD cutoff, never past it.
