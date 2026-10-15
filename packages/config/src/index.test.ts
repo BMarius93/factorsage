@@ -10,6 +10,7 @@ import {
   getFmpConfig,
   getGoogleOAuthConfig,
   getEodFinalityConfig,
+  getStockEodWorkerConfig,
   getMarketDataWorkerConfig,
   getRedisConfig,
   getRedisEvictionPolicyConfig,
@@ -506,6 +507,28 @@ describe("production API configuration", () => {
     expect(() => getMonitorWorkerConfig(workerEnv)).not.toThrow();
     expect(() => getMarketDataWorkerConfig(workerEnv)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(workerEnv).enabled).toBe(false);
+  });
+});
+
+describe("stock EOD worker configuration", () => {
+  it("runs one preparation child by default, every ten minutes, inside its own lease", () => {
+    const config = getStockEodWorkerConfig({});
+    expect(config.processes).toBe(1);
+    expect(config.refreshIntervalMs).toBe(10 * 60_000);
+    expect(config.followUpMs).toBeLessThan(config.refreshIntervalMs);
+    expect(config.runBudgetMs).toBeLessThan(config.leaseMs);
+    expect(config.securityConcurrency).toBe(2);
+  });
+
+  it("can be disabled, and refuses a process count that buys nothing", () => {
+    expect(
+      getStockEodWorkerConfig({ STOCK_EOD_WORKER_PROCESSES: "0" }).processes,
+    ).toBe(0);
+    for (const value of ["3", "-1", "1.5", "many"]) {
+      expect(() =>
+        getStockEodWorkerConfig({ STOCK_EOD_WORKER_PROCESSES: value }),
+      ).toThrow(/STOCK_EOD_WORKER_PROCESSES/);
+    }
   });
 });
 

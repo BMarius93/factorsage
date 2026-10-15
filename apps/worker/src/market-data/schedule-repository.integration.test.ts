@@ -5,6 +5,7 @@ import { MONITOR_SCAN_SCHEDULE_ID } from "../monitor/scan-repository.js";
 import {
   MARKET_DATA_REFRESH_SCHEDULE_ID,
   PrismaMarketDataRefreshScheduleRepository,
+  STOCK_EOD_REFRESH_SCHEDULE_ID,
 } from "./schedule-repository.js";
 
 useTestDatabase();
@@ -153,5 +154,45 @@ describe("market-data refresh schedule", () => {
       where: { id: MONITOR_SCAN_SCHEDULE_ID },
     });
     expect(monitorAfter).toEqual(monitorBefore);
+  });
+
+  it("keeps the stock EOD preparation on a row of its own: neither claim can hold the other", async () => {
+    const stockEod = new PrismaMarketDataRefreshScheduleRepository(
+      prisma,
+      STOCK_EOD_REFRESH_SCHEDULE_ID,
+    );
+    await stockEod.ensureSchedule(now);
+    await prisma.marketDataRefreshSchedule.update({
+      where: { id: STOCK_EOD_REFRESH_SCHEDULE_ID },
+      data: {
+        dueAt: now,
+        claimedBy: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+      },
+    });
+
+    // The ETF refresh holds its lease; the stock preparation is still claimable, and the reverse.
+    expect(await repository.claimDueRun("etf-worker", now, LEASE_MS)).not.toBeNull();
+    const claimed = await stockEod.claimDueRun("stock-eod-worker", now, LEASE_MS);
+    expect(claimed).not.toBeNull();
+    expect(await stockEod.claimDueRun("stock-eod-other", now, LEASE_MS)).toBeNull();
+
+    // A failure and a backoff on one row leave the other exactly as it was.
+    const etfBefore = await row();
+    await stockEod.failRun({
+      workerId: "stock-eod-worker",
+      now,
+      backoffMs: 5_000,
+      maxBackoffMs: 20_000,
+      error: "provider unavailable",
+    });
+    expect(await row()).toEqual(etfBefore);
+    const stock = await prisma.marketDataRefreshSchedule.findUniqueOrThrow({
+      where: { id: STOCK_EOD_REFRESH_SCHEDULE_ID },
+    });
+    expect(stock.lastError).toBe("provider unavailable");
+    expect(stock.claimedBy).toBeNull();
   });
 });

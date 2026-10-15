@@ -50,6 +50,7 @@
     "builtins:reset": "pnpm build:packages && pnpm --filter @intrinsic/api builtins:reset",
     "monitors:scan-once": "pnpm build:packages && pnpm --filter @intrinsic/worker monitor:scan-once",
     "market-data:refresh-once": "pnpm build:packages && pnpm --filter @intrinsic/worker market-data:refresh-once",
+    "stock-eod:refresh-once": "pnpm build:packages && pnpm --filter @intrinsic/worker stock-eod:refresh-once",
     "billing:reconcile": "pnpm build:packages && pnpm --filter @intrinsic/api billing:reconcile",
     "billing:verify-catalog": "pnpm build:packages && pnpm --filter @intrinsic/api billing:verify-catalog",
     "test:users:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-users",

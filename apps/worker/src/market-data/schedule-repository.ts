@@ -18,6 +18,14 @@ import type { PrismaClient } from "@intrinsic/database";
 /** The singleton row's id. One row is what serializes the refresh across processes. */
 export const MARKET_DATA_REFRESH_SCHEDULE_ID = "ETF_MARKET_DATA";
 
+/**
+ * The stock EOD preparation's own singleton row in the same table
+ * (`docs/decisions/monitor-eod-v2-proposal.md` §3.3). A second row, not a second table: the
+ * columns and the protocol are identical, and the two claims never contend — each child claims
+ * only its own id, so a slow ETF refresh cannot hold the stock preparation, nor the reverse.
+ */
+export const STOCK_EOD_REFRESH_SCHEDULE_ID = "STOCK_EOD";
+
 export type ClaimedMarketDataRefresh = {
   runSequence: number;
   claimedAt: Date;
@@ -59,14 +67,18 @@ export interface MarketDataRefreshScheduleRepository {
 }
 
 export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefreshScheduleRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    /** Which singleton row this repository claims. Every statement is scoped to it. */
+    private readonly scheduleId: string = MARKET_DATA_REFRESH_SCHEDULE_ID,
+  ) {}
 
   async ensureSchedule(now: Date): Promise<void> {
     // `ON CONFLICT DO NOTHING`: several children start at once, and the loser of that race must be
     // a no-op, not an error.
     await this.prisma.$executeRaw`
       INSERT INTO "MarketDataRefreshSchedule" ("id", "dueAt", "updatedAt")
-      VALUES (${MARKET_DATA_REFRESH_SCHEDULE_ID}, ${now}, ${now})
+      VALUES (${this.scheduleId}, ${now}, ${now})
       ON CONFLICT ("id") DO NOTHING
     `;
   }
@@ -75,7 +87,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
     await this.prisma.$executeRaw`
       UPDATE "MarketDataRefreshSchedule"
       SET "dueAt" = LEAST("dueAt", ${now}), "updatedAt" = ${now}
-      WHERE "id" = ${MARKET_DATA_REFRESH_SCHEDULE_ID}
+      WHERE "id" = ${this.scheduleId}
     `;
   }
 
@@ -91,7 +103,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
       >`
         SELECT "id", "claimedBy"
         FROM "MarketDataRefreshSchedule"
-        WHERE "id" = ${MARKET_DATA_REFRESH_SCHEDULE_ID}
+        WHERE "id" = ${this.scheduleId}
           AND "dueAt" <= ${now}
           AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" < ${now})
         FOR UPDATE SKIP LOCKED
@@ -108,7 +120,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
             "lastStartedAt" = ${now},
             "runSequence" = "runSequence" + 1,
             "updatedAt" = ${now}
-        WHERE "id" = ${MARKET_DATA_REFRESH_SCHEDULE_ID}
+        WHERE "id" = ${this.scheduleId}
         RETURNING "runSequence"
       `;
       const row = claimed[0];
@@ -130,7 +142,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
     leaseMs: number,
   ): Promise<boolean> {
     const updated = await this.prisma.marketDataRefreshSchedule.updateMany({
-      where: { id: MARKET_DATA_REFRESH_SCHEDULE_ID, claimedBy: workerId },
+      where: { id: this.scheduleId, claimedBy: workerId },
       data: {
         heartbeatAt: now,
         leaseExpiresAt: new Date(now.getTime() + leaseMs),
@@ -145,7 +157,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
     nextDueAt: Date;
   }): Promise<boolean> {
     const updated = await this.prisma.marketDataRefreshSchedule.updateMany({
-      where: { id: MARKET_DATA_REFRESH_SCHEDULE_ID, claimedBy: input.workerId },
+      where: { id: this.scheduleId, claimedBy: input.workerId },
       data: {
         dueAt: input.nextDueAt,
         claimedBy: null,
@@ -166,7 +178,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
     nextDueAt: Date;
   }): Promise<boolean> {
     const released = await this.prisma.marketDataRefreshSchedule.updateMany({
-      where: { id: MARKET_DATA_REFRESH_SCHEDULE_ID, claimedBy: input.workerId },
+      where: { id: this.scheduleId, claimedBy: input.workerId },
       data: {
         dueAt: input.nextDueAt,
         claimedBy: null,
@@ -200,7 +212,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
           "heartbeatAt" = NULL,
           "lastError" = ${input.error},
           "updatedAt" = ${input.now}
-      WHERE "id" = ${MARKET_DATA_REFRESH_SCHEDULE_ID}
+      WHERE "id" = ${this.scheduleId}
         AND "claimedBy" = ${input.workerId}
     `;
     return updated === 1;
@@ -216,7 +228,7 @@ export class PrismaMarketDataRefreshScheduleRepository implements MarketDataRefr
           "lastError" = 'Lease expired before the worker completed the refresh run',
           "consecutiveFailures" = "consecutiveFailures" + 1,
           "updatedAt" = ${now}
-      WHERE "id" = ${MARKET_DATA_REFRESH_SCHEDULE_ID}
+      WHERE "id" = ${this.scheduleId}
         AND "claimedBy" IS NOT NULL
         AND "leaseExpiresAt" < ${now}
       RETURNING "id"

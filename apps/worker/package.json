@@ -12,7 +12,8 @@
     "bench:monitor": "tsx src/monitor/capacity-bench.ts",
     "bench:etf-context": "node --expose-gc --import tsx src/shared/etf-context-bench.ts",
     "monitor:scan-once": "tsx src/monitor/scan-once.ts",
-    "market-data:refresh-once": "tsx src/market-data/refresh-once.ts"
+    "market-data:refresh-once": "tsx src/market-data/refresh-once.ts",
+    "stock-eod:refresh-once": "tsx src/stock-eod/refresh-once.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",

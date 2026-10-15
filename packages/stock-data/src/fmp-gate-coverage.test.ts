@@ -107,6 +107,9 @@ describe("shared FMP provider gate", () => {
     // The member catalog command (`pnpm data:congress-members:sync`) reads the provider's member
     // directory — a handful of requests — through the same gate, like the administrator route that
     // does the same from `stocks.module.ts`.
+    //
+    // The stock EOD worker child prepares the securities running Monitors watch for each finalized
+    // session; its tail reads and statement refreshes queue behind the same allowance.
     expect(files).toEqual([
       "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
       "apps/api/src/fmp-live/fmp-live-runtime.ts",
@@ -117,6 +120,7 @@ describe("shared FMP provider gate", () => {
       "apps/worker/src/backtest/composition.ts",
       "apps/worker/src/market-data/composition.ts",
       "apps/worker/src/monitor/composition.ts",
+      "apps/worker/src/stock-eod/composition.ts",
     ]);
   });
 

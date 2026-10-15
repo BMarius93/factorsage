@@ -189,6 +189,53 @@ export function normalizeBuyWindowConfiguration(
 }
 
 /**
+ * When this list item's **ongoing** membership began — the Monitor universe's question
+ * (`docs/decisions/monitor-eod-v2-proposal.md` §2), deliberately not the backtest's.
+ *
+ * - `FULL` ("Always eligible") is ongoing with no start: `null`.
+ * - `CUSTOM` is ongoing only through its open-ended range (`endDate: null`, shown as `Present`):
+ *   that range's start.
+ * - A `CUSTOM` item whose ranges are all bounded has no ongoing membership — even when an end lies
+ *   in the future, because `Present` is an open-ended meaning, not a comparison with today: the
+ *   answer is `undefined`.
+ *
+ * Earlier closed periods of a multi-period member are kept in storage and play no part here.
+ */
+export function ongoingMembershipStart(
+  configuration: BuyWindowConfiguration,
+): LocalDate | null | undefined {
+  if (configuration.mode === "FULL") {
+    return null;
+  }
+  // The canonical form holds at most one open-ended range, last; the newest start wins regardless,
+  // so an unnormalized configuration cannot widen the ongoing membership backwards.
+  let start: LocalDate | undefined;
+  for (const range of configuration.ranges) {
+    if (range.endDate === null && (start === undefined || range.startDate > start)) {
+      start = range.startDate;
+    }
+  }
+  return start;
+}
+
+/**
+ * Whether a Monitor watches this list item on `date`: its membership is ongoing (`FULL`, or an
+ * open-ended range) and had begun by `date`.
+ *
+ * The Monitor universe rule, applied to BUY, SELL and FINAL EXIT alike — a Monitor reports nothing
+ * for a member that is not a current member. **Backtests never call this**: their point-in-time
+ * BUY gating is `isBuyWindowEligible`, over every period a member ever had, and stays exactly as it
+ * is.
+ */
+export function isOngoingListMember(
+  configuration: BuyWindowConfiguration,
+  date: LocalDate,
+): boolean {
+  const start = ongoingMembershipStart(configuration);
+  return start !== undefined && (start === null || start <= date);
+}
+
+/**
  * Whether a new BUY may be opened for this list item on `date`.
  *
  * `FULL` is eligible on every date. `CUSTOM` is eligible only inside its canonical normalized

@@ -820,6 +820,54 @@ export function getMarketDataWorkerConfig(env: Environment = process.env) {
 }
 
 /**
+ * Upper bound on forked stock EOD workers. Like the market-data refresh it is a singleton claim, so
+ * a second process buys availability, never throughput.
+ */
+const MAX_STOCK_EOD_WORKER_PROCESSES = 2;
+
+/**
+ * The stock EOD preparation worker (`docs/decisions/monitor-eod-v2-proposal.md` §3.3).
+ *
+ * It keeps the deduplicated union of securities every running Monitor watches current for the
+ * newest finalized session, through the canonical loader, in its own child process — so provider
+ * work never runs inside the Monitor evaluation and can never delay it. Most runs ask the provider
+ * for nothing: a security already holding the session, read after it became final, costs one
+ * PostgreSQL read. `STOCK_EOD_REFRESH_INTERVAL_MS` is the gap between the end of one run and the
+ * next; a run that leaves securities deferred to its budget asks to be resumed after
+ * `STOCK_EOD_FOLLOW_UP_MS` instead. `STOCK_EOD_SECURITY_CONCURRENCY` bounds how many securities are
+ * prepared at once — the shared FMP gate still bounds the provider traffic underneath it.
+ */
+export function getStockEodWorkerConfig(env: Environment = process.env) {
+  const processes = Number(optional(env, "STOCK_EOD_WORKER_PROCESSES") ?? "1");
+  if (
+    !Number.isInteger(processes) ||
+    processes < 0 ||
+    processes > MAX_STOCK_EOD_WORKER_PROCESSES
+  ) {
+    throw new Error(
+      "Invalid application configuration: STOCK_EOD_WORKER_PROCESSES must be between 0 and " +
+        `${MAX_STOCK_EOD_WORKER_PROCESSES}`,
+    );
+  }
+  return {
+    /** `0` disables the stock EOD preparation in this process entirely. */
+    processes,
+    refreshIntervalMs: integer(env, ["STOCK_EOD_REFRESH_INTERVAL_MS"], 10 * 60_000),
+    followUpMs: integer(env, ["STOCK_EOD_FOLLOW_UP_MS"], 30_000),
+    pollIntervalMs: integer(env, ["STOCK_EOD_POLL_INTERVAL_MS"], 15_000),
+    leaseMs: integer(env, ["STOCK_EOD_LEASE_MS"], 5 * 60_000),
+    heartbeatIntervalMs: integer(
+      env,
+      ["STOCK_EOD_HEARTBEAT_INTERVAL_MS"],
+      30_000,
+    ),
+    retryBackoffMs: integer(env, ["STOCK_EOD_RETRY_BACKOFF_MS"], 60_000),
+    runBudgetMs: integer(env, ["STOCK_EOD_RUN_BUDGET_MS"], 4 * 60_000),
+    securityConcurrency: integer(env, ["STOCK_EOD_SECURITY_CONCURRENCY"], 2),
+  } as const;
+}
+
+/**
  * End-of-day finality, the one definition every price consumer shares
  * (`docs/decisions/eod-finality-v1.md`).
  *

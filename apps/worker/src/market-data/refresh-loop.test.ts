@@ -133,4 +133,60 @@ describe("market-data refresh loop", () => {
       }).runOnce(),
     ).resolves.toBeNull();
   });
+
+  it("resumes sooner when the run asks to, but never later than the interval", async () => {
+    const schedule = new RecordingSchedule([
+      { runSequence: 4, claimedAt: NOW },
+      { runSequence: 5, claimedAt: NOW },
+    ]);
+    const work: MarketDataRefreshWork = {
+      run: async (runSequence) => ({ ...summary, runSequence }),
+      followUpMs: (finished) => (finished.runSequence === 4 ? 30_000 : 10 * INTERVAL),
+    };
+    await loopWith(schedule, work).runOnce();
+    await loopWith(schedule, work).runOnce();
+    expect(schedule.completed).toEqual([
+      new Date(NOW.getTime() + 30_000),
+      new Date(NOW.getTime() + INTERVAL),
+    ]);
+  });
+
+  it("logs under the vocabulary it was given, so two children never read as one", async () => {
+    const lines: Record<string, unknown>[] = [];
+    const sink = {
+      write: (chunk: string) =>
+        chunk
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .forEach((line) => lines.push(JSON.parse(line))),
+    };
+    const recording = createLogger({
+      service: "worker",
+      level: "info",
+      stdout: sink,
+      stderr: sink,
+    });
+    const schedule = new RecordingSchedule([{ runSequence: 6, claimedAt: NOW }]);
+    await new MarketDataRefreshLoop(
+      schedule,
+      { run: async (runSequence) => ({ ...summary, runSequence }) },
+      recording,
+      {
+        workerId: "stock-eod-under-test",
+        refreshIntervalMs: INTERVAL,
+        pollIntervalMs: 10,
+        leaseMs: 60_000,
+        heartbeatIntervalMs: 1_000,
+        retryBackoffMs: 5_000,
+        events: "stock-eod.refresh",
+        component: "stock-eod",
+        jobIdPrefix: "stock-eod",
+        now: () => NOW,
+      },
+    ).runOnce();
+    const events = lines.map((line) => line.event);
+    expect(events).toContain("stock-eod.refresh.claimed");
+    expect(events).toContain("stock-eod.refresh.completed");
+    expect(events.some((event) => String(event).startsWith("market-data"))).toBe(false);
+  });
 });

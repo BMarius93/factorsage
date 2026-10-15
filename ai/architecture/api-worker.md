@@ -64,14 +64,35 @@ read per series, after the NYSE session is final — isolates a failing series, 
 projection against PostgreSQL, and never bootstraps. Cadence, delay, budget and lease are
 `MARKET_DATA_*` configuration. See `../../docs/decisions/etf-market-data-v1.md` §7.
 
+## Durable stock EOD preparation
+
+The fourth instance, and a second row of the same table: `MarketDataRefreshSchedule` row
+`STOCK_EOD`, claimed exactly as the ETF refresh claims its own (`ETF_MARKET_DATA`) — the repository
+is scoped to one row id, so the two claims never contend and a failure or backoff on one leaves the
+other untouched. The `stock-eod` child resolves the newest finalized session once per run, reads the
+running Monitors (`listActiveMonitors`), and prepares the **deduplicated union** of their ongoing
+members through the canonical loader: PostgreSQL first (`stockRefreshState`), and only a security
+that does not hold the session as read after it became final — or whose history is not loaded from
+the product horizon — enters `refreshStockTail`. Statements are refreshed only for securities some
+Monitor reads a statement-derived operand of; alternative-data and split-list inputs keep their own
+freshness. A failing security is isolated and backed off in memory; the run fails only when every
+attempt failed; a run that exhausts its budget asks to be resumed after `STOCK_EOD_FOLLOW_UP_MS`.
+It decides no Signal and writes no Monitor state: provider work lives here so Monitor evaluation can
+be provider-free. `pnpm stock-eod:refresh-once` runs one pass through the same claim. Cadence,
+budget, lease and concurrency are `STOCK_EOD_*` configuration
+(`docs/decisions/monitor-eod-v2.md`).
+
 ## Worker processes
 
-`apps/worker` is one supervisor forking three kinds of child. `BACKTEST_WORKER_PROCESSES` backtest
+`apps/worker` is one supervisor forking four kinds of child. `BACKTEST_WORKER_PROCESSES` backtest
 children each execute at most one backtest at a time; `MONITOR_WORKER_PROCESSES` Monitor children
 each claim at most one scan cycle, and because the cycle is a singleton claim a second Monitor
 child buys availability, not throughput (`0` disables scanning in that deployment);
 `MARKET_DATA_WORKER_PROCESSES` market-data children (default 1, at most 2, `0` disables it) keep
-the market-overview ETF histories current, under the same singleton-claim rule. A child that
+the market-overview ETF histories current, under the same singleton-claim rule;
+`STOCK_EOD_WORKER_PROCESSES` stock EOD children (default 1, at most 2, `0` disables it) prepare the
+securities running Monitors watch, under the same rule. All four are children of the one
+`dev:worker` service — never additional top-level services. A child that
 exits is restarted with a bounded backoff, and a stop signal is forwarded to every child with a
 30-second grace before it is killed. That grace is shorter than the budget a large backtest's
 result transaction may need, so a deploy that lands during a run's final write can cost that run
