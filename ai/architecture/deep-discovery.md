@@ -228,6 +228,12 @@ was undocumented: the current session's persisted bar is provisional until the n
 (in-progress bar in the tail), `ai/product/backtests.md` (a run whose period ends today may
 simulate today from an in-progress bar — see investigation 5 and the product question there).
 
+**Follow-up (2026-10-14, EOD finality).** The provisional-row fact above is no longer true of
+storage: `docs/decisions/eod-finality-v1.md` bounds every loader request and read at the EOD cutoff,
+drops any provider row outside the requested range, stamps the watermark with the read's issue time
+and replaces the six-hour timer with a session decision, so a stored bar is always one read after its
+session became final.
+
 ---
 
 ## 4. Signal identity and lifecycle
@@ -306,9 +312,10 @@ tolerance and the `NOT_EVALUABLE` algebra are shared code, not re-stated.
 4. `Gain` / `Loss` are `NOT_EVALUABLE` in a Monitor (no position) and live in a backtest.
 5. Rounding: both read `Decimal(20,8)` columns as JS numbers; the Monitor adds the quote's float
    for one row. Nothing rounds before comparison.
-6. A backtest whose period ends **today** reads today's in-progress bar as its last "closed" day
-   (investigation 3). The docs said backtests use closed observations; that is true of every day
-   but the last when the last is today.
+6. ~~A backtest whose period ends **today** reads today's in-progress bar as its last "closed" day
+   (investigation 3).~~ **Resolved by `docs/decisions/eod-finality-v1.md`:** no loader stores a bar
+   for a session that had not finalized when it was read, and a period requested through today ends
+   at the newest finalized session.
 
 **Invariants.** No second implementation of any operator, series or evaluability rule exists for
 the Monitor; a change to `predicates.ts`, `evaluation-frame.ts`, `technicals.ts` or
@@ -772,10 +779,11 @@ Recorded so they are not "fixed".
   the latch was decided, not the last confirmation; `Monitor.lastScanAt` carries the cycle.
 - **`markScanned` bypassing Prisma to avoid `@updatedAt`.** A scan is not a user edit; the
   collection's newest-changed ordering must not move on every cycle.
-- **The stock loader's `today()` being the UTC day.** It only bounds retention and a provider `to`;
-  observation dating uses the exchange session everywhere it matters.
-- **Today's `DailyPrice` row existing during the session.** The provider lists the in-progress bar;
-  the Monitor supersedes it by date, and the next refresh after the close finalizes it.
+- **The stock loader's `today()` being the UTC day.** *Superseded by
+  `docs/decisions/eod-finality-v1.md`:* it is now the EOD cutoff, the newest date whose bar is final.
+- **Today's `DailyPrice` row existing during the session.** *Superseded by
+  `docs/decisions/eod-finality-v1.md`:* no loader requests or stores it; a row an older loader
+  stored provisionally is re-read once its session is final.
 - **The Monitor reading the derived tail straight from PostgreSQL** while prices come from the Redis
   projection: an empty projection is a cache miss that would re-hydrate the security every cycle.
 - **`NOT_EVALUABLE` with no observation writing no row for a never-evaluated level.** There is no

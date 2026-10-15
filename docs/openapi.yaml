@@ -3660,7 +3660,12 @@ components:
       required: [start, end, startOrigin]
       properties:
         start: { type: string, format: date }
-        end: { type: string, format: date }
+        end:
+          type: string
+          format: date
+          description: |
+            The newest date whose end-of-day bar is final — before the session's close plus the
+            publication delay, the previous day. No row after it is ever returned.
         startOrigin:
           type: string
           enum: [HORIZON, LISTING, PROVIDER]
@@ -5004,8 +5009,12 @@ components:
           type: string
           format: date
           description: |
-            Must not precede `startDate`. The period may not exceed 30 years, and a plan may bound
-            it further (`backtests.maxHistoricalYears`), which is a `403` rather than a `400`.
+            Must not precede `startDate`, nor be after today in New York time. The period may not
+            exceed 30 years, and a plan may bound it further (`backtests.maxHistoricalYears`), which
+            is a `403` rather than a `400`. A date after the newest finalized end-of-day session
+            (16:00 New York plus the publication delay) is ended at that session, and the run's
+            snapshot records the date it really ends on: a run never simulates an unfinished
+            session.
         initialCapital: { type: number, minimum: 1, maximum: 1000000000 }
         monthlyContribution:
           type: number

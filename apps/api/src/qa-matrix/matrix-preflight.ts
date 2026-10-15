@@ -637,7 +637,8 @@ function checkConfigFixtures(input: PreflightInput): PreflightCheck {
           stockListId: "00000000-0000-4000-8000-000000000001",
           ...config.request,
         },
-        input.today,
+        // The matrix copy is frozen: the preflight's `today` is the newest session it holds.
+        { today: input.today, finalizedThrough: input.today },
       );
     } catch (error) {
       problems.push(

@@ -70,10 +70,12 @@ One distributed lock coordinates hydration of a complete security across API and
 provider-wide Redis gate separately limits concurrent/rate traffic and shares 429 cooldown state
 across processes. Recent mutable EOD data is refreshed as a bounded tail without rebuilding closed
 historical years.
-That tail includes the **current session while it is open**: the provider's EOD endpoint lists
-today's bar in progress (verified live 2026-09-11), so a refresh during the session persists a
-provisional row and its derived columns, and the next refresh after the close replaces it. A
-persisted row is final only once a later refresh has run after its session closed.
+The provider's EOD endpoint lists today's bar **in progress** while the session is open (verified
+live 2026-09-11), so no loader ever asks for it: every request, coverage interval and read ends at
+the **EOD cutoff** — the newest date whose 16:00 New York close plus the publication delay has
+passed — and a tail is re-read once the newest finalized session has not been read after it became
+final, never on a timer. A stored row is therefore always a finalized bar
+(`docs/decisions/eod-finality-v1.md`).
 
 **What a repeated read costs.** PostgreSQL, not Redis, is the authority for coverage: an identical
 second read over an already-materialized range makes **zero** provider requests, and so does the

@@ -525,9 +525,9 @@ backtest worker child were launched through those commands, and its teardown fai
 fixture server was asked for anything it has no fixture for, if the guard blocked a connection, or if
 any persona still has a backtest in flight other than the entitlement fixtures' pinned ones.
 
-Seeded data stays fresh for thirty days on this stack (`STOCK_RECENT_PRICE_FRESHNESS_MS` and
-`STOCK_FUNDAMENTALS_FRESHNESS_MS` are overridden by the launcher only), so the suite no longer has to
-follow the seed within hours; reseeding is still the reset, and still the documented first step.
+Seeded data is never re-read on this stack (`EOD_TAIL_REFRESH=frozen` and a thirty-day
+`STOCK_FUNDAMENTALS_FRESHNESS_MS` are set by the launcher only), so the suite no longer has to follow
+the seed within hours; reseeding is still the reset, and still the documented first step.
 
 The fixtures make deliberately different coverage claims, because only one of them is true in each
 case:

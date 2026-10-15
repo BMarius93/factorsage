@@ -6,6 +6,7 @@ import {
 } from "@intrinsic/contracts";
 import type { Prisma, PrismaClient } from "@intrinsic/database";
 import { TEST_PERSONAS, type TestPersonaName } from "@intrinsic/testing";
+import { eodToday } from "../eod-today";
 
 /**
  * Deterministic entitlement fixtures for the test personas.
@@ -556,7 +557,7 @@ export async function seedEntitlementFixtures(
   input: EntitlementFixtureSeedInput,
 ): Promise<SeededEntitlementFixtures> {
   const { prisma } = input;
-  const today = input.today ?? new Date().toISOString().slice(0, 10);
+  const today = input.today ?? eodToday();
   const personaIds = await resolvePersonaIds(prisma, input.emails);
   const securityIds = await seedFixtureSecurities(prisma);
   const securityRows = await prisma.security.findMany({

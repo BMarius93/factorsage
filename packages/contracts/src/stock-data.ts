@@ -188,9 +188,10 @@ export type FundamentalMetricHistoryQuery = Required<StockDateRangeQuery> & {
  * is never `null`, never zero and never an earlier value carried through the interval. A negative
  * EV/EBITDA, net cash larger than the market capitalisation, is a real reading.
  *
- * The newest row is the newest stored daily bar, which during a session may be the provider's
- * in-progress bar until the next refresh replaces it; its ratio is read at that bar's close, as the
- * price chart draws it. No value is ever synthesized from a live quote.
+ * The newest row is the newest stored daily bar, which is always a finalized end-of-day bar — before
+ * a session's close plus the publication delay, the previous session's
+ * (`docs/decisions/eod-finality-v1.md`); its ratio is read at that bar's close, as the price chart
+ * draws it. No value is ever synthesized from a live quote.
  */
 export type DailyValuationRatioResponse = {
   date: string;

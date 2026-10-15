@@ -1,6 +1,7 @@
 import { BACKTEST_MAX_PERIOD_YEARS, subtractYears } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  currentBacktestSubmissionClock,
   earliestSelectableBacktestStart,
   parseCreateBacktestRunRequest,
 } from "./backtest-requests";
@@ -30,8 +31,12 @@ const submission = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/** A clock after the day's close: today is also the newest finalized session. */
 const parse = (overrides: Record<string, unknown> = {}, today = TODAY) =>
-  parseCreateBacktestRunRequest(submission(overrides), today);
+  parseCreateBacktestRunRequest(submission(overrides), {
+    today,
+    finalizedThrough: today,
+  });
 
 describe("the selectable horizon", () => {
   it("is the same day the New Backtest form offers, from the same shared arithmetic", () => {
@@ -88,11 +93,68 @@ describe("the boundary moves with the clock, and the refusal moves with it", () 
   it("accepts on the day it is valid and refuses the next day", () => {
     const period = { startDate: "1996-08-24", endDate: "2026-08-24" };
     expect(parse(period, "2026-08-24").startDate).toBe("1996-08-24");
-    // One second past UTC midnight the same submission is no longer offered — which is exactly
+    // Once the next session is final the same submission is no longer offered — which is exactly
     // why a run already accepted must keep executing its own snapshot rather than being
     // re-measured against this bound. See `projectionRange`'s BACKTEST case.
     expect(() => parse(period, "2026-08-25")).toThrow(
       /cannot start before 1996-08-25/,
     );
+  });
+});
+
+describe("a period never includes a session that has not finalized", () => {
+  // Wednesday 2026-10-14 at 11:00 in New York: the session is trading, the 13th is the newest final.
+  const midSession = currentBacktestSubmissionClock(
+    new Date("2026-10-14T15:00:00.000Z"),
+  );
+
+  it("reads the clock in New York time, against the EOD cutoff", () => {
+    expect(midSession).toEqual({
+      today: "2026-10-14",
+      finalizedThrough: "2026-10-13",
+    });
+    // 16:35 in New York: the session is final.
+    expect(
+      currentBacktestSubmissionClock(new Date("2026-10-14T20:35:00.000Z")),
+    ).toEqual({ today: "2026-10-14", finalizedThrough: "2026-10-14" });
+    // 22:00 in New York is already the 15th in UTC, but still the 14th's trading day.
+    expect(
+      currentBacktestSubmissionClock(new Date("2026-10-15T02:00:00.000Z")),
+    ).toEqual({ today: "2026-10-14", finalizedThrough: "2026-10-14" });
+  });
+
+  it("ends a period requested through today at the newest finalized session", () => {
+    const parsed = parseCreateBacktestRunRequest(
+      submission({ startDate: "2016-10-14", endDate: "2026-10-14" }),
+      midSession,
+    );
+    expect(parsed.endDate).toBe("2026-10-13");
+    expect(parsed.startDate).toBe("2016-10-14");
+  });
+
+  it("leaves a period that already ends at a finalized session as it was", () => {
+    const parsed = parseCreateBacktestRunRequest(
+      submission({ startDate: "2016-10-14", endDate: "2026-10-09" }),
+      midSession,
+    );
+    expect(parsed.endDate).toBe("2026-10-09");
+  });
+
+  it("refuses a period that would be empty once today is taken out", () => {
+    expect(() =>
+      parseCreateBacktestRunRequest(
+        submission({ startDate: "2026-10-13", endDate: "2026-10-14" }),
+        midSession,
+      ),
+    ).toThrow(/must start before 2026-10-13, the newest completed trading session/);
+  });
+
+  it("still refuses tomorrow as the future", () => {
+    expect(() =>
+      parseCreateBacktestRunRequest(
+        submission({ startDate: "2016-10-14", endDate: "2026-10-15" }),
+        midSession,
+      ),
+    ).toThrow(/cannot end in the future/);
   });
 });

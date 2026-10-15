@@ -1,5 +1,6 @@
 import {
   getAlternativeDataConfig,
+  getEodFinalityConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getMarketDataWorkerConfig,
@@ -114,6 +115,11 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     lockWaitMs: stockDataConfig.loadLockWaitMs,
   });
 
+  // One process-memory venue schedule for the whole child: the cycle's session checks and both
+  // loaders' end-of-day finality ask the same one (`docs/decisions/eod-finality-v1.md`).
+  const calendar = new CachedTradingCalendar(provider);
+  const eod = { ...getEodFinalityConfig(), calendar };
+
   const stockData = new CanonicalStockDataService(
     new PrismaStockDataStore(prisma),
     provider,
@@ -133,7 +139,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
       productHistoryYears: stockDataConfig.productHistoryYears,
-      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      eod,
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
@@ -155,7 +161,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     coordinator,
     {
       historyYears: stockDataConfig.productHistoryYears,
-      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      eod,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
       onPriceBasisEvent: logPriceBasisEvent(logger),
@@ -188,7 +194,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     // Built from the same gated provider as everything else, so a schedule fetch is throttled with
     // the rest of the cycle's traffic. Its cache is process memory by design — see
     // `CachedTradingCalendar`; nothing about it belongs in Redis.
-    calendar: new CachedTradingCalendar(provider),
+    calendar,
     async close(): Promise<void> {
       redis.disconnect();
       await prisma.$disconnect();

@@ -67,7 +67,7 @@ if (!redisUrl && process.env.CI === "true") {
 }
 const describeInfrastructure = redisUrl ? describe : describe.skip;
 
-const NOW = new Date("2026-08-24T12:00:00.000Z");
+const NOW = new Date("2026-08-24T23:00:00.000Z");
 const TODAY = "2026-08-24";
 const SYNCED_AT = NOW.toISOString();
 const PRODUCT_YEARS = 30;

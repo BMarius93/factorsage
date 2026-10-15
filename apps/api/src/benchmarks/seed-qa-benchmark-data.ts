@@ -14,6 +14,7 @@ import {
   type BenchmarkDataStore,
 } from "@intrinsic/stock-data";
 import { assertQaSecuritySeedingAllowed } from "../stocks/seed-qa-securities";
+import { eodToday } from "../eod-today";
 
 /**
  * Deterministic benchmark history for browser/E2E testing.
@@ -174,7 +175,7 @@ function round2(value: number): number {
  */
 export async function seedQaMarketReferenceData(
   prisma: PrismaClient,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<
   {
     code: string;
@@ -196,7 +197,7 @@ export async function seedQaMarketReferenceDataWith(
     BenchmarkDataStore,
     "reconcileBenchmarkCatalog" | "saveDailyPriceSync"
   >,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<
   {
     code: string;
@@ -505,7 +506,7 @@ export function qaMarketOverviewEtfTradingDays(
  */
 export async function seedQaMarketOverviewEtfData(
   prisma: PrismaClient,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<
   {
     code: string;
@@ -527,7 +528,7 @@ export async function seedQaMarketOverviewEtfDataWith(
     BenchmarkDataStore,
     "reconcileBenchmarkCatalog" | "saveDailyPriceSync"
   >,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<
   {
     code: string;
@@ -652,7 +653,7 @@ export async function pruneOrphanedFixtureBenchmarks(
 
 export async function seedQaBenchmarkData(
   prisma: PrismaClient,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<{
   code: string;
   seriesId: string;
@@ -675,7 +676,7 @@ export async function seedQaBenchmarkDataWith(
     BenchmarkDataStore,
     "reconcileBenchmarkCatalog" | "saveDailyPriceSync"
   >,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<{
   code: string;
   seriesId: string;

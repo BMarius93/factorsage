@@ -258,12 +258,14 @@ its Strategy-evaluation semantics or the way canonical data is interpreted chang
 being queued and a worker claiming it, the run is refused and the user is asked to run it again —
 rather than being handed numbers produced under one set of rules and stamped with another.
 
-**The last day may be provisional.** A period may end today, and the provider's EOD feed lists the
-current session as an in-progress bar while the market is open. A run submitted during the session
-with `endDate` = today therefore simulates today from that bar, and the same configuration
-submitted after the close produces a different final day. The stored result is still immutable.
-Whether `endDate` should instead be bounded to the last closed session is an open product decision
-recorded in `ai/architecture/deep-discovery.md` (investigation 5); do not silently change the bound.
+**A run never simulates an unfinished session.** A period may be requested through today, but
+today is not part of the market's history until its session has closed and its bar is final (16:00
+New York plus the publication delay). A submission whose `endDate` is after the newest finalized
+date is **ended there**, and the immutable snapshot records the date the run really ends on; a
+period that would be empty once today is removed is refused, naming the newest completed session.
+The loaders never store a bar for a session that had not finalized when it was read, so no run can
+read one either (`docs/decisions/eod-finality-v1.md`, which settles the open question recorded in
+`ai/architecture/deep-discovery.md` investigation 5).
 
 **An ETF a rule reads is decided on its completed sessions only.** A Strategy Condition may read one
 of the twenty Dashboard ETFs instead of the stock (`ai/product/strategies.md`, § ETF-sourced

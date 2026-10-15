@@ -5,6 +5,7 @@ export * from "./calculated-series.js";
 export * from "./financial-statements.js";
 export * from "./fundamental-metrics.js";
 export * from "./security-universe.js";
+export * from "./eod-finality.js";
 export * from "./stock-lists.js";
 export * from "./benchmarks.js";
 export * from "./market-overview-etfs.js";

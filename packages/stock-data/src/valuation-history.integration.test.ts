@@ -91,7 +91,7 @@ const describeInfrastructure = redisUrl ? describe : describe.skip;
 describeInfrastructure(
   "Stock Details valuation history over the canonical calculation",
   () => {
-    const NOW = new Date("2024-12-31T21:00:00.000Z");
+    const NOW = new Date("2024-12-31T23:00:00.000Z");
     const TODAY = "2024-12-31";
     const PRODUCT_YEARS = 30;
     const FIRST_SESSION = "2023-10-02";

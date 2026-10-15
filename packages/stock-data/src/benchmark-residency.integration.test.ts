@@ -508,13 +508,14 @@ describeResidency("benchmark history residency, reads and refresh", () => {
 
     it("answers from Redis alone after the last stored session, reporting the days nobody asked for", async () => {
       await bootstrap();
-      // Monday, before anything refreshed: coverage still ends on Friday.
+      // Monday 11:00 in New York, before anything refreshed: coverage still ends on Friday, and
+      // Monday's session is still trading, so no read may reach past Sunday (the EOD cutoff).
       const monday = new Date("2026-10-12T15:00:00.000Z");
       const calls: string[] = [];
       const reader = serviceWith(new HistoryProvider(), monday, {
         store: watched(store, calls),
       });
-      const weekend = [{ from: "2026-10-10", to: "2026-10-12" }];
+      const weekend = [{ from: "2026-10-10", to: "2026-10-11" }];
 
       const full = await reader.readFullBenchmarkHistory(series);
       const window = await reader.readBenchmarkSessions(series, {

@@ -56,7 +56,7 @@ if (!redisUrl && process.env.CI === "true") {
 const describeRetention = redisUrl ? describe : describe.skip;
 
 /** The clock the whole suite runs on, chosen so both boundaries fall on ordinary weekdays. */
-const NOW = "2026-09-09T12:00:00.000Z";
+const NOW = "2026-09-09T23:00:00.000Z";
 const TODAY = "2026-09-09";
 const PRODUCT_HISTORY_YEARS = 30;
 const RETENTION_YEARS = priceRetentionYears(PRODUCT_HISTORY_YEARS);

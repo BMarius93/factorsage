@@ -57,7 +57,8 @@ export class AuditStack {
     const pinned = String(10 * 365 * 24 * 60 * 60 * 1000);
     const env = {
       ...process.env,
-      STOCK_RECENT_PRICE_FRESHNESS_MS: pinned,
+      // A frozen copy: its stored price tails are never re-read.
+      EOD_TAIL_REFRESH: "frozen",
       STOCK_FUNDAMENTALS_FRESHNESS_MS: pinned,
       // The alternative-data domains too: their ordinary window is twelve hours, so an audit stack
       // reading a matrix copy would re-ingest disclosure history from the provider on the first page

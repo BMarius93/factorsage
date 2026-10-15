@@ -820,6 +820,46 @@ export function getMarketDataWorkerConfig(env: Environment = process.env) {
 }
 
 /**
+ * End-of-day finality, the one definition every price consumer shares
+ * (`docs/decisions/eod-finality-v1.md`).
+ *
+ * A session's bar is final at its 16:00 New York close plus `MARKET_DATA_EOD_PUBLICATION_DELAY_MS`.
+ * The stock loader, the benchmark loader, the market-data refresh, the stock EOD preparation and the
+ * Monitor evaluation all read this value, so they can never disagree about which session is the
+ * newest final one — the ETF refresh introduced the key and keeps its name.
+ *
+ * `MARKET_DATA_SERIES_RETRY_MS` spaces repeated reads of a session the provider has not published
+ * yet, for stocks as for ETFs. `EOD_SESSION_GIVE_UP_MS` is how long after a session became final a
+ * still-missing bar keeps being asked for: past it the security is taken not to have traded that
+ * session (a halt, a delisting), so a security that never trades again costs a bounded number of
+ * reads per session rather than one every retry interval forever.
+ */
+export function getEodFinalityConfig(env: Environment = process.env) {
+  const tailRefresh = (optional(env, "EOD_TAIL_REFRESH") ?? "scheduled")
+    .trim()
+    .toLowerCase();
+  if (tailRefresh !== "scheduled" && tailRefresh !== "frozen") {
+    throw new Error(
+      "Invalid application configuration: EOD_TAIL_REFRESH must be `scheduled` or `frozen`",
+    );
+  }
+  return {
+    /**
+     * `frozen` never re-reads a stored tail: for deterministic environments over a frozen dataset
+     * (the hermetic E2E stack, the QA matrix, the data-correctness audit) and never for production.
+     */
+    frozenTails: tailRefresh === "frozen",
+    publicationDelayMs: integer(
+      env,
+      ["MARKET_DATA_EOD_PUBLICATION_DELAY_MS"],
+      30 * 60_000,
+    ),
+    sessionRetryMs: integer(env, ["MARKET_DATA_SERIES_RETRY_MS"], 30 * 60_000),
+    sessionGiveUpMs: integer(env, ["EOD_SESSION_GIVE_UP_MS"], 24 * 60 * 60_000),
+  } as const;
+}
+
+/**
  * Forensic debug archives — a **developer** capture, off unless explicitly asked for.
  *
  * `full` makes a worker write one self-contained archive per backtest attempt: the immutable
@@ -1045,11 +1085,6 @@ export function getStockDataConfig(env: Environment = process.env) {
      * the product horizon automatically and are never configured — or exposed — separately.
      */
     productHistoryYears: integer(env, ["STOCK_HISTORY_YEARS"], 30),
-    recentPriceFreshnessMs: integer(
-      env,
-      ["STOCK_RECENT_PRICE_FRESHNESS_MS"],
-      6 * 60 * 60 * 1000,
-    ),
     fundamentalsFreshnessMs: integer(
       env,
       ["STOCK_FUNDAMENTALS_FRESHNESS_MS"],

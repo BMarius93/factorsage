@@ -159,10 +159,15 @@ Derived from the execution flow and confirmed by the counters:
 | --- | --- | --- |
 | A security's first hydration | 1 profile + 1 price walk (paginated, ≥1) + 6 statements (3 types × 2 cadences) | `profile`, `historical-price-eod/full`, statements |
 | Every cycle | `ceil(U / 50)` | `batch-quote` |
-| Every 6 h per monitored security (`STOCK_RECENT_PRICE_FRESHNESS_MS`, `STOCK_FUNDAMENTALS_FRESHNESS_MS`) | 1 tail price + 6 statements (quarterly limit 12, annual limit 3) | as above |
+| Once per finalized session per read security (`docs/decisions/eod-finality-v1.md`; the six-hour price timer is gone) | 1 tail price, + 1 earliest-rows check when the read adds a row | `historical-price-eod/full` |
+| Every `STOCK_FUNDAMENTALS_FRESHNESS_MS` (6 h) per read security | 6 statements (quarterly limit 12, annual limit 3) | statements |
 | Every 24 h per admitted exchange | 1 | `holidays-by-exchange` |
 | Redis flush or eviction | **0** — coverage and freshness timestamps are persisted in PostgreSQL | — |
 | Process restart | 0 beyond the cycle's quotes and a cold calendar | — |
+
+*The budget below was measured before EOD finality and the Monitor's EOD evaluation; it is
+re-measured when the quote path is removed. Price tails are now read once per session, not four
+times a day.*
 
 Steady daily budget for `U` monitored securities: `288 × ceil(U / 50)` quotes + `28 × U` refresh
 requests. For U = 100: 576 + 2,800 ≈ 3,400/day. For U = 500: 2,880 + 14,000 ≈ 17,000/day

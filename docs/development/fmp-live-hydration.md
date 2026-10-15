@@ -195,11 +195,11 @@ Consequences worth knowing before relying on a live-hydrated database:
 - **The QA matrix is still not possible in the cloud.** It needs 33 securities.
 - **A Monitor on a live-hydrated security does not evaluate** in a stack without a provider key: its
   cycle needs current quotes and the exchange calendar.
-- **A stack without a provider key can read the data only while it is fresh.** After the freshness
-  window — six hours for prices and statements by default — the loader wants to refresh the recent
-  tail, cannot, and the read fails. Run the command again (it asks only for what is stale), or
-  start the stack with longer `STOCK_RECENT_PRICE_FRESHNESS_MS` and
-  `STOCK_FUNDAMENTALS_FRESHNESS_MS`.
+- **A stack without a provider key can read the data only while it is fresh.** Once a newer session
+  is final (16:30 New York) — or after six hours for statements — the loader wants to refresh the
+  recent tail, cannot, and the read fails. Run the command again (it asks only for what is stale), or
+  start the stack with `EOD_TAIL_REFRESH=frozen` and a longer `STOCK_FUNDAMENTALS_FRESHNESS_MS`
+  (`docs/decisions/eod-finality-v1.md`).
 
 ## 7. Where the data goes
 

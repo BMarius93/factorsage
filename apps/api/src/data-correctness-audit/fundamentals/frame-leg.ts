@@ -105,8 +105,9 @@ export async function auditFundamentalFrames(input: {
     }),
     {
       productHistoryYears: 30,
-      now: () => new Date(`${input.asOf}T12:00:00.000Z`),
-      recentPriceFreshnessMs: tenYears,
+      now: () => new Date(`${input.asOf}T23:00:00.000Z`),
+      // A frozen copy: its stored tails are the dataset, never re-read (`EOD_TAIL_REFRESH=frozen`).
+      eod: { frozenTails: true },
       fundamentalsFreshnessMs: tenYears,
     },
   );

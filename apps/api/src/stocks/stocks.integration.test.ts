@@ -41,6 +41,7 @@ import {
   STOCK_DATA_COORDINATOR,
   STOCK_DATA_PROVIDER,
 } from "./stock-data.tokens";
+import { eodToday } from "../eod-today";
 
 // Before PrismaService constructs its client during Nest module compilation.
 useTestDatabase();
@@ -49,7 +50,8 @@ useTestDatabase();
 // enforcement itself stays on.
 useIsolatedRateLimits();
 
-const runtimeToday = new Date().toISOString().slice(0, 10);
+// The loader's own "today": the newest date whose bar is final (`docs/decisions/eod-finality-v1.md`).
+const runtimeToday = eodToday();
 
 function daysBeforeToday(days: number): string {
   const date = new Date(`${runtimeToday}T00:00:00.000Z`);

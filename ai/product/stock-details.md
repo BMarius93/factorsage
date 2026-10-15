@@ -178,9 +178,10 @@ no list of its own.
   display only, never hides a reading (`0.75x`, never `0.8x`) and never prints a small non-zero
   reading as zero. A hovered session inside a gap reads `Unavailable`.
 - **The newest session.** The chart's newest session is the newest stored price bar — the bar the
-  price chart draws, which during a trading day can be the provider's in-progress bar until the next
-  refresh — valued at its own close and the statements public on its own date, exactly as a backtest
-  frame reads that row. It is never a live quote and never a Monitor's provisional reading. There is
+  price chart draws, which is always a **finalized** end-of-day bar: before the session's close plus
+  the publication delay it is the previous session (`docs/decisions/eod-finality-v1.md`) — valued at
+  its own close and the statements public on its own date, exactly as a backtest frame reads that
+  row. It is never a live quote and never a Monitor's provisional reading. There is
   no last-value label: once a ratio has become unavailable it would print an older reading as though
   it were current.
 - **Selective loading.** Nothing about valuation ratios is requested until one is chosen; then only

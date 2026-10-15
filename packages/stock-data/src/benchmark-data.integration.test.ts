@@ -111,7 +111,8 @@ describeBenchmark("benchmark loading", () => {
       provider,
       cache,
       new InMemoryLoadCoordinator(),
-      { now: () => new Date(`${today}T12:00:00.000Z`) },
+      // 19:00 in New York: today's session is final, so a read reaching today asks for it.
+      { now: () => new Date(`${today}T23:00:00.000Z`) },
     );
   }
 
@@ -385,8 +386,9 @@ describeBenchmark("benchmark loading", () => {
     );
     await cache.invalidateManifest(benchmark.series.id);
 
-    // Twenty days later the provider has every session; the next read must include 2020-06-10.
-    const loaded = await at("2020-06-30T12:00:00.000Z").getBenchmarkDailyPrices(
+    // Twenty days later, after that day's close, the provider has every session; the next read
+    // must include 2020-06-10.
+    const loaded = await at("2020-06-30T23:00:00.000Z").getBenchmarkDailyPrices(
       benchmark.series,
       {
         from: "2020-06-01",

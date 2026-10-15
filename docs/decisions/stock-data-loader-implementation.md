@@ -63,10 +63,11 @@ already covers the target, re-admission after LRU eviction performs no historica
 ## Freshness
 
 `ensureStockFresh` is distinct from hydration. READY manifests carry the latest successful price
-refresh instant. Once `STOCK_RECENT_PRICE_FRESHNESS_MS` elapses, the service requests only the
-bounded `STOCK_RECENT_TAIL_CALENDAR_DAYS` interval. Successful empty weekend/holiday responses
-delay another attempt only for the freshness interval; they do not permanently mark a future EOD
-bar complete. Failures and exhausted 429 retries do not advance durable or Redis freshness.
+refresh instant. *Superseded by `docs/decisions/eod-finality-v1.md`:* there is no wall-clock price
+freshness window any more; the tail is re-read when the newest finalized session has not been read
+after it became final, and then only the bounded `STOCK_RECENT_TAIL_CALENDAR_DAYS` interval is
+requested. A session the provider has not published is asked for again on a widening spacing and
+abandoned after `EOD_SESSION_GIVE_UP_MS`; it is never marked complete. Failures and exhausted 429 retries do not advance durable or Redis freshness.
 
 Recent-tail freshness is stored independently in the dataset-state variant
 `split-adjusted-eod-full:recent-tail`. A successful sync advances it only when the requested

@@ -1,5 +1,6 @@
 import {
   getAlternativeDataConfig,
+  getEodFinalityConfig,
   getBacktestDebugArchiveConfig,
   getFmpConfig,
   getFmpTrafficConfig,
@@ -13,6 +14,7 @@ import { FmpClient } from "@intrinsic/fmp";
 import {
   CanonicalAlternativeDataService,
   CanonicalBenchmarkDataService,
+  CachedTradingCalendar,
   CanonicalStockDataService,
   PrismaAlternativeDataStore,
   IoredisCacheClient,
@@ -140,6 +142,14 @@ export function createBacktestRuntime(
     lockWaitMs: stockDataConfig.loadLockWaitMs,
   });
 
+  // End-of-day finality, shared by both loaders below (`docs/decisions/eod-finality-v1.md`): a run
+  // never reads a bar for a session that had not become final when it was read, and the execution
+  // calendar and the stock frames agree on the newest final session.
+  const eod = {
+    ...getEodFinalityConfig(),
+    calendar: new CachedTradingCalendar(provider),
+  };
+
   // `stockDetailsHistoryYears` is deliberately not set here: it narrows what the Stock Details
   // surface may explore, and a backtest names its own period inside the product horizon.
   const stockData = new CanonicalStockDataService(
@@ -161,7 +171,7 @@ export function createBacktestRuntime(
     {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
       productHistoryYears: stockDataConfig.productHistoryYears,
-      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      eod,
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
@@ -185,7 +195,7 @@ export function createBacktestRuntime(
       // different reader with its own, provider-free path (`etfContexts` below): it takes the whole
       // stored history, because an indicator's warm-up begins at the fund's first session.
       historyYears: stockDataConfig.productHistoryYears,
-      recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
+      eod,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,
       onPriceBasisEvent: logPriceBasisEvent(logger),

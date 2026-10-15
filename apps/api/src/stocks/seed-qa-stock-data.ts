@@ -36,6 +36,7 @@ import {
   type EvaluatedIntrinsicModel,
 } from "@intrinsic/stock-data";
 import { assertQaSecuritySeedingAllowed } from "./seed-qa-securities";
+import { eodToday } from "../eod-today";
 
 /**
  * Deterministic market data for the fictional QA securities.
@@ -255,7 +256,7 @@ export function qaTradingDays(securityId: string, today: string): DailyPrice[] {
 export async function seedQaStockData(
   prisma: PrismaClient,
   securityId: string,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<{ from: string; to: string; tradingDays: number }> {
   assertQaSecuritySeedingAllowed();
 
@@ -517,7 +518,7 @@ export async function recordFixtureDatasetStates(
 export async function seedEmptyStockCoverage(
   prisma: PrismaClient,
   securityId: string,
-  today = new Date().toISOString().slice(0, 10),
+  today = eodToday(),
 ): Promise<void> {
   assertQaSecuritySeedingAllowed();
   const { productHistoryYears } = getStockDataConfig();

@@ -48,7 +48,7 @@ if (!redisUrl && process.env.CI === "true") {
 const describeWithRedis = redisUrl ? describe : describe.skip;
 
 const TODAY = "2026-08-24";
-const NOW = `${TODAY}T12:00:00.000Z`;
+const NOW = `${TODAY}T23:00:00.000Z`;
 
 function weekdays(from: string, to: string): string[] {
   const dates: string[] = [];

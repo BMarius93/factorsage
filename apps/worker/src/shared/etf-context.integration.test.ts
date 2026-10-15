@@ -578,13 +578,33 @@ describeInfrastructure("ETF technical contexts over PostgreSQL and Redis", () =>
     const finalClose = published.close(NEXT_SESSION);
 
     // A refresh during Monday's session: the provider already lists a bar for the day, at a
-    // price the session has not settled on, and the refresh stores it — read at 11:00 New York.
+    // price the session has not settled on — read at 11:00 New York. The loader asks only through
+    // the EOD cutoff, so that bar is neither requested nor stored
+    // (`docs/decisions/eod-finality-v1.md`).
     const midSession = Object.assign(new HistoryProvider(1), {
       publishedThrough: NEXT_SESSION,
       provisional: { date: NEXT_SESSION, close: finalClose * 0.97 },
     });
     await service(midSession, intraday).refreshBenchmarkSeries(series, {
-      expectedSession: NEXT_SESSION,
+      expectedSession: TODAY,
+    });
+    expect(await store.getLatestDailyPriceDate(series.id)).toBe(TODAY);
+    expect(
+      midSession.requests.every((request) => request.to < NEXT_SESSION),
+    ).toBe(true);
+
+    // A loader from before that rule did store it, read mid-session: the row is in storage, but
+    // its watermark predates the session's finalization.
+    await prisma.benchmarkDailyPrice.create({
+      data: {
+        seriesId: series.id,
+        date: new Date(`${NEXT_SESSION}T00:00:00.000Z`),
+        open: finalClose * 0.97,
+        high: finalClose * 0.97,
+        low: finalClose * 0.97,
+        close: finalClose * 0.97,
+        volume: 1_000_000n,
+      },
     });
     expect(await store.getLatestDailyPriceDate(series.id)).toBe(NEXT_SESSION);
 

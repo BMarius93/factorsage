@@ -1,10 +1,11 @@
-import type {
-  BenchmarkDailyPrice,
-  BenchmarkSeries,
-  BenchmarkWithSeries,
-  DateRange,
-  Instant,
-  LocalDate,
+import {
+  eodSessionFinalizedAt,
+  type BenchmarkDailyPrice,
+  type BenchmarkSeries,
+  type BenchmarkWithSeries,
+  type DateRange,
+  type Instant,
+  type LocalDate,
 } from "@intrinsic/domain";
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
 import {
@@ -55,6 +56,12 @@ import {
   comparePriceHistories,
   UNEXPLAINED_SESSION_SHARE,
 } from "./price-basis.js";
+import {
+  EodFinalityPolicy,
+  withinRequestedRange,
+  type EodFinalityOptions,
+} from "./eod-finality.js";
+import { MARKET_DATA_CALENDAR_EXCHANGE } from "./market-data-refresh.js";
 
 export class BenchmarkNotFoundError extends Error {
   constructor(code: string) {
@@ -128,7 +135,12 @@ export type CanonicalBenchmarkDataServiceOptions = {
    * absence is visible here rather than inferred from its disappearance.
    */
   historyYears?: number;
-  recentPriceFreshnessMs?: number;
+  /**
+   * End-of-day finality, exactly as for stocks (`CanonicalStockDataServiceOptions.eod`): reads and
+   * provider requests end at the EOD cutoff, and a series' tail is re-read when the newest
+   * finalized NYSE session is not stored as read after it became final — never on a timer.
+   */
+  eod?: Omit<EodFinalityOptions, "now"> & { frozenTails?: boolean };
   recentTailCalendarDays?: number;
   now?: () => Date;
   /** Called before each provider request, with the reason. See `CanonicalStockDataServiceOptions`. */
@@ -205,9 +217,10 @@ type SaveOutcome = {
  * service's provider-free reads, per run or cycle, in `benchmark-technicals.ts`.
  */
 export class CanonicalBenchmarkDataService implements BenchmarkDataService {
-  private readonly recentPriceFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
+  private readonly finality: EodFinalityPolicy;
+  private readonly frozenTails: boolean;
   private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
   private readonly onPriceBasisEvent: (event: PriceBasisObservation) => void;
   private readonly onCacheEvent: (event: BenchmarkCacheObservation) => void;
@@ -220,10 +233,11 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     private readonly coordinator: LoadCoordinator,
     options: CanonicalBenchmarkDataServiceOptions = {},
   ) {
-    this.recentPriceFreshnessMs =
-      options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
+    const { frozenTails, ...finality } = options.eod ?? {};
+    this.finality = new EodFinalityPolicy({ ...finality, now: this.now });
+    this.frozenTails = frozenTails === true;
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
     this.onPriceBasisEvent = options.onPriceBasisEvent ?? (() => {});
     this.onCacheEvent = options.onCacheEvent ?? (() => {});
@@ -523,12 +537,14 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       // Read before the provider is: the save is refused if a replacement commits another
       // generation while this read is in flight, so bars on the old basis cannot land beside it.
       const generation = await this.store.getPriceBasisGeneration(series.id);
+      // When the read was issued: the watermark never claims a session that finalized mid-request.
+      const syncedAt = this.nowInstant();
       const prices = await this.read(series, range, "SCHEDULED_REFRESH");
       lease.assertOwned();
       const saved = await this.saveRange(series, {
         range,
         prices,
-        syncedAt: this.nowInstant(),
+        syncedAt,
         tailDate: today,
         freshThrough: today,
         assertOwned: lease.assertOwned,
@@ -775,11 +791,12 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
           .filter((date): date is string => date !== undefined)
           .sort()[0] ?? today;
       const readRange = { from, to: today };
+      const readIssuedAt = this.nowInstant();
       const fresh = (await this.read(series, readRange, "PRICE_REBASE")).sort(
         (left, right) => (left.date < right.date ? -1 : 1),
       );
       const stored = await this.store.getDailyPrices(series.id, readRange);
-      const detectedAt = this.nowInstant();
+      const detectedAt = readIssuedAt;
       const comparison = comparePriceHistories({
         securityId: series.id,
         generation: generation + 1,
@@ -1108,17 +1125,34 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    * The watermark is PostgreSQL state, not a cache entry, so a Redis flush cannot make the loader
    * think the series is stale and re-download it.
    */
+  /**
+   * Whether this series' recent tail needs a provider read: the newest finalized NYSE session is
+   * not stored as read after it became final (`decideEodTailRefresh`). Never a timer.
+   */
   private async isTailStale(series: BenchmarkSeries): Promise<boolean> {
-    const state = await this.store.getDatasetState(
-      series.id,
-      "DAILY_PRICE",
-      BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
-    );
-    if (!state?.lastSuccessfulSyncAt) {
+    const [tail, latestBar] = await Promise.all([
+      this.store.getDatasetState(
+        series.id,
+        "DAILY_PRICE",
+        BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+      ),
+      this.store.getLatestDailyPriceDate(series.id),
+    ]);
+    if (!tail?.lastSuccessfulSyncAt) {
       return true;
     }
-    const age = this.now().valueOf() - Date.parse(state.lastSuccessfulSyncAt);
-    return !Number.isFinite(age) || age > this.recentPriceFreshnessMs;
+    if (this.frozenTails) {
+      return false;
+    }
+    const decision = this.finality.decide(
+      {
+        lastTailSyncAt: tail.lastSuccessfulSyncAt,
+        ...(tail.latestDate ? { tailDate: tail.latestDate } : {}),
+        ...(latestBar ? { latestBar } : {}),
+      },
+      await this.finality.expectedSession(MARKET_DATA_CALENDAR_EXCHANGE),
+    );
+    return decision.action === "REFRESH";
   }
 
   /**
@@ -1286,9 +1320,14 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       to: range.to,
       detail: `benchmark:${series.id}`,
     });
-    return this.provider.getBenchmarkDailyPrices(
-      series.providerSymbol,
-      series.id,
+    // Only rows inside the requested range, which ends at the EOD cutoff: a provider that ignored
+    // `to` must not be able to store a session that was still trading (`withinRequestedRange`).
+    return withinRequestedRange(
+      await this.provider.getBenchmarkDailyPrices(
+        series.providerSymbol,
+        series.id,
+        range,
+      ),
       range,
     );
   }
@@ -1340,17 +1379,30 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     };
   }
 
+  /**
+   * Whether a published head predates the newest date that can have become final. Only then can a
+   * target reaching the present need its tail re-read, so only then is the lock taken to ask the
+   * durable watermark (`isTailStale`), which decides precisely.
+   */
   private isStale(head: { materializedAt: string }): boolean {
-    const age = this.now().valueOf() - Date.parse(head.materializedAt);
-    return !Number.isFinite(age) || age > this.recentPriceFreshnessMs;
+    const materializedAt = Date.parse(head.materializedAt);
+    return (
+      !Number.isFinite(materializedAt) ||
+      materializedAt <
+        eodSessionFinalizedAt(
+          this.today(),
+          this.finality.publicationDelayMs,
+        ).getTime()
+    );
   }
 
   private resource(series: BenchmarkSeries): string {
     return `benchmark:hydrate:${series.id}`;
   }
 
+  /** The EOD cutoff: the newest date whose bar is final. Never the UTC day. */
   private today(): string {
-    return this.now().toISOString().slice(0, 10);
+    return this.finality.cutoffDate(this.now());
   }
 
   private nowInstant(): Instant {

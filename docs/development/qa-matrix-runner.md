@@ -87,11 +87,11 @@ all but name.
 
 ### Pinning the dataset
 
-The matrix database is a copy, so its freshness watermarks are as old as the copy. Under the
-ordinary six-hour freshness window the loader would decide the recent tail of every security is
-stale and refresh thirty-three of them from FMP in the middle of a timed sweep. The matrix worker
-therefore runs with `STOCK_RECENT_PRICE_FRESHNESS_MS`, `STOCK_FUNDAMENTALS_FRESHNESS_MS` and
-`ALT_DATA_FRESHNESS_MS` set to ten years. The last one matters most: the alternative-data freshness
+The matrix database is a copy, so its freshness watermarks are as old as the copy. As soon as a newer
+session became final the loader would decide the recent tail of every security is stale and refresh
+thirty-three of them from FMP in the middle of a timed sweep. The matrix worker therefore runs with
+`EOD_TAIL_REFRESH=frozen` (stored tails are never re-read, `docs/decisions/eod-finality-v1.md`) and
+`STOCK_FUNDAMENTALS_FRESHNESS_MS` and `ALT_DATA_FRESHNESS_MS` set to ten years. The last one matters most: the alternative-data freshness
 window is twelve hours, so without it **every** run of a sweep would re-ingest insider and
 congressional history from FMP — traffic the gate refuses, and which would also move
 `syncedThroughDate`, the ceiling of the evaluable range, between two executions of the same case.

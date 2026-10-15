@@ -2,7 +2,7 @@ import {
   DAILY_OSCILLATORS,
   DAILY_RELATIVE_VOLUMES,
   MATERIALIZED_MOVING_AVERAGES,
-  tradingSessionCloseInstant,
+  eodSessionFinalizedAt,
   type BenchmarkDailyPrice,
   type DailyMovingAverageField,
   type DailyOscillatorField,
@@ -110,9 +110,7 @@ export function benchmarkSessionFinalizedAt(
   session: LocalDate,
   publicationDelayMs: number,
 ): Date {
-  return new Date(
-    tradingSessionCloseInstant(session).getTime() + publicationDelayMs,
-  );
+  return eodSessionFinalizedAt(session, publicationDelayMs);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { STOCK_DETAILS_MAX_HISTORY_YEARS } from "@intrinsic/contracts";
 import {
   getApiConfig,
+  getEodFinalityConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
@@ -265,7 +266,7 @@ async function resync(): Promise<void> {
       defaultHistoryDays: stockData.defaultHistoryDays,
       productHistoryYears: stockData.productHistoryYears,
       stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
-      recentPriceFreshnessMs: stockData.recentPriceFreshnessMs,
+      eod: getEodFinalityConfig(),
       fundamentalsFreshnessMs: stockData.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockData.recentTailCalendarDays,
       onProviderRequest: (request) => {
