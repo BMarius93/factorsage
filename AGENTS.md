@@ -109,8 +109,12 @@ Read `ai/README.md` before substantial work.
     `MonitorEvaluationCheckpoint`, advanced in the same transaction as the Signals and transitions
     those sessions produced; its cycle reads PostgreSQL and makes no provider request, and every
     transition records whether it was observed, history or administrative
-    (`docs/decisions/monitor-eod-v2.md` §3). Do not reintroduce a live-quote observation, a jump
-    from a stale checkpoint to the newest session, or a Monitor-cycle provider read.
+    (`docs/decisions/monitor-eod-v2.md` §3). Its universe is the List's **current** members only —
+    `FULL`, or an open-ended period that has begun (`isOngoingListMember`) — gating BUY, SELL and
+    FINAL EXIT alike; a member edited out ends administratively (`MEMBERSHIP_CHANGED`). Backtests keep
+    `isBuyWindowEligible` and must never call the Monitor predicate (§4). Do not reintroduce a
+    live-quote observation, a jump from a stale checkpoint to the newest session, or a
+    Monitor-cycle provider read.
     `ai/product/product-overview.md`
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from

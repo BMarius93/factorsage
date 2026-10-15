@@ -332,16 +332,27 @@ export function logicChangeReset(previous: PersistedSignalState): {
   };
 }
 
+/**
+ * Whether a member is evaluated on a date. The V1 cycle's default is the BUY window (BUY only);
+ * the EOD evaluation passes its ongoing-membership rule, which gates every level
+ * (`docs/decisions/monitor-eod-v2.md` §4).
+ */
+export type MemberEligibility = (
+  level: Pick<MonitorStrategyLevel, "kind">,
+  date: LocalDate,
+) => boolean;
+
 export function historyStep(
   level: MonitorStrategyLevel,
   member: ActiveMonitorMember,
   history: EvaluationFrame,
   index: number,
+  eligibility: MemberEligibility = (lvl, date) => eligibleOn(lvl, member, date),
 ): MonitorLevelStep {
   const date = history.dates[index]!;
   return {
     date,
-    eligible: eligibleOn(level, member, date),
+    eligible: eligibility(level, date),
     rules: observeMonitorLevel(level, history, index),
   };
 }
@@ -366,11 +377,12 @@ export function historySteps(
   member: ActiveMonitorMember,
   history: EvaluationFrame,
   before: LocalDate,
+  eligibility?: MemberEligibility,
 ): MonitorLevelStep[] {
   const last = lastHistoryIndex(history, before);
   const steps: MonitorLevelStep[] = [];
   for (let index = last; index >= history.periodStartIndex; index -= 1) {
-    const step = historyStep(level, member, history, index);
+    const step = historyStep(level, member, history, index, eligibility);
     steps.push(step);
     if (isRestingMonitorStep(step)) {
       break;

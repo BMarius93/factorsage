@@ -141,6 +141,13 @@ The exact schema should fit existing database conventions and should be introduc
 
 ## Universe, buy windows and exit levels
 
+> **Superseded for the Monitor by ongoing membership** (`docs/decisions/monitor-eod-v2.md` §4).
+> The EOD evaluation gates **every** level on `isOngoingListMember` and evaluates no member that is
+> not current on the expected session; a member edited out is ended with `MEMBERSHIP_CHANGED`
+> (administrative) in the reconciliation, and a changed ongoing period resets the member's state in
+> its own transaction (`resetMembership`). The text below describes the V1 cycle's BUY-window
+> gating, which only the capacity bench still runs; backtests keep `isBuyWindowEligible` unchanged.
+
 A cycle evaluates every level of the Strategy — BUY, SELL and FINAL EXIT — for every member of the
 Monitor's Stock List.
 

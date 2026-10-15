@@ -7,6 +7,7 @@ import {
 import {
   eodCutoffDate,
   eodSessionFinalizedAt,
+  ongoingMembershipStart,
   type DateRange,
   type LocalDate,
   type Security,
@@ -106,8 +107,16 @@ export type MonitorEvaluationSummary = {
   calendar: FinalizedSession["calendar"];
   monitors: number;
   securities: number;
-  /** (Monitor, member) pairs considered. */
+  /** (Monitor, member) pairs evaluated: current members of the List on the expected session. */
   members: number;
+  /**
+   * (Monitor, member) pairs still in the List but not current members on the expected session —
+   * no open-ended membership, or one that has not begun. Not evaluated; any state they had is ended
+   * with `MEMBERSHIP_CHANGED`.
+   */
+  membersNotCurrent: number;
+  /** Members whose ongoing membership changed under their state, which was ended and rebuilt. */
+  membershipResets: number;
   /** Members whose checkpoint reached the expected session by the end of the pass. */
   membersCurrent: number;
   /** Members whose security has no bar proven final and materialized yet. */
@@ -138,9 +147,16 @@ type PreparedMonitor = {
   watchingSince: Date;
   etfCodes: readonly StrategyEtfSourceCode[];
   readsSector: boolean;
+  /** The members evaluated this pass: current members of the List on the expected session. */
+  currentMemberIds: SecurityId[];
 };
 
-type Entry = { prepared: PreparedMonitor; member: ActiveMonitorMember };
+type Entry = {
+  prepared: PreparedMonitor;
+  member: ActiveMonitorMember;
+  /** The member's ongoing membership: its start, or null for "Always eligible". */
+  membershipStart: LocalDate | null;
+};
 
 export class MonitorEodEvaluation {
   private readonly now: () => Date;
@@ -194,6 +210,8 @@ export class MonitorEodEvaluation {
       transitionsRecorded: 0,
       levelsReconstructed: 0,
       reconstructionHistoryExtensions: 0,
+      membersNotCurrent: 0,
+      membershipResets: 0,
       contended: 0,
       staleConfiguration: 0,
       securitiesFailed: 0,
@@ -225,6 +243,7 @@ export class MonitorEodEvaluation {
           watchingSince: watching.get(monitor.monitorId) ?? now,
           etfCodes: [...collectEtfOperands(definition).keys()].sort(),
           readsSector: collectSectorOperands(definition).length > 0,
+          currentMemberIds: [],
         });
       } catch (err) {
         this.logger.error({
@@ -252,8 +271,23 @@ export class MonitorEodEvaluation {
         etfOperandSet.add(key),
       );
       for (const member of entry.monitor.members) {
+        // The Monitor universe: current members only — "Always eligible", or an open-ended period
+        // that has begun by the expected session. Every level is gated alike, BUY, SELL and FINAL
+        // EXIT; closed periods play no part (`docs/decisions/monitor-eod-v2.md` §4).
+        const membershipStart = ongoingMembershipStart({
+          mode: member.buyWindowMode,
+          ranges: member.buyWindows,
+        });
+        if (
+          membershipStart === undefined ||
+          (membershipStart !== null && membershipStart > expected.session)
+        ) {
+          summary.membersNotCurrent += 1;
+          continue;
+        }
+        entry.currentMemberIds.push(member.securityId);
         const entries = entriesBySecurity.get(member.securityId) ?? [];
-        entries.push({ prepared: entry, member });
+        entries.push({ prepared: entry, member, membershipStart });
         entriesBySecurity.set(member.securityId, entries);
         const required =
           operandsBySecurity.get(member.securityId) ?? new Set<OperandKey>();
@@ -336,13 +370,16 @@ export class MonitorEodEvaluation {
         break;
       }
       const { monitor } = entry;
-      const securityIds = monitor.members.map((member) => member.securityId);
+      const securityIds = entry.currentMemberIds;
       try {
+        // A listed security that is not a current member is ended as a membership change, one that
+        // left the List as a removal; both forget their progress.
         const resolved = await this.repository.resolveUnvisitedStates({
           monitorId: monitor.monitorId,
           configVersion: monitor.configVersion,
           securityIds,
           levelIds: entry.levels.map((level) => level.id),
+          listedSecurityIds: monitor.members.map((member) => member.securityId),
           now,
         });
         await this.repository.pruneCheckpoints({
@@ -475,8 +512,15 @@ export class MonitorEodEvaluation {
       // them, so this is defence only): the member is decided as if it had none. The stored value
       // is still what the write must replace, or the guard would refuse it forever.
       const stored = checkpoint?.evaluatedThrough ?? null;
+      // Progress recorded under a different ongoing membership — a re-entry after a gap, a moved
+      // start — belongs to a membership that no longer exists: the member's state is ended
+      // administratively and rebuilt from the current membership's history, in one transaction.
+      const resetMembership =
+        checkpoint?.membership !== undefined &&
+        checkpoint.membership.start !== entry.membershipStart;
       const from =
         checkpoint &&
+        !resetMembership &&
         checkpoint.configVersion === entry.prepared.monitor.configVersion
           ? checkpoint.evaluatedThrough
           : undefined;
@@ -487,13 +531,25 @@ export class MonitorEodEvaluation {
         input.etfSnapshots,
         input.now,
       );
-      const needsReconstruction = entry.prepared.levels.some((level) => {
-        const persisted = entry.prepared.states.get(
-          signalStateKey(entry.member.securityId, level.id),
-        );
-        return !persisted || persisted.signalFingerprint !== level.fingerprint;
-      });
-      return { entry, stored, from, through, waitingOn, needsReconstruction };
+      const needsReconstruction =
+        resetMembership ||
+        entry.prepared.levels.some((level) => {
+          const persisted = entry.prepared.states.get(
+            signalStateKey(entry.member.securityId, level.id),
+          );
+          return (
+            !persisted || persisted.signalFingerprint !== level.fingerprint
+          );
+        });
+      return {
+        entry,
+        stored,
+        from,
+        through,
+        waitingOn,
+        needsReconstruction,
+        resetMembership,
+      };
     });
     const work = plans.filter(
       (plan) =>
@@ -532,10 +588,12 @@ export class MonitorEodEvaluation {
           previous: plan.stored,
           next: expected.session,
           basisGeneration: state.priceBasisGeneration,
+          membershipStart: plan.entry.membershipStart,
         },
         [],
         input,
         0,
+        false,
       );
     }
     summary.membersCurrent += plans.filter(
@@ -633,10 +691,12 @@ export class MonitorEodEvaluation {
             previous: item.plan.stored,
             next: item.next,
             basisGeneration: read.priceBasisGeneration,
+            membershipStart: item.plan.entry.membershipStart,
           },
           item.levels,
           input,
           item.sessions,
+          item.plan.resetMembership,
         );
       }
       return;
@@ -694,6 +754,7 @@ export class MonitorEodEvaluation {
       stored: LocalDate | null;
       from: LocalDate | undefined;
       through: LocalDate | undefined;
+      resetMembership: boolean;
     },
     frame: EvaluationFrame,
     complete: boolean,
@@ -709,6 +770,11 @@ export class MonitorEodEvaluation {
     needsDeeperHistory: boolean;
   } {
     const { entry, from, through } = plan;
+    const start = entry.membershipStart;
+    // A current member on a session: its ongoing membership had begun. Sessions before it are not
+    // this membership's and are never stepped.
+    const monitoredOn = (date: LocalDate): boolean =>
+      start === null || date >= start;
     const indices: number[] = [];
     for (
       let index = frame.periodStartIndex;
@@ -719,7 +785,8 @@ export class MonitorEodEvaluation {
       if (
         (from === undefined || date > from) &&
         through !== undefined &&
-        date <= through
+        date <= through &&
+        monitoredOn(date)
       ) {
         indices.push(index);
       }
@@ -745,14 +812,17 @@ export class MonitorEodEvaluation {
         level,
         member: entry.member,
         strategyVersionId: entry.prepared.monitor.strategyVersionId,
-        previous:
-          entry.prepared.states.get(
-            signalStateKey(entry.member.securityId, level.id),
-          ) ?? null,
+        // A membership reset ends every state in the same transaction: decide as if none existed.
+        previous: plan.resetMembership
+          ? null
+          : (entry.prepared.states.get(
+              signalStateKey(entry.member.securityId, level.id),
+            ) ?? null),
         frame,
         sessions,
         historyComplete: complete,
         originOf,
+        monitoredOn,
       });
       needsDeeperHistory ||= decision.needsDeeperHistory;
       reconstructed += decision.reconstructed ? 1 : 0;
@@ -786,6 +856,7 @@ export class MonitorEodEvaluation {
       previous: LocalDate | null;
       next: LocalDate;
       basisGeneration: number;
+      membershipStart: LocalDate | null;
     },
     levels: readonly LevelSessionsWrite[],
     input: {
@@ -795,6 +866,7 @@ export class MonitorEodEvaluation {
       expected: FinalizedSession;
     },
     sessions: number,
+    resetMembership: boolean,
   ): Promise<void> {
     const { monitor } = entry.prepared;
     const result = await this.repository.applyMemberEvaluation({
@@ -803,6 +875,7 @@ export class MonitorEodEvaluation {
       securityId: security.id,
       now: input.now,
       checkpoint,
+      ...(resetMembership ? { resetMembership: true } : {}),
       levels,
     });
     const { summary } = input;
@@ -821,6 +894,17 @@ export class MonitorEodEvaluation {
         symbol: security.symbol,
       });
       return;
+    }
+    if (resetMembership) {
+      summary.membershipResets += 1;
+      this.logger.info({
+        event: "monitor.member.membership-changed",
+        cycleSequence: input.cycleSequence,
+        monitorId: monitor.monitorId,
+        actorUserId: monitor.actorUserId ?? undefined,
+        symbol: security.symbol,
+        membershipStart: checkpoint.membershipStart,
+      });
     }
     summary.sessionsEvaluated += sessions;
     summary.signalsOpened += result.openedSignals;

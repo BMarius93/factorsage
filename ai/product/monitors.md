@@ -172,21 +172,28 @@ replay of the security's **whole** history would reach — a setup whose Conditi
 years, with its Trigger long consumed, is `ACTIVE` since that Trigger, not a setup waiting since the
 start of some window. A level whose history cannot be read waits for a later cycle.
 
-## Monitored universe and BUY eligibility
+## Monitored universe: current members only
 
-A Monitor's universe is a Stock List. Membership is the canonical `Security` catalog reference, never
-a free-text symbol.
+A Monitor's universe is a Stock List's **current** members. Membership is the canonical `Security`
+catalog reference, never a free-text symbol. A member is current when its membership is ongoing —
+"Always eligible" (`FULL`), or an open-ended period (`Present`) that has begun
+(`ai/product/lists.md` § Membership under a Monitor, `docs/decisions/monitor-eod-v2.md` §4).
 
-**BUY eligibility from that list applies to Monitor BUY levels.** `ai/product/lists.md` defines a
-`CUSTOM` buy window as the dates a member is eligible on, and a Monitor evaluates one date — the
-current observation. For a BUY level, an ineligible observation may neither start a
-`PENDING_TRIGGER` setup nor create an occurrence; an `ACTIVE` BUY occurrence whose window no longer
-admits the observation is resolved with reason `BUY_WINDOW_CLOSED`, and a pending setup returns to
-`INACTIVE`. `FULL` admits every date and so never restricts anything.
+- **It gates the whole Strategy.** A stock that is not a current member is not evaluated at all: no
+  BUY, SELL or FINAL EXIT Signal, no setup, no status row on the Monitor page.
+- **Bounded periods never count**, even one ending in the future; earlier closed periods play no
+  part. An open-ended period starting later is "not yet".
+- **History starts with the membership.** Sessions before the ongoing period began are not part of
+  the member's Monitor history: a reconstruction treats them as rest, and a catch-up never steps
+  them.
+- **An edit that ends the current membership is administrative.** The member's active Signals end
+  with "no longer a current list member" (`MEMBERSHIP_CHANGED`), recorded as an administrative
+  change — never "conditions no longer hold". A re-entry or a moved start ends the old state the
+  same way and rebuilds it from the new period.
 
-SELL and FINAL EXIT are **not** restricted by buy windows. A buy window governs entries; an exit rule
-must still be able to report what it sees. This mirrors the backtest engine, which reads the same
-`isBuyWindowEligible` before firing a BUY and nothing before firing a SELL or FINAL EXIT.
+This is deliberately **not** the backtest rule. A backtest keeps its point-in-time BUY gating over
+every period a member ever had (`isBuyWindowEligible`), and SELL and FINAL EXIT stay unrestricted
+there. Occurrences the earlier live-quote Monitor ended with `BUY_WINDOW_CLOSED` keep that reason.
 
 ## SELL and FINAL EXIT without portfolio state
 
@@ -262,8 +269,9 @@ Backtests are unaffected. They hold real simulated position state and continue t
   changed have their occurrence closed (`LOGIC_CHANGED`) and their state reset and reconstructed;
   unchanged levels continue.
 - **Edit the List.** Takes effect from the next cycle. A removed member's occurrences are resolved
-  (`MEMBER_REMOVED`) and its setups dropped by that cycle, and its state is forgotten; an added — or
-  re-added — member is reconstructed from history and may be active immediately.
+  (`MEMBER_REMOVED`) and its setups dropped by that cycle, and its state is forgotten; a member edited
+  out of current membership is ended the same way with `MEMBERSHIP_CHANGED`; an added — or
+  re-added — member is reconstructed from its membership's history and may be active immediately.
 - **Rebind the Strategy or List.** Pointing the Monitor at a *different* Strategy or Stock List is
   not the same operation as editing the contents of the ones it references. It crosses a
   configuration boundary: the transition state is discarded, every Signal still active is resolved,

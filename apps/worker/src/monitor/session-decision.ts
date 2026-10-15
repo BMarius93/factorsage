@@ -13,7 +13,6 @@ import {
 } from "@intrinsic/strategy";
 import {
   closeOn,
-  eligibleOn,
   historySteps,
   logicChangeReset,
   outcomeOf,
@@ -57,6 +56,12 @@ export type SessionDecisionInput = {
   historyComplete: boolean;
   /** Whether a change on this session was observed while the Monitor was watched. */
   originOf: (date: LocalDate) => TransitionOrigin;
+  /**
+   * Whether the member is a current member of the List on a session — its ongoing membership had
+   * begun (`isOngoingListMember`). It gates **every** level: a session before the membership began
+   * is never stepped by a catch-up, and rests every level in a reconstruction's history.
+   */
+  monitoredOn: (date: LocalDate) => boolean;
 };
 
 export type SessionDecision = {
@@ -109,7 +114,7 @@ export function decideLevelSessions(
   }
   const read = (index: number): SessionReading => {
     const date = frame.dates[index]!;
-    const eligible = eligibleOn(level, member, date);
+    const eligible = input.monitoredOn(date);
     return {
       step: {
         date,
@@ -140,7 +145,13 @@ export function decideLevelSessions(
     return resetOnly();
   }
   const reconstruction = reconstructMonitorLevel({
-    history: historySteps(level, member, frame, live.step.date),
+    history: historySteps(
+      level,
+      member,
+      frame,
+      live.step.date,
+      (_level, date) => input.monitoredOn(date),
+    ),
     live: live.step,
     complete: input.historyComplete,
   });

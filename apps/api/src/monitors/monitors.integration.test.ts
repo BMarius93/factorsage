@@ -1040,6 +1040,91 @@ describe("monitors", () => {
       await prisma.security.delete({ where: { id: security.id } });
     });
 
+    it("lists only the List's current members: always eligible, or an open-ended period that has begun", async () => {
+      const make = (tag: string) =>
+        prisma.security.create({
+          data: {
+            providerSymbol: `${tag}.${suffix.slice(0, 8)}`,
+            symbol: `${tag}${suffix.slice(0, 3).toUpperCase()}`,
+            name: `Membership ${tag}`,
+            exchangeCode: "NASDAQ",
+            currency: "USD",
+            type: "STOCK",
+            isAdr: false,
+            isActivelyTrading: true,
+          },
+        });
+      const always = await make("ALW");
+      const open = await make("OPN");
+      const bounded = await make("BND");
+      const later = await make("LTR");
+      const ownerId = (
+        await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } })
+      ).id;
+      const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
+      const listId = (
+        await prisma.stockList.create({
+          data: {
+            userId: ownerId,
+            name: "Membership List",
+            items: {
+              create: [
+                { securityId: always.id },
+                {
+                  securityId: open.id,
+                  buyWindowMode: "CUSTOM",
+                  buyWindows: {
+                    create: [
+                      {
+                        startDate: day("2001-03-10"),
+                        endDate: day("2008-07-15"),
+                      },
+                      { startDate: day("2012-05-01"), endDate: null },
+                    ],
+                  },
+                },
+                {
+                  // Bounded, even into the future: not a current membership.
+                  securityId: bounded.id,
+                  buyWindowMode: "CUSTOM",
+                  buyWindows: {
+                    create: [
+                      {
+                        startDate: day("2020-01-02"),
+                        endDate: day("2099-12-31"),
+                      },
+                    ],
+                  },
+                },
+                {
+                  securityId: later.id,
+                  buyWindowMode: "CUSTOM",
+                  buyWindows: {
+                    create: [{ startDate: day("2099-01-02"), endDate: null }],
+                  },
+                },
+              ],
+            },
+          },
+        })
+      ).id;
+
+      const created = await createMonitor(owner, {
+        name: "Current members",
+        strategyId,
+        stockListId: listId,
+      });
+      expect(
+        created.securities.map((entry) => entry.security.id).sort(),
+      ).toEqual([always.id, open.id].sort());
+
+      await prisma.monitor.delete({ where: { id: created.id } });
+      await prisma.stockList.delete({ where: { id: listId } });
+      await prisma.security.deleteMany({
+        where: { id: { in: [always.id, open.id, bounded.id, later.id] } },
+      });
+    });
+
     /**
      * Both security projections a Monitor serves carry the persisted mark.
      *

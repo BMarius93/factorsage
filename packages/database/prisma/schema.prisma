@@ -1362,6 +1362,10 @@ enum MonitorTransitionReason {
   MEMBER_REMOVED
   MONITOR_REBOUND
   RECONSTRUCTED
+  /// The security is still in the List but is no longer a current member there — its membership no
+  /// longer has an open-ended period that has begun (`docs/decisions/monitor-eod-v2.md` §4). An
+  /// administrative ending, never a market one.
+  MEMBERSHIP_CHANGED
 }
 
 /// Where one lifecycle transition came from (`docs/decisions/monitor-eod-v2.md` §3).
@@ -1654,13 +1658,20 @@ model MonitorStateTransition {
 /// caught up from here in order. `basisGeneration` is the security's price-basis generation the
 /// last sessions were read on.
 model MonitorEvaluationCheckpoint {
-  monitorId        String
-  securityId       String
-  evaluatedThrough DateTime @db.Date
-  configVersion    Int
-  basisGeneration  Int
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  monitorId          String
+  securityId         String
+  evaluatedThrough   DateTime  @db.Date
+  configVersion      Int
+  basisGeneration    Int
+  /// Whether the membership below was recorded. Rows written before it was are adopted by the next
+  /// evaluation under the member's current membership, never reset for it.
+  membershipRecorded Boolean   @default(false)
+  /// The start of the ongoing membership this progress belongs to, or null for "Always eligible".
+  /// A different ongoing membership — a re-entry, a moved start — is a membership change: the
+  /// member's state is ended administratively and rebuilt from the new membership's history.
+  membershipStart    DateTime? @db.Date
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   monitor  Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
   security Security @relation(fields: [securityId], references: [id], onDelete: Restrict)

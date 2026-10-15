@@ -38,7 +38,9 @@ import {
   SystemContentProtectedError,
   type ContentViewer,
 } from "../builtins/content-access";
+import { isOngoingListMember } from "@intrinsic/domain";
 import { PrismaService } from "../database/prisma.service";
+import { eodToday } from "../eod-today";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { crossMonitorConfigurationBoundary } from "./monitor-configuration-boundary";
 import { BENCHMARK_DATA_SERVICE } from "../benchmarks/benchmarks.tokens";
@@ -546,6 +548,8 @@ export class MonitorsService {
         where: { stockListId: monitor.stockListId },
         select: {
           createdAt: true,
+          buyWindowMode: true,
+          buyWindows: { select: { startDate: true, endDate: true } },
           security: {
             select: {
               id: true,
@@ -598,7 +602,24 @@ export class MonitorsService {
       }
     }
 
-    return items.map((item) => {
+    // The Monitor universe is the List's **current** members — "Always eligible", or an open-ended
+    // period that has begun by the newest finalized session (`docs/decisions/monitor-eod-v2.md`
+    // §4). A member outside it is not monitored, so it is not listed as unchecked or undecided.
+    const finalizedThrough = eodToday();
+    const current = items.filter((item) =>
+      isOngoingListMember(
+        {
+          mode: item.buyWindowMode,
+          ranges: item.buyWindows.map((window) => ({
+            startDate: window.startDate.toISOString().slice(0, 10),
+            endDate: window.endDate?.toISOString().slice(0, 10) ?? null,
+          })),
+        },
+        finalizedThrough,
+      ),
+    );
+
+    return current.map((item) => {
       const rows = bySecurity.get(item.security.id) ?? [];
       const matchedLevels: MonitorMatchedLevelResponse[] = rows
         .filter(
