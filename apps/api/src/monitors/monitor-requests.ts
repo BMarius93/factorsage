@@ -178,3 +178,79 @@ export function parseUpdateMonitorRequest(
       : { displayOrder: parseDisplayOrder(record.displayOrder) }),
   };
 }
+
+/** The Signal table's page size when none is asked for, and the most one page may hold. */
+export const SIGNAL_TABLE_DEFAULT_LIMIT = 25;
+export const SIGNAL_TABLE_MAX_LIMIT = 100;
+
+export type SignalTableQuery = {
+  /** Absent: active occurrences, then resolved ones. `PENDING_TRIGGER` lists waiting setups. */
+  state?: "ACTIVE" | "RESOLVED" | "PENDING_TRIGGER";
+  levelKind?: "BUY" | "SELL" | "FINAL_EXIT";
+  limit: number;
+  cursor?: string;
+};
+
+/** `?state=&levelKind=&limit=&cursor=` and nothing else. */
+export function parseSignalTableQuery(query: unknown): SignalTableQuery {
+  const record =
+    typeof query === "object" && query !== null
+      ? (query as Record<string, unknown>)
+      : {};
+  for (const key of Object.keys(record)) {
+    if (!["state", "levelKind", "limit", "cursor"].includes(key)) {
+      throw new BadRequestException(
+        `Invalid request: \`${key}\` is not accepted`,
+      );
+    }
+  }
+  const text = (key: string): string | undefined => {
+    const value = record[key];
+    if (value === undefined) {
+      return undefined;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException(
+        `Invalid request: ${key} must be one value`,
+      );
+    }
+    return value.trim();
+  };
+  const state = text("state");
+  if (
+    state !== undefined &&
+    state !== "ACTIVE" &&
+    state !== "RESOLVED" &&
+    state !== "PENDING_TRIGGER"
+  ) {
+    throw new BadRequestException(
+      "Invalid request: state must be ACTIVE, RESOLVED or PENDING_TRIGGER",
+    );
+  }
+  const levelKind = text("levelKind");
+  if (
+    levelKind !== undefined &&
+    levelKind !== "BUY" &&
+    levelKind !== "SELL" &&
+    levelKind !== "FINAL_EXIT"
+  ) {
+    throw new BadRequestException(
+      "Invalid request: levelKind must be BUY, SELL or FINAL_EXIT",
+    );
+  }
+  const limitText = text("limit");
+  const limit =
+    limitText === undefined ? SIGNAL_TABLE_DEFAULT_LIMIT : Number(limitText);
+  if (!Number.isInteger(limit) || limit < 1 || limit > SIGNAL_TABLE_MAX_LIMIT) {
+    throw new BadRequestException(
+      `Invalid request: limit must be a whole number from 1 to ${SIGNAL_TABLE_MAX_LIMIT}`,
+    );
+  }
+  const cursor = text("cursor");
+  return {
+    limit,
+    ...(state ? { state } : {}),
+    ...(levelKind ? { levelKind } : {}),
+    ...(cursor ? { cursor } : {}),
+  };
+}

@@ -1868,6 +1868,94 @@ paths:
   # ---------------------------------------------------------------------------------------------
   # Dashboard
   # ---------------------------------------------------------------------------------------------
+  /monitors/{monitorId}/signals:
+    parameters:
+      - { $ref: "#/components/parameters/MonitorId" }
+    get:
+      tags: [Monitors]
+      operationId: listMonitorSignals
+      summary: The monitor's signal table, with why each signal is active or ended.
+      description: |
+        Active occurrences first, most recent activation first, then resolved occurrences, most
+        recent resolution first; every occurrence is its own row. `state=PENDING_TRIGGER` lists
+        the setups waiting for their trigger instead. Each row explains itself from the decision
+        that put it there, under the Strategy version recorded with it: `why.basis` is `EVIDENCE`
+        with the values that decision compared, or `RULE_ONLY` for an older row recorded without
+        them. Readable without a session for a published built-in monitor, like the monitor itself.
+      x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Absent lists active then resolved occurrences.
+          schema: { type: string, enum: [ACTIVE, RESOLVED, PENDING_TRIGGER] }
+        - name: levelKind
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/StrategyLevelKind" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: cursor
+          in: query
+          required: false
+          description: The `nextCursor` of the previous page.
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of the signal table.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitorSignalPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /dashboard/activity:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardActivity
+      summary: Observed monitor activity, newest session first.
+      description: |
+        The changes the monitors on the caller's Dashboard observed: an occurrence that became
+        active (`ACTIVATED`), or one a market observation ended (`RESOLVED`, conditions no longer
+        hold). Never included: history (a new monitor's initial replay, a reconstruction, a paused
+        monitor's catch-up), administrative endings (an edit, a removal, a membership change, a
+        rebind), a trigger day passing, and setups waiting for a trigger. Ordered by the exchange
+        session the change was observed on, then by insertion order, and paged by `cursor`.
+
+        Readable without a session: a Guest sees the published built-ins. A signed-in caller also
+        sees their own enabled monitors, and built-ins they have hidden are left out. `monitorId`
+        narrows the feed to one of those monitors; any other id yields no events.
+      x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: monitorId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 15 }
+        - name: cursor
+          in: query
+          required: false
+          description: The `nextCursor` of the previous page.
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of activity.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardActivityResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /dashboard:
     get:
       tags: [Dashboard]
@@ -5793,15 +5881,103 @@ components:
         observationDate:
           { type: string, format: date, description: The session the occurrence became active on. }
         observationPrice: { type: number }
+        observationBasis: { $ref: "#/components/schemas/MonitorObservationBasis" }
         detectedAt: { type: string, format: date-time }
         resolvedAt:
           type: string
           format: date-time
           description: Set when the occurrence ended. Absent while it is still active.
+        resolvedObservationDate:
+          { type: string, format: date, description: The session that ended it, when a session did. }
         resolutionReason: { $ref: "#/components/schemas/MonitorTransitionReason" }
         reconstructed:
           type: boolean
           description: True when historical reconstruction, not a live scan, established the activation.
+
+    MonitorObservationBasis:
+      type: string
+      enum: [LIVE_QUOTE, EOD_CLOSE]
+      description: |
+        `EOD_CLOSE` is the session's finalized end-of-day close. `LIVE_QUOTE` marks occurrences the
+        earlier live-quote monitor decided on an intraday price, kept as recorded.
+
+    MonitorWhyPredicate:
+      type: object
+      required: [role, description]
+      properties:
+        role: { type: string, enum: [CONDITION, TRIGGER] }
+        description:
+          { type: string, description: The rule in the canonical Strategy description language. }
+        result: { type: string, enum: [TRUE, FALSE, NOT_EVALUABLE] }
+        metric: { type: [number, "null"], description: The left operand compared; null when it did not resolve. }
+        value: { type: [number, "null"], description: The right operand compared; null when it did not resolve. }
+        previousMetric: { type: [number, "null"] }
+        previousValue: { type: [number, "null"] }
+
+    MonitorWhyRule:
+      type: object
+      required: [predicates]
+      properties:
+        exitRule: { type: integer, minimum: 1 }
+        predicates:
+          type: array
+          items: { $ref: "#/components/schemas/MonitorWhyPredicate" }
+
+    MonitorWhy:
+      type: object
+      required: [basis, rules]
+      description: |
+        Why a change happened, from the Strategy version that decided it — never from the Strategy
+        as it reads today. `EVIDENCE` carries the values recorded on `sessionDate`; `RULE_ONLY` is
+        the decided rule's wording alone, for a change recorded before evidence existed.
+      properties:
+        basis: { type: string, enum: [EVIDENCE, RULE_ONLY] }
+        sessionDate: { type: string, format: date }
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/MonitorWhyRule" }
+
+    MonitorCoverage:
+      type: object
+      required: [evaluatedMembers, currentMembers, listedMembers]
+      properties:
+        latestSession:
+          { type: string, format: date, description: The newest session any current member was evaluated through. }
+        evaluatedMembers: { type: integer, minimum: 0 }
+        currentMembers:
+          { type: integer, minimum: 0, description: Members currently in the monitor universe. }
+        listedMembers: { type: integer, minimum: 0 }
+
+    MonitorSignalRow:
+      type: object
+      required: [id, state, security, levelKind, levelId, kind, sessionDate, fromHistory]
+      properties:
+        id: { type: string }
+        state: { type: string, enum: [ACTIVE, RESOLVED, PENDING_TRIGGER] }
+        security: { $ref: "#/components/schemas/StockSearchResult" }
+        levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+        levelId: { type: string }
+        levelIndex: { type: integer, minimum: 1 }
+        levelPercentage: { type: integer }
+        kind: { $ref: "#/components/schemas/MonitorSignalKind" }
+        sessionDate:
+          { type: string, format: date, description: Its activation, or its resolution once resolved. }
+        activatedOn: { type: string, format: date }
+        activationPrice: { type: number }
+        observationBasis: { $ref: "#/components/schemas/MonitorObservationBasis" }
+        resolvedOn: { type: string, format: date }
+        resolutionReason: { $ref: "#/components/schemas/MonitorTransitionReason" }
+        fromHistory: { type: boolean }
+        why: { $ref: "#/components/schemas/MonitorWhy" }
+
+    MonitorSignalPage:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/MonitorSignalRow" }
+        nextCursor: { type: string }
 
     MonitorSummary:
       type: object
@@ -5883,6 +6059,7 @@ components:
                 current FMP sector, by symbol; absent unless the strategy reads Stock's Sector.
                 Every sector ETF named here also has its row in `etfSources`.
               items: { $ref: "#/components/schemas/StockSectorAssignment" }
+            coverage: { $ref: "#/components/schemas/MonitorCoverage" }
 
     MonitorEtfSourceStatus:
       type: object
@@ -5982,6 +6159,44 @@ components:
         rows:
           type: array
           items: { $ref: "#/components/schemas/DashboardRow" }
+
+    DashboardActivityEvent:
+      type: object
+      required:
+        [id, kind, reason, sessionDate, security, levelKind, monitor, strategy, stockList]
+      properties:
+        id: { type: string, description: Stable and opaque. }
+        kind: { type: string, enum: [ACTIVATED, RESOLVED] }
+        reason: { $ref: "#/components/schemas/MonitorTransitionReason" }
+        sessionDate: { type: string, format: date }
+        security: { $ref: "#/components/schemas/StockSearchResult" }
+        levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+        levelIndex: { type: integer, minimum: 1 }
+        levelPercentage: { type: integer }
+        monitor:
+          allOf:
+            - { $ref: "#/components/schemas/DashboardEntityReference" }
+            - type: object
+              required: [ownership]
+              properties:
+                ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
+        stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
+        signalId: { type: string, format: uuid }
+        price: { type: number, description: The occurrence's activation price. }
+        observationBasis: { $ref: "#/components/schemas/MonitorObservationBasis" }
+        why: { $ref: "#/components/schemas/MonitorWhy" }
+
+    DashboardActivityResponse:
+      type: object
+      required: [viewer, generatedAt, events]
+      properties:
+        viewer: { type: string, enum: [GUEST, AUTHENTICATED] }
+        generatedAt: { type: string, format: date-time }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/DashboardActivityEvent" }
+        nextCursor: { type: string }
 
     UpdateBuiltInMonitorVisibilityRequest:
       type: object

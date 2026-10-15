@@ -4,7 +4,9 @@ import type {
   MonitorDetailResponse,
   MonitorMatchedLevelResponse,
   MonitorSecurityEvaluationResponse,
+  MonitorCoverageResponse,
   MonitorSecurityStatus,
+  MonitorSignalPageResponse,
   MonitorSignalResponse,
   MonitorSummaryResponse,
   MonitorWaitingLevelResponse,
@@ -52,6 +54,8 @@ import {
   MONITORS_LOGGER,
 } from "./monitors.tokens";
 import { monitorStateSince } from "./signal-since";
+import { readSignalTable } from "./monitor-signal-table";
+import type { SignalTableQuery } from "./monitor-requests";
 import {
   BUILT_IN_MONITOR_KEYS,
   type ParsedUpdateMonitorRequest,
@@ -367,16 +371,76 @@ export class MonitorsService {
           : this.entitlements.getMonitorExecutionEligibility(row.userId),
         this.etfSourceStatuses(row.strategyId, row.stockListId),
       ]);
+    const securities = await this.listSecurityEvaluations(
+      row,
+      monitoredLevelIds,
+    );
     return {
       ...summaryOf(row, eligibility.get(row.id), viewer),
-      securities: await this.listSecurityEvaluations(row, monitoredLevelIds),
+      securities,
       signals,
+      coverage: await this.coverageOf(
+        row.id,
+        securities.map((entry) => entry.security.id),
+        row.stockList._count.items,
+      ),
       ...(etfSources.statuses.length > 0
         ? { etfSources: etfSources.statuses }
         : {}),
       ...(etfSources.stockSectors
         ? { stockSectors: etfSources.stockSectors }
         : {}),
+    };
+  }
+
+  /**
+   * The Monitor's Signal table (`docs/decisions/monitor-eod-v2.md` §6), visible exactly where the
+   * Monitor itself is.
+   */
+  async getSignalTable(
+    viewer: ContentViewer,
+    monitorId: string,
+    query: SignalTableQuery,
+  ): Promise<MonitorSignalPageResponse> {
+    const row = await this.prisma.monitor.findFirst({
+      where: { id: monitorId, ...visibleMonitorWhere(viewer) },
+      select: { id: true, strategyId: true },
+    });
+    if (!row) {
+      throw new MonitorNotFoundError();
+    }
+    return readSignalTable(this.prisma, this.logger, row, query);
+  }
+
+  /**
+   * How far evaluation has reached: the newest session any current member was evaluated through,
+   * and how many current members have reached it — read from the members' durable checkpoints.
+   */
+  private async coverageOf(
+    monitorId: string,
+    currentSecurityIds: readonly string[],
+    listedMembers: number,
+  ): Promise<MonitorCoverageResponse> {
+    const checkpoints =
+      currentSecurityIds.length === 0
+        ? []
+        : await this.prisma.monitorEvaluationCheckpoint.findMany({
+            where: { monitorId, securityId: { in: [...currentSecurityIds] } },
+            select: { evaluatedThrough: true },
+          });
+    const sessions = checkpoints.map((checkpoint) =>
+      checkpoint.evaluatedThrough.toISOString().slice(0, 10),
+    );
+    const latest = sessions.reduce<string | undefined>(
+      (newest, session) =>
+        newest === undefined || session > newest ? session : newest,
+      undefined,
+    );
+    return {
+      ...(latest ? { latestSession: latest } : {}),
+      evaluatedMembers: sessions.filter((session) => session === latest).length,
+      currentMembers: currentSecurityIds.length,
+      listedMembers,
     };
   }
 
@@ -1060,10 +1124,18 @@ export class MonitorsService {
       kind: row.hasTrigger ? ("TRIGGER" as const) : ("CONDITION" as const),
       observationDate: row.observationDate.toISOString().slice(0, 10),
       observationPrice: Number(row.observationPrice),
+      observationBasis: row.observationBasis,
       detectedAt: row.detectedAt.toISOString(),
       ...(row.resolvedAt === null
         ? {}
         : { resolvedAt: row.resolvedAt.toISOString() }),
+      ...(row.resolvedObservationDate === null
+        ? {}
+        : {
+            resolvedObservationDate: row.resolvedObservationDate
+              .toISOString()
+              .slice(0, 10),
+          }),
       ...(row.resolutionReason === null
         ? {}
         : { resolutionReason: row.resolutionReason }),

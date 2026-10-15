@@ -1,5 +1,11 @@
 import type { ContentOwnership } from "./builtins.js";
-import type { MonitorLevelKind, MonitorLifecycleState } from "./monitors.js";
+import type {
+  MonitorLevelKind,
+  MonitorLifecycleState,
+  MonitorObservationBasis,
+  MonitorTransitionReason,
+  MonitorWhyResponse,
+} from "./monitors.js";
 import type { StockListSecurityResponse } from "./stock-lists.js";
 
 /**
@@ -125,6 +131,46 @@ export type DashboardResponse = {
   monitors: DashboardMonitorResponse[];
   /** Newest state change first. */
   rows: DashboardRowResponse[];
+};
+
+/**
+ * What one Monitor Activity event is (`GET /dashboard/activity`): an occurrence that became active,
+ * or one that a market observation ended. Administrative endings, a trigger day passing, setups and
+ * history never appear (`docs/decisions/monitor-eod-v2.md` §6).
+ */
+export const MONITOR_ACTIVITY_KINDS = ["ACTIVATED", "RESOLVED"] as const;
+export type MonitorActivityKind = (typeof MONITOR_ACTIVITY_KINDS)[number];
+
+export type DashboardActivityEventResponse = {
+  /** Stable, opaque event identity. */
+  id: string;
+  kind: MonitorActivityKind;
+  reason: MonitorTransitionReason;
+  /** The exchange session the change was observed on. */
+  sessionDate: string;
+  security: StockListSecurityResponse;
+  levelKind: MonitorLevelKind;
+  /** The level's position among levels of its kind, in the version that decided it. */
+  levelIndex?: number;
+  levelPercentage?: number;
+  monitor: DashboardEntityReference & { ownership: ContentOwnership };
+  strategy: DashboardEntityReference;
+  stockList: DashboardEntityReference;
+  /** The occurrence. */
+  signalId?: string;
+  /** The occurrence's activation price. */
+  price?: number;
+  observationBasis?: MonitorObservationBasis;
+  why?: MonitorWhyResponse;
+};
+
+/** `GET /dashboard/activity`: observed changes, newest session first. */
+export type DashboardActivityResponse = {
+  viewer: "GUEST" | "AUTHENTICATED";
+  generatedAt: string;
+  events: DashboardActivityEventResponse[];
+  /** Opaque; pass back as `cursor` for older events. Absent on the last page. */
+  nextCursor?: string;
 };
 
 /** `PUT /dashboard/monitors/:monitorId/visibility`. */

@@ -1,6 +1,7 @@
 import type {
   AuthUser,
   MonitorDetailResponse,
+  MonitorSignalPageResponse,
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
 import {
@@ -16,6 +17,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
@@ -25,8 +27,10 @@ import { Viewer } from "../auth/viewer.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseCreateMonitorRequest,
+  parseSignalTableQuery,
   parseUpdateMonitorRequest,
 } from "./monitor-requests";
+import { InvalidSignalCursorError } from "./monitor-signal-table";
 import {
   MonitorNotFoundError,
   MonitorReferenceNotFoundError,
@@ -86,6 +90,24 @@ export class MonitorsController {
   }
 
   /**
+   * The Monitor's Signal table: active occurrences first, then resolved ones, each with its Why;
+   * waiting setups when asked for. Visible exactly where the Monitor is.
+   */
+  @RateLimit("standard-read")
+  @Get(":monitorId/signals")
+  @UseGuards(OptionalCookieAuthGuard)
+  async signals(
+    @Viewer() viewer: AuthUser | null,
+    @Param("monitorId") monitorId: string,
+    @Query() query: unknown,
+  ): Promise<MonitorSignalPageResponse> {
+    const parsed = parseSignalTableQuery(query);
+    return this.execute(() =>
+      this.monitors.getSignalTable(viewer, monitorId, parsed),
+    );
+  }
+
+  /**
    * The user controls: the name, whether it is enabled, and which Strategy and Stock List it
    * watches. Changing either reference rebinds the Monitor, which the service handles as a
    * configuration boundary. There is still no cadence to set.
@@ -130,7 +152,8 @@ export class MonitorsController {
       }
       if (
         error instanceof MonitorReferenceNotFoundError ||
-        error instanceof MonitorRequestError
+        error instanceof MonitorRequestError ||
+        error instanceof InvalidSignalCursorError
       ) {
         throw new BadRequestException(error.message);
       }

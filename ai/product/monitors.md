@@ -506,6 +506,14 @@ a wrong Signal.
 
 ## Built-in Monitors and the Dashboard
 
+**Monitor Activity and the Signal table** (`docs/decisions/monitor-eod-v2.md` §6). The Dashboard's
+activity feed lists the changes the viewer's visible Monitors **observed** — an occurrence becoming
+active, or ended by the market — newest session first; history, administrative endings, a trigger
+day passing and waiting setups never appear in it. A Monitor's page has one Signal table: active
+occurrences first, then resolved ones, each explaining why from the values recorded when it was
+decided. Waiting setups are a filter of that table, not activity. A coverage line says which
+finalized session evaluation has reached and how many current members have reached it.
+
 `docs/decisions/builtin-dashboard-signals-v1.md` is the product decision. The platform ships
 built-in (`SYSTEM`) Lists, Strategies and Monitors — ordinary domain objects evaluated by the same
 cycle — so a first-time visitor's Dashboard already shows real matches.

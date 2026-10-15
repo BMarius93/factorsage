@@ -15,6 +15,7 @@ never intent.
 | 3 | `feat/monitor-eod-evaluator` | The per-session EOD evaluation, checkpoints and origins (§3) |
 | 4 | `feat/monitor-eligibility` | Ongoing membership gating every level; administrative membership endings (§4) |
 | 5 | `feat/monitor-replay-evidence` | The 90-day initial replay; evidence and version on every transition (§5) |
+| 6 | `feat/monitor-read-models` | The Activity feed, the Signal table, Why from evidence, coverage (§6) |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -351,4 +352,66 @@ existing row changes.
 
 An occurrence opened on a `HISTORY` session by any catch-up — a paused Monitor resuming, not only a
 replay — is now marked `reconstructed`: history, not an observation, established it.
+
+## 6. Read models: Activity feed, Signal table, coverage
+
+Step 6 adds the read side, **additively**: the existing `GET /dashboard` and `GET /monitors/:id`
+responses keep every field the web reads today, so the web moves over in step 7 and the obsolete
+current-match read is removed in step 8.
+
+### 6.1 `GET /dashboard/activity` — the Monitor Activity feed
+
+The important changes the Monitors on the viewer's Dashboard **observed**, newest session first:
+
+- **An event** is a transition with origin `OBSERVED` that either enters `ACTIVE` (`ACTIVATED`) or
+  leaves it because a market observation ended it (`RESOLVED`, `CONDITIONS_ENDED`).
+- **Never an event:** `HISTORY` (a replay, a reconstruction, a paused Monitor's catch-up),
+  `ADMINISTRATIVE` endings, `EVENT_SESSION_ENDED` (a trigger day passing) and setups
+  (`PENDING_TRIGGER`). V1 rows observed by the live-quote Monitor stay visible, labelled by their
+  Signal's `observationBasis`.
+- **Monitors:** the Dashboard's visibility rule — published built-ins the viewer has not hidden, and
+  the viewer's own enabled Monitors; a Guest sees the published built-ins. A paused or plan-blocked
+  Monitor's past events remain: they happened. `monitorId` narrows to one visible Monitor; any other
+  id yields nothing.
+- **Order and paging:** by the exchange session (`observationDate`), then insertion order
+  (`sequence`), keyset-paged with an opaque cursor so a page is stable while new sessions arrive;
+  15 events by default, at most 50. A new index, `(monitorId, observationDate, sequence)`, serves it
+  (migration `20261015150000_monitor_activity_index`).
+- **Each event** carries the level's position from the version that decided it, the occurrence's
+  activation price and `observationBasis`, and its Why.
+
+### 6.2 `GET /monitors/:monitorId/signals` — the one Signal table
+
+Active occurrences first, most recent activation first, then resolved ones, most recent resolution
+first — every occurrence its own row. A resolution is ordered by the session that ended it; an
+administrative ending observed no session and is placed by the New York day it was recorded.
+`state=ACTIVE|RESOLVED` narrows to one group, `state=PENDING_TRIGGER` lists the current waiting
+setups instead, and `levelKind` filters by level. Offset-paged across the groups (25 by default, at
+most 100). Each row carries its session, activation date and price, resolution date and reason,
+`observationBasis`, `fromHistory` and its Why. Visible exactly where the Monitor is.
+
+### 6.3 The Why
+
+`apps/api/src/monitors/signal-why.ts` renders a Why from the **version recorded with the decision**
+— the transition's `strategyVersionId`, or the Signal's for older rows — and the transition's
+evidence:
+
+- an active row's Why is its activating transition's; a resolved row's is its ending transition's;
+  a waiting setup's is its latest setup transition's (under the current version when that predates
+  recorded versions);
+- `EVIDENCE`: each recorded predicate in the canonical description language
+  (`describeCondition`/`describeTrigger`) with its result and compared values;
+- `RULE_ONLY`: the decided rule's wording without values, for anything recorded without evidence —
+  older rows and administrative endings. Nothing is recomputed, and an edited Strategy never
+  rewrites an old Why.
+
+### 6.4 Coverage
+
+`MonitorDetailResponse.coverage`: the newest session any current member has been evaluated through
+(`latestSession`, from the checkpoints), how many current members have reached it, how many members
+are current, and how many the List holds — the data behind "EOD 2026-10-13 · 497/500 evaluated".
+`MonitorSignalResponse` also gains `observationBasis` and `resolvedObservationDate`.
+
+Contracts (`@intrinsic/contracts`), `docs/openapi.yaml` and `ai/architecture/rate-limiting.md`
+describe both routes; both are `standard-read` and readable by a Guest where the Monitor is.
 
