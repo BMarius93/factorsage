@@ -314,7 +314,7 @@ async function runCycle(data: EodFixtureData, session: string = SESSION_ONE) {
     logger,
     {
       securityConcurrency: 4,
-      dependencyGiveUpMs: 24 * 60 * 60_000,
+      lateRecoveryMs: 24 * 60 * 60_000,
       now: () => clock.now,
     },
   ).run(cycleSequence);

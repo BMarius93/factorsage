@@ -340,8 +340,10 @@ move backwards later (the AUD-02 instability class). A series without that cover
 `NOT_EVALUABLE` for all its technicals, with a diagnostic naming the missing bootstrap — a gate on a
 verifiable property, not a disabling of weekly metrics.
 
-Within an anchored history, the weekly path is the stock path: ISO completed weeks, the current week
-excluded, `eligibleDate` = the week's own last trading day, carry-forward onto later sessions.
+Within an anchored history, the weekly path is the stock path: ISO weeks completed at their last
+scheduled session (the venue schedule, `isScheduledSession`), `eligibleDate` = that session,
+carry-forward onto later sessions (`docs/decisions/monitor-eod-v2.md` §9; before it, the current week
+was excluded and a week dated from its last printed bar).
 The first stored week is kept as a genuine listing week (`WeeklyHistoryContext` LISTING) because
 floor-anchored coverage proves nothing precedes it; the catalog's `listedIn` month corroborates and
 a first bar far after it is logged (the bootstrap's `lateStart` convention), never silently

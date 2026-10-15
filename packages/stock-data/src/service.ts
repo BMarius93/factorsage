@@ -117,7 +117,11 @@ import {
 import {
   monitorWindowCalendarDays,
 } from "./evaluation-window.js";
-import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
+import {
+  aggregateCompletedWeeks,
+  resolveWeekSessionEnds,
+  startOfIsoWeek,
+} from "./weekly.js";
 import {
   EodFinalityPolicy,
   withinRequestedRange,
@@ -1879,9 +1883,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
           undefined,
         )
       : undefined;
+    // The earliest of every cause. A derived coverage gap does not supersede a price change: a late
+    // bar stored behind the gap (Tuesday, when the gap starts Thursday) moves every row after it,
+    // and rebuilding only from the gap left those rows on the history without it while coverage
+    // claimed them current — the Monitor then decided them on stale averages
+    // (`docs/decisions/monitor-eod-v2.md` §10).
     const derivedRecalculationStart = this.boundedRebuildStart(target, [
       derivedRepairStart,
-      derivedRepairStart ? undefined : priceRecalculationStart,
+      priceRecalculationStart,
       fundamentals.derivedRebuildStart,
     ]);
     if (derivedRecalculationStart) {
@@ -2142,6 +2151,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       target,
       calculation,
       await this.store.getPriceBasisEvents(security.id),
+      from,
     );
     const rows = derived.rows.filter((row) => row.date >= from);
     const weeklyDelta = derived.weeklyBars.filter(
@@ -2184,7 +2194,19 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     target: Required<DateRange>,
     calculation: { prices: readonly DailyPrice[]; range: Required<DateRange> },
     events: readonly PriceBasisEvent[],
+    /** The first date this call's rows are written from; weeks before it need no venue schedule. */
+    writtenFrom?: LocalDate,
   ) {
+    // A week ends at its last scheduled session, which only the venue schedule can name when the
+    // week's last bar is not its Friday (a holiday or a halt). Asked for the weeks this call writes.
+    const sessionEnds = await resolveWeekSessionEnds({
+      dates: calculation.prices.map((price) => price.date),
+      isScheduledSession: (date) =>
+        this.finality.isScheduledSession(security.exchangeCode, date),
+      ...(writtenFrom === undefined
+        ? {}
+        : { fromWeek: startOfIsoWeek(writtenFrom) }),
+    });
     const weeklyBars = aggregateCompletedWeeks(
       calculation.prices,
       target.to,
@@ -2192,6 +2214,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         security,
         calculation.prices[0]?.date ?? calculation.range.from,
       ),
+      sessionEnds,
     );
     // One bounded read of immutable revisions, not the latest-revision selector: each materializer
     // needs every revision's own availableFromDate as a distinct evaluation event. The same read

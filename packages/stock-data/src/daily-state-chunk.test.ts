@@ -269,8 +269,8 @@ describe("daily-state chunk encoding version", () => {
   it("is a cache encoding, separate from the derived-state methodology revision", () => {
     expect(DAILY_STATE_ENCODING_VERSION).toBe(2);
     // The methodology did not change: no value moved, so nothing durable is invalidated.
-    expect(DERIVED_STATE_REVISION).toBe(7);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r7");
+    expect(DERIVED_STATE_REVISION).toBe(8);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r8");
     // A backtest records what can move a number it sees; a cache encoding cannot.
     expect(Object.keys(BACKTEST_DATA_REVISIONS).sort()).toEqual([
       "benchmarkPriceDatasetVersion",

@@ -217,4 +217,67 @@ describe("EodFinalityPolicy", () => {
   it("refuses a negative bound", () => {
     expect(() => new EodFinalityPolicy({ sessionRetryMs: -1 })).toThrow();
   });
+
+  it("answers whether a date is a scheduled session, and says so when the schedule cannot", async () => {
+    const policy = new EodFinalityPolicy({
+      calendar: holidayCalendar(["2026-04-03"]),
+    });
+    expect(await policy.isScheduledSession("NYSE", "2026-04-02")).toBe(true);
+    expect(await policy.isScheduledSession("NYSE", "2026-04-03")).toBe(false);
+    expect(await policy.isScheduledSession("NYSE", "2026-04-04")).toBe(false);
+    const unreadable = new EodFinalityPolicy({
+      calendar: {
+        async isTradingSession() {
+          throw new Error("schedule unavailable");
+        },
+      },
+    });
+    expect(
+      await unreadable.isScheduledSession("NYSE", "2026-04-03"),
+    ).toBeUndefined();
+  });
+
+  it("asks about a past year the schedule cannot answer at most once an hour, and the current year every time", async () => {
+    let now = new Date("2026-10-14T21:00:00.000Z");
+    const asked: string[] = [];
+    const policy = new EodFinalityPolicy({
+      now: () => now,
+      calendar: {
+        async isTradingSession(_exchange, date) {
+          asked.push(date);
+          if (date.startsWith("2001-") || date.startsWith("2026-")) {
+            throw new Error("no schedule");
+          }
+          return true;
+        },
+      },
+    });
+    for (const date of ["2001-04-12", "2001-07-05", "2001-12-27"]) {
+      expect(await policy.isScheduledSession("NYSE", date)).toBeUndefined();
+    }
+    expect(await policy.isScheduledSession("NYSE", "2002-03-28")).toBe(true);
+    expect(
+      await policy.isScheduledSession("NYSE", "2026-04-02"),
+    ).toBeUndefined();
+    expect(
+      await policy.isScheduledSession("NYSE", "2026-04-03"),
+    ).toBeUndefined();
+    expect(asked).toEqual([
+      "2001-04-12",
+      "2002-03-28",
+      "2026-04-02",
+      "2026-04-03",
+    ]);
+
+    now = new Date(now.getTime() + 59 * MINUTE);
+    expect(
+      await policy.isScheduledSession("NYSE", "2001-04-12"),
+    ).toBeUndefined();
+    expect(asked).toHaveLength(4);
+    now = new Date(now.getTime() + 2 * MINUTE);
+    expect(
+      await policy.isScheduledSession("NYSE", "2001-04-12"),
+    ).toBeUndefined();
+    expect(asked).toHaveLength(5);
+  });
 });

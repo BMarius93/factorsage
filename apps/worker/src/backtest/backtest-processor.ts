@@ -59,6 +59,7 @@ import {
   withEtfOperandColumns,
   type DailyPriceBounds,
   type PreparedDailyEvaluationData,
+  type ScheduledSessionCheck,
   type ValuationTimeline,
 } from "@intrinsic/stock-data";
 import {
@@ -250,6 +251,8 @@ export type BacktestProcessorDependencies = {
   etfContexts: {
     loader: EtfContextLoader;
     publicationDelayMs: number;
+    /** The funds' venue schedule, for the week-completion rule the Monitor applies too. */
+    isScheduledSession: ScheduledSessionCheck;
   };
   logger: StructuredLogger;
   /**
@@ -608,6 +611,8 @@ export class BacktestProcessor implements BacktestJobProcessor {
             loader: this.dependencies.etfContexts.loader,
             now: this.now(),
             publicationDelayMs: this.dependencies.etfContexts.publicationDelayMs,
+            isScheduledSession:
+              this.dependencies.etfContexts.isScheduledSession,
             logger: this.dependencies.logger,
             logContext: { component: "backtest" },
           });

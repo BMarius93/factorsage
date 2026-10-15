@@ -40,6 +40,7 @@ import {
   scopedRepository,
 } from "./monitor-evaluation.test-helper.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
+import { weekdaySessions } from "../shared/etf-context.test-helper.js";
 
 // Before any PrismaClient in this file is constructed.
 useTestDatabase();
@@ -150,6 +151,7 @@ const etfContexts: MonitorEtfContexts = {
   loader: etfLoader,
   resolveSeriesId: async (code) => `series-${code.toLowerCase()}`,
   publicationDelayMs: 30 * 60 * 1000,
+  isScheduledSession: weekdaySessions,
 };
 
 /** One EOD evaluation pass at `now`. */
@@ -162,7 +164,7 @@ function cycleOf(data: EodFixtureData, now: Date) {
     logger,
     {
       securityConcurrency: 4,
-      dependencyGiveUpMs: 24 * 60 * 60_000,
+      lateRecoveryMs: 24 * 60 * 60_000,
       now: () => clock.now,
     },
     etfContexts,

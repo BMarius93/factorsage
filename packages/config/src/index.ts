@@ -876,6 +876,13 @@ export function getStockEodWorkerConfig(env: Environment = process.env) {
  * still-missing bar keeps being asked for: past it the security is taken not to have traded that
  * session (a halt, a delisting), so a security that never trades again costs a bounded number of
  * reads per session rather than one every retry interval forever.
+ *
+ * `EOD_LATE_RECOVERY_MS` is the Monitor's late-recovery horizon (`docs/decisions/monitor-eod-v2.md`
+ * §10): a session the security has not printed is not stepped past until a provider read issued at
+ * least this long after its finalization still finds no bar, so a bar published within it is
+ * decided in order instead of being skipped. Four days covers a bar published 72 hours late across
+ * a holiday weekend. It is bounded to six days so the confirming read — the next session's tail
+ * read, at most four days later — still re-reads the session inside the ten-day recent tail window.
  */
 export function getEodFinalityConfig(env: Environment = process.env) {
   const tailRefresh = (optional(env, "EOD_TAIL_REFRESH") ?? "scheduled")
@@ -899,7 +906,20 @@ export function getEodFinalityConfig(env: Environment = process.env) {
     ),
     sessionRetryMs: integer(env, ["MARKET_DATA_SERIES_RETRY_MS"], 30 * 60_000),
     sessionGiveUpMs: integer(env, ["EOD_SESSION_GIVE_UP_MS"], 24 * 60 * 60_000),
+    lateRecoveryMs: lateRecoveryHorizon(env),
   } as const;
+}
+
+const MAX_LATE_RECOVERY_MS = 6 * 24 * 60 * 60_000;
+
+function lateRecoveryHorizon(env: Environment): number {
+  const value = integer(env, ["EOD_LATE_RECOVERY_MS"], 4 * 24 * 60 * 60_000);
+  if (value <= 0 || value > MAX_LATE_RECOVERY_MS) {
+    throw new Error(
+      "Invalid application configuration: EOD_LATE_RECOVERY_MS must be positive and at most six days",
+    );
+  }
+  return value;
 }
 
 /**

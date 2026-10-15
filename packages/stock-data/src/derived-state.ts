@@ -78,8 +78,17 @@ import {
  *   revision changes which statement represents a fiscal period reported with two period ends —
  *   its latest revision, no longer the later period end — for the intrinsic values as well, so r6
  *   intrinsic history is recalculated under that rule in the same rebuild.
+ * - r8: a week completes at the finalized close of its last **scheduled** session, named by the
+ *   venue schedule (`aggregateCompletedWeeks`, `docs/decisions/monitor-eod-v2.md` §9). r7 made a
+ *   week visible only once a bar of a later week was materialized, on the week's last *printed*
+ *   bar: a Friday row written on Friday evening lacked its own week until Monday's rebuild
+ *   rewrote it — so a Monitor deciding Friday read a different row than every later backtest —
+ *   and a halted security's last printed day later showed a week it could not have known was
+ *   over. r7 weekly carry-forward is therefore not current: coverage and manifests go stale and
+ *   the canonical history is rebuilt as r8. Monitor history decided on r7 rows keeps the values it
+ *   recorded (`evidence`); nothing already decided is rewritten.
  */
-export const DERIVED_STATE_REVISION = 7;
+export const DERIVED_STATE_REVISION = 8;
 
 export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
 

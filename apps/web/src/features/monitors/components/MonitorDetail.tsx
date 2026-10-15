@@ -623,7 +623,8 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             <p className={styles.sectionNote} data-testid="monitor-etf-sources">
               <strong>ETF conditions</strong> are decided on the fund&apos;s own
               finalized session, the same one as the stock&apos;s; a stock waits
-              for its fund&apos;s session for up to a day.{" "}
+              for its fund&apos;s session for up to four days, so a late bar is
+              decided on its own session.{" "}
               {(etfSources ?? []).map((source, index) => (
                 <span
                   key={source.code}

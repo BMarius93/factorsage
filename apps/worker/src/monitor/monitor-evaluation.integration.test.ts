@@ -28,6 +28,7 @@ import {
   PrismaMonitorRepository,
   type MonitorEvaluationRepository,
 } from "./monitor-repository.js";
+import { weekdaySessions } from "../shared/etf-context.test-helper.js";
 
 /**
  * The Monitor EOD evaluation against PostgreSQL, through the real canonical stock service's
@@ -157,7 +158,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     },
   };
 
-  function evaluation(dependencyGiveUpMs = 24 * 60 * 60 * 1000) {
+  function evaluation(lateRecoveryMs = 24 * 60 * 60 * 1000) {
     return new MonitorEodEvaluation(
       repository,
       data,
@@ -166,7 +167,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         now: () => clock.now,
       }),
       createLogger({ service: "worker", level: "silent" }),
-      { securityConcurrency: 2, dependencyGiveUpMs, now: () => clock.now },
+      { securityConcurrency: 2, lateRecoveryMs, now: () => clock.now },
     );
   }
 
@@ -568,7 +569,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       createLogger({ service: "worker", level: "silent" }),
       {
         securityConcurrency: 2,
-        dependencyGiveUpMs: 86_400_000,
+        lateRecoveryMs: 86_400_000,
         now: () => clock.now,
       },
     ).run(1);
@@ -745,6 +746,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       },
       resolveSeriesId: async () => "series-xlk",
       publicationDelayMs: 30 * 60_000,
+      isScheduledSession: weekdaySessions,
     };
     const both: StrategySignal = {
       conditions: [
@@ -778,7 +780,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
           createLogger({ service: "worker", level: "silent" }),
           {
             securityConcurrency: 2,
-            dependencyGiveUpMs: giveUpMs,
+            lateRecoveryMs: giveUpMs,
             now: () => clock.now,
           },
           etfContexts as never,
@@ -807,15 +809,11 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     });
   });
 
-  it("passes a session a halted security never prints, without inventing an observation", async () => {
+  it("passes a session a halted security never prints only once a read past the late-recovery horizon proves it", async () => {
     const security = await createSecurity();
-    // Thursday printed; Friday was asked for after it became final and never printed.
-    await seed(
-      security,
-      { "2026-10-14": 90, "2026-10-15": 101 },
-      after("2026-10-16"),
-      "2026-10-16",
-    );
+    const closes = { "2026-10-14": 90, "2026-10-15": 101 };
+    // Thursday printed; Friday was asked for on Friday evening and not printed (yet).
+    await seed(security, closes, after("2026-10-16"), "2026-10-16");
     clock.now = after("2026-10-15");
     const monitorId = await createMonitor([security], signalCrosses());
     await evaluation().run(1);
@@ -825,10 +823,24 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     const event = (await signals(monitorId))[0]!;
     expect(event.resolvedAt).toBeNull();
 
-    // Saturday evening, past the give-up bound for Friday: the member moves to Friday, and the
-    // Thursday event is not ended — only a real later session ends it.
+    // Saturday evening, a day after Friday became final — but the only read is Friday evening's,
+    // which proves nothing about a late publication: the member is not moved past Friday.
     clock.now = new Date("2026-10-17T21:00:00.000Z");
     await evaluation().run(2);
+    expect(
+      day((await checkpoint(monitorId, security.id))?.evaluatedThrough),
+    ).toBe("2026-10-15");
+
+    // A read issued more than the horizon after Friday's finalization still finds no Friday bar:
+    // Friday was genuinely not printed, so the member moves to it — and the Thursday event is not
+    // ended, only a real later session ends it.
+    await seed(
+      security,
+      closes,
+      new Date("2026-10-17T21:00:00.000Z"),
+      "2026-10-16",
+    );
+    await evaluation().run(3);
     expect(
       day((await checkpoint(monitorId, security.id))?.evaluatedThrough),
     ).toBe("2026-10-16");
@@ -1251,7 +1263,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       createLogger({ service: "worker", level: "silent" }),
       {
         securityConcurrency: 1,
-        dependencyGiveUpMs: 86_400_000,
+        lateRecoveryMs: 86_400_000,
         now: () => clock.now,
       },
     ).run(1);

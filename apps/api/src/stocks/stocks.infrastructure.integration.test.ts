@@ -1068,12 +1068,12 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(derivedState?.variant).toBe(
           `daily-derived-state:r${DERIVED_STATE_REVISION}`,
         );
-        // r7 is the current methodology: daily technicals, the seven catalog weekly moving
-        // averages, materialized intrinsic values/blends, the daily RSI oscillators, the three
-        // Relative Volume periods and the fifteen Fundamental Metrics — all calculated from the
-        // earliest persisted bar (AUD-02) and over statements whose availability follows the
-        // point-in-time rule (AUD-03).
-        expect(DERIVED_STATE_REVISION).toBe(7);
+        // r8 is the current methodology: daily technicals, the seven catalog weekly moving
+        // averages over weeks completed at their last scheduled session, materialized intrinsic
+        // values/blends, the daily RSI oscillators, the three Relative Volume periods and the
+        // fifteen Fundamental Metrics — all calculated from the earliest persisted bar (AUD-02) and
+        // over statements whose availability follows the point-in-time rule (AUD-03).
+        expect(DERIVED_STATE_REVISION).toBe(8);
         const fundamentalsVariants = snapshot.states
           .filter((state) =>
             ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"].includes(state.dataset),

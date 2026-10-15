@@ -30,6 +30,7 @@ import {
   RedlockLoadCoordinator,
   createStockDataRedisClient,
   logPriceBasisEvent,
+  MARKET_DATA_CALENDAR_EXCHANGE,
   type ProviderRequestEvent,
   type TradingCalendar,
 } from "@intrinsic/stock-data";
@@ -164,6 +165,8 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     },
   );
 
+  const policy = new EodFinalityPolicy(eod);
+  const etfSchedule = policy;
   const etfContexts: MonitorEtfContexts = {
     loader: {
       getSeries: (seriesId) => benchmarks.getSeries(seriesId),
@@ -179,6 +182,9 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       return benchmark.series.id;
     },
     publicationDelayMs: getMarketDataWorkerConfig().publicationDelayMs,
+    // The funds trade on the market-data venue's schedule, read through the same cached calendar.
+    isScheduledSession: (date) =>
+      etfSchedule.isScheduledSession(MARKET_DATA_CALENDAR_EXCHANGE, date),
   };
 
   return {
@@ -192,7 +198,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       reconstructionHistoryStart: (security) =>
         stockData.evaluationHistoryStart(security),
     },
-    policy: new EodFinalityPolicy(eod),
+    policy,
     etfContexts,
     // Built from the same gated provider as everything else, so a schedule fetch is throttled with
     // the rest of the cycle's traffic. Its cache is process memory by design — see

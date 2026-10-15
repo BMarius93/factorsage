@@ -10,8 +10,10 @@ import { BUILT_IN_STRATEGIES } from "./builtin-catalog";
  * The real catalog needs real securities and real market data, which the deterministic E2E stack
  * never has. This one is built over the fictional QA securities with the canonical Trend
  * Confirmation logic, and its Monitor state is written directly — one security active under two
- * monitors, one setup waiting for its trigger, and one earlier occurrence that a later session ended
- * — so the browser can be asserted against exact rows. Each change is written as the EOD evaluation
+ * monitors, one setup waiting for its trigger, one earlier occurrence that a later session ended,
+ * and one earlier occurrence that history established and a membership change ended
+ * administratively — so the browser can be asserted against exact rows, and against the rule that
+ * only observed changes are activity. Each change is written as the EOD evaluation
  * writes it (`docs/decisions/monitor-eod-v2.md` §3–§6): an observed transition with the version
  * that decided it and the evidence it compared, and a checkpoint at the newest seeded session so a
  * running worker has nothing left to evaluate and never moves the declared state. Its keys are
@@ -255,6 +257,65 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
               crossed: false,
               price: 90.25,
             }),
+          },
+        ],
+      });
+    }
+
+    // An earlier occurrence of Monitor B on QATEST2 that a reconstruction established — history, not
+    // an observation — and a membership change ended administratively. The Signal table shows it,
+    // marked from history; the activity feed shows neither change (`monitor-eod-v2.md` §6).
+    {
+      const monitorId = byKey.get(QA_BUILT_IN_KEYS.monitorB)!;
+      const security = securityId.get(QA_BETA.symbol)!;
+      const reconstructed = await tx.monitorSignal.create({
+        data: {
+          monitorId,
+          securityId: security,
+          levelId: buyLevel,
+          levelKind: "BUY",
+          strategyVersionId: version.id,
+          signalFingerprint: fingerprint,
+          hasTrigger: true,
+          observationDate: new Date("2026-08-20T00:00:00.000Z"),
+          observationPrice: 45.5,
+          detectedAt: new Date("2026-08-24T22:00:00.000Z"),
+          reconstructed: true,
+          resolvedAt: new Date("2026-09-12T14:00:00.000Z"),
+          resolvedObservationDate: null,
+          resolutionReason: "MEMBERSHIP_CHANGED",
+        },
+      });
+      await tx.monitorStateTransition.createMany({
+        data: [
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "INACTIVE",
+            toState: "ACTIVE",
+            reason: "RECONSTRUCTED",
+            origin: "HISTORY",
+            occurredAt: new Date("2026-08-24T22:00:00.000Z"),
+            observationDate: new Date("2026-08-20T00:00:00.000Z"),
+            signalId: reconstructed.id,
+            strategyVersionId: version.id,
+          },
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "ACTIVE",
+            toState: "RESOLVED",
+            reason: "MEMBERSHIP_CHANGED",
+            origin: "ADMINISTRATIVE",
+            occurredAt: new Date("2026-09-12T14:00:00.000Z"),
+            observationDate: null,
+            signalId: reconstructed.id,
           },
         ],
       });

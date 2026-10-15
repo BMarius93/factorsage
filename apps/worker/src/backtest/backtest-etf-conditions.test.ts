@@ -48,6 +48,7 @@ import type {
   ClaimedBacktestJob,
   StaleJobRecovery,
 } from "./job-repository.js";
+import { weekdaySessions } from "../shared/etf-context.test-helper.js";
 
 /**
  * ETF-sourced Conditions through the worker's real execution path: snapshot parsing with the
@@ -596,6 +597,7 @@ async function execute(
       etfContexts: {
         loader: etfLoader,
         publicationDelayMs: 30 * 60 * 1000,
+        isScheduledSession: weekdaySessions,
       },
       logger,
     },

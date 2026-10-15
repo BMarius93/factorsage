@@ -21,7 +21,11 @@ import { buildDailyDerivedState } from "./derived-state.js";
 import { addDays } from "./dates.js";
 import { referenceMovingAverage } from "./moving-average-oracle.test-helper.js";
 import { referenceWilderRsi } from "./wilder-rsi-oracle.test-helper.js";
-import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
+import {
+  aggregateCompletedWeeks,
+  resolveWeekSessionEnds,
+  startOfIsoWeek,
+} from "./weekly.js";
 
 const SERIES_ID = "series-etf-xlk";
 const DELAY_MS = 30 * 60 * 1000;
@@ -153,6 +157,91 @@ describe("stock/ETF methodology parity", () => {
       });
     }
   });
+});
+
+describe("stock and ETF weekly values on holiday calendars, evening by evening", () => {
+  // Good Friday, Independence Day (a Friday in 2025, observed on Friday 3 July 2026), Juneteenth
+  // (a Friday in 2026), Thanksgiving and Christmas: weeks that end on a Thursday or a Wednesday.
+  const holidays: LocalDate[] = [
+    "2025-04-18",
+    "2025-07-04",
+    "2025-11-27",
+    "2025-12-25",
+    "2026-01-01",
+    "2026-04-03",
+    "2026-06-19",
+    "2026-07-03",
+  ];
+  const isScheduledSession = async (date: LocalDate) =>
+    weekday(date) !== 0 && weekday(date) !== 6 && !holidays.includes(date);
+
+  it.each([3, 5, 8, 13, 21])(
+    "seed %i: every session's weekly value is the same on every later evening, for the fund and for a stock",
+    async (seed) => {
+      const all = barsOn(sessions("2025-01-06", 420, holidays), seed);
+      const sessionEnds = await resolveWeekSessionEnds({
+        dates: all.map((bar) => bar.date),
+        isScheduledSession,
+      });
+      const final = snapshotOf(readyContext(all, { sessionEnds }));
+      const stockPrices: DailyPrice[] = all.map((bar) => ({
+        securityId: "stock-1",
+        date: bar.date,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+      }));
+      const stockRows = buildDailyDerivedState({
+        prices: stockPrices,
+        weeklyBars: aggregateCompletedWeeks(
+          stockPrices,
+          stockPrices[stockPrices.length - 1]!.date,
+          { historyStart: stockPrices[0]!.date, historyStartOrigin: "LISTING" },
+          sessionEnds,
+        ),
+      });
+      const weekly = BENCHMARK_TECHNICAL_FIELDS.filter((field) => field.endsWith("w"));
+      // The stock path and the fund path: one value, bit for bit.
+      for (const field of weekly) {
+        const column = final.columns.get(field)!;
+        stockRows.forEach((row, index) => {
+          const value = row[field];
+          if (typeof value === "number") {
+            expect(column[index]).toBe(value);
+          } else {
+            expect(Number.isNaN(column[index])).toBe(true);
+          }
+        });
+      }
+      // Every evening of the last sixty sessions: the snapshot then answers each of its sessions
+      // exactly as the finished history does.
+      for (let end = all.length - 60; end <= all.length; end += 1) {
+        const prefix = all.slice(0, end);
+        const evening = snapshotOf(
+          readyContext(prefix, {
+            sessionEnds: await resolveWeekSessionEnds({
+              dates: prefix.map((bar) => bar.date),
+              isScheduledSession,
+            }),
+          }),
+        );
+        for (const field of weekly) {
+          const now = evening.columns.get(field)!;
+          const later = final.columns.get(field)!;
+          for (let index = 0; index < prefix.length; index += 1) {
+            if (Number.isNaN(now[index]!)) {
+              expect(Number.isNaN(later[index]!), `${field} ${prefix[index]!.date}`).toBe(true);
+            } else {
+              expect(now[index], `${field} ${prefix[index]!.date}`).toBe(later[index]);
+            }
+          }
+        }
+      }
+    },
+    60_000,
+  );
 });
 
 describe("independent numerical oracles", () => {
@@ -425,7 +514,7 @@ describe("listing boundaries and exact-session alignment", () => {
     ).not.toBeNaN();
   });
 
-  it("closes a holiday-shortened week on its own last session, counted by hand", () => {
+  it("closes a holiday-shortened week on its own last session, counted by hand", async () => {
     // Twenty-three weeks from Monday 2026-01-05, a session's close being 100 plus its position.
     // Two holidays: a Monday (week 3 opens on a Tuesday) and the Friday of week 21, so that week's
     // last session — its weekly close, and the day it becomes eligible — is a Thursday.
@@ -442,7 +531,16 @@ describe("listing boundaries and exact-session alignment", () => {
       close: 100 + position,
       volume: 1_000_000,
     }));
-    const snapshot = snapshotOf(readyContext(bars));
+    // The venue schedule that closed those two days, as the production composition reads it.
+    const sessionEnds = await resolveWeekSessionEnds({
+      dates,
+      isScheduledSession: async (date) =>
+        weekday(date) !== 0 &&
+        weekday(date) !== 6 &&
+        date !== mondayHoliday &&
+        date !== fridayHoliday,
+    });
+    const snapshot = snapshotOf(readyContext(bars, { sessionEnds }));
 
     // The weeks, grouped here by plain calendar arithmetic rather than by the production
     // aggregation: week N holds the sessions of days 7(N-1) .. 7(N-1)+4 after the first Monday.
@@ -483,8 +581,10 @@ describe("listing boundaries and exact-session alignment", () => {
     expect(sma20wOn("2026-06-01" as LocalDate)).toBeCloseTo(meanOfWeeks(2, 21), 10);
     // Week 3, opened by a holiday, is still one week: twenty weeks were counted, not nineteen.
     expect(weeklyClose.size).toBe(23);
-    // The last week's own close is never used: a later bar would be needed to prove it is over.
-    expect(sma20wOn("2026-06-12" as LocalDate)).toBeCloseTo(meanOfWeeks(3, 22), 10);
+    // The last week completes on its own Friday's finalized close: that Friday reads it, exactly
+    // as a backtest run later over that Friday reads it.
+    expect(sma20wOn("2026-06-11" as LocalDate)).toBeCloseTo(meanOfWeeks(3, 22), 10);
+    expect(sma20wOn("2026-06-12" as LocalDate)).toBeCloseTo(meanOfWeeks(4, 23), 10);
   });
 
   it("answers by exact session only: a missing session reads NaN, never a neighbour", () => {

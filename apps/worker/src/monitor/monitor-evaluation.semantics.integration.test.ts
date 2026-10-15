@@ -199,7 +199,7 @@ function evaluation(
     logger,
     {
       securityConcurrency: 1,
-      dependencyGiveUpMs: 24 * 60 * 60_000,
+      lateRecoveryMs: 24 * 60 * 60_000,
       now: () => clock.now,
     },
   ).run((cycle += 1), options.isAborted);

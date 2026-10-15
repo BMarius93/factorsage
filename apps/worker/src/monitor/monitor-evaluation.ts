@@ -21,6 +21,7 @@ import {
   withEtfOperandColumns,
   type EodFinalityPolicy,
   type FinalizedSession,
+  type ScheduledSessionCheck,
   type StockRefreshState,
 } from "@intrinsic/stock-data";
 import {
@@ -84,6 +85,8 @@ export type MonitorEtfContexts = {
   loader: EtfContextLoader;
   resolveSeriesId: (code: StrategyEtfSourceCode) => Promise<string>;
   publicationDelayMs: number;
+  /** The funds' venue schedule, for the week-completion rule the backtest applies too. */
+  isScheduledSession: ScheduledSessionCheck;
 };
 
 /** What the pass needs from the data layer — provider-free reads only. */
@@ -104,10 +107,17 @@ export type MonitorEvaluationOptions = {
   /** Closed sessions first read to reconstruct a level with no state; doubled until it rests. */
   reconstructionSessions?: number;
   /**
-   * How long after a session became final a missing ETF bar is waited for. Past it the session is
-   * decided with that ETF's columns absent — its rules `NOT_EVALUABLE`, never a carried value.
+   * The late-recovery horizon (`EOD_LATE_RECOVERY_MS`, `docs/decisions/monitor-eod-v2.md` §10):
+   * how long after a session became final a bar the security has not printed may still arrive.
+   *
+   * A member is never stepped past such a session while it is recoverable, so a bar published late
+   * is decided in order rather than skipped behind an advanced checkpoint. A stock's session stops
+   * being recoverable once a provider read issued at least this long after its finalization still
+   * found no bar (`lastTailSyncAt`): then it was genuinely not printed (a halt) and is passed. An
+   * ETF's missing session is waited for this long after finalization, then decided with that ETF's
+   * columns absent — its rules `NOT_EVALUABLE`, never a carried value.
    */
-  dependencyGiveUpMs: number;
+  lateRecoveryMs: number;
   now?: () => Date;
 };
 
@@ -139,6 +149,11 @@ export type MonitorEvaluationSummary = {
   membersAwaitingData: number;
   /** Members held back because an ETF their rules read does not hold the session yet. */
   membersAwaitingEtf: number;
+  /**
+   * Members held before a session the security (or an ETF its rules read) has not printed while a
+   * late bar may still arrive (`lateRecoveryMs`): stepping past it would skip the late bar forever.
+   */
+  membersAwaitingLateSession: number;
   /** Sessions decided, summed over members. */
   sessionsEvaluated: number;
   signalsOpened: number;
@@ -186,7 +201,7 @@ export class MonitorEodEvaluation {
     private readonly data: MonitorEvaluationData,
     private readonly policy: Pick<
       EodFinalityPolicy,
-      "expectedSession" | "decide" | "publicationDelayMs"
+      "expectedSession" | "isScheduledSession" | "publicationDelayMs"
     >,
     private readonly logger: StructuredLogger,
     private readonly options: MonitorEvaluationOptions,
@@ -224,6 +239,7 @@ export class MonitorEodEvaluation {
       membersCurrent: 0,
       membersAwaitingData: 0,
       membersAwaitingEtf: 0,
+      membersAwaitingLateSession: 0,
       sessionsEvaluated: 0,
       signalsOpened: 0,
       signalsClosed: 0,
@@ -487,6 +503,7 @@ export class MonitorEodEvaluation {
       loader: this.etfContexts.loader,
       now,
       publicationDelayMs: this.etfContexts.publicationDelayMs,
+      isScheduledSession: this.etfContexts.isScheduledSession,
       logger: this.logger,
       logContext: { component: "monitor" },
     });
@@ -522,15 +539,27 @@ export class MonitorEodEvaluation {
       state.latestVerifiedBar !== undefined &&
       state.derivedThrough !== undefined &&
       horizon !== undefined;
-    // The security will not print the expected session (a halt, a delisting): once storage has
-    // stopped asking, the session may be passed without an observation.
-    const decision = this.policy.decide(state, expected);
-    const sessionWillNotPrint =
-      decision.action === "SKIP" && decision.reason === "SESSION_NOT_PUBLISHED";
     if (!ready) {
       summary.membersAwaitingData += entries.length;
       return;
     }
+    // Sessions on or before this are no longer recoverable: a provider read issued at least the
+    // late-recovery horizon after their finalization has already happened, so a bar the security
+    // still has not printed for one of them was genuinely not printed. Anything later may yet
+    // arrive, and is never stepped past.
+    const confirmedThrough = this.confirmedThrough(state, input.now);
+    // A member through every session the security printed may be passed, without an observation,
+    // through the sessions it confirmably did not print — never into one that may still arrive. It
+    // is passed to the newest such *session*, so its checkpoint always names a session.
+    const passThrough =
+      (state.latestBar === undefined || state.latestBar <= horizon) &&
+      confirmedThrough > horizon
+        ? await this.newestSessionAfter(
+            security,
+            horizon,
+            minDefined(confirmedThrough, expected.session)!,
+          )
+        : undefined;
 
     // Which members have sessions to decide, and from where.
     const plans = entries.map((entry) => {
@@ -629,14 +658,14 @@ export class MonitorEodEvaluation {
       }
     }
 
-    // A member already through every session the security printed, whose expected session will not
-    // print, is passed to the expected session without an observation.
+    // A member already through every session the security printed is passed through the sessions
+    // the security confirmably did not print (a halt, a delisting), without an observation.
     const passOnly = plans.filter(
       (plan) =>
-        sessionWillNotPrint &&
+        passThrough !== undefined &&
         plan.from !== undefined &&
         plan.from >= horizon &&
-        plan.from < expected.session &&
+        plan.from < passThrough &&
         plan.waitingOn.length === 0,
     );
     for (const plan of passOnly) {
@@ -645,7 +674,7 @@ export class MonitorEodEvaluation {
         security,
         {
           previous: plan.stored,
-          next: expected.session,
+          next: passThrough!,
           basisGeneration: state.priceBasisGeneration,
           membershipStart: plan.entry.membershipStart,
         },
@@ -733,16 +762,42 @@ export class MonitorEodEvaluation {
             )
           : read.frame;
 
-      const decided = work.map((plan) =>
-        this.decideEntry(
+      // A session the security, or an ETF a member's rules read, has not printed while a late bar
+      // may still arrive holds each member before it: stepping past would skip that bar forever.
+      const stockGaps = await this.recoverableGaps(
+        security,
+        frame,
+        { from, confirmedThrough },
+        horizon,
+      );
+      const decided = work.map((plan) => {
+        const held = this.holdAtRecoverableGap(
           plan,
           frame,
+          stockGaps,
+          input.etfSnapshots,
+          input.sectorCode,
+          input.now,
+        );
+        if (held.held) {
+          summary.membersAwaitingLateSession += 1;
+          this.logger.debug({
+            event: "monitor.late-session.waiting",
+            cycleSequence: input.cycleSequence,
+            monitorId: plan.entry.prepared.monitor.monitorId,
+            symbol: security.symbol,
+            session: held.gap,
+            source: held.source,
+          });
+        }
+        return this.decideEntry(
+          { ...plan, through: held.through },
+          frame,
           complete,
-          sessionWillNotPrint,
+          held.held ? undefined : passThrough,
           horizon,
-          expected,
-        ),
-      );
+        );
+      });
       if (decided.some((item) => item.needsDeeperHistory) && !complete) {
         summary.reconstructionHistoryExtensions += 1;
         sessions *= 2;
@@ -838,12 +893,168 @@ export class MonitorEodEvaluation {
     });
   }
 
-  /** The newest date whose finalization is older than the dependency give-up bound. */
+  /** The newest date whose finalization is older than the late-recovery horizon. */
   private abandonedThrough(now: Date): LocalDate {
     return eodCutoffDate(
-      new Date(now.getTime() - this.options.dependencyGiveUpMs),
+      new Date(now.getTime() - this.options.lateRecoveryMs),
       this.policy.publicationDelayMs,
     );
+  }
+
+  /**
+   * The newest session whose missing bar is confirmed absent: one a provider read issued at least
+   * the late-recovery horizon after its finalization still did not return. Evidence, not the clock:
+   * while the stock EOD child is not reading, nothing is confirmed, and a late bar it later finds
+   * is still decided in order. A security never read at all falls back to the clock alone.
+   */
+  private confirmedThrough(state: StockRefreshState, now: Date): LocalDate {
+    const readAt =
+      state.lastTailSyncAt === undefined
+        ? undefined
+        : Date.parse(state.lastTailSyncAt);
+    const evidence =
+      readAt === undefined || !Number.isFinite(readAt) ? now.getTime() : readAt;
+    return eodCutoffDate(
+      new Date(evidence - this.options.lateRecoveryMs),
+      this.policy.publicationDelayMs,
+    );
+  }
+
+  /**
+   * The newest scheduled session in `(after, through]`, or `undefined` when there is none. A day
+   * the schedule cannot answer for is not passed to: passing is the one move that must be sure.
+   */
+  private async newestSessionAfter(
+    security: Security,
+    after: LocalDate,
+    through: LocalDate,
+  ): Promise<LocalDate | undefined> {
+    for (let date = through; date > after; date = addDays(date, -1)) {
+      if (
+        (await this.policy.isScheduledSession(security.exchangeCode, date)) ===
+        true
+      ) {
+        return date;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The scheduled sessions after `confirmedThrough`, up to `horizon`, that the frame holds no bar
+   * for: each may still be printed late. A day the venue schedule cannot answer for is taken to be
+   * a session — holding a member is recoverable, skipping a late bar is not. Only dates the frame
+   * was read for are asked about (`range.from` on): it starts at the day after the oldest member's
+   * checkpoint, or deeper.
+   */
+  private async recoverableGaps(
+    security: Security,
+    frame: EvaluationFrame,
+    range: { from: LocalDate; confirmedThrough: LocalDate },
+    horizon: LocalDate,
+  ): Promise<LocalDate[]> {
+    const printed = new Set(frame.dates);
+    const gaps: LocalDate[] = [];
+    for (
+      let date =
+        range.confirmedThrough >= range.from
+          ? addDays(range.confirmedThrough, 1)
+          : range.from;
+      date <= horizon;
+      date = addDays(date, 1)
+    ) {
+      if (printed.has(date)) {
+        continue;
+      }
+      const scheduled = await this.policy.isScheduledSession(
+        security.exchangeCode,
+        date,
+      );
+      if (scheduled !== false) {
+        gaps.push(date);
+      }
+    }
+    return gaps;
+  }
+
+  /**
+   * Where one member is held: before the first recoverable gap after its checkpoint — the
+   * security's own, or a session an ETF its rules read has not printed although the stock did,
+   * while that ETF's bar may still arrive.
+   */
+  private holdAtRecoverableGap(
+    plan: {
+      entry: Entry;
+      from: LocalDate | undefined;
+      through: LocalDate | undefined;
+    },
+    frame: EvaluationFrame,
+    stockGaps: readonly LocalDate[],
+    snapshots: EtfTechnicalSnapshots,
+    sectorCode: StrategyEtfSourceCode | null,
+    now: Date,
+  ):
+    | { held: false; through: LocalDate | undefined }
+    | {
+        held: true;
+        through: LocalDate | undefined;
+        gap: LocalDate;
+        source: "STOCK" | StrategyEtfSourceCode;
+      } {
+    const { entry, from, through } = plan;
+    if (through === undefined) {
+      return { held: false, through };
+    }
+    const after = (date: LocalDate) => from === undefined || date > from;
+    let gap:
+      { date: LocalDate; source: "STOCK" | StrategyEtfSourceCode } | undefined;
+    const stockGap = stockGaps.find((date) => after(date) && date <= through);
+    if (stockGap !== undefined) {
+      gap = { date: stockGap, source: "STOCK" };
+    }
+    const codes = [
+      ...entry.prepared.etfCodes,
+      ...(entry.prepared.readsSector && sectorCode ? [sectorCode] : []),
+    ];
+    const abandoned = this.abandonedThrough(now);
+    for (const code of codes) {
+      const snapshot = snapshots.get(code);
+      const listed = snapshot?.dates[0];
+      if (!snapshot || listed === undefined) {
+        continue;
+      }
+      for (const date of frame.dates) {
+        if (
+          after(date) &&
+          date <= through &&
+          date > listed &&
+          date > abandoned &&
+          !snapshot.index.has(date) &&
+          (gap === undefined || date < gap.date)
+        ) {
+          gap = { date, source: code };
+          break;
+        }
+      }
+    }
+    if (gap === undefined) {
+      return { held: false, through };
+    }
+    // The newest printed session before the gap; with none after the checkpoint, nothing moves.
+    let heldThrough: LocalDate | undefined;
+    for (const date of frame.dates) {
+      if (date >= gap.date) {
+        break;
+      }
+      heldThrough = date;
+    }
+    return {
+      held: true,
+      through:
+        heldThrough !== undefined && after(heldThrough) ? heldThrough : from,
+      gap: gap.date,
+      source: gap.source,
+    };
   }
 
   private decideEntry(
@@ -858,9 +1069,10 @@ export class MonitorEodEvaluation {
     },
     frame: EvaluationFrame,
     complete: boolean,
-    sessionWillNotPrint: boolean,
+    /** Through where the security confirmably printed nothing more, when a member may pass to it. */
+    passThrough: LocalDate | undefined,
+    /** The newest session the security printed and is ready for. */
     horizon: LocalDate,
-    expected: FinalizedSession,
   ): {
     plan: typeof plan;
     levels: LevelSessionsWrite[];
@@ -962,14 +1174,14 @@ export class MonitorEodEvaluation {
         levels.push(decision.write);
       }
     }
-    // Progress: the newest session decided — or, when that is the security's newest and its
-    // expected session will not print, the expected session itself.
+    // Progress: the newest session decided — or, when that is the security's newest printed one,
+    // through the sessions after it the security confirmably did not print.
     const next =
       lastStepped !== undefined &&
-      sessionWillNotPrint &&
+      passThrough !== undefined &&
       lastStepped >= horizon &&
-      horizon < expected.session
-        ? expected.session
+      lastStepped < passThrough
+        ? passThrough
         : lastStepped;
     return {
       plan,

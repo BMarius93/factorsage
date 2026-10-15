@@ -183,26 +183,35 @@ function oracleByDate(
 ): Map<LocalDate, Map<string, number | undefined>> {
   const closes = bars.map((bar) => bar.close);
   const volumes = bars.map((bar) => bar.volume);
-  // Weeks: Monday-start calendar weeks, written out here; the week holding the newest bar is still
-  // in progress and excluded; a week's close is its last bar's, usable from that bar's own date.
+  // Weeks: Monday-start calendar weeks, written out here. On this weekday calendar every week's
+  // last scheduled session is its Friday: a week is complete once that Friday is on or before the
+  // newest bar, its close is its last bar's, and it is usable from the Friday on — a fund that did
+  // not print the Friday reads it from its next bar, never from the Thursday before.
   const mondayOf = (date: LocalDate): string => {
     const day = new Date(`${date}T00:00:00.000Z`);
     const back = (day.getUTCDay() + 6) % 7;
     return new Date(day.getTime() - back * 86_400_000).toISOString().slice(0, 10);
   };
-  const currentWeek = mondayOf(bars[bars.length - 1]!.date);
-  const weeks: { lastDate: LocalDate; close: number }[] = [];
+  const fridayOf = (date: LocalDate): string =>
+    new Date(Date.parse(`${mondayOf(date)}T00:00:00.000Z`) + 4 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+  const newest = bars[bars.length - 1]!.date;
+  const weeks: { lastDate: LocalDate; availableFrom: LocalDate; close: number }[] = [];
   for (const bar of bars) {
-    const monday = mondayOf(bar.date);
-    if (monday === currentWeek) {
+    if (fridayOf(bar.date) > newest) {
       continue;
     }
     const previous = weeks[weeks.length - 1];
-    if (previous && mondayOf(previous.lastDate) === monday) {
+    if (previous && mondayOf(previous.lastDate) === mondayOf(bar.date)) {
       previous.lastDate = bar.date;
       previous.close = bar.close;
     } else {
-      weeks.push({ lastDate: bar.date, close: bar.close });
+      weeks.push({
+        lastDate: bar.date,
+        availableFrom: fridayOf(bar.date),
+        close: bar.close,
+      });
     }
   }
   const weeklyCloses = weeks.map((week) => week.close);
@@ -222,7 +231,7 @@ function oracleByDate(
       byKey.set(`sector:series:${series.id}`, (_index, date) => {
         let latest = -1;
         weeks.forEach((week, position) => {
-          if (week.lastDate <= date) {
+          if (week.availableFrom <= date) {
             latest = position;
           }
         });

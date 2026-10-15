@@ -44,6 +44,12 @@ import {
   type EtfContextLoader,
 } from "./etf-context.js";
 
+/** The bench's synthetic funds trade every weekday: no holiday ever ends a week early here. */
+async function weekdaySessions(date: string): Promise<boolean> {
+  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  return day !== 0 && day !== 6;
+}
+
 /**
  * Developer-only benchmark of the ETF technical context a Strategy's ETF conditions read
  * (`ai/architecture/strategy-etf-conditions.md` §9).
@@ -350,6 +356,7 @@ async function main(): Promise<void> {
         loader: loaderOver(service(refusing, coordinator)),
         now,
         publicationDelayMs,
+        isScheduledSession: weekdaySessions,
         logger,
       });
 
@@ -533,6 +540,7 @@ async function main(): Promise<void> {
         loader: loaderOver(service(refusing)),
         now,
         publicationDelayMs,
+        isScheduledSession: weekdaySessions,
         logger,
       });
       const sectorLoadMs = elapsed(loadStarted);

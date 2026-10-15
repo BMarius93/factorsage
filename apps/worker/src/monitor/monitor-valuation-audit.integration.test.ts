@@ -251,7 +251,7 @@ describeInfrastructure(
         logger,
         {
           securityConcurrency: 1,
-          dependencyGiveUpMs: 24 * 60 * 60_000,
+          lateRecoveryMs: 24 * 60 * 60_000,
           now: () => now,
         },
       ).run(cycles);

@@ -441,6 +441,13 @@ instant and materialized. A member whose security is not ready waits at its chec
 decided on a provisional or carried value, so an outage delays evaluation and never resolves or
 re-emits anything. When the data arrives, the missed sessions are stepped in order.
 
+A member is also never stepped past a session its security — or a fund its rules read — has not
+printed while that bar may still arrive (`EOD_LATE_RECOVERY_MS`, four days;
+`docs/decisions/monitor-eod-v2.md` §10). It is decided up to the session before and waits there; a
+late bar is then decided on its own session, in order, exactly once. A stock's missing session is
+given up only once a provider read issued at least the horizon after its finalization still found no
+bar (a halt): evidence, not the clock. An exchange closure is not a gap — the venue schedule says so.
+
 A failure is **per security**: logged (`monitor.symbol.failed`), counted in the pass
 summary, and the pass completes the others. Each member is one transaction, so nothing is
 half-applied, and the next pass resumes from the checkpoints.

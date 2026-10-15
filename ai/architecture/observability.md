@@ -135,7 +135,8 @@ Treat event names and standard field names as operational contracts. Rename them
 
 The Monitor worker's lifecycle is one event family, `monitor.cycle.*`: `claimed`, `completed`
 (with `durationMs`, `expectedSession`, `calendar`, `monitors`, `securities`, `members`,
-`membersCurrent`, `membersAwaitingData`, `membersAwaitingEtf`, `sessionsEvaluated`,
+`membersCurrent`, `membersAwaitingData`, `membersAwaitingEtf`, `membersAwaitingLateSession`,
+`sessionsEvaluated`,
 `signalsOpened`, `signalsClosed`, `transitionsRecorded`, `levelsReconstructed`, `contended`,
 `staleConfiguration`, `securitiesFailed`), `failed`, `failure-recorded`, `recovered`,
 `lease-lost`, `abandoned`, `released`, and `over-cadence` — a `warn` emitted when a completed cycle
@@ -143,8 +144,10 @@ ran longer than `MONITOR_SCAN_INTERVAL_MS`, which is the one capacity signal an 
 off a single line otherwise. The cycle evaluates finalized sessions from PostgreSQL and makes no
 provider request (`docs/decisions/monitor-eod-v2.md` §3); a single security's failure is
 `monitor.symbol.failed` and does not fail the cycle, a re-base met mid-read is
-`monitor.evaluation.history-rebased`, and an unreadable venue schedule is
-`monitor.evaluation.calendar-unavailable`. Provider trouble belongs to the stock EOD child
+`monitor.evaluation.history-rebased`, an unreadable venue schedule is
+`monitor.evaluation.calendar-unavailable`, and a member held before a session that may still be
+published late is `monitor.late-session.waiting` (debug, counted in `membersAwaitingLateSession`;
+`docs/decisions/monitor-eod-v2.md` §10). Provider trouble belongs to the stock EOD child
 (`stock-eod.*`). The durable `MonitorScanSchedule` row
 (`lastCompletedAt`, `consecutiveFailures`, `lastError`, `dueAt`, `heartbeatAt`) is the source of
 truth for "is scanning alive", independent of any log pipeline.
