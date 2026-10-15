@@ -2,8 +2,7 @@ import { PrismaClient } from "@intrinsic/database";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createLogger } from "@intrinsic/observability";
-import type { MonitorCycle } from "./monitor-cycle.js";
-import { MonitorWorkerLoop } from "./monitor-loop.js";
+import { MonitorWorkerLoop, type MonitorPass } from "./monitor-loop.js";
 import {
   MONITOR_SCAN_SCHEDULE_ID,
   PrismaMonitorScanRepository,
@@ -194,8 +193,8 @@ describe("monitor scan schedule", () => {
   });
 
   it("doubles the retry delay as failures repeat, up to the ceiling", async () => {
-    // A persistent provider outage must not re-issue the whole universe's quote request on the
-    // short retry interval forever — that is more often than a healthy cycle would run at all.
+    // A persistent outage must not re-run the whole evaluation on the short retry interval
+    // forever — that is more often than a healthy cycle would run at all.
     const delays: number[] = [];
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await repository.claimDueScan(workerA, now, LEASE_MS);
@@ -283,12 +282,12 @@ describe("monitor scan schedule", () => {
   it("records a thrown cycle as a failure and backs the next one off", async () => {
     await resetSchedule(new Date(Date.now() - 1_000));
 
-    const failing = {
+    const failing: MonitorPass = {
       run: async () => {
         loop.stop();
         throw new Error("provider unavailable");
       },
-    } as unknown as MonitorCycle;
+    };
 
     const loop = new MonitorWorkerLoop(
       repository,

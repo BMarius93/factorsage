@@ -102,12 +102,10 @@ export interface FmpRequestBudget {
  * What one request of an endpoint is about.
  *
  * - `SECURITY` — exactly one symbol, named by the `symbol` parameter;
- * - `SYMBOL_LIST` — as many symbols as the caller puts in one parameter;
  * - `EXCHANGE` — a whole venue: its listings or its calendar;
  * - `DIRECTORY` — reference data about no security at all: the members of Congress.
  */
-export type FmpEndpointSubject =
-  "SECURITY" | "SYMBOL_LIST" | "EXCHANGE" | "DIRECTORY";
+export type FmpEndpointSubject = "SECURITY" | "EXCHANGE" | "DIRECTORY";
 
 export type FmpEndpointClass = {
   readonly subject: FmpEndpointSubject;
@@ -158,7 +156,6 @@ export const FMP_ENDPOINT_CLASSES: ReadonlyMap<string, FmpEndpointClass> =
       "holidays-by-exchange",
       { subject: "EXCHANGE", dataset: "EXCHANGE_CALENDAR" },
     ],
-    ["batch-quote", { subject: "SYMBOL_LIST", dataset: "CURRENT_QUOTE" }],
   ]);
 
 /** What an endpoint that is not about one security answers for, as a refusal says it. */
@@ -166,7 +163,6 @@ const NON_SECURITY_SUBJECTS: Readonly<
   Record<Exclude<FmpEndpointSubject, "SECURITY">, string>
 > = {
   EXCHANGE: "a whole exchange",
-  SYMBOL_LIST: "a caller-supplied list of symbols",
   DIRECTORY: "a directory that names no security",
 };
 

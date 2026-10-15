@@ -4,16 +4,18 @@ import {
   type StrategyDefinition,
 } from "@intrinsic/contracts";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
-import type { DailyPrice, Security } from "@intrinsic/domain";
+import type { Security } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MonitorCycle } from "./monitor-cycle.js";
+import { MonitorEodEvaluation } from "./monitor-evaluation.js";
 import {
-  FixtureCalendar,
-  FixtureLoader,
+  afterClose,
+  EodFixtureData,
+  fixturePolicy,
   longHistory,
-} from "./monitor-fixtures.test-helper.js";
+  scopedRepository,
+} from "./monitor-evaluation.test-helper.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
 // Before any PrismaClient in this file is constructed.
@@ -22,20 +24,22 @@ useTestDatabase();
 /**
  * The Monitor lifecycle as a table of named sessions and the transitions each one must produce.
  *
- * `monitor-cycle.integration.test.ts` proves a wide surface one behaviour at a time. This suite is
- * the narrow complement the data-correctness audit asked for: every expectation below is **written
- * out** — the state, how many Signals exist, which one is open, the session the state began on —
- * rather than read back from whatever the implementation did. A defect that changed the lifecycle's
- * meaning could satisfy a test that derives its expectation from the code; it cannot satisfy a
- * table someone wrote from `ai/product/monitors.md`.
+ * Every expectation below is **written out** — the state, how many Signals exist, which one is
+ * open, the session the state began on — rather than read back from whatever the implementation
+ * did. A defect that changed the lifecycle's meaning could satisfy a test that derives its
+ * expectation from the code; it cannot satisfy a table someone wrote from `ai/product/monitors.md`.
  *
- * It is deterministic and fixture-driven: fixed closes, a fixed quote per session, an injected
- * clock. Only the market-data and calendar boundaries are replaced; the repository, the transitions
- * and the Signal rows are the production ones against real PostgreSQL.
+ * Each step is one **finalized session**: its close is stored, and the EOD evaluation runs after it
+ * became final (`docs/decisions/monitor-eod-v2.md` §3). Only storage is replaced
+ * (`EodFixtureData`); the evaluation, the transitions and the Signal rows are the production ones
+ * against real PostgreSQL. The first step of a scenario is the Monitor's first evaluation, which
+ * reconstructs from the history before it — the result a full replay reaches.
  */
 
 const prisma = new PrismaClient();
-const repository = new PrismaMonitorRepository(prisma);
+const real = new PrismaMonitorRepository(prisma);
+const running = new Set<string>();
+const repository = scopedRepository(real, () => running);
 const logger = createLogger({ service: "worker", level: "silent" });
 const suffix = randomUUID().replaceAll("-", "").slice(0, 6);
 
@@ -137,12 +141,33 @@ function triggerDefinition(): StrategyDefinition {
   };
 }
 
+/** A condition on another series than the trigger's, so a setup can begin without a crossing. */
+function waitingDefinition(): StrategyDefinition {
+  return {
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
+    buyLevels: [
+      {
+        id: "buy-1",
+        percentage: 100,
+        signal: {
+          conditions: [
+            {
+              id: "c-buy",
+              metric: { kind: "PRICE" },
+              operator: "IS_ABOVE",
+              value: { kind: "SERIES", seriesId: "SMA_50D" },
+            },
+          ],
+          trigger: priceCrossesAboveSma("t-buy"),
+        },
+      },
+    ],
+    sellLevels: [],
+  };
+}
+
 /**
  * Thirty flat closes at 100, ending on Friday 2026-02-27, so a 20-bar SMA is warm and equals 100.
- *
- * Every quote below stays inside the ex-date hold's band of the last close (70 to 140): a larger
- * move is withheld as a possible unadjusted split (`historical-price-basis-v1.md`, §7), which is
- * not what these scenarios are about.
  */
 const FLAT_HISTORY = Array.from({ length: 30 }, () => 100);
 
@@ -174,9 +199,9 @@ type Expectation = {
 };
 
 type Step = {
-  /** The session the cycle runs on. */
+  /** The session evaluated: its close is stored, and the evaluation runs once it is final. */
   readonly session: string;
-  /** The quote the loader reports, or null for "no current data". */
+  /** The session's close, or null when the security printed no bar that day. */
   readonly price: number | null;
   /** Membership changes applied before the cycle runs. */
   readonly membership?: "remove" | "add";
@@ -188,8 +213,6 @@ type Scenario = {
   readonly levelId: string;
   readonly definition: StrategyDefinition;
   readonly closes: readonly number[];
-  /** True when reconstruction can see the history's indicator columns. */
-  readonly history?: boolean;
   readonly steps: readonly Step[];
 };
 
@@ -356,14 +379,16 @@ const SCENARIOS: readonly Scenario[] = [
         session: "2026-03-04",
         price: 130,
         membership: "add",
-        // The forgotten state cannot be resumed, so the match is a new occurrence dated to the
-        // session that observed it.
+        // The forgotten state is not resumed: the member is reconstructed from its history, so the
+        // new occurrence is dated to the session the condition has held since — March 2, the result
+        // a full replay reaches — and is marked as established by history.
         expected: {
           state: "ACTIVE",
           signals: 2,
           open: 1,
-          since: "2026-03-04",
-          observed: "2026-03-04",
+          since: "2026-03-02",
+          observed: "2026-03-02",
+          reconstructed: true,
         },
       },
     ],
@@ -415,14 +440,16 @@ const SCENARIOS: readonly Scenario[] = [
   {
     name: "a setup waiting for its trigger is PENDING_TRIGGER with no Signal",
     levelId: "buy-1",
-    definition: triggerDefinition(),
-    closes: [...FLAT_HISTORY, 110, 112],
+    definition: waitingDefinition(),
+    // A fall from 120 to 100, then a recovery: the price crossed its 20-day average at 108 while it
+    // was still below its 50-day one, so that crossing armed nothing.
+    closes: [...Array(50).fill(120), ...Array(15).fill(100), 104, 108, 112],
     steps: [
       {
         session: "2026-03-02",
-        // Above the average, and it was already above it yesterday: the conditions hold and
-        // nothing crossed today.
-        price: 114,
+        // Above its 50-day average now (113.20), and already above its 20-day one yesterday: the
+        // condition holds and nothing crossed today.
+        price: 116,
         expected: {
           state: "PENDING_TRIGGER",
           signals: 0,
@@ -437,7 +464,6 @@ const SCENARIOS: readonly Scenario[] = [
     levelId: "buy-1",
     definition: triggerDefinition(),
     closes: CROSSED_HISTORY,
-    history: true,
     steps: [
       {
         session: "2026-03-02",
@@ -573,13 +599,9 @@ describe("Monitor transitions (fixture table)", () => {
         security,
       });
 
-      const loader = new FixtureLoader([security]);
-      loader.prices.set(
-        security.id,
-        longHistory(security.id, scenario.closes) as DailyPrice[],
-      );
-      loader.historyFrames = scenario.history ?? false;
-      const calendar = new FixtureCalendar();
+      running.add(monitorId);
+      const data = new EodFixtureData([security]);
+      data.prices.set(security.id, longHistory(security.id, scenario.closes));
 
       for (const step of scenario.steps) {
         if (step.membership === "remove") {
@@ -591,15 +613,22 @@ describe("Monitor transitions (fixture table)", () => {
             data: { stockListId, securityId: security.id },
           });
         }
-        loader.currentPrice = step.price;
-        const cycle = new MonitorCycle(repository, loader, calendar, logger, {
-          symbolConcurrency: 1,
-          quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
-          // 10:00 New York on the named session: the cycle derives the observation date from it.
-          now: () => new Date(`${step.session}T15:00:00.000Z`),
-        });
+        if (step.price !== null) {
+          data.addBar(security.id, step.session, step.price);
+        }
+        const clock = { now: afterClose(step.session) };
         cycleSequence += 1;
-        await cycle.run(cycleSequence);
+        await new MonitorEodEvaluation(
+          repository,
+          data,
+          fixturePolicy(clock),
+          logger,
+          {
+            securityConcurrency: 1,
+            dependencyGiveUpMs: 24 * 60 * 60_000,
+            now: () => clock.now,
+          },
+        ).run(cycleSequence);
 
         const actual = await observedState(monitorId, scenario.levelId);
         const message = `${scenario.name} @ ${step.session}`;
@@ -622,10 +651,7 @@ describe("Monitor transitions (fixture table)", () => {
         }
       }
 
-      await prisma.monitor.update({
-        where: { id: monitorId },
-        data: { enabled: false },
-      });
+      running.delete(monitorId);
     });
   }
 
@@ -642,17 +668,23 @@ describe("Monitor transitions (fixture table)", () => {
       definition: triggerDefinition(),
       security,
     });
-    const loader = new FixtureLoader([security]);
-    const prices = longHistory(security.id, CROSSED_HISTORY) as DailyPrice[];
-    loader.prices.set(security.id, prices);
-    loader.historyFrames = true;
-    loader.currentPrice = 118;
-    const scan = new Date("2026-03-02T15:00:00.000Z");
-    await new MonitorCycle(repository, loader, new FixtureCalendar(), logger, {
-      symbolConcurrency: 1,
-      quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
-      now: () => scan,
-    }).run((cycleSequence += 1));
+    running.add(monitorId);
+    const data = new EodFixtureData([security]);
+    const prices = longHistory(security.id, CROSSED_HISTORY);
+    data.prices.set(security.id, prices);
+    data.addBar(security.id, "2026-03-02", 118);
+    const scan = afterClose("2026-03-02");
+    await new MonitorEodEvaluation(
+      repository,
+      data,
+      fixturePolicy({ now: scan }),
+      logger,
+      {
+        securityConcurrency: 1,
+        dependencyGiveUpMs: 24 * 60 * 60_000,
+        now: () => scan,
+      },
+    ).run((cycleSequence += 1));
 
     const crossingDate = prices[CROSSING_INDEX]!.date;
     const actual = await observedState(monitorId, "buy-1");
@@ -664,9 +696,6 @@ describe("Monitor transitions (fixture table)", () => {
     expect(actual.lifecycleSince?.toISOString()).toBe(scan.toISOString());
     expect(crossingDate < "2026-03-02").toBe(true);
 
-    await prisma.monitor.update({
-      where: { id: monitorId },
-      data: { enabled: false },
-    });
+    running.delete(monitorId);
   });
 });

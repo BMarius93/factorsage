@@ -16,27 +16,34 @@ Quick answers (each points at the entry and the owner document):
 - *What is live and what is snapshotted?* A Monitor reads the newest Strategy version and the
   current List membership at the start of every cycle (1, 2); a backtest snapshots everything at
   submission (`product/backtests.md`).
-- *What does a Monitor actually evaluate?* Closed persisted history plus the provider's last trade
-  as a provisional row for the last-trade session (3); every level of every member (2).
+- *What does a Monitor actually evaluate?* Every finalized session of each current member, in
+  order, from a durable checkpoint, read from PostgreSQL alone — no quote and no provisional row (3;
+  `docs/decisions/monitor-eod-v2.md` §3); every level of every member (2).
 - *What identifies a market observation?* `(securityId, exchange session date)` (3).
 - *When exactly is a Signal emitted?* When a level's durable lifecycle enters `ACTIVE` — Conditions
   becoming true, or a fresh Trigger firing while the Conditions hold — and never on a repeated scan
   (4; `docs/decisions/builtin-dashboard-signals-v1.md`).
 - *What happens to active Signals after Strategy/List changes?* Reset only for levels whose logic
   or id changed; resolved for removed members; untouched by unrelated edits (1, 2).
-- *How do Monitor and Backtest evaluation differ?* Same evaluator; live observation, bounded
-  recomputation of daily series, carried-forward weekly/intrinsic values, no position (5).
+- *How do Monitor and Backtest evaluation differ?* Same evaluator and the same finalized frame; the
+  Monitor steps one session at a time from a checkpoint and has no position (5).
 - *What survives a restart?* Everything: every decision is re-derived from PostgreSQL rows (4, 8).
 - *What can be recomputed?* Every Redis key and every derived series (6, 7).
 - *What is PostgreSQL authoritative for?* All user-owned data, all history, all Monitor state and
   the two claim protocols. *Redis?* Nothing durable; projections and coordination only (7, 8).
-- *Which work is global and which is per-user?* Quotes, hydration and frames are per security
-  and shared; evaluation and Signal state are per Monitor (10).
+- *Which work is global and which is per-user?* Hydration, the stock EOD preparation and frames
+  are per security and shared; evaluation and Signal state are per Monitor (10).
 - *Which behaviours are deliberate product decisions still open?* `product/monitors.md`,
   "Open product decisions" (11–13).
 - *Is the stored close purely split-adjusted?* No. It also carries the provider's spin-off
   adjustments, which share counts do not follow, so Margin of Safety is biased before them. A
   split after first load would also leave a split-sized step in the stored close (15).
+
+**Note (2026-10-15, Monitor EOD V2 step 8).** Evidence that names `monitor-cycle.ts`,
+`monitor-cycle.integration.test.ts`, `monitor-frame.ts`, `decideLevel` or the quote read points at
+the V1 cycle, which step 8 deleted (`docs/decisions/monitor-eod-v2.md` §8). The behaviours that
+still hold are pinned by the `monitor-evaluation*.integration.test.ts` suites,
+`monitor-transitions.fixture.test.ts` and `session-decision.test.ts`.
 
 ---
 
@@ -239,6 +246,10 @@ session became final.
 order, from a durable checkpoint, so the quote-dating rules above describe only the V1 cycle kept
 for the capacity bench until step 8. Occurrences it recorded are labelled `LIVE_QUOTE`.
 
+**Follow-up (2026-10-15, Monitor EOD V2 step 8).** The V1 cycle, the quote read and its dating
+rules, and the provisional Monitor frame are deleted, and the FMP client has no quote endpoint. An
+observation is a finalized session's stored close, dated by that session.
+
 ---
 
 ## 4. Signal identity and lifecycle
@@ -338,6 +349,13 @@ provisional in the run's diagnostics. Not changed.
 
 **Action.** `ai/product/monitors.md` ("How Monitor evaluation differs from a backtest"),
 `ai/product/backtests.md` ("The last day may be provisional").
+
+**Follow-up (2026-10-15, Monitor EOD V2 step 8).** Divergences 1, 2, 3 and 5 are gone. The Monitor
+reads the frame a backtest reads (`readFinalizedEvaluationFrame`: materialized series, each
+session's own weekly, intrinsic and valuation values, no quote float) and steps it one finalized
+session at a time; `monitor-valuation-audit.integration.test.ts` asserts that the transitions it
+records equal the lifecycle the backtest frame produces. Divergence 4 (`Gain` / `Loss`) remains.
+`monitor-frame.ts` and its recomputation are deleted.
 
 ---
 
@@ -536,6 +554,13 @@ size cap is a separate product decision (investigation 11).
 
 **Action.** None in code; numbers recorded here.
 
+**Follow-up (2026-10-15, Monitor EOD V2 steps 3 and 8).** The first mitigation is what the EOD
+evaluation does: it reads PostgreSQL alone, with no quote batch and no Redis residency, so the `U`
+versus `R` boundary no longer applies to Monitor evaluation. The provider and cache work moved to
+the stock EOD child, once per security per session, and the resident bound applies there: at
+U = 500 a session took 190 s with R = 100 and 80 s with R = 1,000. Both are measured in
+`production-capacity.md`.
+
 ---
 
 ## 11. Product-model contradictions
@@ -599,6 +624,11 @@ duration differs.
 **Finding.** **Product decision required** (recorded in `ai/product/monitors.md`). No code change:
 resolving on deactivation would be a new rule, not a fix.
 
+**Follow-up (2026-10-15, Monitor EOD V2 step 8).** The quote window is gone. A security that stops
+printing bars has no new session to decide: its members stay at the last session it printed
+(`docs/decisions/monitor-eod-v2.md` §3.7), and every latched state, its Signal included, stays as it
+was — the same "no observation changes nothing" rule. The product decision stands.
+
 ---
 
 ## 13. Scanning outside trading sessions
@@ -654,7 +684,8 @@ Asked after 1–13, each traced far enough to be sure, none producing new inform
   alert exists for a cadence that has silently become "as fast as possible" (observability note).
 - **Same-symbol collision in the quote batch** (`getCurrentObservations` keys by ticker): a
   `Security.providerSymbol` is unique, a listing transfer updates the row in place, and FMP's symbol
-  is the ticker, so two catalog rows cannot share a ticker in practice.
+  is the ticker, so two catalog rows cannot share a ticker in practice. (The quote batch was deleted
+  by Monitor EOD V2 step 8; evaluation is keyed by security id.)
 
 Stopping here: three consecutive investigations confirmed already-understood behaviour.
 

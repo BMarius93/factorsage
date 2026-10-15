@@ -432,7 +432,7 @@ and checked rather than assumed.
 | PostgreSQL | Real — `TEST_DATABASE_URL` (`intrinsic_value_test`), never `DATABASE_URL` | launcher: `DATABASE_URL=$TEST_DATABASE_URL` |
 | Redis | Real — the same `REDIS_URL` instance; see namespaces below | `.env` |
 | API, worker, web | Real applications, ordinary dev commands (`dev:api`, `dev:worker`, `dev:web`) | `apps/api/src/e2e-stack/launch.ts` |
-| FMP (market data, profiles, statements, quotes, holidays) | **Faked**: fixture server on `127.0.0.1:3011` | `FMP_BASE_URL`, `FMP_API_KEY=e2e-fixture-provider` |
+| FMP (market data, profiles, statements, holidays) | **Faked**: fixture server on `127.0.0.1:3011` | `FMP_BASE_URL`, `FMP_API_KEY=e2e-fixture-provider` |
 | Company-logo CDN | **Faked in the browser**: every `/api/logo/*` answers the UX-005 miss (`204`) | `apps/web/e2e/fixtures.ts` |
 | SMTP / Mailtrap | **Off**: the `SMTP_*` group is blanked, so the API uses its unconfigured sender. Only `pnpm dev:api:e2e:mail` (the email lifecycle suite) delivers, to the local Mailpit and nowhere else | launcher |
 | Google OAuth | **Off**: the `GOOGLE_*` group is blanked; `/auth/providers` reports no Google | launcher |
@@ -473,8 +473,6 @@ namespace (`apps/api/src/e2e-stack/fixture-boundary.ts`, derived from the seeds 
   benchmark (`SPY`, `^GSPC`, `^DJI`, `^VIX` and the nineteen other market-overview ETF tickers):
   `[]` — "no bars beyond what the seed wrote". An empty answer never deletes a persisted row;
 - profile and the three financial statements of a fixture security: `[]`;
-- current quotes (`batch-quote`) of fixture securities: `[]`, as the real provider answers a
-  fictional ticker;
 - exchange holidays: NYSE's rule-based full closures for the requested years.
 
 Anything else — another endpoint, a real symbol, the wrong key — gets `404`/`401` naming the

@@ -75,12 +75,6 @@ describe("fixture FMP answers", () => {
         answerFakeFmpRequest(request(path, { symbol: "ENTF001" }), FIXTURE),
       ).toMatchObject({ status: 200, body: [], outcome: "fixture" });
     }
-    expect(
-      answerFakeFmpRequest(
-        request("batch-quote", { symbols: "ENTF001,QATEST1" }),
-        FIXTURE,
-      ),
-    ).toMatchObject({ status: 200, body: [], outcome: "fixture" });
   });
 
   it("answers a fixture security's split list with the empty list the seed stores", () => {
@@ -109,9 +103,10 @@ describe("fixture FMP answers", () => {
       [request("profile", { symbol: "MSFT" }), /profile\?symbol=MSFT/],
       // A benchmark symbol is never a security: no profile exists for it here.
       [request("profile", { symbol: "SPY" }), /profile\?symbol=SPY/],
+      // Current quotes are no longer a product read: no fixture answers them.
       [
-        request("batch-quote", { symbols: "QATEST1,AAPL" }),
-        /current quotes of AAPL/,
+        request("batch-quote", { symbols: "QATEST1" }),
+        /batch-quote\?symbols=QATEST1/,
       ],
       [
         request("company-screener", { exchange: "NASDAQ" }),
@@ -219,7 +214,6 @@ describe("the E2E-configured FmpClient against the fixture server", () => {
         to: "2026-09-18",
       }),
     ).resolves.toEqual([]);
-    await expect(client.getCurrentQuotes(["ENTF001"])).resolves.toEqual([]);
     const holidays = await client.getExchangeHolidays(
       "NASDAQ",
       "2025-12-31",

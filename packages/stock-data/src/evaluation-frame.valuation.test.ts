@@ -13,12 +13,11 @@ import {
 } from "@intrinsic/strategy";
 import { describe, expect, it } from "vitest";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
-import { projectMonitorEvaluationFrame } from "./monitor-frame.js";
 import { buildValuationTimeline } from "./valuation-ratios.js";
 
 /**
- * Valuation ratios through the canonical projections: the backtest frame and the Monitor frame read
- * one calculation, and a Condition on an unavailable ratio is NOT_EVALUABLE in both.
+ * Valuation ratios through the canonical projection every engine reads — backtests and the Monitor's
+ * end-of-day evaluation alike — and a Condition on an unavailable ratio is NOT_EVALUABLE.
  */
 
 const SECURITY: Security = {
@@ -136,61 +135,8 @@ describe("valuation ratios in the backtest frame", () => {
   });
 });
 
-describe("valuation ratios in the Monitor frame", () => {
-  it("reads the live quote with the newest closed session's statements on a new session", () => {
-    // Closed through 2026-02-06; the provisional session 2026-02-09 is the first the fourth
-    // quarter is public. Carried forward, it reads three quarters — no P/E — and agrees with a
-    // backtest from the next observation on.
-    const monitor = projectMonitorEvaluationFrame({
-      security: SECURITY,
-      prices: PRICES.slice(0, 2),
-      derived: [],
-      operands: [PRICE_OPERAND, PE],
-      observation: { price: 2.2 },
-      observationDate: "2026-02-09",
-      valuation: TIMELINE,
-    })!;
-    expect(readOperand(monitor.frame, PE, monitor.observationIndex)).toBeNaN();
-
-    const next = projectMonitorEvaluationFrame({
-      security: SECURITY,
-      prices: PRICES.slice(0, 3),
-      derived: [],
-      operands: [PRICE_OPERAND, PE],
-      observation: { price: 2.2 },
-      observationDate: "2026-02-10",
-      valuation: TIMELINE,
-    })!;
-    // The live quote is the close: 2.2 × 100 / 20.
-    expect(readOperand(next.frame, PE, next.observationIndex)).toBeCloseTo(
-      11,
-      12,
-    );
-    expect(
-      evaluateMarketCondition(PE_BELOW_15, next.frame, next.observationIndex),
-    ).toBe(Evaluability.TRUE);
-  });
-});
-
-describe("valuation ratios on a Monitor's repriced day and around a listed event", () => {
-  it("reads a repriced closed day's own statements", () => {
-    // The provider repriced 2026-02-09, the first session the fourth quarter is public: the live
-    // observation replaces that closed row and reads its statements, not the day before's.
-    const repriced = projectMonitorEvaluationFrame({
-      security: SECURITY,
-      prices: PRICES.slice(0, 3),
-      derived: [],
-      operands: [PRICE_OPERAND, PE],
-      observation: { price: 2.2 },
-      observationDate: "2026-02-09",
-      valuation: TIMELINE,
-    })!;
-    expect(
-      readOperand(repriced.frame, PE, repriced.observationIndex),
-    ).toBeCloseTo(11, 12);
-  });
-
-  it("withholds the provisional session inside a listed event the provider has not re-based", () => {
+describe("valuation ratios around a listed event", () => {
+  it("withholds the session of a listed event the provider has not re-based", () => {
     // Q4 public more than 30 days before the event, so its count is not one first observed in the
     // month before it (rule 5, before the event: the next test).
     const listed = buildValuationTimeline({
@@ -218,30 +164,23 @@ describe("valuation ratios on a Monitor's repriced day and around a listed event
         },
       ],
     });
-    const monitor = projectMonitorEvaluationFrame({
+    const { frame } = projectEvaluationFrame({
       security: SECURITY,
-      prices: PRICES.slice(0, 3),
+      prices: PRICES,
       derived: [],
       operands: [PRICE_OPERAND, PE],
-      observation: { price: 2.2 },
-      observationDate: "2026-02-10",
-      valuation: listed,
-    })!;
-    // The closed session before the event keeps its ratio; the provisional one on it has none.
-    expect(
-      readOperand(monitor.frame, PE, monitor.observationIndex - 1),
-    ).toBeCloseTo(10, 12);
-    expect(readOperand(monitor.frame, PE, monitor.observationIndex)).toBeNaN();
-    expect(
-      evaluateMarketCondition(
-        PE_BELOW_15,
-        monitor.frame,
-        monitor.observationIndex,
-      ),
-    ).toBe(Evaluability.NOT_EVALUABLE);
+      periodStart: "2026-02-05",
+      valuation: { timeline: listed },
+    });
+    // The session before the event keeps its ratio; the event's own session has none.
+    expect(readOperand(frame, PE, 2)).toBeCloseTo(10, 12);
+    expect(readOperand(frame, PE, 3)).toBeNaN();
+    expect(evaluateMarketCondition(PE_BELOW_15, frame, 3)).toBe(
+      Evaluability.NOT_EVALUABLE,
+    );
   });
 
-  it("withholds the closed session before a listed event when the count was first observed in the month before it (owner, 2026-10-06)", () => {
+  it("withholds the session before a listed event when the count was first observed in the month before it (owner, 2026-10-06)", () => {
     // Q4 first observed on 2026-02-09, the day before the listed 1:10 event: the provider may already
     // have restated it, so no session before the event reads it.
     const listed = buildValuationTimeline({
@@ -260,18 +199,15 @@ describe("valuation ratios on a Monitor's repriced day and around a listed event
         },
       ],
     });
-    const monitor = projectMonitorEvaluationFrame({
+    const { frame } = projectEvaluationFrame({
       security: SECURITY,
-      prices: PRICES.slice(0, 3),
+      prices: PRICES,
       derived: [],
       operands: [PRICE_OPERAND, PE],
-      observation: { price: 2.2 },
-      observationDate: "2026-02-10",
-      valuation: listed,
-    })!;
-    expect(
-      readOperand(monitor.frame, PE, monitor.observationIndex - 1),
-    ).toBeNaN();
-    expect(readOperand(monitor.frame, PE, monitor.observationIndex)).toBeNaN();
+      periodStart: "2026-02-05",
+      valuation: { timeline: listed },
+    });
+    expect(readOperand(frame, PE, 2)).toBeNaN();
+    expect(readOperand(frame, PE, 3)).toBeNaN();
   });
 });

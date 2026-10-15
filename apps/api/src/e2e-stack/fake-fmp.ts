@@ -18,11 +18,8 @@ import { financialStatementPath } from "@intrinsic/fmp";
  * - the **split list** (`splits`) for a fixture security: `[]`. A valuation ratio's read asks for it
  *   once the stored list is a day old, and the seed stores an empty one, so a refresh leaves exactly
  *   the seeded list — the list replaces the stored one whole, so any other answer would rewrite it;
- * - **current quotes** (`batch-quote`) for fixture securities: `[]` — fictional securities have no
- *   live price, exactly as the real provider answers them;
  * - **exchange holidays** for a supported exchange: the rule-based NYSE full closures of each
- *   requested year, so a Monitor cycle's trading calendar is the same on every machine and every
- *   day.
+ *   requested year, so the workers' trading calendar is the same on every machine and every day.
  *
  * Anything else — an unknown endpoint, a real symbol, a missing or foreign key — is answered
  * `404`/`401` with a body naming the missing fixture, printed to stderr, and recorded in the journal
@@ -109,26 +106,6 @@ export function answerFakeFmpRequest(
       return answered([], `${endpoint} for fixture '${symbol}': none`);
     }
     return missing(endpoint, url);
-  }
-
-  if (endpoint === "batch-quote") {
-    const symbols = (url.searchParams.get("symbols") ?? "")
-      .split(",")
-      .map((value) => value.trim().toUpperCase())
-      .filter((value) => value !== "");
-    const foreign = symbols.filter(
-      (value) => !fixture.securitySymbols.has(value),
-    );
-    if (symbols.length > 0 && foreign.length === 0) {
-      return answered(
-        [],
-        `current quotes for ${symbols.length} fixture securities: none (fictional)`,
-      );
-    }
-    return unexpected(
-      404,
-      `no E2E fixture for current quotes of ${foreign.join(",") || "(no symbols)"}`,
-    );
   }
 
   if (endpoint === "holidays-by-exchange") {

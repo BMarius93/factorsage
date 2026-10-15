@@ -139,21 +139,16 @@ requires the previous evaluable relationship/value state and the current one. A 
 
 The exact schema should fit existing database conventions and should be introduced through the repository's normal migration path. Prefer the minimum durable state necessary for deterministic transition handling; do not persist arbitrary caches as domain records.
 
-## Universe, buy windows and exit levels
+## Universe, ongoing membership and exit levels
 
-> **Superseded for the Monitor by ongoing membership** (`docs/decisions/monitor-eod-v2.md` §4).
-> The EOD evaluation gates **every** level on `isOngoingListMember` and evaluates no member that is
-> not current on the expected session; a member edited out is ended with `MEMBERSHIP_CHANGED`
-> (administrative) in the reconciliation, and a changed ongoing period resets the member's state in
-> its own transaction (`resetMembership`). The text below describes the V1 cycle's BUY-window
-> gating, which only the capacity bench still runs; backtests keep `isBuyWindowEligible` unchanged.
-
-A cycle evaluates every level of the Strategy — BUY, SELL and FINAL EXIT — for every member of the
-Monitor's Stock List.
-
-A BUY level is gated by that member's buy window at the observation date, through the canonical
-`isBuyWindowEligible`; SELL and FINAL EXIT are not. That is the same rule the backtest day loop
-applies, read from the same function. See `ai/product/lists.md`.
+A pass evaluates every level of the Strategy — BUY, SELL and FINAL EXIT — for every **current**
+member of the Monitor's Stock List: one whose ongoing membership (`isOngoingListMember`,
+`docs/decisions/monitor-eod-v2.md` §1, §4) holds on the expected session. Membership gates **every**
+level alike, on every session a catch-up steps. A member that is not current is not evaluated at
+all; a member edited out is ended with `MEMBERSHIP_CHANGED` (administrative) in the
+reconciliation, and a changed ongoing period resets the member's state in its own transaction
+(`resetMembership`). Backtests keep the BUY-window rule (`isBuyWindowEligible`, BUY levels only);
+see `ai/product/lists.md`.
 
 A Monitor holds no position, so `Gain` and `Loss` are **not evaluated at all** — see
 `ai/product/monitors.md`. The exclusion lives in exactly one place: `monitorStrategyLevels` in
@@ -291,14 +286,13 @@ apps/worker           monitor-evaluation.ts  MonitorEodEvaluation               
   `evaluateMarketSignal`, so nothing about predicate semantics is restated; the lifecycle simply
   needs the two halves apart.
 - **`decideLevelSessions`** adds the Monitor framing — the sessions after the member's checkpoint,
-  applied in order, buy-window gating through `isBuyWindowEligible`, logic-change resets,
-  reconstruction at the newest session, each change's origin — and returns one decided write for
-  the level, or nothing.
+  applied in order, ongoing-membership gating, logic-change resets, reconstruction at the newest
+  session or the initial replay, each change's origin and evidence — and returns one decided write
+  for the level, or nothing.
 - **`applyMemberEvaluation`** persists every level of one member atomically: the Signals it closes
   (with reason and session) and opens, the state rows, the transition rows and the checkpoint, in
   one transaction behind the binding fence, the checkpoint's previous value and the `stateVersion`
-  guard. The V1 `decideLevel` / `applyLevelState` pair survives only for the capacity bench until
-  the V1 cycle is removed.
+  guard. It is the only Monitor write path.
 
 ### Durable state
 
@@ -326,7 +320,8 @@ session, `resolvedAt`/`resolvedObservationDate`/`resolutionReason` its end, `sig
 logic it belonged to, `reconstructed` whether history rather than an evaluated session established it.
 
 `MonitorSignal.observationBasis` says how its price was obtained: `LIVE_QUOTE` for occurrences the
-V1 cycle decided on an intraday quote, `EOD_CLOSE` for every occurrence since.
+V1 cycle decided on an intraday quote before Monitor EOD V2, `EOD_CLOSE` for every occurrence since.
+Nothing writes `LIVE_QUOTE` any more; the value stays so those historical rows read truthfully.
 
 `MonitorStateTransition` is the append-only change log, ordered by `sequence`. Only state changes are
 written — a repeated scan writes nothing at all — and `signalId` is nullable because a pending setup
@@ -356,8 +351,8 @@ Conditions held for longer than the window, with its Trigger consumed before it,
 `PENDING_TRIGGER` at the window's start instead of `ACTIVE` since the Trigger.
 
 **Resting sessions.** An observation *rests* a level when it leaves every rule neither `ACTIVE` nor
-`PENDING_TRIGGER` whatever state it was applied to: the BUY window refuses the date, a
-condition-bearing rule's Conditions are false, or a trigger-only rule observes a session without a
+`PENDING_TRIGGER` whatever state it was applied to: the member's ongoing membership had not begun
+on the date, a condition-bearing rule's Conditions are false, or a trigger-only rule observes a session without a
 crossing (`isRestingMonitorStep`). Nothing before a resting session can influence the level after
 it, so `reconstructMonitorLevel` replays from the **latest** resting session only, and reports
 `exact: false` when the history it was given has none and does not start at the security's first

@@ -181,7 +181,7 @@ no list of its own.
   price chart draws, which is always a **finalized** end-of-day bar: before the session's close plus
   the publication delay it is the previous session (`docs/decisions/eod-finality-v1.md`) — valued at
   its own close and the statements public on its own date, exactly as a backtest frame reads that
-  row. It is never a live quote and never a Monitor's provisional reading. There is
+  row. It is never a live quote or an in-progress bar. There is
   no last-value label: once a ratio has become unavailable it would print an older reading as though
   it were current.
 - **Selective loading.** Nothing about valuation ratios is requested until one is chosen; then only

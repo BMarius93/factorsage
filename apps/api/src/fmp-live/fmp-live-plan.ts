@@ -135,19 +135,11 @@ export const LIVE_FMP_EXCLUSIONS: readonly LiveFmpExclusion[] = [
       "disclosures name still enters the catalog through those disclosures",
   },
   {
-    operation: "Current quotes (the Monitor cycle's current observation)",
-    classification: "WIDENS_UNIVERSE",
-    endpoints: ["batch-quote"],
-    reason:
-      "takes whatever symbol list its caller built, and is current data rather than history; " +
-      "the scope refuses the endpoint",
-  },
-  {
     operation: "Exchange trading calendar",
     classification: "PROVIDER_WIDE",
     endpoints: ["holidays-by-exchange"],
     reason:
-      "a venue's schedule, held in memory by the Monitor worker and never stored; the scope " +
+      "a venue's schedule, held in memory by the workers and never stored; the scope " +
       "refuses the endpoint",
   },
   {
@@ -161,16 +153,12 @@ export const LIVE_FMP_EXCLUSIONS: readonly LiveFmpExclusion[] = [
   },
   {
     operation:
-      "Monitor scans, including the built-in Monitors' thirty securities",
+      "Stock EOD preparation for Monitors, including the built-in Monitors' thirty securities",
     classification: "WIDENS_UNIVERSE",
-    endpoints: [
-      "batch-quote",
-      "holidays-by-exchange",
-      "historical-price-eod/full",
-    ],
+    endpoints: ["holidays-by-exchange", "historical-price-eod/full"],
     reason:
-      "hydrates every member of every active Monitor's list; this command starts no worker, and " +
-      "a worker holds no provider key",
+      "hydrates every current member of every running Monitor's list; this command starts no " +
+      "worker, and a worker holds no provider key",
   },
   {
     operation: "Backtests and the QA matrix sweep",

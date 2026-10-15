@@ -203,9 +203,13 @@ describe("live FMP dataset classification", () => {
     const operations = LIVE_FMP_EXCLUSIONS.map((entry) => entry.operation).join(
       "\n",
     );
+    // No quotes topic: the client has no quote endpoint left to exclude
+    // (`docs/decisions/monitor-eod-v2.md` §8), and no exclusion may name one.
+    expect(
+      LIVE_FMP_EXCLUSIONS.flatMap((entry) => entry.endpoints),
+    ).not.toContain("batch-quote");
     for (const topic of [
       "catalog",
-      "quotes",
       "calendar",
       "Benchmark",
       "Monitor",

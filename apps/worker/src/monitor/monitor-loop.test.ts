@@ -1,7 +1,6 @@
 import { createLogger, type LogSink } from "@intrinsic/observability";
 import { describe, expect, it } from "vitest";
-import type { AbortSignalCheck, MonitorCycle } from "./monitor-cycle.js";
-import { MonitorWorkerLoop } from "./monitor-loop.js";
+import { MonitorWorkerLoop, type MonitorPass } from "./monitor-loop.js";
 import type {
   ClaimedMonitorScan,
   MonitorScanRepository,
@@ -76,11 +75,8 @@ class RecordingScanRepository implements MonitorScanRepository {
   }
 }
 
-/**
- * Stands in for the evaluation cycle. `MonitorCycle` is a class with private state, so the double
- * is cast: the loop only ever calls `run`, and that is the whole surface this test drives.
- */
-class FakeCycle {
+/** Stands in for the evaluation pass: the loop only ever calls `run`. */
+class FakeCycle implements MonitorPass {
   readonly sequences: number[] = [];
   private resolveStarted: (() => void) | null = null;
   private readonly startedPromise = new Promise<void>((resolve) => {
@@ -96,7 +92,7 @@ class FakeCycle {
     return this.startedPromise;
   }
 
-  async run(cycleSequence: number, isAborted: AbortSignalCheck): Promise<void> {
+  async run(cycleSequence: number, isAborted: () => boolean): Promise<void> {
     this.sequences.push(cycleSequence);
     this.resolveStarted?.();
     if (this.behaviour === "throw") {
@@ -119,8 +115,8 @@ class FakeCycle {
     throw new Error("The cycle was never asked to stop");
   }
 
-  asCycle(): MonitorCycle {
-    return this as unknown as MonitorCycle;
+  asCycle(): MonitorPass {
+    return this;
   }
 }
 

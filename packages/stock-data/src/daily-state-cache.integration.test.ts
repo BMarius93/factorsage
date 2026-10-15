@@ -37,10 +37,6 @@ import {
 import { addDays, subtractYears } from "./dates.js";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 import { weekdays } from "./fundamental-metrics.test-helper.js";
-import {
-  monitorWindowObservations,
-  requiredDailySeries,
-} from "./monitor-frame.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
 import {
   createStockDataRedisClient,
@@ -1038,7 +1034,7 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     expect(provider.calls).toEqual([]);
   });
 
-  it("gives the Monitor, on the same observation, the stored value the backtest frame reads", async () => {
+  it("gives the Monitor's PostgreSQL frame, on every session, the stored value the backtest frame reads", async () => {
     const service = serviceOver();
     // Sessions across event starts, an invalidation gap, a currency-conflict stretch and a year end.
     const observed = [
@@ -1049,8 +1045,8 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       "2024-01-02",
       prices.at(-1)!.date,
     ];
-    // Families a Monitor carries from the newest closed derived row; its daily columns are
-    // recomputed from prices by the Monitor itself and never read a stored value.
+    // The Monitor's end-of-day frame reads PostgreSQL directly (`readFinalizedEvaluationFrame`); the
+    // backtest frame reads the Redis projection. Both must hand a rule the same stored value.
     const carried = [
       seriesOperand("SMA_20W"),
       seriesOperand("DCF_FCFF"),
@@ -1062,33 +1058,22 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       marginOfSafetyOperand("DDM"),
     ];
     const operands = [PRICE_OPERAND, ...carried];
-    const observations = monitorWindowObservations(
-      requiredDailySeries(operands),
-      0,
-    );
     for (const date of observed) {
-      const close = prices.find((price) => price.date === date)!.close;
-      const monitor = await service.readMonitorEvaluationFrame({
+      const monitor = await service.readFinalizedEvaluationFrame(
         security,
+        { from: date, to: date },
         operands,
-        observations,
-        asOf: date,
-        observation: { price: close },
-        observationDate: date,
-      });
-      expect(monitor, date).not.toBeNull();
+      );
       const backtest = await service.readDailyEvaluationFrame(
         security,
         { from: date, to: date },
         operands,
       );
+      const inMonitorIndex = monitor.frame.dates.indexOf(date);
       const index = backtest.dates.indexOf(date);
-      for (const key of carried) {
-        const inMonitor = readOperand(
-          monitor!.frame,
-          key,
-          monitor!.observationIndex,
-        );
+      expect(inMonitorIndex, date).toBeGreaterThanOrEqual(0);
+      for (const key of operands) {
+        const inMonitor = readOperand(monitor.frame, key, inMonitorIndex);
         const inBacktest = readOperand(backtest, key, index);
         expect(
           Object.is(inMonitor, inBacktest),

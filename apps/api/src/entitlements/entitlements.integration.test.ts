@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
+  newYorkDate,
   STOCK_LIST_MAX_SECURITIES_PER_ADD,
   STRATEGY_SCHEMA_VERSION,
   type EntitlementReasonCode,
@@ -226,12 +227,6 @@ describe("entitlements", () => {
       requested?: number;
       tier: string;
     };
-  }
-
-  function isoDaysAgo(days: number): string {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() - days);
-    return date.toISOString().slice(0, 10);
   }
 
   /** `years` before the given date, with the product's own 29-February clamp. */
@@ -599,9 +594,10 @@ describe("entitlements", () => {
     /**
      * Today. A period may end today but not later, and the deepest case has to start exactly on
      * the product's thirty-year horizon — which is measured from *today*, so an earlier end date
-     * would put PRO's own thirty-year period one day outside the horizon the loader keeps.
+     * would put PRO's own thirty-year period one day outside the horizon the loader keeps. Today in
+     * New York, as the API judges it: the UTC day is already tomorrow every evening after 20:00.
      */
-    const endDate = isoDaysAgo(0);
+    const endDate = newYorkDate(new Date());
 
     async function submissionFor(
       as: string,
@@ -900,7 +896,7 @@ describe("entitlements", () => {
   // -------------------------------------------------------------------------
 
   describe("downgrades", () => {
-    const endDate = isoDaysAgo(0);
+    const endDate = newYorkDate(new Date());
 
     /**
      * A PRO account carrying content no smaller plan could have created: an oversized list,

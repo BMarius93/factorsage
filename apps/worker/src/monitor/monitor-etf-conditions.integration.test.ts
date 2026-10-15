@@ -29,27 +29,38 @@ import {
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { EtfContextLoader } from "../shared/etf-context.js";
-import { MonitorCycle, type MonitorEtfContexts } from "./monitor-cycle.js";
 import {
-  FixtureCalendar,
-  FixtureLoader,
-  flatHistory,
-} from "./monitor-fixtures.test-helper.js";
+  MonitorEodEvaluation,
+  type MonitorEtfContexts,
+} from "./monitor-evaluation.js";
+import {
+  EodFixtureData,
+  fixturePolicy,
+  longHistory,
+  scopedRepository,
+} from "./monitor-evaluation.test-helper.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
 // Before any PrismaClient in this file is constructed.
 useTestDatabase();
 
 /**
- * ETF-sourced Conditions through a real Monitor cycle against real PostgreSQL: the strict
- * same-session rule (owner decision 1) — an ETF condition is NOT_EVALUABLE for the current session
- * until the ETF's end-of-day bar is finalized **and** synchronized, and nothing is carried forward
- * — plus source-specific latches, retry idempotence, and the stock-only level beside it staying
- * exactly as it was.
+ * ETF-sourced Conditions through the Monitor EOD evaluation against real PostgreSQL: a session is
+ * decided only once every ETF the member's rules read holds that very session — finalized **and**
+ * synchronized — and nothing is carried forward (`docs/decisions/monitor-eod-v2.md` §3.5); plus
+ * source-specific latches, retry idempotence, and Stock's Sector read per stock.
+ *
+ * Only storage is replaced: stock bars through `EodFixtureData`, ETF histories through a mutable
+ * benchmark reader. The evaluation, the ETF snapshot loading, the lifecycle and the repository are
+ * the production ones.
  */
 
 const prisma = new PrismaClient();
-const repository = new PrismaMonitorRepository(prisma);
+const running = new Set<string>();
+const repository = scopedRepository(
+  new PrismaMonitorRepository(prisma),
+  () => running,
+);
 const logger = createLogger({ service: "worker", level: "silent" });
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 
@@ -57,13 +68,12 @@ const userIds: string[] = [];
 const securityIds: string[] = [];
 const createdMonitorIds: string[] = [];
 
-/** Monday 2026-03-02, 10:00 New York: a regular session, after every fixture bar. */
-const SESSION_INTRADAY = new Date("2026-03-02T15:00:00.000Z");
 /**
- * The same Monday at 17:00 New York: past the 16:00 close plus the 30-minute publication delay
- * (21:30Z under EST), so the session's ETF bar can be final once a read confirms it.
+ * Monday 2026-03-02 at 17:00 New York: past the 16:00 close plus the 30-minute publication delay
+ * (21:30Z under EST), so the session's bars can be final once a read confirms them.
  */
 const SESSION_EVENING = new Date("2026-03-02T22:00:00.000Z");
+const eveningOf = (date: LocalDate) => new Date(`${date}T22:00:00.000Z`);
 
 function weekdaysBetween(from: string, to: string): LocalDate[] {
   const dates: LocalDate[] = [];
@@ -142,18 +152,28 @@ const etfContexts: MonitorEtfContexts = {
   publicationDelayMs: 30 * 60 * 1000,
 };
 
-function cycleOf(loader: FixtureLoader, now: Date): MonitorCycle {
-  return new MonitorCycle(
+/** One EOD evaluation pass at `now`. */
+function cycleOf(data: EodFixtureData, now: Date) {
+  const clock = { now };
+  return new MonitorEodEvaluation(
     repository,
-    loader,
-    new FixtureCalendar(),
+    data,
+    fixturePolicy(clock),
     logger,
     {
-      symbolConcurrency: 4,
-      quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
-      now: () => now,
+      securityConcurrency: 4,
+      dependencyGiveUpMs: 24 * 60 * 60_000,
+      now: () => clock.now,
     },
     etfContexts,
+  );
+}
+
+/** Twenty-five flat weekday closes at 100, ending on Friday 2026-02-27. */
+function flatHistory(securityId: string, close: number) {
+  return longHistory(
+    securityId,
+    Array.from({ length: 25 }, () => close),
   );
 }
 
@@ -239,6 +259,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  running.clear();
   await prisma.monitor.updateMany({
     where: { id: { in: createdMonitorIds } },
     data: { enabled: false },
@@ -267,7 +288,7 @@ async function createFixtureMonitor(): Promise<{
   monitorId: string;
   strategyId: string;
   security: Security;
-  loader: FixtureLoader;
+  loader: EodFixtureData;
 }> {
   const user = await prisma.user.create({
     data: { email: `etf-monitor-${randomUUID()}@example.test`, plan: "PRO" },
@@ -327,13 +348,13 @@ async function createFixtureMonitor(): Promise<{
     },
   });
   createdMonitorIds.push(monitor.id);
+  running.add(monitor.id);
 
-  const loader = new FixtureLoader([security]);
-  // Flat closed history at 100 with a live quote of 101: the stock's Price is above its SMA 20D
-  // on the provisional observation and never historically, so activation is live, not replayed.
+  const loader = new EodFixtureData([security]);
+  // Flat history at 100, then Monday's close of 101: the stock's Price is above its SMA 20D on
+  // Monday and never before, so its activation is Monday's, not a replayed one.
   loader.prices.set(security.id, flatHistory(security.id, 100));
-  loader.currentPrice = 101;
-  loader.historyFrames = true;
+  loader.addBar(security.id, "2026-03-02", 101);
   return { monitorId: monitor.id, strategyId: strategy.id, security, loader };
 }
 
@@ -346,8 +367,8 @@ async function signalsOf(monitorId: string) {
 
 describe("ETF-sourced Conditions in a Monitor cycle", () => {
   it(
-    "holds the mixed level NOT_EVALUABLE intraday and while the bar is unconfirmed, activates it once the ETF bar is final and synchronized, " +
-      "and never disturbs the stock-only level",
+    "waits for the ETF's own session while its bar is unconfirmed, then decides the session on both, " +
+      "and retries change nothing",
     async () => {
       // XLK's history ends on Friday the 27th, synchronized after Friday finalized.
       etfLoader.barsBySeries.set(
@@ -358,55 +379,41 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
 
       const { monitorId, loader } = await createFixtureMonitor();
 
-      // Intraday on Monday: the stock-only level activates against the live quote; the mixed
-      // level's ETF half has no finalized Monday bar, so the whole level is undecidable — no
-      // Signal, no state row, no yesterday's RSI standing in.
-      let summary = await cycleOf(loader, SESSION_INTRADAY).run(1);
-      expect(summary.monitors).toBe(1);
-      let signals = await signalsOf(monitorId);
-      expect(signals.map((signal) => signal.levelId)).toEqual(["buy-stock"]);
-      const stockSignalId = signals[0]!.id;
-
-      // Monday evening, past the close and the publication delay, with a Monday bar already
-      // stored — but the watermark still says Friday: no read has confirmed that bar since the
-      // session finalized, so it may be the provisional mid-session reading. The clock alone is
-      // not evidence, and the mixed level stays undecidable.
+      // Monday evening, with a Monday XLK bar already stored — but the watermark still says
+      // Friday: no read has confirmed that bar since the session finalized. The member waits at
+      // XLK's newest session, Friday, where neither level held; nothing is decided on Monday.
       etfLoader.barsBySeries.set(
         "series-etf_xlk",
         etfBars("series-etf_xlk", weekdaysBetween("2026-01-05", "2026-03-02")),
       );
-      summary = await cycleOf(loader, SESSION_EVENING).run(2);
-      expect(summary.signalsEmitted).toBe(0);
-      expect(
-        (await signalsOf(monitorId)).map((signal) => signal.levelId),
-      ).toEqual(["buy-stock"]);
+      let summary = await cycleOf(loader, SESSION_EVENING).run(1);
+      expect(summary.monitors).toBe(1);
+      expect(summary.membersAwaitingEtf).toBe(1);
+      expect(await signalsOf(monitorId)).toHaveLength(0);
 
-      // The refresh then reads the tail after Monday finalized, and the watermark proves it.
-      // XLK's RSI on a strictly rising history is exactly 100, so the mixed level now decides
-      // TRUE live and opens its own occurrence.
+      // The refresh reads the tail after Monday finalized, and the watermark proves it. Monday is
+      // decided on both: the stock above its average, and XLK's RSI on a strictly rising history
+      // exactly 100 — each level opens its own occurrence on Monday.
       etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
-
-      summary = await cycleOf(loader, SESSION_EVENING).run(3);
-      expect(summary.signalsEmitted).toBe(1);
-      signals = await signalsOf(monitorId);
+      summary = await cycleOf(loader, SESSION_EVENING).run(2);
+      expect(summary.membersAwaitingEtf).toBe(0);
+      expect(summary.signalsOpened).toBe(2);
+      const signals = await signalsOf(monitorId);
       expect(signals.map((signal) => signal.levelId).sort()).toEqual([
         "buy-mixed",
         "buy-stock",
       ]);
-      const mixed = signals.find((signal) => signal.levelId === "buy-mixed")!;
-      expect(mixed.observationDate.toISOString().slice(0, 10)).toBe(
-        "2026-03-02",
-      );
-      expect(mixed.resolvedAt).toBeNull();
-      // The stock-only occurrence is the same row, untouched by the ETF level's lifecycle.
-      expect(
-        signals.find((signal) => signal.levelId === "buy-stock")!.id,
-      ).toBe(stockSignalId);
+      for (const signal of signals) {
+        expect(signal.observationDate.toISOString().slice(0, 10)).toBe(
+          "2026-03-02",
+        );
+        expect(signal.resolvedAt).toBeNull();
+      }
 
-      // A retried evening cycle re-derives the same conclusions and writes nothing new.
-      summary = await cycleOf(loader, SESSION_EVENING).run(4);
-      expect(summary.signalsEmitted).toBe(0);
-      expect(summary.signalsResolved).toBe(0);
+      // A retried evening pass finds Monday decided and writes nothing new.
+      summary = await cycleOf(loader, SESSION_EVENING).run(3);
+      expect(summary.signalsOpened).toBe(0);
+      expect(summary.signalsClosed).toBe(0);
       expect((await signalsOf(monitorId)).length).toBe(2);
     },
     30_000,
@@ -443,15 +450,16 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       },
     });
 
+    // An edit takes effect on the next pass, with no new session.
     const summary = await cycleOf(loader, SESSION_EVENING).run(6);
-    expect(summary.signalsResolved).toBe(1);
-    expect(summary.signalsEmitted).toBe(1);
+    expect(summary.signalsClosed).toBe(1);
+    expect(summary.signalsOpened).toBe(1);
     const after = await signalsOf(monitorId);
     // The XLK occurrence closed on the logic change; a fresh XLF occurrence is live; the
     // stock-only occurrence never moved.
     const mixedSignals = after.filter((signal) => signal.levelId === "buy-mixed");
     expect(mixedSignals).toHaveLength(2);
-    // Both cycles run on one injected clock, so `detectedAt` ties: the two occurrences are named
+    // Both passes run on one injected clock, so `detectedAt` ties: the two occurrences are named
     // by what happened to them, not by a query order PostgreSQL is free to break.
     const resolved = mixedSignals.find((signal) => signal.resolvedAt !== null);
     const live = mixedSignals.find((signal) => signal.resolvedAt === null);
@@ -477,7 +485,7 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       expect(stock[19]!.date).toBe("2026-02-20");
       expect(stock[stock.length - 1]!.date).toBe("2026-02-27");
       loader.prices.set(security.id, stock);
-      loader.currentPrice = 106;
+      loader.addBar(security.id, "2026-03-02", 106);
 
       // XLK: lists on Thursday the 5th of February and only rises, so its RSI 14D first exists —
       // at exactly 100 — on its fifteenth session, Wednesday the 25th.
@@ -489,7 +497,7 @@ describe("ETF-sourced Conditions in a Monitor cycle", () => {
       );
       etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
 
-      // One evening cycle on a Monitor with no state: both levels already match, so each is
+      // One evening pass on a Monitor with no state: both levels already match, so each is
       // reconstructed back to the session its occurrence began on.
       const summary = await cycleOf(loader, SESSION_EVENING).run(7);
       expect(summary.levelsReconstructed).toBe(2);
@@ -617,7 +625,7 @@ async function createSectorMonitor(
   monitorId: string;
   strategyId: string;
   securities: Security[];
-  loader: FixtureLoader;
+  loader: EodFixtureData;
 }> {
   const user = await prisma.user.create({
     data: { email: `sector-monitor-${randomUUID()}@example.test`, plan: "PRO" },
@@ -682,13 +690,13 @@ async function createSectorMonitor(
     },
   });
   createdMonitorIds.push(monitor.id);
+  running.add(monitor.id);
 
-  const loader = new FixtureLoader(securities);
+  const loader = new EodFixtureData(securities);
   for (const security of securities) {
     loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.addBar(security.id, "2026-03-02", 101);
   }
-  loader.currentPrice = 101;
-  loader.historyFrames = true;
   return { monitorId: monitor.id, strategyId: strategy.id, securities, loader };
 }
 
@@ -701,8 +709,8 @@ async function openLevels(monitorId: string, securityId: string): Promise<string
 }
 
 describe("Stock's Sector conditions in a Monitor cycle", () => {
-  function seedSectorFunds(): void {
-    const sessions = weekdaysBetween("2026-01-05", "2026-03-02");
+  function seedSectorFunds(through: LocalDate = "2026-03-02"): void {
+    const sessions = weekdaysBetween("2026-01-05", through);
     // XLK rises (RSI 100), XLF falls (RSI 0); both carry Monday's bar.
     etfLoader.barsBySeries.set("series-etf_xlk", etfBars("series-etf_xlk", sessions));
     etfLoader.barsBySeries.set("series-etf_xlf", fallingEtfBars("series-etf_xlf", sessions));
@@ -720,24 +728,26 @@ describe("Stock's Sector conditions in a Monitor cycle", () => {
       );
       const [tech, financial, unclassified, unsupported] = securities;
 
-      // Intraday Monday: only the stock-only level, for every stock. The sector half of the mixed
-      // level is undecidable everywhere — no finalized Monday bar of any fund yet.
-      let summary = await cycleOf(loader, SESSION_INTRADAY).run(101);
-      for (const security of securities) {
-        expect(await openLevels(monitorId, security.id)).toEqual(["buy-stock"]);
-      }
-
-      // Evening, but still unconfirmed: nothing changes.
-      summary = await cycleOf(loader, SESSION_EVENING).run(102);
-      expect(summary.signalsEmitted).toBe(0);
+      // Evening, but Monday's fund bars unconfirmed: a stock whose rules read a fund waits at the
+      // fund's newest session, Friday, where nothing held. A stock that maps to no fund waits for
+      // nothing: its Monday is decided now — the stock-only level opens, the sector half is
+      // undecidable.
+      let summary = await cycleOf(loader, SESSION_EVENING).run(102);
+      expect(summary.membersAwaitingEtf).toBe(2);
+      expect(summary.signalsOpened).toBe(2);
+      expect(await openLevels(monitorId, tech!.id)).toEqual([]);
+      expect(await openLevels(monitorId, financial!.id)).toEqual([]);
+      expect(await openLevels(monitorId, unclassified!.id)).toEqual(["buy-stock"]);
+      expect(await openLevels(monitorId, unsupported!.id)).toEqual(["buy-stock"]);
 
       // The tail read confirms Monday. The Technology stock reads XLK (RSI 100): its mixed level
       // opens on Monday. The Financial Services stock reads XLF (RSI 0): its mixed level decides
       // FALSE on the very same session under the very same rule. The unclassified and the
-      // unsupported stock read no fund: undecidable, never another ETF's reading.
+      // unsupported stock read no fund: undecidable, never another ETF's reading. The two stocks
+      // that waited open their stock-only level on Monday too.
       etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
       summary = await cycleOf(loader, SESSION_EVENING).run(103);
-      expect(summary.signalsEmitted).toBe(1);
+      expect(summary.signalsOpened).toBe(3);
       expect(await openLevels(monitorId, tech!.id)).toEqual(["buy-mixed", "buy-stock"]);
       expect(await openLevels(monitorId, financial!.id)).toEqual(["buy-stock"]);
       expect(await openLevels(monitorId, unclassified!.id)).toEqual(["buy-stock"]);
@@ -761,57 +771,64 @@ describe("Stock's Sector conditions in a Monitor cycle", () => {
       // A retried evening cycle re-derives the same conclusions and writes nothing new.
       const before = (await signalsOf(monitorId)).length;
       summary = await cycleOf(loader, SESSION_EVENING).run(104);
-      expect(summary.signalsEmitted).toBe(0);
-      expect(summary.signalsResolved).toBe(0);
+      expect(summary.signalsOpened).toBe(0);
+      expect(summary.signalsClosed).toBe(0);
       expect((await signalsOf(monitorId)).length).toBe(before);
     },
     30_000,
   );
 
   it(
-    "applies a sector reclassified between two scans on the next scan, deterministically, and holds an undecidable one",
+    "reads a sector reclassified between two sessions from the next session, and holds an undecidable one",
     async () => {
-      seedSectorFunds();
+      seedSectorFunds("2026-03-05");
       etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
       const { monitorId, securities, loader } = await createSectorMonitor(
         ["Technology"],
         definitionWithSource(STOCK_SECTOR_SOURCE),
       );
       const stock = securities[0]!;
+      const session = async (date: LocalDate, sequence: number) => {
+        loader.addBar(stock.id, date, 101);
+        etfLoader.lastTailSyncAt = `${date}T21:45:00.000Z`;
+        return cycleOf(loader, eveningOf(date)).run(sequence);
+      };
 
       await cycleOf(loader, SESSION_EVENING).run(111);
       expect(await openLevels(monitorId, stock.id)).toEqual(["buy-mixed", "buy-stock"]);
 
-      // Reclassified as Financial Services between scans. The next scan reads XLF, whose RSI is 0:
-      // the mixed level's conditions end, by the normal lifecycle — the definition did not change,
-      // so this is an ordinary data change, not a logic change.
-      // (The loader serves this object as the cycle's catalog read.)
+      // Reclassified as Financial Services before Tuesday. Tuesday reads XLF, whose RSI is 0: the
+      // mixed level's conditions end, by the normal lifecycle — the definition did not change, so
+      // this is an ordinary data change, not a logic change.
       stock.sector = "Financial Services";
-      let summary = await cycleOf(loader, SESSION_EVENING).run(112);
-      expect(summary.signalsResolved).toBe(1);
+      let summary = await session("2026-03-03", 112);
+      expect(summary.signalsClosed).toBe(1);
       expect(await openLevels(monitorId, stock.id)).toEqual(["buy-stock"]);
       const ended = (await signalsOf(monitorId)).find(
         (signal) => signal.levelId === "buy-mixed" && signal.resolvedAt !== null,
       )!;
       expect(ended.resolutionReason).toBe("CONDITIONS_ENDED");
+      expect(ended.resolvedObservationDate?.toISOString().slice(0, 10)).toBe(
+        "2026-03-03",
+      );
 
-      // The same scan retried decides the same: nothing more is written.
-      summary = await cycleOf(loader, SESSION_EVENING).run(113);
-      expect(summary.signalsEmitted).toBe(0);
-      expect(summary.signalsResolved).toBe(0);
+      // The same pass retried decides the same: nothing more is written.
+      summary = await cycleOf(loader, eveningOf("2026-03-03")).run(113);
+      expect(summary.signalsOpened).toBe(0);
+      expect(summary.signalsClosed).toBe(0);
 
-      // Back to Technology: a fresh occurrence opens, read from XLK again.
+      // Back to Technology for Wednesday: a fresh occurrence opens, read from XLK again.
       stock.sector = "Technology";
-      summary = await cycleOf(loader, SESSION_EVENING).run(114);
-      expect(summary.signalsEmitted).toBe(1);
+      summary = await session("2026-03-04", 114);
+      expect(summary.signalsOpened).toBe(1);
       expect(await openLevels(monitorId, stock.id)).toEqual(["buy-mixed", "buy-stock"]);
 
-      // The sector then disappears: the rule is undecidable, which advances nothing — the open
-      // occurrence is neither closed nor confirmed by a fund the stock no longer maps to.
+      // The sector then disappears: the rule is undecidable on Thursday, which advances nothing —
+      // the open occurrence is neither closed nor confirmed by a fund the stock no longer maps to.
       delete stock.sector;
-      summary = await cycleOf(loader, SESSION_EVENING).run(115);
-      expect(summary.signalsEmitted).toBe(0);
-      expect(summary.signalsResolved).toBe(0);
+      summary = await session("2026-03-05", 115);
+      expect(summary.signalsOpened).toBe(0);
+      expect(summary.signalsClosed).toBe(0);
       expect(await openLevels(monitorId, stock.id)).toEqual(["buy-mixed", "buy-stock"]);
       const state = await prisma.monitorSignalState.findFirst({
         where: { monitorId, securityId: stock.id, levelId: "buy-mixed" },
@@ -846,8 +863,8 @@ describe("Stock's Sector conditions in a Monitor cycle", () => {
       },
     });
     const summary = await cycleOf(loader, SESSION_EVENING).run(122);
-    expect(summary.signalsResolved).toBe(1);
-    expect(summary.signalsEmitted).toBe(1);
+    expect(summary.signalsClosed).toBe(1);
+    expect(summary.signalsOpened).toBe(1);
     const mixed = (await signalsOf(monitorId)).filter(
       (signal) => signal.levelId === "buy-mixed",
     );
@@ -875,7 +892,7 @@ describe("Stock's Sector conditions in a Monitor cycle", () => {
         return { ...price, open: close, high: close, low: close, close };
       });
       loader.prices.set(security.id, stock);
-      loader.currentPrice = 106;
+      loader.addBar(security.id, "2026-03-02", 106);
       // XLK lists on the 5th of February: RSI 14D first exists on the 25th.
       const xlkSessions = weekdaysBetween("2026-02-05", "2026-03-02");
       etfLoader.barsBySeries.set("series-etf_xlk", etfBars("series-etf_xlk", xlkSessions));

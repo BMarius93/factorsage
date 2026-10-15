@@ -263,6 +263,8 @@ today is not part of the market's history until its session has closed and its b
 New York plus the publication delay). A submission whose `endDate` is after the newest finalized
 date is **ended there**, and the immutable snapshot records the date the run really ends on; a
 period that would be empty once today is removed is refused, naming the newest completed session.
+"Today" is the New York day for the form and the API alike (`newYorkDate` in
+`@intrinsic/contracts`), so the form never defaults to a day the API refuses.
 The loaders never store a bar for a session that had not finalized when it was read, so no run can
 read one either (`docs/decisions/eod-finality-v1.md`, which settles the open question recorded in
 `ai/architecture/deep-discovery.md` investigation 5).

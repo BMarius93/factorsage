@@ -5862,7 +5862,7 @@ describe("the price basis around a refused whole read and in the preparation pha
 });
 
 describe("a Monitor frame read across a replacement", () => {
-  it("is not evaluable when the history was replaced between its reads", async () => {
+  it("refuses a frame whose history was replaced between its reads", async () => {
     class ReplacedDuringRead extends FakeStore {
       reads = 0;
       override async getPriceBasis(): Promise<SecurityPriceBasisState | null> {
@@ -5908,17 +5908,16 @@ describe("a Monitor frame read across a replacement", () => {
       new InMemoryLoadCoordinator(),
     );
 
-    const frame = await loader.readMonitorEvaluationFrame({
-      security,
-      operands: ["price"],
-      observations: 10,
-      asOf: "2026-08-21",
-      observation: { price: 101 },
-      observationDate: "2026-08-24",
-    });
-
+    // The Monitor's end-of-day frame is bracketed by the price-basis generation: a replacement
+    // committed between its reads leaves the security for the next pass, never a mixed frame.
+    await expect(
+      loader.readFinalizedEvaluationFrame(
+        security,
+        { from: "2026-08-10", to: "2026-08-21" },
+        ["price"],
+      ),
+    ).rejects.toBeInstanceOf(PriceBasisChangedError);
     expect(store.reads).toBe(2);
-    expect(frame).toBeNull();
   });
 });
 
@@ -6037,22 +6036,21 @@ describe("valuation inputs in the preparation phases and the reads", () => {
     ).rejects.toThrow(/split list/);
   });
 
-  it("reads a Monitor's valuation inputs inside the generation bracket", async () => {
+  it("prepares a Monitor's valuation inputs once, and reads them inside the generation bracket", async () => {
     const provider = new SplitProvider();
     const { store, loader } = await residentFresh(provider);
-    await loader.prepareMonitorEvaluationData(security, 10, "2026-08-21", [PE]);
+    // The stock EOD child prepares the operand inputs; the evaluation reads PostgreSQL alone.
+    await loader.prepareStockOperands(security, [PE]);
     expect(provider.splitReads).toBe(1);
     const splits = vi.spyOn(store, "getStockSplits");
-    const frame = await loader.readMonitorEvaluationFrame({
+    const { frame } = await loader.readFinalizedEvaluationFrame(
       security,
-      operands: [PE],
-      observations: 10,
-      asOf: "2026-08-21",
-      observation: { price: 101 },
-      observationDate: "2026-08-24",
-    });
+      { from: "2026-08-10", to: "2026-08-21" },
+      [PE],
+    );
     expect(splits).toHaveBeenCalledTimes(1);
-    expect(frame?.frame.columns.has(PE)).toBe(true);
+    expect(frame.columns.has(PE)).toBe(true);
+    expect(provider.splitReads).toBe(1);
   });
 });
 

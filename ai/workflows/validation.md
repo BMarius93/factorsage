@@ -120,9 +120,15 @@ list was last corrected by E2E-007, when it had fallen seventeen suites behind):
 - `apps/worker/src/backtest/claim-entitlements.integration.test.ts`
 - `apps/worker/src/backtest/job-repository.integration.test.ts`
 - `apps/worker/src/market-data/schedule-repository.integration.test.ts`
-- `apps/worker/src/monitor/monitor-cycle.integration.test.ts`
+- `apps/worker/src/monitor/monitor-actor-scope.integration.test.ts`
 - `apps/worker/src/monitor/monitor-eligibility.integration.test.ts`
+- `apps/worker/src/monitor/monitor-etf-conditions.integration.test.ts`
+- `apps/worker/src/monitor/monitor-evaluation.integration.test.ts`
+- `apps/worker/src/monitor/monitor-evaluation.semantics.integration.test.ts`
+- `apps/worker/src/monitor/monitor-transitions.fixture.test.ts`
+- `apps/worker/src/monitor/monitor-valuation-audit.integration.test.ts` (also Redis)
 - `apps/worker/src/monitor/scan-repository.integration.test.ts`
+- `apps/worker/src/stock-eod/stock-eod.integration.test.ts` (also Redis)
 - `packages/stock-data/src/benchmark-data.integration.test.ts`
 - `packages/stock-data/src/benchmark-market-references.integration.test.ts`
 - `packages/stock-data/src/benchmark-residency.integration.test.ts` (also Redis)
@@ -135,8 +141,8 @@ list was last corrected by E2E-007, when it had fallen seventeen suites behind):
 - `packages/stock-data/src/redis.integration.test.ts`
 - `packages/stock-data/src/security-search.integration.test.ts`
 
-`apps/worker/src/monitor/capacity-bench.ts` also calls it; it is a developer benchmark script, not a
-suite.
+`apps/worker/src/monitor/capacity-bench.ts` (`pnpm --filter @intrinsic/worker bench:monitor`) also
+calls it; it is a developer benchmark script, not a suite.
 
 **Suites that drive a Nest app over HTTP bind it to loopback.** Left unlistened (`app.init()`),
 supertest binds a _wildcard_ ephemeral port per request, and on macOS that bind succeeds even when
@@ -563,10 +569,12 @@ series from FMP.
 
 - `packages/strategy/src/monitor-lifecycle.test.ts` — **needs nothing.** The accepted signal
   lifecycle, case by case.
-- `apps/worker/src/monitor/monitor-cycle.integration.test.ts` — PostgreSQL. The lifecycle through
-  the real repository: pending setups, latched triggers, reconstruction (including setups older
-  than the first history read), buy windows, built-in Monitors, and transition history that always
-  ends in the stored state.
+- `apps/worker/src/monitor/monitor-evaluation.integration.test.ts` and
+  `monitor-evaluation.semantics.integration.test.ts` — PostgreSQL. The EOD evaluation through the
+  real repository: finalized sessions in order from a checkpoint, catch-up, reconstruction and the
+  90-day replay, ongoing membership, pending setups, latched triggers, logic edits, built-in
+  Monitors, and transition history that always ends in the stored state
+  (`docs/decisions/monitor-eod-v2.md`).
 - `apps/api/src/builtins/builtin-catalog.test.ts` — **needs nothing.** The canonical catalog pinned
   to the decision document.
 - `apps/api/src/builtins/builtins.integration.test.ts` — PostgreSQL. Bootstrap idempotency, SYSTEM

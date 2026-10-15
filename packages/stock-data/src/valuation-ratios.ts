@@ -284,9 +284,9 @@ export function buildValuationTimeline(
 /**
  * The ratios of a security on each of `dates`, at `closes`, as columns.
  *
- * `statementDateOf` names the date whose statements a row reads when it is not the row's own: a
- * Monitor's provisional session reads the newest closed session's, the carry-forward rule every
- * statement-derived value follows. Every session rule is still read on the row's own date.
+ * `statementDateOf` names the date whose statements a row reads when it is not the row's own — the
+ * carry-forward rule every statement-derived value follows, exercised by the valuation audit. Every
+ * product read leaves it out. Every session rule is still read on the row's own date.
  */
 export function valuationRatioColumns(input: {
   timeline: ValuationTimeline;

@@ -101,8 +101,9 @@ export function projectEvaluationFrame(input: {
    * missing for the same reason alternative data is: a ratio that could never be computed must not
    * read as one that is unavailable.
    *
-   * `statementDateOf` names the date whose statements a row reads when it is not the row's own — a
-   * Monitor's provisional row carries the newest closed session's.
+   * `statementDateOf` names the date whose statements a row reads when it is not the row's own.
+   * Every product read leaves it out — each row is a finalized session read on its own statements;
+   * only the valuation audit's carry-forward checks pass it.
    */
   valuation?: {
     timeline: ValuationTimeline;

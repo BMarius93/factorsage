@@ -7,8 +7,9 @@
 This is the first implementation step of the owner's 2026-10-14 requirement that FactorSage price
 everything from **verified, finalized end-of-day bars** (`docs/decisions/monitor-eod-v2-proposal.md`
 §9, `docs/audits/monitor-eod-v2-intraday-inventory.md`). It closes the *provisional EOD bar* leak for
-every consumer of stored prices. The other leak — the Monitor's live `batch-quote` observations — is
-replaced by later pull requests of the same plan and is not changed here.
+every consumer of stored prices. The other leak — the Monitor's live `batch-quote` observations — was
+left to later pull requests of the same plan: the Monitor EOD evaluation replaced it, and PR 8 deleted
+the quote path (`docs/decisions/monitor-eod-v2.md` §3, §8).
 
 ## Problem
 
@@ -87,6 +88,10 @@ A submission whose `endDate` is after the newest finalized date is ended there
 period that would be empty once today is removed is refused with the newest completed session in the
 message. "In the future" is judged in New York time. Completed runs are untouched.
 
+The New Backtest form must use the same day. It first kept the UTC day, so from 20:00 New York until
+midnight it defaulted to a day the API refused; Monitor EOD V2 step 8 gave both the shared
+`newYorkDate` in `@intrinsic/contracts` (`docs/decisions/monitor-eod-v2.md` §8).
+
 ### 6. Deterministic environments
 
 `EOD_TAIL_REFRESH=frozen` never re-reads a stored tail — for the hermetic E2E stack, the QA matrix
@@ -121,8 +126,9 @@ it. Seeds and fixtures write through the cutoff (`apps/api/src/eod-today.ts`), n
 - **Early closes** finalize at the regular 16:30, not earlier: late, never wrong.
 - **Frozen tails** expose whatever the frozen dataset holds; they are for deterministic environments
   only.
-- **The Monitor's live quote observation** is unchanged by this decision. It is the inventory's
-  remaining leak and is replaced by the Monitor's EOD session evaluation in a later PR.
+- **The Monitor's live quote observation** was unchanged by this decision. It was the inventory's
+  remaining leak; the Monitor's EOD session evaluation replaced it and Monitor EOD V2 PR 8 removed
+  it (`docs/decisions/monitor-eod-v2.md` §8).
 
 ## Inventory status (`docs/audits/monitor-eod-v2-intraday-inventory.md`)
 
@@ -133,4 +139,4 @@ it. Seeds and fixtures write through the cutoff (`apps/api/src/eod-today.ts`), n
 | Stock Details API and header | **Closed**: newest bar is the newest finalized session |
 | Backtests ending today | **Closed**: period ended at the newest finalized session at submission |
 | Market overview / ETF conditions | Verified: already finalized-and-synchronized; now also bounded at the cutoff |
-| Monitor quotes (`batch-quote`, `getCurrentObservations`, provisional frame) | Open: replaced by the EOD evaluator, then deleted (later PRs) |
+| Monitor quotes (`batch-quote`, `getCurrentObservations`, provisional frame) | **Closed**: replaced by the EOD evaluator (PR 3) and deleted (PR 8, `monitor-eod-v2.md` §8) |

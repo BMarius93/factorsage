@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
+  normalizeStrategyDefinition,
   STRATEGY_SCHEMA_VERSION,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
@@ -10,31 +11,34 @@ import type {
   FinancialStatementCadence,
   FinancialStatementType,
   Security,
-  SecurityId,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort } from "@intrinsic/fmp";
 import { createLogger } from "@intrinsic/observability";
 import {
   CanonicalStockDataService,
+  EodFinalityPolicy,
   IoredisCacheClient,
   PriceBasisChangedError,
   PrismaStockDataStore,
   RedisStockDataCache,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
-  monitorWindowObservations,
-  requiredDailySeries,
-  type CurrentObservation,
+  type StockRefreshState,
 } from "@intrinsic/stock-data";
 import {
-  requiredAlternativeDataLeadingSessions,
+  INITIAL_MONITOR_LEVEL_LIFECYCLE,
+  monitorStrategyLevels,
+  observeMonitorLevel,
+  stepMonitorLevel,
   valuationRatioOperand,
-  type OperandKey,
 } from "@intrinsic/strategy";
 import { useTestDatabase, valuationAuditSessions } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedValuationAuditSecurity } from "../valuation-audit.test-helper.js";
-import { MonitorCycle, type MonitorDataLoader } from "./monitor-cycle.js";
+import {
+  MonitorEodEvaluation,
+  type MonitorEvaluationData,
+} from "./monitor-evaluation.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
 loadRootEnv();
@@ -45,10 +49,12 @@ const redisUrl =
 const describeInfrastructure = redisUrl ? describe : describe.skip;
 
 /**
- * A valuation Condition through the real Monitor cycle (`docs/valuation-ratios-audit/REPORT.md`,
- * Monitor), over the valuation audit's anchor: the real repository, transitions and Signal rows, and
- * the real `CanonicalStockDataService` reading the anchor's stored rows. Only the quote and the
- * exchange calendar are supplied.
+ * A valuation Condition through the real Monitor EOD evaluation (`docs/valuation-ratios-audit/REPORT.md`,
+ * Monitor; `docs/decisions/monitor-eod-v2.md` §3), over the valuation audit's anchor: the real
+ * repository, transitions and Signal rows, and the real `CanonicalStockDataService` reading the
+ * anchor's stored rows through `readFinalizedEvaluationFrame` — the same projection, valuation
+ * timeline and basis bracket a backtest reads. Only the readiness of each session and the exchange
+ * calendar are supplied.
  *
  * The level is `P/E is below 9`. Every expected outcome below is the API audit oracle's reading of
  * the anchor on that session (`apps/api/src/data-correctness-audit/valuation`), written out here:
@@ -63,17 +69,11 @@ const describeInfrastructure = redisUrl ? describe : describe.skip;
  * | 2024-11-11 | 55.78 | 11.3605                      |
  * | 2024-11-19 | 59.42 | 12.1018                      |
  *
- * And provisionally, at a quote on a new session with the newest closed session's statements:
- * 2024-11-11 at 55.78 with 2024-11-08's, withheld (rule 5); 2024-11-12 at 56.45 with 2024-11-11's,
- * 11.4969.
- *
- * A quote equal to the session's stored close reprices that closed day, so the frame reads the
- * session's own statements — the reading a backtest makes. The provisional case uses a security
- * whose stored history ends the session before, so the quote is a new session that carries the
- * previous session's statements.
+ * Every session is a stored, finalized close read on its own statements — the reading a backtest
+ * makes; there is no provisional observation.
  */
 describeInfrastructure(
-  "Valuation Conditions through the real Monitor cycle",
+  "Valuation Conditions through the real Monitor EOD evaluation",
   () => {
     const prisma = new PrismaClient();
     const repository = new PrismaMonitorRepository(prisma);
@@ -112,71 +112,37 @@ describeInfrastructure(
       }
     }
 
-    /** The production loader's delegation, with the quote supplied. */
-    class AuditLoader implements MonitorDataLoader {
-      quote: number | null = null;
-      quotedAt: string | undefined;
+    /**
+     * The production data slice over the real service, with each security's readiness capped at
+     * the session a case drives: the frame is the real PostgreSQL read.
+     */
+    class AuditData implements MonitorEvaluationData {
+      readonly readyThrough = new Map<string, string>();
       constructor(private readonly stockData: CanonicalStockDataService) {}
-      findSecurities(ids: readonly SecurityId[]) {
+      findSecurities(ids: readonly string[]) {
         return this.stockData.findSecuritiesByIds(ids);
       }
-      async getCurrentObservations(securities: readonly Security[]) {
-        const observations = new Map<SecurityId, CurrentObservation>();
-        if (this.quote !== null) {
-          for (const security of securities) {
-            observations.set(security.id, {
-              price: this.quote,
-              ...(this.quotedAt ? { quotedAt: this.quotedAt } : {}),
-            });
-          }
+      async stockRefreshState(security: Security): Promise<StockRefreshState> {
+        const state = await this.stockData.stockRefreshState(security);
+        const ready = this.readyThrough.get(security.id);
+        if (!ready) {
+          return state;
         }
-        return observations;
+        const latest =
+          state.latestBar && state.latestBar < ready ? state.latestBar : ready;
+        return {
+          ...state,
+          latestVerifiedBar: latest,
+          verifiedThrough: latest,
+          derivedThrough: latest,
+        };
       }
-      prepareMonitorEvaluationData(
-        security: Security,
-        observations: number,
-        asOf: string,
-        operands: readonly OperandKey[] = [],
+      readFinalizedEvaluationFrame(
+        ...args: Parameters<
+          MonitorEvaluationData["readFinalizedEvaluationFrame"]
+        >
       ) {
-        return this.stockData.prepareMonitorEvaluationData(
-          security,
-          observations,
-          asOf,
-          operands,
-        );
-      }
-      readMonitorEvaluationFrame(
-        input: Parameters<MonitorDataLoader["readMonitorEvaluationFrame"]>[0],
-      ) {
-        return this.stockData.readMonitorEvaluationFrame(input);
-      }
-      monitorWindowObservations(operands: readonly OperandKey[]) {
-        return monitorWindowObservations(
-          requiredDailySeries(operands),
-          requiredAlternativeDataLeadingSessions(operands),
-        );
-      }
-      async prepareReconstructionData(
-        security: Security,
-        range: { from: string; to: string },
-        operands: readonly OperandKey[] = [],
-      ) {
-        await this.stockData.prepareDailyEvaluationData(
-          security,
-          range,
-          operands,
-        );
-      }
-      readReconstructionFrame(
-        security: Security,
-        range: { from: string; to: string },
-        operands: readonly OperandKey[],
-      ) {
-        return this.stockData.readDailyEvaluationFrame(
-          security,
-          range,
-          operands,
-        );
+        return this.stockData.readFinalizedEvaluationFrame(...args);
       }
       reconstructionHistoryStart(security: Security) {
         return this.stockData.evaluationHistoryStart(security);
@@ -188,11 +154,12 @@ describeInfrastructure(
         return closes.has(date) || date > "2025-12-31";
       },
     };
+    let stockData: CanonicalStockDataService;
 
     const provider = new CountingProvider();
     let redis: ReturnType<typeof createStockDataRedisClient>;
     let store: PrismaStockDataStore;
-    let loader: AuditLoader;
+    let data: AuditData;
     let full: Security;
     let truncated: Security;
     let refreshed: Security;
@@ -226,7 +193,19 @@ describeInfrastructure(
       sellLevels: [],
     } as unknown as StrategyDefinition;
 
-    async function createMonitor(security: Security): Promise<string> {
+    /** `definition` with the `P/E is below` threshold at `threshold`. */
+    function belowDefinition(threshold: number): StrategyDefinition {
+      const copy = structuredClone(definition) as unknown as {
+        buyLevels: [{ signal: { conditions: [{ value: { value: number } }] } }];
+      };
+      copy.buyLevels[0].signal.conditions[0].value.value = threshold;
+      return copy as unknown as StrategyDefinition;
+    }
+
+    async function createMonitor(
+      security: Security,
+      strategyDefinition: StrategyDefinition = definition,
+    ): Promise<string> {
       const strategy = await prisma.strategy.create({
         data: {
           userId,
@@ -234,7 +213,7 @@ describeInfrastructure(
           versions: {
             create: {
               versionNumber: 1,
-              definition: definition as never,
+              definition: strategyDefinition as never,
               definitionHash: randomUUID(),
             },
           },
@@ -260,23 +239,22 @@ describeInfrastructure(
       return monitor.id;
     }
 
-    /** One cycle at 10:00 New York on `session`, with `quote` as the live price. */
-    async function cycleOn(session: string, quote: number) {
-      loader.quote = quote;
-      loader.quotedAt = `${session}T14:55:00.000Z`;
+    /** One evaluation in the evening of `session`, with `security` ready through it. */
+    async function cycleOn(session: string, security: Security) {
+      data.readyThrough.set(security.id, session);
       cycles += 1;
-      const summary = await new MonitorCycle(
+      const now = new Date(`${session}T23:00:00.000Z`);
+      return new MonitorEodEvaluation(
         repository,
-        loader,
-        calendar,
+        data,
+        new EodFinalityPolicy({ calendar, now: () => now }),
         logger,
         {
-          symbolConcurrency: 1,
-          quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
-          now: () => new Date(`${session}T15:00:00.000Z`),
+          securityConcurrency: 1,
+          dependencyGiveUpMs: 24 * 60 * 60_000,
+          now: () => now,
         },
       ).run(cycles);
-      return summary;
     }
 
     async function levelOf(monitorId: string) {
@@ -305,7 +283,7 @@ describeInfrastructure(
     beforeAll(async () => {
       redis = createStockDataRedisClient(redisUrl ?? "redis://localhost:6379");
       store = new PrismaStockDataStore(prisma);
-      const service = new CanonicalStockDataService(
+      stockData = new CanonicalStockDataService(
         store,
         provider,
         new RedisStockDataCache(new IoredisCacheClient(redis), 10, namespace),
@@ -315,7 +293,7 @@ describeInfrastructure(
         }),
         { productHistoryYears: 30 },
       );
-      loader = new AuditLoader(service);
+      data = new AuditData(stockData);
       ({ security: full } = await seedValuationAuditSecurity(prisma, store, {
         symbol: `VM${suffix}`,
       }));
@@ -410,80 +388,150 @@ describeInfrastructure(
     it("never opens a Signal on a withheld ratio, though zero would match `is below 9`", async () => {
       const monitorId = await createMonitor(full);
       await only(monitorId);
-      const summary = await cycleOn("2021-06-15", closes.get("2021-06-15")!);
-      expect(summary).toMatchObject({
-        evaluations: 1,
-        notEvaluable: 1,
-        signalsEmitted: 0,
-      });
-      // Nothing decided, so nothing written: a not-evaluable observation never becomes a state.
+      const summary = await cycleOn("2021-06-15", full);
+      expect(summary).toMatchObject({ members: 1, signalsOpened: 0 });
+      // Nothing decided, so nothing written: a not-evaluable session never becomes a state.
       expect(await levelOf(monitorId)).toBeNull();
       expect(await signalsOf(monitorId)).toEqual([]);
     }, 120_000);
 
-    it("opens on the first session P/E is below 9, holds through withheld sessions and a split-sized quote, and resolves above it", async () => {
+    it("decides every session from Mar 13 to Nov 19, 2024 in order, exactly as the backtest frame reads it", async () => {
       const monitorId = await createMonitor(full);
       await only(monitorId);
 
-      // 2024-03-14: 8.93 < 9, after 9.08 the session before (the reconstruction's last session).
-      await cycleOn("2024-03-14", closes.get("2024-03-14")!);
+      // 2024-03-13: 9.09, not below 9 — the Monitor starts there, decided and inactive.
+      await cycleOn("2024-03-13", full);
       let level = await levelOf(monitorId);
-      expect(level?.lastOutcome).toBe("MATCHED");
-      expect(level?.lifecycleState).toBe("ACTIVE");
-      let signals = await signalsOf(monitorId);
-      expect(signals).toHaveLength(1);
-      expect(signals[0]?.resolvedAt).toBeNull();
+      expect(level?.lastOutcome).toBe("NOT_MATCHED");
+      expect(await signalsOf(monitorId)).toEqual([]);
+
+      // Every later session through 2024-11-19 caught up in one pass, in order.
+      await cycleOn("2024-11-19", full);
+      level = await levelOf(monitorId);
+      // 12.10 on 2024-11-19: not below 9, and decided.
+      expect(level?.lastOutcome).toBe("NOT_MATCHED");
+
+      // The lifecycle the backtest frame's own readings produce, through the same reducer.
+      const operands = [valuationRatioOperand("PRICE_TO_EARNINGS_TTM")];
+      const frame = await stockData.readDailyEvaluationFrame(
+        full,
+        { from: "2024-03-13", to: "2024-11-19" },
+        operands,
+      );
+      const [buy] = monitorStrategyLevels(
+        normalizeStrategyDefinition(definition),
+      );
+      let lifecycle = INITIAL_MONITOR_LEVEL_LIFECYCLE;
+      const expected: string[] = [];
+      for (
+        let index = frame.periodStartIndex;
+        index < frame.dates.length;
+        index += 1
+      ) {
+        const date = frame.dates[index]!;
+        const result = stepMonitorLevel(lifecycle, {
+          date,
+          eligible: true,
+          rules: observeMonitorLevel(buy!, frame, index),
+        });
+        if (date > "2024-03-13") {
+          for (const transition of result.transitions) {
+            expected.push(
+              `${date} ${transition.from}->${transition.to} ${transition.reason}`,
+            );
+          }
+        }
+        lifecycle = result.next;
+      }
+      const recorded = (
+        await prisma.monitorStateTransition.findMany({
+          where: { monitorId },
+          orderBy: { sequence: "asc" },
+        })
+      ).map(
+        (row) =>
+          `${row.observationDate?.toISOString().slice(0, 10)} ${row.fromState}->${row.toState} ${row.reason}`,
+      );
+      // Opened on the first session P/E was below 9 and ended on the first session it was not,
+      // before either withheld session — every session decided, none skipped.
+      expect(expected).toEqual([
+        "2024-03-14 INACTIVE->ACTIVE CONDITIONS_MET",
+        "2024-08-21 ACTIVE->RESOLVED CONDITIONS_ENDED",
+      ]);
+      expect(recorded).toEqual(expected);
+      // It opened on 2024-03-14, the first session P/E was below 9 (8.93).
+      const signals = await signalsOf(monitorId);
       expect(signals[0]?.observationDate.toISOString().slice(0, 10)).toBe(
         "2024-03-14",
       );
-
-      // A split-sized quote the next session: not evaluable, the Signal held.
-      await cycleOn("2024-03-15", closes.get("2024-03-14")! * 0.5);
-      level = await levelOf(monitorId);
-      expect(level?.lastOutcome).toBe("NOT_EVALUABLE");
-      expect(level?.lifecycleState).toBe("ACTIVE");
-
-      // 2024-09-16 (the measured split's date) and 2024-11-08 (a count still settling): withheld.
-      for (const session of ["2024-09-16", "2024-11-08"]) {
-        await cycleOn(session, closes.get(session)!);
-        level = await levelOf(monitorId);
-        expect(level?.lastOutcome, session).toBe("NOT_EVALUABLE");
-        expect(level?.lifecycleState, session).toBe("ACTIVE");
+      // And no occurrence ever opened on a withheld session.
+      for (const signal of signals) {
+        const date = signal.observationDate.toISOString().slice(0, 10);
+        expect(["2024-09-16", "2024-11-08"]).not.toContain(date);
       }
-      signals = await signalsOf(monitorId);
-      expect(signals).toHaveLength(1);
-      expect(signals[0]?.resolvedAt).toBeNull();
-
-      // 2024-11-19: 12.10, no longer below 9 — the one occurrence ends.
-      await cycleOn("2024-11-19", closes.get("2024-11-19")!);
-      level = await levelOf(monitorId);
-      expect(level?.lastOutcome).toBe("NOT_MATCHED");
-      expect(level?.lifecycleState).toBe("RESOLVED");
-      signals = await signalsOf(monitorId);
-      expect(signals).toHaveLength(1);
-      expect(signals[0]?.resolvedAt).not.toBeNull();
     }, 240_000);
 
-    it("reads the newest closed session's statements on a new session, and agrees with the backtest from the next observation", async () => {
-      // Stored history ends 2024-11-08, inside the withheld stretch. On 2024-11-11 2024Q3's statements
-      // become public, but the provisional observation reads 2024-11-08's: still withheld (rule 5),
-      // although the closed 2024-11-11 reading is 11.36 — never the future statement.
+    it("holds an open Signal through withheld sessions and resolves on the first evaluable session above the threshold", async () => {
+      // `P/E is below 12`: below it since 2024-02-16, withheld on 2024-09-16 and 2024-11-08,
+      // 11.36 on 2024-11-11 and 12.10 on 2024-11-19.
+      const monitorId = await createMonitor(full, belowDefinition(12));
+      await only(monitorId);
+      await cycleOn("2024-03-13", full);
+      expect((await levelOf(monitorId))?.lifecycleState).toBe("ACTIVE");
+      const opened = await signalsOf(monitorId);
+      expect(opened).toHaveLength(1);
+
+      for (const withheld of ["2024-09-16", "2024-11-08"]) {
+        await cycleOn(withheld, full);
+        const level = await levelOf(monitorId);
+        expect(level?.lifecycleState, withheld).toBe("ACTIVE");
+        expect(level?.lastOutcome, withheld).toBe("NOT_EVALUABLE");
+        expect(level?.activeSignalId, withheld).toBe(opened[0]!.id);
+      }
+      await cycleOn("2024-11-11", full);
+      expect((await levelOf(monitorId))?.lifecycleState).toBe("ACTIVE");
+
+      await cycleOn("2024-11-19", full);
+      const level = await levelOf(monitorId);
+      expect(level?.lifecycleState).toBe("RESOLVED");
+      expect(level?.activeSignalId).toBeNull();
+      const transitions = await prisma.monitorStateTransition.findMany({
+        where: { monitorId },
+        orderBy: { sequence: "asc" },
+      });
+      // Nothing changed on a withheld session; the one ending is Nov 19's.
+      expect(
+        transitions.filter((row) =>
+          ["2024-09-16", "2024-11-08"].includes(
+            row.observationDate?.toISOString().slice(0, 10) ?? "",
+          ),
+        ),
+      ).toEqual([]);
+      expect(transitions.at(-1)).toMatchObject({
+        fromState: "ACTIVE",
+        toState: "RESOLVED",
+        reason: "CONDITIONS_ENDED",
+      });
+      expect(
+        transitions.at(-1)?.observationDate?.toISOString().slice(0, 10),
+      ).toBe("2024-11-19");
+      expect(await signalsOf(monitorId)).toHaveLength(1);
+    }, 240_000);
+
+    it("decides a session on its own statements once its bar is stored, and nothing on a withheld newest bar", async () => {
+      // Stored history ends 2024-11-08, inside the withheld stretch: nothing is decided, and no
+      // later statement is read early.
       const monitorId = await createMonitor(truncated);
       await only(monitorId);
-      const summary = await cycleOn("2024-11-11", closes.get("2024-11-11")!);
-      expect(summary).toMatchObject({
-        evaluations: 1,
-        notEvaluable: 1,
-        signalsEmitted: 0,
-      });
+      await cycleOn("2024-11-11", truncated);
       expect(await levelOf(monitorId)).toBeNull();
       expect(await signalsOf(monitorId)).toEqual([]);
 
-      // With the history stored through 2024-11-11, the next session's provisional observation reads
-      // 2024-11-11's statements: 11.50 at 56.45, decided — and, at 11 and above, not below 9.
+      // With the history stored through 2024-11-11, that session reads its own statements: 11.36 —
+      // decided, and not below 9.
       const nextMonitorId = await createMonitor(refreshed);
       await only(nextMonitorId);
-      await cycleOn("2024-11-12", closes.get("2024-11-12")!);
+      await cycleOn("2024-11-11", refreshed);
       const level = await levelOf(nextMonitorId);
       expect(level?.lastOutcome).toBe("NOT_MATCHED");
       expect(await signalsOf(nextMonitorId)).toEqual([]);
@@ -526,25 +574,13 @@ describeInfrastructure(
       );
       const operands = [valuationRatioOperand("PRICE_TO_EARNINGS_TTM")];
       const range = { from: "2024-01-02", to: "2024-06-28" };
-      await service.prepareMonitorEvaluationData(
-        full,
-        300,
-        "2024-03-14",
-        operands,
-      );
+      await service.prepareStockOperands(full, operands);
       await service.prepareDailyEvaluationData(full, range, operands);
       try {
         racing = true;
-        expect(
-          await service.readMonitorEvaluationFrame({
-            security: full,
-            operands,
-            observations: 300,
-            asOf: "2024-03-14",
-            observation: { price: closes.get("2024-03-14")! },
-            observationDate: "2024-03-14",
-          }),
-        ).toBeNull();
+        await expect(
+          service.readFinalizedEvaluationFrame(full, range, operands),
+        ).rejects.toBeInstanceOf(PriceBasisChangedError);
         await expect(
           service.readDailyEvaluationFrame(full, range, operands),
         ).rejects.toBeInstanceOf(PriceBasisChangedError);

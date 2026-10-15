@@ -14,7 +14,7 @@ export * from "./intrinsic-value-evaluator.js";
 export * from "./intrinsic-value-inputs.js";
 export * from "./intrinsic-value-materializer.js";
 export * from "./intrinsic-values.js";
-export * from "./monitor-frame.js";
+export * from "./evaluation-window.js";
 export * from "./oscillators.js";
 export * from "./relative-volume.js";
 export * from "./ports.js";

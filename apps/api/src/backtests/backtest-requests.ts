@@ -7,14 +7,11 @@ import {
   BACKTEST_MAX_PERIOD_YEARS,
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
+  newYorkDate,
   subtractYears,
 } from "@intrinsic/contracts";
 import { getEodFinalityConfig } from "@intrinsic/config";
-import {
-  eodCutoffDate,
-  tradingSessionDate,
-  type LocalDate,
-} from "@intrinsic/domain";
+import { eodCutoffDate, type LocalDate } from "@intrinsic/domain";
 import { BadRequestException } from "@nestjs/common";
 
 /**
@@ -130,7 +127,8 @@ export function currentBacktestSubmissionClock(
   now: Date = new Date(),
 ): BacktestSubmissionClock {
   return {
-    today: tradingSessionDate(now),
+    // The browser's New Backtest form defaults its end date with the same function.
+    today: newYorkDate(now),
     finalizedThrough: eodCutoffDate(
       now,
       getEodFinalityConfig().publicationDelayMs,

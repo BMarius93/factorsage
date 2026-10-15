@@ -51,7 +51,6 @@ import {
   type StockHistoryBounds,
 } from "@intrinsic/domain";
 import type {
-  FmpCurrentQuoteProviderPort,
   FmpStockSplitPort,
   FmpStockProviderPort,
 } from "@intrinsic/fmp";
@@ -117,10 +116,7 @@ import {
 } from "./security-search.js";
 import {
   monitorWindowCalendarDays,
-  projectMonitorEvaluationFrame,
-  type CurrentObservation,
-  type MonitorEvaluationFrame,
-} from "./monitor-frame.js";
+} from "./evaluation-window.js";
 import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 import {
   EodFinalityPolicy,
@@ -338,8 +334,6 @@ export type ProviderRequestReason =
   | "PRICE_BASIS_EARLIEST_ROW"
   /** The whole history, re-read to replace it after the earliest row showed a re-base. */
   | "PRICE_REBASE"
-  /** One batched current-quote read for a whole Monitor evaluation cycle. */
-  | "MONITOR_CURRENT_DATA"
   /** The split list a valuation ratio's price-basis rules read, when the stored one is a day old. */
   | "VALUATION_SPLIT_LIST"
   /** The scheduled refresh of a market-data benchmark series: one bounded tail read. */
@@ -352,7 +346,6 @@ export type ProviderRequestEvent = {
     | "SECURITY_PROFILE"
     | "DAILY_PRICE"
     | "FINANCIAL_STATEMENTS"
-    | "CURRENT_QUOTE"
     | "STOCK_SPLIT";
   reason: ProviderRequestReason;
   from?: string;
@@ -636,9 +629,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
 
   constructor(
     private readonly store: StockDataStore,
-    private readonly provider: FmpStockProviderPort &
-      Partial<FmpCurrentQuoteProviderPort> &
-      Partial<FmpStockSplitPort>,
+    private readonly provider: FmpStockProviderPort & Partial<FmpStockSplitPort>,
     private readonly cache: StockDataCache,
     private readonly coordinator: LoadCoordinator,
     options: CanonicalStockDataServiceOptions = {},
@@ -1470,117 +1461,6 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   }
 
   /**
-   * Everything one Monitor evaluation cycle needs for one security, read **once**.
-   *
-   * The cycle calls this per symbol, never per Monitor: `operands` is already the union of every
-   * operand the Monitors watching this security reference, so several Monitors sharing NVDA share
-   * one hydration, one projection read and one series computation
-   * (`ai/architecture/monitor-engine.md`).
-   *
-   * The window is `observations` closed trading days, derived by the caller from the canonical
-   * series definitions of the operands actually required. It is requested in calendar days with a
-   * trading-day margin, because durable storage is addressed by date; asking for slightly more
-   * calendar history than needed costs a wider projection read and nothing else, while asking for
-   * too little would silently shorten a series' warm-up.
-   *
-   * Hydration and freshness run here exactly as a backtest's PREPARING_DATA phase runs them, so a
-   * monitored security's history is loaded and refreshed through the one canonical path rather
-   * than by a Monitor-specific loader.
-   */
-  async prepareMonitorEvaluationData(
-    security: Security,
-    observations: number,
-    asOf: LocalDate,
-    operands: readonly OperandKey[] = [],
-  ): Promise<void> {
-    const window = this.monitorWindowRange(observations, asOf);
-    const load = this.loadTarget(security, window);
-    await this.ensureStockHydrated(security, load);
-    await this.ensureStockFresh(security, load);
-    // Ingested here, in the cycle's own preparation phase, so the read below reaches no provider and
-    // several Monitors sharing a symbol share one ingest.
-    await this.ensureAlternativeDataIngested(security, operands);
-    await this.ensureValuationInputsIngested(security, operands);
-  }
-
-  /**
-   * Projects the prepared window without re-entering hydration.
-   *
-   * The counterpart of {@link prepareMonitorEvaluationData}, and deliberately separate for the same
-   * reason {@link readDailyEvaluationFrame} is: the freshness question is asked once per security
-   * per cycle, not once per read.
-   *
-   * Derived state is read only over a short recent tail, anchored on the newest closed trading day.
-   * The Monitor evaluates exactly one index, so the only persisted derived row it needs is the
-   * newest closed one — whose weekly and intrinsic values are carried forward onto the provisional
-   * observation. Reading the whole window of derived rows would cost thousands of rows per security
-   * per cycle to supply columns nothing ever reads.
-   */
-  async readMonitorEvaluationFrame(input: {
-    security: Security;
-    operands: readonly OperandKey[];
-    observations: number;
-    asOf: LocalDate;
-    observation: CurrentObservation | null;
-    observationDate: LocalDate;
-  }): Promise<MonitorEvaluationFrame | null> {
-    const window = this.monitorWindowRange(input.observations, input.asOf);
-    // Prices come from the Redis projection and the derived tail from PostgreSQL. The generation is
-    // read on both sides of them: a replacement committed in between would pair one basis's prices
-    // with another's indicators, and a Signal from such a frame would be permanent (§9).
-    const generationBefore = await this.priceBasisGeneration(input.security.id);
-    const prices = (
-      await this.readDailyPriceProjection(input.security, window, "BACKTEST")
-    ).slice(-input.observations);
-
-    // The derived tail is anchored on the newest CLOSED trading day rather than on today, so a
-    // security whose last session was a while ago still carries its weekly and intrinsic state
-    // forward instead of silently losing it to an empty window.
-    const newestClosed = prices[prices.length - 1]?.date;
-    const derived = newestClosed
-      ? // Read straight from durable storage rather than through the cached projection.
-        // `prepareMonitorEvaluationData` has already hydrated and freshness-checked this window, so
-        // the rows are authoritative — and the projection treats an empty result as a cache miss,
-        // which on a tail this narrow would invalidate the manifest and re-hydrate the security on
-        // every single cycle.
-        await this.store.getDailyDerivedState(input.security.id, {
-          from: addDays(newestClosed, -this.recentTailCalendarDays),
-          to: newestClosed,
-        })
-      : [];
-
-    const alternativeData = await this.loadAlternativeDataFacts(
-      input.security,
-      input.operands,
-      // The whole projected window, so a lookback that reaches behind the newest closed session is
-      // counted from the same rows the frame carries.
-      { from: prices[0]?.date ?? input.observationDate, to: input.observationDate },
-      {},
-    );
-    // Read inside the bracket too: the measured re-bases are part of the basis the frame is on.
-    const valuation = await this.loadValuationTimeline(
-      input.security,
-      input.operands,
-    );
-    if (
-      (await this.priceBasisGeneration(input.security.id)) !== generationBefore
-    ) {
-      return null;
-    }
-
-    return projectMonitorEvaluationFrame({
-      security: input.security,
-      prices,
-      derived,
-      operands: input.operands,
-      observation: input.observation,
-      observationDate: input.observationDate,
-      ...(alternativeData ? { alternativeData } : {}),
-      ...(valuation ? { valuation } : {}),
-    });
-  }
-
-  /**
    * The first session a backtest of this security could replay: the product horizon, clamped to a
    * known listing date. A Monitor reconstruction whose history read starts here is a replay of the
    * security's whole canonical history.
@@ -1589,83 +1469,11 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     return this.productTarget(security).from;
   }
 
-  /** Catalog rows for a set of internal ids. One read for a whole Monitor cycle's universe. */
+  /** Catalog rows for a set of internal ids. One read for a whole Monitor evaluation's universe. */
   async findSecuritiesByIds(
     securityIds: readonly SecurityId[],
   ): Promise<Security[]> {
     return this.store.findSecuritiesByIds(securityIds);
-  }
-
-  /**
-   * Current market snapshots for many symbols, in as few provider requests as possible.
-   *
-   * One call per cycle for the whole monitored universe, not one per Monitor and not one per
-   * symbol. Results are keyed by the canonical `Security` id, so a caller never carries a provider
-   * symbol across a boundary. A symbol the provider could not price is simply absent.
-   */
-  async getCurrentObservations(
-    securities: readonly Security[],
-  ): Promise<Map<SecurityId, CurrentObservation>> {
-    const observations = new Map<SecurityId, CurrentObservation>();
-    if (securities.length === 0) {
-      return observations;
-    }
-    if (!this.provider.getCurrentQuotes) {
-      // Current quotes are an optional provider capability, so every existing caller and test
-      // double keeps working without one. A Monitor cycle genuinely needs it, and silently
-      // returning nothing would make a composition-root mistake look like a quiet market. This is
-      // a wiring defect rather than bad caller input, so it is not a StockDataValidationError.
-      throw new Error("This stock data provider cannot supply current quotes");
-    }
-    const bySymbol = new Map<string, Security>();
-    for (const security of securities) {
-      bySymbol.set(security.symbol.toUpperCase(), security);
-    }
-
-    // One batched request covers many securities, so the per-security correlation fields have no
-    // value to carry. They are left empty rather than filled with a summary that would read like a
-    // symbol and a security id to anything consuming them; the count goes in `detail`.
-    this.onProviderRequest({
-      dataset: "CURRENT_QUOTE",
-      reason: "MONITOR_CURRENT_DATA",
-      securityId: "",
-      symbol: "",
-      detail: `${bySymbol.size} symbols`,
-    });
-    const quotes = await this.provider.getCurrentQuotes([...bySymbol.keys()]);
-    for (const quote of quotes) {
-      const security = bySymbol.get(quote.providerSymbol.toUpperCase());
-      if (!security) {
-        continue;
-      }
-      observations.set(security.id, {
-        price: quote.price,
-        ...(quote.open === undefined ? {} : { open: quote.open }),
-        ...(quote.dayHigh === undefined ? {} : { dayHigh: quote.dayHigh }),
-        ...(quote.dayLow === undefined ? {} : { dayLow: quote.dayLow }),
-        ...(quote.volume === undefined ? {} : { volume: quote.volume }),
-        ...(quote.quotedAt === undefined ? {} : { quotedAt: quote.quotedAt }),
-      });
-    }
-    return observations;
-  }
-
-  /**
-   * The calendar range holding at least `observations` trading sessions back from `asOf`.
-   *
-   * Converted through {@link TRADING_DAYS_PER_YEAR} rather than through weekdays-per-week, because
-   * the window is long enough for the holiday difference to matter: the caller trims the projection
-   * to the exact observation count, so a range that yields too few sessions does not fail — it
-   * quietly hands the calculators a shorter warm-up than they were sized for.
-   */
-  private monitorWindowRange(
-    observations: number,
-    asOf: LocalDate,
-  ): Required<DateRange> {
-    return {
-      from: addDays(asOf, -monitorWindowCalendarDays(observations)),
-      to: asOf,
-    };
   }
 
   async getDailyTechnicals(symbol: string, range: DateRange) {
@@ -1714,9 +1522,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * frame read is (`historical-price-basis-v1.md`, §9).
    *
    * Only the requested ratio is projected. A session it is unavailable on keeps its point without a
-   * value, so absence reaches the caller as absence. The newest session is the newest stored bar,
+   * value, so absence reaches the caller as absence. The newest session is the newest final bar,
    * read at its own close and statements — the bar the price chart draws and the row a backtest
-   * frame reads, which during a session can be the provider's in-progress bar — never a live quote.
+   * frame reads; never an in-progress bar or a live quote (`eod-finality-v1.md`).
    */
   async getDailyValuationRatio(
     symbol: string,

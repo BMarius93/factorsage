@@ -637,8 +637,8 @@ describe("FMP configuration", () => {
     });
 
     expect(baseUrl).toBe("http://localhost:3011/stable/");
-    expect(new URL("batch-quote", baseUrl).toString()).toBe(
-      "http://localhost:3011/stable/batch-quote",
+    expect(new URL("historical-price-eod/full", baseUrl).toString()).toBe(
+      "http://localhost:3011/stable/historical-price-eod/full",
     );
   });
 
