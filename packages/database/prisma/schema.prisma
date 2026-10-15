@@ -324,8 +324,8 @@ model LegalRequest {
 }
 
 model Security {
-  id                  String                   @id @default(uuid())
-  providerSymbol      String                   @unique
+  id                  String                        @id @default(uuid())
+  providerSymbol      String                        @unique
   symbol              String
   name                String
   exchangeCode        String
@@ -337,12 +337,12 @@ model Security {
   country             String?
   sector              String?
   industry            String?
-  ipoDate             DateTime?                @db.Date
+  ipoDate             DateTime?                     @db.Date
   type                SecurityType
   isAdr               Boolean
   isActivelyTrading   Boolean
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
   profile             SecurityProfile?
   datasetStates       StockDatasetState[]
   datasetCoverage     StockDatasetCoverage[]
@@ -356,6 +356,7 @@ model Security {
   monitorSignalStates MonitorSignalState[]
   monitorSignals      MonitorSignal[]
   monitorTransitions  MonitorStateTransition[]
+  monitorCheckpoints  MonitorEvaluationCheckpoint[]
   recentViews         RecentSecurityView[]
   insiderTransactions InsiderTransaction[]
   congressTrades      CongressTrade[]
@@ -1363,7 +1364,28 @@ enum MonitorTransitionReason {
   RECONSTRUCTED
 }
 
-/// One Monitor: a Strategy evaluated against current market data over a Stock List.
+/// Where one lifecycle transition came from (`docs/decisions/monitor-eod-v2.md` §3).
+///
+/// `OBSERVED` is a session evaluated while the Monitor was watched — the only origin the Dashboard's
+/// activity feed may show as new. `HISTORY` is a session the Monitor did not watch when it became
+/// final: an initial replay, a reconstruction, or the gap a paused Monitor resumes over.
+/// `ADMINISTRATIVE` is a configuration change that observed no session (an edit, a removal, a
+/// rebind).
+enum MonitorTransitionOrigin {
+  OBSERVED
+  HISTORY
+  ADMINISTRATIVE
+}
+
+/// How a Signal's observation price was obtained. `LIVE_QUOTE` occurrences were decided by the V1
+/// Monitor on a provisional intraday quote and are kept as the record of what was observed;
+/// `EOD_CLOSE` occurrences are decided on their session's finalized end-of-day close.
+enum MonitorObservationBasis {
+  LIVE_QUOTE
+  EOD_CLOSE
+}
+
+/// One Monitor: a Strategy evaluated against finalized end-of-day sessions over a Stock List.
 ///
 /// Owned by a user, or by the system (a built-in, identified by `systemKey`). A built-in Monitor is
 /// shared: it is evaluated once for everybody, its `enabled` stays true, and whether it runs is the
@@ -1425,6 +1447,12 @@ model Monitor {
   /// than a comparison of the two ids, because rebinding away and back would otherwise present the
   /// same pair to an in-flight cycle whose state had already been discarded.
   configVersion     Int              @default(0)
+  /// When this Monitor most recently started being evaluated — first created, re-enabled, unblocked
+  /// by its owner's plan, or globally enabled — and null while it is not running. A session that
+  /// became final before it is one the Monitor did not watch, so the evaluation that catches up over
+  /// it records `HISTORY`, never newly observed activity. An outage leaves it untouched: sessions
+  /// missed then are caught up as `OBSERVED`.
+  watchingSince     DateTime?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
@@ -1436,6 +1464,7 @@ model Monitor {
   signals     MonitorSignal[]
   transitions MonitorStateTransition[]
   preferences UserBuiltInMonitorPreference[]
+  checkpoints MonitorEvaluationCheckpoint[]
 
   @@index([userId])
   @@index([userId, updatedAt])
@@ -1562,6 +1591,8 @@ model MonitorSignal {
   resolutionReason        MonitorTransitionReason?
   /// True when historical reconstruction, not a live observation, established the activation.
   reconstructed           Boolean                  @default(false)
+  /// How `observationPrice` was obtained. Rows written before the EOD evaluation are `LIVE_QUOTE`.
+  observationBasis        MonitorObservationBasis  @default(EOD_CLOSE)
 
   monitor     Monitor                  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
   security    Security                 @relation(fields: [securityId], references: [id], onDelete: Restrict)
@@ -1595,6 +1626,8 @@ model MonitorStateTransition {
   fromState         MonitorLifecycleState
   toState           MonitorLifecycleState
   reason            MonitorTransitionReason
+  /// Whether the change was newly observed, replayed history, or an administrative change.
+  origin            MonitorTransitionOrigin @default(OBSERVED)
   occurredAt        DateTime                @default(now())
   /// The session observed, or null for a change no observation made (rebind, removal, edit).
   observationDate   DateTime?               @db.Date
@@ -1608,6 +1641,32 @@ model MonitorStateTransition {
   @@index([monitorId, sequence])
   @@index([securityId])
   @@index([signalId])
+}
+
+/// How far one Monitor has evaluated one member: the durable, per-session progress of the EOD
+/// evaluation (`docs/decisions/monitor-eod-v2.md` §3).
+///
+/// `evaluatedThrough` is the newest session every level of this member has been decided through —
+/// or, for a session the security never printed, skipped past. It advances **only** in the same
+/// transaction as the Signals and transitions that session produced, guarded by its own previous
+/// value and the Monitor's `configVersion`, so a retry, a restart or an overlapping lease never
+/// evaluates a session twice and a crash never leaves state ahead of progress. Missed sessions are
+/// caught up from here in order. `basisGeneration` is the security's price-basis generation the
+/// last sessions were read on.
+model MonitorEvaluationCheckpoint {
+  monitorId        String
+  securityId       String
+  evaluatedThrough DateTime @db.Date
+  configVersion    Int
+  basisGeneration  Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  monitor  Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  security Security @relation(fields: [securityId], references: [id], onDelete: Restrict)
+
+  @@id([monitorId, securityId])
+  @@index([securityId])
 }
 
 /// A signed-in customer's override of a built-in Monitor's Dashboard visibility.

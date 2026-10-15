@@ -1,6 +1,9 @@
 # Monitor Engine
 
-This document is the canonical V1 architecture for current-data Strategy monitoring.
+This document is the canonical architecture for Strategy monitoring. A Monitor evaluates
+**finalized end-of-day sessions**, in order, from a durable per-member checkpoint, and reaches no
+price provider; `docs/decisions/monitor-eod-v2.md` is the implementation record (§3 for the
+evaluation) and `docs/decisions/eod-finality-v1.md` the finality rule.
 
 Read together with:
 
@@ -11,6 +14,7 @@ Read together with:
 - `ai/architecture/api-worker.md`
 - `ai/architecture/observability.md`
 - `ai/workflows/validation.md`
+- `docs/decisions/monitor-eod-v2.md`
 
 ## Core rule
 
@@ -25,17 +29,19 @@ for each monitor
   evaluate
 ```
 
-The V1 shape is:
+The shape is:
 
 ```text
 active Monitors
     -> resolve monitored symbols
     -> aggregate required series per symbol
-    -> load/update each symbol once for the evaluation cycle
-    -> compute each required series once for that symbol
-    -> evaluate every relevant Monitor using the shared snapshot
-    -> persist Signal/state transitions
+    -> read each symbol's readiness and finalized frame once (PostgreSQL)
+    -> per (Monitor, member): every session after its checkpoint, in order
+    -> persist each member's Signals, transitions, state and checkpoint together
 ```
+
+Market data is prepared by a different child, the stock EOD preparation
+(`docs/decisions/monitor-eod-v2.md` §2), which owns every provider read for monitored securities.
 
 ## Reuse, do not fork
 
@@ -50,29 +56,27 @@ The execution context differs from backtesting; the Strategy language does not.
 Conceptually:
 
 ```text
-FMP current market data
-        |
-        v
-current symbol observation
-        |
-closed persisted history ----+
+stock EOD child: FMP -> finalized bars + materialized derived rows (PostgreSQL)
+                             |
+Monitor child:               v
+                 readiness (newest bar proven final)
                              |
                              v
-                    required-series computation
-                             |
-                             v
-                      symbol snapshot
+            finalized frame: stored bars + materialized columns
                              |
                   +----------+----------+
                   |                     |
-             Monitor A              Monitor B
+         Monitor A, member          Monitor B, member
+     sessions after checkpoint   sessions after checkpoint
                   |                     |
                   +----------+----------+
                              v
-                  Signal/state persistence
+       one transaction per member: Signals, transitions, state, checkpoint
 ```
 
-For a daily Monitor evaluation, the current live FMP price acts as the provisional current-day observation on top of persisted closed daily history. Daily indicators required by the Strategy may therefore be recalculated against that provisional observation.
+A Monitor's daily and weekly indicators, intrinsic values and Fundamental Metrics are the
+materialized values of each session — the same columns a backtest reads — never recomputed against
+a provisional observation.
 
 ## Required-series aggregation
 
@@ -104,10 +108,9 @@ For V1, transient per-cycle work should use process memory where appropriate. A 
 
 ```text
 Map<symbol, {
-  history,
-  currentObservation,
-  requiredSeries,
-  computedSnapshot
+  readiness,
+  finalizedFrame,
+  members
 }>
 ```
 
@@ -115,9 +118,8 @@ This is an implementation detail, not a persisted product model.
 
 The important behavior is:
 
-- a symbol's required history is loaded once per evaluation cycle/worker batch, not once per Monitor;
-- a required calculated value is computed once per symbol snapshot when it can be shared;
-- all relevant Monitors evaluate against the same coherent snapshot for that cycle.
+- a symbol's frame is read once per evaluation cycle, not once per Monitor;
+- all relevant Monitors evaluate against the same coherent frame for that cycle.
 
 Existing Redis usage for queueing, locking, coordination, or already-established architecture may remain. Do not redesign or duplicate those concerns as part of this feature.
 
@@ -259,9 +261,10 @@ present the same pair to an in-flight cycle whose state had already been discard
 semantics. The implementation is split three ways, deliberately:
 
 ```text
-@intrinsic/strategy   monitor-lifecycle.ts   stepMonitorLevel / reconstructMonitorLevel pure reducer
-apps/worker           level-decision.ts      decideLevel                                pure framing
-apps/worker           monitor-repository.ts  applyLevelState / resolveUnvisitedStates   persistence
+@intrinsic/strategy   monitor-lifecycle.ts   stepMonitorLevel / reconstructMonitorLevel        pure reducer
+apps/worker           session-decision.ts    decideLevelSessions                               pure framing
+apps/worker           monitor-repository.ts  applyMemberEvaluation / resolveUnvisitedStates    persistence
+apps/worker           monitor-evaluation.ts  MonitorEodEvaluation                              the pass
 ```
 
 - **`stepMonitorLevel`** applies one real observation to one level: per rule it evaluates a *close*
@@ -280,12 +283,15 @@ apps/worker           monitor-repository.ts  applyLevelState / resolveUnvisitedS
   canonical `evaluateMarketCondition` / `evaluateMarketTrigger`. Their AND is exactly
   `evaluateMarketSignal`, so nothing about predicate semantics is restated; the lifecycle simply
   needs the two halves apart.
-- **`decideLevel`** adds the Monitor framing — the observation, buy-window gating through
-  `isBuyWindowEligible`, logic-change resets, reconstruction — and returns one fully decided
-  `LevelStateWrite`, or nothing.
-- **`applyLevelState`** persists that write atomically: the Signal it closes (with reason and
-  session), the Signal it opens, the state row, and the transition rows, in one transaction behind the
-  binding fence and the `stateVersion` guard. A write that changes nothing opens no transaction.
+- **`decideLevelSessions`** adds the Monitor framing — the sessions after the member's checkpoint,
+  applied in order, buy-window gating through `isBuyWindowEligible`, logic-change resets,
+  reconstruction at the newest session, each change's origin — and returns one decided write for
+  the level, or nothing.
+- **`applyMemberEvaluation`** persists every level of one member atomically: the Signals it closes
+  (with reason and session) and opens, the state rows, the transition rows and the checkpoint, in
+  one transaction behind the binding fence, the checkpoint's previous value and the `stateVersion`
+  guard. The V1 `decideLevel` / `applyLevelState` pair survives only for the capacity bench until
+  the V1 cycle is removed.
 
 ### Durable state
 
@@ -310,17 +316,25 @@ converges on its next decided observation. `ruleStates` is parsed defensively
 
 `MonitorSignal` is one occurrence: `detectedAt`/`observationDate` are its activation instant and
 session, `resolvedAt`/`resolvedObservationDate`/`resolutionReason` its end, `signalFingerprint` the
-logic it belonged to, `reconstructed` whether history rather than a live scan established it.
+logic it belonged to, `reconstructed` whether history rather than an evaluated session established it.
+
+`MonitorSignal.observationBasis` says how its price was obtained: `LIVE_QUOTE` for occurrences the
+V1 cycle decided on an intraday quote, `EOD_CLOSE` for every occurrence since.
 
 `MonitorStateTransition` is the append-only change log, ordered by `sequence`. Only state changes are
 written — a repeated scan writes nothing at all — and `signalId` is nullable because a pending setup
-exists before any occurrence does.
+exists before any occurrence does. `origin` is `OBSERVED`, `HISTORY` or `ADMINISTRATIVE`
+(`docs/decisions/monitor-eod-v2.md` §3.4), decided by `Monitor.watchingSince`.
+
+`MonitorEvaluationCheckpoint` is one row per `(monitor, security)`: `evaluatedThrough`, the newest
+session every level of that member was decided through, advanced only in the transaction that wrote
+what those sessions produced (§3.2 of the record).
 
 ### What `NOT_EVALUABLE` does
 
 A level observation whose predicates cannot be decided moves nothing, except that a trigger-only
-event still ends when a later real session is observed. A cycle with **no** observation — no quote,
-a weekend, a full closure, a failed load — produces no step at all.
+event still ends when a later real session is observed. A day with **no** bar — a weekend, a full
+closure, a halted stock — and a session not yet proven final produce no step at all.
 
 ### Reconstruction
 
@@ -340,11 +354,11 @@ it, so `reconstructMonitorLevel` replays from the **latest** resting session onl
 session.
 
 **Reading history.** The cycle notices missing state before any data work and reads about
-`DEFAULT_RECONSTRUCTION_SESSIONS` (252) closed sessions before the observation through the
-**backtest** read path (`prepareDailyEvaluationData` + `readDailyEvaluationFrame`, materialized
-series, per-day intrinsic values). For each level being reconstructed, `needsDeeperHistory` scans
+`DEFAULT_RECONSTRUCTION_SESSIONS` (252) closed sessions before the newest finalized session through
+`readFinalizedEvaluationFrame` — the backtest projection over stored bars and materialized series,
+per-day intrinsic values, PostgreSQL only. For each level being reconstructed, `needsDeeperHistory` scans
 that read backwards to its latest resting session. Only when a level that will actually be created
-now (decidable live observation that does not itself rest) finds none is the read doubled — 504,
+now (decidable newest session that does not itself rest) finds none is the read doubled — 504,
 1,008, … sessions, clamped to the first session, where the replay is complete by definition
 (`reconstructionHistoryExtensions` counts these reads). Almost every level rests within days, so
 the common case is one read and a replay of a handful of sessions; a multi-year setup costs a few
@@ -363,9 +377,10 @@ and that both then behave identically on every later observation.
 **Persisting.** Only the result is written: the final lifecycle (a reconstructed `RESOLVED` is
 stored as `INACTIVE`, because no occurrence was ever recorded for it), at most one `reconstructed`
 occurrence dated to its real activation session and priced at that session's close, and one
-transition — `RECONSTRUCTED`, or the live reason when the live observation itself entered the state.
-Only a decidable live observation creates a row, so a level that cannot be decided today waits, and
-a history read that fails leaves the level for a later cycle rather than starting it from nothing.
+transition — `RECONSTRUCTED` with origin `HISTORY`, or the newest session's own reason when that
+session entered the state. Only a decidable newest session creates a row, so a level that cannot be
+decided yet waits, and a history read that fails leaves the level for a later cycle rather than
+starting it from nothing.
 
 Because reconstruction is keyed on "no current state", it covers new Monitors, new or re-added
 members, rebinds and edited levels with one mechanism. `resolveUnvisitedStates` therefore deletes the
@@ -377,35 +392,30 @@ keeping a reset row.
 
 ## Historical data loading
 
-Do not fetch a full year (or another large fixed horizon) from FMP separately for every Monitor evaluation.
+The Monitor evaluation reads history from PostgreSQL only. The stock EOD child loads a monitored
+security's history from the product horizon on its first preparation and keeps its tail, derived
+rows and operand inputs current (`docs/decisions/monitor-eod-v2.md` §2), so a reconstruction or a
+catch-up never needs the provider.
 
-Prefer existing persisted history. Hydrate missing historical coverage through the existing canonical data-loading path when necessary.
+Do not introduce incremental EMA/RSI/SMA state machines: the evaluation reads materialized columns.
 
-For V1 it is acceptable to load a bounded recent daily window from durable storage into process memory and recalculate the required daily indicators for the provisional current observation. Roughly 250-400 daily observations is a reasonable implementation range when sufficient for all requested dependencies, but the code should derive the actual warm-up requirement from canonical series definitions wherever practical rather than hard-coding a business rule around `300`.
+## Provider work
 
-Do not introduce incremental EMA/RSI/SMA state machines solely as a premature optimization. They can be added later if profiling proves they are necessary without changing Monitor product semantics.
-
-## Current FMP work
-
-Current market data should be fetched/updated per symbol, not per Monitor.
-
-If many Monitors reference NVDA during one evaluation cycle, that cycle should not make one equivalent current-price request for each Monitor.
-
-Use the repository's existing FMP client, retry/error handling, observability, and provider-mapping conventions. Do not add a Monitor-specific FMP client.
+The Monitor evaluation makes **no** provider request. Every price, statement and alternative-data
+read for monitored securities belongs to the stock EOD child, per security, never per Monitor,
+through the shared gated `FmpClient`. The Monitor child's gated provider serves only the venue
+holiday schedule.
 
 ## Intrinsic-value handling
 
-Separate fundamental-dependent calculations from price-dependent current metrics.
-
-If a valid intrinsic value is already derived from unchanged PIT/fundamental inputs, a current-price Monitor evaluation should reuse it. Metrics such as Margin of Safety can then be recomputed using the current price without rerunning the entire intrinsic-value model unnecessarily.
-
-Follow `calculated-series.md` for canonical persistence/revision/invalidation behavior.
+A Monitor reads each session's materialized intrinsic values and price-dependent results (Margin of
+Safety, valuation ratios) through the backtest projection. Follow `calculated-series.md` for
+canonical persistence/revision/invalidation behavior.
 
 ## Concurrency and coherent snapshots
 
-Within one Monitor evaluation cycle, avoid evaluating different Monitors for the same symbol against accidentally different current observations purely because of duplicate fetches.
-
-Build/reuse one coherent current symbol snapshot for the batch and fan it out to relevant Monitor evaluations.
+Within one Monitor evaluation cycle, every Monitor watching a symbol is evaluated against the same
+frame, read once.
 
 If the worker architecture permits concurrent batches or multiple worker instances, use the repository's existing coordination/claiming conventions. Do not introduce global in-memory correctness assumptions across processes.
 
@@ -417,17 +427,14 @@ Use canonical `NOT_EVALUABLE` semantics and existing retry/error reporting patte
 
 Do not fabricate Signals merely so Monitor UI has content.
 
-A current observation is **required**. Without one the symbol is `NOT_EVALUABLE` for that cycle;
-there is deliberately no fallback to evaluating the last closed day. That fallback looks harmless and
-is not: it silently swaps the observation a Monitor is defined to evaluate for a different one, so an
-outage would resolve live matches and re-emit them on recovery. Reporting "not decidable" leaves
-every durable latch untouched, which is what makes an outage invisible rather than destructive.
+A session is evaluated only once its bar is **proven final**: read after the session's finalization
+instant and materialized. A member whose security is not ready waits at its checkpoint; nothing is
+decided on a provisional or carried value, so an outage delays evaluation and never resolves or
+re-emits anything. When the data arrives, the missed sessions are stepped in order.
 
-Current-data failure is all-or-nothing for a cycle. Partial cycles are not a V1 concept: the read
-happens before anything is persisted, and a failure is rethrown so the cycle takes the worker's
-failure and retry path — recorded as a failure, backed off, retried — rather than being absorbed
-into a cycle that then completes normally, marks every Monitor scanned and resets the schedule's
-failure history having evaluated nothing. Every durable latch is preserved.
+A failure is **per security**: logged (`monitor.symbol.failed`), counted in the pass
+summary, and the pass completes the others. Each member is one transaction, so nothing is
+half-applied, and the next pass resumes from the checkpoints.
 
 ## V1 implementation priorities
 
@@ -455,51 +462,39 @@ Implementation is incomplete without tests covering at minimum:
   first history read (new Monitor, new member, rebind, logic reset);
 - FINAL EXIT durable state and transition history ending in the same aggregate state;
 - restart/cache-loss behavior does not fabricate a trigger;
-- current provisional daily observation affects daily calculated series as specified;
+- missed sessions caught up in order, each once, with the right origin (outage versus pause);
+- a member waiting on a session not yet proven final, and on an ETF that does not hold it yet;
 - missing/warm-up/PIT-unavailable dependencies return `NOT_EVALUABLE`, not a match;
 - only required series are requested/computed for a Monitor batch where this can be asserted without coupling tests to private implementation details;
-- FMP/current-data failure behavior;
+- a failure or crash mid-pass resumed from the checkpoints without duplicates;
 - persistence/migration behavior for any newly introduced durable Monitor state.
 
 Run the repository's canonical validation gate from `ai/workflows/validation.md` and add targeted integration tests against real PostgreSQL/Redis infrastructure where existing project testing conventions require it.
 
 ## Observation dates and the exchange clock
 
-The observation date is the trading day the provider's quote timestamp falls in, resolved through
-`tradingSessionDate` in `@intrinsic/domain` — **not** the UTC day and not the wall clock.
-
-That resolution is exact, not approximate, and the reason is the admission table: V1 admits only
-NASDAQ, NYSE and AMEX (`SUPPORTED_EXCHANGE_CURRENCIES`), all US venues on one clock, whose regular
-and extended sessions run 04:00–20:00 local and never cross local midnight. Deriving the day in UTC
-would be wrong for part of the year — 19:00–20:00 New York time is already past midnight UTC under
-EST, so a Monday-evening quote would name Tuesday, and a Friday-evening one Saturday.
-
-This is a timezone, not a trading calendar: it says which calendar day an instant belongs to and
-nothing about whether that day was a session. `security-universe.test.ts` pins the supported set
-against the claim, so admitting a venue on another clock fails a test rather than silently
-mis-dating its observations — at which point the question has to be answered again, deliberately.
+The observation date is the session date of the stored end-of-day bar. Which sessions are final is
+decided on the New York clock (`eodCutoffDate` in `@intrinsic/domain`) — **not** the UTC day and
+not the wall clock. V1 admits only NASDAQ, NYSE and AMEX (`SUPPORTED_EXCHANGE_CURRENCIES`), all US
+venues on one clock; `security-universe.test.ts` pins the supported set, so admitting a venue on
+another clock fails a test rather than silently mis-dating its sessions.
 
 ## Re-based histories and the ex-date hold
 
-`../../docs/decisions/historical-price-basis-v1.md` PR 1 adds two guards to the symbol snapshot,
-both reported as a not-evaluable observation for the cycle and never as a Signal decision:
-
-- **The live quote's hold.** A quote that moved by a split-sized amount (below 0.7 or above 1.4
-  times) from the last closed session may be a post-split price beside a history the provider has
-  not re-based yet. `projectMonitorEvaluationFrame` returns no frame, so the quote is never appended.
-- **One basis per frame.** Prices come from the Redis projection and the derived tail from
-  PostgreSQL; `readMonitorEvaluationFrame` reads the security's price-basis generation before and
-  after them, and a replacement committed in between makes the cycle's frame for that security
-  absent. A reconstruction's history read is bracketed the same way, and meeting a replacement
-  there is a `warn` (`monitor.reconstruction.history-rebased`), not a failure.
+`../../docs/decisions/historical-price-basis-v1.md` guards the frame with **one basis per frame**:
+`readFinalizedEvaluationFrame` reads the security's price-basis generation before and after its
+PostgreSQL reads, and a replacement committed in between leaves that security undecided for the
+pass — a `warn` (`monitor.evaluation.history-rebased`), not a failure — so the next pass reads the
+replaced history. The checkpoint records the generation its sessions were decided on. The V1 live
+quote's split-sized hold no longer applies: there is no quote.
 
 ## The trading-session boundary
 
-A provisional observation is built only for a day the exchange held a session. Weekends need no
-provider knowledge and are refused in the pure projector; a **fully closed** holiday is refused by
-the cycle, which resolves the venue's schedule first — `CachedTradingCalendar` in
-`@intrinsic/stock-data`, over the provider's holiday schedule. An **early close is a session** and
-is not filtered: the venue opened.
+An observation is a stored bar, so only a day the security traded is ever observed. The venue's
+schedule — `CachedTradingCalendar` in `@intrinsic/stock-data`, over the provider's holiday schedule —
+decides which session is **expected** (`EodFinalityPolicy.expectedSession`): what "current" means
+for a member, and which unprinted session may be given up on. An **early close is a session** and is
+not filtered: the venue opened.
 
 It is deliberately not a trading-calendar subsystem. It answers one question — did this venue open
 at all — for the three exchanges V1 admits, and knows nothing about session times, half-days or
@@ -508,37 +503,33 @@ settlement.
 Three properties keep it affordable, and each is required rather than incidental:
 
 - **Per exchange and year**, never per symbol or per Monitor. Every security on a venue shares its
-  calendar, so a cycle over a thousand symbols resolves at most one schedule per exchange. The cycle
-  collects the distinct `(exchange, session)` pairs its quotes named and asks once for each.
+  calendar, so a cycle over a thousand symbols resolves at most one schedule per exchange.
 - **Single-flight.** Concurrent callers share one in-flight request, which is what makes the above
   true under the cycle's bounded symbol concurrency on a cold calendar.
 - **Process memory with a TTL.** A published schedule changes very rarely and is not
   correctness-critical state that must survive a restart — a cold process fetches it again. Nothing
   is cached in Redis for it.
 
-A failure to resolve the schedule **fails the cycle**, by the same rule a failed quote read follows:
-the only alternative is assuming the exchange was open, which is exactly the assumption that
-fabricates a bar. A failure is never cached, so the next cycle retries.
+A failure to resolve the schedule falls back to weekdays for the expected session and logs
+`monitor.evaluation.calendar-unavailable`. It cannot fabricate a bar — an observation is a stored
+bar — and can only make a holiday the session an unprinted security is passed through. A failure is
+never cached, so the next cycle retries.
 
-**A cycle with no observation advances nothing.** A `NOT_EVALUABLE` caused by missing current data
-carries no observation at all, so it cannot close a Trigger Signal: a weekend, a holiday or an
-unpriced symbol is not a later session, and only a real one ends an event's lifetime.
+**A day with no bar advances nothing.** A weekend, a holiday or a halted day is not a later session,
+so it cannot close a Trigger Signal; only a real one ends an event's lifetime.
 
 ## Accepted V1 limitations
 
 Recorded so they are not rediscovered as defects. None can produce a wrong Signal.
 
-- **Resident-stock bound.** Symbol data is read through the existing shared stock-data cache, whose
-  resident set is bounded by configuration. A monitored universe larger than that bound re-hydrates
-  from durable storage each cycle — a throughput limit, accepted for V1. Do not redesign Redis or add
-  a Monitor cache.
-- **Per-`(monitor, security, level)` writes.** A change is applied in its own transaction.
-  Evaluations that change nothing write nothing at all, so the steady state costs no transactions;
-  only genuine state changes do.
-- **Reconstruction reads a year of history per new or reset security** through the backtest path,
-  and more only for a level whose rules have not all rested within that year (doubling, up to the
-  security's first session). It happens once per level, not per cycle. A level that is not decidable
-  today asks for no deeper read.
+- **Per-`(monitor, security)` writes.** Every level of a member and its checkpoint are applied in
+  one transaction. A member already through the expected session writes nothing at all, so a pass
+  with no new session costs one readiness read per security and no transaction.
+- **Reconstruction reads a year of history per new or reset security** from PostgreSQL, and more
+  only for a level whose rules have not all rested within that year (doubling, up to the security's
+  first session). It happens once per level, not per cycle. A level that is not decidable yet asks
+  for no deeper read.
+- **A halted security's members stay at its last bar on weekdays** (`monitor-eod-v2.md` §3.7).
 
 ## Non-goals for this branch
 

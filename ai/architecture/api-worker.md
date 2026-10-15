@@ -47,10 +47,13 @@ lease on a heartbeat while the cycle runs, and on completion sets the next `dueA
 backoff capped at the scan interval; an expired lease is recovered by any child, so a crashed
 scanner is replaced rather than leaving scanning stopped. Every write after the claim is
 ownership-guarded on `claimedBy`, so a child whose lease was recovered while it was still running
-cannot push the next cycle out from under the new owner; the Signal-state writes it may still make
-are guarded separately by `MonitorSignalState.stateVersion`, which is what makes an overlapping
-cycle harmless. Cadence, lease, heartbeat and backoff are `MONITOR_SCAN_*` configuration
-(`packages/config`), never user input. See `monitor-engine.md`.
+cannot push the next cycle out from under the new owner; the member writes it may still make are
+guarded separately — each by the member's `MonitorEvaluationCheckpoint` and every state's
+`MonitorSignalState.stateVersion` — which is what makes an overlapping cycle harmless. The cycle
+evaluates finalized end-of-day sessions from PostgreSQL and makes no provider request
+(`docs/decisions/monitor-eod-v2.md` §3). Cadence (`MONITOR_SCAN_INTERVAL_MS`, ten minutes), lease,
+heartbeat and backoff are `MONITOR_SCAN_*` configuration (`packages/config`), never user input. See
+`monitor-engine.md`.
 
 ## Durable market-data refresh
 

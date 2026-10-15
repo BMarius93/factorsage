@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import {
+  getEodFinalityConfig,
   getMonitorWorkerConfig,
   getWorkerConfig,
   loadRootEnv,
 } from "@intrinsic/config";
 import { createLogger } from "@intrinsic/observability";
 import { createMonitorRuntime } from "./composition.js";
-import { MonitorCycle } from "./monitor-cycle.js";
+import { MonitorEodEvaluation } from "./monitor-evaluation.js";
 import { MonitorWorkerLoop } from "./monitor-loop.js";
 
 /**
@@ -36,14 +37,14 @@ try {
   await scans.requestImmediateScan(new Date());
   const loop = new MonitorWorkerLoop(
     scans,
-    new MonitorCycle(
+    new MonitorEodEvaluation(
       runtime.monitors,
       runtime.data,
-      runtime.calendar,
+      runtime.policy,
       logger,
       {
-        symbolConcurrency: config.symbolConcurrency,
-        quoteMaxAgeMs: config.quoteMaxAgeMs,
+        securityConcurrency: config.symbolConcurrency,
+        dependencyGiveUpMs: getEodFinalityConfig().sessionGiveUpMs,
       },
       runtime.etfContexts,
     ),

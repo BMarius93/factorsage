@@ -732,6 +732,12 @@ export class MonitorsService {
           ...(patch.isGloballyEnabled === undefined
             ? {}
             : { isGloballyEnabled: patch.isGloballyEnabled }),
+          // Switched off: it is no longer watched, so sessions that finalize until the evaluation
+          // sees it running again are not reported as newly observed when it catches up over them
+          // (`docs/decisions/monitor-eod-v2.md` §3).
+          ...(patch.enabled === false || patch.isGloballyEnabled === false
+            ? { watchingSince: null }
+            : {}),
           ...(patch.displayOrder === undefined
             ? {}
             : { displayOrder: patch.displayOrder }),
@@ -898,6 +904,12 @@ export class MonitorsService {
           ...(patch.isGloballyEnabled === undefined
             ? {}
             : { isGloballyEnabled: patch.isGloballyEnabled }),
+          // Switched off: it is no longer watched, so sessions that finalize until the evaluation
+          // sees it running again are not reported as newly observed when it catches up over them
+          // (`docs/decisions/monitor-eod-v2.md` §3).
+          ...(patch.enabled === false || patch.isGloballyEnabled === false
+            ? { watchingSince: null }
+            : {}),
           ...(patch.displayOrder === undefined
             ? {}
             : { displayOrder: patch.displayOrder }),

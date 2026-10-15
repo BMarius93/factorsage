@@ -4,8 +4,10 @@ import type { Prisma } from "@intrinsic/database";
  * What a Monitor rebind does to its durable state, in the caller's transaction.
  *
  * The caller holds the Monitor row lock (`FOR UPDATE`) and changes the binding itself. This ends
- * every current lifecycle — recording each ending under the logic it belonged to — resolves every
- * Signal still active, and discards the transition state. Signal and transition history is kept.
+ * every current lifecycle — recording each ending under the logic it belonged to, as an
+ * administrative change — resolves every Signal still active, and discards the transition state and
+ * every member's evaluation progress, so the new configuration is reconstructed from history rather
+ * than caught up from the old one's checkpoints. Signal and transition history is kept.
  * `ai/product/monitors.md`, "Rebinding a Monitor".
  */
 export async function crossMonitorConfigurationBoundary(
@@ -41,6 +43,7 @@ export async function crossMonitorConfigurationBoundary(
             ? ("RESOLVED" as const)
             : ("INACTIVE" as const),
         reason: "MONITOR_REBOUND" as const,
+        origin: "ADMINISTRATIVE" as const,
         occurredAt: now,
         signalId: state.activeSignalId,
       })),
@@ -55,5 +58,6 @@ export async function crossMonitorConfigurationBoundary(
   const clearedStates = (
     await tx.monitorSignalState.deleteMany({ where: { monitorId } })
   ).count;
+  await tx.monitorEvaluationCheckpoint.deleteMany({ where: { monitorId } });
   return { resolvedSignals, clearedStates };
 }

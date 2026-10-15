@@ -723,7 +723,10 @@ const MAX_MONITOR_WORKER_PROCESSES = 8;
  *
  * `MONITOR_SCAN_INTERVAL_MS` is the gap between the end of one cycle and the earliest start of the
  * next, not a fixed period: a cycle that takes longer than the interval simply delays the next one
- * instead of overlapping with it.
+ * instead of overlapping with it. A cycle is the end-of-day evaluation, which reads PostgreSQL
+ * readiness and reaches no provider (`docs/decisions/monitor-eod-v2.md` §3), so the default is the
+ * same ten minutes the stock EOD child checks on: a session is evaluated within one interval of
+ * being prepared, and a cycle with nothing new costs a readiness read per member.
  *
  * `MONITOR_QUOTE_MAX_AGE_MS` is how stale a provider quote may be and still be used as the
  * provisional current observation. Beyond it the symbol is `NOT_EVALUABLE` for that cycle: a stale
@@ -748,7 +751,7 @@ export function getMonitorWorkerConfig(env: Environment = process.env) {
   return {
     /** `0` disables Monitor scanning in this process entirely. */
     processes,
-    scanIntervalMs: integer(env, ["MONITOR_SCAN_INTERVAL_MS"], 5 * 60_000),
+    scanIntervalMs: integer(env, ["MONITOR_SCAN_INTERVAL_MS"], 10 * 60_000),
     pollIntervalMs: integer(env, ["MONITOR_SCAN_POLL_INTERVAL_MS"], 5_000),
     leaseMs: integer(env, ["MONITOR_SCAN_LEASE_MS"], 120_000),
     heartbeatIntervalMs: integer(
