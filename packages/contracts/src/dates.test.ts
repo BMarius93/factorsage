@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { subtractMonths } from "./dates.js";
+import { newYorkDate, subtractMonths } from "./dates.js";
 
 describe("subtractMonths", () => {
   it("moves back whole calendar months on the same day", () => {
@@ -29,5 +29,36 @@ describe("subtractMonths", () => {
   it("refuses a date that is not a calendar date", () => {
     expect(() => subtractMonths("2026-02-30", 1)).toThrow();
     expect(() => subtractMonths("20261009", 1)).toThrow();
+  });
+});
+
+describe("newYorkDate", () => {
+  it("is the New York day, not the UTC one, in the evening hours where they differ", () => {
+    // 22:00 in New York (EDT) is already the next day in UTC.
+    expect(newYorkDate(new Date("2026-10-15T02:00:00.000Z"))).toBe(
+      "2026-10-14",
+    );
+    // 19:00 in New York (EST).
+    expect(newYorkDate(new Date("2026-01-16T00:00:00.000Z"))).toBe(
+      "2026-01-15",
+    );
+    expect(newYorkDate(new Date("2026-10-14T15:00:00.000Z"))).toBe(
+      "2026-10-14",
+    );
+  });
+
+  it("turns at New York midnight on both sides of a DST change", () => {
+    expect(newYorkDate(new Date("2026-03-08T04:59:59.000Z"))).toBe(
+      "2026-03-07",
+    );
+    expect(newYorkDate(new Date("2026-03-08T05:00:00.000Z"))).toBe(
+      "2026-03-08",
+    );
+    expect(newYorkDate(new Date("2026-11-01T03:59:59.000Z"))).toBe(
+      "2026-10-31",
+    );
+    expect(newYorkDate(new Date("2026-11-01T04:00:00.000Z"))).toBe(
+      "2026-11-01",
+    );
   });
 });

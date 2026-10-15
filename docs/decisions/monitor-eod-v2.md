@@ -505,6 +505,14 @@ twice. A level the edit **added** still starts with the next session: with no st
 told apart from a level whose sessions were never decidable, and re-reading those on every pass
 would cost a frame read per member every ten minutes.
 
+**A step 1 regression fixed.** Step 1 made the API judge a backtest end date against the New York
+day, but the New Backtest form still defaulted its end date and its MAX start to the UTC day, so
+from 20:00 New York until midnight the API refused the form's own default. The full E2E run and the
+API entitlement suite caught it in that window. The form, the API and the test helpers now share
+`newYorkDate` in
+`@intrinsic/contracts`, and an API test pins it to the domain's `tradingSessionDate` across both
+DST changes.
+
 **Capacity.** `apps/worker/src/monitor/capacity-bench.ts` (`bench:monitor`) now drives the stock EOD
 preparation and the Monitor EOD evaluation over a simulated clock. With 500 securities and 9,000
 members, the stock EOD child made 8 provider requests per new security and 2 per security per

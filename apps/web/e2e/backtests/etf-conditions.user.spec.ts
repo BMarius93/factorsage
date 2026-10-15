@@ -1,4 +1,5 @@
 import {
+  newYorkDate,
   STRATEGY_SCHEMA_VERSION,
   type BacktestRunDetailResponse,
   type BacktestTradePageResponse,
@@ -80,8 +81,9 @@ function periodStart(): string {
   return start.toISOString().slice(0, 10);
 }
 
+/** The New York day: the "today" the API judges a backtest period against, at any hour. */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return newYorkDate(new Date());
 }
 
 function addDays(date: string, days: number): string {

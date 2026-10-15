@@ -1,4 +1,9 @@
-import { BACKTEST_MAX_PERIOD_YEARS, subtractYears } from "@intrinsic/contracts";
+import {
+  BACKTEST_MAX_PERIOD_YEARS,
+  newYorkDate,
+  subtractYears,
+} from "@intrinsic/contracts";
+import { tradingSessionDate } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import {
   currentBacktestSubmissionClock,
@@ -121,6 +126,26 @@ describe("a period never includes a session that has not finalized", () => {
     expect(
       currentBacktestSubmissionClock(new Date("2026-10-15T02:00:00.000Z")),
     ).toEqual({ today: "2026-10-14", finalizedThrough: "2026-10-14" });
+  });
+
+  it("judges the day with the browser's own function, the New York trading day", () => {
+    // The web form defaults its end date with `newYorkDate`; it must be the domain's trading day,
+    // or the form would offer a day the API refuses every evening after 20:00 in New York.
+    for (const instant of [
+      "2026-10-15T02:00:00.000Z",
+      "2026-10-15T03:59:59.000Z",
+      "2026-10-15T04:00:00.000Z",
+      "2026-01-16T04:59:59.000Z",
+      "2026-01-16T05:00:00.000Z",
+      "2026-03-08T04:59:59.000Z",
+      "2026-11-01T04:00:00.000Z",
+    ]) {
+      const now = new Date(instant);
+      expect(newYorkDate(now), instant).toBe(tradingSessionDate(now));
+      expect(currentBacktestSubmissionClock(now).today, instant).toBe(
+        tradingSessionDate(now),
+      );
+    }
   });
 
   it("ends a period requested through today at the newest finalized session", () => {

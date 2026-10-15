@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { chooseFromOverflowMenu } from "./overflow-menu";
-import type { Entitlements } from "@intrinsic/contracts";
+import { newYorkDate, type Entitlements } from "@intrinsic/contracts";
 
 /**
  * Shared moves for the entitlement specs.
@@ -191,6 +191,7 @@ export function yearsBefore(date: string, years: number): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+/** The New York day: the "today" the API judges a backtest period against, at any hour. */
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return newYorkDate(new Date());
 }

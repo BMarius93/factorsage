@@ -3,6 +3,7 @@ import {
   BACKTEST_MAX_MAXIMUM_POSITIONS,
   BACKTEST_MAX_MONTHLY_CONTRIBUTION,
   BACKTEST_MAX_PERIOD_YEARS,
+  newYorkDate,
   subtractYears,
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
@@ -51,16 +52,6 @@ function parseDay(value: string): number | null {
   return Number.isNaN(parsed.valueOf()) ? null : parsed.valueOf();
 }
 
-function toDay(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
-/**
- * The period a fresh form opens with: the last five years, ending today.
- *
- * Taken from an injected clock rather than read at module scope because it must be computed after
- * mount — the server and the browser would not agree on "today" during hydration.
- */
 /**
  * The earliest start a V1 backtest may request: the canonical horizon back from today.
  *
@@ -80,7 +71,7 @@ export function maximumBacktestStart(
     planYears ?? BACKTEST_MAX_PERIOD_YEARS,
     BACKTEST_MAX_PERIOD_YEARS,
   );
-  return subtractYears(toDay(now.valueOf()), years);
+  return subtractYears(newYorkDate(now), years);
 }
 
 /** The start date that makes a period exactly `years` long, ending on `endDate`. */
@@ -103,21 +94,20 @@ export function exceedsPeriodYears(
   return startDate < subtractYears(endDate, years);
 }
 
+/**
+ * The period a fresh form opens with: the last five years, ending today.
+ *
+ * Taken from an injected clock rather than read at module scope because it must be computed after
+ * mount — the server and the browser would not agree on "today" during hydration.
+ */
 export function defaultBacktestPeriod(now: Date): {
   readonly startDate: string;
   readonly endDate: string;
 } {
-  const end = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-  );
-  const start = Date.UTC(
-    now.getUTCFullYear() - 5,
-    now.getUTCMonth(),
-    now.getUTCDate(),
-  );
-  return { startDate: toDay(start), endDate: toDay(end) };
+  // The New York day, as the API judges "today": a UTC day would offer tomorrow every evening
+  // from 20:00 New York, and the API would refuse the form's own default.
+  const endDate = newYorkDate(now);
+  return { startDate: subtractYears(endDate, 5), endDate };
 }
 
 /**

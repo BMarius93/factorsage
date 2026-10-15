@@ -121,6 +121,22 @@ describe("defaultBacktestPeriod", () => {
       },
     );
   });
+
+  it("ends on the New York day the API judges, not the UTC one, in the evening", () => {
+    // 22:00 in New York is already the 15th in UTC; the API would refuse the 15th as the future.
+    expect(defaultBacktestPeriod(new Date("2026-10-15T02:00:00.000Z"))).toEqual(
+      {
+        startDate: "2021-10-14",
+        endDate: "2026-10-14",
+      },
+    );
+  });
+
+  it("clamps a leap day the way the API's period rules do", () => {
+    expect(
+      defaultBacktestPeriod(new Date("2028-02-29T15:00:00.000Z")).startDate,
+    ).toBe("2023-02-28");
+  });
 });
 
 describe("maximumBacktestStart", () => {
@@ -130,16 +146,22 @@ describe("maximumBacktestStart", () => {
     );
   });
 
+  it("counts back from the New York day, as the API does", () => {
+    expect(maximumBacktestStart(new Date("2026-10-15T02:00:00.000Z"))).toBe(
+      "1996-10-14",
+    );
+  });
+
   it("clamps a leap day rather than rolling into March", () => {
     // A naive setUTCFullYear on 29 February rolls forward to 1 March, which would put the horizon
     // on a different day every fourth year. The canonical helper clamps to 28 February.
-    expect(maximumBacktestStart(new Date("2024-02-29T00:00:00.000Z"))).toBe(
+    expect(maximumBacktestStart(new Date("2024-02-29T15:00:00.000Z"))).toBe(
       "1994-02-28",
     );
   });
 
   it("agrees with the shared period limit", () => {
-    const now = new Date("2020-06-15T00:00:00.000Z");
+    const now = new Date("2020-06-15T15:00:00.000Z");
     const start = maximumBacktestStart(now);
     expect(Number(start.slice(0, 4))).toBe(2020 - BACKTEST_MAX_PERIOD_YEARS);
     // And the period it produces is accepted by the form's own validation.

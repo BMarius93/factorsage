@@ -115,3 +115,27 @@ export function backtestPeriodYears(
   }
   return years;
 }
+
+const NEW_YORK_DAY_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * The New York calendar day an instant falls on, as `YYYY-MM-DD`: the "today" a backtest
+ * submission is judged against (`docs/decisions/eod-finality-v1.md`).
+ *
+ * Shared for the same reason as {@link subtractYears}. The API refuses an end date after this day,
+ * so the New Backtest form must default to it too: a form that took the UTC day would offer
+ * tomorrow every evening from 20:00 New York until midnight, and the API would refuse its own
+ * default. It equals `tradingSessionDate` in `@intrinsic/domain`, which the web app may not import;
+ * the API's backtest tests pin the two together.
+ */
+export function newYorkDate(instant: Date): string {
+  const parts = NEW_YORK_DAY_FORMAT.formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}

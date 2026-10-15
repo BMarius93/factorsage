@@ -88,6 +88,10 @@ A submission whose `endDate` is after the newest finalized date is ended there
 period that would be empty once today is removed is refused with the newest completed session in the
 message. "In the future" is judged in New York time. Completed runs are untouched.
 
+The New Backtest form must use the same day. It first kept the UTC day, so from 20:00 New York until
+midnight it defaulted to a day the API refused; Monitor EOD V2 step 8 gave both the shared
+`newYorkDate` in `@intrinsic/contracts` (`docs/decisions/monitor-eod-v2.md` §8).
+
 ### 6. Deterministic environments
 
 `EOD_TAIL_REFRESH=frozen` never re-reads a stored tail — for the hermetic E2E stack, the QA matrix
