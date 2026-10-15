@@ -139,6 +139,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     pruneCheckpoints: (input) => real.pruneCheckpoints(input),
     markScanned: (monitors, now) => real.markScanned(monitors, now),
     applyMemberEvaluation: (write) => real.applyMemberEvaluation(write),
+    fixReplayWindow: (input) => real.fixReplayWindow(input),
     async markWatching(running, now) {
       await prisma.monitor.updateMany({
         where: { id: { in: [...owned].filter((id) => !running.includes(id)) } },
@@ -189,7 +190,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     clock.now = after("2026-10-14");
   });
 
-  async function createSecurity(): Promise<Security> {
+  async function createSecurity(listed = "2026-09-01"): Promise<Security> {
     const symbol = `MEV${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
     const row = await prisma.security.create({
       data: {
@@ -201,7 +202,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         type: SecurityType.STOCK,
         isAdr: false,
         isActivelyTrading: true,
-        ipoDate: new Date("2026-09-01T00:00:00.000Z"),
+        ipoDate: new Date(`${listed}T00:00:00.000Z`),
       },
     });
     securityIds.push(row.id);
@@ -217,6 +218,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     closes: Record<string, number>,
     readAt: Date,
     through: string,
+    coverageFrom = "2026-09-01",
   ) {
     const dates = Object.keys(closes).sort();
     const prices: DailyPrice[] = dates.map((date) => ({
@@ -231,7 +233,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     await store.saveDailyPriceSync({
       securityId: security.id,
       prices,
-      successfulCoverage: [{ from: "2026-09-01", to: through }],
+      successfulCoverage: [{ from: coverageFrom, to: through }],
       syncedAt: readAt.toISOString(),
       tailDate: through,
       freshThrough: through,
@@ -244,7 +246,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         ema50d: 100,
       })),
       weeklyPrices: [],
-      successfulCoverage: { from: "2026-09-01", to: through },
+      successfulCoverage: { from: coverageFrom, to: through },
       syncedAt: readAt.toISOString(),
     });
   }
@@ -252,6 +254,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
   async function createMonitor(
     securities: readonly Security[],
     signal: StrategySignal,
+    options: { replay?: boolean; listedAt?: Date } = {},
   ): Promise<string> {
     const key = randomUUID();
     const strategy = await prisma.strategy.create({
@@ -274,7 +277,10 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         systemKey: `test-list-${key}`,
         name: "EOD list",
         items: {
-          create: securities.map((security) => ({ securityId: security.id })),
+          create: securities.map((security) => ({
+            securityId: security.id,
+            ...(options.listedAt ? { createdAt: options.listedAt } : {}),
+          })),
         },
       },
     });
@@ -285,6 +291,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         name: "EOD monitor",
         strategyId: strategy.id,
         stockListId: stockList.id,
+        ...(options.replay ? { initialReplayRequested: true } : {}),
       },
     });
     systemRows.push({
@@ -433,6 +440,27 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     expect(day(occurrence.observationDate)).toBe("2026-10-13");
     expect(day(occurrence.resolvedObservationDate)).toBe("2026-10-14");
     expect(occurrence.resolutionReason).toBe("EVENT_SESSION_ENDED");
+    // Each change records the version that decided it and what it read on its own session.
+    expect(rows[0]!.strategyVersionId).toBe(occurrence.strategyVersionId);
+    expect(rows[0]!.evidence).toEqual({
+      v: 1,
+      rules: [
+        {
+          ruleId: "buy-1",
+          predicates: [
+            {
+              id: "t1",
+              role: "TRIGGER",
+              result: "TRUE",
+              metric: 105,
+              value: 100,
+              previousMetric: 95,
+              previousValue: 100,
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("waits at its checkpoint while the newest bar is not proven final, and never resolves on missing data", async () => {
@@ -1009,6 +1037,184 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       expect(
         day((await checkpoint(monitorId, security.id))?.membershipStart),
       ).toBe("2026-10-01");
+    });
+  });
+
+  describe("a new Monitor's initial replay", () => {
+    /** Weekday closes from `from` through `to`, each `price(date)`. */
+    function weekdays(
+      from: string,
+      to: string,
+      price: (date: string) => number,
+    ): Record<string, number> {
+      const closes: Record<string, number> = {};
+      for (
+        let cursor = new Date(`${from}T00:00:00.000Z`);
+        cursor.toISOString().slice(0, 10) <= to;
+        cursor.setUTCDate(cursor.getUTCDate() + 1)
+      ) {
+        const weekday = cursor.getUTCDay();
+        if (weekday !== 0 && weekday !== 6) {
+          const date = cursor.toISOString().slice(0, 10);
+          closes[date] = price(date);
+        }
+      }
+      return closes;
+    }
+    const listedAt = new Date("2026-10-01T12:00:00.000Z");
+
+    it("records every change of its 90-day window on its own session, from the exact state before it", async () => {
+      // Above its average since listing in March, below from Aug 21, above again from Sep 15.
+      const security = await createSecurity("2026-03-02");
+      await seed(
+        security,
+        weekdays("2026-03-02", "2026-10-14", (date) =>
+          date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
+        ),
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-03-02",
+      );
+      const monitorId = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+
+      const summary = await evaluation().run(1);
+      expect(summary.membersReplayed).toBe(1);
+      const monitor = await prisma.monitor.findUniqueOrThrow({
+        where: { id: monitorId },
+      });
+      // 90 calendar days ending at the newest finalized session.
+      expect(day(monitor.replayWindowStart)).toBe("2026-07-17");
+
+      const rows = await transitions(monitorId);
+      expect(
+        rows.map((t) => [day(t.observationDate), t.reason, t.origin]),
+      ).toEqual([
+        // Active since March: the window's cutoff does not reset what was latched before it.
+        ["2026-03-02", "RECONSTRUCTED", "HISTORY"],
+        ["2026-08-21", "CONDITIONS_ENDED", "HISTORY"],
+        ["2026-09-15", "CONDITIONS_MET", "HISTORY"],
+      ]);
+      const ended = rows[1]!;
+      expect(ended.evidence).toEqual({
+        v: 1,
+        rules: [
+          {
+            ruleId: "buy-1",
+            predicates: [
+              {
+                id: "c1",
+                role: "CONDITION",
+                result: "FALSE",
+                metric: 95,
+                value: 100,
+              },
+            ],
+          },
+        ],
+      });
+      const occurrences = await signals(monitorId);
+      expect(
+        occurrences.map((signal) => [
+          day(signal.observationDate),
+          day(signal.resolvedObservationDate) ?? null,
+          signal.resolutionReason,
+          signal.reconstructed,
+        ]),
+      ).toEqual([
+        ["2026-03-02", "2026-08-21", "CONDITIONS_ENDED", true],
+        ["2026-09-15", null, null, true],
+      ]);
+      expect(rows.every((t) => t.strategyVersionId !== null)).toBe(true);
+
+      // Idempotent: the window is replayed once.
+      const again = await evaluation().run(2);
+      expect(again.membersReplayed).toBe(0);
+      expect(await transitions(monitorId)).toHaveLength(3);
+      expect(await signals(monitorId)).toHaveLength(2);
+    });
+
+    it("starts a member's window at its listing when the security is younger than the window", async () => {
+      const security = await createSecurity("2026-09-01");
+      await seed(
+        security,
+        weekdays("2026-09-01", "2026-10-14", (date) =>
+          date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105,
+        ),
+        after("2026-10-14"),
+        "2026-10-14",
+      );
+      const monitorId = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      await evaluation().run(1);
+      expect(
+        (await transitions(monitorId)).map((t) => [
+          day(t.observationDate),
+          t.reason,
+        ]),
+      ).toEqual([
+        ["2026-09-01", "CONDITIONS_MET"],
+        ["2026-09-21", "CONDITIONS_ENDED"],
+        ["2026-10-05", "CONDITIONS_MET"],
+      ]);
+    });
+
+    it("reconstructs, never replays, a member listed after the window was fixed", async () => {
+      const first = await createSecurity("2026-09-01");
+      const later = await createSecurity("2026-09-01");
+      const closes = weekdays("2026-09-01", "2026-10-14", (date) =>
+        date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105,
+      );
+      await seed(first, closes, after("2026-10-14"), "2026-10-14");
+      await seed(later, closes, after("2026-10-14"), "2026-10-14");
+      const monitorId = await createMonitor([first], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      await evaluation().run(1);
+      const monitor = await prisma.monitor.findUniqueOrThrow({
+        where: { id: monitorId },
+      });
+      await prisma.stockListItem.create({
+        data: {
+          stockListId: monitor.stockListId,
+          securityId: later.id,
+          createdAt: new Date(monitor.replayWindowFixedAt!.getTime() + 60_000),
+        },
+      });
+      await evaluation().run(2);
+      const added = (await transitions(monitorId)).filter(
+        (t) => t.securityId === later.id,
+      );
+      expect(added.map((t) => [day(t.observationDate), t.reason])).toEqual([
+        ["2026-10-05", "RECONSTRUCTED"],
+      ]);
+    });
+
+    it("never replays a Monitor that did not ask for it", async () => {
+      const security = await createSecurity("2026-09-01");
+      await seed(
+        security,
+        weekdays("2026-09-01", "2026-10-14", (date) =>
+          date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105,
+        ),
+        after("2026-10-14"),
+        "2026-10-14",
+      );
+      const monitorId = await createMonitor([security], signalAbove(), {
+        listedAt,
+      });
+      const summary = await evaluation().run(1);
+      expect(summary.membersReplayed).toBe(0);
+      expect(
+        (await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } }))
+          .replayWindowStart,
+      ).toBeNull();
+      expect(await transitions(monitorId)).toHaveLength(1);
     });
   });
 

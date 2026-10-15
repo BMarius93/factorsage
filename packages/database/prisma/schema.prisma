@@ -1419,28 +1419,28 @@ enum MonitorObservationBasis {
 /// produced. The user deletes the Monitor first, explicitly. It cascades from `User` like every
 /// other user-owned row, because deleting the account is the one case where all of it should go.
 model Monitor {
-  id                String           @id @default(uuid())
-  ownership         ContentOwnership @default(USER)
-  userId            String?
-  systemKey         String?          @unique
+  id                     String           @id @default(uuid())
+  ownership              ContentOwnership @default(USER)
+  userId                 String?
+  systemKey              String?          @unique
   /// SYSTEM only: whether customers can see and select it. Always true for a USER Monitor.
-  isPublished       Boolean          @default(true)
+  isPublished            Boolean          @default(true)
   /// SYSTEM only: whether the worker evaluates it. Always true for a USER Monitor, whose own
   /// `enabled` is the switch.
-  isGloballyEnabled Boolean          @default(true)
-  displayOrder      Int?
-  updatedByUserId   String?
-  strategyId        String
-  stockListId       String
-  name              String
-  enabled           Boolean          @default(true)
+  isGloballyEnabled      Boolean          @default(true)
+  displayOrder           Int?
+  updatedByUserId        String?
+  strategyId             String
+  stockListId            String
+  name                   String
+  enabled                Boolean          @default(true)
   /// Last cycle instant this Monitor was actually evaluated in, for observability and the UI's
   /// "last checked" line. It is never an input to trigger semantics.
   ///
   /// Cleared when the Monitor is rebound to a different Strategy or Stock List: the configuration
   /// it now names has not been checked, and reporting the previous one's scan time would claim
   /// otherwise.
-  lastScanAt        DateTime?
+  lastScanAt             DateTime?
   /// Which `(strategyId, stockListId)` binding this Monitor is on. Incremented **only** when one of
   /// them is rebound — never by a rename or an enable/disable, which change nothing a running cycle
   /// evaluated.
@@ -1450,15 +1450,26 @@ model Monitor {
   /// replaced configuration cannot land in the new one after the fact. A monotonic counter rather
   /// than a comparison of the two ids, because rebinding away and back would otherwise present the
   /// same pair to an in-flight cycle whose state had already been discarded.
-  configVersion     Int              @default(0)
+  configVersion          Int              @default(0)
   /// When this Monitor most recently started being evaluated — first created, re-enabled, unblocked
   /// by its owner's plan, or globally enabled — and null while it is not running. A session that
   /// became final before it is one the Monitor did not watch, so the evaluation that catches up over
   /// it records `HISTORY`, never newly observed activity. An outage leaves it untouched: sessions
   /// missed then are caught up as `OBSERVED`.
-  watchingSince     DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  watchingSince          DateTime?
+  /// Whether this Monitor's first evaluation replays recent history (`docs/decisions/monitor-eod-v2.md`
+  /// §5). Set when a Monitor is created, cleared by a rebind; Monitors that existed before the replay
+  /// was introduced never ask for one.
+  initialReplayRequested Boolean          @default(false)
+  /// The first session of the replay window: 90 calendar days ending at the newest finalized session
+  /// of the pass that first evaluated the Monitor. Fixed once, so every member of the initial universe
+  /// replays the same window however late its data arrives.
+  replayWindowStart      DateTime?        @db.Date
+  /// When the window was fixed. A member listed after it is a new member, reconstructed rather than
+  /// replayed.
+  replayWindowFixedAt    DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   user        User?                          @relation(fields: [userId], references: [id], onDelete: Cascade)
   updatedBy   User?                          @relation("MonitorUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
@@ -1576,8 +1587,8 @@ model MonitorSignal {
   /// Whether the matched Strategy signal carried a Trigger. Both remain Signals.
   hasTrigger        Boolean
 
-  /// The provisional observation this Signal was decided on: persisted closed history plus the
-  /// current live price. A Monitor evaluation requires one, so there is no second source to record.
+  /// The session this occurrence activated on and the price it was decided at — the session's
+  /// finalized close (`EOD_CLOSE`), or the V1 intraday quote for older rows (`LIVE_QUOTE`).
   observationDate  DateTime @db.Date
   observationPrice Decimal  @db.Decimal(20, 8)
 
@@ -1636,6 +1647,13 @@ model MonitorStateTransition {
   /// The session observed, or null for a change no observation made (rebind, removal, edit).
   observationDate   DateTime?               @db.Date
   signalId          String?
+  /// The Strategy version whose logic decided this change, for a change a session decided. Null for
+  /// an administrative change and for rows written before it was recorded.
+  strategyVersionId String?
+  /// What the decision read on `observationDate`: per rule, each market-derived predicate with the
+  /// operands it compared and its result (`MonitorTransitionEvidence`, version 1). Null when nothing
+  /// was observed or for rows written before it was recorded — the reason alone then explains it.
+  evidence          Json?
 
   monitor  Monitor        @relation(fields: [monitorId], references: [id], onDelete: Cascade)
   security Security       @relation(fields: [securityId], references: [id], onDelete: Restrict)

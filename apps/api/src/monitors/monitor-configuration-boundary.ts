@@ -61,3 +61,18 @@ export async function crossMonitorConfigurationBoundary(
   await tx.monitorEvaluationCheckpoint.deleteMany({ where: { monitorId } });
   return { resolvedSignals, clearedStates };
 }
+
+/**
+ * The Monitor-row fields a rebind changes, beside the binding itself: a new configuration
+ * generation, no scan yet, and no initial replay — a rebound Monitor is reconstructed from history
+ * at its newest session, never replayed (`docs/decisions/monitor-eod-v2.md` §5).
+ */
+export function reboundMonitorFields() {
+  return {
+    configVersion: { increment: 1 },
+    lastScanAt: null,
+    initialReplayRequested: false,
+    replayWindowStart: null,
+    replayWindowFixedAt: null,
+  } as const;
+}

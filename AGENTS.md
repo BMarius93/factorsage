@@ -112,7 +112,9 @@ Read `ai/README.md` before substantial work.
     (`docs/decisions/monitor-eod-v2.md` §3). Its universe is the List's **current** members only —
     `FULL`, or an open-ended period that has begun (`isOngoingListMember`) — gating BUY, SELL and
     FINAL EXIT alike; a member edited out ends administratively (`MEMBERSHIP_CHANGED`). Backtests keep
-    `isBuyWindowEligible` and must never call the Monitor predicate (§4). Do not reintroduce a
+    `isBuyWindowEligible` and must never call the Monitor predicate (§4). Only a newly created
+    Monitor replays its 90-day window, from the exact state before it, and every session-decided
+    transition stores its `strategyVersionId` and operand `evidence` (§5). Do not reintroduce a
     live-quote observation, a jump from a stale checkpoint to the newest session, or a
     Monitor-cycle provider read.
     `ai/product/product-overview.md`

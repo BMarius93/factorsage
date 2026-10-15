@@ -195,3 +195,89 @@ export function evaluateMarketSignal(
   }
   return evaluabilityAll(results);
 }
+
+/**
+ * What one predicate read on one date, for the record a Monitor keeps of why a lifecycle changed
+ * (`docs/decisions/monitor-eod-v2.md` §5).
+ *
+ * The numbers are the exact operands the evaluator compared — the same `readOperand` and value
+ * resolution, the same comparison — so a stored explanation can never disagree with the decision it
+ * explains. An operand that did not resolve is `null`, never zero.
+ */
+export type PredicateEvidence = {
+  id: string;
+  role: "CONDITION" | "TRIGGER";
+  result: "TRUE" | "FALSE" | "NOT_EVALUABLE";
+  metric: number | null;
+  value: number | null;
+  /** A Trigger's previous-session operands. */
+  previousMetric?: number | null;
+  previousValue?: number | null;
+};
+
+/** The market-derived predicates of one Signal on one date, each with the operands it compared. */
+export function explainMarketSignal(
+  signal: StrategySignal,
+  frame: EvaluationFrame,
+  index: number,
+): PredicateEvidence[] {
+  const evidence: PredicateEvidence[] = [];
+  for (const condition of signal.conditions) {
+    if (!isMarketDerivedPredicate(condition)) {
+      continue;
+    }
+    const key = metricOperand(condition.metric);
+    const metric = key === null ? Number.NaN : readOperand(frame, key, index);
+    const value = resolveValue(
+      condition.value,
+      strategyMetricSource(condition.metric),
+      frame,
+      index,
+    );
+    evidence.push({
+      id: condition.id,
+      role: "CONDITION",
+      result: evaluabilityName(
+        evaluateMarketCondition(condition, frame, index),
+      ),
+      metric: finiteOrNull(metric),
+      value: finiteOrNull(value),
+    });
+  }
+  const trigger = signal.trigger;
+  if (trigger && isMarketDerivedPredicate(trigger)) {
+    const key = metricOperand(trigger.metric);
+    const source = strategyMetricSource(trigger.metric);
+    const at = (position: number): { metric: number; value: number } =>
+      key === null || position < 0
+        ? { metric: Number.NaN, value: Number.NaN }
+        : {
+            metric: readOperand(frame, key, position),
+            value: resolveValue(trigger.value, source, frame, position),
+          };
+    const now = at(index);
+    const previous = at(index - 1);
+    evidence.push({
+      id: trigger.id,
+      role: "TRIGGER",
+      result: evaluabilityName(evaluateMarketTrigger(trigger, frame, index)),
+      metric: finiteOrNull(now.metric),
+      value: finiteOrNull(now.value),
+      previousMetric: finiteOrNull(previous.metric),
+      previousValue: finiteOrNull(previous.value),
+    });
+  }
+  return evidence;
+}
+
+function finiteOrNull(value: number): number | null {
+  return Number.isFinite(value) ? value : null;
+}
+
+function evaluabilityName(value: Evaluability): PredicateEvidence["result"] {
+  return value === Evaluability.TRUE
+    ? "TRUE"
+    : value === Evaluability.FALSE
+      ? "FALSE"
+      : "NOT_EVALUABLE";
+}

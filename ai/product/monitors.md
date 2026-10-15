@@ -157,14 +157,30 @@ Each change also records its **origin**:
 - **Administrative** — a configuration change that observed no session: an edit, a removal, a
   rebind.
 
+Each change a session decided also records the Strategy version that decided it and what it read —
+every compared value of the rule on that session — so a resolved Signal can say why it ended in the
+numbers of that day, never recomputed from an edited Strategy. Administrative changes and older rows
+carry only their reason.
+
 Every Signal records how its price was observed. Occurrences decided by the earlier live-quote
 Monitor keep their intraday price and are labelled as such; every later one is its session's
 finalized close.
 
+### A new Monitor's first 90 days
+
+A Monitor **created** — by a user, or a built-in by the bootstrap — shows what happened over the 90
+calendar days before its first evaluation, not only where it stands now: its first evaluation
+replays every finalized session of that window, in order, through the same evaluator and lifecycle,
+and records each activation and resolution on its true session, as history (`From history`). The
+state at the start of the window is exact — a setup triggered long before the window is active since
+that trigger, never restarted by the cutoff. A member whose membership began inside the window
+starts then. The replay happens once: a member added later, a rebind, an edit or a re-enable never
+regenerates 90 days of events, and Monitors that existed before this rule replay nothing.
+
 ### Historical reconstruction
 
-A level with no current state — a new Monitor, a new member, a rebind, an edited level — does not
-start as if nothing had happened before. The first cycle replays closed sessions through the same
+Outside that first replay, a level with no current state — a new member, a rebind, an edited level
+— does not start as if nothing had happened before. The first cycle replays closed sessions through the same
 evaluator and the same lifecycle up to the newest finalized session, and persists only the result:
 at most one occurrence (marked `reconstructed`, dated to its real activation session) and one
 `RECONSTRUCTED` transition. It never writes the replayed history. The result is always the one a

@@ -288,6 +288,12 @@ describe("monitors", () => {
     expect(monitor.signals).toEqual([]);
     expect(monitor.activeSignalCount).toBe(0);
     expect(monitor.lastScanAt).toBeUndefined();
+    // A new Monitor asks for its initial replay; the worker fixes the window on its first pass.
+    const row = await prisma.monitor.findUniqueOrThrow({
+      where: { id: monitor.id },
+    });
+    expect(row.initialReplayRequested).toBe(true);
+    expect(row.replayWindowStart).toBeNull();
   });
 
   it("creates a disabled monitor when asked", async () => {
@@ -800,13 +806,32 @@ describe("monitors", () => {
       const signal = await seedMatch(monitor.id, security.id);
       await prisma.monitor.update({
         where: { id: monitor.id },
-        data: { lastScanAt: new Date("2026-03-02T15:00:00.000Z") },
+        data: {
+          lastScanAt: new Date("2026-03-02T15:00:00.000Z"),
+          replayWindowStart: new Date("2025-12-03T00:00:00.000Z"),
+          replayWindowFixedAt: new Date("2026-03-02T15:00:00.000Z"),
+        },
       });
 
       await owner
         .patch(`/monitors/${monitor.id}`)
         .send({ strategyId: secondStrategyId })
         .expect(200);
+
+      // A rebound Monitor is reconstructed from history, never replayed.
+      const replay = await prisma.monitor.findUniqueOrThrow({
+        where: { id: monitor.id },
+        select: {
+          initialReplayRequested: true,
+          replayWindowStart: true,
+          replayWindowFixedAt: true,
+        },
+      });
+      expect(replay).toEqual({
+        initialReplayRequested: false,
+        replayWindowStart: null,
+        replayWindowFixedAt: null,
+      });
 
       // The latch is gone: nothing from the replaced configuration can decide an edge in the new one.
       expect(

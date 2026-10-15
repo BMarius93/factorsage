@@ -4,7 +4,10 @@ import {
   SUPPORTED_EXCHANGE_CODES,
   normalizeBuyWindowConfiguration,
 } from "@intrinsic/domain";
-import { crossMonitorConfigurationBoundary } from "../monitors/monitor-configuration-boundary";
+import {
+  crossMonitorConfigurationBoundary,
+  reboundMonitorFields,
+} from "../monitors/monitor-configuration-boundary";
 import {
   appendStrategyVersionIfChanged,
   definitionHashOf,
@@ -310,6 +313,9 @@ async function upsertMonitor(
         stockListId: binding.stockListId,
         isPublished: true,
         isGloballyEnabled: true,
+        // A built-in created now replays recent history on its first evaluation, as any new
+        // Monitor does (`docs/decisions/monitor-eod-v2.md` §5).
+        initialReplayRequested: true,
       },
     });
     return "created";
@@ -337,7 +343,7 @@ async function upsertMonitor(
       updatedByUserId: null,
       strategyId: binding.strategyId,
       stockListId: binding.stockListId,
-      ...(rebound ? { configVersion: { increment: 1 }, lastScanAt: null } : {}),
+      ...(rebound ? reboundMonitorFields() : {}),
     },
   });
   return "reset";
