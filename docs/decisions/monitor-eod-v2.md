@@ -18,6 +18,7 @@ never intent.
 | 6 | `feat/monitor-read-models` | The Activity feed, the Signal table, Why from evidence, coverage (§6) |
 | 7 | `feat/monitor-web-ux` | Dashboard Monitor activity, the Monitor's one Signal table, coverage line, E2E (§7) |
 | 8 | `feat/monitor-eod-cleanup` | The real-time paths removed, the V1 suites ported, the capacity bench re-measured (§8) |
+| 9 | `fix/monitor-eod-v2-final-correctness` | Weekly indicators complete at the week's last scheduled session (§9); late EOD bars recovered within a bounded horizon (§10); the data-correctness Playwright coverage restored |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -154,11 +155,12 @@ generation it was decided on.
 - **A configuration change discards it.** The configuration boundary
   (`apps/api/src/monitors/monitor-configuration-boundary.ts`) deletes the Monitor's checkpoints with
   its states; a checkpoint whose `configVersion` is not the Monitor's is ignored.
-- **A session that never prints is passed, not observed.** When storage has stopped asking for the
-  expected session (`SESSION_NOT_PUBLISHED`, past `EOD_SESSION_GIVE_UP_MS`: a halt, a delisting) and
-  a member is already through every session the security printed, its checkpoint moves to the
-  expected session with no step. Nothing is evaluated, so a trigger-only event is not ended by it —
-  only a real later session ends one.
+- **A session that never prints is passed, not observed.** Once a provider read issued at least
+  the late-recovery horizon after its finalization still found no bar (§10; before step 9: once
+  storage stopped asking for the expected session, `SESSION_NOT_PUBLISHED`), a member already through
+  every session the security printed has its checkpoint moved through that session with no step.
+  Nothing is evaluated, so a trigger-only event is not ended by it — only a real later session ends
+  one.
 
 **No backfill.** A member with state but no checkpoint — every member at deployment — is decided on
 the newest finalized session only, from the state V1 left, and has a checkpoint from then on. The
@@ -204,10 +206,10 @@ Every new Signal records `observationBasis = EOD_CLOSE`; its price is its sessio
 A session is stepped only when every ETF the member's rules read — named or Stock's Sector — holds
 that very session. A member whose ETF is behind waits at the ETF's newest session
 (`membersAwaitingEtf`, `monitor.etf-dependency.waiting` at debug), because stepping later sessions
-first would make the waiting session unreachable in order. The wait is bounded by the same give-up
-as a stock's session (`EOD_SESSION_GIVE_UP_MS`, 24 hours): a session finalized longer ago than that
-is decided with the ETF's columns absent, so its rules are `NOT_EVALUABLE` — which moves nothing, an
-ACTIVE level stays latched — never a carried value.
+first would make the waiting session unreachable in order. The wait is bounded by the late-recovery
+horizon (`EOD_LATE_RECOVERY_MS`, four days, §10; 24 hours before step 9): a session finalized longer
+ago than that is decided with the ETF's columns absent, so its rules are `NOT_EVALUABLE` — which moves
+nothing, an ACTIVE level stays latched — never a carried value.
 
 ### 3.6 Migration `20261014200000_monitor_eod_evaluation`
 
@@ -522,3 +524,149 @@ nothing was new, and 65 s for a 90-day replay of every member. The resident boun
 (`STOCK_CACHE_MAX_RESIDENT_STOCKS`) now applies to the stock EOD child once per session: 190 s at
 R = 100 against 80 s at R = 1,000. The measurements and their environment are in
 `ai/architecture/production-capacity.md`.
+
+## 9. Weekly indicators complete at the week's last scheduled session
+
+Step 9 (`fix/monitor-eod-v2-final-correctness`) makes a week's weekly bar and weekly indicators a
+function of the stored bars and the venue schedule, never of the evening they were materialized on.
+
+**The defect.** `aggregateCompletedWeeks` published a week only once the materialization date was in
+a later ISO week, then dated it from the week's last *printed* bar. On Friday evening the stock EOD
+child wrote Friday's row with the previous week's weekly values; Monday's rebuild rewrote that row
+with Friday's own week. A Monitor deciding Friday read one row and every later backtest another, so
+a weekly crossing on a Friday was decided on the wrong values — and lost entirely when Monday's
+rewrite made Friday and Monday agree. A halted security's last printed day was likewise later
+rewritten to show a week it could not have known was over.
+
+**The rule.**
+
+- A week completes at the finalized close of its **last scheduled session**: Friday in an ordinary
+  week, Thursday when Good Friday closes the market, whatever day the venue schedule names in any
+  other holiday-shortened week. `WeeklyPrice.eligibleDate` is that session.
+- A row sees a week from that session on. When the security printed it, that is the week's own last
+  bar. When it did not (a halt), no row of the week ever sees it, and the security's next bar does.
+- Only weeks whose last bar is not their Friday need the schedule (`resolveWeekSessionEnds`); a
+  Friday bar ends its week by itself. The schedule is the canonical one — `EodFinalityPolicy` over
+  `CachedTradingCalendar`, the calendar the finality rule already reads — through
+  `isScheduledSession`. A day it cannot answer for is taken to be a session, which can only delay a
+  week to its Friday, never reveal it early. Only the weeks a rebuild writes are asked about.
+- **Provider cost.** The calendar caches each venue-year for a day, so a history asks for one
+  schedule per year it spans, once a day per process — an ETF's history reaches back to 1993. A past
+  year the provider cannot answer is asked again at most hourly per process
+  (`UNANSWERABLE_YEAR_RETRY_MS`), and its holiday weeks resolve to their Friday until it can; the
+  year in progress is asked every time, as `expectedSession` asks it. Whether the provider serves
+  schedules that far back was not verified against the live endpoint (hermetic fixtures only).
+- Finality is the existing cutoff: before Friday's close plus the publication delay the cutoff is
+  Thursday and the week is not published; after it, Friday's row reads the week. Early closes
+  finalize at the regular time, so they change nothing.
+- A late Friday bar publishes its week on its own row when it arrives; the rows before it are not
+  touched.
+
+**One rule everywhere.** The stock materializer, the ETF technical context (and so Stock's Sector)
+and every reader of them apply the same function with the same schedule: the Monitor and the backtest
+compositions both pass the venue schedule into the ETF contexts (`isScheduledSession` on
+`MonitorEtfContexts` and on the backtest processor's `etfContexts`).
+
+**Versioning.** `DERIVED_STATE_REVISION` moves to 8 (`derived-state.ts`): r7 coverage and manifests
+go stale and every security's derived state is rebuilt as r8 on first touch. Historical weekly values
+change only where the old rule was wrong: a halt week's last printed day, and a holiday week whose
+schedule cannot be read. Friday rows were already rewritten by the following Monday under r7, so
+historical backtests read the same Friday values as before. Monitor history decided on r7 rows is
+**not** rewritten: each transition keeps the evidence it was decided on, so a Friday decided before
+this step shows the previous week's values in its Why.
+
+**Proof.** `weekly-session-end.test.ts` (each weekday, before and after Friday's finalization,
+Monday morning, Good Friday, Monday and Thursday holidays, an early-close Friday, both DST changes, a
+halted Friday, a late Friday bar, an unanswerable schedule, and a property over 40 generated
+histories: no row changes once it exists, no row reads a week before its last session);
+`benchmark-technicals.test.ts` (stock and ETF weekly values bit-identical on holiday calendars, and
+stable evening by evening over five seeds); `monitor-weekly-parity.integration.test.ts` (the real stock
+EOD child and Monitor evaluation decide a weekly crossing on Friday evening, a Good Friday week's on
+Thursday evening, and an ETF and a Stock's Sector weekly Condition on the fund's Friday, exactly as a
+backtest over the finished history records them, with the same evidence). Against the r7 rule, the
+parity suite fails 4 of 4 and the session-end suite 10 of 12.
+
+## 10. Late end-of-day publication: a bounded recovery horizon
+
+**The defect.** A member was stepped over any session its security had not printed. A bar published
+late — after a later session's bar, or after the 24-hour give-up — then found the member's checkpoint
+already past it, and was never decided: a Tuesday Trigger published on Thursday was lost for good,
+and Wednesday had been decided on a frame without Tuesday.
+
+**The horizon.** `EOD_LATE_RECOVERY_MS` (default four days, at most six; `getEodFinalityConfig`) is how
+long after a session's finalization a bar the security has not printed may still arrive.
+
+- **A member is never stepped past a recoverable session.** After its checkpoint, every session the
+  venue scheduled and the security has no bar for, newer than the horizon, is a recoverable gap; the
+  member is decided up to the session before the first one and waits there
+  (`membersAwaitingLateSession`, `monitor.late-session.waiting` at debug). Nothing is written while it
+  waits. When the bar arrives the sessions are decided in order, exactly once — the checkpoint guard
+  and `stateVersion` are unchanged.
+- **Absence is confirmed by evidence, not the clock.** A stock's missing session stops being
+  recoverable only once a provider read issued at least the horizon after its finalization
+  (`lastTailSyncAt`) still returned no bar — the stock EOD child re-reads the ten-day recent tail on
+  every session, so that read happens on its own. Then the session is genuinely not printed (a halt, a
+  delisting) and the member is decided past it, or passed through it with no observation when the
+  security printed nothing later. A security never read falls back to the clock. While the child is
+  down nothing is confirmed, and a bar it finds afterwards is still decided in order.
+- **An exchange closure is not a gap**: the venue schedule says the day was not a session. A day the
+  schedule cannot answer for is treated as one — a hold is recoverable, a skipped bar is not.
+- **An ETF's late session** holds the member the same way when the stock printed the session but a
+  fund its rules read did not (after the fund's first session), until the horizon has passed since
+  finalization; then the session is decided with that fund's columns absent — its rules
+  `NOT_EVALUABLE`, never a carried value. The ETF-behind wait of §3.5 now uses the same horizon.
+- **Derived data follows the bar.** A late bar stored behind a derived coverage gap now rebuilds the
+  derived state from the bar's date, not from the gap (`ensureStockHydrated`): before this step a
+  crash between a read and its write left the next rebuild starting at the gap, so the late session's
+  averages were stale while coverage claimed them current.
+
+**Provenance.** A recovered session is recorded on its own session date, `OBSERVED` when the Monitor
+was being watched at that session's finalization (the rule an outage's catch-up already follows,
+§3.3), with that session's evidence; `detectedAt` says when it was decided. Nothing earlier is
+rewritten.
+
+**What it costs.** Nothing on an ordinary pass: gaps are computed only for a security that has a
+session to decide, from the frame the pass already read and the cached schedule. A security with a
+recoverable gap is re-read each pass while it waits — at most for the horizon. A genuinely halted
+security's members are evaluated with a lag of up to the horizon plus one session.
+
+**The limit, stated.** Recovery is guaranteed for a bar the provider publishes before the stock EOD
+child's first read issued at least the horizon after the session's finalization — in practice, within
+four days. A bar published after that is not decided by the Monitor: by then its checkpoint has moved
+on. Storage still stores it if it falls inside the ten-day tail window, and every later read of
+derived data — backtests, Stock Details — includes it; the Monitor's record for the sessions after it
+keeps the values it decided them on.
+
+**Proof.** `monitor-late-recovery.integration.test.ts` drives the real stock EOD child and the real
+Monitor over PostgreSQL and Redis, evening by evening, with a decisive move on Tuesday: Tuesday's bar
+30 minutes, 6, 25, 36 and 72 hours late; two consecutive sessions late; Wednesday published before
+Tuesday; an empty answer, then data; a 429, then recovery; a crash after the read and before the
+write; a crash after a member's commit and before the pass acknowledged it; two passes overlapping
+the recovery; Redis losing every key during it; a re-based history met mid-read; a halted security
+that never prints Tuesday; Conditions, Trigger, Conditions + Trigger and FINAL EXIT alternatives; a
+late ETF session. At every step the Monitor may never stand past a session still to be published,
+and at the end every change is exactly the backtest's — level, session, reason, once — with that
+session's evidence and one Signal per activation. With the hold disabled, 16 of the 20 cases fail.
+`monitor-differential.integration.test.ts` adds the differential properties over eight generated
+histories with holidays, halts, regime moves and weekly crossings: evening-by-evening evaluation
+(with a pass before each session is final, which must decide nothing), one chronological catch-up,
+restarts on random evenings, the initial replay alone and followed by checkpointed continuation, and
+a Strategy edit mid-way — each recording exactly the backtest's changes.
+
+## 11. Data-correctness coverage of the new pages
+
+The data-correctness audit's browser stage (`apps/web/e2e/data-correctness/data-correctness.audit.spec.ts`,
+run by `pnpm audit:data-correctness` against the QA matrix) still read the removed "Current matches"
+table. Its Dashboard stage now reads the pages that replaced it, for the same purpose: every
+(member, level) the signals section's reference replay says is ACTIVE or PENDING_TRIGGER is a row of
+its Monitor's Signal table — Active or Waiting — on the session it began, at its price, on desktop and
+at 390×844; every occurrence the audited session opened is an "Activated" event on the Dashboard, at
+its price; and nothing a reconstruction established is activity.
+
+That stage needs the QA matrix, so it does not run with the hermetic suite. Its properties now also
+run on every `pnpm test:e2e`, in `monitor-records.user.spec.ts`, over the deterministic QA built-ins —
+which now include an occurrence a reconstruction established and a membership change ended
+administratively: every stored Signal shown once, active first, on its own finalized session, with
+its price, provenance and Why; a waiting setup under Waiting only; history and administrative changes
+in the Signal table and never in the feed; every feed event the Signal-table record it is; and a
+private Monitor's records unreadable to anyone but its owner.

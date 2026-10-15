@@ -186,11 +186,11 @@ recurrence propagates. Introduction of an older prefix recalculates from canonic
 
 Weekly bars are derived only from canonical daily rows. Monday-based completed weeks use
 first/max/min/last/sum OHLCV. Because `DailyDerivedState` is an end-of-trading-day state, a
-completed week becomes eligible on its own final trading day's close, which is the last observed
-bar of that week; earlier days in the same week must never see it. The ISO week containing the
-hydration cutoff is still in progress and is not aggregated, since its final trading day is not yet
-known. IPO mid-week, holiday-shortened, and cross-year weeks follow the same rule and use their
-actual final trading day. If the load target begins mid-week, that artificially
+completed week becomes eligible at the finalized close of its last **scheduled** session — Friday,
+or the day the venue schedule names in a holiday-shortened week — and earlier days in the same week
+must never see it (`monitor-eod-v2.md` §9, revision 8). A week whose last scheduled session is not
+final at the cutoff is not aggregated. A security that did not print that session reads the week on
+its next bar. IPO mid-week and cross-year weeks follow the same rule. If the load target begins mid-week, that artificially
 truncated first week is omitted; a known IPO/listing that genuinely begins mid-week remains a valid
 completed week. `WeeklyPrice` keeps one durable row per completed week; only the derived weekly
 values are carried forward daily.

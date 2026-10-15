@@ -255,7 +255,7 @@ Derived from the execution flow and confirmed by the counters:
 | A security's first hydration | 1 profile + 1 price walk (paginated, ≥1) + 6 statements (3 types × 2 cadences) | `profile`, `historical-price-eod/full`, statements |
 | Once per finalized session per read security (`docs/decisions/eod-finality-v1.md`; the six-hour price timer is gone) | 1 tail price, + 1 earliest-rows check when the read adds a row | `historical-price-eod/full` |
 | Every `STOCK_FUNDAMENTALS_FRESHNESS_MS` (6 h) per read security | 6 statements (quarterly limit 12, annual limit 3) | statements |
-| Every 24 h per admitted exchange | 1 | `holidays-by-exchange` |
+| Every 24 h per admitted exchange | 1 per calendar year a materialized history spans (week completion asks the schedule about holiday weeks back to 1993 for ETFs, `docs/decisions/monitor-eod-v2.md` §9); a past year the provider cannot answer, at most hourly | `holidays-by-exchange` |
 | Redis flush or eviction | **0** — coverage and freshness timestamps are persisted in PostgreSQL | — |
 | Process restart | 0 beyond a cold calendar | — |
 

@@ -63,7 +63,7 @@ security's venue was read after it became final (`decideEodTailRefresh`, `EodFin
 | last read predates the session | refresh |
 | session bar stored, read after it became final | nothing |
 | read after final, bar still missing | ask again on a widening spacing: at least `MARKET_DATA_SERIES_RETRY_MS` (30 min), and at least the time already passed since finalization |
-| still missing `EOD_SESSION_GIVE_UP_MS` (24 h) after finalization | nothing: the security is taken not to have traded the session (a halt, a delisting) |
+| still missing `EOD_SESSION_GIVE_UP_MS` (24 h) after finalization | no more retries of that session; the next session's tail read still re-reads it, and a Monitor does not step past it until a read issued `EOD_LATE_RECOVERY_MS` after finalization proves it absent (`monitor-eod-v2.md` §10) |
 
 The venue's holiday schedule (`CachedTradingCalendar`, through the gated provider) decides which
 weekday is a session. Without one — the live-FMP run composes none on purpose — every weekday is a
@@ -106,12 +106,10 @@ it. Seeds and fixtures write through the cutoff (`apps/api/src/eod-today.ts`), n
 - Provider traffic falls: a stock's tail is read once per session (plus the earliest-rows check a read
   that adds a row makes, `historical-price-basis-v1.md` §7), not every six hours. A missing session
   costs at most about six spaced reads.
-- **A completed week's weekly values appear on its last session's row once the cutoff enters the next
-  ISO week** — Monday 16:30 New York instead of UTC midnight. `aggregateCompletedWeeks` is unchanged:
-  it deliberately waits for a later week to prove the week over, and that rule is pinned by the
-  calculated-series tests. Every row converges to the same values; only the moment Friday's row
-  gains its week moves. Whether a week should complete on its Friday's finalization instead is a
-  methodology question for the owner, recorded here rather than changed in passing.
+- ~~**A completed week's weekly values appear on its last session's row once the cutoff enters the
+  next ISO week**~~ — superseded by `monitor-eod-v2.md` §9: a week completes at the finalized close
+  of its last *scheduled* session (Friday, or Thursday when Good Friday closes the market), so
+  Friday's row carries its own week from Friday evening on and never changes afterwards.
 - Tests that pinned clocks at UTC noon to mean "today" now pin an evening instant, after the day's
   finalization.
 

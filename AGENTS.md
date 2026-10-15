@@ -116,7 +116,10 @@ Read `ai/README.md` before substantial work.
     Monitor replays its 90-day window, from the exact state before it, and every session-decided
     transition stores its `strategyVersionId` and operand `evidence` (§5). Do not reintroduce a
     live-quote observation or a quote endpoint (the FMP client has none, §8), a jump from a stale
-    checkpoint to the newest session, or a Monitor-cycle provider read.
+    checkpoint to the newest session, or a Monitor-cycle provider read. A member is never stepped
+    past a session its security or an ETF it reads has not printed while the bar may still arrive
+    (`EOD_LATE_RECOVERY_MS`); a stock's session is given up only on a provider read issued at least
+    that long after finalization (§10). Do not reintroduce a clock-only give-up.
     `ai/product/product-overview.md`
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
@@ -309,7 +312,11 @@ Read `ai/README.md` before substantial work.
     never at the UTC day, and a provider row outside the requested range is dropped. A recent tail is
     re-read when the newest finalized session has not been read after it became final — a session
     question decided by `decideEodTailRefresh`, never a timer. A backtest period requested through
-    an unfinished session ends at the newest finalized one. Do not reintroduce a wall-clock price
+    an unfinished session ends at the newest finalized one. A week's weekly values become eligible at
+    the finalized close of its last **scheduled** session, named by the venue schedule
+    (`aggregateCompletedWeeks` with `resolveWeekSessionEnds`), so a session's derived row is the same
+    whenever it is materialized (`docs/decisions/monitor-eod-v2.md` §9); never make weekly
+    completion depend on the materialization date or hardcode Friday. Do not reintroduce a wall-clock price
     freshness window, a `today()` from the UTC date, or a read of a bar whose session was still
     trading; `EOD_TAIL_REFRESH=frozen` exists only for deterministic environments over a frozen
     dataset.
