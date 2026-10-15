@@ -30,6 +30,8 @@ import {
   logBenchmarkCacheEvent,
   logPriceBasisEvent,
   logUnreadableBenchmarkChunk,
+  EodFinalityPolicy,
+  MARKET_DATA_CALENDAR_EXCHANGE,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
 import type { ProviderRequestCounts } from "./debug/backtest-debug-archive.js";
@@ -149,6 +151,8 @@ export function createBacktestRuntime(
     ...getEodFinalityConfig(),
     calendar: new CachedTradingCalendar(provider),
   };
+  // The same schedule, for the ETF contexts' week-completion rule.
+  const etfSchedule = new EodFinalityPolicy(eod);
 
   // `stockDetailsHistoryYears` is deliberately not set here: it narrows what the Stock Details
   // surface may explore, and a backtest names its own period inside the product horizon.
@@ -223,6 +227,9 @@ export function createBacktestRuntime(
           benchmarks.missingBenchmarkCoverage(series, period),
       },
       publicationDelayMs: getMarketDataWorkerConfig().publicationDelayMs,
+      // The funds' venue schedule, through the same cached calendar the loaders' finality reads.
+      isScheduledSession: (date) =>
+        etfSchedule.isScheduledSession(MARKET_DATA_CALENDAR_EXCHANGE, date),
     },
     ...(debugArchiveConfig.enabled
       ? {

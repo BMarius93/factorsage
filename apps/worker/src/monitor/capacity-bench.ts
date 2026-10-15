@@ -1169,7 +1169,7 @@ async function step(
   const evaluated = await measure({ ...dataPhases, ...repositoryPhases }, () =>
     new MonitorEodEvaluation(repository, monitorData, policy, logger, {
       securityConcurrency: args.monitorConcurrency,
-      dependencyGiveUpMs: 24 * 60 * 60_000,
+      lateRecoveryMs: 24 * 60 * 60_000,
       now: () => clock.now,
     }).run(runSequence),
   );

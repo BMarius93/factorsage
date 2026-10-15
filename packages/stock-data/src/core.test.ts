@@ -201,15 +201,31 @@ describe("weekly semantics", () => {
     ]);
   });
 
-  it("treats a holiday-shortened week as complete only in the following week", () => {
+  it("completes a holiday-shortened week on its last scheduled session, and never earlier", () => {
     const shortened = normalWeek.slice(0, 4);
-    expect(aggregateCompletedWeeks(shortened, "2026-08-13")).toEqual([]);
-    // The actual final trading day is Thursday, so that is when the week becomes effective.
-    expect(aggregateCompletedWeeks(shortened, "2026-08-17")[0]).toMatchObject({
+    // The venue schedule says Friday is closed: Thursday is the week's last session, so the week
+    // is complete — and effective — at Thursday's finalized close.
+    const holidayFriday = new Map([["2026-08-10", "2026-08-13"]]);
+    expect(
+      aggregateCompletedWeeks(
+        shortened,
+        "2026-08-13",
+        undefined,
+        holidayFriday,
+      )[0],
+    ).toMatchObject({
       weekEndDate: "2026-08-13",
       eligibleDate: "2026-08-13",
       close: 14,
       volume: 1000,
+    });
+    // A schedule that cannot answer: Friday is taken to be a session, which can only delay the
+    // week — to Friday's close — never reveal it on Thursday.
+    expect(aggregateCompletedWeeks(shortened, "2026-08-13")).toEqual([]);
+    expect(aggregateCompletedWeeks(shortened, "2026-08-14")[0]).toMatchObject({
+      weekEndDate: "2026-08-13",
+      eligibleDate: "2026-08-14",
+      close: 14,
     });
   });
 
@@ -341,12 +357,17 @@ describe("unified daily derived state", () => {
     expect(sources["2026-08-25"]).toBe("2026-08-17");
   });
 
-  it("carries a holiday-shortened week from its actual final trading day", async () => {
-    // Week 2 ends on Thursday; Friday is a holiday.
+  it("carries a holiday-shortened week from its last scheduled session", async () => {
+    // Week 2 ends on Thursday; the venue schedule closes its Friday.
     const shortened = [...week1, ...week2.slice(0, 4), price("2026-08-24", 21)];
     const rows = buildDailyDerivedState({
       prices: shortened,
-      weeklyBars: aggregateCompletedWeeks(shortened, "2026-08-24"),
+      weeklyBars: aggregateCompletedWeeks(
+        shortened,
+        "2026-08-24",
+        undefined,
+        new Map([["2026-08-17", "2026-08-20"]]),
+      ),
     });
     const sources = Object.fromEntries(
       rows.map((row) => [row.date, row.weeklySourceWeekStart]),
@@ -358,14 +379,29 @@ describe("unified daily derived state", () => {
     expect(sources["2026-08-24"]).toBe("2026-08-17");
   });
 
-  it("never exposes a value from a week that is still in progress", () => {
-    const rows = buildDailyDerivedState({
+  it("never exposes a week before its last scheduled session is final", () => {
+    // Thursday evening: Friday is still to come, so nothing of this week is visible.
+    const throughThursday = week1.slice(0, 4);
+    const thursday = buildDailyDerivedState({
+      prices: throughThursday,
+      weeklyBars: aggregateCompletedWeeks(throughThursday, "2026-08-13"),
+    });
+    expect(
+      thursday.every((row) => row.weeklySourceWeekStart === undefined),
+    ).toBe(true);
+    // Friday evening, once Friday is final: Friday's own row reads the week it completed — the
+    // row a backtest reads later — and Monday-Thursday still never see it.
+    const friday = buildDailyDerivedState({
       prices: week1,
       weeklyBars: aggregateCompletedWeeks(week1, "2026-08-14"),
     });
-    expect(rows.every((row) => row.weeklySourceWeekStart === undefined)).toBe(
-      true,
-    );
+    expect(friday.map((row) => row.weeklySourceWeekStart)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "2026-08-10",
+    ]);
   });
 
   it("materializes the daily oscillator family onto its exact trading day", () => {

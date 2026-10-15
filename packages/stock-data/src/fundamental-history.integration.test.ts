@@ -593,7 +593,7 @@ describeInfrastructure(
       expect(hydrationDerivedWrites).toBe(1);
       expect(provider.calls).toEqual([]);
       expect(requests).toEqual([]);
-      expect(DERIVED_STATE_REVISION).toBe(7);
+      expect(DERIVED_STATE_REVISION).toBe(8);
     });
 
     it("answers every trading session and no other day, for every metric", async () => {

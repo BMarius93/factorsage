@@ -4029,7 +4029,7 @@ describe("Fundamental Metrics in the derived-state lifecycle", () => {
       new InMemoryLoadCoordinator(),
     ).getDailyDerivedState("AAPL", { from: "2026-08-17", to: "2026-08-24" });
 
-    expect(cache.manifests.get(security.id)?.derivedStateRevision).toBe(7);
+    expect(cache.manifests.get(security.id)?.derivedStateRevision).toBe(8);
     expect(store.derivedWrites.at(-1)?.derivedDates).toEqual(TRADING_DATES);
     expect(provider.ranges).toEqual([]);
     expect(provider.financialRequests).toEqual([]);
@@ -4052,17 +4052,18 @@ describe("Fundamental Metrics in the derived-state lifecycle", () => {
 describe("derived-state revision and valuation warm-up retention", () => {
   const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
 
-  it("materializes the Fundamental Metrics under revision 7", () => {
+  it("materializes scheduled-session weekly completion under revision 8", () => {
     // r1 rows carry no intrinsic state, r2 rows no weekly moving-average values, r3 rows no daily
     // RSI oscillators, r4 rows were calculated over whichever load window the caller asked for and
     // from statement availability derived from a provider filing date that is sometimes the fiscal
-    // period end, r5 rows carry no Relative Volume and r6 rows none of the fifteen Fundamental
-    // Metrics. None of them reads as current: their coverage and manifests must go stale and
+    // period end, r5 rows carry no Relative Volume, r6 rows none of the fifteen Fundamental
+    // Metrics, and r7 rows complete a week only once a later week's bar is materialized. None of
+    // them reads as current: their coverage and manifests must go stale and
     // rebuild. The revision is deliberately one global number, so a single bump invalidates every
     // series of every security at once — which is also what makes a corrected historical volume
     // rebuild every later session it baselines.
-    expect(DERIVED_STATE_REVISION).toBe(7);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r7");
+    expect(DERIVED_STATE_REVISION).toBe(8);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r8");
   });
 
   it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {

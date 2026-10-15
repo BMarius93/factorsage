@@ -44,7 +44,7 @@ try {
       logger,
       {
         securityConcurrency: config.symbolConcurrency,
-        dependencyGiveUpMs: getEodFinalityConfig().sessionGiveUpMs,
+        lateRecoveryMs: getEodFinalityConfig().lateRecoveryMs,
       },
       runtime.etfContexts,
     ),

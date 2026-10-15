@@ -383,7 +383,9 @@ export type DailyTechnical = {
  * applying the weekly indicator to those weekly bars. Do not derive weekly indicators by averaging
  * daily indicators. For PIT/backtest use, a weekly value becomes eligible only after the source week
  * is complete. Because the daily derived state is an end-of-trading-day state, that means the
- * week's own final trading day, after its close; earlier days in the same week must never see it.
+ * finalized close of the week's last **scheduled** session — Friday, or Thursday when Good Friday
+ * closes the market — as the venue schedule names it; earlier days in the same week must never see
+ * it, and a security that did not print that session sees it on its next bar.
  * Once eligible, the latest weekly value is intentionally materialized on every subsequent
  * trading-day derived record until a newer completed-week value replaces it. Repeated daily values
  * are part of the backtest-facing data model, not accidental duplication.
@@ -392,7 +394,8 @@ export type DailyTechnical = {
  * Retained deliberately: this names the eligibility policy the weekly pipeline implements.
  *
  * Nothing branches on it today because there is exactly one policy and
- * `aggregateCompletedWeeks` enforces it structurally by excluding the in-progress ISO week. It is
+ * `aggregateCompletedWeeks` enforces it structurally: a week is published only once its last
+ * scheduled session is final, and is eligible from that session on. It is
  * kept as the published domain name for that rule so Strategy operand evaluation and backtest
  * execution read one constant instead of restating "completed periods only" in feature code, and
  * so introducing a second policy is an explicit change here rather than a silent divergence.

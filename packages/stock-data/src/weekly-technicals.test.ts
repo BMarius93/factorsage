@@ -13,6 +13,7 @@ import {
   aggregateCompletedWeeks,
   calculateWeeklyTechnicalValues,
   startOfIsoWeek,
+  resolveWeekSessionEnds,
 } from "./weekly.js";
 
 const SECURITY_ID = "security-weekly";
@@ -434,11 +435,23 @@ describe("weekly values carried onto the daily derived state", () => {
     expect(warmedFor20Only.sma200w).toBeUndefined();
   });
 
-  it("carries a holiday-shortened week from its actual final trading day", () => {
-    // Drop the Friday of week 30; Thursday becomes its final trading day.
+  it("carries a holiday-shortened week from its last scheduled session", async () => {
+    // The venue closes the Friday of week 30; Thursday becomes its last scheduled session.
     const holidayDate = WEEKLY_BARS[30]!.weekEndDate;
     const prices = PRICES.filter((row) => row.date !== holidayDate);
-    const shortenedBars = aggregateCompletedWeeks(prices, AS_OF);
+    const sessionEnds = await resolveWeekSessionEnds({
+      dates: prices.map((row) => row.date),
+      isScheduledSession: async (date) => {
+        const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+        return day !== 0 && day !== 6 && date !== holidayDate;
+      },
+    });
+    const shortenedBars = aggregateCompletedWeeks(
+      prices,
+      AS_OF,
+      undefined,
+      sessionEnds,
+    );
     const shortened = buildDailyDerivedState({
       prices,
       weeklyBars: shortenedBars,

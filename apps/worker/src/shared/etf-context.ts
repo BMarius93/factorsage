@@ -10,7 +10,9 @@ import type {
 import {
   buildBenchmarkTechnicalContext,
   MARKET_OVERVIEW_HISTORY_FLOOR,
+  resolveWeekSessionEnds,
   type BenchmarkTechnicalSnapshot,
+  type ScheduledSessionCheck,
 } from "@intrinsic/stock-data";
 import type {
   BenchmarkSeries,
@@ -68,6 +70,12 @@ export async function loadEtfTechnicalSnapshots(input: {
   loader: EtfContextLoader;
   now: Date;
   publicationDelayMs: number;
+  /**
+   * The funds' venue schedule, which names the last session of a week whose last bar is not its
+   * Friday — the same rule the stock materialization applies, so a fund's weekly values on a
+   * session are the same in a Monitor and in a backtest.
+   */
+  isScheduledSession: ScheduledSessionCheck;
   logger: StructuredLogger;
   /** Correlation fields stamped onto every event. */
   logContext?: Record<string, string>;
@@ -100,6 +108,10 @@ export async function loadEtfTechnicalSnapshots(input: {
         missingFromFloor,
         now: input.now,
         publicationDelayMs: input.publicationDelayMs,
+        sessionEnds: await resolveWeekSessionEnds({
+          dates: history.rows.map((row) => row.date),
+          isScheduledSession: input.isScheduledSession,
+        }),
       });
       if (context.status === "READY") {
         snapshots.set(code, context.snapshot);

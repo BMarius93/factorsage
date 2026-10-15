@@ -33,6 +33,14 @@ import type { TradingCalendar } from "./trading-calendar.js";
  * that stops at the give-up bound — but a missing session can never look present.
  */
 
+/**
+ * How long a past year the venue schedule could not answer is left unasked
+ * (`EodFinalityPolicy.isScheduledSession`). A published schedule for a finished year does not
+ * change, so a failure is far more likely missing coverage than a blip; an hour bounds the provider
+ * traffic to one request per such year per hour per process.
+ */
+export const UNANSWERABLE_YEAR_RETRY_MS = 60 * 60_000;
+
 /** A calendar that knows only weekends: every weekday is taken to be a session. */
 export const WEEKDAY_TRADING_CALENDAR: TradingCalendar = {
   async isTradingSession(_exchangeCode: string, date: LocalDate) {
@@ -147,6 +155,8 @@ export class EodFinalityPolicy {
   readonly sessionGiveUpMs: number;
   private readonly calendar: TradingCalendar;
   private readonly now: () => Date;
+  /** Past years the schedule could not answer, by `EXCHANGE:year`, and when each is asked again. */
+  private readonly unanswerableYears = new Map<string, number>();
 
   constructor(options: EodFinalityOptions = {}) {
     this.publicationDelayMs =
@@ -202,6 +212,42 @@ export class EodFinalityPolicy {
       throw new Error("No finalized weekday session in the last fourteen days");
     }
     return { ...fromWeekdays, calendar: "WEEKDAYS" };
+  }
+
+  /**
+   * Whether `date` is a scheduled session on `exchangeCode`, from the same venue schedule
+   * `expectedSession` reads — or `undefined` when the schedule cannot say. Never a guess: a caller
+   * that needs an answer decides for itself what "unknown" must mean (the weekly materializer
+   * delays a week, the Monitor holds a member).
+   *
+   * A **past** year the schedule could not answer is not asked again for
+   * {@link UNANSWERABLE_YEAR_RETRY_MS}. Week completion asks about every holiday week of a history
+   * (an ETF's reaches back to 1993), and a year the provider holds no schedule for would otherwise
+   * cost one provider request per year on every rebuild, Monitor cycle and backtest. The year in
+   * progress is asked every time, exactly as `expectedSession` asks it.
+   */
+  async isScheduledSession(
+    exchangeCode: string,
+    date: LocalDate,
+  ): Promise<boolean | undefined> {
+    const year = date.slice(0, 4);
+    const key = `${exchangeCode.trim().toUpperCase()}:${year}`;
+    const now = this.now();
+    const retryAt = this.unanswerableYears.get(key);
+    if (retryAt !== undefined && now.getTime() < retryAt) {
+      return undefined;
+    }
+    try {
+      return await this.calendar.isTradingSession(exchangeCode, date);
+    } catch {
+      if (year < this.cutoffDate(now).slice(0, 4)) {
+        this.unanswerableYears.set(
+          key,
+          now.getTime() + UNANSWERABLE_YEAR_RETRY_MS,
+        );
+      }
+      return undefined;
+    }
   }
 
   decide(state: EodTailState, expected: FinalizedSession): EodTailDecision {

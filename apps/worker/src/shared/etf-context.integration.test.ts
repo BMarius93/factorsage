@@ -37,6 +37,7 @@ import {
   loadEtfTechnicalSnapshots,
   type EtfContextLoader,
 } from "./etf-context.js";
+import { weekdaySessions } from "./etf-context.test-helper.js";
 
 loadRootEnv();
 useTestDatabase();
@@ -251,6 +252,7 @@ describeInfrastructure("ETF technical contexts over PostgreSQL and Redis", () =>
       ),
       now: options.now ?? NOW,
       publicationDelayMs,
+      isScheduledSession: weekdaySessions,
       logger,
     });
   }

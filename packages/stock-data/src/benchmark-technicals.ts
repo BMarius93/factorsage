@@ -19,7 +19,7 @@ import type {
 } from "./benchmark-ports.js";
 import { addDays } from "./dates.js";
 import { buildDailyDerivedState } from "./derived-state.js";
-import { aggregateCompletedWeeks } from "./weekly.js";
+import { aggregateCompletedWeeks, type WeekSessionEnds } from "./weekly.js";
 
 /**
  * ETF technicals for Strategy conditions: the read-only calculation adapter of
@@ -189,14 +189,14 @@ function asDailyPrice(seriesId: string, bar: BenchmarkDailyPrice): DailyPrice {
  * full history, the refresh state and the floor-coverage answer — are parameters, so the gates are
  * testable without a database, a cache or a provider, and the function itself can never hydrate.
  *
- * The completed-week anchor is the **last finalized bar's own date**, never the caller's clock:
- * the ISO week containing it is not aggregated, because that week may still gain sessions the
- * synchronization has not proven yet. With a current watermark this is exactly the stock
- * materialization's behaviour — a week's values first appear once a bar of a later week exists —
- * and under a stalled watermark it is the behaviour the stock path gets from its freshness check:
- * no weekly close is ever fabricated from a week the data cannot prove is over. Per historical
- * session the carried-forward weekly value is governed by each completed week's own
- * `eligibleDate`, so the result is point-in-time correct for every date the snapshot answers.
+ * The completed-week anchor is the **last finalized bar's own date**, never the caller's clock: a
+ * week is aggregated once its last scheduled session (`sessionEnds`, the venue schedule's answer
+ * for weeks whose last bar is not their Friday) is on or before it — exactly the stock
+ * materialization's rule, so a fund's Friday reads the week that Friday completed, the same row a
+ * later backtest reads. Under a stalled watermark no weekly close is fabricated from a week the
+ * data cannot prove is over. Per historical session the carried-forward weekly value is governed by
+ * each completed week's own `eligibleDate`, so the result is point-in-time correct for every date
+ * the snapshot answers.
  *
  * The weekly history context is `LISTING`: with coverage proven back to the floor — before every
  * fund in the universe listed — the earliest stored bar is the fund's genuine first session, so a
@@ -212,6 +212,8 @@ export function buildBenchmarkTechnicalContext(input: {
   missingFromFloor: readonly Required<DateRange>[];
   now: Date;
   publicationDelayMs: number;
+  /** The last scheduled session of each week whose last bar is not its Friday. */
+  sessionEnds?: WeekSessionEnds;
 }): BenchmarkTechnicalContext {
   if (input.missingFromFloor.length > 0) {
     return { status: "NOT_ANCHORED", missing: input.missingFromFloor };
@@ -234,10 +236,15 @@ export function buildBenchmarkTechnicalContext(input: {
   const lastFinalized = prices[prices.length - 1]!.date;
   const rows = buildDailyDerivedState({
     prices,
-    weeklyBars: aggregateCompletedWeeks(prices, lastFinalized, {
-      historyStart: firstBar,
-      historyStartOrigin: "LISTING",
-    }),
+    weeklyBars: aggregateCompletedWeeks(
+      prices,
+      lastFinalized,
+      {
+        historyStart: firstBar,
+        historyStartOrigin: "LISTING",
+      },
+      input.sessionEnds,
+    ),
   });
 
   const dates = rows.map((row) => row.date);

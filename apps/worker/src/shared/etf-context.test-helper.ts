@@ -1,5 +1,15 @@
+import type { LocalDate } from "@intrinsic/domain";
 import type { BacktestProcessorDependencies } from "../backtest/backtest-processor.js";
 import type { EtfContextLoader } from "./etf-context.js";
+
+/**
+ * A venue schedule that opens every weekday — the schedule a test without holidays means. A test
+ * about a holiday passes its own.
+ */
+export async function weekdaySessions(date: LocalDate): Promise<boolean> {
+  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  return day !== 0 && day !== 6;
+}
 
 /**
  * The ETF-context dependency for a test whose strategy reads no ETF: every call is a defect, so a
@@ -17,5 +27,9 @@ export function stubEtfContexts(): BacktestProcessorDependencies["etfContexts"] 
     benchmarkRefreshState: refuse,
     missingBenchmarkCoverage: refuse,
   };
-  return { loader, publicationDelayMs: 30 * 60 * 1000 };
+  return {
+    loader,
+    publicationDelayMs: 30 * 60 * 1000,
+    isScheduledSession: weekdaySessions,
+  };
 }
