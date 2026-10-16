@@ -95,7 +95,7 @@ async function createUser(): Promise<string> {
 }
 
 async function createSecurity(tag: string): Promise<Security> {
-  const symbol = `${tag}${suffix.slice(0, 3)}`.toUpperCase();
+  const symbol = `${tag}${suffix}`.toUpperCase();
   const row = await prisma.security.create({
     data: {
       providerSymbol: `${symbol}.${suffix}`,
