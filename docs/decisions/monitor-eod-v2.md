@@ -69,7 +69,8 @@ market-data loop, generic over its run and logging under `stock-eod.refresh.*`. 
    gaps, one bounded tail read, and statements only when some watching Monitor reads a
    statement-derived operand (`operandsReadStatements`).
 
-History is loaded from the product horizon (clamped to the listing) on a security's first
+History is loaded from the product horizon (no longer clamped to the listing,
+`listing-evidence-v1.md`) on a security's first
 preparation, once, so the Monitor evaluation's reconstructions and replays read PostgreSQL alone and
 never need the provider.
 

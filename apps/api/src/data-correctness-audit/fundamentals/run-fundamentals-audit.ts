@@ -10,6 +10,8 @@ import {
   type OracleFundamentalMetricId,
   type OracleFundamentalStatement,
 } from "../oracle/fundamentals";
+import { evidencedBeforeListing } from "../oracle/listing";
+import { readListedFrom } from "../stored-listing";
 import { differentialAudit, type DifferentialReport } from "./differential";
 import { AUDIT_HISTORY_PROFILES, generateHistory } from "./generated-history";
 
@@ -219,14 +221,14 @@ export async function runFundamentalsSection(input: {
       .map((range) => range.toDate)
       .sort()
       .at(-1)!;
-    const horizonFrom = yearsBefore(asOf, FUNDAMENTALS_RETENTION_YEARS);
-    const retentionFrom =
-      security.ipoDate && security.ipoDate > horizonFrom
-        ? security.ipoDate
-        : horizonFrom;
+    const retentionFrom = yearsBefore(asOf, FUNDAMENTALS_RETENTION_YEARS);
+    const listing = await readListedFrom(prisma, security.securityId);
     const stored_ = await readStatements(prisma, security.securityId);
     const raw = stored_.filter(
-      (row) => row.fiscalDate >= retentionFrom && row.fiscalDate <= asOf,
+      (row) =>
+        row.fiscalDate >= retentionFrom &&
+        row.fiscalDate <= asOf &&
+        evidencedBeforeListing(row, listing),
     );
     const statements: OracleFundamentalStatement[] = raw.map((row) => ({
       statementType:

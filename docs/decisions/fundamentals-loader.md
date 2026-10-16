@@ -436,7 +436,9 @@ raw DailyPrice retention target    = [today - productHistoryYears - 4, today]
 fundamentals retention target      = [today - productHistoryYears - 7, today]
 ```
 
-All three are clamped to a known IPO/listing date. The two warm-ups are independent and must never
+None of the three is clamped to the IPO date any more (`listing-evidence-v1.md`, DATA-02, since
+2026-10-16). Statements from before a listing are retained, and a calculation reads one only on a
+real filing date (DATA-03, option C). The two warm-ups are independent and must never
 compound: the four price years exist so a recursive or 200-week series is valid on the first
 visible day (`price-retention-warmup-horizon.md`), the seven fiscal years so a valuation on that
 day has an eligible TTM window. Fundamentals retention is anchored to the **product** horizon, so

@@ -41,7 +41,9 @@ The chart explores at most **30 years** of history. That limit is
 `STOCK_DETAILS_MAX_HISTORY_YEARS` in `@intrinsic/contracts` and exists once: the API clamps every
 Stock Details read to it, and reports as `history` on the Stock Details response the boundary the
 chart should navigate to — that limit narrowed by the deployment's retained horizon, the security's
-listing date and, once proven, the provider's earliest trading day. The clamp itself stays at the
+listing date (unless a stored bar weeks before it contradicts it,
+`../../docs/decisions/listing-evidence-v1.md`) and, once proven, the provider's earliest trading
+day. The clamp itself stays at the
 horizon: it bounds requests, it does not answer where history begins. The web app navigates against
 the reported bound and never recomputes it. A backtest names its own period through the loader and
 is unaffected by this limit.

@@ -15,7 +15,9 @@ import {
   buildValuationTimeline,
   createStockDataRedisClient,
   addDays,
+  listingFloor,
   monitorWindowCalendarDays,
+  statementsWithEvidencedAvailability,
   valuationRatioColumns,
   type ValuationTimeline,
 } from "@intrinsic/stock-data";
@@ -27,6 +29,7 @@ import {
   type OracleValuationReading,
   type OracleValuationSecurity,
 } from "../oracle/valuation-ratios";
+import { evidencedBeforeListing, listedFrom } from "../oracle/listing";
 import { ComparisonTally } from "./compare";
 
 /**
@@ -68,6 +71,7 @@ export type OracleRows = {
 type StatementRow = {
   statementType: "INCOME" | "BALANCE_SHEET" | "CASH_FLOW";
   fiscalDate: string;
+  filingDate: string;
   fiscalYear: number;
   period: "FY" | "Q1" | "Q2" | "Q3" | "Q4";
   reportedCurrency: string;
@@ -86,8 +90,9 @@ export const VALUATION_RETENTION_YEARS = 37;
  * The reference's inputs, read with its own SQL from the raw rows: no product read path.
  *
  * Statements are the **retained** revisions only: the fundamentals retention is
- * `[today - 30 - 7 years, today]` by fiscal period end, clamped to a known listing date
- * (`docs/decisions/fundamentals-loader.md`, "Valuation warm-up retention"), and every
+ * `[today - 30 - 7 years, today]` by fiscal period end
+ * (`docs/decisions/fundamentals-loader.md`, "Valuation warm-up retention"), less the pre-listing
+ * revisions without a real filing date (DATA-03, `docs/decisions/listing-evidence-v1.md`), and every
  * statement-derived value — Fundamental Metrics, intrinsic values and the valuation ratios that
  * inherit their point-in-time rules — reads exactly that range. It is restated here from the
  * decision, as the Fundamental Metrics audit restates it, with "today" the security's newest covered
@@ -123,6 +128,7 @@ export async function readOracleRows(
   const statements = await prisma.$queryRawUnsafe<StatementRow[]>(
     `select "statementType"::text as "statementType",
             to_char("fiscalDate", 'YYYY-MM-DD') as "fiscalDate",
+            to_char("filingDate", 'YYYY-MM-DD') as "filingDate",
             "fiscalYear", period::text as period, "reportedCurrency",
             to_char("availableFromDate", 'YYYY-MM-DD') as "availableFromDate",
             to_char("observedAt", ${ISO}) as "observedAt",
@@ -176,12 +182,15 @@ export async function readOracleRows(
   );
   const coverageEnd = identity.coverage_end ?? (prices.at(-1)?.date as string);
   const horizonFrom = subtractYearsFrom(coverageEnd, VALUATION_RETENTION_YEARS);
-  const retentionFrom =
-    identity.ipo_date && identity.ipo_date > horizonFrom
-      ? identity.ipo_date
-      : horizonFrom;
+  const retentionFrom = horizonFrom;
+  // DATA-03: a revision from before the listing the stored data evidences is read only on a real
+  // filing date.
+  const listing = listedFrom(identity.ipo_date, prices[0]?.date);
   const retained = statements.filter(
-    (row) => row.fiscalDate >= retentionFrom && row.fiscalDate <= coverageEnd,
+    (row) =>
+      row.fiscalDate >= retentionFrom &&
+      row.fiscalDate <= coverageEnd &&
+      evidencedBeforeListing(row, listing),
   );
   return {
     securityId,
@@ -476,16 +485,13 @@ export async function auditRealData(input: {
           refused(layer, error);
         }
       };
-      // Every product read must answer exactly the stored sessions of its range, from the listing
-      // date on (`complete-price-coverage.md`, `LISTING`): a session left out is no cell at all.
+      // Every product read must answer exactly the stored sessions of its range: a session left out
+      // is no cell at all. No IPO date hides a stored session any more (DATA-02,
+      // `listing-evidence-v1.md`) — not `NEE`'s 1992–2014 bars, not `CAVA`'s session the day before
+      // its IPO date.
       const storedIn = (from: LocalDate, to: LocalDate) =>
         rows.sessions
-          .filter(
-            (session) =>
-              session.date >= from &&
-              session.date <= to &&
-              (rows.listingDate === null || session.date >= rows.listingDate),
-          )
+          .filter((session) => session.date >= from && session.date <= to)
           .map((session) => session.date);
       const checkSessions = (
         layer: RealDataLayer,
@@ -513,12 +519,10 @@ export async function auditRealData(input: {
       // session whose warm-up the coverage holds — a wider read is the provider's to answer
       // (`complete-price-coverage.md`), and this audit never reaches it.
       // Computed before any read, from the decision's own ranges: the price retention is the
-      // product horizon plus `PRICE_RETENTION_WARMUP_YEARS`, clamped to a known listing date.
-      const ipoDate = security.ipoDate;
+      // product horizon plus `PRICE_RETENTION_WARMUP_YEARS` (no longer clamped to the IPO date,
+      // DATA-02).
       const retentionStart = subtractYearsFrom(rows.coverageEnd, 34);
-      const coverageReachesRetention =
-        rows.coverageStart <=
-        (ipoDate && ipoDate > retentionStart ? ipoDate : retentionStart);
+      const coverageReachesRetention = rows.coverageStart <= retentionStart;
       const narrowed = new Date(
         Date.parse(`${rows.coverageStart}T00:00:00.000Z`) +
           // The warm-up, and a margin for the leading context a frame adds before its period.
@@ -552,22 +556,28 @@ export async function auditRealData(input: {
         ? "prepared"
         : "store";
       if (!timeline) {
-        const [statements, basis, basisEvents, splits] = await Promise.all([
-          // The product's own read (`readValuationTimeline`), over the retained range.
-          store.getFinancialStatementRevisions({
-            securityId,
-            cadence: "QUARTERLY",
-            from: rows.retentionFrom,
-            to: rows.coverageEnd,
-          }),
-          store.getPriceBasis(securityId),
-          store.getPriceBasisEvents(securityId),
-          store.getStockSplits(securityId),
-        ]);
+        const [revisions, basis, basisEvents, splits, earliestPriceDate] =
+          await Promise.all([
+            // The product's own read (`readValuationTimeline`), over the retained range.
+            store.getFinancialStatementRevisions({
+              securityId,
+              cadence: "QUARTERLY",
+              from: rows.retentionFrom,
+              to: rows.coverageEnd,
+            }),
+            store.getPriceBasis(securityId),
+            store.getPriceBasisEvents(securityId),
+            store.getStockSplits(securityId),
+            store.getEarliestDailyPriceDate(securityId),
+          ]);
         timeline = buildValuationTimeline({
           securityId,
           currency: security.currency,
-          statements,
+          // And the product's own pre-listing rule (DATA-03).
+          statements: statementsWithEvidencedAvailability(
+            revisions,
+            listingFloor({ ipoDate: security.ipoDate, earliestPriceDate }),
+          ),
           verifiedAt: basis?.verifiedAt ?? null,
           events: basisEvents,
           splits,

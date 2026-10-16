@@ -69,8 +69,15 @@ export async function referenceForSecurity(
   const first = closes[0]?.date ?? null;
   // Stored history that starts after the listing was cut by the retention horizon; a first ISO week
   // that the cut truncates is not a real week and is dropped, exactly as a listing week is kept.
-  const truncatedByHorizon =
-    first !== null && (ipoDate === null || ipoDate < first);
+  // Only an IPO date in the first bar's own week marks a listing week: one weeks or years later is
+  // contradicted by that bar (DATA-02), and the history starts at the horizon or at the provider's
+  // own boundary.
+  const listingWeek =
+    first !== null &&
+    ipoDate !== null &&
+    ipoDate >= first &&
+    isoWeekStart(ipoDate) === isoWeekStart(first);
+  const truncatedByHorizon = first !== null && !listingWeek;
   const dropFirstWeek =
     truncatedByHorizon && first !== null && isoWeekStart(first) !== first
       ? isoWeekStart(first)
