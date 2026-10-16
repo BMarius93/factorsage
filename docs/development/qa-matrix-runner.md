@@ -184,9 +184,13 @@ hydrating process fails at its next write ("KNOWN DEFECT OPS-06" in
 `packages/stock-data/src/redis.integration.test.ts`). That is a product defect, not a matrix one —
 the deploy of a derived-revision bump, a Redis restart or an LRU eviction recreates the same cold
 state in production — so the warm-up keeps the sweep's verdict about values while hiding it. To
-look at it on purpose, flush the matrix Redis index and run a set of cases with `--no-warmup
---no-cleanup --no-determinism`: the audit's run failed 7 of 40 core cases this way, and the 33 that
-completed matched the warm sweep exactly.
+look at it on purpose, point `QA_MATRIX_REDIS_DB` at an **empty** logical database (or flush the
+matrix's own index) and run a set of cases with `--no-warmup --no-cleanup --no-determinism`: the
+audit's run failed 7 of 40 core cases this way, and the 33 that completed matched the warm sweep
+exactly. Fixed by the stock-data concurrency work (`docs/audits/stock-data-concurrency-2026-10-16.md`):
+the same 40 cases then completed 40 of 40, with the warm sweep's 30,044 trades. Keep running the cold
+check on a release candidate — it is the only matrix stage that exercises concurrent first
+hydrations.
 
 The covering set is chosen by greedy cover over the fixture lists, against the longest configuration
 so every calendar-year chunk is warmed. It is skipped for a single-case reproduction, which cannot

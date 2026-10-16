@@ -308,11 +308,11 @@ describeWithRedis("the stock EOD preparation on PostgreSQL and Redis", () => {
    *
    * The child decides "nothing to do" from the **price** tail alone. When the derived state is behind a
    * current price tail — exactly what a `DERIVED_STATE_REVISION` bump leaves for every security, and
-   * what a crash between the price save and the derived rebuild leaves for one — it reports READY and
-   * never repairs it, while the Monitor waits for `derivedThrough`. Written as the readiness the
-   * Monitor needs; fails on `bebf3dc7`, and `it.fails` flips red once the child repairs the gap.
+   * what a crash between the price save and the derived rebuild leaves for one — it reported READY and
+   * never repaired it, while the Monitor waited for `derivedThrough` (failed on `bebf3dc7`). It now
+   * takes the ordinary preparation path, which rebuilds the gap from PostgreSQL.
    */
-  it.fails("KNOWN DEFECT OPS-02: repairs derived state that is behind a current price tail", async () => {
+  it("OPS-02: repairs derived state that is behind a current price tail", async () => {
     const security = await createSecurity(`EODD${suffix}`);
     await createSystemMonitor([{ securityId: security.id }]);
     const provider = new HistoryProvider();
@@ -367,6 +367,68 @@ describeWithRedis("the stock EOD preparation on PostgreSQL and Redis", () => {
     expect((await service.stockRefreshState(row)).derivedThrough).toBeUndefined();
 
     await run.run(2, () => false);
+    expect((await service.stockRefreshState(row)).derivedThrough).toBe(SESSION);
+  });
+
+  it("OPS-02: repairs it from PostgreSQL even while the cached projection still reads as current", async () => {
+    const security = await createSecurity(`EODR${suffix}`);
+    await createSystemMonitor([{ securityId: security.id }]);
+    const provider = new HistoryProvider();
+    const cache = new RedisStockDataCache(new IoredisCacheClient(redis), 10, namespace);
+    const service = new CanonicalStockDataService(
+      new PrismaStockDataStore(prisma),
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      {
+        productHistoryYears: 30,
+        fundamentalsFreshnessMs: 30 * 24 * 60 * 60 * 1000,
+        now: () => NOW,
+      },
+    );
+    const repository = new PrismaMonitorRepository(prisma);
+    const run = new StockEodRefreshRun(
+      service,
+      {
+        listActiveMonitors: async () =>
+          (await repository.listActiveMonitors()).filter((monitor) =>
+            createdMonitorIds.has(monitor.monitorId),
+          ),
+      },
+      createLogger({ service: "worker", level: "silent" }),
+      {
+        policy: new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => NOW,
+        }),
+        runBudgetMs: 60_000,
+        securityConcurrency: 2,
+        followUpMs: 30_000,
+        providerRequests: () => 0,
+        now: () => NOW,
+      },
+    );
+    await run.run(1, () => false);
+    const row = (await service.findSecuritiesByIds([security.id]))[0]!;
+    expect((await service.stockRefreshState(row)).derivedThrough).toBe(SESSION);
+
+    // The derived state disappears from PostgreSQL alone — rows, coverage and state — with the
+    // price tail exactly as current as it was.
+    await prisma.dailyDerivedState.deleteMany({ where: { securityId: security.id } });
+    await prisma.stockDatasetCoverage.deleteMany({
+      where: { securityId: security.id, dataset: "DAILY_DERIVED_STATE" },
+    });
+    await prisma.stockDatasetState.deleteMany({
+      where: { securityId: security.id, dataset: "DAILY_DERIVED_STATE" },
+    });
+    // The Redis projection is left exactly as it was: READY, current and covering, so nothing on the
+    // cache side asks for a rebuild. Only PostgreSQL knows the derived state is gone.
+    expect((await cache.getManifest(security.id))?.status).toBe("READY");
+    expect((await service.stockRefreshState(row)).derivedThrough).toBeUndefined();
+    const priceRequestsBefore = provider.priceRequests.length;
+
+    await run.run(2, () => false);
+    expect(provider.priceRequests.length).toBe(priceRequestsBefore);
     expect((await service.stockRefreshState(row)).derivedThrough).toBe(SESSION);
   });
 });

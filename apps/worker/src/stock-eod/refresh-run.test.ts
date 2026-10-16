@@ -91,6 +91,7 @@ const READY: StockRefreshState = {
   latestBar: SESSION,
   latestVerifiedBar: SESSION,
   verifiedThrough: SESSION,
+  derivedThrough: SESSION,
   lastTailSyncAt: "2026-10-14T20:31:00.000Z",
   tailDate: SESSION,
   priceBasisGeneration: 0,
@@ -101,6 +102,7 @@ const STALE: StockRefreshState = {
   latestBar: "2026-10-13",
   latestVerifiedBar: "2026-10-13",
   verifiedThrough: "2026-10-13",
+  derivedThrough: "2026-10-13",
   lastTailSyncAt: "2026-10-13T20:40:00.000Z",
   tailDate: "2026-10-13",
 };
@@ -225,12 +227,30 @@ describe("one stock EOD run", () => {
     expect(stockData.refreshed.map((call) => call.symbol)).toEqual(["NVDA"]);
   });
 
+  it("prepares a security whose derived state is behind its current tail (OPS-02)", async () => {
+    // A derived-revision bump, or a crash between the price save and the rebuild: the tail needs
+    // nothing from the provider, but the Monitor waits for `derivedThrough`.
+    const stockData = new FakeStockData();
+    stockData.states.set("AAPL", { ...READY, derivedThrough: "2026-10-13" });
+    stockData.states.set("MSFT", { ...READY, derivedThrough: undefined });
+    stockData.states.set("NVDA", READY);
+    await run(stockData, [activeMonitor("a", ["AAPL", "MSFT", "NVDA"])]).run(
+      1,
+      () => false,
+    );
+    expect(stockData.refreshed.map((call) => call.symbol).sort()).toEqual([
+      "AAPL",
+      "MSFT",
+    ]);
+  });
+
   it("does not ask again inside the retry spacing for an unpublished session, and stops past the give-up bound", async () => {
     const stockData = new FakeStockData();
     const missing: StockRefreshState = {
       ...READY,
       latestBar: "2026-10-13",
       latestVerifiedBar: "2026-10-13",
+      derivedThrough: "2026-10-13",
       lastTailSyncAt: "2026-10-14T20:32:00.000Z",
     };
     stockData.states.set("HALT", missing);

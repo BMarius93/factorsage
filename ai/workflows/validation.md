@@ -140,6 +140,7 @@ list was last corrected by E2E-007, when it had fallen seventeen suites behind):
 - `packages/stock-data/src/provider-reuse.integration.test.ts`
 - `packages/stock-data/src/redis.integration.test.ts`
 - `packages/stock-data/src/security-search.integration.test.ts`
+- `packages/stock-data/src/stock-data-concurrency.integration.test.ts` (also Redis)
 
 `apps/worker/src/monitor/capacity-bench.ts` (`pnpm --filter @intrinsic/worker bench:monitor`) also
 calls it; it is a developer benchmark script, not a suite.
