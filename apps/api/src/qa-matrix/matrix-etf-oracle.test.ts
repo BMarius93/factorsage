@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   AMBIGUITY,
+  atStoredScale,
   buildOracleColumns,
   isoWeekStart,
   oracleConditionTruth,
@@ -295,6 +296,33 @@ describe("the independent ETF oracle", () => {
         value(0),
       ),
     ).toBe("NOT_EVALUABLE");
+  });
+
+  it("reads technical values at the stock's storage scale, so an exact tie is equal (FIN-12)", () => {
+    // The 25 closes of the production FIN-12 regression test: the last close is the exact mean of
+    // the last twenty, which a running sum reads as 14.680000000000001.
+    const closes = [
+      14.68, 15.02, 15.49, 14.43, 14.45, 14.86, 15.17, 14.55, 14.15, 14.14,
+      14.75, 14.22, 15.45, 14.3, 14.37, 14.66, 15.21, 14.6, 14.51, 14.79, 14.23,
+      15.39, 14.8, 14.77, 14.68,
+    ];
+    let date = "2024-01-01";
+    const bars: OracleBar[] = closes.map((close) => {
+      do {
+        date = addDays(date, 1);
+      } while ([0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay()));
+      return { date, open: close, high: close, low: close, close, volume: 1 };
+    });
+    const oracle = buildOracleColumns(bars, () => new Set());
+    const last = bars.length - 1;
+    expect(oracle.column("SMA_20D")[last]).toBe(14.68);
+    expect(oracle.close[last]).toBe(14.68);
+
+    expect(atStoredScale(14.690000000000033)).toBe(14.69);
+    expect(atStoredScale(1.234567885)).toBe(1.23456789);
+    expect(atStoredScale(-1.234567885)).toBe(-1.23456789);
+    expect(atStoredScale(1.1085973016429789)).toBe(1.1085973);
+    expect(atStoredScale(Number.NaN)).toBeNaN();
   });
 });
 
