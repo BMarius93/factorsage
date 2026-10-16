@@ -15,13 +15,18 @@
 - **Live provider use (owner-authorized, 2026-10-15):** 233 FMP requests in total — 74 to pin the venue holiday
   calendar, 117 to refresh the 35 matrix securities through the canonical loader (68 price, 35 split-list,
   12 statement, 2 profile), 40 (+≈2 calendar) to refresh the twenty ETFs through the market-data child. None during
-  any sweep (proven at the network boundary, §3.3). No Stripe operation of any kind was performed.
+  any sweep (proven at the network boundary, §3.3).
+- **Continuation (owner-authorized, 2026-10-16 05:21–06:30 UTC, §9):** the remaining suites — Stripe sandbox
+  (test mode only, no live object touched), live FMP under a **hard cap of 150 requests enforced at the network
+  boundary (46 used, 104 left)**, the Mailpit email lifecycle, the Stock Details and browser UI sections of the
+  data-correctness audit, the entitlement and billing browser suites — plus the FIN-12 and DATA-02/03
+  investigations. Every result, command and timestamp is in §9.
 
 ---
 
 ## 1. Executive summary
 
-### Verdict: **NOT READY** — five small code fixes, one Stripe sandbox run and two deploy decisions away from READY WITH RISKS
+### Verdict: **NOT READY** — seven code fixes, two deploy decisions and two owner rulings away from READY WITH RISKS
 
 The criteria used:
 
@@ -45,50 +50,67 @@ FactorSage's core is in good shape, and this audit's evidence for that is unusua
   Relative Volume, alternative data, intrinsic values, Fundamentals, 1,000 reference backtests). Every one of the
   134,674 disagreements traces to a security's listing date (DATA-02, DATA-03); everything else agrees. Backtests
   rehydrated from PostgreSQL after a Redis flush are identical to the warm runs (60 of 60 compared).
+- **What a user sees matches the canonical data**: 71,433 Stock Details API values against PostgreSQL and the
+  oracles, and 1,322 values read off the rendered pages (728 backtest-result, 466 Stock Details, 127 Monitor and
+  Dashboard) — no difference (§9.5). Freshly fetched FMP data matches every stored price, split, statement and SPY
+  bar except the newest session, which FMP revised after FactorSage read it (DATA-04, §9.3).
+- **Accounts and plans behave**: the email lifecycle through a real SMTP sink (activation, reset, single-use links,
+  sessions ended), all 41 entitlement checks across the six tiers twice, 35 billing-page checks and 20 billing-persona
+  checks; in the Stripe sandbox, renewal, past-due recovery, real webhook delivery, duplicate-event idempotency and
+  cancellation all converge on the right plan (§9.2).
 - No IDOR, tenancy leak or privilege escalation was found on any route family. Ownership predicates are re-applied
   inside the writing statements; entitlement limits are decided inside the writing transaction.
 
-It is **not READY** because five defects produce wrong results a user sees as correct (four confirmed, one plausible):
+It is **not READY** because seven confirmed defects take a customer's money wrongly or produce a result a user sees as
+correct:
 
-1. **MON-01 (P1, confirmed by test).** A new Monitor's 90-day replay **fires again** when a member's List
+1. **BILL-01 (P0, confirmed in the Stripe sandbox).** A customer on PRO_MONTHLY who schedules a downgrade to Starter
+   and then upgrades to PRO_YEARLY **pays $29 + $270, and one month later Stripe moves them to Starter, charges $9 and
+   credits nothing**; FactorSage follows to STARTER. The downgrade's schedule survives the immediate upgrade. The web
+   offers exactly this sequence.
+2. **BILL-02 (P1, confirmed in the Stripe sandbox).** Two Checkout tabs opened before paying are both payable: two
+   active PRO subscriptions, **two paid $29 invoices**, renewing monthly. FactorSage logs
+   `billing.invariant.multiple-live-subscriptions` and keeps the older one; nothing stops or refunds the second.
+3. **MON-01 (P1, confirmed by test).** A new Monitor's 90-day replay **fires again** when a member's List
    membership is ended and later restored — two ordinary List edits — **duplicating Signals and transitions**.
-2. **ALT-01 (P1, confirmed by test).** An insider money window that has emptied reads `6.98e-12`, not `0`, so
+4. **ALT-01 (P1, confirmed by test).** An insider money window that has emptied reads `6.98e-12`, not `0`, so
    `Insider purchase value is above $0` — the natural "any purchase" rule, whose domain starts at 0 — is **TRUE on
    sessions with no purchase**, in backtests and Monitors alike.
-3. **UI-01 (P1, confirmed in the real Builder).** The Strategy Builder's numeric Value field corrupts what a user types key by
+5. **UI-01 (P1, confirmed in the real Builder).** The Strategy Builder's numeric Value field corrupts what a user types key by
    key: `0.75` becomes `75`, `-1.5` becomes `5`, `1.25` becomes `25`. A `Debt / Equity is below 0.75x` rule is
    silently saved as `below 75x`.
-4. **DATA-02 (P1, confirmed by reproduction).** A security's stored history depends on whether its provider profile
-   had been read when it was first built, and the provider's IPO date is then trusted as a hard lower bound. `NEE`
-   (FMP says listed 2014-06-19; it has bars from 1992) is **silently left out of every backtest before 2014** — in the
-   matrix's 30-year one-member-per-sector run it first trades in 2014, every other member in 1999 — while its stored
-   valuations for 1992–2014 exist and would vanish at the next rebuild; `PLD`'s first weekly averages are missing.
-5. **BILL-01 (P1, plausible; needs one Stripe sandbox run).** An immediate upgrade made while a downgrade is
-   scheduled leaves the Stripe schedule attached, which can later **override the upgrade the user paid for** (or,
-   if Stripe refuses the update, makes upgrading impossible with a "temporarily unavailable" message).
+6. **DATA-02 (P1, confirmed by reproduction).** FMP's IPO date is trusted as a hard lower bound for prices,
+   statements and backtest frames, and a security's stored history depends on whether its profile had been read when
+   it was first built. `NEE` (FMP: listed 2014; bars from 1992) is **silently left out of every backtest before
+   2014**; `HON` (FMP: listed 2001-02-21) **never has its 1996–2001 bars stored although FMP serves 1,304 of them**;
+   `PLD`'s first weekly averages are missing.
+7. **OPS-06 (P1, confirmed by test and measurement).** A read that finds another process mid-hydration deletes that
+   process's cache manifest, and the other process's backtest fails ("The backtest could not be completed"). The r8
+   bump makes every cached stock stale, so **the deploy itself is a cold-cache event**: on a flushed matrix Redis,
+   **7 of 40** concurrent backtests failed this way (all forty matched the warm sweep once completed).
 
-And three operational P1s must be handled before the deploy, not after:
+Two operational P1s must be handled before the deploy, not after:
 
-6. **OPS-01.** `STOCK_CACHE_MAX_RESIDENT_STOCKS` defaults to **100**, below what one PRO user is entitled to run
+8. **OPS-01.** `STOCK_CACHE_MAX_RESIDENT_STOCKS` defaults to **100**, below what one PRO user is entitled to run
    (two concurrent 100-symbol backtests), and the capacity document's sizing rule ignores backtests. Results stay
    correct; cost goes up by an order of magnitude (measured 4.38 M vs 267 k Redis commands per stock-EOD session at
    U=500).
-7. **OPS-02.** This release bumps `DERIVED_STATE_REVISION` 7→8, and the stock EOD child decides "nothing to do" from
+9. **OPS-02.** This release bumps `DERIVED_STATE_REVISION` 7→8, and the stock EOD child decides "nothing to do" from
    the **price** tail only. Every Monitor therefore stalls until the next session's tail read — about 6.5 h for a
    weekday-morning deploy, Friday evening to Monday 16:30 over a weekend. Do not "fix" it with `data:resync`: that
    tool has no venue calendar and rewrites holiday weeks wrongly (MON-03).
-8. **OPS-06 (confirmed by test and measurement).** A read that finds another process mid-hydration deletes that
-   process's cache manifest, and the other process's backtest fails ("The backtest could not be completed"). The same
-   r8 bump makes every cached stock stale, so **the deploy itself is a cold-cache event**: on a flushed matrix Redis,
-   **7 of 40** concurrent backtests failed this way; submitted again, all seven completed, and all forty then matched
-   the warm sweep exactly. The core of the fix is one guard in a Lua script.
 
-Each of the five code fixes (MON-01, ALT-01, UI-01, DATA-02's identity part, OPS-06) is small and local (proposed in
-§4); with them merged, BILL-01 settled in the sandbox and OPS-01/OPS-02 handled by configuration and deploy timing,
-the verdict becomes **READY WITH RISKS**, the remaining risks being the P2s of §4 (login CSRF via form posts,
-duplicate Checkout sessions, the Monitor's ETF-load-failure path, weekly values that depend on the venue schedule
-being reachable, and DATA-03 — historical valuations of companies listed inside the horizon change at this deploy's
-rebuild, pending an owner ruling on pre-listing filings).
+And two methodology questions only the owner can rule on (§9.6–9.7), both with the evidence and the consequences of
+each answer laid out: **DATA-03** (are a company's statements published before it listed eligible after it lists?
+the proposed policy is sound but the stored data cannot say *when* most such statements became public) and
+**FIN-12** (an ETF's exact Price = SMA tie is decided by float noise in 45 of 47 cases where a stock decides all 81
+correctly; the smallest fix reads ETF values at the stock's storage scale, which revisits owner decision 6).
+
+Each of the seven code fixes is small and independently testable, and each has a known-defect test that turns red
+when it lands (§9.12 gives the PR order). With them merged, OPS-01/OPS-02 handled by configuration and deploy timing,
+and the two rulings made, the verdict becomes **READY WITH RISKS**; the remaining risks are the P2s of §4.2 (login
+CSRF via form posts, the Monitor's ETF-load-failure path, weekly values that depend on the venue schedule being
+reachable, post-finality bar revisions).
 
 ### What changed in the test estate
 
@@ -101,7 +123,7 @@ rebuild, pending an owner ruling on pre-listing filings).
 | Preflight | 18 checks, core dimension only from the CLI | **19** (+`etf-sources`), any dimension (`--strategies`) |
 | Securities / Lists | 33 / 10 | **35 / 11** (`NEE`, `PLD`, `L11` = one member per FMP sector) |
 | Registry-driven ETF validation | per-kind examples | **exhaustive** cell-by-cell agreement test |
-| Known-defect pins | — | 11 (`MON-01`, `MON-02`, `OPS-02`, `OPS-06`, `SEC-01`, `ALT-01` ×2, `PRED-01`, `UI-01` ×2, `UI-03`) |
+| Known-defect pins | — | 14 (`BILL-01` ×2 — offline and sandbox, `MON-01`, `MON-02`, `OPS-02`, `OPS-06`, `SEC-01`, `ALT-01` ×2, `PRED-01`, `FIN-12`, `UI-01` ×2, `UI-03`) |
 
 ---
 
@@ -199,6 +221,9 @@ These are defects in **test tooling**, fixed on this branch (no production code 
 | QA-04 | `pnpm qa:matrix:preflight` could only check the core dimension, so the ETF data an E/T sweep reads was never preflighted. | `--strategies`, and a new `etf-sources` check (floor-anchored coverage, a completed tail read, bars through the last simulated session, every member's sector resolving). |
 | QA-06 | The archive verifier (invariants 36–38) read a sourced Condition's **Value** from the stock's own `series:` column, which a sourced frame does not carry, so every ETF/Stock's Sector BUY re-derived as NOT_EVALUABLE. Latent since PR #98 (no archived fixture read an ETF until this audit); it made the Stock's Sector sweep's six golden archives fail. | `valueSeries` resolves through the canonical `valueOperand(value, source)`; re-verified offline, all six archives pass (233 BUYs re-derived TRUE); unit cases for both source kinds. |
 | QA-07 | **The sweep's warm-up hides cold-cache concurrency.** Every sweep hydrates each security once, sequentially, before submitting cases, so concurrent first hydrations — the state right after this release's deploy, a Redis restart or an LRU eviction — are never exercised. The runbook knew cold sweeps fail ("generation changed") and treated it as a harness race to design around; it is a product defect (OPS-06), and the warm-up kept it out of 5,000 green runs. | The runbook now says so and how to look at it (`docs/development/qa-matrix-runner.md`, "The warm-up"); this audit ran the cold check by hand (`FLUSHDB` of the matrix index, then `--no-warmup`, §3.5). Proposal: a `--cold` stage in the release sweep. |
+| QA-08 | **The browser data-correctness spec had not followed the Monitor EOD V2 table.** `getByRole("button", { name: "Active" })` now matches both "Active" and "Active & ended" (added by `f6246419`, 2026-10-15), so the spec stopped at the Monitor page and never reached the Monitor and Dashboard checks. | Fixed: `exact: true` (`apps/web/e2e/data-correctness/data-correctness.audit.spec.ts`); the re-run made all 127 Monitor and Dashboard checks (§9.5). |
+| QA-09 | **A failed browser run was reported as a passing section.** `runUiSection` turned the observations into checks and ignored Playwright's exit code, so the run above showed `ui: PASS` with 1,195 checks while 127 were never made. | Fixed: a `Playwright run completed` check (exit code 0) is always recorded (`apps/api/src/data-correctness-audit/ui/run-ui-audit.ts`). |
+| QA-10 | **A test leaves rows behind that a later run of it can collide with.** `monitors.integration.test.ts` › "current evaluation summary" creates securities named `AAA`/`BBB`/`CCC` plus three random hex digits and never deletes them; 27 such rows from September runs remain in the test database, and the final gate's run drew a taken symbol (§8.2). | Reported, not changed (a pre-existing test outside this audit's scope): delete them in `afterAll` and use a longer suffix. |
 | QA-05 | **Not fixable in tooling:** the valuation split-list freshness is a hard-coded 24 h (`STOCK_SPLIT_LIST_FRESHNESS_MS`, `packages/stock-data/src/service.ts:549`), so any matrix strategy reading a valuation ratio (`T08`) re-asks the provider once the capture is a day old. The guard now makes that a visible `PROVIDER_EGRESS` failure instead of silent live traffic. | Reported; proposal: honour a `STOCK_SPLIT_LIST_FRESHNESS_MS` setting like the other freshness windows the matrix pins. |
 
 ### 3.4 Other new tests
@@ -320,7 +345,53 @@ Severity: **P0** exploitable now / data loss / wrong money shown as correct and 
 security or reliability defect likely in production; **P2** real defect with limited impact or a workaround; **P3**
 minor or maintainability. "Blocks" = blocks release on its own.
 
-### 4.1 P1 — release-relevant
+### 4.1 P0 and P1 — release-relevant
+
+#### BILL-01 · P0 · Billing · CONFIRMED (Stripe sandbox + test) · **blocks release**
+
+**An immediate upgrade made while a downgrade is scheduled is charged in full and then undone by the old schedule,
+with no credit.**
+
+- **Code.** `changePlan`'s IMMEDIATE branch (`apps/api/src/billing/billing.service.ts:330–343`) calls
+  `updateSubscriptionPriceImmediately` (`stripe.gateway.ts:240–255`, a plain `subscriptions.update`) without looking
+  at the mirror's `stripeScheduleId` / pending price; the scheduled path does rewrite an existing schedule
+  (`stripe.gateway.ts:288–342`); reconciliation releases a schedule only when no change is pending
+  (`billing-reconciliation.service.ts:436–439`); the web offers the immediate action while a change is pending
+  (`apps/web/src/features/billing/utils/plan-actions.ts:159–181`).
+- **Reproduction (Stripe test mode, 2026-10-16, §9.2).** `billing-lifecycle.sandbox.test.ts`, "KNOWN DEFECT BILL-01",
+  through the product's own `BillingService` on a Test Clock: PRO_MONTHLY → `changePlan(STARTER_MONTHLY)` = SCHEDULED
+  for 2026-11-16 → `changePlan(PRO_YEARLY)` = IMMEDIATE, CADENCE_LENGTHENED. Stripe then holds PRO_YEARLY **with the
+  schedule still attached** and its next phase STARTER_MONTHLY on 2026-11-16; the mirror shows `PRO_YEAR` with
+  `pendingPrice STARTER_MONTH`. Advancing the clock past 2026-11-16: the subscription is **STARTER_MONTHLY**, no
+  schedule, FactorSage plan **STARTER**. The customer's invoices (`.debug/billing-sandbox/bill-01-invoices.redacted.json`):
+  $29.00 `subscription_create`; **$270.00** `subscription_update` (−$29.00 unused Pro + $299.00 Pro yearly); then
+  **$9.00** `subscription_cycle` for Starter — ending balance $0, i.e. no credit for the eleven paid months of Pro.
+  Pinned offline as well (`billing.integration.test.ts`, "KNOWN DEFECT BILL-01"), on the fake gateway, which keeps the
+  schedule exactly as Stripe did.
+- **Impact.** A customer who changes their mind about a downgrade pays for a year of Pro and loses it a month later,
+  silently. Support must refund by hand. Deterministic for every customer who takes this path.
+- **Fix.** In the IMMEDIATE branch, inside the lock, release the subscription's schedule (or rewrite it to one
+  open-ended phase at the target price) before the update, then reconcile; add a "keep my current plan" action that
+  releases a pending downgrade (today asking for the current price is refused as `UNCHANGED`,
+  `billing.service.ts:271–277`). Proof: both pins turn red.
+
+#### BILL-02 · P1 · Billing · CONFIRMED (Stripe sandbox) · **blocks release**
+
+**Two Checkout sessions opened before either is paid can both be paid: two live subscriptions, two charges.**
+
+- **Code.** The "already subscribed" guard reads only the mirror (`billing.service.ts:126–170`), so it holds only
+  after the first payment has reconciled; each request gets its own idempotency key (`:162`); sessions carry no
+  `expires_at` (`stripe.gateway.ts:176–196`) and nothing expires the older ones. Violates `stripe-billing-v1.md` §5.
+- **Reproduction (Stripe test mode with real webhook delivery, 2026-10-16, §9.2).** A signed-in account opens
+  Checkout twice (two tabs), pays the first in hosted Checkout (test card): webhooks alone make it PRO; a third
+  Checkout request is now refused (409 `BILLING_ALREADY_SUBSCRIBED`) — but the second tab, still open, pays: Stripe
+  holds **two active PRO_MONTHLY subscriptions** and **two paid $29 invoices**. FactorSage logs
+  `billing.invariant.multiple-live-subscriptions` (warn) three times and keeps the older subscription in its mirror;
+  the second keeps renewing unseen.
+- **Fix.** Inside the advisory lock, list the customer's open Checkout sessions and expire them before creating a new
+  one (or return the open one), and give every session a short `expires_at` (30 min); turn the
+  `multiple-live-subscriptions` warning into an operator alert. Proof: re-run the harness of §9.2 — the second tab's
+  session is expired.
 
 #### MON-01 · P1 · Monitor · CONFIRMED (test) · **blocks release**
 
@@ -386,28 +457,6 @@ transitions.**
 - **Fix.** Keep the raw string in local state (as `apps/web/src/features/backtests/utils/submission.ts:21–24` already
   does) and parse it on change/blur; add a Playwright case that types with `pressSequentially`.
 
-#### BILL-01 · P1 · Billing · PLAUSIBLE · **blocks release until disproved or fixed**
-
-**An immediate plan change made while a downgrade is scheduled ignores the attached Stripe schedule.**
-
-- **Code.** `changePlan`'s IMMEDIATE branch (`apps/api/src/billing/billing.service.ts:330–343`) calls
-  `updateSubscriptionPriceImmediately` (`stripe.gateway.ts:240–255`, a plain `subscriptions.update`) without looking
-  at the mirror's `stripeScheduleId` / pending price; the scheduled path does rewrite an existing schedule
-  (`stripe.gateway.ts:288–342`); reconciliation releases a schedule only when no change is pending
-  (`billing-reconciliation.service.ts:436–439`); the web offers the immediate action while a change is pending
-  (`apps/web/src/features/billing/utils/plan-actions.ts:159–181`). The test fake already models the schedule
-  surviving (`stripe-gateway.test-helper.ts:371–388`).
-- **Scenario.** PRO_MONTHLY → STARTER_MONTHLY (scheduled at period end), then PRO_YEARLY the same month (cadence
-  lengthened ⇒ immediate, prorated invoice paid). Either Stripe applies the schedule's phase 2 at the old boundary and
-  the user drops to STARTER after paying for a PRO year, or Stripe refuses the update and the user sees "Billing is
-  temporarily unavailable" with no way to upgrade until the downgrade applies. Also: a pending downgrade cannot be
-  reverted (asking for the current price is refused as `UNCHANGED`, `billing.service.ts:271–277`).
-- **To settle.** One Stripe **sandbox** run with a Test Clock (`pnpm qa:billing:*` tooling): change to
-  STARTER_MONTHLY, then PRO_YEARLY; inspect `subscription.schedule` and its phases; advance past the old period end.
-  Not run in this audit (no Stripe operation was authorized).
-- **Fix.** In the IMMEDIATE branch, release the schedule (or rewrite it to one open-ended phase at the target) before
-  the update, then reconcile; add a "keep my current plan" action that releases it.
-
 #### OPS-01 · P1 · Capacity / configuration · CONFIRMED (code + measured) · **blocks release as configuration**
 
 **The default stock cache residency is below what one PRO user may run, and the documented sizing rule ignores
@@ -472,6 +521,11 @@ provider IPO date silently removes years from backtests.**
   - `PLD`: IPO date right (1997-11-21, its first bar) but built before the profile, so the listing week was dropped as
     a horizon cut: SMA 20W and EMA 20W are missing from 1998-04-03 to 1998-05-26 where the rule has values, and every
     later weekly EMA is slightly off (8,992 audit failures).
+  - `HON`: FMP's profile says IPO 2001-02-21 (Honeywell traded long before); the price retention is clamped by the
+    same date (`priceRetentionTarget` → `horizonTarget`, `service.ts:3412–3429`), so HON's stored history starts
+    2001-02-21 although FMP serves **1,304 bars from 1996-01-02 to 2001-02-21** (one request through the capped
+    proxy, 2026-10-16): every 30-year backtest silently loses its first 4.4 years of HON. Its 173 statements dated
+    before 2001 (111 with a real filing date) are retained but never read.
   - Development database: 1 of 64 priced securities (`GJR`) also has an IPO date more than a year after its first bar.
 - **Impact.** Silent and user-visible: two runs of one snapshot trade differently depending on hydration order
   (BT-04 is the same defect seen from the backtest worker), and a wrong provider IPO date drops a company from years of
@@ -514,16 +568,16 @@ provider IPO date silently removes years from backtests.**
 
 | ID | Subsystem | Finding | Evidence | Status | Impact | Minimal fix | Blocks |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BILL-02 | Billing | Several open Checkout sessions can each be paid, creating **two live subscriptions**: the "already subscribed" guard reads only the mirror (`billing.service.ts:126–170`), each action gets a new idempotency key (`:162`), sessions carry no `expires_at` (`stripe.gateway.ts:176–196`) and nothing expires older ones. Violates `stripe-billing-v1.md` §5. | code traced end to end | CONFIRMED (code) | double billing until a manual refund; reconciliation keeps the oldest | inside the advisory lock, `checkout.sessions.list({customer, status:"open"})` and expire them; set a 30-minute `expires_at` | no (fix before launch) |
 | SEC-01 | Auth | **Login and logout CSRF** through form posts: `NestFactory.create` keeps the urlencoded parser (`apps/api/src/main.ts:30`) and `parseLoginRequest` accepts form fields (`auth/auth-requests.ts:37`); a top-level cross-site POST sets the `SameSite=Lax` cookie. Reproduced: a form-encoded `POST /auth/login` returns **200** with the session cookie. Open since the 2026-09-18 audit (S-1). | "KNOWN DEFECT SEC-01" in `auth.integration.test.ts` | CONFIRMED (test) | a victim silently signed into the attacker's account; any site can sign users out | register only the JSON parser (keep `rawBody`) or refuse non-JSON content types on state-changing methods | no |
 | MON-02 | Monitor | A **transient ETF snapshot load failure** is treated as "the fund did not print": members whose checkpoint is older than now − `EOD_LATE_RECOVERY_MS` are stepped with every rule reading that ETF/sector NOT_EVALUABLE and never re-decided (`apps/worker/src/shared/etf-context.ts:117–160`; `monitor-evaluation.ts:849–863`, `:640–646`, `:1020–1024`; `stock-data/src/etf-frame-columns.ts:63–71`). Reproduced: a new Monitor replaying 90 days with `readFullBenchmarkHistory` throwing reports `membersAwaitingEtf = 1` **and** writes its checkpoint at 2026-10-13 with no transition, losing the window's activation for good. | "KNOWN DEFECT MON-02" (PostgreSQL) | CONFIRMED (test) | a Redis blip during a new Monitor's replay, a >4-day pause or an outage catch-up writes permanently wrong (missing) ETF-driven history, labelled OBSERVED | carry per-code load status into the member evaluation; on `LOAD_FAILED` hold members reading it at their checkpoint | no |
 | MON-03 | Operator tooling | `data:resync` and `fmp:live` compose the loader **without a venue calendar** (`apps/api/src/resync-canonical-stock-data.ts:269`, `fmp-live/fmp-live-runtime.ts:213` → `WEEKDAY_TRADING_CALENDAR`), so every holiday-shortened week they rebuild gets the pre-#107 rule; those historical rows are never rewritten. `MERGE_READINESS.md:99` recommends resync after a dataset bump. This audit's refresh used a scratch composition with the pinned calendar instead. | code (verified) | CONFIRMED (code) | backtests and Monitor reconstructions differ depending on which tool materialized a security | compose `CachedTradingCalendar` in both; add a composition test | no |
 | DATA-01 | Data / reproducibility | **Weekly values depend on whether the venue schedule answered at computation time.** `resolveWeekSessionEnds` treats an unanswerable year as "Friday is a session" (`stock-data/src/weekly.ts:80–126`); the schedule is the provider's, cached in process memory only (`trading-calendar.ts:92–184`, `eod-finality.ts:229–252`). Stock rows freeze the answer; ETF contexts **recompute** it every run/pass (`etf-context.ts:111–114`), via provider reads on paths documented as provider-free (backtest `composition.ts:150–153, 231–232`; Monitor `composition.ts:56–58, 186–187` vs invariant 15's "makes no provider request"). **Measured:** 87 schedule requests in a 4-case backtest run. FMP was verified (2026-10-15) to answer 1990–2026 for NYSE and NASDAQ, so the risk is outages, not coverage. | code + measurement | CONFIRMED | two executions of one snapshot can differ on holiday-week Thursdays; Monitor and backtest can disagree; provider traffic per worker process per day | persist resolved week ends per (venue, year) in PostgreSQL once answered and read only that; correct invariant 15 / PC wording | no |
-| DATA-03 | Stock data / valuation methodology | **Filings dated before the listing are never read, so the intrinsic values of every company listed inside the horizon change when it is next rebuilt — and this release's r8 bump rebuilds them all.** Since `a399d137` (2026-09-29) the rebuild's revision read honours its lower bound, `fiscalDate ≥ max(horizon, ipoDate)` (`prisma-store.ts:1560–1583`, `service.ts:2222–2227`); rows written before that — the development database's pre-2021 rows for `V`, for instance — used every revision. Re-materializing from the stored statements both ways reproduces the stored r8 values exactly: `V` 2012-06-01 DCF **55.60 → 27.23** and Graham **50.82 → 24.42**; `HON` 2005-06-01 DCF 43.64 → 57.53. Differences last four to six years after listing (`V` to 2013-11, `HON` to 2007-02, `GOOGL` to 2010-03), reach 51 % on DCF and Graham and 13–32× on Residual Income, and first values move up to a year later. The repository's two oracles disagree with each other: the Fundamentals oracle applies the clamp (and the 2026-09-30 Fundamentals audit accepted it as methodology, its observation 2), the intrinsic oracle reads every revision — so the committed evidence cannot be refreshed green until this is ruled (27,700 intrinsic + 15,722 frame-provenance failures, §3.5). | re-materialization of the stored statements both ways (`.debug/data-correctness-audit-2026-10-16/clamp-stats.ndjson`) | CONFIRMED (repro) | intrinsic and Margin-of-Safety backtests on `V`, `GOOGL`, `CRM`, `HON`, `MRNA`, `AMZN`, `GS` trade differently after the deploy; users comparing a re-run with an earlier one see different trades | owner ruling: read filings published before the listing (they were public when it listed), or keep the clamp; then align the other oracle, and say in the release notes that historical valuations of companies listed inside the 37-year statement retention (after 1989) change | owner's call |
+| DATA-03 | Stock data / valuation methodology | **Filings dated before the listing are never read, so the intrinsic values of every company listed inside the horizon change when it is next rebuilt — and this release's r8 bump rebuilds them all.** Since `a399d137` (2026-09-29) the rebuild's revision read honours its lower bound, `fiscalDate ≥ max(horizon, ipoDate)` (`prisma-store.ts:1560–1583`, `service.ts:2222–2227`); rows written before that — the development database's pre-2021 rows for `V`, for instance — used every revision. Re-materializing from the stored statements both ways reproduces the stored r8 values exactly: `V` 2012-06-01 DCF **55.60 → 27.23** and Graham **50.82 → 24.42**; `HON` 2005-06-01 DCF 43.64 → 57.53. Differences last four to six years after listing (`V` to 2013-11, `HON` to 2007-02, `GOOGL` to 2010-03), reach 51 % on DCF and Graham and 13–32× on Residual Income, and first values move up to a year later. The repository's two oracles disagree with each other: the Fundamentals oracle applies the clamp (and the 2026-09-30 Fundamentals audit accepted it as methodology, its observation 2), the intrinsic oracle reads every revision — so the committed evidence cannot be refreshed green until this is ruled (27,700 intrinsic + 15,722 frame-provenance failures, §3.5). | re-materialization of the stored statements both ways (`.debug/data-correctness-audit-2026-10-16/clamp-stats.ndjson`) | CONFIRMED (repro) | intrinsic and Margin-of-Safety backtests on `V`, `GOOGL`, `CRM`, `HON`, `MRNA`, `AMZN`, `GS` trade differently after the deploy; users comparing a re-run with an earlier one see different trades | owner ruling — the proposed policy ("eligible once publicly available, if the stock is eligible") is evaluated against the data model and both oracles in §9.6, with three options and their consequences; whichever is chosen, align the other oracle and say in the release notes that historical valuations of companies listed inside the 37-year statement retention (after 1989) change | owner's call |
+| DATA-04 | Stock data / EOD finality | **FMP still revises a session's bar after FactorSage has read it as final.** The bar is read once, 30 minutes after the close (`eod-finality-v1.md` §1), and a later correction is only picked up by the next session's tail read (its Limitations). **Measured 2026-10-16 (§9.3):** every one of the six symbols compared had its 2026-10-15 bar changed at FMP since FactorSage stored it about 80 minutes after the close — volume +0.06 % to +4.0 %, open/high/low by up to $0.04. The stored history self-corrects at the next tail read and the backtest reads the corrected bar; a Monitor's decision on the session is not re-made. | live comparison through the capped proxy | CONFIRMED (measured) | a Monitor and a later backtest can disagree on a session whose threshold sits inside the revision (RVOL above all) | owner decision: accept and document that a Monitor decides on the first final read, or move the publication delay later once FMP's settle time is measured (a few requests over a few evenings) | no |
 | FIN-01 | Trigger context (Monitor and backtest) | A Trigger is NOT_EVALUABLE on the first session after a gap of more than ~10 calendar days whenever that session is the **first row of a frame read**: the read is widened only by `TRIGGER_CONTEXT_CALENDAR_DAYS = 10` (`stock-data/src/service.ts:1071–1080`, `evaluation-frame.ts:44`) and `evaluateMarketTrigger` refuses index 0 (`strategy/src/predicates.ts:161–164`). The Monitor reads from its checkpoint, so it hits this after any halt of ≥ ~8 sessions; a backtest carries the previous row across **year** boundaries (`strategy/src/backtest/window.ts:156–181`) but its **first** window has the same gap, so the same session's decision depends on the run's start date (engine review, BT-05). Breaks `ai/product/monitors.md:447–450` and "requires the previous eligible value". | two reviewer traces | CONFIRMED (code) | a resumption crossing is recorded or lost depending on where the frame starts; Monitor and backtest disagree | in the shared frame read, also read the security's last printed row before `from` when index 0 needs `t−1` | no |
 | FIN-02 | Web (backtest result) | The ETF notice says "Every ETF this strategy reads had data for this run" for READY funds whose first session is **after** the run ends (XLRE before 2015, XLC before 2018) or whose last session is before it ends (`apps/web/src/features/backtests/utils/etf-conditions.ts:42–48, 120–128`; API `backtests.service.ts:231–243`); a test pins the wording (`etf-conditions.test.ts:43–48`). | code (verified) | CONFIRMED (code) | a no-data zero-trade run is presented as the strategy's genuine result, against owner ruling §13.7 | compare `firstSession`/`latestSession` with the snapshot period; warning tone for none/partial | no |
 | FIN-03 | Alternative data | Amended disclosures are **double-counted**: content hashes include `filingDate`/`formType` and `disclosureDate` (`stock-data/src/alternative-data-service.ts:179–207`), so a Form 4/A restating a line adds a second purchase. Listed as open work without a ruling (`docs/alternative-data-signals.md:538–540`). | code | CONFIRMED (code path); frequency unmeasured | money and count measures overstated on amended filings | owner ruling, then supersede-by-amendment | owner's call |
-| FIN-12 | ETF technicals | **Exact decimal ties are decided by float noise on the ETF path.** XLK's close on 2012-12-20 is 14.69 and its exact 200-day mean is 14.69; the ETF context computes 14.690000000000033 (raw doubles, owner ruling 6), so `XLK · Price is below SMA 200D` reads TRUE. In `T09-L08-C01` (re-run to pin it) that one tie fired **ten FINAL EXITs — every holding — on the same session**, and the cash rotated into ten other names. A stock with the same bars stores the mean at 8 decimals (14.69000000) and reads FALSE. A scan of XLK finds a second tie (2015-07-29, close = SMA 50D = 21.32). Found by the oracle, which refuses comparisons inside 1e-9 (4 sector cases INDETERMINATE, §3.5). | oracle + single-case rerun (`…-000607`) | CONFIRMED (repro) | rare, but when it hits a static ETF rule every position moves at once; stock and ETF decide the same tie differently | quantize ETF technicals to the stock storage scale before comparing, or compare with a relative epsilon (one fix with PRED-01); revisit owner ruling 6 | no |
+| FIN-12 | ETF technicals | **Exact decimal ties are decided by float noise on the ETF path.** `movingAverage` keeps one running window sum over the whole series (`stock-data/src/technicals.ts:24–38`), so every value carries the residue of every add and subtract since the first bar. A stock's averages are persisted as `DECIMAL(20,8)`, which rounds the residue away; an ETF's are the kernel's raw doubles (owner decision 6, `ai/architecture/strategy-etf-conditions.md` §5.5). **Measured over the stored data (§9.7):** 47 sessions where a fund's close equals its exact 20/50/100/200-day mean across the twenty ETFs and SPY — the ETF path reads **45** of them as strictly above or below; 81 such sessions across the 35 stocks — the stock path reads **all 81** as ties (the raw running sum would have got 68 wrong). XLK 2012-12-20 (close 14.69, computed SMA 200D 14.690000000000033) fired ten FINAL EXITs at once in `T09-L08-C01`. Pinned by "KNOWN DEFECT FIN-12" (`benchmark-technicals.test.ts`, a 25-bar history whose tie reads 14.680000000000001). | oracle + rerun + full-data scan + test | CONFIRMED (test) | when it hits a static ETF rule every position moves at once; stock and ETF decide the same bars differently; Monitor and backtest agree with each other (both use the same paths) | **owner ruling (revisits decision 6):** read ETF values at the stock's storage scale — one shared quantizer applied in `buildBenchmarkTechnicalContext`, parity-tested against PostgreSQL's `numeric(20,8)` rounding; no stored data changes and no derived revision bump (§9.7 has the alternatives) | owner's call |
 | OPS-03 | Redis | `noeviction` + a full Redis fails every warm stock read (`TOUCH_READY` writes, `cache.ts:811–820`), the FMP gate, Redlock and fail-closed rate-limit policies (503), while `/health/ready` checks only PING and the policy (`apps/api/src/health.controller.ts:91–99`). | code | CONFIRMED (code), OOM semantics PLAUSIBLE | outage-shaped failure from a sizing mistake | sizing formula + readiness warning; best-effort `touch` | no |
 | OPS-04 | Redis | `SET_REGISTERED` re-applies the TTL to every registered key on each write: `K²/2` `PEXPIRE`s, ~48 k per 34-year hydration (`cache.ts:776–777, 803–806`). | MEASURED (PC) | CONFIRMED | the multiplier behind OPS-01's millions of commands | give new keys the manifest's PTTL | no |
 | OPS-05 | FMP / stock EOD | A saturated FMP gate sleeps until the oldest lease expires (30 s, `stock-data/src/fmp-gate.ts:27–30`), and the stock EOD child backs a failed security off 30 min → 6 h whenever the run is "mixed", contrary to its stated intent (`refresh-run.ts:178–181, 310–335`). | code + team measurement (1.0 s vs 30.9 s) | CONFIRMED (code) | Monitor Signals delayed 30 min–6 h under backtest load | poll ≤ 250 ms when saturated; do not back off on transient/gate errors | no |
@@ -780,16 +834,19 @@ keep ~10 GB of swap in use, and a larger `R` without a matching `maxmemory` turn
 
 ### 7.1 Critical correctness / security fixes before release
 
-| Order | ID | Fix | Size | Proof it is fixed |
-| --- | --- | --- | --- | --- |
-| 1 | UI-01 | `ValueControl` keeps the raw string; parse on change/blur | S (one component) | `e2e/strategies/value-entry.user.spec.ts` turns red → drop `test.fail()` |
-| 2 | ALT-01 | exact money sums in `buildAlternativeDataColumn` | S | "KNOWN DEFECT ALT-01" turns red → drop `.fails`; rerun the alternative-data audit section without tolerance |
-| 3 | MON-01 | prune checkpoints only for unlisted members; one-shot replay | S–M | "KNOWN DEFECT MON-01" turns red → drop `.fails` |
-| 4 | OPS-06 | invalidate READY manifests only; read PostgreSQL (or wait on the lock) on HYDRATING | S | "KNOWN DEFECT OPS-06" turns red → drop `.fails`; repeat the cold-cache matrix check of §3.5 |
-| 5 | DATA-02 | profile-enriched identity through the whole hydration and in the backtest worker (with BT-04); bound by `min(ipoDate, first stored bar)` | S–M | the new first-hydration test; `T01-L11-C01` trades `NEE` from 1999; technicals and fundamentals sections clean for `NEE`/`PLD` after a rebuild |
-| 6 | BILL-01 | settle in the Stripe sandbox; then release/rewrite the schedule in the IMMEDIATE branch and add "keep my plan" | S + one sandbox run | a sandbox smoke case in `billing.sandbox.smoke.test.ts` |
-| 7 | BILL-02 | expire open Checkout sessions inside the lock; `expires_at` | S | `billing.integration.test.ts` with two sessions |
-| 8 | SEC-01 | JSON-only body parsing on the API | S | an urlencoded `POST /auth/login` is refused (`auth.integration.test.ts`) |
+Ordered by severity, then money and customer impact, then size. §9.12 groups them into small, independently testable
+pull requests.
+
+| Order | ID | Severity | Fix | Size | Proof it is fixed |
+| --- | --- | --- | --- | --- | --- |
+| 1 | BILL-01 | P0 | release (or rewrite) the subscription's schedule in the IMMEDIATE branch inside the lock; a "keep my current plan" action | S | both "KNOWN DEFECT BILL-01" pins turn red (offline and sandbox) → drop `.fails`; the sandbox invoices show no $9 Starter cycle |
+| 2 | BILL-02 | P1 | expire the customer's open Checkout sessions inside the lock before creating one; `expires_at` 30 min; alert on `multiple-live-subscriptions` | S | the §9.2 two-tab harness: the second tab's session is expired |
+| 3 | OPS-06 | P1 | invalidate READY manifests only; read PostgreSQL (or wait on the lock) on HYDRATING | S | "KNOWN DEFECT OPS-06" turns red; repeat the cold-cache matrix check of §3.5 (0 of 40 fail) |
+| 4 | UI-01 | P1 | `ValueControl` keeps the raw string; parse on change/blur | S (one component) | `e2e/strategies/value-entry.user.spec.ts` turns red → drop `test.fail()` |
+| 5 | ALT-01 | P1 | exact money sums in `buildAlternativeDataColumn` | S | "KNOWN DEFECT ALT-01" turns red; rerun the alternative-data audit section without tolerance |
+| 6 | MON-01 | P1 | prune checkpoints only for unlisted members; one-shot replay | S–M | "KNOWN DEFECT MON-01" turns red |
+| 7 | DATA-02 | P1 | profile-enriched identity through the whole hydration and in the backtest worker (with BT-04); bound prices, statements and frames by `min(ipoDate, first stored bar)`; never let `ipoDate` cut what the provider serves | M | a first-hydration test; `T01-L11-C01` trades `NEE` from 1999; `HON` stores its 1996–2001 bars; technicals and fundamentals sections clean for `NEE`/`PLD` |
+| 8 | SEC-01 | P2 | JSON-only body parsing on the API | S | "KNOWN DEFECT SEC-01" turns red |
 
 ### 7.2 Operational readiness before release
 
@@ -797,11 +854,11 @@ keep ~10 GB of swap in use, and a larger `R` without a matching `maxmemory` turn
 | --- | --- |
 | OPS-02 | Ship the derived-lag condition in `prepareOne`, **or** deploy shortly before the New York close on a weekday; never pre-build r8 with `data:resync` (MON-03). |
 | OPS-06 | Without the fix: deploy with no backtest running and warm the monitored universe sequentially before reopening submissions. |
-| DATA-03 | Owner ruling on pre-listing filings before the deploy, because the r8 rebuild applies whichever rule is in the code to every stored history; mention the change in the release notes. |
+| DATA-03 / FIN-12 / DATA-04 | Owner rulings before the deploy (§9.6, §9.7, §9.3): pre-listing filings, ETF tie semantics, and whether a Monitor's decision on a later-revised bar stands. The r8 rebuild applies whichever statement rule is in the code to every stored history; mention the change in the release notes. |
 | OPS-01 / OPS-03 | Set `STOCK_CACHE_MAX_RESIDENT_STOCKS` ≥ monitored universe + concurrent backtest securities + API working set, and Redis `maxmemory` ≈ R × 4.64 MiB + 32 MB + concurrency × 4.64 MiB (or run without `maxmemory`); amend PC's rule. |
 | MON-03 | Compose `CachedTradingCalendar` into `data:resync` (and decide fmp:live's derived rows) before anyone uses them after this release. |
 | OPS-09 / OPS-10 | Set Prisma `connection_limit` per process type; give worker children a heap cap. |
-| QA | Run the hermetic E2E and the matrix on the release candidate with the tooling on this branch (§8). |
+| QA | Run the hermetic E2E, the matrix (including a cold stage), the Stripe sandbox suites and the data-correctness audit on the release candidate with the tooling on this branch (§8, §9). |
 
 ### 7.3 Valuable, non-blocking (first weeks after release)
 
@@ -839,6 +896,10 @@ result-retention policy, and an owner decision on FIN-03 (amendments) and FIN-07
 | Data-correctness audit | `pnpm audit:data-correctness -- --sweep=<core sweep dir> --sections=<list>` |
 | Gate | `pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm openapi:validate` |
 | Hermetic E2E | `pnpm dev:fmp:e2e`, `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`, `pnpm dev:web:e2e`, then `pnpm test:personas:seed && pnpm test:e2e` |
+| Entitlements, billing pages, billing personas (hermetic stack) | `pnpm test:e2e:entitlements` (reseeds; run twice), `pnpm test:e2e:billing`, `QA_BILLING_PASSWORD=… pnpm test:e2e:billing:personas` |
+| Email lifecycle | `mailpit --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025`, `pnpm dev:api:e2e:mail` in place of the ordinary API, `pnpm test:e2e:mail` |
+| Stripe sandbox (test-mode keys only) | `pnpm billing:verify-catalog`; `STRIPE_SANDBOX_SMOKE=true pnpm test:billing:sandbox`; `STRIPE_BILLING_PERSONAS=true QA_BILLING_PASSWORD=… pnpm test:billing:personas`; `STRIPE_BILLING_AUDIT=true pnpm --filter @intrinsic/api exec vitest run src/billing/billing-lifecycle.sandbox.test.ts` |
+| Live FMP (counts against a request budget) | `RUN_LIVE_FMP_TESTS=1 pnpm --filter @intrinsic/stock-data test:live`; the same with `@intrinsic/api` and a throwaway `TEST_DATABASE_URL`; `pnpm audit:data-correctness -- --sections=source` (a snapshot is fetched only when missing) |
 
 ### 8.2 Results on the final tree
 
@@ -846,36 +907,354 @@ result-retention policy, and an owner decision on FIN-03 (amendments) and FIN-07
 | --- | --- |
 | `pnpm lint` | pass |
 | `pnpm typecheck` | pass |
-| `pnpm test` (serial; PostgreSQL and Redis suites included, none skipped) | **433 files, 7,229 tests, all pass** — including the 8 `it.fails` pins, each failing as expected |
-| `pnpm build` | pass (`apps/web/next-env.d.ts` restored to its development form afterwards; never committed) |
+| `pnpm test` (serial; PostgreSQL and Redis suites included, none skipped) | **433 files, 7,232 tests: 7,231 pass, 1 fails** — `monitors.integration.test.ts` › "reports each security as its durable state actually says" hit a unique-symbol collision with 27 rows an earlier (September) run of the same test left in the test database (its symbols are a tag plus 3 random hex digits); re-run alone, the file passes 35/35. The worker package, which `pnpm test` stops before after a failure, was run on its own: 34 files, 419 tests, pass. The 10 vitest known-defect pins in these suites fail as expected. (QA-10: the test should clean up after itself.) |
+| `pnpm build` | pass (`apps/web/next-env.d.ts` restored to the developer's form afterwards; never committed) |
 | `pnpm openapi:validate` | pass (66 paths) |
-| Hermetic Playwright (`pnpm test:e2e`) | **314 / 314** in 9.0 min, including the 3 `test.fail` pins (UI-01 ×2 observed `75` and `5`; UI-03 observed no confirmation). Fixture FMP requests: 1 (a fixture); egress guard: 1 tolerated framework connection (`registry.npmjs.org` from Next), nothing else |
+| Hermetic Playwright | full `pnpm test:e2e` **314 / 314** (2026-10-16 01:00, on `0b95ad7f`; no application code has changed since), including the 3 `test.fail` pins (UI-01 ×2 observed `75` and `5`; UI-03 observed no confirmation). On the final tree: entitlements 41/41 twice, billing 35/35, billing personas 20/20, email lifecycle 2/2 (§9). |
+| Stripe sandbox | smoke 10/10, personas 40/40, lifecycle suite 4/4 (BILL-01 pin failing as expected, recovery and renewal passing) on the final tree; BILL-02 and webhook harness (§9.2) |
+| Live FMP | 46 of 150 requests: stock-data 5/5, API 4/4, `source` (§9.3) |
 | QA matrix, five dimensions | 4,996 / 5,000 completed, 0 invariant failures, 4 undecided (FIN-12), 30 / 30 golden reruns identical, 210 / 210 metamorphic, 86 / 86 behaviour coverage, 0 provider requests, 1,247,465 trades (§3.5) |
 | Cold-cache rehydration | 60 / 60 identical to warm runs; 7 of 40 core cases failed first time (OPS-06) |
-| Data-correctness audit | 92,882,332 comparisons, 134,674 failures, all DATA-02 / DATA-03 (§3.5) |
+| Data-correctness audit | 92,882,332 comparisons (§3.5) and the continuation sections (§9.5): every difference traces to DATA-02, DATA-03 or DATA-04 |
 
 ### 8.3 Not verified — stated, not passed
 
-- **Stripe:** no Stripe operation was authorized. BILL-01 is unsettled; `billing.sandbox.smoke`, the billing persona
-  browser suite (`pnpm test:e2e:billing:personas`) and `qa:billing:*` were not run.
-- **Live provider:** `packages/stock-data` `test:live` and the data-correctness `source` section (live FMP) were not
-  run; nor were its `stock-details` and `ui` sections.
-- **Email:** the Mailpit lifecycle suite (`pnpm test:e2e:mail`) was not run.
-- **Second entitlement pass** (`pnpm test:entitlements:seed && pnpm test:e2e`) was not repeated.
-- **Monitor at matrix scale:** the matrix is backtest-only; Monitor coverage is the PostgreSQL suites (§3.4).
+The first pass's gaps were closed in the continuation (§9). What remains unverified:
+
+- **Live Redis outage** of the shared container (it also serves other work); failure behaviour rests on the existing
+  outage tests and the flush experiment (§9.10).
+- **Customer Portal's own cancellation page**, webhook retries after a `500`, and a failed proration payment in the
+  sandbox (each covered offline).
+- **Monitor at matrix scale:** the matrix is backtest-only; Monitor coverage is the PostgreSQL suites (§3.4) and the
+  `signals` audit section.
+- **Anything in Stripe live mode** (prohibited) and production-sized load.
 
 ### 8.4 Blockers, risks, next steps
 
-- **Release blockers (§4.1):** code — MON-01, ALT-01, UI-01, DATA-02, OPS-06; Stripe sandbox, then code — BILL-01;
-  configuration and deploy timing — OPS-01, OPS-02. **Owner ruling before the deploy:** DATA-03.
-- **Remaining risks after those:** the P2s of §4.2, above all SEC-01 (login CSRF), BILL-02 (duplicate Checkout),
-  MON-02 (ETF load failure during a replay), DATA-01 (weekly values and venue-schedule reachability), FIN-12/PRED-01
-  (exact ties).
-- **Next steps:** fix the five code P1s in the order of §7.1 — each has a pinned test that turns red when it is fixed,
-  and the pin is then removed; settle BILL-01 in the sandbox; rule on DATA-03, FIN-03 and FIN-07; then, on the release
-  candidate, re-run the five dimensions, the cold-cache check and the data-correctness audit (expected: `NEE`/`PLD`
-  clean after DATA-02's rebuild; intrinsic clean once DATA-03's ruling aligns oracle and product).
-- **Local state left behind (throwaway, safe to drop):** database `intrinsic_value_qa_source` (the scratch copy the
-  refresh wrote to) and `intrinsic_value_matrix` (the provisioned matrix); Redis index 3 (matrix). Redis index 9 (the
-  refresh) was flushed; indexes 0, 6 and 7 were never touched. Evidence: `.debug/qa-matrix/2026-10-15-*` (five
-  sweeps, single-case reruns, four cold-cache runs) and `.debug/data-correctness-audit-2026-10-16/`.
+- **Release blockers (§4.1, §7.1):** code — BILL-01 (P0), BILL-02, OPS-06, UI-01, ALT-01, MON-01, DATA-02;
+  configuration and deploy timing — OPS-01, OPS-02. **Owner rulings before the deploy:** DATA-03, FIN-12, DATA-04.
+- **Remaining risks after those:** the P2s of §4.2, above all SEC-01 (login CSRF), MON-02 (ETF load failure during a
+  replay), DATA-01 (weekly values and venue-schedule reachability), DATA-04 (post-finality revisions), PRED-01.
+- **Next steps:** the five pull requests of §9.12, in order — each has a pinned test that turns red when it is fixed,
+  and the pin is then removed; the three rulings; then, on the release candidate, the five matrix dimensions plus a
+  cold stage, the Stripe sandbox suites, the data-correctness audit (expected: `NEE`/`PLD`/`HON` clean after
+  DATA-02; intrinsic clean once DATA-03's ruling aligns oracle and product) and the hermetic E2E.
+- **Local state left behind (throwaway, safe to drop):** databases `intrinsic_value_qa_source` (the scratch copy the
+  first refresh wrote to) and `intrinsic_value_matrix` (the provisioned matrix); Redis index 3 (matrix). Redis index 9
+  was flushed and `intrinsic_value_live_audit` dropped; indexes 0, 6 and 7 were never touched. In the test database,
+  the five billing personas stay seeded on purpose (their Test Clocks expire by themselves after 30 days; remove
+  sooner with `pnpm qa:billing:cleanup -- --database test`). Evidence: `.debug/qa-matrix/2026-10-15-*`,
+  `.debug/data-correctness-audit-2026-10-16*/`, `.debug/billing-sandbox/`.
+
+---
+
+## 9. Continuation — closing the verification gaps (2026-10-16)
+
+The owner authorized, on 2026-10-16, the Stripe sandbox (test mode only) and up to **150 real FMP requests**, and
+asked for every suite the first pass left unverified, plus FIN-12 and DATA-02/03. Nothing here changes production
+code; the tests and tooling added are listed in §9.11.
+
+### 9.1 Environment and timeline
+
+Same machine, PR #108 at `18435200` (CI `validate` green), working tree clean but for the developer's
+`apps/web/next-env.d.ts`. Times are UTC.
+
+| Time | What |
+| --- | --- |
+| 05:21 | Baseline: branch, HEAD, PR state, CI result verified |
+| 05:30 | Stripe sandbox smoke (`STRIPE_SANDBOX_SMOKE=true pnpm test:billing:sandbox`) |
+| 05:30–05:33 | Billing lifecycle scenarios (`STRIPE_BILLING_AUDIT=true`, `billing-lifecycle.sandbox.test.ts`); BILL-01 re-run with fixtures kept to read its invoices |
+| 05:31–05:33 | Live FMP: `packages/stock-data` and `apps/api` `test:live`, through the capped proxy |
+| 05:35 | One FMP request for HON's pre-"IPO" bars (DATA-02 evidence) |
+| 05:40 | BILL-02 + real webhook delivery: test-database API on :3001, `stripe listen --forward-to`, hosted Checkout driven by Chromium |
+| 05:41 | Billing personas against the sandbox (`STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas`) |
+| 05:43–05:57 | Data-correctness audit: `backtests`, `api`, `signals`, `stock-details`, `ui` over the core sweep `…-233725`, FMP pointed at a refusing guard |
+| 05:58 | `ui` re-run after fixing QA-08/QA-09 |
+| 05:59 | Data-correctness `source`: once on the frozen 2026-09-22 snapshots (0 requests), once on fresh ones (27 requests) |
+| 06:02–06:07 | Hermetic stack: entitlement E2E ×2, billing E2E, billing-persona browser suite; then the API in mail mode and the Mailpit lifecycle |
+| afterwards | FIN-12 and DATA-02/03 analysis (read-only, over the matrix database), report, gate (§8.2) |
+
+Isolation: the development database was only read (DATA-02 listing-date query). Test mutations went to the test
+database `intrinsic_value_test` (scratch users and personas, removed or left as documented personas), a throwaway
+database `intrinsic_value_live_audit` (created for the live API suite, then dropped), the matrix database, and Redis
+index 9 (flushed). Redis indexes 0, 6 and 7 were never touched.
+
+### 9.2 Stripe sandbox
+
+Test mode is established three ways before anything runs: `pnpm billing:verify-catalog` reports
+`SANDBOX / TEST MODE` and the four V1 prices; every suite refuses a key that is not `sk_test_`/`rk_test_`; and the
+fixture gateway refuses any object with `livemode: true`. No live object was read or written. Every fixture created
+was removed (Test Clocks deleted, which cancels their subscriptions and removes their customers; scratch accounts
+deleted), except the five documented billing personas, which the persona suite deliberately leaves seeded.
+
+| Scenario | How | Result |
+| --- | --- | --- |
+| Catalog, customers, Checkout and Portal sessions, webhook signature refusal | `billing.sandbox.smoke.test.ts` | **PASS** 10/10 |
+| Five lifecycles — Starter and Pro active, Pro cancelling, Starter past due, cancelled — built on Test Clocks, reconciled, read through `/billing/status` and `/entitlements`, reused by a second run; refusal of a plan change while cancelling; scoped cleanup | `billing-personas.sandbox.test.ts` | **PASS** 40/40 |
+| Renewal: an active PRO_MONTHLY crosses its period end | lifecycle suite, Test Clock +1 month | **PASS**: still active on PRO_MONTHLY, period moved to 2026-12-16, plan PRO |
+| Failed payment and recovery: a Starter renewal fails (`past_due`, plan kept per decision §10), a working card is set | lifecycle suite, clock +3 days | **PASS**: Stripe's own retry paid the open invoice; `active`, mirror ACTIVE, plan STARTER |
+| **Upgrade while a downgrade is scheduled (BILL-01)** | lifecycle suite, product `BillingService` | **FAIL — confirmed**: §4.1 BILL-01 (charged $29 + $270, moved to Starter a month later, $9 charged, no credit) |
+| **Two Checkout sessions (BILL-02)** | scratch harness (§9.11): two tabs, hosted Checkout paid with the Stripe test card in Chromium | **FAIL — confirmed**: two active subscriptions, two paid $29 invoices; a third Checkout after the first payment is refused (409) |
+| Real webhook delivery and entitlement synchronization | same harness: `stripe listen` → test-database API (signing secret verified equal without printing either) | **PASS**: the first payment made the account PRO through webhooks alone (`checkout.session.completed`, `customer.subscription.created`, `invoice.paid`, each `APPLIED`) |
+| Duplicate event / idempotency | `stripe events resend` of the `checkout.session.completed` already applied | **PASS**: logged `billing.webhook.duplicate`; no new ledger row; mirror unchanged |
+| Cancellation through webhooks | both subscriptions cancelled in Stripe | **PASS**: `customer.subscription.deleted` took the account to FREE, mirror CANCELED |
+| Billing pages in the browser | `pnpm test:e2e:billing` (hermetic) | **PASS** 35/35 |
+| Billing personas in the browser | `QA_BILLING_PASSWORD=… pnpm test:e2e:billing:personas` | **PASS** 20/20 |
+
+Not exercised: Customer Portal's own cancellation UI (cancellation was driven through the API), webhook retries after a
+500 (only duplicate delivery), an upgrade whose proration payment fails in the sandbox (covered offline:
+"does not grant Pro when the upgrade payment fails").
+
+### 9.3 Live FMP, under a hard 150-request cap
+
+**How the cap was enforced.** A loopback proxy forwarded to `financialmodelingprep.com`, counted **every forwarded
+attempt** (failures and retries included) against a persisted ledger with a global cap of 150 and a per-suite cap,
+answered `403` without contacting the provider once a cap was reached (FmpClient does not retry a 403), and journaled
+each request without its `apikey`. Every process ran with a preload that rerouted any `fetch` to the provider host into
+that proxy and **refused any other socket** to it (`http`, `https`, `tls`), so the two suites that call the provider
+with a hard-coded host (`live-fmp.integration.test.ts`'s SMA/EMA checks, the `source` section) were counted too. A
+self-test showed a refused request journaled and not forwarded, and direct `https`/`tls` connections refused. Both
+scripts are scratch tooling (§9.11).
+
+| Suite | Requests | Result |
+| --- | ---: | --- |
+| `packages/stock-data` `test:live` (AAPL profile, two price windows, 30-year pagination, SMA/EMA, holidays) | 8 | **PASS** 5/5 |
+| `apps/api` `test:live` (Nest app, AAPL hydration, intrinsic values; throwaway database, Redis index 9) | 10 | **PASS** 4/4 |
+| HON bars 1996–2001 (DATA-02 evidence) | 1 | 1,304 bars served |
+| Data-correctness `source`, fresh snapshots | 27 | 13 differences, all DATA-04 (below) |
+| **Total** | **46 of 150** | **104 left**; every request answered 200; none refused, none retried |
+
+The `source` section compares the matrix database (as of the 2026-10-15 cutoff) with the provider:
+
+- **On the frozen 2026-09-22 snapshots (0 requests):** 109 differences — 102 are the 17 sessions after the snapshot
+  for each of six symbols, 7 are volumes of 2026-09-21/22 that FMP revised after that snapshot. Provider staleness and
+  provider revisions, not product defects.
+- **On fresh snapshots (2026-10-16 06:00 UTC):** 210,624 comparisons. Every stored price of the six symbols, all 12
+  splits, all 720 statement fields and all 8,486 SPY bars match — **except the 13 fields of the newest session,
+  2026-10-15**: FMP changed that bar after FactorSage stored it (about 80 minutes after the close, 50 after the 16:30
+  finality): volume +0.06 % (KO) to
+  +4.0 % (DIS), open/high/low by up to $0.04 (NVDA open 215.30 → 215.34). That is DATA-04: legitimate upstream
+  revision, picked up by the next tail read for stored history and backtests, but a Monitor has already decided that
+  session on the first read.
+
+The frozen snapshots were restored afterwards; the fresh ones are kept with the evidence.
+
+### 9.4 Email lifecycle (Mailpit)
+
+Mailpit v1.31.4 for darwin-arm64, its release digest verified (`sha256:26afeae3…8a8381`), run on
+`127.0.0.1:1025`/`8025`; the API restarted in mail mode (`e2e:launch api --mail`), SMTP pointed at Mailpit with no
+credentials, the egress guard on. `pnpm test:e2e:mail`: **PASS 2/2** — registration → emailed activation link →
+sign-in as a FREE user, the link single-use; forgotten password → emailed link → new password, the link single-use,
+the old password refused, sessions opened before the reset ended. 0 provider requests, 0 blocked connections, both
+disposable accounts pruned, Mailpit left empty. Expired, unknown, forged and reused tokens are covered by the API
+integration suites (`password-reset`, `email-verification`, `registration`, `auth`), which passed in the gate. There is
+no authenticated "change password" flow in V1; "logout everywhere" is covered by the API suites only.
+
+### 9.5 Stock Details and the browser UI
+
+`run-audit.ts --sections=backtests,api,signals,stock-details,ui` over the core sweep, with `FMP_BASE_URL` pointed at a
+refusing guard (**0 provider attempts**, journal empty):
+
+| Section | Comparisons | Failed |
+| --- | ---: | ---: |
+| backtests (reference backtester, 1,000 cases) | 57,539,700 | 0 |
+| backtest API | 1,762,817 | 0 |
+| Monitor signals and Dashboard | 1,425 | 0 |
+| **Stock Details API** (10 securities: prices and volumes exactly against PostgreSQL; daily/weekly technicals and the four intrinsic models and three blends against the independent oracles; availability and source dates) | **71,433** | **0** |
+| **Browser UI** (Chromium, signed in as the admin persona): 728 backtest-result values (tiles, annual returns, chart, configuration, trades), 466 Stock Details values (price, change, key facts, 52-week range, models, blends, moving averages), 127 Monitor and Dashboard values (Active/Waiting filters at desktop and 390 px, activity feed) | **1,322** | **0** |
+
+The first browser run stopped at the Monitor page on a stale selector (QA-08) and was still reported PASS (QA-09);
+both tooling defects are fixed and the re-run made every check. The technicals, intrinsic and frame-provenance
+references this run rebuilt reproduce the DATA-02/DATA-03 counts of §3.5 exactly (16,420 / 27,700 / 15,722). Not
+covered by these sections: Fundamental Metrics and valuation ratios on Stock Details (their API and charts are covered
+by the API and web suites), and a Redis-versus-PostgreSQL comparison through the page (made by `fundamental-scale` and
+the Redis integration suites instead).
+
+### 9.6 DATA-02 and DATA-03: listing dates and pre-listing statements
+
+**The proposed policy.** *A financial statement is eligible at date D if it was publicly available by D, even when
+its fiscal period predates the listing, provided the stock itself is eligible on D.*
+
+**What the data model supports.** Each statement revision has `filingDate` and `availableFromDate` (filing + 1 day,
+or the statutory deadline when the provider's filing date is not after the period end — AUD-03), so "available by D"
+is expressible; "the stock is eligible on D" is a stored bar on D. **But the stored data cannot say when most
+pre-listing statements became public**:
+
+| Security | FMP IPO date | Pre-listing revisions | …with no real filing date (filing ≤ period end) | …with a filing date |
+| --- | --- | ---: | ---: | ---: |
+| AMZN | 1997-05-15 | 11 | 11 | 0 |
+| CRM | 2004-06-23 | 18 | 18 | 0 |
+| GOOGL | 2004-08-19 | 30 | 30 | 0 |
+| GS | 1999-05-04 | 2 | 2 | 0 |
+| MRNA | 2018-12-07 | 25 | 25 | 0 |
+| CSCO | 1990-02-16 | 6 | 6 | 0 |
+| V | 2008-03-19 | 32 | 23 | 9 |
+| HON (IPO date wrong) | 2001-02-21 | 173 | 62 | 111 |
+| NEE (IPO date wrong) | 2014-06-19 | 325 | 20 | 305 |
+
+For a genuine IPO, almost every pre-listing statement carries a **placeholder** availability (V's FY2003 income
+statement is "available" 2003-12-30, four years before Visa's prospectus). The real public date is the prospectus (or a
+later 10-Q that reports the period as a comparative), and neither is in the data. For HON and NEE, whose FMP IPO dates
+are wrong, the pre-"listing" statements are ordinary 10-K/10-Q filings with real dates.
+
+**How the code and the two oracles treat them today.** Ingestion discards statements with `fiscalDate < ipoDate`
+(`service.ts:2960–2963`), the rebuild's read clamps the same way (§4.2 DATA-03), and so does the Fundamentals oracle;
+the intrinsic oracle reads every revision by `availableFromDate ≤ D` — i.e. it already implements the proposed policy,
+without a listing floor. The pre-listing statements that are stored exist only because a first hydration ran before
+the profile (DATA-02).
+
+**Consequences, from the stored statements through the production materializer** (first session with a DCF value;
+sessions whose intrinsic values differ from today's rule):
+
+| Security | A — today (clamp at IPO) | B — proposed policy, availability floored at the first bar | C — B, but only pre-listing revisions with a real filing date |
+| --- | --- | --- | --- |
+| V | 2009-02-10 | 2008-03-19 (1,298 sessions differ, to 2013-11) | 2008-11-24 (308 differ) |
+| HON | 2002-03-21 | 2001-02-21 (1,505 differ, to 2007-02) | same as B |
+| GOOGL | 2005-08-16 | 2004-08-19 (1,256 differ, to 2010-03) | same as A |
+| CRM | 2005-05-23 | 2005-03-28 (1,235 differ) | same as A |
+| MRNA | 2020-11-02 | same date (425 differ, to 2023-11) | same as A |
+| AMZN | 2002-04-25 | same date (207 differ) | same as A |
+| GS | 2001-03-01 | same date (38 differ) | same as A |
+| NEE | 2015-05-04 | 1995-03-21 (6,884 differ, to 2020-02) | 1995-03-21 (6,359 differ) |
+
+**Assessment.**
+
+- **B (the policy as stated)** is financially sound in principle and is what the intrinsic oracle does, but on this
+  data it trusts placeholder dates: for the most recent pre-listing quarter, which a prospectus need not contain (Reg
+  S-X 3-12 allows a stub up to 135 days old), the first public disclosure can be the first post-IPO 10-Q, up to ~45
+  days after listing — a look-ahead window right after every IPO. It also needs ingestion and retention changes, a
+  statement re-backfill (≤ 6 requests per affected security) and a derived-revision bump.
+- **C** uses only statements whose public date the data actually evidences. It fixes the wrong-IPO-date companies
+  (HON, NEE) completely, leaves genuine IPOs as today, and introduces no look-ahead. Same ingestion change as B.
+- **A** keeps today's behaviour; the intrinsic oracle must then adopt the clamp.
+
+**Recommendation for the owner's decision:** fix DATA-02 first (it is a defect under every option — a wrong provider
+IPO date removes real, dated history), then choose **C** if pre-listing data should count only when its publication is
+evidenced, or **A** if the product prefers to start every valuation from post-listing filings. B is not recommended on
+this data. No methodology change was implemented.
+
+### 9.7 FIN-12: exact ties on the ETF path
+
+**Why.** `movingAverage` keeps one running window sum for the whole series — add the newest close, subtract the one
+leaving — and divides; the binary residue of every operation since the first bar stays in the sum. A close that equals
+its exact window mean therefore usually sits a few ulps above or below the computed mean, and `is above`/`is below`
+decide on that noise.
+
+**Stock versus ETF.** Both paths call the same kernel (bit-identical, proven by the parity tests). The difference is
+what happens next: a stock's averages are written to `DECIMAL(20,8)` and read back, which rounds the residue away; an
+ETF's are used as raw doubles (decision 6). Measured on all stored data:
+
+| | Exact close = mean sessions (SMA 20/50/100/200) | Read as a tie by the product |
+| --- | ---: | ---: |
+| 35 stocks | 81 | **81** (raw doubles would have managed 13) |
+| 20 ETFs + SPY | 47 | **2** (summing each window afresh would manage 37) |
+
+The four undecided matrix cases (`T09/T10 × L08 × C01/C08`) are XLK on 2012-12-20 (close 14.69, computed SMA 200D
+14.690000000000033): `Price is below SMA 200D` read TRUE and closed every XLK-sector holding.
+
+**Smallest financially correct fix (needs the owner, because it revisits decision 6):** read ETF technical values at
+the stock's storage scale — one shared quantizer that reproduces the persistence path exactly (the 16-significant-digit
+binding, then `numeric(20,8)` rounding half away from zero), applied once in `buildBenchmarkTechnicalContext`. It
+makes stock and ETF decide identical bars identically, changes no stored value and needs no derived-revision bump;
+ETF backtest results change only on such ties. Rejected alternatives: an epsilon comparison in the evaluator (changes
+semantics for stocks too); exact window sums in the kernel (changes every stored stock value at the 1e-9 level, forces
+an r9 rebuild, and still leaves EMA/RSI ties). **Regression tests:** the pinned 25-bar case
+(`benchmark-technicals.test.ts`, "KNOWN DEFECT FIN-12"), plus — with the fix — a parity test that writes the same
+history as a stock through PostgreSQL and asserts identical decisions, and the four matrix cases decided.
+
+### 9.8 Entitlements
+
+On the hermetic stack: `pnpm test:e2e:entitlements` **41/41 twice in a row** (each run reseeds; the second proves the
+irreversible downgraded spec is repeatable) — setup 5, guest 6, admin 5, FREE 8, STARTER 4, PRO 5, DOWNGRADED 8:
+plan-based access, list and backtest limits, the second concurrent backtest (PRO accepted, smaller plans refused), a
+thirty-year PRO backtest, Monitor slots handed on after a downgrade, the downgraded user's oversized List kept readable
+with only corrective removals allowed, server-side refusals, and the entitlement messages on each page. Billing pages
+(35/35) and billing personas (20/20) in §9.2; plan changes through Stripe in §9.2. The first full run (314/314) covered
+the same projects on 2026-10-16 01:00.
+
+### 9.9 The release-relevant findings, re-confirmed
+
+No production code changed, so every open defect is still open; each pin was re-run green on the final tree (§8.2).
+
+| ID | Severity | Status now | Evidence added in this continuation |
+| --- | --- | --- | --- |
+| BILL-01 | **P0** (was P1, plausible) | confirmed | sandbox reproduction with invoices; offline and sandbox pins |
+| BILL-02 | **P1** (was P2) | confirmed | sandbox reproduction with two paid invoices and real webhooks |
+| MON-01 | P1 | confirmed | pin green; DCA `signals` 1,425/0 shows normal Monitor operation is right |
+| ALT-01 | P1 | confirmed | pin green |
+| UI-01 | P1 | confirmed | pin green |
+| DATA-02 | P1 | confirmed, **wider** | HON's 1996–2001 history is never stored (FMP serves 1,304 bars); ingestion also discards pre-"IPO" statements |
+| OPS-06 | P1 | confirmed | pin green |
+| OPS-01, OPS-02 | P1 (deploy) | unchanged | — |
+| FIN-12 | P2 | confirmed, explained | full-data scan; pin; fix proposed for an owner ruling |
+| DATA-03 | P2 | owner ruling | policy evaluated against data and oracles (§9.6) |
+| DATA-04 | P2 | new, measured | live comparison (§9.3) |
+| QA-08, QA-09 | tooling | fixed | — |
+
+### 9.10 Every check, by outcome
+
+- **PASS:** Stripe smoke 10/10; billing personas 40/40; renewal; past-due recovery; real webhook delivery,
+  idempotent redelivery, cancellation → FREE; billing E2E 35/35; billing persona E2E 20/20; entitlement E2E 41/41 ×2;
+  email lifecycle E2E 2/2; live FMP `stock-data` 5/5 and `api` 4/4; `source` splits, statements and SPY; Stock Details
+  API 71,433; browser UI 1,322; backtests 57.5 M; backtest API 1.76 M; signals 1,425; cold-cache rehydration 60/60.
+- **FAIL (product defects, all reported):** BILL-01 and BILL-02 (sandbox); the technicals, intrinsic, fundamentals and
+  frame-provenance comparisons for `NEE`, `PLD` and the seven companies listed inside the horizon (DATA-02, DATA-03);
+  13 fields of the newest session at the provider (DATA-04); 7 of 40 cold-cache backtests (OPS-06).
+- **INDETERMINATE:** the four FIN-12 matrix cases (the oracle refuses a tie; now explained); DATA-03 and DATA-04
+  pending owner rulings.
+- **SKIPPED (by design, with reason):** Customer Portal's cancellation page (the API path was exercised instead); the
+  Claude Cloud Linux run of the mail suite (the local Mailpit run was sufficient); valuation-ratio dimensions beyond
+  `T08` in the matrix (QA-05).
+- **BLOCKED:** a live Redis outage experiment — the shared Redis container also serves other work (indexes 0, 6, 7),
+  so it was not stopped; Redis failure behaviour rests on the existing outage and replacement tests and on the flush
+  experiment (OPS-06). Anything in Stripe live mode — prohibited.
+
+### 9.11 Tests and tooling added in this continuation
+
+| File | What |
+| --- | --- |
+| `apps/api/src/billing/billing-lifecycle.sandbox.test.ts` (opt-in `STRIPE_BILLING_AUDIT=true`; excluded from `pnpm test`) | BILL-01 (`it.fails`), past-due recovery, renewal — through the product's services on Test Clocks; evidence to `.debug/billing-sandbox/` |
+| `apps/api/src/billing/billing.integration.test.ts` (+1, `it.fails`) | BILL-01 offline, on the fake gateway |
+| `packages/stock-data/src/benchmark-technicals.test.ts` (+2, one `it.fails`) | FIN-12: the 25-bar exact tie |
+| `apps/web/e2e/data-correctness/data-correctness.audit.spec.ts`, `apps/api/src/data-correctness-audit/ui/run-ui-audit.ts` | QA-08, QA-09 |
+| `docs/development/qa-matrix-runner.md` | (first pass) the cold-cache procedure |
+| scratch, not committed | the capped FMP proxy and its preload; the BILL-02 + webhook harness (kept in `.debug/billing-sandbox/`); the policy-options and tie scans (`.debug/data-correctness-audit-2026-10-16*/`) |
+
+### 9.12 Answers to the eight questions
+
+1. **Are the financial calculations and historical backtests trustworthy?** For securities whose listing data is
+   right, yes: 5,000 matrix backtests, 57.5 M reference-backtester comparisons, 92.9 M stored and served values and a
+   fresh provider comparison agree, with two exceptions that change trades — insider "value above $0" rules (ALT-01)
+   and exact ETF ties (FIN-12, rare). They are **not** trustworthy for companies whose FMP IPO date is wrong (DATA-02:
+   NEE loses 15 years, HON 4.4) or, until DATA-03 is ruled, consistent across rebuilds for companies listed after 1989.
+2. **Do Stripe subscriptions and entitlements behave correctly?** Entitlements, yes (all tiers, twice, server-side and
+   on screen). Subscriptions mostly: creation, renewal, past-due recovery, webhooks, idempotency and cancellation all
+   converge. Two money defects do not: BILL-01 takes a year's payment and downgrades the customer a month later;
+   BILL-02 bills twice for two tabs.
+3. **Are authentication and email flows reliable?** Yes for every lifecycle exercised (activation, reset, single-use
+   links, expired/forged tokens, sessions ended). Open: login CSRF through form posts (SEC-01, P2).
+4. **Are frontend financial values consistent with canonical data?** Yes for everything read back (1,322 values on
+   the pages, 71,433 through the API), with one input defect: what a user *types* can be corrupted (UI-01).
+5. **Does Monitor EOD V2 behave correctly?** In normal operation, yes (PostgreSQL suites, the `signals` audit,
+   late-recovery and weekly-parity tests). Not under two edits and one failure: membership end-and-restore duplicates
+   Signals (MON-01); an ETF load failure during a replay loses Signals (MON-02); the deploy itself stalls Monitors
+   (OPS-02); a decision on a bar FMP later revises stands (DATA-04).
+6. **Can the application recover from Redis failures and run under realistic constraints?** Values, yes: a flushed
+   Redis rebuilds byte-identical results from PostgreSQL. Availability, not yet: concurrent rehydration fails 1 in 6
+   backtests (OPS-06), a full `noeviction` Redis fails reads (OPS-03), and the default residency thrashes under one PRO
+   user (OPS-01). All of this ran on 8 GB with three backtest workers; a live Redis outage was not exercised (§9.10).
+7. **Are there issues that should block the commercial launch?** Yes: BILL-01 (P0), BILL-02, MON-01, ALT-01, UI-01,
+   DATA-02, OPS-06 (P1 code), and OPS-01/OPS-02 (deploy). DATA-03 and FIN-12 need rulings, not necessarily code.
+8. **The smallest practical set of fixes before V1:** the seven code fixes of §7.1 in five pull requests, the two deploy
+   decisions, and the two rulings:
+
+| PR | Contents | Why first | Test that proves it |
+| --- | --- | --- | --- |
+| 1 | BILL-01 + BILL-02 (`billing.service.ts`, `stripe.gateway.ts`, one web action) | customers' money | both BILL-01 pins red; the two-tab harness; `pnpm test:billing:sandbox` + personas + lifecycle |
+| 2 | OPS-06 + OPS-02 (`cache.ts` Lua guard; `refresh-run.ts` derived-lag condition) | they make the deploy itself safe | the OPS-06 and OPS-02 pins red; the cold-cache matrix check 40/40 |
+| 3 | DATA-02 (identity through the hydration, `min(ipoDate, first bar)` for prices/statements/frames, BT-04) | silent missing history; must ship with the r8 rebuild | a first-hydration test; `NEE`/`HON`/`PLD` rows clean in the audit; `T01-L11-C01` |
+| 4 | UI-01 (+ UI-03) | silent wrong strategy | the two `test.fail` specs flip |
+| 5 | ALT-01 + MON-01 (+ PRED-01) | wrong Signals and trades | the three pins red; the alternative-data section without tolerance |
+| after rulings | DATA-03 (option C or A, oracle aligned) and FIN-12 (shared quantizer) | methodology | the intrinsic section green; the four matrix cases decided |
+
+Then OPS-01/OPS-03 configuration, deploy on a weekday before the New York close, and the release-candidate run of §7.2.

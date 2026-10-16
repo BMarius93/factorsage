@@ -610,7 +610,8 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
         });
         await page
           .getByTestId("monitor-signal-state-filter")
-          .getByRole("button", { name: view })
+          // Exact: since the Monitor EOD V2 table, "Active & ended" sits beside "Active".
+          .getByRole("button", { name: view, exact: true })
           .click();
         const served = await servedSignalRows();
         const expected = dashboard.rows.filter(

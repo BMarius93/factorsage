@@ -70,6 +70,9 @@ export async function runUiSection(input: {
       actual: string | null;
     }[];
   };
+  // A run that stopped part-way still leaves the observations it made; without this check a
+  // Playwright failure after the first page reported the section as PASS.
+  ledger.check("ui", "Playwright run completed", 0, run.status, "exact-number");
   const byArea: Record<string, number> = {};
   for (const check of observed.checks) {
     const category = check.area.startsWith("backtest")
