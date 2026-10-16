@@ -5,10 +5,7 @@ import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import {
   currentAsOfDate,
-  qaMatrixAuditStrategies,
   qaMatrixFixtures,
-  QA_MATRIX_FUNDAMENTAL_STRATEGIES,
-  QA_MATRIX_STRATEGY_SETS,
   resolveAllTestPersonas,
   resolveTestPersona,
   type QaMatrixStrategySet,
@@ -18,6 +15,19 @@ import {
   resolveQaMatrixActorScopes,
   resolveQaMatrixOwner,
 } from "./qa-matrix/seed-qa-matrix";
+import {
+  matrixStrategiesFor,
+  parseMatrixStrategySet,
+} from "./qa-matrix/matrix-strategy-set";
+import { MatrixProviderGuard } from "./qa-matrix/matrix-provider-guard";
+import {
+  metamorphicCasePairs,
+  SourceCoverageAccumulator,
+} from "./qa-matrix/matrix-source-coverage";
+import {
+  readPinnedVenueCalendar,
+  venueCalendarPath,
+} from "./qa-matrix/matrix-venue-calendar";
 import {
   qaMatrixCases,
   qaMatrixGoldenCases,
@@ -151,15 +161,10 @@ function parseFlags(argv: readonly string[]): Flags {
       case "--strategies": {
         // `core` is `S01` … `S10`, the historical baseline; `audit` is `A01` … `A10`, the Relative
         // Volume and alternative-data variant; `fundamentals` is `F01` … `F10`, the Fundamental
-        // Metrics variant. Each is 1,000 runs against the same Lists and configurations, and none
-        // changes another's fixtures.
-        const value = next().trim().toUpperCase();
-        if (!(QA_MATRIX_STRATEGY_SETS as readonly string[]).includes(value)) {
-          throw new Error(
-            `\`--strategies\` must be one of ${QA_MATRIX_STRATEGY_SETS.join(", ").toLowerCase()}; received \`${value.toLowerCase()}\``,
-          );
-        }
-        strategySet = value as QaMatrixStrategySet;
+        // Metrics variant; `etf` is `E01` … `E10`, static ETF Conditions; `sector` is `T01` … `T10`,
+        // Stock's Sector Conditions. Each is 1,000 runs against ten Lists and the ten
+        // configurations, and none changes another's fixtures.
+        strategySet = parseMatrixStrategySet(next());
         break;
       }
       case "--archive":
@@ -306,6 +311,19 @@ async function main(): Promise<void> {
   // A holder rather than a bare `let`: the only writer is the pool factory below, inside a
   // closure, and the interrupt handler and the `finally` both have to see what it wrote.
   const live: { pool: MatrixWorkerPool | null } = { pool: null };
+  // Every worker pool below reaches "the provider" only through this guard, which replays the
+  // pinned venue calendar and refuses — and journals — everything else (`matrix-provider-guard.ts`).
+  const calendarPath = venueCalendarPath(root);
+  const pinnedCalendar = readPinnedVenueCalendar(calendarPath);
+  if (!pinnedCalendar) {
+    console.warn(
+      `No pinned venue calendar at ${calendarPath}: every holiday-schedule request a worker makes ` +
+        "will be refused and fail the gate (PROVIDER_EGRESS). Capture one with " +
+        "`pnpm qa:matrix:capture-calendar`.",
+    );
+  }
+  const providerGuard = new MatrixProviderGuard(pinnedCalendar);
+  const providerBaseUrl = await providerGuard.start();
   let warmupTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("warmup");
 
   // The pools run in their own process groups so that stopping one is guaranteed to reach every
@@ -351,11 +369,7 @@ async function main(): Promise<void> {
     const fixtures = qaMatrixFixtures(
       asOfDate,
       calendarDates,
-      auditScopes
-        ? qaMatrixAuditStrategies(auditScopes)
-        : flags.strategySet === "FUNDAMENTALS"
-          ? QA_MATRIX_FUNDAMENTAL_STRATEGIES
-          : undefined,
+      matrixStrategiesFor(flags.strategySet, auditScopes),
     );
 
     // ---- Preflight. Nothing is submitted if it is not green. -------------------------------
@@ -417,7 +431,9 @@ async function main(): Promise<void> {
     }
 
     const ids = await resolveMatrixFixtureIds(prisma, ownerEmail, fixtures);
-    const series = new MatrixSeriesCache(prisma);
+    // The ETF oracle reads the same pinned venue schedule the workers were served, independently.
+    const series = new MatrixSeriesCache(prisma, pinnedCalendar);
+    const coverage = new SourceCoverageAccumulator(flags.strategySet, fixtures);
 
     // ---- Warm-up: move first-touch hydration out of the timed sweep -------------------------
     // Serial on purpose. Several processes hydrating overlapping universes from an empty cache can
@@ -434,6 +450,7 @@ async function main(): Promise<void> {
         repositoryRoot: root,
         processes: 1,
         debugArchive: "off",
+        providerBaseUrl,
         // Teed like every other pool. Without this the warm-up's provider count was the only
         // number in the report with no raw evidence behind it — an auditor reading `worker.log`
         // could confirm the sweep and the reruns reached FMP zero times, and had to take the
@@ -568,6 +585,9 @@ async function main(): Promise<void> {
         if (goldenIds.has(matrixCase.caseId)) {
           goldenEvidence.set(matrixCase.caseId, evidence);
         }
+        if (evidence.status === "COMPLETED") {
+          coverage.add(matrixCase, evidence);
+        }
         return evidence;
       },
       validate: validateRunInvariants,
@@ -600,6 +620,7 @@ async function main(): Promise<void> {
             processes: concurrency,
             debugArchive,
             debugArchiveDir: `${writer.directory}/archives`,
+            providerBaseUrl,
             onLogRecord: (record) =>
               writer.writeWorkerLogLine(JSON.stringify(record)),
           });
@@ -703,6 +724,55 @@ async function main(): Promise<void> {
         })
       : null;
 
+    // ---- Data-source dimensions: metamorphic pairs and exercised behaviour ------------------------
+    // Only for a complete sweep: a selection cannot be expected to contain both halves of a pair or
+    // to reach every fund.
+    const complete = selected.length === allCases.length;
+    const resultByCase = new Map(
+      results.map((result) => [result.caseId, result]),
+    );
+    const metamorphic: {
+      pair: string;
+      caseId: string;
+      differences: string[];
+    }[] = [];
+    if (complete) {
+      for (const pair of metamorphicCasePairs(flags.strategySet, fixtures)) {
+        const control = resultByCase.get(pair.control);
+        const probe = resultByCase.get(pair.probe);
+        if (!control?.runId || !probe?.runId) {
+          metamorphic.push({
+            pair: pair.pair,
+            caseId: pair.probe,
+            differences: [
+              "one half of the pair has no persisted run to compare",
+            ],
+          });
+          continue;
+        }
+        const [controlEvidence, probeEvidence] = await Promise.all([
+          collectRunEvidence(prisma, series, control.runId, pair.control),
+          collectRunEvidence(prisma, series, probe.runId, pair.probe),
+        ]);
+        metamorphic.push({
+          pair: pair.pair,
+          caseId: pair.probe,
+          differences: [
+            ...compareForDeterminism(controlEvidence, probeEvidence),
+          ],
+        });
+      }
+      if (metamorphic.length > 0) {
+        const differing = metamorphic.filter(
+          (entry) => entry.differences.length > 0,
+        );
+        console.log(
+          `\nMetamorphic pairs: ${metamorphic.length - differing.length}/${metamorphic.length} identical`,
+        );
+      }
+    }
+    const behaviourCoverage = coverage.expectations(complete);
+
     // ---- Reporting ------------------------------------------------------------------------------
     const aggregate = aggregateMatrixResults(
       results,
@@ -731,6 +801,9 @@ async function main(): Promise<void> {
       rerunResults,
       determinismDifferences: determinism?.differences ?? [],
       archives: archiveEvidence,
+      providerEgress: providerGuard.journal(),
+      metamorphic,
+      behaviourCoverage,
     });
 
     writer.writeSummary({
@@ -760,6 +833,17 @@ async function main(): Promise<void> {
         main: sweep.mainTraffic,
         rerun: sweep.rerunTraffic,
         combined: gate.providerRequestsTotal,
+      },
+      metamorphic,
+      sourceCoverage: {
+        expectations: behaviourCoverage,
+        ...coverage.snapshot(),
+      },
+      // Measured where the requests arrived rather than from a log line: pinned-calendar replays
+      // and every refusal, whatever code path asked.
+      providerEgress: {
+        pinnedCalendar: pinnedCalendar ? calendarPath : null,
+        ...providerGuard.journal(),
       },
     });
     writer.writeReport(
@@ -804,6 +888,7 @@ async function main(): Promise<void> {
     process.exitCode = gate.exitCode;
   } finally {
     await live.pool?.stop();
+    await providerGuard.stop();
     await context.close();
   }
 }

@@ -302,4 +302,71 @@ describeWithRedis("the stock EOD preparation on PostgreSQL and Redis", () => {
     expect(third.outcomes[0]).toMatchObject({ outcome: "READY", prepared: false });
     expect(await cache.getManifest(shared.id)).toBeNull();
   });
+
+  /**
+   * Pre-release audit 2026-10-16, finding OPS-02 (`docs/audits/pre-release-audit-2026-10-16.md`).
+   *
+   * The child decides "nothing to do" from the **price** tail alone. When the derived state is behind a
+   * current price tail — exactly what a `DERIVED_STATE_REVISION` bump leaves for every security, and
+   * what a crash between the price save and the derived rebuild leaves for one — it reports READY and
+   * never repairs it, while the Monitor waits for `derivedThrough`. Written as the readiness the
+   * Monitor needs; fails on `bebf3dc7`, and `it.fails` flips red once the child repairs the gap.
+   */
+  it.fails("KNOWN DEFECT OPS-02: repairs derived state that is behind a current price tail", async () => {
+    const security = await createSecurity(`EODD${suffix}`);
+    await createSystemMonitor([{ securityId: security.id }]);
+    const provider = new HistoryProvider();
+    const cache = new RedisStockDataCache(new IoredisCacheClient(redis), 10, namespace);
+    const service = new CanonicalStockDataService(
+      new PrismaStockDataStore(prisma),
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      {
+        productHistoryYears: 30,
+        fundamentalsFreshnessMs: 30 * 24 * 60 * 60 * 1000,
+        now: () => NOW,
+      },
+    );
+    const repository = new PrismaMonitorRepository(prisma);
+    const run = new StockEodRefreshRun(
+      service,
+      {
+        listActiveMonitors: async () =>
+          (await repository.listActiveMonitors()).filter((monitor) =>
+            createdMonitorIds.has(monitor.monitorId),
+          ),
+      },
+      createLogger({ service: "worker", level: "silent" }),
+      {
+        policy: new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => NOW,
+        }),
+        runBudgetMs: 60_000,
+        securityConcurrency: 2,
+        followUpMs: 30_000,
+        providerRequests: () => 0,
+        now: () => NOW,
+      },
+    );
+    await run.run(1, () => false);
+    const row = (await service.findSecuritiesByIds([security.id]))[0]!;
+    expect((await service.stockRefreshState(row)).derivedThrough).toBe(SESSION);
+
+    // A revision bump: the current derived variant has no rows, no coverage and no state, while the
+    // price tail stays exactly as current as it was.
+    await prisma.dailyDerivedState.deleteMany({ where: { securityId: security.id } });
+    await prisma.stockDatasetCoverage.deleteMany({
+      where: { securityId: security.id, dataset: "DAILY_DERIVED_STATE" },
+    });
+    await prisma.stockDatasetState.deleteMany({
+      where: { securityId: security.id, dataset: "DAILY_DERIVED_STATE" },
+    });
+    await cache.evict(security.id);
+    expect((await service.stockRefreshState(row)).derivedThrough).toBeUndefined();
+
+    await run.run(2, () => false);
+    expect((await service.stockRefreshState(row)).derivedThrough).toBe(SESSION);
+  });
 });

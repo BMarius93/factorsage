@@ -67,6 +67,7 @@ describe("a healthy matrix environment", () => {
         "dataset-revisions",
         "derived-state-coverage",
         "environment-safety",
+        "etf-sources",
         "execution-calendar",
         "fixture-completeness",
         "fixture-configs",
@@ -87,7 +88,8 @@ describe("a healthy matrix environment", () => {
     const report = await preflight();
     expect(check(report, "cartesian-product")?.facts?.combinations).toBe(1_000);
     expect(check(report, "fixture-strategies")?.facts?.found).toBe(10);
-    expect(check(report, "fixture-lists")?.facts?.found).toBe(10);
+    // All eleven persisted Lists; the selected dimension runs ten of them.
+    expect(check(report, "fixture-lists")?.facts?.found).toBe(11);
     expect(check(report, "fixture-configs")?.facts?.found).toBe(10);
   });
 

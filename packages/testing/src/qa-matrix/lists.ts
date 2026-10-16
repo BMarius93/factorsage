@@ -66,6 +66,8 @@ export const QA_MATRIX_LIST_BEHAVIOURS = [
   "CLOSES_ONE_SESSION_BEFORE_A_LATER_SESSION",
   "SINGLE_SESSION_WINDOW",
   "STRADDLES_YEAR_BOUNDARY",
+  // One member of each of FMP's eleven sectors, so a Stock's Sector rule reads every sector ETF.
+  "EVERY_FMP_SECTOR",
 ] as const;
 
 export type QaMatrixListBehaviour = (typeof QA_MATRIX_LIST_BEHAVIOURS)[number];
@@ -443,7 +445,52 @@ function boundaryMembers(
   ];
 }
 
-/** The ten stock-list fixtures for one matrix clock. */
+/**
+ * `L11`, the sector-spectrum list: one long-traded member of each of FMP's eleven sectors.
+ *
+ * It exists for the Stock's Sector dimension (`sector-strategies.ts`) and only that dimension runs
+ * it — every other dimension keeps the ten lists its baseline was recorded against
+ * (`QA_MATRIX_LIST_IDS_BY_SET` in `index.ts`). Between them the members read all eleven Select
+ * Sector SPDR funds, including the two that list inside the thirty-year horizon (`XLRE` in 2015 and
+ * `XLC` in 2018), so the same rule is evaluable for one member and `NOT_EVALUABLE` for another on
+ * the same session.
+ */
+const SECTOR_SPECTRUM_LIST: ListFixtureSpec = {
+  id: "L11",
+  slug: "sector-spectrum-full",
+  description:
+    "Eleven securities, one per FMP sector, all FULL: AAPL (Technology → XLK), JPM (Financial " +
+    "Services → XLF), XOM (Energy → XLE), JNJ (Healthcare → XLV), CAT (Industrials → XLI), HD " +
+    "(Consumer Cyclical → XLY), KO (Consumer Defensive → XLP), NEE (Utilities → XLU), SHW (Basic " +
+    "Materials → XLB), PLD (Real Estate → XLRE) and GOOGL (Communication Services → XLC). A Stock's " +
+    "Sector rule over it reads every sector fund, two of which list inside the horizon.",
+  behaviours: [
+    "MIXED_LISTING_ERAS",
+    "FULL_HORIZON_SECURITIES",
+    "LATER_LISTING_SECURITIES",
+    "ALL_FULL_WINDOWS",
+    "EVERY_FMP_SECTOR",
+  ],
+  members: [
+    full("AAPL"),
+    full("JPM"),
+    full("XOM"),
+    full("JNJ"),
+    full("CAT"),
+    full("HD"),
+    full("KO"),
+    full("NEE"),
+    full("SHW"),
+    full("PLD"),
+    full("GOOGL"),
+  ],
+};
+
+/**
+ * Every stock-list fixture for one matrix clock: `L01` … `L10`, which every dimension shares, and
+ * `L11`, which only the Stock's Sector dimension runs. A dimension's own ten are chosen by
+ * `qaMatrixFixtures`; seeding and the preflight see all of them.
+ */
 export function qaMatrixLists(
   periods: QaMatrixPeriods,
   calendar: ExecutionCalendar,
@@ -452,7 +499,7 @@ export function qaMatrixLists(
     qaMatrixBoundaryDates(periods, calendar),
     calendar,
   );
-  return LIST_SPECS.map(({ slug, ...spec }) => ({
+  return [...LIST_SPECS, SECTOR_SPECTRUM_LIST].map(({ slug, ...spec }) => ({
     ...spec,
     name: `${QA_MATRIX_NAME_PREFIX}${spec.id}-${slug}`,
     members: spec.id === "L10" ? boundary : spec.members,

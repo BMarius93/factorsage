@@ -11,17 +11,20 @@ configurations. This documents the machine that runs them.
                 identified as  QA-MATRIX-Sxx-Lxx-Cxx
 ```
 
-There are **three** strategy dimensions and one is chosen per sweep: the historical core set
+There are **five** strategy dimensions and one is chosen per sweep: the historical core set
 (`S01` … `S10`, the default), the audit variant (`A01` … `A10`, Relative Volume and alternative
-data) and the Fundamentals variant (`F01` … `F10`, the fifteen Fundamental Metrics), documented in
-`qa-matrix-fixtures.md`. Each is 1,000 runs against the same Lists and configurations;
-`--strategies audit` or `--strategies fundamentals` selects the others.
+data), the Fundamentals variant (`F01` … `F10`, the fifteen Fundamental Metrics), static ETF
+Conditions (`E01` … `E10`) and Stock's Sector Conditions (`T01` … `T10`), documented in
+`qa-matrix-fixtures.md`. Each is 1,000 runs against ten Lists and the ten configurations — the
+Stock's Sector dimension runs `L11`, the one list spanning all eleven FMP sectors, in place of
+`L10` — and `--strategies audit|fundamentals|etf|sector` selects the others.
 
-| Command                    | What it does                                                          |
-| -------------------------- | --------------------------------------------------------------------- |
-| `pnpm qa:matrix:provision` | creates and populates the dedicated matrix environment                |
-| `pnpm qa:matrix:preflight` | reports whether the matrix may run; writes nothing                    |
-| `pnpm qa:matrix:run`       | executes it                                                           |
+| Command                                | What it does                                                    |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `pnpm qa:matrix:provision`             | creates and populates the dedicated matrix environment          |
+| `pnpm qa:matrix:capture-calendar`      | pins the venue holiday schedule a sweep replays (opt-in, FMP)   |
+| `pnpm qa:matrix:preflight [--strategies <set>]` | reports whether that dimension may run; writes nothing |
+| `pnpm qa:matrix:run`                   | executes it                                                     |
 
 It is **never part of `pnpm test`**. The suites that cover the runner itself run in milliseconds and
 execute no backtests; the matrix is an explicit developer command.
@@ -173,6 +176,17 @@ process legitimately takes over, and the first one's next write finds a manifest
 `Stock cache hydration generation changed`, reported as `EXECUTION_FAILED` in `PREPARING_DATA` on a
 run with nothing wrong with it. One process cannot race itself. A warm sweep is also about three
 times faster.
+
+A lease that expires is not the only way there. The pre-release audit of 2026-10-16 (finding OPS-06,
+`docs/audits/pre-release-audit-2026-10-16.md`) reproduced a deterministic one that needs no lease
+loss: a read that finds another process's live HYDRATING manifest deletes it as a miss, and the
+hydrating process fails at its next write ("KNOWN DEFECT OPS-06" in
+`packages/stock-data/src/redis.integration.test.ts`). That is a product defect, not a matrix one —
+the deploy of a derived-revision bump, a Redis restart or an LRU eviction recreates the same cold
+state in production — so the warm-up keeps the sweep's verdict about values while hiding it. To
+look at it on purpose, flush the matrix Redis index and run a set of cases with `--no-warmup
+--no-cleanup --no-determinism`: the audit's run failed 7 of 40 core cases this way, and the 33 that
+completed matched the warm sweep exactly.
 
 The covering set is chosen by greedy cover over the fixture lists, against the longest configuration
 so every calendar-year chunk is warmed. It is skipped for a single-case reproduction, which cannot
@@ -386,6 +400,33 @@ cases, provider requests and any data-coverage warnings.
 strategy and `C03`/`C04` are short periods; a run with nothing to do is the expected outcome, and
 reporting it as red would train a reader to ignore red.
 
+### The provider boundary
+
+**Every worker pool reaches "the provider" only through the runner's `MatrixProviderGuard`**
+(`matrix-provider-guard.ts`): a loopback server the pool's `FMP_BASE_URL` points at, with a
+placeholder key in place of the developer's. It answers the **pinned venue calendar** exactly and
+refuses — non-retryably, and journaled by endpoint — everything else, so nothing a sweep does can
+leave the machine, and every request any code path makes is counted where it arrives.
+
+It exists because the log-line ledger below was incomplete in two ways, measured on 2026-10-16:
+
+- the venue holiday schedule (`CachedTradingCalendar`, which week completion consults since
+  `docs/decisions/monitor-eod-v2.md` §9) never writes `stock-data.provider.request`. A four-case
+  Stock's Sector smoke run made **87** schedule requests; under the previous runner they would have
+  reached FMP with the inherited key while the report said zero;
+- alternative-data requests log their own event, which the ledger never read.
+
+The calendar is pinned rather than refused because what week completion does without it is not
+neutral: an unanswerable year takes every week's end to be its Friday, which moves a Good Friday
+week's weekly values one session later. `pnpm qa:matrix:capture-calendar`
+(`QA_MATRIX_CAPTURE_LIVE_CALENDAR=1`, about 74 requests) stores the provider's answers for NYSE and
+NASDAQ from 1990 to the current year under `.debug/qa-matrix/` — never committed, it is a provider
+payload — and the guard replays them byte for byte. On 2026-10-15 the provider answered every one of
+those years (8–13 full closures each), so the guard's replay is the schedule production reads.
+
+A refusal of any kind fails the gate as `PROVIDER_EGRESS`; pinned replays are reported in
+`summary.json` (`providerEgress`) and are not provider traffic.
+
 ### Provider requests
 
 Counted from the worker's own structured log. `stock-data.provider.request` is emitted at `debug`
@@ -442,7 +483,46 @@ The module is pure — no filesystem, no database, no worker pool — so every c
 independently in `matrix-gate.test.ts`: one violation at a time against an otherwise perfect sweep.
 A condition that only fails in company with another is a condition that is not really enforced.
 
+## Data-source dimensions: invariants 41–44, metamorphic pairs and exercised behaviour
+
+A run whose snapshot reads an ETF — every `E` and `T` case — is also checked against four invariants
+settled by an **independent ETF oracle** (`matrix-etf-oracle.ts`): SMA, EMA, Wilder RSI, RVOL and the
+weekly rule re-implemented from the documented methodology, over the fund's stored bars and the
+pinned venue schedule, importing none of the stock-data kernels. `matrix-etf-oracle.test.ts` holds
+it to the production ETF context on twelve seeded random histories (holiday weeks, halted Fridays,
+zero volume, an unanswerable year) — more than 200,000 values, all equal within 1e-9.
+
+| #  | Invariant | Where it is settled |
+| -- | --------- | ------------------- |
+| 41 | every executed trade's ETF Conditions were TRUE on its session (FINAL EXIT: some Exit Rule's) | oracle |
+| 42 | the snapshot pins exactly the funds the definition and the frozen sectors read | database |
+| 43 | Stock's Sector reads the fund its frozen FMP sector maps to, and the catalog still agrees | database + a restated mapping |
+| 44 | every pinned fund's persisted diagnostics are `READY` | database |
+
+A comparison within the oracle's floating-point ambiguity is `INDETERMINATE`, never a pass.
+
+Two further gate conditions apply to a **complete** sweep of either dimension:
+
+- `METAMORPHIC_DIFFERENCE` — the pairs of `QA_MATRIX_METAMORPHIC_PAIRS` (`E07`≡`E08`, `E09`≡`E10` on
+  every list, `T09`≡`T10` on `L01`) must persist identical trades, equity, positions and summaries,
+  compared with the determinism comparison: 210 comparisons.
+- `BEHAVIOUR_COVERAGE` — from the oracle's per-session tallies of every sourced Condition: each was
+  both TRUE and FALSE somewhere; the always-TRUE probe was never FALSE and the never-TRUE probe never
+  TRUE (the pairs' premises, measured); every fund that lists inside the horizon was NOT_EVALUABLE
+  somewhere; every fixture traded through a level its ETF Conditions gate (and the never-TRUE level
+  never did); Stock's Sector read all eleven sector funds.
+
+The tallies are in `summary.json` (`sourceCoverage`).
+
 ## The matrix clock is a parameter, and it ages
+
+**The clock is the EOD cutoff, not the UTC day** (2026-10-16). `currentAsOfDate()` used to return
+the UTC calendar date while, since end-of-day finality, the loader's `today()`, its coverage
+intervals and the submission validator's thirty-year horizon are all measured from
+`eodCutoffDate`. For most of every UTC day the two differ by a day, and the preflight then demanded
+price coverage through a session the loader cannot have stored. It is now `eodCutoffDate`, so a
+dataset refreshed after one session's close plus the publication delay is valid until the next
+one's: a 24-hour window for provisioning and every sweep.
 
 `QA_MATRIX_AS_OF_DATE` pins the clock so a sweep is reproducible from one value. It does **not**
 pin the product horizon: `CanonicalStockDataService.projectionRange` clips every projection to
@@ -473,6 +553,8 @@ pnpm qa:matrix:run                          # all 1,000
 
 pnpm qa:matrix:run --strategies audit       # the RVOL / insider / congress dimension, 1,000 runs
 pnpm qa:matrix:run --strategies fundamentals  # the Fundamental Metrics dimension, 1,000 runs
+pnpm qa:matrix:run --strategies etf           # static ETF Conditions, 1,000 runs
+pnpm qa:matrix:run --strategies sector        # Stock's Sector Conditions, 1,000 runs
 pnpm qa:matrix:run --case S03-L07-C04       # reproduce exactly one
 pnpm qa:matrix:run --golden --archive       # the golden set, with forensic capture
 pnpm qa:matrix:run --concurrency 2          # override the machine-derived default
@@ -482,7 +564,7 @@ QA_MATRIX_AS_OF_DATE=2026-09-09 pnpm qa:matrix:run    # pin the clock for a repr
 | Flag                | Effect                                                              |
 | ------------------- | ------------------------------------------------------------------- |
 | `--case <ids>`      | run only these, comma-separated; unknown ids are an error           |
-| `--strategies <set>` | `core` (default, `S01` … `S10`), `audit` (`A01` … `A10`, the Relative Volume and alternative-data variant) or `fundamentals` (`F01` … `F10`, the Fundamental Metrics variant) |
+| `--strategies <set>` | `core` (default, `S01` … `S10`), `audit` (`A01` … `A10`, the Relative Volume and alternative-data variant), `fundamentals` (`F01` … `F10`, the Fundamental Metrics variant), `etf` (`E01` … `E10`) or `sector` (`T01` … `T10`) |
 | `--golden`          | run only the golden combinations                                     |
 | `--archive`         | capture forensic archives and verify invariants 36–38 from them      |
 | `--archive-all`     | capture an archive for **every** case (≈650 MB), for the data-correctness audit's reference backtester |

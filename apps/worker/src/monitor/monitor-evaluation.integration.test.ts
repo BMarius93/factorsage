@@ -807,6 +807,75 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       expect(after2).toHaveLength(1);
       expect(after2[0]!.resolvedAt).toBeNull();
     });
+
+    /**
+     * Pre-release audit 2026-10-16, finding MON-02 (`docs/audits/pre-release-audit-2026-10-16.md`).
+     *
+     * A snapshot that could not be **read** this pass is not an ETF that is behind: the bounded wait
+     * applies only to a loaded snapshot whose newest session is older than the stock's. Treating a
+     * failed read as "the fund did not print" steps every member older than the late-recovery horizon
+     * — a new Monitor's replay, a resumed pause, an outage catch-up — through sessions decided with
+     * the ETF rule NOT_EVALUABLE, and they are never decided again. Written as the hold the product
+     * owes those members; fails on `bebf3dc7`, and `it.fails` flips red once a failed read holds them.
+     */
+    it.fails(
+      "KNOWN DEFECT MON-02: holds a replaying member at its checkpoint when the ETF it reads could not be loaded",
+      async () => {
+        const security = await createSecurity("2026-06-01");
+        const closes: Record<string, number> = {};
+        for (
+          let cursor = new Date("2026-06-01T00:00:00.000Z");
+          cursor.toISOString().slice(0, 10) <= "2026-10-14";
+          cursor.setUTCDate(cursor.getUTCDate() + 1)
+        ) {
+          const weekday = cursor.getUTCDay();
+          if (weekday !== 0 && weekday !== 6) {
+            closes[cursor.toISOString().slice(0, 10)] = 105;
+          }
+        }
+        await seed(
+          security,
+          closes,
+          after("2026-10-14"),
+          "2026-10-14",
+          "2026-06-01",
+        );
+        etfThrough.date = "2026-10-14";
+        const monitorId = await createMonitor([security], both, {
+          replay: true,
+          listedAt: new Date("2026-10-01T12:00:00.000Z"),
+        });
+        const failing = {
+          ...etfContexts,
+          loader: {
+            ...etfContexts.loader,
+            readFullBenchmarkHistory: async () => {
+              throw new Error("Redis timed out reading benchmark:v1:*");
+            },
+          },
+        };
+        const summary = await new MonitorEodEvaluation(
+          repository,
+          data,
+          new EodFinalityPolicy({
+            calendar: WEEKDAY_TRADING_CALENDAR,
+            now: () => clock.now,
+          }),
+          createLogger({ service: "worker", level: "silent" }),
+          {
+            securityConcurrency: 2,
+            lateRecoveryMs: 24 * 60 * 60_000,
+            now: () => clock.now,
+          },
+          failing as never,
+        ).run(1);
+        etfThrough.date = "2026-10-13";
+        // Nothing may be decided on a rule whose input could not be read.
+        expect(summary.membersAwaitingEtf).toBe(1);
+        expect(await checkpoint(monitorId, security.id)).toBeNull();
+        expect(await transitions(monitorId)).toHaveLength(0);
+      },
+    );
   });
 
   it("passes a session a halted security never prints only once a read past the late-recovery horizon proves it", async () => {
@@ -1206,6 +1275,67 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         ["2026-10-05", "RECONSTRUCTED"],
       ]);
     });
+
+    /**
+     * Pre-release audit 2026-10-16, finding MON-01 (`docs/audits/pre-release-audit-2026-10-16.md`).
+     *
+     * "Only a newly created Monitor replays its 90-day window" (invariant 15; monitor-eod-v2 §5.1:
+     * editing a List replays nothing). A member whose ongoing membership ends is closed
+     * administratively and loses its state **and** its checkpoint; when the owner restores the
+     * membership, the member again has no checkpoint and no state while its `listedAt` is still
+     * before the window was fixed — exactly the replay predicate — so the whole window is decided a
+     * second time, duplicating every Signal it opened.
+     *
+     * Written as the behaviour the product promises. It fails on `bebf3dc7`; `it.fails` keeps the
+     * suite green while the defect is open, and turns red the moment the fix lands so this is
+     * converted into an ordinary case.
+     */
+    it.fails(
+      "KNOWN DEFECT MON-01: never replays the window again when a member's membership ends and is restored",
+      async () => {
+        const security = await createSecurity("2026-03-02");
+        await seed(
+          security,
+          weekdays("2026-03-02", "2026-10-14", (date) =>
+            date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
+          ),
+          after("2026-10-14"),
+          "2026-10-14",
+          "2026-03-02",
+        );
+        const monitorId = await createMonitor([security], signalAbove(), {
+          replay: true,
+          listedAt,
+        });
+        expect((await evaluation().run(1)).membersReplayed).toBe(1);
+        const replayed = await signals(monitorId);
+        expect(replayed).toHaveLength(2);
+
+        // The owner bounds the membership (it stops being ongoing), the pass ends it…
+        await setMembership(monitorId, security, [
+          { start: "2026-03-02", end: "2026-10-09" },
+        ]);
+        await evaluation().run(2);
+        expect(
+          (await transitions(monitorId)).some(
+            (t) => t.reason === "MEMBERSHIP_CHANGED",
+          ),
+        ).toBe(true);
+
+        // …and restores it. The member re-enters as a new membership: reconstructed at the newest
+        // session, never replayed.
+        await setMembership(monitorId, security, "FULL");
+        const third = await evaluation().run(3);
+        expect(third.membersReplayed).toBe(0);
+        const occurrences = await signals(monitorId);
+        const opened = occurrences.map(
+          (signal) =>
+            `${signal.securityId}|${signal.levelId}|${day(signal.observationDate)}`,
+        );
+        // No session's activation is recorded twice.
+        expect(new Set(opened).size).toBe(opened.length);
+      },
+    );
 
     it("never replays a Monitor that did not ask for it", async () => {
       const security = await createSecurity("2026-09-01");

@@ -13,9 +13,11 @@ import {
   QA_MATRIX_ACTOR_GROUP_MEMBERS,
   QA_MATRIX_ACTOR_GROUP_NAME,
   QA_MATRIX_AUDIT_ACTOR,
+  QA_MATRIX_ALL_SECURITIES,
+  QA_MATRIX_ETF_STRATEGIES,
   QA_MATRIX_FUNDAMENTAL_STRATEGIES,
   QA_MATRIX_NAME_PREFIX,
-  QA_MATRIX_SECURITIES,
+  QA_MATRIX_SECTOR_STRATEGIES,
   QA_MATRIX_STRATEGIES,
   qaMatrixAuditStrategies,
   type QaMatrixActorScopes,
@@ -70,6 +72,9 @@ const STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}S`;
 const AUDIT_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}A`;
 /** The Fundamentals variant's own namespace, for the same reason. */
 const FUNDAMENTAL_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}F`;
+/** The static-ETF and Stock's Sector dimensions' namespaces, likewise. */
+const ETF_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}E`;
+const SECTOR_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}T`;
 const LIST_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}L`;
 
 /**
@@ -106,6 +111,10 @@ export type QaMatrixSeedResult = {
   readonly auditStrategiesUpdated: number;
   readonly fundamentalStrategiesCreated: number;
   readonly fundamentalStrategiesUpdated: number;
+  readonly etfStrategiesCreated: number;
+  readonly etfStrategiesUpdated: number;
+  readonly sectorStrategiesCreated: number;
+  readonly sectorStrategiesUpdated: number;
   readonly listsCreated: number;
   readonly listsUpdated: number;
   readonly staleRemoved: number;
@@ -195,7 +204,7 @@ async function seedMatrixSecurities(
   const idBySymbol = new Map<string, string>();
   let created = 0;
 
-  for (const security of QA_MATRIX_SECURITIES) {
+  for (const security of QA_MATRIX_ALL_SECURITIES) {
     const existing = await prisma.security.findFirst({
       where: { symbol: security.symbol, exchangeCode: security.exchangeCode },
       select: { id: true },
@@ -675,11 +684,26 @@ export async function seedQaMatrixFixtures(
     QA_MATRIX_FUNDAMENTAL_STRATEGIES,
     FUNDAMENTAL_STRATEGY_NAME_PREFIX,
   );
+  // The two data-source dimensions name no database id either; both are always seeded.
+  const etfStrategies = await seedMatrixStrategies(
+    prisma,
+    ownerUserId,
+    QA_MATRIX_ETF_STRATEGIES,
+    ETF_STRATEGY_NAME_PREFIX,
+  );
+  const sectorStrategies = await seedMatrixStrategies(
+    prisma,
+    ownerUserId,
+    QA_MATRIX_SECTOR_STRATEGIES,
+    SECTOR_STRATEGY_NAME_PREFIX,
+  );
+  // Every List any dimension runs, not only the selected dimension's ten: one database serves
+  // every sweep, and seeding one dimension must never prune a List another one needs.
   const lists = await seedMatrixLists(
     prisma,
     ownerUserId,
     securities.idBySymbol,
-    fixtures.lists,
+    fixtures.allLists,
   );
 
   return {
@@ -698,12 +722,18 @@ export async function seedQaMatrixFixtures(
     auditStrategiesUpdated: auditStrategies.updated,
     fundamentalStrategiesCreated: fundamentalStrategies.created,
     fundamentalStrategiesUpdated: fundamentalStrategies.updated,
+    etfStrategiesCreated: etfStrategies.created,
+    etfStrategiesUpdated: etfStrategies.updated,
+    sectorStrategiesCreated: sectorStrategies.created,
+    sectorStrategiesUpdated: sectorStrategies.updated,
     listsCreated: lists.created,
     listsUpdated: lists.updated,
     staleRemoved:
       strategies.removed +
       auditStrategies.removed +
       fundamentalStrategies.removed +
+      etfStrategies.removed +
+      sectorStrategies.removed +
       lists.removed,
   };
 }
@@ -722,8 +752,10 @@ export function describeQaMatrixSeed(
       ? `audit strategies (${result.auditStrategiesCreated} created, ${result.auditStrategiesUpdated} updated)`
       : "audit strategies skipped (actor catalog has no congressional members)",
     `fundamentals strategies (${result.fundamentalStrategiesCreated} created, ${result.fundamentalStrategiesUpdated} updated)`,
-    `${fixtures.lists.length} lists (${result.listsCreated} created, ${result.listsUpdated} updated)`,
-    `${QA_MATRIX_SECURITIES.length} securities (${result.securitiesCreated} created)`,
+    `ETF strategies (${result.etfStrategiesCreated} created, ${result.etfStrategiesUpdated} updated)`,
+    `Stock's Sector strategies (${result.sectorStrategiesCreated} created, ${result.sectorStrategiesUpdated} updated)`,
+    `${fixtures.allLists.length} lists (${result.listsCreated} created, ${result.listsUpdated} updated)`,
+    `${QA_MATRIX_ALL_SECURITIES.length} securities (${result.securitiesCreated} created)`,
     `${result.staleRemoved} stale fixture(s) removed`,
     `${fixtures.strategies.length * fixtures.lists.length * fixtures.configs.length} combinations available`,
   ].join(", ");

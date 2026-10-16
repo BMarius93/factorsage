@@ -7,7 +7,15 @@ import {
   resolveTestPersona,
 } from "@intrinsic/testing";
 import { defaultMatrixConcurrency } from "./qa-matrix/matrix-concurrency";
-import { loadQaMatrixExecutionCalendar } from "./qa-matrix/seed-qa-matrix";
+import {
+  loadQaMatrixExecutionCalendar,
+  resolveQaMatrixActorScopes,
+  resolveQaMatrixOwner,
+} from "./qa-matrix/seed-qa-matrix";
+import {
+  matrixStrategiesFor,
+  parseMatrixStrategySet,
+} from "./qa-matrix/matrix-strategy-set";
 import { useMatrixDatabase } from "./qa-matrix/matrix-environment";
 import {
   formatPreflightReport,
@@ -19,9 +27,25 @@ import { repositoryRoot } from "./qa-matrix/matrix-paths";
  * `pnpm qa:matrix:preflight` — the gate that must be green before a thousand backtests start.
  *
  * Reports every check and exits non-zero when any of them failed. It writes nothing and is safe to
- * run at any time.
+ * run at any time. `--strategies <dimension>` preflights a dimension other than the core one —
+ * without it, the ETF sources a static-ETF or Stock's Sector sweep reads were never checked here.
  */
+function strategySetFlag(argv: readonly string[]): string {
+  const index = argv.indexOf("--strategies");
+  if (index === -1) {
+    return "core";
+  }
+  const value = argv[index + 1];
+  if (value === undefined) {
+    throw new Error("`--strategies` needs a value.");
+  }
+  return value;
+}
+
 async function preflight(): Promise<void> {
+  const strategySet = parseMatrixStrategySet(
+    strategySetFlag(process.argv.slice(2)),
+  );
   loadRootEnv();
   const environment = useMatrixDatabase();
   const pinned = process.env.QA_MATRIX_AS_OF_DATE?.trim();
@@ -42,9 +66,18 @@ async function preflight(): Promise<void> {
     const calendar = await loadQaMatrixExecutionCalendar(prisma).catch(
       () => [] as string[],
     );
+    const ownerEmail = resolveTestPersona("ADMIN_USER").email;
+    const auditScopes =
+      strategySet === "AUDIT"
+        ? await resolveQaMatrixActorScopes(
+            prisma,
+            await resolveQaMatrixOwner(prisma, ownerEmail),
+          )
+        : null;
     const fixtures = qaMatrixFixtures(
       asOfDate,
       calendar.length > 0 ? calendar : undefined,
+      matrixStrategiesFor(strategySet, auditScopes),
     );
     const report = await runQaMatrixPreflight({
       prisma,

@@ -679,3 +679,51 @@ describe("warm-up and no-look-ahead", () => {
     expect(Number.isFinite(later)).toBe(true);
   });
 });
+
+/**
+ * Pre-release audit 2026-10-16, finding FIN-12 (`docs/audits/pre-release-audit-2026-10-16.md`).
+ *
+ * A close that equals its exact 20-session mean must read as a tie, so `Price is below SMA 20D` is
+ * FALSE on that session. A stock does: its averages are persisted as `DECIMAL(20,8)`, which rounds
+ * the running window sum's float residue away (81 of 81 exact daily ties in the QA-matrix data
+ * read as ties). An ETF's are the kernel's raw doubles (owner decision 6), and the running sum in
+ * `movingAverage` leaves a residue that decides the tie: 45 of the 47 exact ties across the twenty
+ * funds and SPY read as strictly above or below — `XLK` 2012-12-20, close 14.69 against a computed
+ * SMA 200D of 14.690000000000033, exited ten positions at once in the matrix.
+ *
+ * These 25 closes are the smallest such history found: the last close, 14.68, is the exact mean of
+ * the last twenty (their sum is 293.60), and the running sum reads 14.680000000000001. Marked
+ * `it.fails` while the defect is open; it turns red once the ETF path reads the tie as a stock does.
+ */
+describe("exact ties against a moving average (FIN-12)", () => {
+  const CLOSES = [
+    14.68, 15.02, 15.49, 14.43, 14.45, 14.86, 15.17, 14.55, 14.15, 14.14, 14.75, 14.22, 15.45,
+    14.3, 14.37, 14.66, 15.21, 14.6, 14.51, 14.79, 14.23, 15.39, 14.8, 14.77, 14.68,
+  ];
+  const tieDates = sessions("2024-01-02", CLOSES.length);
+  const tieBars: BenchmarkDailyPrice[] = CLOSES.map((close, index) => ({
+    seriesId: SERIES_ID,
+    date: tieDates[index]!,
+    open: close,
+    high: close,
+    low: close,
+    close,
+    volume: 1_000_000,
+  }));
+  const last = tieDates[tieDates.length - 1]!;
+
+  it("is an exact tie in decimal arithmetic", () => {
+    const cents = CLOSES.slice(-20).map((close) => Math.round(close * 100));
+    const sum = cents.reduce((total, value) => total + value, 0);
+    expect(sum).toBe(29_360);
+    expect(sum / 20).toBe(Math.round(CLOSES[CLOSES.length - 1]! * 100));
+  });
+
+  it.fails("KNOWN DEFECT FIN-12: an ETF reads an exact SMA tie as a tie, as a stock does", () => {
+    const snapshot = snapshotOf(readyContext(tieBars));
+    expect(benchmarkTechnicalValueOn(snapshot, last, "sma20d")).toBe(
+      benchmarkTechnicalValueOn(snapshot, last, "close"),
+    );
+  });
+});
+

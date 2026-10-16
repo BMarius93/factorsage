@@ -1,4 +1,6 @@
 import {
+  QA_MATRIX_LIST_IDS_BY_SET,
+  qaMatrixStrategySetOf,
   QA_MATRIX_EXPECTED_COMBINATIONS,
   QA_MATRIX_EXPECTED_CONFIGS,
   QA_MATRIX_EXPECTED_LISTS,
@@ -43,7 +45,7 @@ export type QaMatrixCase = {
  * `S02-L09-C06` or `F02-L09-C06`, and a parser that normalized it away would silently reproduce the
  * wrong case.
  */
-const CASE_ID_PATTERN = /^([SAF])(\d{2})-L(\d{2})-C(\d{2})$/;
+const CASE_ID_PATTERN = /^([SAFET])(\d{2})-L(\d{2})-C(\d{2})$/;
 
 /** `S04-L09-C06` — the label without the reserved prefix. */
 export function qaMatrixCaseId(
@@ -132,7 +134,8 @@ export function selectQaMatrixCases(
     if (!parsed) {
       throw new QaMatrixCaseSelectionError(
         `\`${raw}\` is not a matrix case identity. Expected Sxx-Lxx-Cxx (or Axx-Lxx-Cxx for the ` +
-          "audit strategy dimension, Fxx-Lxx-Cxx for the Fundamentals one), for example S03-L07-C04.",
+          "audit strategy dimension, Fxx-Lxx-Cxx for the Fundamentals one, Exx-Lxx-Cxx for static ETF " +
+          "Conditions and Txx-Lxx-Cxx for Stock's Sector), for example S03-L07-C04.",
       );
     }
     const caseId = qaMatrixCaseId(
@@ -224,11 +227,23 @@ export function qaMatrixGoldenCases(
   // only the strategy letter changes. Re-lettering rather than keeping a second hand-written list is
   // what stops the two drifting into naming different cells for the same reason.
   const letter = cases[0]?.strategyId.charAt(0) ?? "S";
+  // A dimension that runs a different tenth List (Stock's Sector runs `L11` where the others run
+  // `L10`) re-executes the same positions: the golden cells move with the List they stood in for.
+  const shared: readonly string[] = QA_MATRIX_LIST_IDS_BY_SET.CORE;
+  const own: readonly string[] =
+    QA_MATRIX_LIST_IDS_BY_SET[qaMatrixStrategySetOf(`${letter}01`)];
   return selectQaMatrixCases(
     cases,
-    QA_MATRIX_GOLDEN_CASES.map(
-      (entry) => `${letter}${entry.caseId.slice(1)}`,
-    ),
+    QA_MATRIX_GOLDEN_CASES.map((entry) => {
+      const [, listId, configId] = entry.caseId.split("-") as [
+        string,
+        string,
+        string,
+      ];
+      const position = shared.indexOf(listId);
+      const mapped = position === -1 ? listId : (own[position] ?? listId);
+      return `${letter}${entry.caseId.slice(1, 3)}-${mapped}-${configId}`;
+    }),
   );
 }
 

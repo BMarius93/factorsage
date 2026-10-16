@@ -650,6 +650,37 @@ describe("billing", () => {
       expect(mirror.pendingInterval).toBe("MONTH");
     });
 
+    /**
+     * Pre-release audit 2026-10-16, finding BILL-01 (`docs/audits/pre-release-audit-2026-10-16.md`),
+     * reproduced in the Stripe sandbox (`billing-lifecycle.sandbox.test.ts`): the user paid $270 for
+     * PRO_YEARLY, the downgrade's schedule stayed attached, and at the old monthly boundary Stripe
+     * moved the subscription to STARTER_MONTHLY with no credit. This fake keeps the schedule across
+     * an immediate update exactly as Stripe does. Marked `it.fails` while the IMMEDIATE branch leaves
+     * the schedule attached; it turns red once the abandoned downgrade can no longer apply.
+     */
+    it.fails("KNOWN DEFECT BILL-01: an immediate upgrade abandons a scheduled downgrade", async () => {
+      const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      const upgrade = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_YEARLY" })
+        .expect(201);
+      expect(upgrade.body.effect).toBe("IMMEDIATE");
+
+      // The boundary of the abandoned downgrade arrives.
+      stripe.applyScheduledPhase(subscriptionId);
+      await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+
+      const mirror = await prisma.billingSubscription.findUniqueOrThrow({
+        where: { userId },
+      });
+      expect({
+        plan: await planOf(),
+        interval: mirror.billingInterval,
+        pendingPlan: mirror.pendingPlan,
+      }).toEqual({ plan: "PRO", interval: "YEAR", pendingPlan: null });
+    });
+
     it("refuses a change to the price already held", async () => {
       await givenSubscribed("PRO_MONTHLY");
       const response = await agent

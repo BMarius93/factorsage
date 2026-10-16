@@ -36,6 +36,12 @@ export type WorkerPoolOptions = {
   /** Receives every parsed log record, for a caller that wants to tee them to a file. */
   readonly onLogRecord?: (record: Record<string, unknown>) => void;
   /**
+   * The provider base URL the workers are pointed at: the runner's `MatrixProviderGuard`. With it
+   * the workers also get a placeholder key, so no request of theirs can reach the real provider
+   * and every request is journaled where it arrives (`matrix-provider-guard.ts`).
+   */
+  readonly providerBaseUrl?: string;
+  /**
    * The process to spawn instead of the built worker supervisor.
    *
    * A seam for the lifecycle tests only: proving that a child which ignores SIGTERM and outlives
@@ -180,6 +186,14 @@ export class MatrixWorkerPool {
       // could reproduce.
       ALT_DATA_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,
       BACKTEST_DEBUG_ARCHIVE: this.options.debugArchive,
+      ...(this.options.providerBaseUrl
+        ? {
+            FMP_BASE_URL: this.options.providerBaseUrl,
+            // Never the developer's key: the guard needs none, and a pool that somehow lost its
+            // base URL then fails authentication instead of reaching the provider.
+            FMP_API_KEY: "qa-matrix-offline",
+          }
+        : {}),
       ...(this.options.debugArchiveDir
         ? { BACKTEST_DEBUG_ARCHIVE_DIR: this.options.debugArchiveDir }
         : {}),

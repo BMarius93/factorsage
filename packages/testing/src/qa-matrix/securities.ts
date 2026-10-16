@@ -321,10 +321,52 @@ export const QA_MATRIX_SECURITIES = [
   },
 ] as const satisfies readonly QaMatrixSecurity[];
 
-export type QaMatrixSymbol = (typeof QA_MATRIX_SECURITIES)[number]["symbol"];
+/**
+ * The two securities the **Stock's Sector** dimension adds, and only it.
+ *
+ * The thirty-three above span nine of FMP's eleven sectors — none is a Utilities or a Real Estate
+ * company — so a `Stock's Sector` condition over them could never read `XLU` or `XLRE`. These two
+ * close that gap with real, long-listed members of each sector, and they are deliberately kept out
+ * of {@link QA_MATRIX_SECURITIES}: `L08`'s thirty names are derived from that list's full-horizon
+ * entries, so adding them there would silently move a baseline three thousand recorded runs were
+ * measured against. They appear in exactly one list, `L11`, which only the sector dimension runs.
+ *
+ * `PLD`'s provider history begins inside the thirty-year horizon (`LATER_LISTING`); `NEE`'s does not.
+ */
+export const QA_MATRIX_SECTOR_SECURITIES = [
+  {
+    symbol: "NEE",
+    name: "NextEra Energy, Inc.",
+    ...NYSE,
+    ...COMMON,
+    listedOn: "1950-01-03",
+    coverage: "FULL_HORIZON",
+  },
+  {
+    symbol: "PLD",
+    name: "Prologis, Inc.",
+    ...NYSE,
+    ...COMMON,
+    listedOn: "1997-11-21",
+    coverage: "LATER_LISTING",
+  },
+] as const satisfies readonly QaMatrixSecurity[];
+
+/**
+ * Every security any matrix list names: the scope provisioning copies, the catalog seeding ensures
+ * and the preflight checks coverage for.
+ */
+export const QA_MATRIX_ALL_SECURITIES: readonly QaMatrixSecurity[] = [
+  ...QA_MATRIX_SECURITIES,
+  ...QA_MATRIX_SECTOR_SECURITIES,
+];
+
+export type QaMatrixSymbol =
+  | (typeof QA_MATRIX_SECURITIES)[number]["symbol"]
+  | (typeof QA_MATRIX_SECTOR_SECURITIES)[number]["symbol"];
 
 const BY_SYMBOL = new Map<string, QaMatrixSecurity>(
-  QA_MATRIX_SECURITIES.map((security) => [security.symbol, security]),
+  QA_MATRIX_ALL_SECURITIES.map((security) => [security.symbol, security]),
 );
 
 /** The fixture identity for one matrix symbol; throws for a symbol outside the universe. */

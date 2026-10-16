@@ -11,7 +11,7 @@ import {
   PRICE_DATASET_VERSION,
 } from "@intrinsic/stock-data";
 import {
-  QA_MATRIX_SECURITIES,
+  QA_MATRIX_ALL_SECURITIES,
   type QaMatrixFixtures,
 } from "@intrinsic/testing";
 import { repositoryRoot } from "./matrix-paths";
@@ -128,7 +128,7 @@ export function stubPrisma(
     if (late) {
       return late;
     }
-    const fixture = QA_MATRIX_SECURITIES.find(
+    const fixture = QA_MATRIX_ALL_SECURITIES.find(
       (entry) => entry.symbol === symbol,
     );
     return fixture && fixture.coverage === "LATER_LISTING"
@@ -164,7 +164,8 @@ export function stubPrisma(
       ],
     }));
 
-  const lists = fixtures.lists
+  // Every List any dimension runs is persisted, exactly as the seeder writes them.
+  const lists = fixtures.allLists
     .filter((fixture) => !(options.missingLists ?? []).includes(fixture.id))
     .map((fixture) => ({
       id: `list-${fixture.id}`,
@@ -235,7 +236,7 @@ export function stubPrisma(
         where.symbol.in
           .filter((symbol) => !missingSymbols.has(symbol))
           .map((symbol) => {
-            const fixture = QA_MATRIX_SECURITIES.find(
+            const fixture = QA_MATRIX_ALL_SECURITIES.find(
               (e) => e.symbol === symbol,
             );
             return {
