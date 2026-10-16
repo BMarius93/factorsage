@@ -7,6 +7,7 @@ import {
 } from "@intrinsic/observability";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { installJsonOnlyRequests } from "./json-only-requests";
 import { installHttpObservability } from "./observability/http-observability";
 import { NestStructuredLogger } from "./observability/nest-structured-logger";
 import { installSecurityHeaders } from "./security-headers";
@@ -49,6 +50,8 @@ async function bootstrap() {
     // exposes it here without a second edit.
     exposedHeaders: [...RATE_LIMIT_HEADER_NAMES, "x-request-id"],
   });
+  // After CORS, so a refusal still carries the headers a legitimate cross-origin caller reads.
+  installJsonOnlyRequests(app);
 
   await app.listen(config.port);
   logger.info({

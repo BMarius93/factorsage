@@ -44,6 +44,11 @@ info:
     `ENTITLEMENT_*` code. Ownership is not a separate axis — every user-owned collection is scoped
     to the caller, and somebody else's resource answers exactly like one that does not exist.
 
+    **Request bodies are JSON.** A `POST`, `PUT`, `PATCH` or `DELETE` whose `Content-Type` is
+    anything but `application/json` (with or without a `charset`) is refused with `415` before it
+    is read — form encodings included, which closes cross-site form posts against the cookie session
+    (login and sign-out CSRF). A bodyless request without a `Content-Type` is accepted.
+
     **Rate limiting** is applied per endpoint class from a central policy catalog, keyed by user id
     for authenticated traffic and by client IP otherwise. Exceeding a policy answers `429` with
     `Retry-After`. See `info.x-rate-limit-policies`.
