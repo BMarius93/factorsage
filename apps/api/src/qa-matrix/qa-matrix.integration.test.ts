@@ -9,7 +9,9 @@ import {
   QA_MATRIX_EXPECTED_LISTS,
   QA_MATRIX_FUNDAMENTAL_STRATEGIES,
   QA_MATRIX_NAME_PREFIX,
-  QA_MATRIX_SECURITIES,
+  QA_MATRIX_ALL_SECURITIES,
+  QA_MATRIX_ETF_STRATEGIES,
+  QA_MATRIX_SECTOR_STRATEGIES,
   QA_MATRIX_STRATEGIES,
   currentAsOfDate,
   qaMatrixFixtures,
@@ -29,12 +31,15 @@ import {
 useTestDatabase();
 
 /**
- * What one seed persists here: ten strategies per dimension the seeder can resolve. The core and
- * Fundamentals sets always; the audit set only with an actor catalog, which this database lacks.
+ * What one seed persists here: ten strategies per dimension the seeder can resolve. The core,
+ * Fundamentals, static-ETF and Stock's Sector sets always; the audit set only with an actor catalog,
+ * which this database lacks.
  */
 const SEEDED_STRATEGIES = [
   ...QA_MATRIX_STRATEGIES,
   ...QA_MATRIX_FUNDAMENTAL_STRATEGIES,
+  ...QA_MATRIX_ETF_STRATEGIES,
+  ...QA_MATRIX_SECTOR_STRATEGIES,
 ];
 
 /**
@@ -143,7 +148,8 @@ describe("QA-MATRIX fixture seeding", () => {
     // `BenchmarkDailyPrice` rows in PostgreSQL rather than against whatever the seed returned.
     executionDates = await loadQaMatrixExecutionCalendar(client);
     fixtures = qaMatrixFixtures(asOfDate, executionDates);
-    QA_MATRIX_LISTS = fixtures.lists;
+    // Every List any dimension runs is seeded, `L11` included.
+    QA_MATRIX_LISTS = fixtures.allLists;
     const owner = await client.user.create({
       data: { email: ownerEmail, emailVerifiedAt: new Date() },
       select: { id: true },
@@ -196,7 +202,7 @@ describe("QA-MATRIX fixture seeding", () => {
     // The core set and the Fundamentals set; the audit set needs an actor catalog this database
     // does not carry, so the seeder skips it here.
     expect(strategies).toHaveLength(SEEDED_STRATEGIES.length);
-    expect(lists).toHaveLength(QA_MATRIX_EXPECTED_LISTS);
+    expect(lists).toHaveLength(QA_MATRIX_EXPECTED_LISTS + 1);
     expect(strategies.map((row) => row.name).sort()).toEqual(
       SEEDED_STRATEGIES.map((fixture) => fixture.name).sort(),
     );
@@ -280,7 +286,7 @@ describe("QA-MATRIX fixture seeding", () => {
       ),
     );
     for (const symbol of symbols) {
-      const fixture = QA_MATRIX_SECURITIES.find(
+      const fixture = QA_MATRIX_ALL_SECURITIES.find(
         (entry) => entry.symbol === symbol,
       )!;
       const security = await prisma.security.findFirstOrThrow({

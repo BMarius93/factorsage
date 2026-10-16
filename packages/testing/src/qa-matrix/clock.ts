@@ -1,4 +1,6 @@
+import { getEodFinalityConfig } from "@intrinsic/config";
 import { BACKTEST_MAX_PERIOD_YEARS, subtractYears } from "@intrinsic/contracts";
+import { eodCutoffDate } from "@intrinsic/domain";
 import { ExecutionCalendar } from "@intrinsic/strategy";
 
 /**
@@ -86,9 +88,23 @@ function minDate(left: LocalDate, right: LocalDate): LocalDate {
   return left <= right ? left : right;
 }
 
-/** Today, as the matrix clock sees it. */
-export function currentAsOfDate(now: Date = new Date()): LocalDate {
-  return now.toISOString().slice(0, 10);
+/**
+ * Today, as the matrix clock sees it: the **EOD cutoff** — the newest session whose bar is final —
+ * which is the "today" every product boundary the matrix must agree with is measured from.
+ *
+ * It used to be the UTC calendar day. Since end-of-day finality (`docs/decisions/eod-finality-v1.md`)
+ * the loader's `today()`, its coverage intervals and the submission validator's thirty-year horizon
+ * (`earliestSelectableBacktestStart(finalizedThrough)`) all end at `eodCutoffDate`, so for most of
+ * every UTC day (00:00 UTC until the New York close plus the publication delay) the UTC date was a
+ * day **ahead** of the product: the preflight then demanded price coverage through a session the
+ * loader cannot have stored yet and refused a perfectly fresh dataset, and a sweep pinned to the
+ * UTC date checked its horizon against a boundary the API does not enforce.
+ */
+export function currentAsOfDate(
+  now: Date = new Date(),
+  publicationDelayMs: number = getEodFinalityConfig().publicationDelayMs,
+): LocalDate {
+  return eodCutoffDate(now, publicationDelayMs);
 }
 
 /**

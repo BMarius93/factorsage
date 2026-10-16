@@ -3,7 +3,10 @@ import { getStockDataConfig } from "@intrinsic/config";
 import { join } from "node:path";
 import {
   BACKTEST_MAX_PERIOD_YEARS,
+  collectStrategyEtfSources,
   DEFAULT_BENCHMARK_CODE,
+  resolveStockSectorEtf,
+  strategyReadsStockSector,
   findSelectableSeries,
   normalizeStrategyDefinition,
   resolveEntitlements,
@@ -15,10 +18,16 @@ import {
   type UserRole,
 } from "@intrinsic/contracts";
 import type { PrismaClient } from "@intrinsic/database";
-import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
+import {
+  EXECUTION_CALENDAR_REFERENCE_CODE,
+  MARKET_OVERVIEW_HISTORY_FLOOR,
+} from "@intrinsic/domain";
 import {
   BACKTEST_DATA_REVISIONS,
+  BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+  BENCHMARK_DAILY_PRICE_VARIANT,
   DAILY_DERIVED_STATE_VARIANT,
+  missingCoverageRanges,
   DAILY_PRICE_VARIANT_FAMILY,
   PRICE_DATASET_VERSION,
 } from "@intrinsic/stock-data";
@@ -32,10 +41,9 @@ import {
 import {
   QA_MATRIX_EXPECTED_COMBINATIONS,
   QA_MATRIX_EXPECTED_CONFIGS,
-  QA_MATRIX_EXPECTED_LISTS,
   QA_MATRIX_EXPECTED_STRATEGIES,
+  QA_MATRIX_ALL_SECURITIES,
   QA_MATRIX_NAME_PREFIX,
-  QA_MATRIX_SECURITIES,
   type QaMatrixFixtures,
   type QaMatrixSecurity,
 } from "@intrinsic/testing";
@@ -188,6 +196,7 @@ export async function runQaMatrixPreflight(
   checks.push(
     await checkSecurityCoverage(input, symbols.securities, calendar.calendar),
   );
+  checks.push(await checkEtfSources(input, symbols.securities));
   checks.push(await checkDerivedStateCoverage(input, symbols.securities));
   checks.push(await checkPriceBasisVerified(input, symbols.securities));
   checks.push(await checkFundamentalsCoverage(input, symbols.securities));
@@ -525,14 +534,16 @@ async function checkListFixtures(
     },
   });
 
-  if (rows.length !== QA_MATRIX_EXPECTED_LISTS) {
+  // Every List any dimension runs is persisted in the one matrix database, so the count compared is
+  // all of them; the selected dimension's ten are what the Cartesian-product check counts.
+  if (rows.length !== input.fixtures.allLists.length) {
     problems.push(
-      `Expected exactly ${QA_MATRIX_EXPECTED_LISTS} QA-MATRIX stock lists, found ${rows.length}.`,
+      `Expected exactly ${input.fixtures.allLists.length} QA-MATRIX stock lists, found ${rows.length}.`,
     );
   }
 
   const byName = new Map(rows.map((row) => [row.name, row]));
-  for (const fixture of input.fixtures.lists) {
+  for (const fixture of input.fixtures.allLists) {
     const row = byName.get(fixture.name);
     if (!row) {
       problems.push(`\`${fixture.name}\` is missing.`);
@@ -588,7 +599,7 @@ async function checkListFixtures(
     }
   }
   for (const row of rows) {
-    if (!input.fixtures.lists.some((f) => f.name === row.name)) {
+    if (!input.fixtures.allLists.some((f) => f.name === row.name)) {
       problems.push(
         `\`${row.name}\` exists in the database but is not a defined matrix fixture.`,
       );
@@ -599,7 +610,7 @@ async function checkListFixtures(
     "fixture-lists",
     "QA fixture Stock Lists",
     problems,
-    `exactly ${QA_MATRIX_EXPECTED_LISTS} Lists, membership and buy windows matching the fixtures`,
+    `exactly ${input.fixtures.allLists.length} Lists, membership and buy windows matching the fixtures`,
     { found: rows.length },
   );
 }
@@ -1015,7 +1026,7 @@ async function checkMissingSymbols(
       id: row.id,
       symbol,
       listedOn: row.ipoDate ? toLocalDate(row.ipoDate) : null,
-      fixture: QA_MATRIX_SECURITIES.find((entry) => entry.symbol === symbol),
+      fixture: QA_MATRIX_ALL_SECURITIES.find((entry) => entry.symbol === symbol),
       periods: symbolPeriods,
     });
   }
@@ -1028,7 +1039,19 @@ async function checkMissingSymbols(
           userId: ownerUserId,
           name: { startsWith: `${QA_MATRIX_NAME_PREFIX}L` },
         },
-        security: { symbol: { notIn: [...wanted.keys()] } },
+        // Every List's members, not only this dimension's: `L11`'s two sector-only securities are
+        // defined fixtures even in a sweep that does not run `L11`.
+        security: {
+          symbol: {
+            notIn: [
+              ...new Set(
+                input.fixtures.allLists.flatMap((list) =>
+                  list.members.map((member) => member.symbol),
+                ),
+              ),
+            ],
+          },
+        },
       },
     });
     if (orphaned > 0) {
@@ -1172,6 +1195,182 @@ async function checkSecurityCoverage(
     problems,
     `${securities.length} securities, prices ${earliest} → ${latest}, covering every period from listing`,
     facts,
+  );
+}
+
+/**
+ * That every ETF the selected dimension reads is one a worker could evaluate.
+ *
+ * Added with the static-ETF and Stock's Sector dimensions, and for the failure mode they make easy:
+ * an ETF context that cannot be built is **not** a run failure — every condition naming the fund
+ * joins as NaN, is `NOT_EVALUABLE`, never matches, and the run completes green with zero trades
+ * (`ai/architecture/strategy-etf-conditions.md` §7). A thousand such runs would prove nothing about
+ * ETF conditions while reporting success. So each fund is checked against the worker's own three
+ * gates before anything is submitted: history anchored at `MARKET_OVERVIEW_HISTORY_FLOOR` with no
+ * coverage gap (else `NOT_BOOTSTRAPPED`), a completed tail read (else `NOT_SYNCHRONIZED`), and bars
+ * through the last session the matrix simulates (else the final years are silently undecidable).
+ *
+ * For Stock's Sector the funds are the ones the dimension's members resolve to, through the one
+ * canonical mapping; a member whose stored sector does not resolve is reported, because every
+ * fixture member is meant to read its sector and a `NOT_EVALUABLE` one would hide in the totals.
+ */
+async function checkEtfSources(
+  input: PreflightInput,
+  securities: readonly SecurityRow[],
+): Promise<PreflightCheck> {
+  const problems: string[] = [];
+  const readers = new Map<string, Set<string>>();
+  const read = (code: string, by: string): void => {
+    const set = readers.get(code) ?? new Set<string>();
+    set.add(by);
+    readers.set(code, set);
+  };
+  for (const strategy of input.fixtures.strategies) {
+    for (const code of collectStrategyEtfSources(strategy.definition)) {
+      read(code, strategy.id);
+    }
+  }
+  const sectorReaders = input.fixtures.strategies.filter((strategy) =>
+    strategyReadsStockSector(strategy.definition),
+  );
+  const sectorBySymbol: Record<string, string> = {};
+  if (sectorReaders.length > 0) {
+    const rows = await input.prisma.security.findMany({
+      where: { id: { in: securities.map((security) => security.id) } },
+      select: { symbol: true, sector: true },
+    });
+    for (const row of rows) {
+      const resolution = resolveStockSectorEtf(row.sector);
+      if (resolution.status === "RESOLVED") {
+        sectorBySymbol[row.symbol] = resolution.code;
+        read(resolution.code, `sector of ${row.symbol}`);
+      } else {
+        problems.push(
+          `\`${row.symbol}\`'s stored sector ${
+            row.sector === null ? "is missing" : `\`${row.sector}\` is not one of FMP's eleven`
+          }: every Stock's Sector rule over it would be NOT_EVALUABLE for the whole run.`,
+        );
+      }
+    }
+  }
+  if (readers.size === 0) {
+    return check(
+      "etf-sources",
+      "ETF condition sources",
+      [],
+      "the selected dimension reads no ETF",
+      { etfs: 0 },
+    );
+  }
+
+  const lastSimulated = input.fixtures.configs.reduce(
+    (latest, config) =>
+      config.request.endDate > latest ? config.request.endDate : latest,
+    "0000-01-01",
+  );
+  const facts: Record<string, unknown> = {};
+  for (const [code, by] of [...readers].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const benchmark = await input.prisma.benchmark.findUnique({
+      where: { code },
+      include: { series: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    const series = benchmark?.series[0];
+    if (!series) {
+      problems.push(
+        `\`${code}\` (read by ${[...by].join(", ")}) has no benchmark series in this database.`,
+      );
+      continue;
+    }
+    const [bars, coverageRows, tail, basis] = await Promise.all([
+      input.prisma.benchmarkDailyPrice.aggregate({
+        where: { seriesId: series.id },
+        _min: { date: true },
+        _max: { date: true },
+        _count: { _all: true },
+      }),
+      input.prisma.benchmarkDatasetCoverage.findMany({
+        where: {
+          seriesId: series.id,
+          dataset: "DAILY_PRICE",
+          variant: BENCHMARK_DAILY_PRICE_VARIANT,
+        },
+        select: { fromDate: true, toDate: true },
+      }),
+      input.prisma.benchmarkDatasetState.findUnique({
+        where: {
+          seriesId_dataset_variant: {
+            seriesId: series.id,
+            dataset: "DAILY_PRICE",
+            variant: BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+          },
+        },
+        select: { lastSuccessfulSyncAt: true },
+      }),
+      input.prisma.benchmarkSeriesPriceBasis.findUnique({
+        where: { seriesId: series.id },
+        select: { generation: true },
+      }),
+    ]);
+    const first = bars._min.date ? toLocalDate(bars._min.date) : null;
+    const last = bars._max.date ? toLocalDate(bars._max.date) : null;
+    const coverage = coverageRows.map((row) => ({
+      from: toLocalDate(row.fromDate),
+      to: toLocalDate(row.toDate),
+    }));
+    const coverageEnd = coverage.reduce<string | null>(
+      (latest, range) => (latest === null || range.to > latest ? range.to : latest),
+      null,
+    );
+    facts[code] = {
+      seriesId: series.id,
+      bars: bars._count._all,
+      first,
+      last,
+      coverageEnd,
+      lastTailSyncAt: tail?.lastSuccessfulSyncAt?.toISOString() ?? null,
+      basisGeneration: basis?.generation ?? 0,
+      readBy: [...by],
+    };
+    if (bars._count._all === 0 || first === null || last === null) {
+      problems.push(`\`${code}\` has no stored bars: every condition reading it is NOT_EVALUABLE.`);
+      continue;
+    }
+    const gaps =
+      coverageEnd === null
+        ? [{ from: MARKET_OVERVIEW_HISTORY_FLOOR, to: last }]
+        : missingCoverageRanges(
+            { from: MARKET_OVERVIEW_HISTORY_FLOOR, to: coverageEnd },
+            coverage,
+          );
+    if (gaps.length > 0) {
+      problems.push(
+        `\`${code}\` coverage is not anchored at ${MARKET_OVERVIEW_HISTORY_FLOOR} (missing ${gaps
+          .slice(0, 3)
+          .map((gap) => `${gap.from}→${gap.to}`)
+          .join(", ")}): the worker would report it NOT_BOOTSTRAPPED and evaluate nothing.`,
+      );
+    }
+    if (!tail?.lastSuccessfulSyncAt) {
+      problems.push(
+        `\`${code}\` has never completed a tail read: the worker would report it NOT_SYNCHRONIZED.`,
+      );
+    }
+    if (last < lastSimulated) {
+      problems.push(
+        `\`${code}\` bars end ${last}, before ${lastSimulated}, the last session the matrix ` +
+          "simulates: its rules would be NOT_EVALUABLE at the end of every run. Re-provision.",
+      );
+    }
+  }
+
+  return check(
+    "etf-sources",
+    "ETF condition sources",
+    problems,
+    `${readers.size} ETF(s) anchored, synchronized and current through ${lastSimulated}`,
+    { etfs: facts, sectors: sectorBySymbol },
   );
 }
 

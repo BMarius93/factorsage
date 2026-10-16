@@ -27,6 +27,8 @@ export const QA_MATRIX_STRATEGY_SETS = [
   "CORE",
   "AUDIT",
   "FUNDAMENTALS",
+  "ETF",
+  "SECTOR",
 ] as const;
 export type QaMatrixStrategySet = (typeof QA_MATRIX_STRATEGY_SETS)[number];
 
@@ -35,9 +37,56 @@ export const QA_MATRIX_STRATEGY_SET_LETTERS = {
   CORE: "S",
   AUDIT: "A",
   FUNDAMENTALS: "F",
+  ETF: "E",
+  SECTOR: "T",
 } as const satisfies Record<QaMatrixStrategySet, string>;
 
+const SHARED_LIST_IDS = [
+  "L01",
+  "L02",
+  "L03",
+  "L04",
+  "L05",
+  "L06",
+  "L07",
+  "L08",
+  "L09",
+  "L10",
+] as const;
+
+/**
+ * The ten Lists each strategy dimension runs against.
+ *
+ * Every dimension shares `L01` … `L10` except Stock's Sector, which exchanges the buy-window
+ * boundary list `L10` — a membership-calendar test with nothing sector-specific about it, and
+ * covered by every other dimension — for `L11`, the one list whose members span all eleven FMP
+ * sectors. Without it no matrix run could read `XLU` or `XLRE`. Ten per dimension either way, so
+ * every sweep is 1,000 cases and no recorded baseline moves.
+ */
+export const QA_MATRIX_LIST_IDS_BY_SET = {
+  CORE: SHARED_LIST_IDS,
+  AUDIT: SHARED_LIST_IDS,
+  FUNDAMENTALS: SHARED_LIST_IDS,
+  ETF: SHARED_LIST_IDS,
+  SECTOR: [...SHARED_LIST_IDS.slice(0, 9), "L11"],
+} as const satisfies Record<QaMatrixStrategySet, readonly string[]>;
+
+/** The dimension a strategy fixture id belongs to, from its letter. */
+export function qaMatrixStrategySetOf(strategyId: string): QaMatrixStrategySet {
+  const letter = strategyId.charAt(0);
+  const found = QA_MATRIX_STRATEGY_SETS.find(
+    (set) => QA_MATRIX_STRATEGY_SET_LETTERS[set] === letter,
+  );
+  if (!found) {
+    throw new Error(
+      `\`${strategyId}\` belongs to no QA-matrix strategy dimension`,
+    );
+  }
+  return found;
+}
+
 export * from "./audit-strategies.js";
+export * from "./etf-strategies.js";
 export * from "./fundamental-strategies.js";
 export * from "./captured-execution-calendar.js";
 export * from "./clock.js";
@@ -77,7 +126,10 @@ export type QaMatrixFixtures = {
   /** The execution-date set every session-shaped fixture value was resolved against. */
   readonly calendar: ExecutionCalendar;
   readonly strategies: readonly QaMatrixStrategyFixture[];
+  /** The ten Lists this dimension runs against (`QA_MATRIX_LIST_IDS_BY_SET`). */
   readonly lists: readonly QaMatrixListFixture[];
+  /** Every List fixture any dimension runs: what seeding writes and the preflight compares. */
+  readonly allLists: readonly QaMatrixListFixture[];
   readonly configs: readonly QaMatrixConfigFixture[];
 };
 
@@ -108,11 +160,17 @@ export function qaMatrixFixtures(
 ): QaMatrixFixtures {
   const calendar = new ExecutionCalendar(executionCalendarDates);
   const periods = qaMatrixPeriods(asOfDate, calendar);
+  const allLists = qaMatrixLists(periods, calendar);
+  // The dimension is the strategies' own: their ids carry its letter, so the Lists cannot be
+  // chosen for a different dimension than the one being run.
+  const set = qaMatrixStrategySetOf(strategies[0]?.id ?? "S");
+  const listIds = new Set<string>(QA_MATRIX_LIST_IDS_BY_SET[set]);
   return {
     periods,
     calendar,
     strategies,
-    lists: qaMatrixLists(periods, calendar),
+    lists: allLists.filter((list) => listIds.has(list.id)),
+    allLists,
     configs: qaMatrixConfigs(periods),
   };
 }

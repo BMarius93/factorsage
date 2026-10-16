@@ -313,6 +313,62 @@ describe("invariant 36 — Relative Volume and alternative-data operands", () =>
   });
 });
 
+describe("invariant 36 — data-sourced Conditions read both sides from their source", () => {
+  // Pre-release audit 2026-10-16, QA-06: the Value side used to read the stock's own `series:` column,
+  // which a sourced frame does not carry, so every ETF and Stock's Sector BUY re-derived as
+  // NOT_EVALUABLE and the matrix's golden archives failed for a defect in the verifier.
+  const DATES = ["2024-01-02", "2024-01-03", "2024-01-04"];
+  const contentsFor = (
+    source: Record<string, unknown>,
+    prefix: string,
+    sourcedSma: number[],
+  ): ArchiveContents => ({
+    snapshot: snapshot({
+      condition: {
+        id: "c1",
+        metric: { kind: "PRICE", source },
+        operator: "IS_ABOVE",
+        value: { kind: "SERIES", seriesId: "SMA_50D" },
+      },
+    }),
+    frames: new Map([
+      [
+        `${SECURITY_ID}|2024`,
+        {
+          ...frame("2024", 0, { dates: DATES, closes: [10, 10, 10] }),
+          operandKeys: [`${prefix}price`, `${prefix}series:SMA_50D`],
+          operands: {
+            [`${prefix}price`]: [100, 110, 120],
+            [`${prefix}series:SMA_50D`]: sourcedSma,
+            // The stock's own column of the same identity says the opposite: it must not be read.
+            "series:SMA_50D": [500, 500, 500],
+          },
+        },
+      ],
+    ]),
+    trades: [trade({ date: "2024-01-03" })],
+  });
+
+  it.each([
+    [{ kind: "ETF", code: "ETF_XLK" }, "etf:ETF_XLK:"],
+    [{ kind: "STOCK_SECTOR" }, "sector:"],
+  ])("reads the %o Value from the same source's column", (source, prefix) => {
+    expect(
+      byId(
+        verifyArchiveInvariants(contentsFor(source, prefix, [105, 105, 105])),
+        36,
+      ).status,
+    ).toBe("PASS");
+    // And fails when that source's own comparison was FALSE.
+    expect(
+      byId(
+        verifyArchiveInvariants(contentsFor(source, prefix, [115, 115, 115])),
+        36,
+      ).status,
+    ).toBe("FAIL");
+  });
+});
+
 describe("invariant 36 — the Signal behind a BUY", () => {
   const contents = (
     closes: number[],

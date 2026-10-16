@@ -1,6 +1,8 @@
 import {
   findFundamentalMetric,
   STRATEGY_SCHEMA_VERSION,
+  strategyMetricSource,
+  strategyMetricSourceKey,
   type BuyLevelPercentage,
   type ConditionOperator,
   type SellLevelPercentage,
@@ -65,6 +67,14 @@ export const QA_MATRIX_STRATEGY_BEHAVIOURS = [
   "SELL_75",
   "FINAL_EXIT",
   "NO_SELL_LEVELS",
+  // Where a technical Condition reads its data (`docs/decisions/strategy-etf-conditions-v1.md`):
+  // a named ETF, the stock's own sector ETF, several ETFs in one definition, two or more Conditions
+  // on one ETF in one Signal, and a Signal mixing sources.
+  "ETF_SOURCE",
+  "STOCK_SECTOR_SOURCE",
+  "MULTIPLE_ETF_SOURCES",
+  "SAME_SOURCE_MULTIPLE_CONDITIONS",
+  "MIXED_DATA_SOURCES",
   // Behavioural — intent, settled by executing the matrix rather than by a static check.
   "STRONGEST_ELIGIBLE_BUY",
   "LIFECYCLE_RESET",
@@ -74,6 +84,16 @@ export const QA_MATRIX_STRATEGY_BEHAVIOURS = [
   "HIGH_TURNOVER",
   "SPARSE_SIGNAL",
   "SAME_DAY_SELL_THEN_BUY",
+  // A Condition the data makes TRUE (or FALSE) on every session it is evaluable, paired with a
+  // control fixture that lacks it: the pair must produce identical results (`etf-strategies.ts`).
+  "ALWAYS_TRUE_PROBE",
+  "ALWAYS_FALSE_PROBE",
+  // The same rule expressed through a different source, which the data makes equivalent on the
+  // lists the pair names.
+  "EQUIVALENCE_PROBE",
+  "METAMORPHIC_CONTROL",
+  // An ETF that lists inside the thirty-year horizon, so its rules are NOT_EVALUABLE for years.
+  "YOUNGER_ETF_SOURCE",
 ] as const;
 
 export type QaMatrixStrategyBehaviour =
@@ -104,6 +124,11 @@ export const STRUCTURAL_STRATEGY_BEHAVIOURS = [
   "SELL_75",
   "FINAL_EXIT",
   "NO_SELL_LEVELS",
+  "ETF_SOURCE",
+  "STOCK_SECTOR_SOURCE",
+  "MULTIPLE_ETF_SOURCES",
+  "SAME_SOURCE_MULTIPLE_CONDITIONS",
+  "MIXED_DATA_SOURCES",
 ] as const satisfies readonly QaMatrixStrategyBehaviour[];
 
 // ---------------------------------------------------------------------------
@@ -708,9 +733,31 @@ export function deriveStrategyBehaviours(
   const tags = new Set<QaMatrixStrategyBehaviour>();
   const add = (tag: QaMatrixStrategyBehaviour): void => void tags.add(tag);
 
+  const etfCodes = new Set<string>();
   for (const signal of signalsOf(definition)) {
     if (signal.conditions.length === 1 && !signal.trigger) {
       add("SIMPLE_CONDITION");
+    }
+    // Sources are read off the Conditions only: a Trigger never carries one.
+    const sourceKeys = signal.conditions.map((condition) =>
+      strategyMetricSourceKey(strategyMetricSource(condition.metric)),
+    );
+    if (new Set(sourceKeys).size > 1) {
+      add("MIXED_DATA_SOURCES");
+    }
+    const sourced = sourceKeys.filter((key) => key !== "STOCK");
+    if (new Set(sourced).size < sourced.length) {
+      add("SAME_SOURCE_MULTIPLE_CONDITIONS");
+    }
+    for (const condition of signal.conditions) {
+      const source = strategyMetricSource(condition.metric);
+      if (source?.kind === "ETF") {
+        add("ETF_SOURCE");
+        etfCodes.add(source.code);
+      }
+      if (source?.kind === "STOCK_SECTOR") {
+        add("STOCK_SECTOR_SOURCE");
+      }
     }
     if (signal.conditions.length > 1) {
       add("AND_CONDITIONS");
@@ -778,6 +825,9 @@ export function deriveStrategyBehaviours(
     }
   }
 
+  if (etfCodes.size > 1) {
+    add("MULTIPLE_ETF_SOURCES");
+  }
   if (definition.buyLevels.length > 1) {
     add("MULTIPLE_BUY_LEVELS");
   }

@@ -187,6 +187,22 @@ describe("authentication and role authorization", () => {
     expect(response.body).toMatchObject({ email: userEmail, role: "USER" });
   });
 
+  /**
+   * Pre-release audit 2026-10-16, finding SEC-01 (`docs/audits/pre-release-audit-2026-10-16.md`), open
+   * since the 2026-09-18 audit (S-1). The API keeps Nest's urlencoded body parser, so a cross-site
+   * `<form method=post>` — a top-level navigation, no preflight — signs the victim's browser into the
+   * attacker's account (or out of their own). A JSON API should refuse the form. `it.fails` keeps the
+   * suite green while the defect is open and turns red once the form is refused.
+   */
+  it.fails("KNOWN DEFECT SEC-01: refuses a form-encoded login, so a cross-site form cannot sign a browser in", async () => {
+    const response = await request(app.getHttpServer())
+      .post("/auth/login")
+      .type("form")
+      .send({ email: userEmail, password });
+    expect(response.status).not.toBe(200);
+    expect(response.headers["set-cookie"]).toBeUndefined();
+  });
+
   it("uses equivalent generic failures for wrong and unknown credentials", async () => {
     const wrongPassword = await request(app.getHttpServer())
       .post("/auth/login")

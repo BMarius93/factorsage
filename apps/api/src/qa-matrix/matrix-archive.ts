@@ -18,6 +18,7 @@ import {
   metricOperand,
   relativeVolumeOperand,
   valuationRatioOperand,
+  valueOperand,
 } from "@intrinsic/strategy";
 import type { InvariantResult } from "./matrix-invariants";
 
@@ -139,12 +140,23 @@ function metricSeries(
   }
 }
 
+/**
+ * The Value side of a predicate. A `SERIES` Value under an ETF-sourced or Stock's Sector metric reads
+ * the **same source's** column (`etf:<code>:series:…`, `sector:series:…`) — through the canonical key
+ * builder the evaluator uses, never a hand-written `series:` key. Before 2026-10-16 it always read
+ * the stock's own column, which a sourced frame does not carry, so every ETF Condition re-derived as
+ * NOT_EVALUABLE (pre-release audit, QA-06).
+ */
 function valueSeries(
   frame: ArchiveFrame,
   value: StrategyValue,
+  metric: StrategyMetric,
 ): readonly number[] {
   if (value.kind === "SERIES") {
-    return column(frame, `series:${value.seriesId}`);
+    const key = valueOperand(value, strategyMetricSource(metric));
+    return key === null
+      ? frame.dates.map(() => Number.NaN)
+      : column(frame, key);
   }
   return frame.dates.map(() => value.value);
 }
@@ -210,7 +222,7 @@ function evaluateCondition(
   if (!metrics) {
     return "NOT_EVALUABLE";
   }
-  const values = valueSeries(frame, condition.value);
+  const values = valueSeries(frame, condition.value, condition.metric);
   const metric = NUMBER(metrics[index]);
   const value = NUMBER(values[index]);
   if (!usable(metric) || !usable(value)) {
@@ -234,7 +246,7 @@ function evaluateTrigger(
   if (!metrics) {
     return "NOT_EVALUABLE";
   }
-  const values = valueSeries(frame, trigger.value);
+  const values = valueSeries(frame, trigger.value, trigger.metric);
   const metric = NUMBER(metrics[index]);
   const value = NUMBER(values[index]);
   const previousMetric = NUMBER(metrics[index - 1]);

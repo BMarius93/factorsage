@@ -71,7 +71,13 @@ function fundamentalIdsOf(definition: StrategyDefinition): string[] {
 
 describe("QA-MATRIX Fundamentals strategy fixtures", () => {
   it("is a third strategy dimension with its own letter, namespace and retention rule", () => {
-    expect(QA_MATRIX_STRATEGY_SETS).toEqual(["CORE", "AUDIT", "FUNDAMENTALS"]);
+    expect(QA_MATRIX_STRATEGY_SETS).toEqual([
+      "CORE",
+      "AUDIT",
+      "FUNDAMENTALS",
+      "ETF",
+      "SECTOR",
+    ]);
     expect(QA_MATRIX_STRATEGY_SET_LETTERS.FUNDAMENTALS).toBe("F");
     expect(QA_MATRIX_FUNDAMENTAL_STRATEGIES).toHaveLength(
       QA_MATRIX_EXPECTED_STRATEGIES,

@@ -753,3 +753,61 @@ describe("a selection of members", () => {
     }
   });
 });
+
+/**
+ * Pre-release audit 2026-10-16, finding ALT-01 (`docs/audits/pre-release-audit-2026-10-16.md`).
+ *
+ * The money measures keep a running float total that adds each disclosure as it enters the window
+ * and subtracts it as it leaves. Amounts with cents are not dyadic, so after a window empties the
+ * total is a residue of the order of 1e-12 rather than exactly zero, and `purchase value is above
+ * $0` — the natural "any purchase" rule, whose MONEY domain starts at 0 — reads TRUE on a session
+ * whose window holds no purchase at all. The residue also depends on where the frame starts, so a
+ * backtest's year windows and a Monitor's read can disagree on the same session.
+ *
+ * Both cases are written as the product's own promise ("a genuine zero stays a zero"). They fail on
+ * `bebf3dc7`; `it.fails` keeps the suite green while the defect is open and turns red once the sum
+ * is exact, at which point they become ordinary cases.
+ */
+describe("KNOWN DEFECT ALT-01: an emptied money window reads exactly zero", () => {
+  const dates = [
+    "2026-01-05",
+    "2026-01-06",
+    "2026-01-07",
+    "2026-01-08",
+    "2026-01-09",
+    "2026-01-12",
+  ];
+  const coverage = { from: "2026-01-01", to: "2026-01-31" };
+  const purchases: AlternativeDataObservation[] = [
+    { observableFrom: "2026-01-05", actorKey: "a", amount: 52_341.25 },
+    { observableFrom: "2026-01-06", actorKey: "b", amount: 1_817.33 },
+    { observableFrom: "2026-01-07", actorKey: "c", amount: 99_999.99 },
+    { observableFrom: "2026-01-08", actorKey: "d", amount: 12.07 },
+  ];
+
+  it.fails("reads 0 on the first session whose two-session window holds no disclosure", () => {
+    const column = buildAlternativeDataColumn({
+      dates,
+      request: { lookbackSessions: 2, aggregation: "SUM_AMOUNT" },
+      facts: { coverage, observations: purchases },
+    });
+    const events = buildAlternativeDataColumn({
+      dates,
+      request: { lookbackSessions: 2, aggregation: "EVENT_COUNT" },
+      facts: { coverage, observations: purchases },
+    });
+    expect(events[5]).toBe(0);
+    expect(Object.is(column[5], 0)).toBe(true);
+  });
+
+  it.fails("never satisfies `is above $0` on a session with no disclosure in its window", () => {
+    const column = buildAlternativeDataColumn({
+      dates,
+      request: { lookbackSessions: 2, aggregation: "SUM_AMOUNT" },
+      facts: { coverage, observations: purchases },
+    });
+    expect(
+      evaluateConditionValues("IS_ABOVE", column[5] as number, 0),
+    ).toBe(Evaluability.FALSE);
+  });
+});

@@ -110,10 +110,14 @@ describe("shared FMP provider gate", () => {
     //
     // The stock EOD worker child prepares the securities running Monitors watch for each finalized
     // session; its tail reads and statement refreshes queue behind the same allowance.
+    //
+    // The QA-matrix calendar capture (`pnpm qa:matrix:capture-calendar`) pins the venue holiday
+    // schedule a sweep replays: a few dozen opt-in requests, through the same gate.
     expect(files).toEqual([
       "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
       "apps/api/src/fmp-live/fmp-live-runtime.ts",
       "apps/api/src/ingest-alternative-data.ts",
+      "apps/api/src/qa-matrix-capture-calendar.ts",
       "apps/api/src/resync-canonical-stock-data.ts",
       "apps/api/src/stocks/stocks.module.ts",
       "apps/api/src/sync-congress-members.ts",

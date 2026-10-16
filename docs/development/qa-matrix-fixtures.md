@@ -310,6 +310,82 @@ by name.
 rather than leaving it untagged. The core set predates the family and is not edited to reach those
 two tags; the Fundamentals set is held to them.
 
+## The data-source dimensions — static ETF and Stock's Sector Conditions
+
+Strategy ETF Conditions (`docs/decisions/strategy-etf-conditions-v1.md`) let a technical Condition
+read one of the twenty Dashboard ETFs, or the sector ETF the evaluated stock's own FMP sector maps
+to, instead of the stock. They arrived after all three baselines, so they get two dimensions of
+their own rather than edits to a recorded one:
+
+```bash
+pnpm qa:matrix:run --strategies etf      # E01 … E10, static ETF Conditions, 1,000 runs
+pnpm qa:matrix:run --strategies sector   # T01 … T10, Stock's Sector Conditions, 1,000 runs
+```
+
+Definitions live in `packages/testing/src/qa-matrix/etf-strategies.ts`; they name no database id, so
+both are always seeded. ETF-sourced **Triggers** stay out: the product refuses them, and the
+fixtures only ever gate a stock's own Trigger with ETF Conditions.
+
+**A zero-trade run proves nothing about an ETF rule.** A fund the worker cannot read joins every
+Condition naming it as NaN — NOT_EVALUABLE, never matched — and the run completes green. So the two
+dimensions carry three **metamorphic pairs** whose results the runner requires to be identical, case
+by case (`QA_MATRIX_METAMORPHIC_PAIRS`):
+
+| Control | Probe | Lists | Why they must agree |
+| ------- | ----- | ----- | ------------------- |
+| `E07` | `E08` | all ten | `E08` is `E07` with `SPY · RVOL 10 is above 0x` ANDed into every level; SPY prints no zero-volume session, so it is TRUE on every simulated session. |
+| `E09` | `E10` | all ten | `E10` is `E09` plus a third BUY level gated by `SPY · RSI 14D is above 100`, which no session can satisfy. |
+| `T09` | `T10` | `L01` | `T09` reads `XLK` by name, `T10` the stock's sector; `L01`'s only member is a Technology company. |
+
+A probe reuses its control's positional level ids (`buildDefinition(levelPrefix, …)`), so the two
+documents name the same levels and their trades compare column for column. The premises themselves —
+the always-TRUE Condition never FALSE, the never-TRUE one never TRUE — are measured on every sweep
+by the independent ETF oracle rather than assumed (`qa-matrix-runner.md`, Data-source dimensions).
+
+| Id  | Name | Shape | What it is for |
+| --- | ---- | ----- | -------------- |
+| E01 | `QA-MATRIX-E01-spy-trend-gate` | BUY 100% · SPY Price above SPY SMA 200D | The simplest static ETF rule: one Condition, identical for every candidate on a session. |
+| E02 | `QA-MATRIX-E02-xlk-same-fund-stack` | BUY 100% · three XLK Conditions · FINAL EXIT on XLK below SMA 200D | Several Conditions on one fund in one Signal; an ETF-only FINAL EXIT. |
+| E03 | `QA-MATRIX-E03-cross-asset-risk-on` | BUY 50/100% · QQQ, HYG, TLT, IWM, SPY RVOL 50 · SELL 50% on GLD vs SMA 50W · FINAL EXIT on HYG | Six funds, a weekly average on gold, and HYG (2007) — no entry for a thirty-year run's first decade. |
+| E04 | `QA-MATRIX-E04-stock-ladder-market-filter` | BUY 50/100% · stock RSI ladder ∧ SPY / RSP trend · SELL 50% · SPY Price is close to SMA 50D | Stock and ETF rules in one Signal at every level; the ETF `is close to`; RSP (2003). |
+| E05 | `QA-MATRIX-E05-weekly-etf-regime` | BUY 100% · DIA, IWM weekly averages ∧ QQQ RSI 21D ∧ stock above SMA 50W · SELL 25% · FINAL EXIT | Weekly averages on funds as Metric and Value: the week-completion rule applied to ETF bars. |
+| E06 | `QA-MATRIX-E06-fund-volume-and-oversold` | BUY 100% · XLE RVOL 20 ∧ XLRE RSI 7D, stock Trigger · two-rule FINAL EXIT (XLRE / USO ∧ Loss) | RVOL and RSI 7D on funds, a stock Trigger gated by ETF Conditions, XLRE (2015). |
+| E07 | `QA-MATRIX-E07-rsi-ladder-control` | BUY 50/100% · stock RSI · SELL · FINAL EXIT | Control of the always-TRUE pair (no ETF). |
+| E08 | `QA-MATRIX-E08-rsi-ladder-always-true-etf` | `E07` ∧ SPY RVOL 10 above 0x everywhere | Always-TRUE probe. |
+| E09 | `QA-MATRIX-E09-rsi-ladder-control-two-levels` | BUY 25/50% · stock RSI · SELL · FINAL EXIT | Control of the never-TRUE pair (no ETF). |
+| E10 | `QA-MATRIX-E10-rsi-ladder-never-true-etf-level` | `E09` + BUY 100% gated by SPY RSI above 100 | Never-TRUE probe: the level must never trade. |
+| T01 | `QA-MATRIX-T01-sector-trend-gate` | BUY 100% · Stock's Sector Price above SMA 200D | One rule, one fund per stock. |
+| T02 | `QA-MATRIX-T02-sector-and-stock-trend` | BUY 100% · sector ∧ stock trend · FINAL EXIT on the sector | Stock and sector in one Signal; a sector-driven exit. |
+| T03 | `QA-MATRIX-T03-sector-weekly-ladder` | BUY 50/100% · sector weekly averages · SELL 50% · FINAL EXIT | Several sector Conditions in one Signal, weekly. |
+| T04 | `QA-MATRIX-T04-sector-rsi-ladder` | BUY 25/50/100% · sector ∧ stock RSI · SELL · FINAL EXIT on sector RSI 21D | Nested sector and stock oscillators. |
+| T05 | `QA-MATRIX-T05-sector-volume-breakout` | BUY 100% · sector RVOL 20 ∧ RSI 7D, stock Trigger · SELL on Gain · two-rule FINAL EXIT (RVOL 10 / RVOL 50 ∧ Loss) | Every RVOL period on the sector fund; position-dependent exits. |
+| T06 | `QA-MATRIX-T06-sector-and-static-fund` | BUY 100% · sector ∧ SPY ∧ XLK RSI · FINAL EXIT on SPY | Static ETFs beside the sector source — XLK read twice for a Technology stock. |
+| T07 | `QA-MATRIX-T07-sector-with-fundamentals` | BUY 100% · sector ∧ ROIC ∧ Debt / Equity · SELL · FINAL EXIT on ROIC | A sector rule beside point-in-time Fundamentals. |
+| T08 | `QA-MATRIX-T08-sector-with-valuation` | BUY 100% · sector SMA 50D above EMA 200D ∧ P/E below 25x ∧ MOS above 0% · FINAL EXIT on P/E | A sector rule beside a valuation ratio and an intrinsic-value margin. |
+| T09 | `QA-MATRIX-T09-xlk-by-name-control` | BUY 100% · XLK Price above SMA 50D ∧ XLK RSI 14D below 70 · FINAL EXIT | Control of the sector-equivalence pair. |
+| T10 | `QA-MATRIX-T10-xlk-as-sector-probe` | `T09` reading Stock's Sector | Equivalence probe (identical on `L01`). |
+
+Between them the twenty fixtures read **all twenty** ETFs (the eleven sector funds through `L11`),
+Price, the daily and weekly SMA/EMA averages, every RSI and RVOL period, `is close to`, every level
+kind and a two-rule FINAL EXIT, and the funds that list inside the horizon (`HYG`, `RSP`, `XLRE`,
+`XLC`). `qa-matrix-source-fixtures.test.ts` proves each claim from the definitions, and
+`packages/contracts/src/strategies.etf-registry-exhaustive.test.ts` separately walks every allowed
+source / level / metric / operator / Value cell — and every forged source and ETF Trigger — against
+the real validator.
+
+### `L11` and the two sector-only securities
+
+The thirty-three matrix securities span nine of FMP's eleven sectors: none is a Utilities or a Real
+Estate company, so no Stock's Sector rule over them could read `XLU` or `XLRE`. `NEE` (Utilities) and
+`PLD` (Real Estate) are therefore added as `QA_MATRIX_SECTOR_SECURITIES` — deliberately **not** in
+`QA_MATRIX_SECURITIES`, whose full-horizon entries `L08` is derived from — and `L11`
+(`QA-MATRIX-L11-sector-spectrum-full`) lists one member of each sector. Only the Stock's Sector
+dimension runs it, in place of `L10` (`QA_MATRIX_LIST_IDS_BY_SET`), so every dimension is still ten
+Lists and a thousand cases; the golden cells move with the List they stood in for. The provisioning
+source must hold both securities' history; the preflight's `ETF condition sources` check resolves
+every member's stored sector through the canonical mapping and fails a sweep in which one does not
+resolve.
+
 ## The 10 Stock Lists
 
 All membership uses **real catalog identities** — `Security` is the identity authority, and a

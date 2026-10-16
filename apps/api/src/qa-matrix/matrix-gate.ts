@@ -88,6 +88,39 @@ export type MatrixGateInput = {
     readonly differences: readonly string[];
   }[];
   readonly archives: MatrixArchiveEvidence | null;
+  /**
+   * What the provider guard refused (`matrix-provider-guard.ts`): every request a worker made that
+   * the pinned dataset could not answer, whichever code path made it. Absent for a sweep run
+   * without a guard, which then rests on the log-line ledger alone.
+   */
+  readonly providerEgress?: {
+    readonly refusedTotal: number;
+    readonly refused: Readonly<
+      Record<
+        string,
+        { readonly count: number; readonly examples: readonly string[] }
+      >
+    >;
+  } | null;
+  /**
+   * The case-by-case equivalences a data-source dimension declares (`QA_MATRIX_METAMORPHIC_PAIRS`):
+   * one entry per compared pair of cases, with every persisted difference.
+   */
+  readonly metamorphic?: readonly {
+    readonly pair: string;
+    readonly caseId: string;
+    readonly differences: readonly string[];
+  }[];
+  /**
+   * What a data-source dimension must be shown to have exercised (`matrix-etf-coverage.ts`): a
+   * sweep whose ETF Conditions were never TRUE, never FALSE or never NOT_EVALUABLE did not test
+   * what it was built to test, however green its runs are.
+   */
+  readonly behaviourCoverage?: readonly {
+    readonly expectation: string;
+    readonly met: boolean;
+    readonly detail: string;
+  }[];
 };
 
 /** One unmet condition. The code is stable; the detail is for a person. */
@@ -378,6 +411,50 @@ export function evaluateMatrixGate(input: MatrixGateInput): MatrixGateVerdict {
           .join("; ") + ".",
       );
     }
+  }
+
+  // ---- Provider egress, measured where requests arrive -------------------------------------
+  if (input.providerEgress && input.providerEgress.refusedTotal > 0) {
+    fail(
+      "PROVIDER_EGRESS",
+      `the provider guard refused ${input.providerEgress.refusedTotal} request(s) the pinned dataset ` +
+        "does not hold: " +
+        Object.entries(input.providerEgress.refused)
+          .map(
+            ([path, entry]) =>
+              `${path} ×${entry.count} (e.g. ${entry.examples.slice(0, 2).join(", ")})`,
+          )
+          .join("; ") +
+        ".",
+    );
+  }
+
+  // ---- Data-source dimensions: equivalences and exercised behaviour ------------------------
+  const differing = (input.metamorphic ?? []).filter(
+    (entry) => entry.differences.length > 0,
+  );
+  if (differing.length > 0) {
+    fail(
+      "METAMORPHIC_DIFFERENCE",
+      `${differing.length} metamorphic comparison(s) differ: ` +
+        differing
+          .slice(0, 10)
+          .map(
+            (entry) =>
+              `${entry.pair} ${entry.caseId} (${entry.differences.slice(0, 2).join("; ")})`,
+          )
+          .join(", ") +
+        (differing.length > 10 ? ", …" : "") +
+        ".",
+    );
+  }
+  const unmet = (input.behaviourCoverage ?? []).filter((entry) => !entry.met);
+  if (unmet.length > 0) {
+    fail(
+      "BEHAVIOUR_COVERAGE",
+      unmet.map((entry) => `${entry.expectation}: ${entry.detail}`).join("; ") +
+        ".",
+    );
   }
 
   return {

@@ -11,6 +11,13 @@ import { PrismaService } from "../database/prisma.service";
 import { BacktestsService } from "../backtests/backtests.service";
 import { parseCreateBacktestRunRequest } from "../backtests/backtest-requests";
 import type { QaMatrixCase } from "./matrix-case";
+import {
+  buildOracleColumns,
+  type OracleColumns,
+  type OracleVenueSchedule,
+} from "./matrix-etf-oracle";
+import { snapshotReadsEtf } from "./matrix-etf-invariants";
+import type { PinnedVenueCalendar } from "./matrix-venue-calendar";
 import type {
   EvidenceEquity,
   EvidencePosition,
@@ -243,8 +250,61 @@ export class MatrixSeriesCache {
     readonly { date: string; close: string }[]
   >();
   private readonly firstPrices = new Map<string, string>();
+  private readonly oracles = new Map<string, Promise<OracleColumns | null>>();
+  private readonly schedule: OracleVenueSchedule;
 
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    /**
+     * The venue schedule the sweep's workers replayed, read here by the ETF oracle independently of
+     * the product's calendar (`matrix-venue-calendar.ts`). Absent: every year is unanswerable, which
+     * is also what the workers met.
+     */
+    pinnedCalendar: PinnedVenueCalendar | null = null,
+  ) {
+    this.schedule = venueScheduleOf(pinnedCalendar);
+  }
+
+  /**
+   * The independent oracle columns of one ETF series, built once per sweep from its stored bars —
+   * or `null` when the series has none.
+   */
+  etfOracle(seriesId: string): Promise<OracleColumns | null> {
+    const cached = this.oracles.get(seriesId);
+    if (cached) {
+      return cached;
+    }
+    const built = this.prisma.benchmarkDailyPrice
+      .findMany({
+        where: { seriesId },
+        orderBy: { date: "asc" },
+        select: {
+          date: true,
+          open: true,
+          high: true,
+          low: true,
+          close: true,
+          volume: true,
+        },
+      })
+      .then((rows) =>
+        rows.length === 0
+          ? null
+          : buildOracleColumns(
+              rows.map((row) => ({
+                date: day(row.date),
+                open: row.open.toNumber(),
+                high: row.high.toNumber(),
+                low: row.low.toNumber(),
+                close: row.close.toNumber(),
+                volume: Number(row.volume),
+              })),
+              this.schedule,
+            ),
+      );
+    this.oracles.set(seriesId, built);
+    return built;
+  }
 
   async calendarDates(seriesId: string): Promise<readonly string[]> {
     const cached = this.calendars.get(seriesId);
@@ -442,5 +502,91 @@ export async function collectRunEvidence(
     executionCalendarDates: calendarDates,
     benchmarkCloses,
     firstPriceDateBySecurityId,
+    ...(snapshotReadsEtf(snapshot)
+      ? {
+          etf: {
+            oracleBySeriesId: new Map(
+              (
+                await Promise.all(
+                  (snapshot.etfSeries ?? []).map(
+                    async (pin) =>
+                      [
+                        pin.seriesId,
+                        await series.etfOracle(pin.seriesId),
+                      ] as const,
+                  ),
+                )
+              ).filter(
+                (entry): entry is readonly [string, OracleColumns] =>
+                  entry[1] !== null,
+              ),
+            ),
+            diagnostics: run.summary?.etfConditionDiagnostics ?? null,
+            currentSectorBySecurityId: new Map(
+              (
+                await prisma.security.findMany({
+                  where: {
+                    id: {
+                      in: snapshot.securities.map(
+                        (security) => security.securityId,
+                      ),
+                    },
+                  },
+                  select: { id: true, sector: true },
+                })
+              ).map((row) => [row.id, row.sector] as const),
+            ),
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * The pinned provider answers as the oracle reads them: the full closures of one year on the ETF
+ * venue (`NYSE`), or `null` for a year the provider did not answer usably — a non-2xx answer, an
+ * unparseable one, or fewer full closures than any real year has (the same plausibility floor the
+ * product's calendar applies, restated).
+ */
+function venueScheduleOf(
+  calendar: PinnedVenueCalendar | null,
+): OracleVenueSchedule {
+  const MIN_FULL_CLOSURES = 6;
+  const byYear = new Map<string, ReadonlySet<string> | null>();
+  for (const response of calendar?.responses ?? []) {
+    if (
+      response.path !== "holidays-by-exchange" ||
+      response.query.exchange !== "NYSE"
+    ) {
+      continue;
+    }
+    const year = (response.query.to ?? "").slice(0, 4);
+    let closures: Set<string> | null = null;
+    if (response.status >= 200 && response.status < 300) {
+      try {
+        const rows = JSON.parse(response.body) as {
+          date?: unknown;
+          isClosed?: unknown;
+          isFullyClosed?: unknown;
+        }[];
+        closures = new Set(
+          rows
+            .filter((row) =>
+              typeof row.isFullyClosed === "boolean"
+                ? row.isFullyClosed
+                : row.isClosed === true,
+            )
+            .map((row) => String(row.date))
+            .filter((date) => date.startsWith(`${year}-`)),
+        );
+        if (closures.size < MIN_FULL_CLOSURES) {
+          closures = null;
+        }
+      } catch {
+        closures = null;
+      }
+    }
+    byYear.set(year, closures);
+  }
+  return (year) => byYear.get(year) ?? null;
 }

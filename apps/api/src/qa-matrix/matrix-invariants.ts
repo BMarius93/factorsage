@@ -1,6 +1,10 @@
 import type { BacktestRunSnapshot } from "@intrinsic/contracts";
 import Decimal from "decimal.js";
 import { ExecutionCalendar } from "@intrinsic/strategy";
+import {
+  validateEtfInvariants,
+  type EtfRunEvidence,
+} from "./matrix-etf-invariants";
 
 /**
  * The validator's own decimal constructor, pinned like the engine's.
@@ -261,6 +265,8 @@ export type RunEvidence = {
   }[];
   /** First canonical price date per security, for the pre-listing check. */
   readonly firstPriceDateBySecurityId: ReadonlyMap<string, string>;
+  /** Present only when the snapshot reads an ETF: invariants 41–44 (`matrix-etf-invariants.ts`). */
+  readonly etf?: EtfRunEvidence;
 };
 
 /**
@@ -425,6 +431,18 @@ export function validateRunInvariants(
   results.push(checkBuyWindowBoundaries(evidence, bySecurity, calendar));
   results.push(checkNoPreListingTrades(evidence));
   results.push(checkNoWarmupDates(evidence, calendar));
+
+  // The data-source dimensions' own invariants, only for a run whose snapshot reads an ETF, so no
+  // other dimension's report changes shape.
+  if (evidence.etf) {
+    results.push(
+      ...validateEtfInvariants({
+        snapshot: evidence.snapshot,
+        trades,
+        etf: evidence.etf,
+      }),
+    );
+  }
 
   return results;
 }

@@ -473,6 +473,77 @@ describe("each mandatory condition turns the verdict red on its own", () => {
       ),
     ).toContain("ARCHIVE_UNVERIFIED");
   });
+
+  it("a request the provider guard refused, whatever code path made it", () => {
+    expect(
+      codes(
+        green({
+          providerEgress: {
+            refusedTotal: 1,
+            refused: {
+              "holidays-by-exchange": {
+                count: 1,
+                examples: [
+                  "holidays-by-exchange?exchange=NYSE&from=1989-12-31&to=1990-12-31",
+                ],
+              },
+            },
+          },
+        }),
+      ),
+    ).toEqual(["PROVIDER_EGRESS"]);
+    // Pinned replays are not refusals.
+    expect(
+      codes(green({ providerEgress: { refusedTotal: 0, refused: {} } })),
+    ).toEqual([]);
+  });
+
+  it("a metamorphic pair whose two executions differ", () => {
+    expect(
+      codes(
+        green({
+          metamorphic: [
+            { pair: "E07≡E08", caseId: "E08-L01-C04", differences: [] },
+            {
+              pair: "E07≡E08",
+              caseId: "E08-L02-C04",
+              differences: ["trade count: 4 vs 3"],
+            },
+          ],
+        }),
+      ),
+    ).toEqual(["METAMORPHIC_DIFFERENCE"]);
+    expect(
+      codes(
+        green({
+          metamorphic: [
+            { pair: "E07≡E08", caseId: "E08-L01-C04", differences: [] },
+          ],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("a data-source behaviour the sweep never exercised", () => {
+    expect(
+      codes(
+        green({
+          behaviourCoverage: [
+            {
+              expectation: "E01 c1 was both TRUE and FALSE",
+              met: true,
+              detail: "",
+            },
+            {
+              expectation: "ETF_XLC was NOT_EVALUABLE before it listed",
+              met: false,
+              detail: "0 NOT_EVALUABLE",
+            },
+          ],
+        }),
+      ),
+    ).toEqual(["BEHAVIOUR_COVERAGE"]);
+  });
 });
 
 describe("the report and the exit code follow the same verdict", () => {

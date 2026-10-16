@@ -16,6 +16,7 @@ import {
   QA_MATRIX_LIST_BEHAVIOURS,
   QA_MATRIX_NAME_PREFIX,
   QA_MATRIX_PLAYWRIGHT_SAMPLE,
+  QA_MATRIX_ALL_SECURITIES,
   QA_MATRIX_SECURITIES,
   QA_MATRIX_STRATEGIES,
   QA_MATRIX_STRATEGY_BEHAVIOURS,
@@ -57,6 +58,8 @@ describe("QA-MATRIX fixture definitions", () => {
   const fixtures = qaMatrixFixtures(asOfDate);
   const { periods, calendar } = fixtures;
   const QA_MATRIX_LISTS = fixtures.lists;
+  // Every List any dimension runs: the ten above plus the Stock's Sector dimension's `L11`.
+  const ALL_LISTS = fixtures.allLists;
   const QA_MATRIX_CONFIGS = fixtures.configs;
   const boundaryDates = qaMatrixBoundaryDates(periods, calendar);
 
@@ -139,7 +142,7 @@ describe("QA-MATRIX fixture definitions", () => {
     it("cannot collide with an ordinary QA fixture: every name is namespaced", () => {
       // The lists and Stock Details suites seed `QATEST1`/`QATEST2` and create lists and strategies
       // of their own. Nothing they own begins with the reserved prefix.
-      for (const fixture of [...QA_MATRIX_STRATEGIES, ...QA_MATRIX_LISTS]) {
+      for (const fixture of [...QA_MATRIX_STRATEGIES, ...ALL_LISTS]) {
         expect(fixture.name.startsWith(QA_MATRIX_NAME_PREFIX)).toBe(true);
       }
     });
@@ -236,6 +239,18 @@ describe("QA-MATRIX fixture definitions", () => {
       const laterFamilies = new Set<string>([
         "FUNDAMENTAL_PERCENT",
         "FUNDAMENTAL_MULTIPLE",
+        // The data-source tags belong to the `E` and `T` dimensions
+        // (`qa-matrix-source-fixtures.test.ts`), for the same reason.
+        "ETF_SOURCE",
+        "STOCK_SECTOR_SOURCE",
+        "MULTIPLE_ETF_SOURCES",
+        "SAME_SOURCE_MULTIPLE_CONDITIONS",
+        "MIXED_DATA_SOURCES",
+        "ALWAYS_TRUE_PROBE",
+        "ALWAYS_FALSE_PROBE",
+        "EQUIVALENCE_PROBE",
+        "METAMORPHIC_CONTROL",
+        "YOUNGER_ETF_SOURCE",
       ]);
       for (const behaviour of QA_MATRIX_STRATEGY_BEHAVIOURS.filter(
         (tag) => !laterFamilies.has(tag),
@@ -250,11 +265,11 @@ describe("QA-MATRIX fixture definitions", () => {
 
   describe("lists", () => {
     it("references only securities in the matrix catalog universe, and uses all of them", () => {
-      const universe = new Set(
-        QA_MATRIX_SECURITIES.map((security) => security.symbol),
+      const universe = new Set<string>(
+        QA_MATRIX_ALL_SECURITIES.map((security) => security.symbol),
       );
-      const referenced = new Set(
-        QA_MATRIX_LISTS.flatMap((fixture) =>
+      const referenced = new Set<string>(
+        ALL_LISTS.flatMap((fixture) =>
           fixture.members.map((member) => member.symbol),
         ),
       );
@@ -271,14 +286,14 @@ describe("QA-MATRIX fixture definitions", () => {
     });
 
     it("keeps every membership within one list unique", () => {
-      for (const fixture of QA_MATRIX_LISTS) {
+      for (const fixture of ALL_LISTS) {
         const symbols = fixture.members.map((member) => member.symbol);
         expect(new Set(symbols).size, fixture.name).toBe(symbols.length);
       }
     });
 
     it("stays inside the backtest submission's security cap", () => {
-      for (const fixture of QA_MATRIX_LISTS) {
+      for (const fixture of ALL_LISTS) {
         expect(fixture.members.length).toBeGreaterThan(0);
         expect(fixture.members.length).toBeLessThanOrEqual(
           BACKTEST_MAX_SECURITIES,
@@ -287,7 +302,7 @@ describe("QA-MATRIX fixture definitions", () => {
     });
 
     it("states every buy window in its canonical persisted form already", () => {
-      for (const fixture of QA_MATRIX_LISTS) {
+      for (const fixture of ALL_LISTS) {
         for (const member of fixture.members) {
           const canonical = normalizeBuyWindowConfiguration({
             mode: member.mode,
@@ -304,7 +319,7 @@ describe("QA-MATRIX fixture definitions", () => {
     });
 
     it("persists zero ranges for FULL and at least one for CUSTOM", () => {
-      for (const fixture of QA_MATRIX_LISTS) {
+      for (const fixture of ALL_LISTS) {
         for (const member of fixture.members) {
           if (member.mode === "FULL") {
             expect(member.ranges, `${fixture.name}/${member.symbol}`).toEqual(
@@ -509,7 +524,7 @@ describe("QA-MATRIX fixture definitions", () => {
 
     it("covers every intended universe and buy-window behaviour at least once", () => {
       const covered = new Set(
-        QA_MATRIX_LISTS.flatMap((fixture) => fixture.behaviours),
+        ALL_LISTS.flatMap((fixture) => fixture.behaviours),
       );
       for (const behaviour of QA_MATRIX_LIST_BEHAVIOURS) {
         expect(covered.has(behaviour), `no list exercises ${behaviour}`).toBe(
@@ -525,7 +540,7 @@ describe("QA-MATRIX fixture definitions", () => {
       expect(sizeOf("L01")).toBe(1);
       // The large list is Dow-sized: the intended V1 usage, well inside the 200-security cap.
       expect(sizeOf("L08")).toBe(30);
-      for (const fixture of QA_MATRIX_LISTS) {
+      for (const fixture of ALL_LISTS) {
         if (fixture.behaviours.includes("SMALL_UNIVERSE")) {
           expect(fixture.members.length, fixture.name).toBeLessThanOrEqual(4);
         }
@@ -848,7 +863,7 @@ describe("QA-MATRIX fixture definitions", () => {
 
   describe("securities", () => {
     it("uses real catalog identities on supported exchanges", () => {
-      for (const security of QA_MATRIX_SECURITIES) {
+      for (const security of QA_MATRIX_ALL_SECURITIES) {
         // Real US tickers are at most five characters. The deliberately fictional `QATEST*` rows
         // are seven, precisely so catalog synchronization can never reclaim them; these are the
         // opposite kind of fixture and must look exactly like the catalog rows they are.
@@ -858,7 +873,9 @@ describe("QA-MATRIX fixture definitions", () => {
         expect(security.type).toBe("STOCK");
         expect(security.listedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       }
-      const symbols = QA_MATRIX_SECURITIES.map((security) => security.symbol);
+      const symbols = QA_MATRIX_ALL_SECURITIES.map(
+        (security) => security.symbol,
+      );
       expect(new Set(symbols).size).toBe(symbols.length);
     });
 
@@ -866,7 +883,7 @@ describe("QA-MATRIX fixture definitions", () => {
       const horizonStart = QA_MATRIX_CONFIGS.find(
         (config) => config.id === "C01",
       )!.request.startDate;
-      for (const security of QA_MATRIX_SECURITIES) {
+      for (const security of QA_MATRIX_ALL_SECURITIES) {
         const expected =
           security.listedOn < horizonStart ? "FULL_HORIZON" : "LATER_LISTING";
         expect(security.coverage, security.symbol).toBe(expected);

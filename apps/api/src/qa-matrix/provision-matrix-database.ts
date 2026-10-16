@@ -3,7 +3,7 @@ import { PrismaClient, type Prisma } from "@intrinsic/database";
 import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
 import { DEFAULT_BENCHMARK_CODE } from "@intrinsic/contracts";
 import { createStockDataRedisClient } from "@intrinsic/stock-data";
-import { QA_MATRIX_SECURITIES } from "@intrinsic/testing";
+import { QA_MATRIX_ALL_SECURITIES } from "@intrinsic/testing";
 import type { MatrixEnvironment } from "./matrix-environment";
 import {
   MIRROR_PAGE,
@@ -599,6 +599,47 @@ function copiers(securityIds: readonly string[]): readonly Copier[] {
       },
     },
     {
+      // The ETF price basis travels with the bars it describes, exactly as a security's does. Without
+      // it every series reads generation 0 — "never replaced" — so a matrix run would record a basis
+      // its source never had, and an ETF condition's diagnostics could not be compared with the same
+      // run in the development database.
+      table: "BenchmarkSeriesPriceBasis",
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.benchmarkSeriesPriceBasis.findMany({
+              orderBy: { seriesId: "asc" },
+              skip,
+              take,
+            }),
+          () => target.benchmarkSeriesPriceBasis.deleteMany({}),
+          (rows) =>
+            target.benchmarkSeriesPriceBasis.createMany({ data: [...rows] }),
+        );
+      },
+    },
+    {
+      table: "BenchmarkPriceBasisEvent",
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.benchmarkPriceBasisEvent.findMany({
+              orderBy: { id: "asc" },
+              skip,
+              take,
+            }),
+          () => target.benchmarkPriceBasisEvent.deleteMany({}),
+          (rows) =>
+            target.benchmarkPriceBasisEvent.createMany({
+              data: rows.map((row) => ({
+                ...row,
+                evidence: row.evidence as Prisma.InputJsonValue,
+              })),
+            }),
+        );
+      },
+    },
+    {
       table: "BenchmarkDatasetCoverage",
       copy(source, target) {
         return mirrorScope(
@@ -637,7 +678,7 @@ export async function copyCanonicalMarketData(
   });
 
   try {
-    const symbols = QA_MATRIX_SECURITIES.map((entry) => entry.symbol);
+    const symbols = QA_MATRIX_ALL_SECURITIES.map((entry) => entry.symbol);
     const sourceSecurities = await source.security.findMany({
       where: { symbol: { in: symbols } },
       select: { id: true, symbol: true },

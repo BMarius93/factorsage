@@ -70,6 +70,7 @@
     "qa:matrix:provision": "pnpm build:packages && pnpm --filter @intrinsic/api qa:matrix:provision",
     "qa:matrix:preflight": "pnpm build:packages && pnpm --filter @intrinsic/api qa:matrix:preflight",
     "qa:matrix:run": "pnpm build:packages && pnpm --filter @intrinsic/worker build && pnpm --filter @intrinsic/api qa:matrix:run",
+    "qa:matrix:capture-calendar": "pnpm build:packages && pnpm --filter @intrinsic/api qa:matrix:capture-calendar",
     "audit:data-correctness": "pnpm build:packages && pnpm --filter @intrinsic/api audit:data-correctness",
     "audit:valuation": "pnpm build:packages && pnpm --filter @intrinsic/api audit:valuation",
     "bench:daily-state-cache": "pnpm build:packages && pnpm --filter @intrinsic/api bench:daily-state-cache",
