@@ -270,12 +270,13 @@ describe.skipIf(!ENABLED)(
      * (a lengthened cadence, so immediate and invoiced). The user has paid for a year of PRO; at the
      * old period end they must still be on PRO_YEARLY, and nothing may still be scheduled.
      *
-     * Observed on 2026-10-16: the upgrade succeeds and is invoiced, the schedule stays attached with
-     * its STARTER_MONTHLY phase, and at the old monthly boundary Stripe moves the subscription to
-     * STARTER_MONTHLY — FactorSage follows to STARTER. Marked `it.fails` while the defect is open.
+     * Observed on 2026-10-16 before the fix: the upgrade succeeded and was invoiced, the schedule
+     * stayed attached with its STARTER_MONTHLY phase, and at the old monthly boundary Stripe moved
+     * the subscription to STARTER_MONTHLY — FactorSage followed to STARTER. The upgrade now releases
+     * the schedule before it updates the price.
      */
-    it.fails(
-      "KNOWN DEFECT BILL-01: an immediate upgrade made while a downgrade is scheduled survives the old period end",
+    it(
+      "BILL-01: an immediate upgrade made while a downgrade is scheduled survives the old period end",
       async () => {
         const persona = scratchOf(BILLING_PERSONAS.BILLING_PRO_ACTIVE);
         const seeded = await seedBillingPersona(tooling, persona, {
@@ -389,6 +390,57 @@ describe.skipIf(!ENABLED)(
         expect(afterBoundary.factorsage).toEqual(
           expect.objectContaining({ plan: "PRO" }),
         );
+      },
+      STRIPE_TIMEOUT_MS,
+    );
+
+    /**
+     * BILL-02: two Checkout requests for one account before either is paid. Paying needs a browser,
+     * so this proves what decides payability: after the second request, exactly one of the
+     * customer's sessions is still open at Stripe — the first was expired when the second was made.
+     */
+    it(
+      "BILL-02: a second Checkout leaves exactly one payable session",
+      async () => {
+        // The canceled persona: a customer on its own Test Clock whose subscription has ended, so
+        // Checkout is allowed and everything it creates goes when the clock is deleted.
+        const persona = scratchOf(BILLING_PERSONAS.BILLING_CANCELED);
+        const seeded = await seedBillingPersona(tooling, persona, {
+          password: null,
+        });
+        expect(seeded.problems).toEqual([]);
+        const user = await authUser(persona.email);
+
+        const first = await billing.createCheckoutSession({
+          user,
+          priceKey: "PRO_MONTHLY",
+          requestId: randomUUID(),
+        });
+        const second = await billing.createCheckoutSession({
+          user,
+          priceKey: "PRO_MONTHLY",
+          requestId: randomUUID(),
+        });
+        expect(first.checkoutUrl).not.toBe(second.checkoutUrl);
+
+        expect(
+          (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+            .stripeCustomerId,
+        ).toBe(seeded.customerId);
+        // Only the second session was still open; expiring it now leaves the account with none.
+        const sweep = await stripe.expireOpenCheckoutSessions(
+          seeded.customerId,
+        );
+        record("bill-02-two-checkouts", [
+          { step: "two Checkout requests, then a sweep", sweep },
+        ]);
+        expect(sweep).toEqual({ expired: 1, completed: 0 });
+        // Nothing live was created: the canceled subscription is still the only one.
+        expect(
+          (
+            await stripe.loadCustomerBillingState(seeded.customerId)
+          ).subscriptions.map((subscription) => subscription.status),
+        ).toEqual(["canceled"]);
       },
       STRIPE_TIMEOUT_MS,
     );
