@@ -229,7 +229,12 @@ export function buildAlternativeDataColumn(input: {
 
   const actorCounts = new Map<string, number>();
   let events = 0;
-  let amountTotal = 0;
+  // Money is summed in whole ten-thousandths of a dollar — the stored precision, `Decimal(24,4)` —
+  // never in floating-point dollars. Adding each disclosure as it enters the window and subtracting
+  // it as it leaves left a binary residue (6.98e-12 after four ordinary amounts) when the window
+  // emptied, and `purchase value is above $0` then read TRUE with no purchase in the window (ALT-01).
+  // Integer sums are exact up to 2^53 units, about $900 billion in one window.
+  let amountUnits = 0;
   let nextToEnter = 0;
   let nextToLeave = 0;
 
@@ -240,7 +245,7 @@ export function buildAlternativeDataColumn(input: {
     );
     events += 1;
     if (observation.amount !== undefined && Number.isFinite(observation.amount)) {
-      amountTotal += observation.amount;
+      amountUnits += moneyUnits(observation.amount);
     }
   };
 
@@ -253,7 +258,7 @@ export function buildAlternativeDataColumn(input: {
     }
     events -= 1;
     if (observation.amount !== undefined && Number.isFinite(observation.amount)) {
-      amountTotal -= observation.amount;
+      amountUnits -= moneyUnits(observation.amount);
     }
   };
 
@@ -300,12 +305,20 @@ export function buildAlternativeDataColumn(input: {
         column[index] = events;
         break;
       case "SUM_AMOUNT":
-        column[index] = amountTotal;
+        column[index] = amountUnits / MONEY_UNITS_PER_DOLLAR;
         break;
     }
   }
 
   return column;
+}
+
+/** Ten-thousandths of a dollar: the precision every disclosure amount is stored at. */
+const MONEY_UNITS_PER_DOLLAR = 10_000;
+
+/** An amount as whole ten-thousandths, so a window's sum is exact and an empty window is exactly 0. */
+function moneyUnits(amount: number): number {
+  return Math.round(amount * MONEY_UNITS_PER_DOLLAR);
 }
 
 /**
