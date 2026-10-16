@@ -20,6 +20,7 @@ import {
 import { buildDailyDerivedState } from "./derived-state.js";
 import { addDays } from "./dates.js";
 import { referenceMovingAverage } from "./moving-average-oracle.test-helper.js";
+import { quantizeToStoredDecimal } from "./stored-decimal.js";
 import { referenceWilderRsi } from "./wilder-rsi-oracle.test-helper.js";
 import {
   aggregateCompletedWeeks,
@@ -149,8 +150,9 @@ describe("stock/ETF methodology parity", () => {
       stockRows.forEach((row, index) => {
         const stockValue = row[field];
         if (typeof stockValue === "number") {
-          // Exact equality: it is the same kernel, so parity is bit-for-bit, not approximate.
-          expect(column[index]).toBe(stockValue);
+          // Exact equality with what a stock *reads*: the same kernel, then the same storage-scale
+          // rounding the stock's `numeric(20, 8)` column applies (FIN-12) — bit-for-bit.
+          expect(column[index]).toBe(quantizeToStoredDecimal(stockValue));
         } else {
           expect(Number.isNaN(column[index])).toBe(true);
         }
@@ -203,13 +205,13 @@ describe("stock and ETF weekly values on holiday calendars, evening by evening",
         ),
       });
       const weekly = BENCHMARK_TECHNICAL_FIELDS.filter((field) => field.endsWith("w"));
-      // The stock path and the fund path: one value, bit for bit.
+      // The stock path and the fund path: one value, bit for bit, at the stock's storage scale.
       for (const field of weekly) {
         const column = final.columns.get(field)!;
         stockRows.forEach((row, index) => {
           const value = row[field];
           if (typeof value === "number") {
-            expect(column[index]).toBe(value);
+            expect(column[index]).toBe(quantizeToStoredDecimal(value));
           } else {
             expect(Number.isNaN(column[index])).toBe(true);
           }
@@ -296,7 +298,8 @@ describe("independent numerical oracles", () => {
         for (let back = 1; back <= period; back += 1) {
           sum += volumes[index - back]!;
         }
-        expect(column[index]).toBeCloseTo(volume / (sum / period), 10);
+        // Read at the stock's storage scale (eight places), so within its rounding.
+        expect(column[index]).toBeCloseTo(volume / (sum / period), 7);
       });
     }
   });
@@ -692,8 +695,8 @@ describe("warm-up and no-look-ahead", () => {
  * SMA 200D of 14.690000000000033, exited ten positions at once in the matrix.
  *
  * These 25 closes are the smallest such history found: the last close, 14.68, is the exact mean of
- * the last twenty (their sum is 293.60), and the running sum reads 14.680000000000001. Marked
- * `it.fails` while the defect is open; it turns red once the ETF path reads the tie as a stock does.
+ * the last twenty (their sum is 293.60), and the running sum reads 14.680000000000001. Failed on
+ * `bc11cfed`; the ETF technicals are now read at the stock's storage scale.
  */
 describe("exact ties against a moving average (FIN-12)", () => {
   const CLOSES = [
@@ -719,11 +722,64 @@ describe("exact ties against a moving average (FIN-12)", () => {
     expect(sum / 20).toBe(Math.round(CLOSES[CLOSES.length - 1]! * 100));
   });
 
-  it.fails("KNOWN DEFECT FIN-12: an ETF reads an exact SMA tie as a tie, as a stock does", () => {
+  it("FIN-12: an ETF reads an exact SMA tie as a tie, as a stock does", () => {
     const snapshot = snapshotOf(readyContext(tieBars));
     expect(benchmarkTechnicalValueOn(snapshot, last, "sma20d")).toBe(
       benchmarkTechnicalValueOn(snapshot, last, "close"),
     );
+  });
+
+  it("reads every exact daily SMA tie of a tie-dense history as a tie, neither above nor below", () => {
+    // Closes on a handful of cent levels, so a close often equals its exact window mean. The ties
+    // are found in integer cents, independently of the kernel.
+    const random = seeded(1_216);
+    const dates = sessions("2014-01-02", 2_500);
+    const cents = dates.map(() => 1_467 + Math.floor(random() * 3));
+    const bars: BenchmarkDailyPrice[] = dates.map((date, index) => {
+      const close = cents[index]! / 100;
+      return { seriesId: SERIES_ID, date, open: close, high: close, low: close, close, volume: 1_000_000 };
+    });
+    const snapshot = snapshotOf(readyContext(bars));
+    const raw = buildDailyDerivedState({
+      prices: bars.map((bar) => ({ ...bar, securityId: "stock-1" })),
+    });
+
+    const ties: Array<{ date: LocalDate; field: string }> = [];
+    let rawMisses = 0;
+    for (const period of [20, 50, 100, 200] as const) {
+      const field = `sma${period}d` as const;
+      let windowSum = 0;
+      cents.forEach((close, index) => {
+        windowSum += close;
+        if (index >= period) {
+          windowSum -= cents[index - period]!;
+        }
+        if (index + 1 < period || windowSum !== close * period) {
+          return;
+        }
+        const date = dates[index]!;
+        const average = benchmarkTechnicalValueOn(snapshot, date, field);
+        const price = benchmarkTechnicalValueOn(snapshot, date, "close");
+        ties.push({ date, field });
+        // `is above` and `is below` are strict: both FALSE on a tie.
+        expect({ date, field, above: price > average, below: price < average }).toEqual({
+          date,
+          field,
+          above: false,
+          below: false,
+        });
+        expect(raw[index]!.date).toBe(date);
+        if (raw[index]![field] !== price) {
+          rawMisses += 1;
+        }
+      });
+    }
+    // Enough ties at every period to mean something, and the unrounded kernel does decide some of
+    // them on float noise — which is what this test would catch coming back.
+    for (const period of [20, 50, 100, 200]) {
+      expect(ties.filter((tie) => tie.field === `sma${period}d`).length).toBeGreaterThan(30);
+    }
+    expect(rawMisses).toBeGreaterThan(0);
   });
 });
 

@@ -27,6 +27,7 @@ export * from "./share-basis.js";
 export * from "./valuation-ratios.js";
 export * from "./security-search.js";
 export * from "./service.js";
+export * from "./stored-decimal.js";
 export * from "./technicals.js";
 export * from "./trading-calendar.js";
 export * from "./weekly.js";
