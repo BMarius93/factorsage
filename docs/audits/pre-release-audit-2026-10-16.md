@@ -821,8 +821,8 @@ result-retention policy, and an owner decision on FIN-03 (amendments) and FIN-07
 
 ## 8. Handoff
 
-- **Branch:** `test/pre-release-audit-qa-matrix`, from `main` @ `bebf3dc7`. **Pull request:** <!-- PR-URL --> (open;
-  not merged).
+- **Branch:** `test/pre-release-audit-qa-matrix`, from `main` @ `bebf3dc7`. **Pull request:** [#108](https://github.com/BMarius93/factorsage/pull/108)
+  (open; not merged). The audit's own work is commit `0b95ad7f`.
 - **What the branch changes:** QA-matrix fixtures and tooling (`packages/testing/src/qa-matrix/`,
   `apps/api/src/qa-matrix*`), new tests and known-defect pins, two development runbooks, this report. **No production
   source file is modified.**
