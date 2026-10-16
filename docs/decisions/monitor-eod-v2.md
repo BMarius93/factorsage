@@ -211,6 +211,18 @@ horizon (`EOD_LATE_RECOVERY_MS`, four days, §10; 24 hours before step 9): a ses
 ago than that is decided with the ETF's columns absent, so its rules are `NOT_EVALUABLE` — which moves
 nothing, an ACTIVE level stays latched — never a carried value.
 
+**An ETF that could not be read is not an ETF that is behind** (pre-release audit MON-02, fixed
+2026-10-16). The bounded wait applies only to an answer the loader gave — a fund not bootstrapped,
+not synchronized, or whose newest session is older than the stock's. A snapshot that could not be
+read this pass — the history read threw, the code did not resolve, no ETF loader is configured — says
+nothing about whether the fund printed, so every member reading that fund is **held where it is,
+with no give-up bound**, and counted in `membersAwaitingEtf` (`monitor.etf-context.unreadable` at
+warn). Deciding sessions without it recorded every rule that reads it as `NOT_EVALUABLE`
+permanently: a Redis blip during a new Monitor's replay lost the window's activations for good. Once
+a pass reads the fund again, the held sessions are decided in order, exactly as a Monitor that never
+saw the failure decides them. A backtest whose ETF cannot be read stops with `EXECUTION_FAILED`
+rather than completing on undecidable rules.
+
 ### 3.6 Migration `20261014200000_monitor_eod_evaluation`
 
 Additive only: two enums, `Monitor.watchingSince` (nullable, not backfilled),

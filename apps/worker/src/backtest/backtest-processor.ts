@@ -616,6 +616,23 @@ export class BacktestProcessor implements BacktestJobProcessor {
             logger: this.dependencies.logger,
             logContext: { component: "backtest" },
           });
+    // A fund whose history could not be *read* is not a fund with no data. Running on would make
+    // every rule reading it NOT_EVALUABLE for the whole period and complete a result that looks like
+    // the strategy's own — a transient Redis or PostgreSQL failure turned into a financial answer
+    // (MON-02's backtest form). The run stops instead, so it can simply be run again. A fund that
+    // answered — not bootstrapped, no finalized session — still degrades exactly its rules, with
+    // the reason recorded.
+    const unreadableEtfs = etfDiagnostics.filter(
+      (diagnostic) => diagnostic.status === "LOAD_FAILED",
+    );
+    if (unreadableEtfs.length > 0) {
+      throw new BacktestRunFailure(
+        "EXECUTION_FAILED",
+        FAILURE_MESSAGES.EXECUTION_FAILED,
+        `The ETF data for ${unreadableEtfs.map((diagnostic) => diagnostic.ticker).join(", ")} could not be read.`,
+        { unreadableEtfs: unreadableEtfs.map((diagnostic) => diagnostic.code) },
+      );
+    }
 
     const loaded: (PreparedSecurity | null)[] = snapshot.securities.map(
       () => null,
