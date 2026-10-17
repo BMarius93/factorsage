@@ -3384,19 +3384,24 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   }
 
   /**
-   * The range the loader materializes to answer a requested read.
+   * The range the loader materializes to answer a requested read: always the whole price
+   * retention window, whatever the caller asked for (CONC-01).
    *
-   * The caller's window decides the load. Only the derived warm-up is added to it, and the
-   * **price retention** horizon clamps it — never the product horizon, which is a bound on what
-   * may be *shown*, not on what may be *held*. Clamping the load to the product horizon is what
-   * used to leave a maximum-length backtest with no two-hundred-week average on its first years:
-   * the warm-up was subtracted and then immediately clamped back onto the boundary it was meant
-   * to reach behind.
+   * Recursive series — every EMA, Wilder's RSI, the first weekly bar — are anchored at the earliest
+   * stored bar (AUD-02), so the history a calculation starts from is part of every value it
+   * produces. While the load was scoped to the caller's window plus the derived warm-up, a stock
+   * first opened in a one-year Stock Details view started its history four years before that year;
+   * a thirty-year backtest later widened it, the derived state was rebuilt from the new first bar,
+   * and the values of dates already served changed (AAPL's EMA 200W in March 2016: 22.96 before,
+   * 23.23 after). Which client happened to arrive first decided the numbers.
    *
-   * Below the product horizon the boundary stops being caller-scoped and snaps to the retention
-   * start. There is no surface down there to scope it to, and one canonical prefix is what makes
-   * the second deep caller free: every request that reaches past the product boundary converges on
-   * the same range, so it is fetched once, covered once, and never re-requested in ragged slices.
+   * Anchoring every load at the canonical retention start removes that order from the result:
+   * the first hydration — whoever triggers it — stores the security's whole retained history, and
+   * every later read, narrow or wide, is served from it. It costs no provider request (the first
+   * read was one request either way, and a later deep read needs none), and more rows and
+   * calculation on a security's first touch. The retention horizon still bounds the load; the
+   * product horizon still bounds what any surface may show. The requested window is what the
+   * caller reads afterwards, never what is materialized.
    *
    * The upper bound stays today because a resident stock is only usable while its tail is current:
    * freshness, the recent-tail refresh and the manifest all key off it, and nothing is saved by
@@ -3404,18 +3409,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    */
   private loadTarget(
     security: Security,
-    requested: Required<DateRange>,
+    _requested: Required<DateRange>,
   ): Required<DateRange> {
-    const product = this.productTarget(security);
-    const retention = this.priceRetentionTarget(security);
-    const warmed = minDate(
-      addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS),
-      product.to,
-    );
-    return {
-      from: warmed <= product.from ? retention.from : warmed,
-      to: retention.to,
-    };
+    return this.priceRetentionTarget(security);
   }
 
   /**

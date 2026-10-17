@@ -1717,6 +1717,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
         }),
         options,
       );
+      // B is configured with a one-year-longer horizon — a deployment widening its retention — so
+      // the stock A holds READY over A's retention window lacks B's oldest year and B must hydrate
+      // it. (Every load spans the retention window, CONC-01: within one configuration nothing is
+      // ever widened any more.)
       const serviceB = new CanonicalStockDataService(
         new PrismaStockDataStore(prismaB),
         provider,
@@ -1725,13 +1729,17 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 2_000,
           lockWaitMs: 10_000,
         }),
-        options,
+        { ...options, productHistoryYears: 31 },
       );
       const recent = { from: "2022-01-01", to: "2025-12-31" };
 
-      // A's stock is READY over the recent years, with no provider read needed.
+      // A's stock is READY over the retention window: its first read loads the missing prefix,
+      // after the earliest stored row confirms the history was not re-based (§7, rule 2).
       await serviceA.getDailyPrices(symbol, recent);
-      expect(provider.ranges).toEqual([]);
+      expect(provider.ranges).toEqual([
+        { from: "1992-08-24", to: "2014-12-31" },
+        { from: "2022-01-03", to: "2022-02-02" },
+      ]);
 
       // A reads it again and is held just before its read looks at the manifest.
       cacheA.armed = true;
@@ -1741,7 +1749,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
       // B widens the same stock and is held inside the provider with its HYDRATING generation
       // published.
       provider.held = {
-        range: "1992-08-24:2014-12-31",
+        range: "1991-08-24:1992-08-23",
         started: deltaStarted.open,
         released: deltaReleased.opened,
       };
@@ -1927,7 +1935,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
           variant: DAILY_PRICE_VARIANT,
-          fromDate: new Date("1996-08-24T00:00:00.000Z"),
+          // The whole retention window, which every load now spans (CONC-01).
+          fromDate: new Date("1992-08-01T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
         },

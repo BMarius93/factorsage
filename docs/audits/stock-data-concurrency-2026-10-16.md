@@ -35,7 +35,7 @@ confirmed and pinned but needs its own change; the rest of the scenario space wa
 | STMT-MIX | P2 | `readFinancialStatements` did not re-check the manifest after its `MGET`, so a read spanning a refresh could return statement years from two generations. | yes |
 | OPS-03 (part) | P2 | The LRU's write after a successful read failed the read on a Redis refusing writes (`noeviction` at `maxmemory`). | yes (best-effort) |
 | R9 | P3 | `getFinancialStatements` repaired a miss over its own range only, narrowing the resident stock. | yes |
-| CONC-01 | P1 (data) | EMA and Wilder RSI are anchored at the earliest **stored** bar (AUD-02); a stock first hydrated by a narrow window and later widened is rebuilt from the new first bar, so values already served change — EMA 200W by ~1 % four years in on the test history. | **no** — pinned (`it.fails`); needs a load-policy change, §6 |
+| CONC-01 | P1 (data) | EMA and Wilder RSI are anchored at the earliest **stored** bar (AUD-02); a stock first hydrated by a narrow window and later widened is rebuilt from the new first bar, so values already served change — EMA 200W by ~1 % four years in on the test history. | **fixed in the follow-up PR** (`docs/decisions/canonical-history-anchoring.md`): every load spans the retention window; the pin is a regression test, plus an order-independence case |
 
 **Measured effect** (details in §4): the cold-cache matrix check went from **5 / 40 failed** to
 **40 / 40 completed, gate GREEN, 30,044 trades** — the same trade count as the audit's warm sweep;
@@ -102,7 +102,7 @@ stock-eod.integration.test.ts`. `MX` = QA matrix cold check (§4.1). "main" is t
 | --- | --- | --- | --- | --- |
 | A1 | two users, cold | SC "cold: many readers…" (3 processes, 12 calls, every entry point) | pass | pass |
 | A2 | 10–100 users | SC "bounded stress" 2/10/25/50/100 callers × 4 processes × 3 securities, seeded | 100: **25 failed** (CONC-03) | pass |
-| A3 | 1Y and 30Y at once | SC cold + stress (narrow and widening ranges mixed) | pass for prices; **derived values move on widening** (CONC-01) | same (pinned) |
+| A3 | 1Y and 30Y at once | SC cold + stress (narrow and widening ranges mixed) | pass for prices; **derived values move on widening** (CONC-01) | pass for prices and derived values after the CONC-01 PR |
 | A4 | partially overlapping prefixes | SC cold + stress | pass | pass |
 | A5 | disjoint ranges | SC cold + stress | pass | pass |
 | A6 | READY while another process widens | RI "OPS-06: a read never aborts another process's live hydration" | **fail** ("generation changed") | pass |
@@ -175,7 +175,7 @@ stock-eod.integration.test.ts`. `MX` = QA matrix cold check (§4.1). "main" is t
 | no stale writer overwrites a newer generation | Redis: generation fence; PostgreSQL: §5 |
 | a failed hydration never advertises READY | A9 |
 | readers never combine generations | prices, derived state and now statements re-check the manifest after `MGET` |
-| a cache miss or eviction cannot change results | SC LRU and cache-loss cases — **except** CONC-01, where a widening (not a miss) does |
+| a cache miss or eviction cannot change results | SC LRU and cache-loss cases; the CONC-01 widening exception is closed by the follow-up PR (no load widens any more) |
 | concurrent ≡ serialized | SC compares every concurrent answer with PostgreSQL and the synthetic market |
 | no duplicated persisted rows | SC: 0 duplicate rows in every case |
 | lost leases cannot commit stale data | Redis yes; PostgreSQL narrowed, §5 |

@@ -1251,63 +1251,50 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     }, SLOW);
 
     it(
-      "detects the missing older interval and fetches only that, once",
+      "loads the whole retention window on the first bounded view, and a pan back fetches nothing (CONC-01)",
       async () => {
         const symbol = symbols.widening;
         const priceRangesFor = () =>
           provider.dailyPriceCalls.filter((call) => call.symbol === symbol);
 
-        // 1. The page opens on a bounded window, exactly as Stock Details asks for it.
+        // 1. The page opens on a bounded window, exactly as Stock Details asks for it — and the
+        //    loader materializes the whole retention window behind it, so the first caller's window
+        //    never decides where the history (and every recursive series) starts.
         await wideningHttp()
           .get(`/stocks/${symbol}?from=2026-01-02&to=${TODAY}`)
           .expect(200);
         const securityId = await securityIdOf(symbol);
 
         expect(priceRangesFor()).toHaveLength(1);
+        expect(priceRangesFor()[0]!.from).toBe(WIDENING_RETENTION_START);
         const resident = await readRedisManifest(securityId);
-        // Caller-scoped: the requested window plus the derived warm-up, not the whole horizon.
-        const coverageStart = resident?.coverageStart;
-        expect(coverageStart).toBeDefined();
-        expect(coverageStart! > WIDENING_START).toBe(true);
+        expect(resident?.coverageStart).toBe(WIDENING_RETENTION_START);
 
-        const rowsAfterOpen = await prisma.dailyPrice.count({ where: { securityId } });
-        expect(rowsAfterOpen).toBeGreaterThan(0);
-
-        // 2. The user pans back past what is resident. Price rows, a Redis manifest, a coverage
-        //    record and derived rows all already exist for this security — none of that may be
-        //    read as "the older interval is available".
-        const older = addDays(coverageStart!, -200);
+        // 2. The user pans back to the start of the horizon: nothing more is fetched.
+        const older = WIDENING_START;
         const widened = await wideningHttp()
           .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
           .expect(200);
+        expect(priceRangesFor()).toHaveLength(1);
 
-        // The prefix, then the short look at the earliest stored sessions that every load beside a
-        // stored history makes before it saves (`historical-price-basis-v1.md`, §7, rule 2).
-        expect(priceRangesFor()).toHaveLength(3);
-        const [, delta, earliestRows] = priceRangesFor();
-        // Only the prefix: the interval already covered is not requested from the provider again.
-        expect(delta!.to! < coverageStart!).toBe(true);
-        expect(delta!.from! >= WIDENING_START).toBe(true);
-        expect(earliestRows!.to).toBe(addDays(earliestRows!.from!, 30));
-        expect(earliestRows!.from! >= coverageStart!).toBe(true);
-
-        // The older rows are genuinely there, ascending, and the widening never narrowed the tail.
+        // The older rows are there, ascending, and the tail is intact.
         const prices = widened.body as Array<{ date: string }>;
-        expect(prices[0]!.date < coverageStart!).toBe(true);
+        expect(prices[0]!.date < "2026-01-02").toBe(true);
         expect(prices.at(-1)!.date).toBe(TODAY);
         expect([...prices].sort((a, b) => a.date.localeCompare(b.date))).toEqual(prices);
 
-        // 3. No duplicate rows at the seam between the two loads.
+        // 3. No duplicate rows.
         const dates = await prisma.dailyPrice.findMany({
           where: { securityId },
           select: { date: true },
         });
         expect(new Set(dates.map((row) => row.date.valueOf())).size).toBe(dates.length);
 
-        // 4. The derived state was materialized for the new interval too — with its own warm-up,
-        //    so the oldest newly visible day carries the series rather than an empty row.
+        // 4. The derived state covers the whole history: a year in (this provider's bars begin at
+        //    the horizon), every daily series is warmed up.
+        const yearIn = addDays(older, 400);
         const technicals = await wideningHttp()
-          .get(`/stocks/${symbol}/technicals/daily?from=${older}&to=${coverageStart}`)
+          .get(`/stocks/${symbol}/technicals/daily?from=${yearIn}&to=${addDays(yearIn, 40)}`)
           .expect(200);
         const technicalRows = technicals.body as Array<Record<string, unknown>>;
         expect(technicalRows.length).toBeGreaterThan(0);
@@ -1315,14 +1302,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(technicalRows[0]!.rsi14d).toBeTypeOf("number");
         expect(technicalRows[0]!.sma200d).toBeTypeOf("number");
 
-        // 5. Re-reading the same interval, and anything inside it, fetches nothing further.
-        await wideningHttp()
-          .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
-          .expect(200);
+        // 5. Re-reading any interval fetches nothing further.
         await wideningHttp()
           .get(`/stocks/${symbol}/prices?from=${addDays(older, 40)}&to=${TODAY}`)
           .expect(200);
-        expect(priceRangesFor()).toHaveLength(3);
+        expect(priceRangesFor()).toHaveLength(1);
       },
       SLOW,
     );

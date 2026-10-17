@@ -390,56 +390,34 @@ describeReuse("provider reuse across repeated reads", () => {
     }
   });
 
-  it("E: fetches only the missing prefix when the period is widened backwards", async () => {
+  it("E: a period widened backwards costs nothing: the first read already loaded the retention window (CONC-01)", async () => {
     const security = securities[0]!;
     await stockService(new CountingStockProvider(priceRows)).getDailyPrices(
       security.symbol,
       range,
     );
 
-    // The boundary is read from the durable ledger, not assumed from the request.
-    //
-    // A read is widened backwards by `DERIVED_SERIES_WARMUP_DAYS` — today about four years — so a
-    // second request that merely started a year earlier would land *inside* what the first already
-    // materialized, and this case would pass while exercising nothing. Asking the store where
-    // coverage actually begins is what keeps the case honest as the warm-up changes.
+    // The boundary is read from the durable ledger, not assumed from the request: every load spans
+    // the whole retention window, so the first read's coverage starts at the retention start,
+    // whatever window it asked for.
     const covered = await store.getDatasetCoverage(
       security.id,
       "DAILY_PRICE",
       DAILY_PRICE_VARIANT,
-      { from: "1990-01-01", to: today },
+      { from: "1980-01-01", to: today },
     );
     const coveredFrom = covered
       .map((interval) => interval.from)
       .sort()[0] as string;
-    expect(coveredFrom < "2018-01-02").toBe(true);
+    expect(coveredFrom).toBe(subtractYears(today, 34));
 
-    // Genuinely outside it, by a year, so the second read has a real prefix to fetch.
-    const widenedFrom = subtractYears(coveredFrom, 1);
+    // A read as wide as the product allows asks the provider for nothing more.
     const provider = new CountingStockProvider(priceRows);
     await stockService(provider).getDailyPrices(security.symbol, {
-      from: widenedFrom,
+      from: subtractYears(today, 30),
       to: today,
     });
-
-    expect(provider.priceRequests.length).toBeGreaterThan(0);
-    // Every ask lies strictly before the materialized boundary: the prefix is fetched, and not one
-    // day of the history already on disk is asked for again.
-    for (const request of provider.priceRequests) {
-      expect(request.to < coveredFrom).toBe(true);
-      expect(request.from >= subtractYears(widenedFrom, 5)).toBe(true);
-    }
-
-    // And the ledger now reaches back at least as far as the widened read asked for.
-    const after = await store.getDatasetCoverage(
-      security.id,
-      "DAILY_PRICE",
-      DAILY_PRICE_VARIANT,
-      { from: "1990-01-01", to: today },
-    );
-    expect((after.map((i) => i.from).sort()[0] as string) < coveredFrom).toBe(
-      true,
-    );
+    expect(provider.priceRequests).toEqual([]);
   });
 
   /**
@@ -459,7 +437,7 @@ describeReuse("provider reuse across repeated reads", () => {
       const security = securities[2]!;
       const detailRange = { from: "2019-06-03", to: today };
 
-      // A. Stock Details hydrates a narrow window.
+      // A. Stock Details opens a narrow window, and hydrates the whole retention window (CONC-01).
       const detailProvider = new CountingStockProvider(priceRows);
       const detailRows = await stockService(detailProvider).getDailyPrices(
         security.symbol,
@@ -468,19 +446,8 @@ describeReuse("provider reuse across repeated reads", () => {
       expect(detailRows.length).toBeGreaterThan(0);
       expect(detailProvider.priceRequests.length).toBeGreaterThan(0);
 
-      const coveredFrom = (
-        await store.getDatasetCoverage(
-          security.id,
-          "DAILY_PRICE",
-          DAILY_PRICE_VARIANT,
-          { from: "1990-01-01", to: today },
-        )
-      )
-        .map((interval) => interval.from)
-        .sort()[0] as string;
-
-      // B. The backtest asks for a wider period: only the genuinely missing prefix is fetched.
-      const wideFrom = subtractYears(coveredFrom, 1);
+      // B. A backtest over the widest period the product allows asks the provider for nothing.
+      const wideFrom = subtractYears(today, 30);
       const frameProvider = new CountingStockProvider(priceRows);
       const frame = await stockService(frameProvider).getDailyEvaluationFrame(
         security,
@@ -488,10 +455,7 @@ describeReuse("provider reuse across repeated reads", () => {
         [...OPERANDS],
       );
       expect(frame.dates.length).toBeGreaterThan(0);
-      expect(frameProvider.priceRequests.length).toBeGreaterThan(0);
-      for (const request of frameProvider.priceRequests) {
-        expect(request.to < coveredFrom).toBe(true);
-      }
+      expect(frameProvider.priceRequests).toEqual([]);
 
       // C. The identical frame read again asks the provider for nothing at all.
       const repeatProvider = new CountingStockProvider(priceRows);
@@ -517,8 +481,8 @@ describeReuse("provider reuse across repeated reads", () => {
       expect(rebuilt.dates).toEqual(frame.dates);
       expect(rebuiltProvider.priceRequests).toEqual([]);
 
-      // F. And the other direction: Stock Details now reads the history the backtest widened into,
-      // still without reaching the provider.
+      // F. And the other direction: Stock Details reads the backtest's whole period, still without
+      // reaching the provider.
       const backProvider = new CountingStockProvider(priceRows);
       const backRows = await stockService(backProvider).getDailyPrices(
         security.symbol,

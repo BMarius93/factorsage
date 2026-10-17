@@ -52,7 +52,7 @@ for the range this read needs -> missing FMP deltas -> derived calculation -> Po
 yearly Redis chunks. The caller's requested range, widened by the derived-series warm-up and
 clamped to the **raw-price retention horizon**, is what gets materialized: Stock Details pays for
 its own window, a backtest asks for decades explicitly, and widening later is incremental. See
-`../../docs/decisions/caller-scoped-history-materialization.md`.
+`../../docs/decisions/caller-scoped-history-materialization.md`, with every load spanning the retention window since `../../docs/decisions/canonical-history-anchoring.md` (CONC-01).
 
 Two horizons, deliberately separate. `STOCK_HISTORY_YEARS` (30) is the **product** horizon — the
 oldest day any surface may select, chart, query or backtest, and the one bound
