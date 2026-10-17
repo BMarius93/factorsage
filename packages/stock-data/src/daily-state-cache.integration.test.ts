@@ -47,6 +47,7 @@ import {
 } from "./redis-client.js";
 import {
   CanonicalStockDataService,
+  EvaluationWindowCarry,
   fundamentalsDatasetOperations,
   priceRetentionYears,
   type ProviderRequestEvent,
@@ -1113,6 +1114,56 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
         String(year),
       );
     }
+    expect(provider.calls).toEqual([]);
+  });
+
+  it("reads a run's consecutive windows once with a carry: the same frames, only each window's own year", async () => {
+    const read: string[][] = [];
+    const client = new InstrumentedCacheClient(redis, {
+      onChunkRead: (keys, payloads) => {
+        read.push(keys);
+        return payloads;
+      },
+    });
+    const carried = serviceOver(cacheOver(client));
+    const plain = serviceOver();
+    const carry = new EvaluationWindowCarry();
+    for (const year of years.filter((each) => each >= 2020)) {
+      const window = {
+        from: `${year}-01-01`,
+        to: year === 2026 ? TODAY : `${year}-12-31`,
+      };
+      read.length = 0;
+      const frame = await carried.readDailyEvaluationFrame(
+        security,
+        window,
+        FRAME_OPERANDS,
+        { carry },
+      );
+      expectSameFrame(
+        frame,
+        await plain.readDailyEvaluationFrame(security, window, FRAME_OPERANDS),
+        String(year),
+      );
+      const yearsRead = new Set(
+        read.flat().map((key) => Number(key.slice(-4))),
+      );
+      // The first window has no previous one; every later one reads its own year alone.
+      expect([...yearsRead].sort(), String(year)).toEqual(
+        year === 2020 ? [2019, 2020] : [year],
+      );
+    }
+    // A window that does not follow the kept one reads its context as before.
+    read.length = 0;
+    await carried.readDailyEvaluationFrame(
+      security,
+      { from: "2022-01-01", to: "2022-12-31" },
+      FRAME_OPERANDS,
+      { carry },
+    );
+    expect(new Set(read.flat().map((key) => Number(key.slice(-4))))).toEqual(
+      new Set([2021, 2022]),
+    );
     expect(provider.calls).toEqual([]);
   });
 

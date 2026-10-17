@@ -55,6 +55,7 @@ import {
 } from "./job-lease.js";
 import {
   BACKTEST_DATA_REVISIONS,
+  EvaluationWindowCarry,
   PriceBasisChangedError,
   withEtfOperandColumns,
   type DailyPriceBounds,
@@ -119,6 +120,7 @@ export interface BacktestFrameLoader {
       resolveGroupMembers?: (groupId: string) => Promise<readonly string[]>;
       priceBasisGeneration?: number;
       valuation?: ValuationTimeline;
+      carry?: EvaluationWindowCarry;
     },
   ): Promise<EvaluationFrame>;
 }
@@ -227,6 +229,11 @@ type PreparedRun = {
    * the honest reading for a run submitted before the group was referenced.
    */
   resolveGroupMembers: (groupId: string) => Promise<readonly string[]>;
+  /**
+   * The rows each security's window leaves for the next (`EvaluationWindowCarry`): one per run, so a
+   * window reads its own year rather than the previous year's chunks again for its leading context.
+   */
+  carry: EvaluationWindowCarry;
 };
 
 export type BacktestProcessorOptions = {
@@ -756,6 +763,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       benchmark: await this.loadBenchmark(snapshot, period, archive),
       executionCalendar,
       resolveGroupMembers: frozenActorGroupResolver(snapshot),
+      carry: new EvaluationWindowCarry(),
     };
   }
 
@@ -1263,6 +1271,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
             prepared.operands,
             {
               resolveGroupMembers: prepared.resolveGroupMembers,
+              carry: prepared.carry,
               ...(entry.priceBasisGeneration === undefined
                 ? {}
                 : { priceBasisGeneration: entry.priceBasisGeneration }),

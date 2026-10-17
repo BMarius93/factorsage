@@ -484,7 +484,85 @@ export type EvaluationFrameOptions = {
    * of the generation it pinned, and reads them once.
    */
   valuation?: ValuationTimeline;
+  /**
+   * The run's {@link EvaluationWindowCarry}: when the previous window of the same run ended the day
+   * before this one, the leading context is taken from the rows it left instead of re-reading and
+   * re-decoding the previous year's chunks. The rows are the ones that window read, under the same
+   * pinned generation, so the frame is the same frame.
+   */
+  carry?: EvaluationWindowCarry;
 };
+
+/**
+ * The rows one backtest's calendar-year windows hand to the next, per security
+ * (`docs/decisions/protected-stock-tier-v1.md`, "Windows").
+ *
+ * Every window is read with a few calendar days of leading context before it, and those days lie in
+ * the previous year — whose chunks the previous window has just read and decoded. Keeping the rows
+ * of those last days lets the next window read only its own year: half the Redis bytes and half the
+ * chunk decoding of a thirty-year run, with the frame unchanged. A carry is scoped to one run; it is
+ * used only for a window that starts the day after the kept one ended, under the same price-basis
+ * generation, and only for short contexts, so it holds a few rows per security.
+ */
+export class EvaluationWindowCarry {
+  private readonly bySecurity = new Map<
+    string,
+    {
+      generation: number;
+      through: LocalDate;
+      keptFrom: LocalDate;
+      prices: DailyPrice[];
+      derived: DailyDerivedState[];
+    }
+  >();
+
+  /** The kept rows inside `[from, before)` for a window starting on `before`, or null. */
+  take(
+    securityId: string,
+    generation: number,
+    from: LocalDate,
+    before: LocalDate,
+  ): { prices: DailyPrice[]; derived: DailyDerivedState[] } | null {
+    const kept = this.bySecurity.get(securityId);
+    if (
+      !kept ||
+      kept.generation !== generation ||
+      addDays(kept.through, 1) !== before ||
+      kept.keptFrom > from
+    ) {
+      return null;
+    }
+    const inside = <T extends { date: LocalDate }>(rows: readonly T[]) =>
+      rows.filter((row) => row.date >= from && row.date < before);
+    return { prices: inside(kept.prices), derived: inside(kept.derived) };
+  }
+
+  /** Keeps the rows from `keptFrom` through `through`, the end of the window just read. */
+  keep(
+    securityId: string,
+    generation: number,
+    keptFrom: LocalDate,
+    through: LocalDate,
+    prices: readonly DailyPrice[],
+    derived: readonly DailyDerivedState[],
+  ): void {
+    const tail = <T extends { date: LocalDate }>(rows: readonly T[]) =>
+      rows.filter((row) => row.date >= keptFrom && row.date <= through);
+    this.bySecurity.set(securityId, {
+      generation,
+      through,
+      keptFrom,
+      prices: tail(prices),
+      derived: tail(derived),
+    });
+  }
+}
+
+/**
+ * The longest leading context a carry keeps rows for. Longer contexts (an alternative-data lookback
+ * in sessions) read the previous year's chunks as before rather than keep weeks of rows per security.
+ */
+const EVALUATION_CARRY_MAX_CONTEXT_DAYS = 31;
 
 /** What `prepareDailyEvaluationData` reports: the period's coverage and its price basis. */
 export type PreparedDailyEvaluationData = DailyPriceBounds & {
@@ -1580,14 +1658,29 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       options.priceBasisGeneration !== undefined
         ? options.priceBasisGeneration
         : await this.priceBasisGeneration(security.id);
-    const [prices, derived, alternativeData, valuation] = await Promise.all([
-      this.readDailyPriceProjection(security, context, "BACKTEST"),
-      this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
-      // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
-      this.loadAlternativeDataFacts(security, operands, context, options),
-      // The prepared inputs when the run passes them, so a window never reads the statements again.
-      options.valuation ?? this.loadValuationTimeline(security, operands),
-    ]);
+    // The leading context from the previous window's rows when it ended the day before this one;
+    // otherwise read with the rest. Either way the rows are the same rows.
+    const contextDays = daysBetween(context.from, period.from);
+    const carry =
+      contextDays <= EVALUATION_CARRY_MAX_CONTEXT_DAYS
+        ? options.carry
+        : undefined;
+    const carried =
+      carry?.take(security.id, expected, context.from, period.from) ?? null;
+    const read = carried ? { from: period.from, to: context.to } : context;
+    const [readPrices, readDerived, alternativeData, valuation] =
+      await Promise.all([
+        this.readDailyPriceProjection(security, read, "BACKTEST"),
+        this.readDailyDerivedStateProjection(security, read, "BACKTEST"),
+        // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
+        this.loadAlternativeDataFacts(security, operands, context, options),
+        // The prepared inputs when the run passes them, so a window never reads the statements again.
+        options.valuation ?? this.loadValuationTimeline(security, operands),
+      ]);
+    const prices = carried ? [...carried.prices, ...readPrices] : readPrices;
+    const derived = carried
+      ? [...carried.derived, ...readDerived]
+      : readDerived;
     const current = await this.priceBasisGeneration(security.id);
     if (current !== expected) {
       throw new PriceBasisChangedError(
@@ -1597,6 +1690,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         current,
       );
     }
+    carry?.keep(
+      security.id,
+      expected,
+      addDays(period.to, 1 - contextDays),
+      period.to,
+      prices,
+      derived,
+    );
     return projectEvaluationFrame({
       security,
       prices,
@@ -3774,6 +3875,14 @@ function sameManifest(
   right: StockManifest | null,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Calendar days from `from` to `to`. */
+function daysBetween(from: LocalDate, to: LocalDate): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) /
+      86_400_000,
+  );
 }
 
 /**

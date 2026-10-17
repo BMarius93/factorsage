@@ -50,8 +50,10 @@ import { repositoryRoot } from "../qa-matrix/matrix-paths";
  * starts:
  *
  * - no provider key, so a run that needed the provider would fail visibly rather than measure it;
- * - fundamentals and alternative-data freshness widened to 30 days, so the frozen dataset of the
- *   benchmark day is not refreshed mid-benchmark (the price tail needs nothing: it is final).
+ * - `EOD_TAIL_REFRESH=frozen` (the QA matrix's setting) and fundamentals and alternative-data
+ *   freshness widened to 30 days, so the dataset of the benchmark day is held still and nothing is
+ *   refreshed mid-benchmark;
+ * - the period ends on the newest date the execution calendar's series is stored for.
  *
  * The owner is an **ADMIN** fixture user, exactly as the QA matrix's is: `ADMIN_ENTITLEMENTS` is the
  * decision document's own mechanism for operator capacity, so a concurrency no plan sells needs no
@@ -579,8 +581,11 @@ function startWorkers(
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       LOG_LEVEL: "debug",
-      // The isolated configuration: no provider, and the benchmark day's dataset held still.
+      // The isolated configuration: no provider, and the benchmark day's dataset held still — stored
+      // tails are never re-read (`EOD_TAIL_REFRESH=frozen`, the QA matrix's setting), nor are
+      // statements or alternative data refreshed during the benchmark.
       FMP_API_KEY: "",
+      EOD_TAIL_REFRESH: "frozen",
       STOCK_FUNDAMENTALS_FRESHNESS_MS: String(30 * DAY_MS),
       ALT_DATA_FRESHNESS_MS: String(30 * DAY_MS),
       BACKTEST_JOB_POLL_INTERVAL_MS: "250",
@@ -804,11 +809,23 @@ async function main(): Promise<void> {
     );
     const capital = STRATEGIES[args.strategy].capital;
     const today = new Date().toISOString().slice(0, 10);
+    // The run ends on the newest date its execution calendar's series is stored for: a later date
+    // (a weekend, a session not published yet) would send the worker to the provider, which this
+    // isolated configuration does not have.
+    const [calendarEnd] = await prisma.$queryRaw<{ end: Date | null }[]>`
+      SELECT max(c."toDate") AS end
+      FROM "BenchmarkDatasetCoverage" c
+      JOIN "BenchmarkSeries" s ON s."id" = c."seriesId"
+      JOIN "Benchmark" b ON b."id" = s."benchmarkId"
+      WHERE b."code" = 'SP500'`;
+    const endDate = calendarEnd?.end
+      ? calendarEnd.end.toISOString().slice(0, 10)
+      : today;
     const body = {
       strategyId: strategy.id,
       stockListId: list.id,
-      startDate: args.startDate ?? earliestStart(today),
-      endDate: today,
+      startDate: args.startDate ?? earliestStart(endDate),
+      endDate,
       ...capital,
     };
 

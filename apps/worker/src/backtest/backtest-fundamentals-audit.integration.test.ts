@@ -678,13 +678,17 @@ describeInfrastructure(
         "rebuildDailyDerivedState",
       );
       const mget = vi.spyOn(redis, "mget");
+      // Chunks are read as bytes since the payload codec (`redis-payload-codec-v1.md`).
+      const mgetBuffer = vi.spyOn(redis, "mgetBuffer");
       const get = vi.spyOn(redis, "get");
       try {
         const result = await execute(everyMetric, [], counted);
         await new Promise((resolve) => setImmediate(resolve));
-        const keysRead = [...mget.mock.calls, ...get.mock.calls].map((call) =>
-          call.flat().map(String),
-        );
+        const keysRead = [
+          ...mget.mock.calls,
+          ...mgetBuffer.mock.calls,
+          ...get.mock.calls,
+        ].map((call) => call.flat().map(String));
         const derivedReads = keysRead.filter((keys) =>
           keys.some((key) => key.includes(":daily-state:")),
         );
@@ -719,6 +723,7 @@ describeInfrastructure(
       } finally {
         rebuilds.mockRestore();
         mget.mockRestore();
+        mgetBuffer.mockRestore();
         get.mockRestore();
         await logging.$disconnect();
       }
