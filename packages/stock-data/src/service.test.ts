@@ -1436,7 +1436,10 @@ describe("canonical full-stock hydration", () => {
     store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
     const provider = new FakeProvider();
     const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    // The provider's history starts at the listing, as a genuine IPO's does. (A load reaching the
+    // listing reads the bar there; one that does not, drops it as outside its range.)
     provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2020-06-01"),
       price("2026-08-20"),
     ]);
     const loader = createService(
