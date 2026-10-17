@@ -69,6 +69,9 @@ const loop = new BacktestWorkerLoop(
       ...(runtime.providerRequests
         ? { providerRequests: runtime.providerRequests }
         : {}),
+      ...(runtime.protectedTier
+        ? { protectedTier: runtime.protectedTier }
+        : {}),
     },
     {
       workerId,

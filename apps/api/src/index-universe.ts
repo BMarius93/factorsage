@@ -13,6 +13,7 @@ import {
   membershipWithinHorizon,
   projectIndexList,
   resolutionCandidates,
+  STOCK_DATA_CACHE_NAMESPACE,
   subtractYears,
 } from "@intrinsic/stock-data";
 import { catalogAdmitter } from "./index-universe/index-universe-admission.js";
@@ -22,6 +23,7 @@ import {
 } from "./index-universe/index-universe-ingest.js";
 import { writeIndexUniverseList } from "./index-universe/index-universe-list.js";
 import { buildIndexUniverseReport } from "./index-universe/index-universe-report.js";
+import { runProtectedResidency } from "./index-universe/index-universe-residency.js";
 import { createIndexUniverseRuntime } from "./index-universe/index-universe-runtime.js";
 
 /**
@@ -33,13 +35,21 @@ import { createIndexUniverseRuntime } from "./index-universe/index-universe-runt
  * pnpm data:index-universe -- project           # write the built-in List (no provider)
  * pnpm data:index-universe -- ingest            # load every universe security's full history
  * pnpm data:index-universe -- report --out f    # measure what PostgreSQL holds (no provider)
+ * pnpm data:index-universe -- protect           # make it resident in Redis's protected tier (no provider)
  * ```
  *
  * Every step is idempotent and resumable: run them again and each does only what is missing. In a
  * Claude cloud session the provider is reached only through `scripts/cloud/fmp-index-universe.sh`.
  */
 
-const COMMANDS = ["sync", "resolve", "project", "ingest", "report"] as const;
+const COMMANDS = [
+  "sync",
+  "resolve",
+  "project",
+  "ingest",
+  "report",
+  "protect",
+] as const;
 type Command = (typeof COMMANDS)[number];
 
 type Arguments = {
@@ -57,6 +67,8 @@ type Arguments = {
   limit: number | null;
   altDataMaxPages: number | null;
   out: string | null;
+  memoryBudgetMb: number | null;
+  dryRun: boolean;
 };
 
 const DEFAULT_BUDGETS: Record<Command, number> = {
@@ -65,6 +77,7 @@ const DEFAULT_BUDGETS: Record<Command, number> = {
   project: 1,
   ingest: 120_000,
   report: 1,
+  protect: 1,
 };
 
 export function parseIndexUniverseArguments(
@@ -90,6 +103,8 @@ export function parseIndexUniverseArguments(
     limit: null,
     altDataMaxPages: null,
     out: null,
+    memoryBudgetMb: null,
+    dryRun: false,
   };
   const seen = new Set<string>();
   for (let index = 0; index < rest.length; index += 1) {
@@ -173,6 +188,12 @@ export function parseIndexUniverseArguments(
       case "--out":
         parsed.out = value();
         break;
+      case "--memory-budget-mb":
+        parsed.memoryBudgetMb = positive(value());
+        break;
+      case "--dry-run":
+        parsed.dryRun = true;
+        break;
       default:
         throw new Error(`Unknown argument ${flag}`);
     }
@@ -213,7 +234,9 @@ async function main(): Promise<number> {
   const universe = pointInTimeIndexUniverse(args.indexKey);
   const horizon = { floor: universe.membershipFloor, asOf: args.asOf };
   const usesProvider =
-    args.command === "sync" || args.command === "resolve" || args.command === "ingest";
+    args.command === "sync" ||
+    args.command === "resolve" ||
+    args.command === "ingest";
 
   // The guard's scope comes from PostgreSQL before the client exists: nothing can widen it later.
   const scopeRuntime = await createIndexUniverseRuntime({
@@ -226,7 +249,9 @@ async function main(): Promise<number> {
   let scopeSymbols: string[] = [];
   try {
     if (args.command === "resolve") {
-      const constituents = await scopeRuntime.membershipStore.loadConstituents(args.indexKey);
+      const constituents = await scopeRuntime.membershipStore.loadConstituents(
+        args.indexKey,
+      );
       const renames = await scopeRuntime.membershipStore.loadSymbolChanges();
       const symbols = new Set<string>();
       for (const constituent of constituents) {
@@ -244,9 +269,9 @@ async function main(): Promise<number> {
       }
       scopeSymbols = [...symbols];
     } else if (args.command === "ingest") {
-      scopeSymbols = (await universeSecurities(scopeRuntime.prisma, args.indexKey)).map(
-        (entry) => entry.providerSymbol,
-      );
+      scopeSymbols = (
+        await universeSecurities(scopeRuntime.prisma, args.indexKey)
+      ).map((entry) => entry.providerSymbol);
     }
   } finally {
     await scopeRuntime.close();
@@ -259,7 +284,9 @@ async function main(): Promise<number> {
     scopeSymbols,
     budget: args.budget ?? DEFAULT_BUDGETS[args.command],
     provider: usesProvider,
-    ...(args.altDataMaxPages === null ? {} : { alternativeDataMaxPages: args.altDataMaxPages }),
+    ...(args.altDataMaxPages === null
+      ? {}
+      : { alternativeDataMaxPages: args.altDataMaxPages }),
   });
   let stopRequested = false;
   const stop = () => {
@@ -308,39 +335,62 @@ async function main(): Promise<number> {
           indexKey: args.indexKey,
           floor: universe.membershipFloor,
           asOf: args.asOf,
-          admit: catalogAdmitter({ store: runtime.store, cache: runtime.cache }),
+          admit: catalogAdmitter({
+            store: runtime.store,
+            cache: runtime.cache,
+          }),
           force: args.force,
         });
-        const latest = await runtime.membershipStore.latestCompletedSync(args.indexKey);
+        const latest = await runtime.membershipStore.latestCompletedSync(
+          args.indexKey,
+        );
         if (latest) {
-          await runtime.membershipStore.amendSyncSummary(latest.id, "resolution", {
-            ...result,
-            at: new Date().toISOString(),
-          });
+          await runtime.membershipStore.amendSyncSummary(
+            latest.id,
+            "resolution",
+            {
+              ...result,
+              at: new Date().toISOString(),
+            },
+          );
         }
         print(result);
         break;
       }
       case "project": {
-        const constituents = await runtime.membershipStore.loadConstituents(args.indexKey);
-        const members = projectIndexList(constituents, universe.membershipFloor);
+        const constituents = await runtime.membershipStore.loadConstituents(
+          args.indexKey,
+        );
+        const members = projectIndexList(
+          constituents,
+          universe.membershipFloor,
+        );
         const written = await writeIndexUniverseList({
           prisma: runtime.prisma,
           universe,
           members,
         });
-        const latest = await runtime.membershipStore.latestCompletedSync(args.indexKey);
+        const latest = await runtime.membershipStore.latestCompletedSync(
+          args.indexKey,
+        );
         if (latest) {
-          await runtime.membershipStore.amendSyncSummary(latest.id, "projection", {
-            ...written,
-            at: new Date().toISOString(),
-          });
+          await runtime.membershipStore.amendSyncSummary(
+            latest.id,
+            "projection",
+            {
+              ...written,
+              at: new Date().toISOString(),
+            },
+          );
         }
         print(written);
         break;
       }
       case "ingest": {
-        const productFrom = subtractYears(args.asOf, runtime.productHistoryYears);
+        const productFrom = subtractYears(
+          args.asOf,
+          runtime.productHistoryYears,
+        );
         const summary = await runIndexUniverseIngestion({
           prisma: runtime.prisma,
           indexKey: args.indexKey,
@@ -363,6 +413,33 @@ async function main(): Promise<number> {
         print({ ...summary, guard: runtime.guard.ledger() });
         break;
       }
+      case "protect": {
+        const summary = await runProtectedResidency({
+          prisma: runtime.prisma,
+          redis: runtime.redis,
+          store: runtime.store,
+          cache: runtime.cache,
+          stockData: runtime.stockData,
+          namespace: STOCK_DATA_CACHE_NAMESPACE,
+          indexKey: args.indexKey,
+          concurrency: args.concurrency,
+          memoryBudgetBytes:
+            args.memoryBudgetMb === null
+              ? null
+              : args.memoryBudgetMb * 1024 * 1024,
+          dryRun: args.dryRun,
+          logger,
+          providerRequests: runtime.providerRequests,
+          shouldStop: () => stopRequested,
+        });
+        if (args.out) {
+          const path = resolve(process.cwd(), args.out);
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`);
+        }
+        print(summary);
+        break;
+      }
       case "report": {
         const report = await buildIndexUniverseReport({
           prisma: runtime.prisma,
@@ -380,13 +457,20 @@ async function main(): Promise<number> {
             constituentsTotal: report.membership.constituentsTotal,
             constituentsInHorizon: report.membership.constituentsInHorizon,
             byResolution: report.membership.byResolution,
-            uniqueTradeableSecurities: report.membership.uniqueTradeableSecurities,
+            uniqueTradeableSecurities:
+              report.membership.uniqueTradeableSecurities,
             endUnknownPeriods: report.membership.endUnknownPeriods.length,
             unresolved: report.membership.unresolved.length,
           },
           list: report.list,
-          data: { ...report.data, largestInteriorGaps: report.data.largestInteriorGaps.slice(0, 10) },
-          ingestion: { byStatus: report.ingestion.byStatus, failures: report.ingestion.failures.length },
+          data: {
+            ...report.data,
+            largestInteriorGaps: report.data.largestInteriorGaps.slice(0, 10),
+          },
+          ingestion: {
+            byStatus: report.ingestion.byStatus,
+            failures: report.ingestion.failures.length,
+          },
         });
         break;
       }
@@ -428,7 +512,9 @@ if (process.argv[1] && process.argv[1].includes("index-universe")) {
   main().then(
     (code) => process.exit(code),
     (error: unknown) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(
+        `${error instanceof Error ? error.message : String(error)}\n`,
+      );
       process.exit(2);
     },
   );

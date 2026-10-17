@@ -9,6 +9,7 @@ import {
   type BenchmarkCacheHead,
 } from "./benchmark-ports.js";
 import {
+  FINANCIAL_STATEMENT_VERSION,
   RedisStockDataCache,
   type RedisCacheClient,
   type StockManifest,
@@ -533,7 +534,7 @@ describeCache("benchmark cache publication protocol", () => {
       coverageStart: "2020-01-01",
       coverageEnd: "2020-12-31",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });

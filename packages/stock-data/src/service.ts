@@ -50,10 +50,7 @@ import {
   type StockDetails,
   type StockHistoryBounds,
 } from "@intrinsic/domain";
-import type {
-  FmpStockSplitPort,
-  FmpStockProviderPort,
-} from "@intrinsic/fmp";
+import type { FmpStockSplitPort, FmpStockProviderPort } from "@intrinsic/fmp";
 import {
   FINANCIAL_STATEMENT_VERSION,
   yearsInRange,
@@ -114,9 +111,7 @@ import {
   resolveSecuritySearchLimit,
   SECURITY_SEARCH_CANDIDATE_FACTOR,
 } from "./security-search.js";
-import {
-  monitorWindowCalendarDays,
-} from "./evaluation-window.js";
+import { monitorWindowCalendarDays } from "./evaluation-window.js";
 import {
   aggregateCompletedWeeks,
   resolveWeekSessionEnds,
@@ -347,10 +342,7 @@ export type ProviderRequestEvent = {
   symbol: string;
   securityId: string;
   dataset:
-    | "SECURITY_PROFILE"
-    | "DAILY_PRICE"
-    | "FINANCIAL_STATEMENTS"
-    | "STOCK_SPLIT";
+    "SECURITY_PROFILE" | "DAILY_PRICE" | "FINANCIAL_STATEMENTS" | "STOCK_SPLIT";
   reason: ProviderRequestReason;
   from?: string;
   to?: string;
@@ -583,6 +575,28 @@ export type StockRefreshState = {
   priceBasisGeneration: number;
 };
 
+/** Why {@link CanonicalStockDataService.publishDurableProjection} left a security unpublished. */
+export type DurableProjectionRefusal =
+  /** PostgreSQL holds no synchronized price history inside the retention target. */
+  | "NO_PRICE_COVERAGE"
+  /** The synchronized price history has a hole before its newest date. */
+  | "PRICE_COVERAGE_GAP"
+  /** The materialized derived state does not cover the price history. */
+  | "DERIVED_STATE_INCOMPLETE"
+  /** A financial-statement dataset was never synchronized. */
+  | "FUNDAMENTALS_NOT_INGESTED";
+
+export type DurableProjectionResult =
+  | {
+      status: "PUBLISHED";
+      coverage: Required<DateRange>;
+      years: number;
+      priceRows: number;
+      derivedRows: number;
+    }
+  | { status: "ALREADY_RESIDENT"; coverage: Required<DateRange> }
+  | { status: "REFUSED"; reason: DurableProjectionRefusal; detail?: string };
+
 /** How one EOD preparation of one stock ended (`refreshStockTail`). */
 export type StockTailRefreshResult = {
   status:
@@ -633,7 +647,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
 
   constructor(
     private readonly store: StockDataStore,
-    private readonly provider: FmpStockProviderPort & Partial<FmpStockSplitPort>,
+    private readonly provider: FmpStockProviderPort &
+      Partial<FmpStockSplitPort>,
     private readonly cache: StockDataCache,
     private readonly coordinator: LoadCoordinator,
     options: CanonicalStockDataServiceOptions = {},
@@ -893,6 +908,166 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   }
 
   /**
+   * Republishes a security's whole Redis projection — its retained price history and unified daily
+   * derived state — from PostgreSQL alone: never a provider request, never a recalculation.
+   *
+   * The protected tier's publisher (`docs/decisions/protected-stock-tier-v1.md`). It publishes the
+   * durable coverage exactly: the retention target cut at the newest date PostgreSQL has
+   * synchronized, so a tail PostgreSQL has not read yet stays a freshness question for the read
+   * path (`ensureStockFresh`), as after any hydration. A security already resident over that whole
+   * range is left untouched. One PostgreSQL cannot project completely is refused and Redis is left
+   * as it was — repairing it is ingestion's work, through the canonical loader, never this one's.
+   */
+  async publishDurableProjection(
+    security: Security,
+  ): Promise<DurableProjectionResult> {
+    const target = this.loadTarget(security, this.productTarget(security));
+    const resident = await this.cache.getManifest(security.id);
+    if (
+      this.covers(resident, target) &&
+      resident.coverageEnd !== undefined &&
+      (await this.durableCoverageEnd(security, target)) <= resident.coverageEnd
+    ) {
+      return {
+        status: "ALREADY_RESIDENT",
+        coverage: { from: target.from, to: resident.coverageEnd },
+      };
+    }
+    return this.coordinator.run(this.stockResource(security), async (lease) => {
+      const coverage = await this.store.getDatasetCoverage(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+        target,
+      );
+      const gaps = missingCoverageRanges(target, coverage);
+      // Only the leading edge may be missing: sessions after the newest synchronization.
+      const leading = gaps.find((gap) => gap.to >= target.to);
+      if (gaps.some((gap) => gap !== leading)) {
+        return {
+          status: "REFUSED",
+          reason: "PRICE_COVERAGE_GAP",
+          detail: gaps
+            .filter((gap) => gap !== leading)
+            .map((gap) => `${gap.from}..${gap.to}`)
+            .join(","),
+        } as const;
+      }
+      const durable = {
+        from: target.from,
+        to: leading ? addDays(leading.from, -1) : target.to,
+      };
+      if (durable.to < durable.from) {
+        return { status: "REFUSED", reason: "NO_PRICE_COVERAGE" } as const;
+      }
+      const derivedGaps = missingCoverageRanges(
+        durable,
+        await this.store.getDatasetCoverage(
+          security.id,
+          "DAILY_DERIVED_STATE",
+          DAILY_DERIVED_STATE_VARIANT,
+          durable,
+        ),
+      );
+      if (derivedGaps.length > 0) {
+        return {
+          status: "REFUSED",
+          reason: "DERIVED_STATE_INCOMPLETE",
+          detail: derivedGaps.map((gap) => `${gap.from}..${gap.to}`).join(","),
+        } as const;
+      }
+      const states = await Promise.all(
+        this.fundamentalsOperationsForHistory().map((operation) =>
+          this.store.getDatasetState(
+            security.id,
+            operation.dataset,
+            operation.variant,
+          ),
+        ),
+      );
+      if (states.some((state) => !state)) {
+        return {
+          status: "REFUSED",
+          reason: "FUNDAMENTALS_NOT_INGESTED",
+        } as const;
+      }
+
+      const observed = await this.cache.getManifest(security.id);
+      const hydrating = this.hydratingManifest(security, observed, durable);
+      lease.assertOwned();
+      if (!(await this.cache.beginHydration(observed, hydrating))) {
+        throw new Error("Stock cache hydration generation changed");
+      }
+      const [prices, derived, tailRefreshAt] = await Promise.all([
+        this.store.getDailyPrices(security.id, durable),
+        this.store.getDailyDerivedState(security.id, durable),
+        this.store.getLatestCoverageSyncContainingDate(
+          security.id,
+          "DAILY_PRICE",
+          DAILY_PRICE_VARIANT,
+          durable.to,
+        ),
+      ]);
+      lease.assertOwned();
+      const years = yearsInRange(durable);
+      await this.cache.setSecurity(security, hydrating);
+      await this.cache.writeDailyPriceYears(
+        security.id,
+        prices,
+        years,
+        hydrating,
+      );
+      await this.cache.writeDailyDerivedStateYears(
+        security.id,
+        derived,
+        years,
+        hydrating,
+      );
+      lease.assertOwned();
+      if (
+        !(await this.cache.completeHydration(
+          hydrating,
+          this.readyManifest(
+            security,
+            durable,
+            prices,
+            this.nowInstant(),
+            tailRefreshAt ?? undefined,
+            this.oldestRequiredSyncAt(states),
+          ),
+        ))
+      ) {
+        throw new Error("Stock cache hydration generation changed");
+      }
+      return {
+        status: "PUBLISHED",
+        coverage: durable,
+        years: years.length,
+        priceRows: prices.length,
+        derivedRows: derived.length,
+      } as const;
+    });
+  }
+
+  /** The newest date PostgreSQL's price coverage reaches inside `target`, without a gap before it. */
+  private async durableCoverageEnd(
+    security: Security,
+    target: Required<DateRange>,
+  ): Promise<string> {
+    const gaps = missingCoverageRanges(
+      target,
+      await this.store.getDatasetCoverage(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+        target,
+      ),
+    );
+    const first = gaps[0];
+    return first ? addDays(first.from, -1) : target.to;
+  }
+
+  /**
    * What durable storage proves about one stock's end-of-day tail. Provider-free and Redis-free.
    *
    * The newest stored bar, the newest leading-edge provider read (when it was issued, and the
@@ -906,7 +1081,11 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    */
   async stockRefreshState(security: Security): Promise<StockRefreshState> {
     const [coverage, freshness, derived, bounds] = await Promise.all([
-      this.store.getDatasetState(security.id, "DAILY_PRICE", DAILY_PRICE_VARIANT),
+      this.store.getDatasetState(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+      ),
       this.store.getDatasetState(
         security.id,
         "DAILY_PRICE",
@@ -940,7 +1119,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
               })
             )?.lastDate;
     return {
-      ...(coverage?.earliestDate ? { coverageStart: coverage.earliestDate } : {}),
+      ...(coverage?.earliestDate
+        ? { coverageStart: coverage.earliestDate }
+        : {}),
       ...(bounds ? { earliestBar: bounds.firstDate } : {}),
       ...(bounds ? { latestBar: bounds.lastDate } : {}),
       ...(lastTailSyncAt ? { lastTailSyncAt } : {}),
@@ -1103,7 +1284,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     context: Required<DateRange>,
     options: EvaluationFrameOptions,
   ): Promise<ReadonlyMap<OperandKey, AlternativeDataFacts> | undefined> {
-    if (!this.alternativeData || alternativeDataDomainsFor(operands).length === 0) {
+    if (
+      !this.alternativeData ||
+      alternativeDataDomainsFor(operands).length === 0
+    ) {
       return undefined;
     }
     return this.alternativeData.loadFacts({
@@ -1437,7 +1621,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     const expected = await this.priceBasisGeneration(security.id);
     const [prices, derived, alternativeData, valuation] = await Promise.all([
       projection ? this.store.getDailyPrices(security.id, projection) : [],
-      projection ? this.store.getDailyDerivedState(security.id, projection) : [],
+      projection
+        ? this.store.getDailyDerivedState(security.id, projection)
+        : [],
       this.loadAlternativeDataFacts(security, operands, context, {}),
       this.loadValuationTimeline(security, operands),
     ]);
@@ -1594,15 +1780,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     });
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
-    const observedManifest = await this.cache.getManifest(security.id);
-    let cached = await this.cache.readFinancialStatements(security.id, bounded);
-    if (cached) {
-      return cached;
-    }
-    await this.cache.invalidateManifest(observedManifest);
-    await this.ensureStockHydrated(security, load);
-    cached = await this.cache.readFinancialStatements(security.id, bounded);
-    return cached ?? this.store.getFinancialStatements(security.id, bounded);
+    // Statements are not projected into Redis (`FINANCIAL_STATEMENT_VERSION`): the hydration above
+    // guarantees PostgreSQL holds them, and PostgreSQL answers.
+    return this.store.getFinancialStatements(security.id, bounded);
   }
 
   async getIntrinsicValues(
@@ -2089,12 +2269,6 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       throw new Error("Fundamentals hydration is incomplete");
     }
 
-    await this.publishAllFundamentalsYears(
-      security.id,
-      this.fundamentalsTarget(security),
-      hydrating,
-      lease,
-    );
     return {
       lastFundamentalsRefreshAt: this.oldestRequiredSyncAt(states),
       derivedRebuildStart,
@@ -2884,51 +3058,12 @@ export class CanonicalStockDataService implements StockDetailsDataService {
             ? row.availableFromDate
             : minDate(derivedRebuildStart, row.availableFromDate);
       }
-      await this.cache.writeFinancialStatementYears(
-        security.id,
-        rows,
-        result.operation.statementType,
-        result.operation.cadence,
-        result.changedYears,
-        hydrating,
-      );
       lease.assertOwned();
     }
     return {
       lastFundamentalsRefreshAt: this.nowInstant(),
       derivedRebuildStart,
     };
-  }
-
-  /**
-   * Publishes every retained fundamentals year, warm-up years included, under the existing yearly
-   * key family. There is no separate warm-up dataset or key.
-   */
-  private async publishAllFundamentalsYears(
-    securityId: string,
-    retention: Required<DateRange>,
-    hydrating: StockManifest,
-    lease: LoadLease,
-  ): Promise<void> {
-    const years = yearsInRange(retention);
-    for (const operation of this.fundamentalsOperationsForHistory()) {
-      const rows = await this.store.getFinancialStatementRevisions({
-        securityId,
-        statementType: operation.statementType,
-        cadence: operation.cadence,
-        from: retention.from,
-        to: retention.to,
-      });
-      await this.cache.writeFinancialStatementYears(
-        securityId,
-        rows,
-        operation.statementType,
-        operation.cadence,
-        years,
-        hydrating,
-      );
-      lease.assertOwned();
-    }
   }
 
   private async syncFundamentalsOperation(input: {
@@ -3788,4 +3923,3 @@ function sameStoredValue(
 function namesValuationRatio(operands: readonly OperandKey[]): boolean {
   return operands.some((key) => operandValuationRatioId(key) !== null);
 }
-

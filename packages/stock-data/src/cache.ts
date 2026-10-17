@@ -2,15 +2,7 @@ import type {
   DailyDerivedState,
   DailyPrice,
   DateRange,
-  FinancialStatement,
-  FinancialStatementCadence,
-  FinancialStatementQuery,
-  FinancialStatementType,
   Security,
-} from "@intrinsic/domain";
-import {
-  FINANCIAL_STATEMENT_TYPES,
-  selectFinancialStatements,
 } from "@intrinsic/domain";
 import {
   DAILY_STATE_CHUNK_DICTIONARY,
@@ -31,7 +23,6 @@ import {
 export type StockCachePayloadCodecs = {
   readonly prices: RedisPayloadCodec;
   readonly dailyState: RedisPayloadCodec;
-  readonly statements: RedisPayloadCodec;
 };
 
 export function stockCachePayloadCodecs(
@@ -47,11 +38,19 @@ export function stockCachePayloadCodecs(
       zstd ? DAILY_STATE_CHUNK_DICTIONARY : null,
       [DAILY_STATE_CHUNK_DICTIONARY],
     ),
-    statements: new RedisPayloadCodec(config),
   };
 }
 
-export const FINANCIAL_STATEMENT_VERSION = 1;
+/**
+ * Revision of the financial-statement projection a manifest was published under.
+ *
+ * 2: statements are no longer projected into Redis. No product read path consumed the statement
+ * chunks (screening, charts and backtests read the unified daily state, and statement reads go to
+ * PostgreSQL), yet they were three quarters of a resident security's keys. A manifest from
+ * revision 1 still has statement chunks registered, so it is not current: its next hydration
+ * deletes every registered key, statement chunks included, and republishes from PostgreSQL.
+ */
+export const FINANCIAL_STATEMENT_VERSION = 2;
 
 /** The key namespace every stock-data cache key lives under (`AGENTS.md` invariant 16). */
 export const STOCK_DATA_CACHE_NAMESPACE = "stock-data:v2";
@@ -94,6 +93,7 @@ export type StockManifest = {
    * cover: its `coverageStart` was recorded under semantics the loader no longer trusts.
    */
   priceDatasetVersion: number;
+  /** `FINANCIAL_STATEMENT_VERSION` the security was published under. */
   financialStatementVersion: number;
   /**
    * Methodology revision of the unified daily derived state. A change invalidates the cached
@@ -195,18 +195,6 @@ export interface StockDataCache {
     years: readonly number[],
     hydrating?: StockManifest,
   ): Promise<void>;
-  readFinancialStatements(
-    securityId: string,
-    query: FinancialStatementQuery,
-  ): Promise<FinancialStatement[] | null>;
-  writeFinancialStatementYears(
-    securityId: string,
-    statements: readonly FinancialStatement[],
-    statementType: FinancialStatementType,
-    cadence: FinancialStatementCadence,
-    years: readonly number[],
-    hydrating?: StockManifest,
-  ): Promise<void>;
   hasResidentStock(securityId: string): Promise<boolean>;
   touch(securityId: string): Promise<void>;
   evict(securityId: string): Promise<void>;
@@ -288,10 +276,11 @@ export class RedisStockDataCache implements StockDataCache {
   ): Promise<boolean> {
     const result = await this.redis.eval(
       BEGIN_REFRESH,
-      3,
+      4,
       this.manifestKey(observed.securityId),
       this.registryKey(observed.securityId),
       this.residentKey(),
+      this.protectedKey(),
       observed.securityId,
       JSON.stringify(observed),
       JSON.stringify(hydrating),
@@ -462,102 +451,107 @@ export class RedisStockDataCache implements StockDataCache {
     }
   }
 
-  async readFinancialStatements(
-    securityId: string,
-    query: FinancialStatementQuery,
-  ): Promise<FinancialStatement[] | null> {
-    const manifest = await this.getManifest(securityId);
-    if (manifest?.status !== "READY") {
-      return null;
-    }
-    const range = this.financialReadRange(query, manifest);
-    if (!range) {
-      return [];
-    }
-
-    const years = yearsInRange(range);
-    const statementTypes = query.statementTypes ?? FINANCIAL_STATEMENT_TYPES;
-    const cadences: readonly FinancialStatementCadence[] = query.cadence
-      ? [query.cadence]
-      : ["QUARTERLY", "ANNUAL"];
-
-    const keys = statementTypes.flatMap((statementType) =>
-      cadences.flatMap((cadence) =>
-        years.map((year) =>
-          this.financialYearKey(securityId, statementType, cadence, year),
-        ),
-      ),
-    );
-    const payloads = await this.mgetPayloads(keys);
-    if (payloads.some((payload) => payload === null)) {
-      return null;
-    }
-    const rows: FinancialStatement[] = [];
-    for (const [index, payload] of payloads.entries()) {
-      const decoded = this.codecs.statements.decode(payload as Buffer | string);
-      if (!decoded.ok) {
-        this.observer.onUnreadableChunk?.({
-          securityId,
-          year: Number((keys[index] as string).slice(-4)),
-          key: keys[index] as string,
-          reason: `envelope: ${decoded.reason}`,
-        });
-        return null;
-      }
-      rows.push(...(JSON.parse(decoded.text) as FinancialStatement[]));
-    }
-    const selected = selectFinancialStatements(
-      rows.filter(
-        (row) => row.fiscalDate >= range.from && row.fiscalDate <= range.to,
-      ),
-      query,
-    );
-    await this.touch(securityId);
-    return selected;
-  }
-
-  async writeFinancialStatementYears(
-    securityId: string,
-    statements: readonly FinancialStatement[],
-    statementType: FinancialStatementType,
-    cadence: FinancialStatementCadence,
-    years: readonly number[],
-    hydrating?: StockManifest,
-  ): Promise<void> {
-    await this.writeYearly(
-      securityId,
-      statements,
-      years,
-      (row) => row.fiscalDate,
-      (year) => this.financialYearKey(securityId, statementType, cadence, year),
-      this.codecs.statements,
-      hydrating,
-    );
-  }
-
+  /**
+   * Whether the security is resident: in the LRU, or protected under a READY manifest. A protected
+   * security is resident outside the LRU (`docs/decisions/protected-stock-tier-v1.md`).
+   */
   async hasResidentStock(securityId: string): Promise<boolean> {
-    return (await this.redis.zscore(this.residentKey(), securityId)) !== null;
+    if ((await this.redis.zscore(this.residentKey(), securityId)) !== null) {
+      return true;
+    }
+    return (
+      (await this.redis.eval(
+        PROTECTED_READY,
+        2,
+        this.protectedKey(),
+        this.manifestKey(securityId),
+        securityId,
+      )) === 1
+    );
   }
 
   async touch(securityId: string): Promise<void> {
     await this.redis.eval(
       TOUCH_READY,
-      3,
+      4,
       this.manifestKey(securityId),
       this.residentKey(),
       this.accessSequenceKey(),
+      this.protectedKey(),
       securityId,
     );
   }
 
+  /**
+   * Deletes every registered key of a resident security. A protected security stays designated: it
+   * is evicted, not unprotected, so its next read or the tier's publisher makes it resident again.
+   */
   async evict(securityId: string): Promise<void> {
     await this.redis.eval(
       EVICT_RESIDENT_STOCK,
-      2,
+      3,
       this.registryKey(securityId),
       this.residentKey(),
+      this.protectedKey(),
       securityId,
     );
+  }
+
+  /**
+   * Adds securities to the protected tier: kept resident outside the LRU, never a capacity victim,
+   * with no TTL once READY. A designated security already in the LRU leaves it, freeing its slot.
+   * Idempotent, and never removes a designation.
+   */
+  async protectStocks(securityIds: readonly string[]): Promise<number> {
+    let added = 0;
+    for (const batch of batches(securityIds, PROTECTED_BATCH_SIZE)) {
+      added += Number(
+        await this.redis.eval(
+          PROTECT_STOCKS,
+          2,
+          this.protectedKey(),
+          this.residentKey(),
+          ...batch,
+        ),
+      );
+    }
+    return added;
+  }
+
+  /**
+   * Makes the protected tier exactly `securityIds`. A security that leaves the tier rejoins the LRU
+   * as its most recently used member when it is READY, and the LRU's capacity then applies to it
+   * like any other; one that joins leaves the LRU. Designations are derived from PostgreSQL by the
+   * caller, so a flushed Redis is restored by reconciling again.
+   */
+  async reconcileProtectedStocks(
+    securityIds: readonly string[],
+  ): Promise<{ added: number; removed: number; designated: number }> {
+    const desired = new Set(securityIds);
+    const current = new Set(await this.redis.smembers(this.protectedKey()));
+    const leaving = [...current].filter((id) => !desired.has(id));
+    let removed = 0;
+    for (const batch of batches(leaving, PROTECTED_BATCH_SIZE)) {
+      removed += Number(
+        await this.redis.eval(
+          UNPROTECT_STOCKS,
+          3,
+          this.protectedKey(),
+          this.residentKey(),
+          this.accessSequenceKey(),
+          String(this.maxResidentStocks),
+          this.namespace,
+          ...batch,
+        ),
+      );
+    }
+    const added = await this.protectStocks([...desired]);
+    return { added, removed, designated: desired.size };
+  }
+
+  /** The securities designated to the protected tier, resident or not. */
+  async protectedStocks(): Promise<string[]> {
+    return (await this.redis.smembers(this.protectedKey())).sort();
   }
 
   /** Whether the security's manifest is still exactly the one a read started under. */
@@ -674,11 +668,12 @@ export class RedisStockDataCache implements StockDataCache {
   ): Promise<boolean> {
     const result = await this.redis.eval(
       PUBLISH_READY,
-      4,
+      5,
       this.manifestKey(ready.securityId),
       this.registryKey(ready.securityId),
       this.residentKey(),
       this.accessSequenceKey(),
+      this.protectedKey(),
       JSON.stringify(ready),
       ready.securityId,
       String(this.maxResidentStocks),
@@ -704,33 +699,17 @@ export class RedisStockDataCache implements StockDataCache {
     return dailyStateChunkKey(this.namespace, securityId, year);
   }
 
-  private financialYearKey(
-    securityId: string,
-    statementType: FinancialStatementType,
-    cadence: FinancialStatementCadence,
-    year: number,
-  ): string {
-    return `${this.namespace}:security:${securityId}:financials:${statementTypeKey(statementType)}:${cadenceKey(cadence)}:v${FINANCIAL_STATEMENT_VERSION}:${year}`;
-  }
-
-  private financialReadRange(
-    query: FinancialStatementQuery,
-    manifest: StockManifest,
-  ): Required<DateRange> | null {
-    const from = query.from ?? manifest.coverageStart;
-    const to = query.to ?? manifest.coverageEnd;
-    if (!from || !to || from > to) {
-      return null;
-    }
-    return { from, to };
-  }
-
   private registryKey(securityId: string): string {
     return `${this.namespace}:security:${securityId}:keys`;
   }
 
   private residentKey(): string {
     return `${this.namespace}:resident-stocks`;
+  }
+
+  /** The protected tier's designation: a set of security ids, never in the LRU at the same time. */
+  private protectedKey(): string {
+    return `${this.namespace}:protected-stocks`;
   }
 
   private accessSequenceKey(): string {
@@ -795,20 +774,6 @@ export class NullStockDataCache implements StockDataCache {
     _years: readonly number[],
     _hydrating?: StockManifest,
   ): Promise<void> {}
-  async readFinancialStatements(
-    _securityId: string,
-    _query: FinancialStatementQuery,
-  ): Promise<FinancialStatement[] | null> {
-    return null;
-  }
-  async writeFinancialStatementYears(
-    _securityId: string,
-    _statements: readonly FinancialStatement[],
-    _statementType: FinancialStatementType,
-    _cadence: FinancialStatementCadence,
-    _years: readonly number[],
-    _hydrating?: StockManifest,
-  ): Promise<void> {}
   async hasResidentStock(_securityId: string): Promise<boolean> {
     return false;
   }
@@ -833,8 +798,8 @@ export function yearsInRange(range: Required<DateRange>): number[] {
  * The key of one security's `daily-state` chunk for one year.
  *
  * One chunk family holds the whole daily derived state for a year — never a key per indicator,
- * model, blend or metric. The encoding version is part of the key, as the statement version is part
- * of a statement key, so chunks of two encodings never share one. Keys are registered so
+ * model, blend or metric. The encoding version is part of the key, so chunks of two encodings never
+ * share one. Keys are registered so
  * complete-stock LRU eviction removes every cached dataset for the security together.
  */
 export function dailyStateChunkKey(
@@ -863,7 +828,8 @@ return 1
 const BEGIN_REFRESH = `
 -- begin-refresh
 if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 0 end
-if redis.call('ZSCORE', KEYS[3], ARGV[1]) == false then return 0 end
+if redis.call('ZSCORE', KEYS[3], ARGV[1]) == false
+  and redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 0 then return 0 end
 redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
 redis.call('SADD', KEYS[2], KEYS[1])
 local keys = redis.call('SMEMBERS', KEYS[2])
@@ -907,6 +873,8 @@ local manifest = redis.call('GET', KEYS[1])
 if manifest == false then return 0 end
 local ok, value = pcall(cjson.decode, manifest)
 if not ok or value.status ~= 'READY' then return 0 end
+-- A protected security has no LRU position to refresh.
+if redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1 then return 1 end
 local sequence = redis.call('INCR', KEYS[3])
 redis.call('ZADD', KEYS[2], sequence, ARGV[1])
 return 1
@@ -925,16 +893,25 @@ for _, key in ipairs(registered) do redis.call('PERSIST', key) end
 redis.call('PERSIST', KEYS[2])
 redis.call('SET', KEYS[1], ARGV[1])
 redis.call('SADD', KEYS[2], KEYS[1])
+if redis.call('SISMEMBER', KEYS[5], ARGV[2]) == 1 then
+  -- Protected: resident outside the LRU, so it takes no slot and is never a victim.
+  redis.call('ZREM', KEYS[3], ARGV[2])
+  return 1
+end
 local sequence = redis.call('INCR', KEYS[4])
 redis.call('ZADD', KEYS[3], sequence, ARGV[2])
 while redis.call('ZCARD', KEYS[3]) > tonumber(ARGV[3]) do
   local victim = redis.call('ZRANGE', KEYS[3], 0, 0)[1]
   if victim == nil then break end
-  local registry = ARGV[4] .. ':security:' .. victim .. ':keys'
-  local keys = redis.call('SMEMBERS', registry)
-  for _, key in ipairs(keys) do redis.call('DEL', key) end
-  redis.call('DEL', registry)
   redis.call('ZREM', KEYS[3], victim)
+  -- Never true while designation keeps the two disjoint; checked so a protected history can
+  -- never be deleted by an LRU decision.
+  if redis.call('SISMEMBER', KEYS[5], victim) == 0 then
+    local registry = ARGV[4] .. ':security:' .. victim .. ':keys'
+    local keys = redis.call('SMEMBERS', registry)
+    for _, key in ipairs(keys) do redis.call('DEL', key) end
+    redis.call('DEL', registry)
+  end
 end
 return 1
 `;
@@ -949,7 +926,8 @@ return 1
 
 const EVICT_RESIDENT_STOCK = `
 -- evict-resident-stock
-if redis.call('ZSCORE', KEYS[2], ARGV[1]) == false then return 0 end
+if redis.call('ZSCORE', KEYS[2], ARGV[1]) == false
+  and redis.call('SISMEMBER', KEYS[3], ARGV[1]) == 0 then return 0 end
 local keys = redis.call('SMEMBERS', KEYS[1])
 for _, key in ipairs(keys) do redis.call('DEL', key) end
 redis.call('DEL', KEYS[1])
@@ -957,17 +935,63 @@ redis.call('ZREM', KEYS[2], ARGV[1])
 return 1
 `;
 
-function statementTypeKey(statementType: FinancialStatementType): string {
-  switch (statementType) {
-    case "INCOME":
-      return "income";
-    case "BALANCE_SHEET":
-      return "balance-sheet";
-    case "CASH_FLOW":
-      return "cash-flow";
-  }
-}
+const PROTECTED_READY = `
+-- protected-ready
+if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 0 then return 0 end
+local manifest = redis.call('GET', KEYS[2])
+if manifest == false then return 0 end
+local ok, value = pcall(cjson.decode, manifest)
+if ok and value.status == 'READY' then return 1 end
+return 0
+`;
 
-function cadenceKey(cadence: FinancialStatementCadence): string {
-  return cadence === "QUARTERLY" ? "quarter" : "annual";
+const PROTECT_STOCKS = `
+-- protect-stocks
+local added = 0
+for _, id in ipairs(ARGV) do
+  added = added + redis.call('SADD', KEYS[1], id)
+  redis.call('ZREM', KEYS[2], id)
+end
+return added
+`;
+
+const UNPROTECT_STOCKS = `
+-- unprotect-stocks
+local removed = 0
+for index = 3, #ARGV do
+  local id = ARGV[index]
+  if redis.call('SREM', KEYS[1], id) == 1 then
+    removed = removed + 1
+    local manifest = redis.call('GET', ARGV[2] .. ':security:' .. id .. ':manifest')
+    if manifest ~= false then
+      local ok, value = pcall(cjson.decode, manifest)
+      if ok and value.status == 'READY' then
+        redis.call('ZADD', KEYS[2], redis.call('INCR', KEYS[3]), id)
+      end
+    end
+  end
+end
+while redis.call('ZCARD', KEYS[2]) > tonumber(ARGV[1]) do
+  local victim = redis.call('ZRANGE', KEYS[2], 0, 0)[1]
+  if victim == nil then break end
+  redis.call('ZREM', KEYS[2], victim)
+  if redis.call('SISMEMBER', KEYS[1], victim) == 0 then
+    local registry = ARGV[2] .. ':security:' .. victim .. ':keys'
+    local keys = redis.call('SMEMBERS', registry)
+    for _, key in ipairs(keys) do redis.call('DEL', key) end
+    redis.call('DEL', registry)
+  end
+end
+return removed
+`;
+
+/** Ids per protect/unprotect script call: bounded, so one call never blocks Redis for long. */
+const PROTECTED_BATCH_SIZE = 500;
+
+function batches<T>(values: readonly T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
 }

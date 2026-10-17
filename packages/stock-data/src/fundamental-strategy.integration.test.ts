@@ -673,7 +673,6 @@ describeInfrastructure(
       const derivedWrites = vi.spyOn(store, "saveDailyDerivedState");
       const storeDerivedReads = vi.spyOn(store, "getDailyDerivedState");
       const cacheDerivedReads = vi.spyOn(cache, "readDailyDerivedState");
-      const cacheStatementReads = vi.spyOn(cache, "readFinancialStatements");
       try {
         const callsBefore = provider.calls.length;
 
@@ -715,7 +714,6 @@ describeInfrastructure(
           derivedWrites.mock.calls.length,
           storeDerivedReads.mock.calls.length,
           cacheDerivedReads.mock.calls.length,
-          cacheStatementReads.mock.calls.length,
         ];
         const before = frozen();
         const result = await backtest(definition, frame);
@@ -728,7 +726,6 @@ describeInfrastructure(
         // Reading and evaluating reached no statement, recalculated nothing and asked no provider.
         expect(statementReads).not.toHaveBeenCalled();
         expect(statementPeriodReads).not.toHaveBeenCalled();
-        expect(cacheStatementReads).not.toHaveBeenCalled();
         expect(derivedWrites).not.toHaveBeenCalled();
         expect(provider.calls.length).toBe(callsBefore);
         expect(requests).toEqual([]);

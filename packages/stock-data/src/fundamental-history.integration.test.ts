@@ -855,7 +855,6 @@ describeInfrastructure(
         "getFinancialStatementRevisions",
       );
       const statements = vi.spyOn(store, "getFinancialStatements");
-      const cachedStatements = vi.spyOn(cache, "readFinancialStatements");
       const derivedWrites = vi.spyOn(store, "saveDailyDerivedState");
       const cachedDerived = vi.spyOn(cache, "readDailyDerivedState");
       const storedDerived = vi.spyOn(store, "getDailyDerivedState");
@@ -869,7 +868,6 @@ describeInfrastructure(
 
         expect(statementRevisions).not.toHaveBeenCalled();
         expect(statements).not.toHaveBeenCalled();
-        expect(cachedStatements).not.toHaveBeenCalled();
         expect(derivedWrites).not.toHaveBeenCalled();
         // Resident in Redis, so PostgreSQL is not even asked for the rows.
         expect(cachedDerived).toHaveBeenCalledTimes(1);
