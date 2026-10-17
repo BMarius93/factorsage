@@ -208,7 +208,13 @@ function evaluation(
 const signalsOf = (monitorId: string, levelId?: string) =>
   prisma.monitorSignal.findMany({
     where: { monitorId, ...(levelId ? { levelId } : {}) },
-    orderBy: [{ observationDate: "asc" }, { detectedAt: "asc" }],
+    // An occurrence a pass re-decides on the same session ties the one it replaced on both dates,
+    // `detectedAt` being the pass's clock: the closed occurrence comes first, the open one last.
+    orderBy: [
+      { observationDate: "asc" },
+      { detectedAt: "asc" },
+      { resolvedAt: { sort: "asc", nulls: "last" } },
+    ],
   });
 const statesOf = (monitorId: string) =>
   prisma.monitorSignalState.findMany({ where: { monitorId } });
