@@ -476,6 +476,23 @@ The JWT secret comes from centralized configuration and must contain at least 32
 Local web-to-API requests use credentials and the API explicitly enables credentialed CORS only
 for configured origins.
 
+### Cross-site forms (SEC-01)
+
+`SameSite=Lax` still lets a cross-site **top-level** `POST` — an auto-submitted `<form>` — set the
+cookie a response carries, and a form needs no CORS preflight. Until 2026-10-16 the API kept Nest's
+urlencoded body parser, so a form-encoded `POST /auth/login` answered `200` with a session cookie:
+any site could sign a visitor into the attacker's account, or out of their own with
+`POST /auth/logout` (pre-release audit SEC-01, open since the 2026-09-18 audit's S-1).
+
+The API now reads JSON only: `installJsonOnlyRequests` (`apps/api/src/json-only-requests.ts`,
+installed by `main.ts` after CORS) answers `415` to a `POST`, `PUT`, `PATCH` or `DELETE` whose
+`Content-Type` is not `application/json`, before any body parser runs. A form can only send
+`application/x-www-form-urlencoded`, `multipart/form-data` or `text/plain`, and `application/json`
+from another origin needs a preflight the configured origins refuse — so no cross-site form reaches
+a handler. A bodyless request without a `Content-Type` (the web client's `DELETE`s) passes; reads
+and preflights are untouched. Tests: `json-only-requests.test.ts`, and the SEC-01 cases in
+`auth.integration.test.ts` (form login and form sign-out refused, JSON login unchanged).
+
 ### Rotation and concurrency
 
 `EmailVerificationToken` and `PasswordResetToken` are the same lifecycle — a random plaintext

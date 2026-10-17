@@ -15,6 +15,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
+import { installJsonOnlyRequests } from "../json-only-requests";
 import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
 import { PasswordService } from "./password.service";
 import { seedInitialAdmin } from "./seed-admin";
@@ -57,6 +58,8 @@ describe("authentication and role authorization", () => {
     app = moduleRef.createNestApplication();
     const apiConfig = getApiConfig();
     app.enableCors({ origin: apiConfig.corsOrigins, credentials: true });
+    // As `main.ts` installs it (SEC-01).
+    installJsonOnlyRequests(app);
     // Bound to loopback, never left unlistened: an unlistened app makes supertest bind a
     // wildcard port per request, which on macOS can be one another process holds on
     // 127.0.0.1 (`ai/workflows/validation.md`, "bind it to loopback").
@@ -189,18 +192,37 @@ describe("authentication and role authorization", () => {
 
   /**
    * Pre-release audit 2026-10-16, finding SEC-01 (`docs/audits/pre-release-audit-2026-10-16.md`), open
-   * since the 2026-09-18 audit (S-1). The API keeps Nest's urlencoded body parser, so a cross-site
-   * `<form method=post>` — a top-level navigation, no preflight — signs the victim's browser into the
-   * attacker's account (or out of their own). A JSON API should refuse the form. `it.fails` keeps the
-   * suite green while the defect is open and turns red once the form is refused.
+   * since the 2026-09-18 audit (S-1). The API kept Nest's urlencoded body parser, so a cross-site
+   * `<form method=post>` — a top-level navigation, no preflight — signed the victim's browser into
+   * the attacker's account (or out of their own): a form-encoded login answered 200 with the
+   * session cookie. State-changing requests are now JSON only (`json-only-requests.ts`).
    */
-  it.fails("KNOWN DEFECT SEC-01: refuses a form-encoded login, so a cross-site form cannot sign a browser in", async () => {
+  it("SEC-01: refuses a form-encoded login, so a cross-site form cannot sign a browser in", async () => {
     const response = await request(app.getHttpServer())
       .post("/auth/login")
+      .set("Origin", "https://attacker.example")
       .type("form")
-      .send({ email: userEmail, password });
-    expect(response.status).not.toBe(200);
+      .send({ email: userEmail, password })
+      .expect(415);
     expect(response.headers["set-cookie"]).toBeUndefined();
+
+    // The same credentials as JSON still sign in: only the form is refused.
+    await request(app.getHttpServer())
+      .post("/auth/login")
+      .send({ email: userEmail, password })
+      .expect(200);
+  });
+
+  it("SEC-01: refuses a form-encoded sign-out, so a cross-site form cannot clear the session cookie", async () => {
+    for (const path of ["/auth/logout", "/auth/logout-all"]) {
+      const response = await request(app.getHttpServer())
+        .post(path)
+        .set("Origin", "https://attacker.example")
+        .type("form")
+        .send({})
+        .expect(415);
+      expect(response.headers["set-cookie"]).toBeUndefined();
+    }
   });
 
   it("uses equivalent generic failures for wrong and unknown credentials", async () => {
