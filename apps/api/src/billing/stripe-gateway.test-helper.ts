@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { BillingError } from "@intrinsic/contracts";
 import { hasScheduledCancellation } from "./stripe-gateway";
 import type {
+  CheckoutSessionSweep,
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
@@ -78,6 +79,14 @@ export type FakeSubscription = {
   scheduledPhase: StripeScheduledPhase | null;
 };
 
+/** A hosted Checkout Session and what became of it. */
+export type FakeCheckoutSession = CreateCheckoutSessionInput & {
+  readonly id: string;
+  status: "open" | "complete" | "expired";
+  /** The subscription paying it created. */
+  subscriptionId: string | null;
+};
+
 export type FakeStripeOptions = {
   readonly webhookSecret: string;
   readonly testMode?: boolean;
@@ -86,6 +95,12 @@ export type FakeStripeOptions = {
    * current price alone. The sandbox equivalent is a card that declines on the proration invoice.
    */
   failNextImmediateChange?: boolean;
+  /**
+   * The billing interval of a price, when a scenario needs Stripe's cadence rule: an immediate change
+   * to a price of a **different** interval restarts the billing period now, so a monthly → yearly
+   * change moves the period end a year out. Without it the period is left as it was.
+   */
+  intervalOf?: (priceId: string) => "MONTH" | "YEAR" | null;
 };
 
 export class FakeStripeGateway implements StripeGateway {
@@ -98,13 +113,30 @@ export class FakeStripeGateway implements StripeGateway {
   /** Every idempotency key this fake has seen, by operation. Assertable from a test. */
   readonly idempotencyKeys: { operation: string; key: string }[] = [];
 
-  readonly checkoutSessions: (CreateCheckoutSessionInput & { id: string })[] = [];
+  readonly checkoutSessions: FakeCheckoutSession[] = [];
   readonly portalSessions: CreatePortalSessionInput[] = [];
 
   /** Counts, so a test can prove a retry made no second call rather than inferring it. */
   readonly callCounts = new Map<string, number>();
 
   failNextImmediateChange: boolean;
+
+  /**
+   * A session the customer finishes paying in the instant the next sweep reaches it: Stripe then
+   * refuses the expiry because the session is already complete. The race BILL-02's sweep must
+   * survive.
+   */
+  completeDuringNextSweep: string | null = null;
+
+  /** Makes the next schedule release fail, as a Stripe outage would. */
+  failNextScheduleRelease = false;
+
+  /**
+   * How long a read of the customer's billing state takes to arrive after Stripe took its snapshot.
+   * Non-zero only in the concurrency scenarios, where it keeps two requests' reads in flight together
+   * so an unserialized pair would both act on the same snapshot.
+   */
+  loadLatencyMs = 0;
 
   private sequence = 0;
 
@@ -153,6 +185,27 @@ export class FakeStripeGateway implements StripeGateway {
       scheduledPhase: null,
     };
     this.subscriptions.set(id, subscription);
+    return subscription;
+  }
+
+  /**
+   * What paying a hosted Checkout does: the session completes and a live subscription on its price
+   * appears. Stripe refuses payment on a session that is no longer open, and so does this.
+   */
+  completeCheckoutSession(sessionId: string): FakeSubscription {
+    const session = this.checkoutSessions.find((entry) => entry.id === sessionId);
+    if (!session) {
+      throw new Error(`Unknown fake checkout session ${sessionId}`);
+    }
+    if (session.status !== "open") {
+      throw new Error(`Checkout session ${sessionId} is ${session.status}, not payable`);
+    }
+    const subscription = this.seedSubscription({
+      customerId: session.customerId,
+      priceId: session.priceId,
+    });
+    session.status = "complete";
+    session.subscriptionId = subscription.id;
     return subscription;
   }
 
@@ -308,6 +361,11 @@ export class FakeStripeGateway implements StripeGateway {
       scheduledPhases[subscription.id] = subscription.scheduledPhase;
     }
 
+    // The snapshot is taken first and delivered late, as a network round trip delivers it: a
+    // concurrent writer can change Stripe while this answer is still on its way.
+    if (this.loadLatencyMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, this.loadLatencyMs));
+    }
     return { customerId, subscriptions, scheduledPhases };
   }
 
@@ -347,10 +405,41 @@ export class FakeStripeGateway implements StripeGateway {
   async createCheckoutSession(
     input: CreateCheckoutSessionInput,
   ): Promise<StripeCheckoutSession> {
-    this.record("createCheckoutSession", input.idempotencyKey);
+    this.record("createCheckoutSession");
     const id = `cs_${this.next()}`;
-    this.checkoutSessions.push({ ...input, id });
-    return { id, url: `https://checkout.stripe.test/${id}` };
+    this.checkoutSessions.push({
+      ...input,
+      id,
+      status: "open",
+      subscriptionId: null,
+    });
+    return {
+      id,
+      url: `https://checkout.stripe.test/${id}`,
+      expiresAt: input.expiresAt,
+    };
+  }
+
+  async expireOpenCheckoutSessions(
+    customerId: string,
+  ): Promise<CheckoutSessionSweep> {
+    this.record("expireOpenCheckoutSessions");
+    let expired = 0;
+    let completed = 0;
+    for (const session of this.checkoutSessions) {
+      if (session.customerId !== customerId || session.status !== "open") {
+        continue;
+      }
+      if (this.completeDuringNextSweep === session.id) {
+        this.completeDuringNextSweep = null;
+        this.completeCheckoutSession(session.id);
+        completed += 1;
+        continue;
+      }
+      session.status = "expired";
+      expired += 1;
+    }
+    return { expired, completed };
   }
 
   async createPortalSession(
@@ -383,8 +472,20 @@ export class FakeStripeGateway implements StripeGateway {
       this.failNextImmediateChange = false;
       subscription.pendingPriceId = input.priceId;
     } else {
+      const fromInterval = this.options.intervalOf?.(subscription.currentPriceId) ?? null;
+      const toInterval = this.options.intervalOf?.(input.priceId) ?? null;
       subscription.currentPriceId = input.priceId;
       subscription.pendingPriceId = null;
+      if (fromInterval !== null && toInterval !== null && fromInterval !== toInterval) {
+        // A cadence change restarts the billing period at the change.
+        const now = new Date();
+        subscription.currentPeriodStart = now;
+        subscription.currentPeriodEnd = new Date(
+          now.getTime() + (toInterval === "YEAR" ? 365 : 30) * 86_400_000,
+        );
+      }
+      // What Stripe does **not** do, and what BILL-01 was: a direct update leaves an attached
+      // schedule and its future phase exactly where they were.
     }
 
     const state = await this.loadCustomerBillingState(subscription.customerId);
@@ -423,9 +524,17 @@ export class FakeStripeGateway implements StripeGateway {
    */
   async releaseSubscriptionSchedule(scheduleId: string): Promise<void> {
     this.record("releaseSubscriptionSchedule");
+    if (this.failNextScheduleRelease) {
+      this.failNextScheduleRelease = false;
+      throw new BillingError("Billing is temporarily unavailable. Please try again.", {
+        code: "BILLING_STRIPE_UNAVAILABLE",
+      });
+    }
     for (const subscription of this.subscriptions.values()) {
       if (subscription.scheduleId === scheduleId) {
         subscription.scheduleId = null;
+        // Released means detached: its phases no longer govern the subscription.
+        subscription.scheduledPhase = null;
       }
     }
   }

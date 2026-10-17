@@ -97,8 +97,10 @@ the write.
 - Deploying the change makes every resident READY manifest stale once. Each stock rebuilds its
   Redis projection from PostgreSQL on next access; no fundamentals, no covered price interval and
   no derived row is refetched.
-- A security listed inside the retention window clamps to its listing date. There is no artificial
-  warm-up and no false coverage before a company existed.
+- ~~A security listed inside the retention window clamps to its listing date.~~ Superseded on
+  2026-10-16 by `listing-evidence-v1.md` (DATA-02). The provider is now asked for the whole window,
+  and the history is whatever it serves. Nothing is invented before a listing, and a wrong IPO
+  date no longer cuts real bars.
 
 ## Rejected
 

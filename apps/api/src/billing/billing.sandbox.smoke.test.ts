@@ -177,11 +177,24 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
       priceId: catalog.resolveKey("STARTER_MONTHLY").priceId,
       successUrl: "http://localhost:3000/billing?checkout=success",
       cancelUrl: "http://localhost:3000/billing?checkout=cancelled",
-      idempotencyKey: `factorsage:checkout:${testUserId}-checkout:STARTER_MONTHLY:smoke`,
+      expiresAt: new Date(Date.now() + 35 * 60_000),
     });
 
     expect(session.id).toMatch(/^cs_test_/);
     expect(session.url).toContain("checkout.stripe.com");
+    // Stripe accepted the short lifetime rather than its default day.
+    expect(session.expiresAt.getTime() - Date.now()).toBeLessThan(40 * 60_000);
+
+    // And the sweep that keeps a second session from being payable reaches it: one open session
+    // expired, then none left to expire.
+    expect(await gateway.expireOpenCheckoutSessions(customer.id)).toEqual({
+      expired: 1,
+      completed: 0,
+    });
+    expect(await gateway.expireOpenCheckoutSessions(customer.id)).toEqual({
+      expired: 0,
+      completed: 0,
+    });
   });
 
   /**

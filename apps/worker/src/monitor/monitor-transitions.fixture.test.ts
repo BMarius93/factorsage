@@ -592,7 +592,7 @@ describe("Monitor transitions (fixture table)", () => {
         },
       });
       userIds.push(user.id);
-      const security = await createSecurity(`FX${index}${suffix.slice(0, 3)}`);
+      const security = await createSecurity(`FX${index}${suffix}`);
       const { monitorId, stockListId } = await createMonitor({
         userId: user.id,
         definition: scenario.definition,

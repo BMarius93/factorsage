@@ -832,33 +832,12 @@ export async function runAlternativeDataSection(input: {
         failed: 0,
         sessionsWithValue: 0,
       });
-      // The budget for a money measure, derived rather than chosen.
-      //
-      // A count is an integer and is compared exactly. A `SUM_AMOUNT` column is not: the frame is a
-      // `Float64Array`, each amount is a `Decimal(24,6)` converted to float64, and the engine
-      // maintains the sum **incrementally** — every observation is added when it enters the window
-      // and subtracted when it leaves. So the error is not the error of one summation of the terms
-      // currently in the window; it accumulates over every add and subtract the column performs,
-      // and cancellation between them is what makes it visible. The oracle re-adds the window's
-      // terms in exact decimal arithmetic, so the whole difference is the engine's.
-      //
-      // Bound: two float64 operations per observation over the whole column, each losing at most one
-      // unit in the last place of the **largest magnitude the accumulator reached** — not of the
-      // value being compared. That distinction is the whole point: the residue of a $44M window does
-      // not leave the accumulator when the window empties, so a session whose own window holds
-      // $108,749 still carries an error of the larger scale. A budget relative to the current value
-      // reported exactly those sessions as defects.
-      //
-      // At MRNA's peak sale-value window of $44.4M over ~4,900 disclosures the budget is about
-      // 9.7e-5; the differences actually observed are ~1.0e-6.
-      const peakMagnitude = expected.reduce(
-        (peak, value) =>
-          value === null ? peak : Math.max(peak, Math.abs(value.toNumber())),
-        0,
-      );
-      const amountTolerance = (): number =>
-        0.5e-6 +
-        peakMagnitude * 2 ** -52 * 2 * Math.max(1, selected.length);
+      // Every measure is compared **exactly**. A count is an integer on both sides; a `SUM_AMOUNT`
+      // column is the engine's exact sum of whole ten-thousandths of a dollar (the stored precision
+      // of every disclosure amount) divided once, which is the nearest double to the oracle's exact
+      // decimal sum. The tolerance this audit used to allow — the residue of an incremental float
+      // sum, ~1e-6 on MRNA — was the defect itself: an emptied window read 6.98e-12, not 0, and
+      // `value is above $0` fired with no purchase (ALT-01).
       for (let index = 0; index < sessions.length; index += 1) {
         const expectedValue = expected[index];
         const actualValue = actual[index] as number;
@@ -874,14 +853,7 @@ export async function runAlternativeDataSection(input: {
           actualOrNull,
           expectedOrNull === null || actualOrNull === null
             ? "exact-number"
-            : definition.aggregation === "SUM_AMOUNT"
-              ? {
-                  tolerance: amountTolerance(),
-                  justification:
-                    "float64 incremental window summation of Decimal(24,6) amounts: two operations per observation",
-                }
-              : // A distinct-actor count and an event count are whole numbers on both sides.
-                "exact-number",
+            : "exact-number",
         );
         stats.compared += 1;
         if (!ok) {

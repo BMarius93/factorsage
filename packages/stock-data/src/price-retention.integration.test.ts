@@ -40,6 +40,7 @@ import {
   FUNDAMENTALS_VARIANT_VERSION,
   fundamentalsDatasetOperations,
   priceRetentionYears,
+  type PriceBasisObservation,
   type ProviderRequestEvent,
 } from "./service.js";
 import { referenceWilderRsi } from "./wilder-rsi-oracle.test-helper.js";
@@ -133,6 +134,10 @@ class RecordingProvider implements FmpStockProviderPort {
   readonly statementCalls: string[] = [];
   /** Provider history begins here for this symbol; `undefined` means the full series. */
   listedFrom?: string;
+  /** The IPO date the provider's profile reports, which need not agree with `listedFrom`. */
+  profileIpoDate?: string;
+  /** Quarterly income statements the provider serves; every other statement set is empty. */
+  quarterlyIncome: FinancialStatementDraft[] = [];
 
   async getProfile(symbol: string): Promise<MappedFmpProfile | null> {
     return {
@@ -145,6 +150,7 @@ class RecordingProvider implements FmpStockProviderPort {
         type: "STOCK",
         isAdr: false,
         isActivelyTrading: true,
+        ...(this.profileIpoDate ? { ipoDate: this.profileIpoDate } : {}),
       },
       profile: { description: "Price-retention integration fixture" },
     } as MappedFmpProfile;
@@ -174,7 +180,9 @@ class RecordingProvider implements FmpStockProviderPort {
     cadence: "QUARTERLY" | "ANNUAL",
   ): Promise<FinancialStatementDraft[]> {
     this.statementCalls.push(`${statementType}:${cadence}`);
-    return [];
+    return statementType === "INCOME" && cadence === "QUARTERLY"
+      ? this.quarterlyIncome
+      : [];
   }
 }
 
@@ -193,6 +201,7 @@ describeRetention(
     function createService(input: {
       provider: FmpStockProviderPort;
       onProviderRequest?: (event: ProviderRequestEvent) => void;
+      onPriceBasisEvent?: (event: PriceBasisObservation) => void;
     }): CanonicalStockDataService {
       return new CanonicalStockDataService(
         store,
@@ -204,6 +213,9 @@ describeRetention(
           now: () => new Date(NOW),
           ...(input.onProviderRequest
             ? { onProviderRequest: input.onProviderRequest }
+            : {}),
+          ...(input.onPriceBasisEvent
+            ? { onPriceBasisEvent: input.onPriceBasisEvent }
             : {}),
         },
       );
@@ -824,13 +836,14 @@ describeRetention(
 
     describe("a security listed inside the retention window", () => {
       it(
-        "clamps to its listing date and invents no warm-up history",
+        "asks for the whole retention window, stores only what the provider serves, and invents nothing",
         async () => {
           const listing = "2015-06-01";
           const security = await createSecurity("IPO", listing);
           await seedFundamentalsStates(security.id);
           const provider = new RecordingProvider();
           provider.listedFrom = listing;
+          provider.profileIpoDate = listing;
           const loader = createService({ provider });
 
           const visible = await loader.getDailyPrices(security.symbol, {
@@ -838,30 +851,229 @@ describeRetention(
             to: TODAY,
           });
 
-          // Clamped on both sides of the policy: no request before the listing date...
+          // One request, as before, but not clipped at the IPO date (DATA-02): a wrong IPO date
+          // must not remove what the provider serves, and a right one costs nothing for it.
           expect(
             provider.priceRanges.filter(
               (call) => call.symbol === security.symbol,
             ),
-          ).toEqual([{ symbol: security.symbol, from: listing, to: TODAY }]);
-          // ...and no persisted or projected row before it either.
+          ).toEqual([
+            { symbol: security.symbol, from: RETENTION_START, to: TODAY },
+          ]);
+          // No persisted or projected row before the listing: the provider served none.
           const rows = await persistedPrices(security.id);
-          expect(isoDate(rows[0]!.date) >= listing).toBe(true);
-          expect(visible[0]!.date >= listing).toBe(true);
+          expect(isoDate(rows[0]!.date)).toBe(listing);
+          expect(visible[0]!.date).toBe(listing);
 
-          // Coverage records only what actually exists; nothing claims the retention boundary.
+          // Coverage records the question that was asked: the provider was asked for the whole
+          // window and answered nothing before the listing, so nothing there is asked again.
           const coverage = (
             await persistedCoverage(security.id, StockDataset.DAILY_PRICE)
           ).filter((row) => row.variant === DAILY_PRICE_VARIANT);
-          expect(coverage.every((row) => row.from >= listing)).toBe(true);
+          expect(coverage).toEqual([
+            { variant: DAILY_PRICE_VARIANT, from: RETENTION_START, to: TODAY },
+          ]);
+          await loader.getDailyPrices(security.symbol, {
+            from: PRODUCT_START,
+            to: TODAY,
+          });
+          expect(
+            provider.priceRanges.filter(
+              (call) => call.symbol === security.symbol,
+            ),
+          ).toHaveLength(1);
 
           // A young security legitimately has no 200-week average yet at its own first day.
           const derived = await store.getDailyDerivedState(security.id, {
             from: listing,
             to: addDays(listing, 30),
           });
+          expect(derived[0]!.date).toBe(listing);
           expect(derived[0]!.sma200w).toBeUndefined();
           expect(derived[0]!.ema200w).toBeUndefined();
+        },
+        SLOW,
+      );
+
+      it(
+        "keeps the bars a provider serves before a wrong IPO date, and backtests them (DATA-02)",
+        async () => {
+          // HON: FMP's profile says IPO 2001-02-21, and FMP serves its bars from 1996.
+          const wrongIpo = "2001-02-21";
+          const traded = "1996-01-02";
+          const security = await createSecurity("WRONGIPO", wrongIpo);
+          await seedFundamentalsStates(security.id);
+          const provider = new RecordingProvider();
+          provider.listedFrom = traded;
+          provider.profileIpoDate = wrongIpo;
+          const observations: PriceBasisObservation[] = [];
+          const loader = createService({
+            provider,
+            onPriceBasisEvent: (observation) => observations.push(observation),
+          });
+
+          const visible = await loader.getDailyPrices(security.symbol, {
+            from: PRODUCT_START,
+            to: TODAY,
+          });
+
+          const rows = await persistedPrices(security.id);
+          expect(isoDate(rows[0]!.date)).toBe(traded);
+          // The product shows the whole product horizon, not a history starting at the IPO date.
+          expect(visible[0]!.date).toBe(PRODUCT_START);
+          // And a backtest's frame reaches back to its period start, whichever identity it holds.
+          const backtestPeriod = { from: PRODUCT_START, to: "1997-12-31" };
+          for (const identity of [
+            security,
+            { ...security, ipoDate: wrongIpo },
+          ]) {
+            const { frame } = await loader.readFinalizedEvaluationFrame(
+              identity,
+              backtestPeriod,
+              [],
+            );
+            expect(frame.dates[frame.periodStartIndex]).toBe(PRODUCT_START);
+          }
+          // The rebuild noticed the provider anomaly and said so.
+          expect(
+            observations.filter(
+              (observation) =>
+                observation.outcome === "LISTING_DATE_CONTRADICTED",
+            )[0],
+          ).toMatchObject({
+            securityId: security.id,
+            ipoDate: wrongIpo,
+            firstBar: traded,
+          });
+        },
+        SLOW,
+      );
+
+      it(
+        "builds a catalog-only security's first hydration exactly as it rebuilds it once the profile is known",
+        async () => {
+          // A Wednesday listing, so the first week is partial: kept as a listing week, dropped as a
+          // horizon cut. Before DATA-02 the first hydration ran without the IPO date the profile
+          // step had just written and dropped it; every later rebuild kept it.
+          const listing = "2015-06-03";
+          const security = await createSecurity("CATALOG");
+          await seedFundamentalsStates(security.id);
+          const provider = new RecordingProvider();
+          provider.listedFrom = listing;
+          provider.profileIpoDate = listing;
+          const loader = createService({ provider });
+          const range = { from: PRODUCT_START, to: TODAY };
+
+          await loader.getDailyDerivedState(security.symbol, range);
+          const firstWeekly = await prisma.weeklyPrice.findMany({
+            where: { securityId: security.id },
+            orderBy: { weekStartDate: "asc" },
+          });
+          const firstDerived = await store.getDailyDerivedState(
+            security.id,
+            range,
+          );
+          expect(isoDate(firstWeekly[0]!.weekStartDate)).toBe("2015-06-01");
+
+          // Force a full rebuild from the stored data: derived coverage and the cache are gone.
+          await prisma.stockDatasetCoverage.deleteMany({
+            where: {
+              securityId: security.id,
+              dataset: StockDataset.DAILY_DERIVED_STATE,
+            },
+          });
+          const keys = await redisStockKeys(security.id);
+          if (keys.length > 0) {
+            await redis.del(...keys);
+          }
+          await redis.del(`${namespace}:security:${security.id}:manifest`);
+          await createService({ provider }).getDailyDerivedState(
+            security.symbol,
+            range,
+          );
+
+          const rebuiltWeekly = await prisma.weeklyPrice.findMany({
+            where: { securityId: security.id },
+            orderBy: { weekStartDate: "asc" },
+          });
+          expect(rebuiltWeekly).toEqual(firstWeekly);
+          expect(await store.getDailyDerivedState(security.id, range)).toEqual(
+            firstDerived,
+          );
+        },
+        SLOW,
+      );
+
+      it(
+        "reads a statement from before the listing only on a real filing date (DATA-03)",
+        async () => {
+          const listing = "2015-06-03";
+          const security = await createSecurity("PRELIST", listing);
+          const provider = new RecordingProvider();
+          provider.listedFrom = listing;
+          provider.profileIpoDate = listing;
+          const quarterEnd = {
+            Q1: "03-31",
+            Q2: "06-30",
+            Q3: "09-30",
+            Q4: "12-31",
+          };
+          const income = (
+            fiscalYear: number,
+            period: keyof typeof quarterEnd,
+            filingDate: string,
+            grossMargin: number,
+          ): FinancialStatementDraft =>
+            ({
+              securityId: security.id,
+              statementType: "INCOME",
+              fiscalDate: `${fiscalYear}-${quarterEnd[period]}`,
+              fiscalYear,
+              period,
+              reportedCurrency: "USD",
+              filingDate,
+              values: {
+                revenue: 100,
+                grossProfit: 100 * grossMargin,
+                operatingIncome: 10,
+                netIncome: 5,
+                epsDiluted: 0.5,
+                weightedAverageShsOutDil: 10,
+              },
+            }) as FinancialStatementDraft;
+          provider.quarterlyIncome = [
+            // Pre-listing quarters dated at their period ends: placeholders, no evidence of when
+            // they became public (the prospectus is not in the data). A 10 % margin.
+            income(2014, "Q1", "2014-03-31", 0.1),
+            income(2014, "Q2", "2014-06-30", 0.1),
+            income(2014, "Q3", "2014-09-30", 0.1),
+            income(2014, "Q4", "2014-12-31", 0.1),
+            // A pre-listing quarter with a real filing date (reported after the listing). 40 %.
+            income(2015, "Q1", "2015-07-15", 0.4),
+            // Listed quarters, filed as usual. 40 %.
+            income(2015, "Q2", "2015-08-10", 0.4),
+            income(2015, "Q3", "2015-11-09", 0.4),
+            income(2015, "Q4", "2016-02-22", 0.4),
+            income(2016, "Q1", "2016-05-09", 0.4),
+          ];
+          const loader = createService({ provider });
+
+          const states = await loader.getDailyDerivedState(security.symbol, {
+            from: listing,
+            to: "2016-12-30",
+          });
+          const withMargin = states.filter(
+            (state) => state.grossMarginTtm !== undefined,
+          );
+          // The first trailing twelve months are the four quarters the data evidences, public the
+          // day after the last of them was filed: 2015 Q1–Q4, never a 2014 placeholder.
+          expect(withMargin[0]!.date).toBe("2016-02-23");
+          expect(withMargin[0]!.grossMarginTtm).toBeCloseTo(40, 10);
+          expect(
+            states.filter((state) => state.date < "2016-02-23"),
+          ).not.toContainEqual(
+            expect.objectContaining({ grossMarginTtm: expect.anything() }),
+          );
         },
         SLOW,
       );

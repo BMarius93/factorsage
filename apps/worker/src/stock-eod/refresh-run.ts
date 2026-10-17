@@ -1,10 +1,11 @@
 import type { LocalDate, Security } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
-import type {
-  CanonicalStockDataService,
-  EodFinalityPolicy,
-  FinalizedSession,
-  StockRefreshState,
+import {
+  derivedStateCaughtUp,
+  type CanonicalStockDataService,
+  type EodFinalityPolicy,
+  type FinalizedSession,
+  type StockRefreshState,
 } from "@intrinsic/stock-data";
 import { mapWithConcurrency } from "../shared/concurrency.js";
 import type { ActiveMonitor } from "../monitor/monitor-repository.js";
@@ -245,9 +246,11 @@ export class StockEodRefreshRun {
       const decision = this.options.policy.decide(state, expected);
       const historyLoaded =
         state.coverageStart !== undefined && state.coverageStart <= from;
-      if (historyLoaded && decision.action === "SKIP") {
+      if (historyLoaded && decision.action === "SKIP" && derivedStateCaughtUp(state)) {
         // Nothing price-side to ask for: PostgreSQL already holds the session as read after it
-        // became final, or has stopped asking for it. Only operand inputs keep their own freshness.
+        // became final, or has stopped asking for it. A derived state behind the verified bars is
+        // not "nothing to do" (OPS-02): it is repaired by the call below, from PostgreSQL. Only
+        // operand inputs keep their own freshness.
         if (target.operands.length > 0) {
           await this.service.prepareStockOperands(security, target.operands);
         }
@@ -281,7 +284,12 @@ export class StockEodRefreshRun {
         runSequence,
         ...base,
         outcome: result.status,
-        reason: decision.action === "REFRESH" ? decision.reason : "HISTORY_MISSING",
+        reason:
+          decision.action === "REFRESH"
+            ? decision.reason
+            : historyLoaded
+              ? "DERIVED_BEHIND"
+              : "HISTORY_MISSING",
         expectedSession: expected.session,
         ...stateFields(result.state),
         durationMs: outcome.durationMs,

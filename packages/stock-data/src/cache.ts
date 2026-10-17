@@ -125,6 +125,12 @@ export type StockDataCacheObserver = {
     key: string;
     reason: string;
   }) => void;
+  /**
+   * Recording a read in the resident LRU failed after the read itself succeeded — a Redis that
+   * refuses writes (`noeviction` at `maxmemory`, a read-only replica). The read is still served;
+   * only the eviction order loses this access.
+   */
+  onTouchFailed?: (failure: { securityId: string; error: unknown }) => void;
 };
 
 export interface RedisCacheClient {
@@ -171,6 +177,12 @@ export interface StockDataCache {
     ready: StockManifest,
   ): Promise<boolean>;
   invalidateManifest(manifest: StockManifest | null): Promise<boolean>;
+  /**
+   * Whether `hydrating` is still the security's current generation, keeping it alive when it is.
+   * Its holder checks between long phases and before durable writes: false means another lease
+   * holder has taken the stock over, and nothing this generation produces can be published.
+   */
+  renewHydration(hydrating: StockManifest): Promise<boolean>;
   readDailyPrices(
     securityId: string,
     range: Required<DateRange>,
@@ -296,15 +308,39 @@ export class RedisStockDataCache implements StockDataCache {
     return this.publishReady(hydrating, ready);
   }
 
+  async renewHydration(hydrating: StockManifest): Promise<boolean> {
+    const result = await this.redis.eval(
+      RENEW_HYDRATION,
+      2,
+      this.manifestKey(hydrating.securityId),
+      this.registryKey(hydrating.securityId),
+      JSON.stringify(hydrating),
+      String(this.hydrationTtlMs),
+    );
+    return result === 1;
+  }
+
+  /**
+   * Removes a **READY** generation a reader could not be served from — the manifest, every key it
+   * registered and its place in the resident set — provided it is still exactly the one observed.
+   *
+   * Never a HYDRATING one. That generation belongs to whoever holds the stock's load lock, and only
+   * that holder (or the next one, taking an abandoned generation over under the same lock) may
+   * replace it: deleting it from outside made the hydrating process fail at its next write with
+   * "generation changed" (OPS-06), so a reader that finds a hydration in progress waits for the lock
+   * instead. The status check is inside the script, so a generation that turns HYDRATING between
+   * the reader's observation and this call is spared as well.
+   */
   async invalidateManifest(manifest: StockManifest | null): Promise<boolean> {
     if (!manifest) {
       return false;
     }
     const result = await this.redis.eval(
       INVALIDATE_MANIFEST,
-      2,
+      3,
       this.manifestKey(manifest.securityId),
       this.residentKey(),
+      this.registryKey(manifest.securityId),
       manifest.securityId,
       JSON.stringify(manifest),
     );
@@ -333,7 +369,7 @@ export class RedisStockDataCache implements StockDataCache {
       return null;
     }
     if (result) {
-      await this.touch(securityId);
+      await this.recordAccess(securityId);
     }
     return result;
   }
@@ -419,7 +455,7 @@ export class RedisStockDataCache implements StockDataCache {
         rows.push(row);
       }
     }
-    await this.touch(securityId);
+    await this.recordAccess(securityId);
     return rows;
   }
 
@@ -480,6 +516,19 @@ export class RedisStockDataCache implements StockDataCache {
       this.protectedKey(),
       securityId,
     );
+  }
+
+  /**
+   * The LRU's record of a read that has already succeeded. Best-effort: the script's first write is
+   * refused by a Redis that refuses writes, and failing a read whose data was already in hand would
+   * turn a full cache into an outage for every warm stock (OPS-03).
+   */
+  private async recordAccess(securityId: string): Promise<void> {
+    try {
+      await this.touch(securityId);
+    } catch (error: unknown) {
+      this.observer.onTouchFailed?.({ securityId, error });
+    }
   }
 
   /**
@@ -747,6 +796,9 @@ export class NullStockDataCache implements StockDataCache {
   ): Promise<boolean> {
     return true;
   }
+  async renewHydration(_hydrating: StockManifest): Promise<boolean> {
+    return true;
+  }
   async invalidateManifest(_manifest: StockManifest | null): Promise<boolean> {
     return false;
   }
@@ -839,13 +891,31 @@ redis.call('ZREM', KEYS[3], ARGV[1])
 return 1
 `;
 
+/**
+ * Writes one key of the security's current generation and registers it.
+ *
+ * A key written into a HYDRATING generation takes the manifest's **remaining** lifetime, so the
+ * whole generation — manifest, registry and every chunk — always expires together and a READY
+ * publication can never find a chunk gone before its manifest. The lifetime is extended only when
+ * the hydration's own generation is less than half-way from expiry, and then for every registered
+ * key at once. That replaced a re-expiry of every registered key on every write — K²/2 PEXPIREs for
+ * a K-key hydration, about 48,000 for one 34-year stock (OPS-04) — with one pass per half-lifetime.
+ */
 const SET_REGISTERED = `
 -- set-registered
 local temporaryTtl = 0
 local manifest = redis.call('GET', KEYS[3])
 if ARGV[2] ~= '' then
   if manifest ~= ARGV[2] then return 0 end
-  temporaryTtl = tonumber(ARGV[3])
+  temporaryTtl = redis.call('PTTL', KEYS[3])
+  if temporaryTtl <= 0 then return 0 end
+  local full = tonumber(ARGV[3])
+  if temporaryTtl < full / 2 then
+    local keys = redis.call('SMEMBERS', KEYS[2])
+    for _, key in ipairs(keys) do redis.call('PEXPIRE', key, full) end
+    redis.call('PEXPIRE', KEYS[2], full)
+    temporaryTtl = full
+  end
 elseif manifest ~= false then
   local ok, value = pcall(cjson.decode, manifest)
   if ok and value.status == 'HYDRATING' then
@@ -859,11 +929,24 @@ else
   redis.call('SET', KEYS[1], ARGV[1])
 end
 redis.call('SADD', KEYS[2], KEYS[1])
-if temporaryTtl > 0 then
-  local keys = redis.call('SMEMBERS', KEYS[2])
-  for _, key in ipairs(keys) do redis.call('PEXPIRE', key, temporaryTtl) end
-  redis.call('PEXPIRE', KEYS[2], temporaryTtl)
-end
+return 1
+`;
+
+/**
+ * Confirms a HYDRATING generation is still the current one and gives it its full lifetime again.
+ * Its holder calls it between long phases — a provider read, a statement backfill, a derived
+ * rebuild — which register no key and would otherwise let a slow hydration's generation expire
+ * under a lease it still holds. A handful of calls per hydration, each one pass over the registered
+ * keys, so every phase may last up to the whole lifetime.
+ */
+const RENEW_HYDRATION = `
+-- renew-hydration
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+if redis.call('PTTL', KEYS[1]) <= 0 then return 0 end
+local full = tonumber(ARGV[2])
+local keys = redis.call('SMEMBERS', KEYS[2])
+for _, key in ipairs(keys) do redis.call('PEXPIRE', key, full) end
+redis.call('PEXPIRE', KEYS[2], full)
 return 1
 `;
 
@@ -918,7 +1001,13 @@ return 1
 
 const INVALIDATE_MANIFEST = `
 -- invalidate-manifest
-if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 0 end
+local current = redis.call('GET', KEYS[1])
+if current == false or current ~= ARGV[2] then return 0 end
+local ok, value = pcall(cjson.decode, current)
+if not ok or value.status ~= 'READY' then return 0 end
+local keys = redis.call('SMEMBERS', KEYS[3])
+for _, key in ipairs(keys) do redis.call('DEL', key) end
+redis.call('DEL', KEYS[3])
 redis.call('DEL', KEYS[1])
 redis.call('ZREM', KEYS[2], ARGV[1])
 return 1

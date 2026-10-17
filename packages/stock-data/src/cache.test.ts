@@ -32,6 +32,10 @@ class FakeRedis implements RedisCacheClient {
   readonly sortedSets = new Map<string, Map<string, number>>();
 
   readonly mgets: string[][] = [];
+  /** Runs inside the next `MGET`, before its answer is read: another client's writes landing then. */
+  beforeNextMget?: () => Promise<void>;
+  /** Refuses every write script, as a `noeviction` Redis at `maxmemory` does (OOM). */
+  refuseWrites = false;
 
   async get(key: string) {
     // A payload envelope is handed back as the bytes it was stored as, exactly like Redis would.
@@ -40,6 +44,9 @@ class FakeRedis implements RedisCacheClient {
 
   async mget(...keys: string[]) {
     this.mgets.push(keys);
+    const hook = this.beforeNextMget;
+    this.beforeNextMget = undefined;
+    await hook?.();
     return keys.map(
       (key) => (this.values.get(key) as string | undefined) ?? null,
     );
@@ -137,6 +144,11 @@ class FakeRedis implements RedisCacheClient {
       await this.sadd(keys[1]!, keys[0]!);
       return 1;
     }
+    if (this.refuseWrites) {
+      throw new Error(
+        "OOM command not allowed when used memory > 'maxmemory'.",
+      );
+    }
     if (script.includes("touch-ready")) {
       const manifest = this.values.get(keys[0]!);
       if (!manifest || JSON.parse(String(manifest)).status !== "READY")
@@ -192,10 +204,17 @@ class FakeRedis implements RedisCacheClient {
       return added;
     }
     if (script.includes("invalidate-manifest")) {
-      if (this.values.get(keys[0]!) !== args[1]) return 0;
+      const current = this.values.get(keys[0]!);
+      if (current === undefined || current !== args[1]) return 0;
+      if (JSON.parse(current).status !== "READY") return 0;
+      await this.del(...(this.sets.get(keys[2]!) ?? []));
+      await this.del(keys[2]!);
       await this.del(keys[0]!);
       await this.zrem(keys[1]!, args[0]!);
       return 1;
+    }
+    if (script.includes("renew-hydration")) {
+      return this.values.get(keys[0]!) === args[0] ? 1 : 0;
     }
     if (script.includes("evict-resident-stock")) {
       if (
@@ -542,6 +561,79 @@ describe("the protected tier", () => {
     await expect(cache.completeHydration(hydrating, ready)).resolves.toBe(true);
     await expect(cache.hasResidentStock("a")).resolves.toBe(true);
     await expect(redis.zcard(`${namespace}:resident-stocks`)).resolves.toBe(0);
+  });
+});
+
+describe("a Redis that refuses writes", () => {
+  it("still serves a read it has already made, and reports the lost LRU access", async () => {
+    // A `noeviction` Redis at `maxmemory` refuses the LRU's write after the read succeeded. The data
+    // is in hand; failing the read over the recency bookkeeping turned a full cache into an outage
+    // for every warm stock (OPS-03).
+    const redis = new FakeRedis();
+    const failures: string[] = [];
+    const cache = new RedisStockDataCache(
+      redis,
+      2,
+      "stock-data:v2:test",
+      undefined,
+      { onTouchFailed: ({ securityId }) => failures.push(securityId) },
+    );
+    await cache.setManifest(readyManifest(security.id));
+    await cache.writeDailyPriceYears(
+      security.id,
+      [price("2021-03-01", 10)],
+      [2021],
+    );
+    redis.refuseWrites = true;
+
+    await expect(
+      cache.readDailyPrices(security.id, {
+        from: "2021-01-01",
+        to: "2021-12-31",
+      }),
+    ).resolves.toEqual([price("2021-03-01", 10)]);
+    expect(failures).toEqual([security.id]);
+  });
+});
+
+describe("price reads across a refresh", () => {
+  // Statements are no longer projected into Redis (`FINANCIAL_STATEMENT_VERSION` 2); the same
+  // guarantee holds for every yearly family that still is.
+  it("never returns years from two generations in one read", async () => {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(redis, 2, "stock-data:v2:test");
+    const ready = {
+      ...readyManifest(security.id),
+      coverageStart: "2024-01-02",
+      coverageEnd: "2025-12-31",
+    };
+    await cache.setManifest(ready);
+    await cache.writeDailyPriceYears(
+      security.id,
+      [price("2024-03-01", 1), price("2025-03-03", 1)],
+      [2024, 2025],
+    );
+    const range = { from: "2024-01-02", to: "2025-12-31" };
+    expect(await cache.readDailyPrices(security.id, range)).toHaveLength(2);
+
+    // A refresh begins while the read is in flight and has rewritten one year of two when the
+    // read's MGET lands: the answer would be one year old and one year new.
+    const refreshing = {
+      ...ready,
+      status: "HYDRATING" as const,
+      hydrationId: "refresh",
+      hydratingAt: "2026-08-24T12:30:00.000Z",
+    };
+    redis.beforeNextMget = async () => {
+      await cache.beginRefresh(ready, refreshing);
+      await cache.writeDailyPriceYears(
+        security.id,
+        [price("2025-03-03", 2)],
+        [2025],
+        refreshing,
+      );
+    };
+    await expect(cache.readDailyPrices(security.id, range)).resolves.toBeNull();
   });
 });
 

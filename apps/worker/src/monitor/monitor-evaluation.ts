@@ -182,6 +182,11 @@ type PreparedMonitor = {
   currentMemberIds: SecurityId[];
   /** The initial replay window, when this Monitor asked for one (`monitor-eod-v2.md` §5). */
   replayWindow: { windowStart: LocalDate; fixedAt: Date } | null;
+  /**
+   * Securities this Monitor has recorded any transition for, read only when it has a replay window.
+   * A member that has history here has been decided by this Monitor and is never replayed again.
+   */
+  securitiesWithHistory: ReadonlySet<string>;
   /** Securities with any persisted state: never replayed, whatever their checkpoint says. */
   securitiesWithState: ReadonlySet<string>;
 };
@@ -274,6 +279,7 @@ export class MonitorEodEvaluation {
         const states = await this.repository.loadSignalStates(
           monitor.monitorId,
         );
+        const replayWindow = await this.replayWindowOf(monitor, expected, now);
         prepared.push({
           monitor,
           definition,
@@ -284,7 +290,13 @@ export class MonitorEodEvaluation {
           etfCodes: [...collectEtfOperands(definition).keys()].sort(),
           readsSector: collectSectorOperands(definition).length > 0,
           currentMemberIds: [],
-          replayWindow: await this.replayWindowOf(monitor, expected, now),
+          replayWindow,
+          securitiesWithHistory:
+            replayWindow === null
+              ? new Set<string>()
+              : await this.repository.loadSecuritiesWithTransitions(
+                  monitor.monitorId,
+                ),
           // Keys are `signalStateKey(securityId, levelId)`; a security id holds no space.
           securitiesWithState: new Set(
             [...states.keys()].map((key) => key.split(" ")[0]!),
@@ -365,11 +377,8 @@ export class MonitorEodEvaluation {
         sectorCodeBySecurity.set(security.id, null);
       }
     }
-    const etfSnapshots = await this.loadEtfSnapshots(
-      etfCodes,
-      now,
-      cycleSequence,
-    );
+    const { snapshots: etfSnapshots, unreadable: etfUnreadable } =
+      await this.loadEtfSnapshots(etfCodes, now, cycleSequence);
     const etfOperands = [...etfOperandSet].sort();
 
     await mapWithConcurrency(
@@ -389,6 +398,7 @@ export class MonitorEodEvaluation {
             operands: [...(operandsBySecurity.get(security.id) ?? [])].sort(),
             etfOperands,
             etfSnapshots,
+            etfUnreadable,
             sectorCode: sectorCodeBySecurity.get(security.id) ?? null,
             expected,
             now,
@@ -466,13 +476,23 @@ export class MonitorEodEvaluation {
     return summary;
   }
 
+  /**
+   * The ETF snapshots this pass reads, and the codes whose snapshot could not be read.
+   *
+   * "Could not be read" — no configured loader, a code that would not resolve, a load that threw —
+   * is kept apart from every answer the loader *did* give (a fund not bootstrapped, not yet
+   * synchronized, behind), because only an answer can justify deciding a session without the fund.
+   */
   private async loadEtfSnapshots(
     codes: ReadonlySet<StrategyEtfSourceCode>,
     now: Date,
     cycleSequence: number,
-  ): Promise<EtfTechnicalSnapshots> {
+  ): Promise<{
+    snapshots: EtfTechnicalSnapshots;
+    unreadable: ReadonlySet<string>;
+  }> {
     if (codes.size === 0) {
-      return new Map();
+      return { snapshots: new Map(), unreadable: new Set() };
     }
     if (!this.etfContexts) {
       this.logger.warn({
@@ -480,8 +500,9 @@ export class MonitorEodEvaluation {
         cycleSequence,
         codes: [...codes].sort(),
       });
-      return new Map();
+      return { snapshots: new Map(), unreadable: new Set(codes) };
     }
+    const unreadable = new Set<string>();
     const series: { code: StrategyEtfSourceCode; seriesId: string }[] = [];
     for (const code of [...codes].sort()) {
       try {
@@ -490,6 +511,7 @@ export class MonitorEodEvaluation {
           seriesId: await this.etfContexts.resolveSeriesId(code),
         });
       } catch (err) {
+        unreadable.add(code);
         this.logger.warn({
           event: "monitor.etf-context.resolve-failed",
           cycleSequence,
@@ -498,7 +520,7 @@ export class MonitorEodEvaluation {
         });
       }
     }
-    const { snapshots } = await loadEtfTechnicalSnapshots({
+    const { snapshots, diagnostics } = await loadEtfTechnicalSnapshots({
       series,
       loader: this.etfContexts.loader,
       now,
@@ -507,7 +529,19 @@ export class MonitorEodEvaluation {
       logger: this.logger,
       logContext: { component: "monitor" },
     });
-    return snapshots;
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.status === "LOAD_FAILED") {
+        unreadable.add(diagnostic.code);
+      }
+    }
+    if (unreadable.size > 0) {
+      this.logger.warn({
+        event: "monitor.etf-context.unreadable",
+        cycleSequence,
+        codes: [...unreadable].sort(),
+      });
+    }
+    return { snapshots, unreadable };
   }
 
   /**
@@ -520,6 +554,8 @@ export class MonitorEodEvaluation {
     operands: readonly OperandKey[];
     etfOperands: readonly OperandKey[];
     etfSnapshots: EtfTechnicalSnapshots;
+    /** ETFs whose snapshot could not be read this pass — never the same as an ETF that is behind. */
+    etfUnreadable: ReadonlySet<string>;
     sectorCode: StrategyEtfSourceCode | null;
     expected: FinalizedSession;
     now: Date;
@@ -587,6 +623,7 @@ export class MonitorEodEvaluation {
         horizon,
         input.sectorCode,
         input.etfSnapshots,
+        input.etfUnreadable,
         input.now,
       );
       const persistedOf = (levelId: string) =>
@@ -613,11 +650,17 @@ export class MonitorEodEvaluation {
       // A new Monitor's initial universe replays its window: a member listed by the time the
       // window was fixed, never evaluated, with no state. Its first session is the window's, or the
       // membership's when that began later. A member listed afterwards is new, and reconstructed.
+      //
+      // "Never evaluated" is the transition history, not the checkpoint and state alone: a
+      // membership that ends deletes both, and restoring it would otherwise replay the whole window
+      // a second time and duplicate every Signal it opened (MON-01). A restored member re-enters as
+      // a new membership — reconstructed at its newest session (§4), never replayed.
       const window = entry.prepared.replayWindow;
       const replayFrom =
         window !== null &&
         !checkpoint &&
         !entry.prepared.securitiesWithState.has(entry.member.securityId) &&
+        !entry.prepared.securitiesWithHistory.has(entry.member.securityId) &&
         entry.member.listedAt !== undefined &&
         entry.member.listedAt <= window.fixedAt
           ? entry.membershipStart !== null &&
@@ -838,12 +881,22 @@ export class MonitorEodEvaluation {
     horizon: LocalDate,
     sectorCode: StrategyEtfSourceCode | null,
     snapshots: EtfTechnicalSnapshots,
+    unreadable: ReadonlySet<string>,
     now: Date,
   ): { through: LocalDate | undefined; waitingOn: string[] } {
     const codes = [
       ...entry.prepared.etfCodes,
       ...(entry.prepared.readsSector && sectorCode ? [sectorCode] : []),
     ];
+    // An ETF whose snapshot could not be read this pass says nothing about whether the fund
+    // printed: a Redis blip, a timeout, a series that would not resolve. Deciding a session without
+    // it would record every rule that reads it as NOT_EVALUABLE, permanently — no later pass decides
+    // that session again (MON-02). The member is held where it is, with no give-up bound, until a
+    // pass reads the fund; only a fund that was read and is behind waits the bounded way below.
+    const unread = codes.filter((code) => unreadable.has(code));
+    if (unread.length > 0) {
+      return { through: undefined, waitingOn: unread };
+    }
     let through: LocalDate | undefined = horizon;
     const waitingOn: string[] = [];
     for (const code of codes) {

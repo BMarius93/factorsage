@@ -99,6 +99,17 @@ performs no duplicate provider work. A definitive lease loss prevents subsequent
 READY publication. Price/derived write transactions also serialize per stock with a PostgreSQL
 transaction advisory lock and assert lease ownership immediately before commit.
 
+*Corrected 2026-10-16 (`docs/audits/stock-data-concurrency-2026-10-16.md`).* Two redlock behaviours
+had made the paragraph above untrue. Redlock applies the instance's retry settings to every
+extension and release, and those were the 120-second acquisition budget, so a lost lease went
+unnoticed for up to two minutes while `assertOwned()` passed (CONC-02); and it dates a lock's expiry
+from when acquisition began, so a caller that queued longer than one lease got a lock already
+counted as expired (CONC-03). The coordinator now acquires in single attempts of its own until the
+wait is spent, keeps the instance's retries inside the extension window, and extends half a lease
+before expiry. A lease holder also re-confirms its HYDRATING generation between phases
+(`renewHydration`), which keeps a slow hydration's generation alive and stops a holder whose stock
+another holder has taken over before its remaining durable writes.
+
 ## Redis v2
 
 Canonical resident keys are security-ID based:
@@ -126,7 +137,9 @@ and last available price dates when present, hydration/freshness instants, sourc
 an earlier revision is stale however much it claims to cover — the derived-state methodology
 revision, and a unique hydration generation. HYDRATING is advisory and expires after 15 minutes;
 the distributed lock is authoritative. Every chunk, symbol mapping, and READY publication compares
-the active generation, so a stale owner cannot overwrite or register keys under a successor. A
+the active generation, so a stale owner cannot overwrite or register keys under a successor. Only
+the lock holder may replace a HYDRATING generation: a reader that cannot be served invalidates a
+**READY** generation only, and waits for the lock when it meets a HYDRATING one (OPS-06). A
 concurrent generation-less symbol lookup atomically joins the currently active HYDRATING lifetime
 rather than creating a persistent orphan. While HYDRATING, the manifest, registry, and every
 registered key share a renewable temporary expiry. Generation-checked READY publication atomically

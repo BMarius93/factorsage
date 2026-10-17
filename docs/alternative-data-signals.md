@@ -408,6 +408,14 @@ The upper bound is the date of the last successful ingest. Past it the product k
 - **A `MONEY` Value kind** was added for the amount measures (`$1,000,000`), for the same reason
   `MULTIPLE` exists: the unit is what lets one renderer print `30`, `2x` and `$1,000,000` without a
   per-metric formatting rule.
+- **A money window is an exact sum** (pre-release audit ALT-01, fixed 2026-10-16). The window is
+  summed in whole ten-thousandths of a dollar — the stored precision of an insider
+  `transactionValue` (`Decimal(24,4)`) and of a Congress range bound (`Decimal(24,2)`) — and divided
+  once, so an emptied window reads exactly `0` and `purchase value is above $0` never fires without a
+  purchase. A floating-point running total left a residue (`6.98e-12` after four ordinary amounts)
+  that made it fire, and made a backtest and a Monitor read the same session differently because the
+  residue depended on where the frame started. The data-correctness audit compares every money
+  column exactly.
 - **Count thresholds are whole numbers.** `Insider buyers is above 2.5` is refused, and the
   bound is `0..1000` — a product bound no real disclosure count reaches, which keeps the validator's
   message readable and the control's range finite.

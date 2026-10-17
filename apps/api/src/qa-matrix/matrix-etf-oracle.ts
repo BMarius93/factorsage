@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 /**
  * An independent oracle for the technical values an ETF-sourced Strategy Condition reads.
  *
@@ -20,6 +22,11 @@
  *   session, else the last bar itself (a holiday-shortened week); and, for a year the schedule cannot
  *   answer, the Friday. The schedule is the **pinned** provider answer the sweep replayed, read here
  *   independently of `CachedTradingCalendar`.
+ *
+ * - **Storage scale** — every technical value is read as a stock's would be after PostgreSQL: the
+ *   double bound at 16 significant digits, then rounded half away from zero to eight decimal places
+ *   (FIN-12, owner ruling of 2026-10-16). Restated here with `decimal.js` as the arithmetic, not
+ *   imported (`quantizeToStoredDecimal` is the production side).
  *
  * Values are exact-date only: a session the fund printed no bar for is absent (NOT_EVALUABLE), never
  * carried forward — the same contract `benchmarkTechnicalValueOn` documents, verified rather than
@@ -61,6 +68,23 @@ export type OracleColumns = {
 };
 
 const DAY_MS = 86_400_000;
+
+const StoredDecimal = Decimal.clone({
+  precision: 40,
+  rounding: Decimal.ROUND_HALF_UP,
+  toExpNeg: -40,
+  toExpPos: 40,
+});
+
+/** A technical value at the stock path's storage scale (see the module comment). */
+export function atStoredScale(value: number): number {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  return Number(
+    new StoredDecimal(value.toPrecision(16)).toDecimalPlaces(8).toFixed(8),
+  );
+}
 
 function utcDay(date: string): number {
   return Date.parse(`${date}T00:00:00.000Z`);
@@ -254,6 +278,10 @@ export function buildOracleColumns(
       }
     }
     columns.set(field, daily);
+  }
+
+  for (const [field, values] of columns) {
+    columns.set(field, values.map(atStoredScale));
   }
 
   return {

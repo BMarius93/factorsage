@@ -764,11 +764,10 @@ describe("a selection of members", () => {
  * whose window holds no purchase at all. The residue also depends on where the frame starts, so a
  * backtest's year windows and a Monitor's read can disagree on the same session.
  *
- * Both cases are written as the product's own promise ("a genuine zero stays a zero"). They fail on
- * `bebf3dc7`; `it.fails` keeps the suite green while the defect is open and turns red once the sum
- * is exact, at which point they become ordinary cases.
+ * Both cases are written as the product's own promise ("a genuine zero stays a zero"). They failed on
+ * `bebf3dc7`; the window now sums whole ten-thousandths of a dollar.
  */
-describe("KNOWN DEFECT ALT-01: an emptied money window reads exactly zero", () => {
+describe("ALT-01: an emptied money window reads exactly zero", () => {
   const dates = [
     "2026-01-05",
     "2026-01-06",
@@ -785,7 +784,7 @@ describe("KNOWN DEFECT ALT-01: an emptied money window reads exactly zero", () =
     { observableFrom: "2026-01-08", actorKey: "d", amount: 12.07 },
   ];
 
-  it.fails("reads 0 on the first session whose two-session window holds no disclosure", () => {
+  it("reads 0 on the first session whose two-session window holds no disclosure", () => {
     const column = buildAlternativeDataColumn({
       dates,
       request: { lookbackSessions: 2, aggregation: "SUM_AMOUNT" },
@@ -800,7 +799,7 @@ describe("KNOWN DEFECT ALT-01: an emptied money window reads exactly zero", () =
     expect(Object.is(column[5], 0)).toBe(true);
   });
 
-  it.fails("never satisfies `is above $0` on a session with no disclosure in its window", () => {
+  it("never satisfies `is above $0` on a session with no disclosure in its window", () => {
     const column = buildAlternativeDataColumn({
       dates,
       request: { lookbackSessions: 2, aggregation: "SUM_AMOUNT" },
@@ -810,4 +809,93 @@ describe("KNOWN DEFECT ALT-01: an emptied money window reads exactly zero", () =
       evaluateConditionValues("IS_ABOVE", column[5] as number, 0),
     ).toBe(Evaluability.FALSE);
   });
+});
+
+/**
+ * ALT-01, against an independent arithmetic: every session's money window recomputed from scratch in
+ * `BigInt` ten-thousandths, over seeded amounts with cents and fractional cents (stored
+ * `Decimal(24,4)` money), several disclosures a session, several lookbacks and frame starts. The
+ * production column must equal the exact sum to the last bit — and be exactly 0 wherever the window
+ * holds no amount — whichever session the frame starts on.
+ */
+describe("money windows equal an exact, independent sum", () => {
+  function seeded(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+      return state / 4_294_967_296;
+    };
+  }
+
+  const random = seeded(20_261_016);
+  const sessions: string[] = [];
+  for (
+    let day = Date.UTC(2025, 0, 1);
+    day <= Date.UTC(2026, 5, 30);
+    day += 86_400_000
+  ) {
+    const weekday = new Date(day).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) {
+      sessions.push(new Date(day).toISOString().slice(0, 10));
+    }
+  }
+  /** Ten-thousandths, as stored: 0.0001 to 250,000.0000, many of them not dyadic. */
+  const observations: AlternativeDataObservation[] = [];
+  for (const date of sessions) {
+    const count = random() < 0.35 ? Math.floor(random() * 4) : 0;
+    for (let index = 0; index < count; index += 1) {
+      const units = 1 + Math.floor(random() * 2_500_000_000);
+      observations.push({
+        observableFrom: date,
+        actorKey: `actor-${Math.floor(random() * 6)}`,
+        amount: units / 10_000,
+      });
+    }
+  }
+  const coverage = {
+    from: sessions[0] as string,
+    to: sessions[sessions.length - 1] as string,
+  };
+
+  /** The exact window sum, recomputed from nothing for one session. */
+  function exactSum(dates: readonly string[], index: number, lookback: number) {
+    const from = dates[index - lookback + 1] as string;
+    const to = dates[index] as string;
+    let units = 0n;
+    for (const observation of observations) {
+      if (observation.observableFrom >= from && observation.observableFrom <= to) {
+        units += BigInt(Math.round((observation.amount ?? 0) * 10_000));
+      }
+    }
+    return units;
+  }
+
+  for (const lookback of [1, 5, 20, 90]) {
+    for (const start of [0, 37, 211]) {
+      it(`SUM_AMOUNT ${lookback}D from session ${start} is exact on every session`, () => {
+        const dates = sessions.slice(start);
+        const column = buildAlternativeDataColumn({
+          dates,
+          request: { lookbackSessions: lookback, aggregation: "SUM_AMOUNT" },
+          facts: { coverage, observations },
+        });
+        let emptied = 0;
+        for (let index = lookback - 1; index < dates.length; index += 1) {
+          const exact = exactSum(dates, index, lookback);
+          expect(column[index]).toBe(Number(exact) / 10_000);
+          if (exact === 0n) {
+            emptied += 1;
+            expect(Object.is(column[index], 0)).toBe(true);
+            expect(evaluateConditionValues("IS_ABOVE", column[index] as number, 0)).toBe(
+              Evaluability.FALSE,
+            );
+          }
+        }
+        if (lookback <= 5) {
+          // The premise of ALT-01 is reached: windows do empty after holding money.
+          expect(emptied).toBeGreaterThan(0);
+        }
+      });
+    }
+  }
 });

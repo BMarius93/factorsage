@@ -38,6 +38,11 @@ useTestDatabase();
  */
 describe("monitors", () => {
   const suffix = randomUUID();
+  // A symbol is unique per exchange, and three hex digits of a run id collide with the rows an
+  // interrupted earlier run left behind (QA-10: one full gate drew a taken symbol). Ten digits do not.
+  const symbolSuffix = suffix.replaceAll("-", "").slice(0, 10).toUpperCase();
+  /** Every security this suite creates, removed in `afterAll` whether or not its test passed. */
+  const createdSecurityIds = new Set<string>();
   const password = "Local-test-password-42";
   const ownerEmail = `monitor-owner-${suffix}@example.test`;
   const otherEmail = `monitor-other-${suffix}@example.test`;
@@ -221,6 +226,11 @@ describe("monitors", () => {
       await prisma.user.deleteMany({
         where: { email: { in: [ownerEmail, otherEmail] } },
       });
+      // Securities belong to no user. A test deletes its own at the end, which a failed assertion
+      // skips; this is what keeps a failing run from leaving rows a later run can collide with.
+      await prisma.security.deleteMany({
+        where: { id: { in: [...createdSecurityIds] } },
+      });
     }
     if (app) {
       await app.close();
@@ -237,6 +247,15 @@ describe("monitors", () => {
       });
     }
   });
+
+  /** `prisma.security.create`, remembering the row for the suite's teardown. */
+  async function createSecurityFixture(
+    args: Parameters<PrismaService["security"]["create"]>[0],
+  ) {
+    const security = await prisma.security.create(args);
+    createdSecurityIds.add(security.id);
+    return security;
+  }
 
   it("requires authentication on every route but the built-in reads", async () => {
     const anonymous = request(app.getHttpServer());
@@ -333,10 +352,10 @@ describe("monitors", () => {
       stockListId,
     });
 
-    const security = await prisma.security.create({
+    const security = await createSecurityFixture({
       data: {
         providerSymbol: `RESUME.${suffix.slice(0, 8)}`,
-        symbol: `RSM${suffix.slice(0, 4).toUpperCase()}`,
+        symbol: `RSM${symbolSuffix}`,
         name: "Resume Test",
         exchangeCode: "NASDAQ",
         currency: "USD",
@@ -511,10 +530,10 @@ describe("monitors", () => {
 
     async function createSecurityRow(tag: string) {
       securityIndex += 1;
-      return prisma.security.create({
+      return createSecurityFixture({
         data: {
           providerSymbol: `${tag}${securityIndex}.${suffix.slice(0, 8)}`,
-          symbol: `${tag}${securityIndex}${suffix.slice(0, 3).toUpperCase()}`,
+          symbol: `${tag}${securityIndex}${symbolSuffix}`,
           name: `${tag} Test`,
           exchangeCode: "NASDAQ",
           currency: "USD",
@@ -888,10 +907,10 @@ describe("monitors", () => {
   describe("current evaluation summary", () => {
     it("reports each security as its durable state actually says", async () => {
       const evaluationSecurity = (tag: string, index: number) =>
-        prisma.security.create({
+        createSecurityFixture({
           data: {
             providerSymbol: `EVAL${index}.${suffix.slice(0, 8)}`,
-            symbol: `${tag}${suffix.slice(0, 3).toUpperCase()}`,
+            symbol: `${tag}${symbolSuffix}`,
             name: `${tag} Evaluation`,
             exchangeCode: "NASDAQ",
             currency: "USD",
@@ -1023,10 +1042,10 @@ describe("monitors", () => {
     });
 
     it("reports every security as unchecked before the first cycle", async () => {
-      const security = await prisma.security.create({
+      const security = await createSecurityFixture({
         data: {
           providerSymbol: `NEVER.${suffix.slice(0, 8)}`,
-          symbol: `NVR${suffix.slice(0, 3).toUpperCase()}`,
+          symbol: `NVR${symbolSuffix}`,
           name: "Never Scanned",
           exchangeCode: "NASDAQ",
           currency: "USD",
@@ -1067,10 +1086,10 @@ describe("monitors", () => {
 
     it("lists only the List's current members: always eligible, or an open-ended period that has begun", async () => {
       const make = (tag: string) =>
-        prisma.security.create({
+        createSecurityFixture({
           data: {
             providerSymbol: `${tag}.${suffix.slice(0, 8)}`,
-            symbol: `${tag}${suffix.slice(0, 3).toUpperCase()}`,
+            symbol: `${tag}${symbolSuffix}`,
             name: `Membership ${tag}`,
             exchangeCode: "NASDAQ",
             currency: "USD",
@@ -1158,10 +1177,10 @@ describe("monitors", () => {
      * identity component would then render as a logo on one table and initials on the other.
      */
     it("projects the persisted logo on monitored securities and on signals", async () => {
-      const security = await prisma.security.create({
+      const security = await createSecurityFixture({
         data: {
           providerSymbol: `LOGO.${suffix.slice(0, 8)}`,
-          symbol: `LGO${suffix.slice(0, 3).toUpperCase()}`,
+          symbol: `LGO${symbolSuffix}`,
           name: "Marked Corp",
           exchangeCode: "NASDAQ",
           currency: "USD",
@@ -1247,10 +1266,10 @@ describe("monitors", () => {
         "Loss Exit Strategy",
         definitionWithPositionExit("LOSS"),
       );
-      const security = await prisma.security.create({
+      const security = await createSecurityFixture({
         data: {
           providerSymbol: `POS.${suffix.slice(0, 8)}`,
-          symbol: `POS${suffix.slice(0, 3).toUpperCase()}`,
+          symbol: `POS${symbolSuffix}`,
           name: "Position Metric Test",
           exchangeCode: "NASDAQ",
           currency: "USD",
@@ -1471,7 +1490,7 @@ describe("monitors", () => {
       const ownerId = (
         await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } })
       ).id;
-      const tag = suffix.slice(0, 6).toUpperCase();
+      const tag = symbolSuffix;
       const created = [];
       for (const [letter, sector] of [
         ["A", "Technology"],
@@ -1481,7 +1500,7 @@ describe("monitors", () => {
         ["E", "Conglomerates"],
       ] as const) {
         created.push(
-          await prisma.security.create({
+          await createSecurityFixture({
             data: {
               providerSymbol: `SECT${letter}.${suffix.slice(0, 8)}`,
               symbol: `SC${letter}${tag}`,

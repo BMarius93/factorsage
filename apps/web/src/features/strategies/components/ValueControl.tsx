@@ -10,6 +10,12 @@ import {
   type StrategyMetric,
   type StrategyValue,
 } from "@intrinsic/contracts";
+import { useState } from "react";
+import {
+  numericValueText,
+  parseNumericValueText,
+  sameNumericValue,
+} from "../utils/numeric-value-text";
 import { OperandPicker, type OperandPickerCategory } from "./OperandPicker";
 import styles from "./StrategyBuilder.module.css";
 
@@ -123,7 +129,7 @@ export function ValueControl({
     );
   }
 
-  const numeric = value.kind === "SERIES" ? "" : String(value.value);
+  const numeric = value.kind === "SERIES" ? Number.NaN : value.value;
   // The unit is the spec's, so the control cannot print a suffix the validator does not enforce:
   // a percentage reads `25%`, a multiple reads `2x`, a bare threshold reads as itself.
   const unitSuffix =
@@ -131,30 +137,18 @@ export function ValueControl({
 
   return (
     <div className={styles.numberField}>
-      <input
-        className={styles.numberInput}
-        data-testid="value-control"
-        type="number"
-        inputMode="decimal"
-        aria-label={label}
-        aria-invalid={invalid || undefined}
-        {...(describedBy ? { "aria-describedby": describedBy } : {})}
+      <NumericValueInput
+        value={numeric}
+        label={label}
+        invalid={invalid}
+        {...(describedBy ? { describedBy } : {})}
         {...(spec.min === undefined ? {} : { min: spec.min })}
         {...(spec.max === undefined ? {} : { max: spec.max })}
-        {...(spec.kind === "NUMBER" || spec.kind === "MULTIPLE"
-          ? { step: spec.step }
-          : { step: "any" })}
-        value={numeric}
+        step={
+          spec.kind === "NUMBER" || spec.kind === "MULTIPLE" ? spec.step : "any"
+        }
         onBlur={onBlur}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          onChange({
-            kind: spec.kind,
-            // An empty or partial input is NaN; the validator reports it rather than the control
-            // silently substituting a number the user did not type.
-            value: event.target.value === "" ? Number.NaN : next,
-          });
-        }}
+        onValue={(next) => onChange({ kind: spec.kind, value: next })}
       />
       {unitSuffix ? (
         <span className={styles.numberSuffix} aria-hidden="true">
@@ -162,5 +156,72 @@ export function ValueControl({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The numeric Value field, holding **what the user typed** rather than the number it parses to.
+ *
+ * A number input reports a half-typed entry — `-`, `0.`, `-0.` — as an empty string. Rendering the
+ * parsed number back (`String(NaN)`) made React write `"NaN"` into the field, which the browser
+ * sanitizes to empty: the keystrokes so far vanished and `0.75` was stored as `75`, `-1.5` as `5`
+ * (UI-01). The text is therefore this field's own state, and the draft receives the number it
+ * means — `NaN` while it means none, which the validator reports rather than the control
+ * substituting a number the user did not type.
+ *
+ * The text follows the draft only when the draft's number changes to one the text does not already
+ * mean: a Metric swap that resets the Value, a loaded strategy, an undo. Typing never does that,
+ * because every keystroke's text means exactly the number it just sent.
+ */
+function NumericValueInput({
+  value,
+  label,
+  invalid,
+  describedBy,
+  min,
+  max,
+  step,
+  onBlur,
+  onValue,
+}: {
+  readonly value: number;
+  readonly label: string;
+  readonly invalid: boolean;
+  readonly describedBy?: string;
+  readonly min?: number;
+  readonly max?: number;
+  readonly step: number | "any";
+  readonly onBlur: () => void;
+  readonly onValue: (value: number) => void;
+}) {
+  const [text, setText] = useState(() => numericValueText(value));
+  const [followed, setFollowed] = useState(value);
+  if (!Object.is(followed, value)) {
+    setFollowed(value);
+    if (!sameNumericValue(parseNumericValueText(text), value)) {
+      setText(numericValueText(value));
+    }
+  }
+
+  return (
+    <input
+      className={styles.numberInput}
+      data-testid="value-control"
+      type="number"
+      inputMode="decimal"
+      aria-label={label}
+      aria-invalid={invalid || undefined}
+      {...(describedBy ? { "aria-describedby": describedBy } : {})}
+      {...(min === undefined ? {} : { min })}
+      {...(max === undefined ? {} : { max })}
+      step={step}
+      value={text}
+      onBlur={onBlur}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setText(raw);
+        onValue(parseNumericValueText(raw));
+      }}
+    />
   );
 }

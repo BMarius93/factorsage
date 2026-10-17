@@ -2084,6 +2084,11 @@ paths:
 
         Returns the URL rather than redirecting, so the browser controls navigation and a refusal
         stays a normal JSON error.
+
+        At most one session per account can be paid: creating one first expires every earlier
+        session of the account that is still open, and a session stops accepting payment 35 minutes
+        after it is created. A subscription the provider already holds refuses the request even
+        before FactorSage has been told of it.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: billing-mutation }
       requestBody:
@@ -2105,7 +2110,7 @@ paths:
               schema: { $ref: "#/components/schemas/BillingError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: "Already subscribed. `code: BILLING_ALREADY_SUBSCRIBED`."
+          description: "Already subscribed, as FactorSage or the provider records it. `code: BILLING_ALREADY_SUBSCRIBED`."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BillingError" }
@@ -2147,7 +2152,8 @@ paths:
       description: |
         Exists because the hosted portal cannot express immediate-for-upgrades and
         period-end-for-downgrades at the same time. The response says which effect was applied and
-        when it takes hold. An upgrade whose payment has not succeeded never grants a plan.
+        when it takes hold. An upgrade whose payment has not succeeded never grants a plan. An
+        immediate change replaces a change scheduled for the period end, which then never applies.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: billing-mutation }
       requestBody:

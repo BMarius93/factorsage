@@ -20,6 +20,7 @@ import {
   REAL_DATA_LAYERS,
   type RealDataAudit,
 } from "./real-data";
+import { listedFrom } from "../oracle/listing";
 import { firstCountExposure, retentionScope } from "./retention-scope";
 import {
   boundarySession,
@@ -320,12 +321,13 @@ async function http(): Promise<void> {
       const from =
         served.perSecurity[rows.symbol]?.serviceFrom ?? rows.coverageEnd;
       const to = rows.coverageEnd;
-      // Every Stock Details read starts at the listing date when it is later than the horizon
-      // (`complete-price-coverage.md`, `LISTING`), so a stored session before it is not served.
-      // Such sessions are counted apart, with the reference's reading of each, and nothing else
-      // may differ.
-      const listed = (date: string) =>
-        rows.listingDate === null || date >= rows.listingDate;
+      // Every Stock Details read starts at the listing evidence when that is later than the horizon
+      // (`complete-price-coverage.md`, `LISTING`): the IPO date, or the first stored session when
+      // that is earlier (`listing-evidence-v1.md`, DATA-02), so no stored session is left out. A
+      // session before it would be counted apart, with the reference's reading of each, and
+      // nothing else may differ.
+      const listing = listedFrom(rows.listingDate, rows.sessions[0]?.date);
+      const listed = (date: string) => listing === null || date >= listing;
       const stored = rows.sessions.filter(
         (session) =>
           session.date >= from && session.date <= to && listed(session.date),

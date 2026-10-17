@@ -41,7 +41,9 @@ The chart explores at most **30 years** of history. That limit is
 `STOCK_DETAILS_MAX_HISTORY_YEARS` in `@intrinsic/contracts` and exists once: the API clamps every
 Stock Details read to it, and reports as `history` on the Stock Details response the boundary the
 chart should navigate to — that limit narrowed by the deployment's retained horizon, the security's
-listing date and, once proven, the provider's earliest trading day. The clamp itself stays at the
+listing date (unless a stored bar weeks before it contradicts it,
+`../../docs/decisions/listing-evidence-v1.md`) and, once proven, the provider's earliest trading
+day. The clamp itself stays at the
 horizon: it bounds requests, it does not answer where history begins. The web app navigates against
 the reported bound and never recomputes it. A backtest names its own period through the loader and
 is unaffected by this limit.
@@ -52,10 +54,11 @@ so a long series is already valid on the oldest day the chart can reach. See
 `../../docs/decisions/price-retention-warmup-horizon.md`.
 
 - The page opens on approximately one year and asks the API for exactly that window. It never
-  leaves the range open for the shared loader to fill in, and it never loads long history it does
-  not display. `../architecture/system-overview.md` and
-  `../../docs/decisions/caller-scoped-history-materialization.md` cover what the loader then
-  materializes.
+  leaves the range open for the shared loader to fill in, and it never receives long history it does
+  not display. Behind it, the loader materializes the security's whole retained history on its first
+  touch, so the first page view of a never-seen security takes a few seconds longer and every later
+  view, pan and backtest reads values that do not depend on which came first
+  (`../../docs/decisions/canonical-history-anchoring.md`, CONC-01).
 - **History loads from the viewport.** Dragging left or zooming out past the oldest loaded bar is
   what asks for older history: the chart reports how much empty space the window has opened up,
   the page turns that into a bounded older window — about a year for a pan, enough to fill the

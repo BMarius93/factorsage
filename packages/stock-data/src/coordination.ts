@@ -95,10 +95,29 @@ async function settledWithin(
   }
 }
 
+/**
+ * Redlock lease, Redis as the one voter.
+ *
+ * Two retry budgets, deliberately different, because redlock applies the **instance's** settings to
+ * everything a `using` call does after acquiring — every automatic extension and the final release —
+ * and only the acquisition to the settings passed per call:
+ *
+ * - **acquisition** waits as long as the caller can (`lockWaitMs`, or a call's own `waitMs`), in
+ *   single attempts of this class's own (see `run`);
+ * - **extension and release** retry only within the extension window. With the acquisition budget
+ *   in the instance (120 s at 100 ms) a holder whose lease was lost kept retrying an extension that
+ *   could never succeed for two minutes, its `assertOwned()` passing all the while, and then spent as
+ *   long again releasing a lock it no longer held (CONC-02). Now the loss surfaces as an aborted
+ *   signal before the lease would have expired.
+ *
+ * The automatic extension starts half a lease before expiry, so a stalled event loop (a large
+ * decode, a GC pause) has half a lease, not five seconds, before the lease is lost.
+ */
 export class RedlockLoadCoordinator implements LoadCoordinator {
   private readonly redlock: Redlock;
   private readonly lockDurationMs: number;
   private readonly retryDelayMs: number;
+  private readonly lockWaitMs: number;
 
   constructor(
     redis: Redis,
@@ -122,14 +141,14 @@ export class RedlockLoadCoordinator implements LoadCoordinator {
     }
     this.lockDurationMs = lockDurationMs;
     this.retryDelayMs = retryDelayMs;
+    this.lockWaitMs = lockWaitMs;
+    const extensionThresholdMs = Math.floor(lockDurationMs / 2);
     this.redlock = new Redlock([redis], {
-      retryCount: this.retryCountFor(lockWaitMs),
+      // Extension and release only: acquisition passes its own wait on every call below.
+      retryCount: this.retryCountFor(Math.floor(extensionThresholdMs / 2)),
       retryDelay: retryDelayMs,
       retryJitter: 0,
-      automaticExtensionThreshold: Math.min(
-        5_000,
-        Math.floor(lockDurationMs / 2),
-      ),
+      automaticExtensionThreshold: extensionThresholdMs,
     });
   }
 
@@ -150,17 +169,39 @@ export class RedlockLoadCoordinator implements LoadCoordinator {
       lease.assertOwned();
       return work(lease);
     };
-    if (options.waitMs === undefined) {
-      return this.redlock.using(resources, this.lockDurationMs, routine);
+    if (options.waitMs !== undefined) {
+      assertWaitMs(options.waitMs);
     }
-    assertWaitMs(options.waitMs);
-    // Only the wait differs per call; everything else is the coordinator's.
-    return this.redlock.using(
-      resources,
-      this.lockDurationMs,
-      { retryCount: this.retryCountFor(options.waitMs) },
-      routine,
-    );
+    const deadline = Date.now() + (options.waitMs ?? this.lockWaitMs);
+    // The wait is this loop's, one single-attempt acquisition at a time, and never redlock's own
+    // retries. Redlock dates a lock's expiry from the moment its acquisition *began*: a caller that
+    // queued longer than one lease behind a slow hydration was handed a lock its own process
+    // already counted as expired, failed its first ownership check with "Cannot extend an
+    // already-expired lock" and never ran (CONC-03). Each attempt here starts its own clock.
+    for (;;) {
+      let acquired = false;
+      try {
+        return await this.redlock.using(
+          resources,
+          this.lockDurationMs,
+          { retryCount: 0 },
+          async (signal) => {
+            acquired = true;
+            return routine(signal);
+          },
+        );
+      } catch (error: unknown) {
+        // Before the routine ran, the only thing that can have failed is the acquisition — the lock
+        // is held elsewhere, or Redis did not answer — which is retried until the wait is spent, as
+        // redlock's own loop did. Anything the routine threw is the caller's.
+        if (acquired || Date.now() + this.retryDelayMs > deadline) {
+          throw error;
+        }
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, this.retryDelayMs);
+      });
+    }
   }
 
   /** Attempts after the first that fit inside `waitMs` at this coordinator's retry spacing. */

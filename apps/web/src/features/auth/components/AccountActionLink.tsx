@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { guardNavigation } from "../../../components/layout/unsaved-changes";
 import {
   useSignInPrompt,
   type SignInPromptCopy,
@@ -42,7 +43,10 @@ export function AccountActionLink({
 
   if (gate.signedIn) {
     return (
-      <Link {...common} href={href}>
+      // Leaving a page with unsaved work asks first, as every shell link does. The Strategy
+      // Builder's "Run backtest" is one of these links, and it runs the *saved* version: without
+      // the guard an edited threshold was silently dropped from the run (UI-03).
+      <Link {...common} href={href} onNavigate={guardNavigation}>
         {children}
       </Link>
     );

@@ -129,6 +129,10 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
         onUnreadableChunk: (chunk) => {
           logger.warn({ event: "stock-data.cache.chunk-unreadable", ...chunk });
         },
+        // The read was served; only its LRU recency was lost (a Redis refusing writes).
+        onTouchFailed: ({ securityId, error }) => {
+          logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
+        },
       },
     ),
     coordinator,

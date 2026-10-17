@@ -147,7 +147,7 @@ path.
 `packages/stock-data/src/service.ts`, `CanonicalStockDataService`:
 
 - `ensureStockHydrated(security, required)` / `ensureStockFresh(security, required)` — the
-  caller-scoped materialization contract (`docs/decisions/caller-scoped-history-materialization.md`).
+  caller-scoped read contract (`docs/decisions/caller-scoped-history-materialization.md`), every load anchored at the retention start (`docs/decisions/canonical-history-anchoring.md`, CONC-01).
   The range is a parameter: "a caller that wants decades of history says so."
 - `getDailyDerivedState(symbol, range)` → resolve symbol, `loadTarget`, hydrate, freshen, then read
   the projection (Redis yearly chunks → PostgreSQL fallback).
@@ -165,9 +165,10 @@ path.
 - `VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7` — extra fiscal years of statements retained before the
   visible price history so the earliest visible day already has PIT-eligible intrinsic values.
   Independent of the price warm-up; the two never compound.
-- `productTarget(security)` = `[max(today - productHistoryYears, ipoDate), today]`,
-  `productHistoryYears` default **30**. This is the outer bound of everything readable.
-- `priceRetentionTarget(security)` = the same shape at `productHistoryYears + 4` = **34**. This is
+- `productTarget()` = `[today - productHistoryYears, today]`, `productHistoryYears` default
+  **30**. This is the outer bound of everything readable. No horizon is clamped to the IPO date
+  (`../../docs/decisions/listing-evidence-v1.md`, DATA-02).
+- `priceRetentionTarget()` = the same shape at `productHistoryYears + 4` = **34**. This is
   the outer bound of everything *held*. `projectionRange` cuts every read back to `productTarget`,
   so no retained warm-up row can reach a caller or a backtest frame. See
   `../../docs/decisions/price-retention-warmup-horizon.md`.
@@ -254,7 +255,7 @@ Established by inspection; each is a constraint the design must answer, not a de
    lock, and rebuild after a `DERIVED_STATE_REVISION` bump is lazy and global — so the first
    backtest after a bump pays a full rebuild for every security in its list.
 7. **30 years is the outer bound of what is readable.** `productTarget` clamps to
-   `today - productHistoryYears` (default 30) and to `ipoDate`; a requested period older than that
+   `today - productHistoryYears` (default 30); a requested period older than that
    yields no rows, and `projectionRange` returns `null` rather than erroring. Raw prices are
    retained to 34 years, but that is what the loader holds, not what any caller can read.
 8. **Warm-up is already paid for, including at the boundary.** `DERIVED_SERIES_WARMUP_DAYS`

@@ -210,6 +210,21 @@ lengthens. Classifying by monthly/yearly first gets both backwards.
 `subscriptions.update` with `proration_behavior: "always_invoice"` and
 `payment_behavior: "pending_if_incomplete"`.
 
+**An immediate change supersedes a scheduled one, and the schedule is released *before* the update
+(BILL-01).** Stripe applies a direct price update to a subscription a schedule manages and leaves the
+schedule — and its future phase — attached. Measured in the sandbox before the fix: Pro monthly with a
+scheduled move to Starter, then an upgrade to Pro yearly, was charged $29 + $270 and moved to Starter
+at the old monthly boundary for $9, with no credit. Releasing first makes the outcome safe whichever
+way the update goes: paid, the subscription is on the new price with nothing left to undo it; unpaid
+(the update is held as a `pending_update`), it stays on the price already paid for with nothing
+pending, and the customer may schedule a change again; a release that fails stops the request before
+anything is billed.
+
+Every plan change runs its Stripe side inside the user's advisory lock and decides from **live**
+Stripe state — the current price it classifies from, the cancellation it refuses over, the schedule it
+releases, the period end it schedules at — so two tabs act one after the other, each on what the other
+left. Reconciliation runs after the lock is released, under its own.
+
 `pending_if_incomplete` is the load-bearing choice. If the proration invoice cannot be paid, Stripe
 holds the request as a `pending_update` and **leaves the subscription's items on the old price**.
 Reconciliation reads the current item price, so the user keeps the tier they paid for, and the higher
@@ -343,6 +358,16 @@ Checkout refuses when a subscription holds the paid slot, and `occupiesPaidSlot`
 an unpaid Checkout grants nothing but still holds the slot, so a user retrying a declined payment
 cannot end up paying twice when both eventually settle.
 
+**At most one Checkout Session per customer is payable (BILL-02).** The mirror learns of a payment one
+webhook later, so a guard that reads only the mirror let two tabs opened before either was paid both
+be paid — two live subscriptions, two charges, measured in the sandbox. `createCheckoutSession`
+therefore does all of this under the user's advisory lock, in order: refuse on the mirror; resolve the
+customer; **expire every Checkout Session still open** for that customer; refuse if **Stripe** holds a
+live subscription (after the sweep no session can complete any more, so this read is final — and a
+session paid during the sweep is counted and refused); create the new session with `expires_at` 35
+minutes ahead instead of Stripe's default day. A refusal caused by Stripe being ahead of the mirror
+reconciles the user after the lock is released, so the page stops offering Checkout.
+
 ## Idempotency keys
 
 Derived from stable operation identity, never regenerated per retry.
@@ -350,9 +375,9 @@ Derived from stable operation identity, never regenerated per retry.
 | Operation | Key | Why that identity |
 | --- | --- | --- |
 | Customer creation | `factorsage:customer:<userId>` | Stable forever. No retry, ever, creates a second canonical customer. |
-| Checkout session | `factorsage:checkout:<userId>:<priceKey>:<requestId>` | Stable for one user action and its internal retries; a genuinely new attempt is a new request, because a user who abandoned Checkout must be able to start again. |
+| Checkout session | *(none, deliberately)* | Created under the user's lock immediately after every other open session of the customer is expired (BILL-02), so a replayed key would hand back a session the same request has just expired. The SDK keys every POST for its own network retries; a second user action gets a fresh session and the previous one stops being payable. |
 | Immediate change | `factorsage:sub-update:<subId>:<fromPriceId>:<toPriceId>` | The *change* is the identity, so a retry cannot bill a second proration. |
-| Scheduled change | `factorsage:sub-schedule:<subId>:<toPriceId>:<effectiveAtEpoch>` | Guards the schedule **creation** only. |
+| Scheduled change | `factorsage:sub-schedule:<subId>:<toPriceId>:<effectiveAtEpoch>:<requestId>` | Guards the schedule **creation** only, per user action. An immediate change releases a pending schedule (BILL-01), and asking for the same change again inside Stripe's 24-hour key window must create a schedule rather than be handed the released one; Stripe itself refuses a second schedule on one subscription. |
 | Schedule phases update | *(none, deliberately)* | It creates nothing and charges nothing — setting phases is already idempotent. Keying it actively broke the call: Stripe refuses a key replayed with different parameters, so a first attempt that failed and was retried with corrected parameters locked the user out of that transition for 24 hours with a `400` that looks nothing like its cause. Sandbox testing hit exactly that. |
 | Portal session | `factorsage:portal:<customerId>:<requestId>` | Per user action. |
 

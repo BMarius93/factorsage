@@ -804,6 +804,58 @@ describeRedis("real Redis stock-data infrastructure", () => {
     }
   });
 
+  it("OPS-05: a waiter takes a freed concurrency slot within a poll, not after the oldest lease", async () => {
+    // What a cold hydration does: seven provider requests at once (six statement operations and
+    // the price read) against fewer slots. Each holds its slot for 300 ms; the lease — the bound a
+    // crashed holder keeps a slot for — is 30 s, as in production. Waiters used to sleep until the
+    // oldest lease expired, so the burst took about 30 s although every slot was free within a
+    // second.
+    const pollNamespace = `${namespace}:poll-gate`;
+    const options = {
+      maxConcurrentRequests: 4,
+      rateLimitPerWindow: 100,
+      rateWindowMs: 1_000,
+      maxQueueDepth: 20,
+      maxQueueWaitMs: 60_000,
+      requestLeaseMs: 30_000,
+      namespace: pollNamespace,
+    };
+    try {
+      const gates = [
+        new RedisFmpRequestGate(redisA, options),
+        new RedisFmpRequestGate(redisB, options),
+      ];
+      let active = 0;
+      let maximumActive = 0;
+      const startedAt = Date.now();
+      const results = await Promise.all(
+        Array.from({ length: 7 }, (_, index) =>
+          gates[index % 2]!.run(async () => {
+            active += 1;
+            maximumActive = Math.max(maximumActive, active);
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 300);
+            });
+            active -= 1;
+            return index;
+          }),
+        ),
+      );
+      const elapsedMs = Date.now() - startedAt;
+      expect(results).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      // Never more than the allowance at once, and the whole burst in two rounds plus polling.
+      expect(maximumActive).toBeLessThanOrEqual(4);
+      expect(elapsedMs).toBeLessThan(2_000);
+      expect(await redisA.zcard(`${pollNamespace}:concurrent`)).toBe(0);
+    } finally {
+      await redisA.del(
+        `${pollNamespace}:concurrent`,
+        `${pollNamespace}:rate-window`,
+        `${pollNamespace}:cooldown-until`,
+      );
+    }
+  }, 45_000);
+
   it("admits backlog starts against the rate window in which they actually begin", async () => {
     const backlogNamespace = `${namespace}:backlog-gate`;
     const rateWindowMs = 200;
@@ -1613,211 +1665,219 @@ describeInfrastructure("cross-process canonical hydration", () => {
    * because their warm-up hydrates every security first.
    *
    * Process A has a READY stock and reads it; between its freshness check and its read, process B
-   * starts widening the same stock. Both reads must succeed. Marked `it.fails` while the defect is
-   * open: it passes by failing, and turns red the moment the invalidation spares a live hydration.
+   * starts widening the same stock. Both reads must succeed: A's read finds B's HYDRATING
+   * generation, leaves it alone (the invalidation spares anything not READY) and waits for B's lock.
    */
-  it.fails(
-    "KNOWN DEFECT OPS-06: a read never aborts another process's live hydration",
-    async () => {
-      const suffix = randomUUID();
-      const namespace = `stock-data:v2:test:service:${suffix}`;
-      const symbol = `R${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
-      const prismaA = new PrismaClient();
-      const prismaB = new PrismaClient();
-      const redisA = createStockDataRedisClient(
-        redisUrl ?? "redis://localhost:6379",
-      );
-      const redisB = createStockDataRedisClient(
-        redisUrl ?? "redis://localhost:6379",
-      );
-      const provider = new IntegrationProvider();
-      const deltaStarted = gate();
-      const deltaReleased = gate();
-      const readReached = gate();
-      const readResumed = gate();
-      let reads: Promise<unknown> | undefined;
-      let securityId: string | undefined;
+  it("OPS-06: a read never aborts another process's live hydration", async () => {
+    const suffix = randomUUID();
+    const namespace = `stock-data:v2:test:service:${suffix}`;
+    const symbol = `R${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const prismaA = new PrismaClient();
+    const prismaB = new PrismaClient();
+    const redisA = createStockDataRedisClient(
+      redisUrl ?? "redis://localhost:6379",
+    );
+    const redisB = createStockDataRedisClient(
+      redisUrl ?? "redis://localhost:6379",
+    );
+    const provider = new IntegrationProvider();
+    const deltaStarted = gate();
+    const deltaReleased = gate();
+    const readReached = gate();
+    const readResumed = gate();
+    const readMissed = gate();
+    let reads: Promise<unknown> | undefined;
+    let securityId: string | undefined;
 
-      /** Holds the manifest read that `readDailyPriceProjection` makes, once, when armed. */
-      class PausingCache extends RedisStockDataCache {
-        armed = false;
-        override async getManifest(id: string): Promise<StockManifest | null> {
-          if (
-            this.armed &&
-            new Error().stack?.includes("readDailyPriceProjection")
-          ) {
-            this.armed = false;
-            readReached.open();
-            await readResumed.opened;
-          }
-          return super.getManifest(id);
+    /** Holds the manifest read that `readDailyPriceProjection` makes, once, when armed. */
+    class PausingCache extends RedisStockDataCache {
+      armed = false;
+      override async getManifest(id: string): Promise<StockManifest | null> {
+        if (
+          this.armed &&
+          new Error().stack?.includes("readDailyPriceProjection")
+        ) {
+          this.armed = false;
+          readReached.open();
+          await readResumed.opened;
+          const observed = await super.getManifest(id);
+          this.observedStatus = observed?.status ?? null;
+          return observed;
         }
+        return super.getManifest(id);
       }
 
-      try {
-        const security = await prismaA.security.create({
-          data: {
-            providerSymbol: symbol,
-            symbol,
-            name: "Hydration Race Integration Corp",
-            exchangeCode: "NASDAQ",
-            currency: "USD",
-            type: SecurityType.STOCK,
-            isAdr: false,
-            isActivelyTrading: true,
-          },
-        });
-        securityId = security.id;
-        provider.securityId = security.id;
-        await prismaA.dailyPrice.create({
-          data: {
-            securityId: security.id,
-            date: new Date("2022-01-03T00:00:00.000Z"),
-            open: 150,
-            high: 150,
-            low: 150,
-            close: 150,
-            volume: 100n,
-          },
-        });
-        await prismaA.stockDatasetCoverage.create({
-          data: {
-            securityId: security.id,
-            dataset: StockDataset.DAILY_PRICE,
-            variant: DAILY_PRICE_VARIANT,
-            fromDate: new Date("2015-01-01T00:00:00.000Z"),
-            toDate: new Date("2026-08-24T00:00:00.000Z"),
-            lastSuccessfulSyncAt: new Date("2026-08-24T23:00:00.000Z"),
-          },
-        });
-        await prismaA.stockDatasetState.create({
-          data: {
-            securityId: security.id,
-            dataset: StockDataset.DAILY_PRICE,
-            variant: "split-adjusted-eod-full:recent-tail",
-            earliestDate: new Date("2026-08-24T00:00:00.000Z"),
-            latestDate: new Date("2026-08-24T00:00:00.000Z"),
-            lastSuccessfulSyncAt: new Date("2026-08-24T23:00:00.000Z"),
-          },
-        });
-        await prismaA.securityPriceBasis.create({
-          data: {
-            securityId: security.id,
-            generation: 1,
-            verifiedAt: new Date("2026-08-24T23:00:00.000Z"),
-          },
-        });
-        provider.rows.set("1992-08-24:2014-12-31", [
-          integrationPrice(security.id, "2010-01-04", 30),
-        ]);
-        provider.rows.set("2022-01-03:2022-02-02", [
-          integrationPrice(security.id, "2022-01-03", 150),
-        ]);
-        const cacheA = new PausingCache(
+      observedStatus: string | null = null;
+
+      override async readDailyPrices(
+        id: string,
+        range: { from: string; to: string },
+      ) {
+        const result = await super.readDailyPrices(id, range);
+        if (this.observedStatus === "HYDRATING" && result === null) {
+          readMissed.open();
+        }
+        return result;
+      }
+    }
+
+    try {
+      const security = await prismaA.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Hydration Race Integration Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+      provider.securityId = security.id;
+      await prismaA.dailyPrice.create({
+        data: {
+          securityId: security.id,
+          date: new Date("2022-01-03T00:00:00.000Z"),
+          open: 150,
+          high: 150,
+          low: 150,
+          close: 150,
+          volume: 100n,
+        },
+      });
+      await prismaA.stockDatasetCoverage.create({
+        data: {
+          securityId: security.id,
+          dataset: StockDataset.DAILY_PRICE,
+          variant: DAILY_PRICE_VARIANT,
+          fromDate: new Date("2015-01-01T00:00:00.000Z"),
+          toDate: new Date("2026-08-24T00:00:00.000Z"),
+          lastSuccessfulSyncAt: new Date("2026-08-24T23:00:00.000Z"),
+        },
+      });
+      await prismaA.stockDatasetState.create({
+        data: {
+          securityId: security.id,
+          dataset: StockDataset.DAILY_PRICE,
+          variant: "split-adjusted-eod-full:recent-tail",
+          earliestDate: new Date("2026-08-24T00:00:00.000Z"),
+          latestDate: new Date("2026-08-24T00:00:00.000Z"),
+          lastSuccessfulSyncAt: new Date("2026-08-24T23:00:00.000Z"),
+        },
+      });
+      await prismaA.securityPriceBasis.create({
+        data: {
+          securityId: security.id,
+          generation: 1,
+          verifiedAt: new Date("2026-08-24T23:00:00.000Z"),
+        },
+      });
+      provider.rows.set("1992-08-24:2014-12-31", [
+        integrationPrice(security.id, "2010-01-04", 30),
+      ]);
+      provider.rows.set("2022-01-03:2022-02-02", [
+        integrationPrice(security.id, "2022-01-03", 150),
+      ]);
+      const cacheA = new PausingCache(
+        new IoredisCacheClient(redisA),
+        10,
+        namespace,
+      );
+      const options = {
+        productHistoryYears: 30,
+        now: () => new Date("2026-08-24T23:00:00.000Z"),
+      };
+      const serviceA = new CanonicalStockDataService(
+        new PrismaStockDataStore(prismaA),
+        provider,
+        cacheA,
+        new RedlockLoadCoordinator(redisA, {
+          lockDurationMs: 2_000,
+          lockWaitMs: 10_000,
+        }),
+        options,
+      );
+      // B is configured with a one-year-longer horizon — a deployment widening its retention — so
+      // the stock A holds READY over A's retention window lacks B's oldest year and B must hydrate
+      // it. (Every load spans the retention window, CONC-01: within one configuration nothing is
+      // ever widened any more.)
+      const serviceB = new CanonicalStockDataService(
+        new PrismaStockDataStore(prismaB),
+        provider,
+        new RedisStockDataCache(new IoredisCacheClient(redisB), 10, namespace),
+        new RedlockLoadCoordinator(redisB, {
+          lockDurationMs: 2_000,
+          lockWaitMs: 10_000,
+        }),
+        { ...options, productHistoryYears: 31 },
+      );
+      const recent = { from: "2022-01-01", to: "2025-12-31" };
+
+      // A's stock is READY over the retention window: its first read loads the missing prefix,
+      // after the earliest stored row confirms the history was not re-based (§7, rule 2).
+      await serviceA.getDailyPrices(symbol, recent);
+      expect(provider.ranges).toEqual([
+        { from: "1992-08-24", to: "2014-12-31" },
+        { from: "2022-01-03", to: "2022-02-02" },
+      ]);
+
+      // A reads it again and is held just before its read looks at the manifest.
+      cacheA.armed = true;
+      const readA = serviceA.getDailyPrices(symbol, recent);
+      await readReached.opened;
+
+      // B widens the same stock and is held inside the provider with its HYDRATING generation
+      // published.
+      provider.held = {
+        range: "1991-08-24:1992-08-23",
+        started: deltaStarted.open,
+        released: deltaReleased.opened,
+      };
+      const readB = serviceB.getDailyPrices(symbol, {
+        from: "1997-01-01",
+        to: "2020-12-31",
+      });
+      reads = Promise.allSettled([readA, readB]);
+      await Promise.race([deltaStarted.opened, readB]);
+      expect((await cacheA.getManifest(security.id))?.status).toBe("HYDRATING");
+
+      // A reads now and misses on B's live generation — which must still be there afterwards —
+      // and only then does B's provider answer.
+      readResumed.open();
+      await readMissed.opened;
+      expect((await cacheA.getManifest(security.id))?.status).toBe("HYDRATING");
+      deltaReleased.open();
+
+      const [a, b] = await Promise.allSettled([readA, readB]);
+      expect({
+        a: a.status,
+        b:
+          b.status === "fulfilled"
+            ? b.value.map((row) => row.date)
+            : String(b.reason),
+      }).toEqual({ a: "fulfilled", b: ["2010-01-04"] });
+    } finally {
+      readResumed.open();
+      deltaReleased.open();
+      await reads?.catch(() => {});
+      if (securityId) {
+        const cache = new RedisStockDataCache(
           new IoredisCacheClient(redisA),
           10,
           namespace,
         );
-        const options = {
-          productHistoryYears: 30,
-          now: () => new Date("2026-08-24T23:00:00.000Z"),
-        };
-        const serviceA = new CanonicalStockDataService(
-          new PrismaStockDataStore(prismaA),
-          provider,
-          cacheA,
-          new RedlockLoadCoordinator(redisA, {
-            lockDurationMs: 2_000,
-            lockWaitMs: 10_000,
-          }),
-          options,
-        );
-        const serviceB = new CanonicalStockDataService(
-          new PrismaStockDataStore(prismaB),
-          provider,
-          new RedisStockDataCache(
-            new IoredisCacheClient(redisB),
-            10,
-            namespace,
-          ),
-          new RedlockLoadCoordinator(redisB, {
-            lockDurationMs: 2_000,
-            lockWaitMs: 10_000,
-          }),
-          options,
-        );
-        const recent = { from: "2022-01-01", to: "2025-12-31" };
-
-        // A's stock is READY over the recent years, with no provider read needed.
-        await serviceA.getDailyPrices(symbol, recent);
-        expect(provider.ranges).toEqual([]);
-
-        // A reads it again and is held just before its read looks at the manifest.
-        cacheA.armed = true;
-        const readA = serviceA.getDailyPrices(symbol, recent);
-        await readReached.opened;
-
-        // B widens the same stock and is held inside the provider with its HYDRATING generation
-        // published.
-        provider.held = {
-          range: "1992-08-24:2014-12-31",
-          started: deltaStarted.open,
-          released: deltaReleased.opened,
-        };
-        const readB = serviceB.getDailyPrices(symbol, {
-          from: "1997-01-01",
-          to: "2020-12-31",
-        });
-        reads = Promise.allSettled([readA, readB]);
-        await Promise.race([deltaStarted.opened, readB]);
-        expect((await cacheA.getManifest(security.id))?.status).toBe(
-          "HYDRATING",
-        );
-
-        // A reads now, then B's provider answers.
-        readResumed.open();
-        const manifestKey = `${namespace}:security:${security.id}:manifest`;
-        const deadline = Date.now() + 5_000;
-        while (
-          Date.now() < deadline &&
-          (await redisA.get(manifestKey)) !== null
-        ) {
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 10);
-          });
-        }
-        deltaReleased.open();
-
-        const [a, b] = await Promise.allSettled([readA, readB]);
-        expect({
-          a: a.status,
-          b:
-            b.status === "fulfilled"
-              ? b.value.map((row) => row.date)
-              : String(b.reason),
-        }).toEqual({ a: "fulfilled", b: ["2010-01-04"] });
-      } finally {
-        readResumed.open();
-        deltaReleased.open();
-        await reads?.catch(() => {});
-        if (securityId) {
-          const cache = new RedisStockDataCache(
-            new IoredisCacheClient(redisA),
-            10,
-            namespace,
-          );
-          await cache.evict(securityId);
-          await prismaA.security.deleteMany({ where: { id: securityId } });
-        }
-        await deleteRedisNamespace(redisA, namespace);
-        redisA.disconnect();
-        redisB.disconnect();
-        await prismaA.$disconnect();
-        await prismaB.$disconnect();
+        await cache.evict(securityId);
+        await prismaA.security.deleteMany({ where: { id: securityId } });
       }
-    },
-    30_000,
-  );
+      await deleteRedisNamespace(redisA, namespace);
+      redisA.disconnect();
+      redisB.disconnect();
+      await prismaA.$disconnect();
+      await prismaB.$disconnect();
+    }
+  }, 30_000);
 
   it("serves a daily-materialized blend series straight from stored derived state", async () => {
     const suffix = randomUUID();
@@ -1957,7 +2017,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
           variant: DAILY_PRICE_VARIANT,
-          fromDate: new Date("1996-08-24T00:00:00.000Z"),
+          // The whole retention window, which every load now spans (CONC-01).
+          fromDate: new Date("1992-08-01T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
         },

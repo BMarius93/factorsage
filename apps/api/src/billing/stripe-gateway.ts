@@ -72,6 +72,20 @@ export type StripeCustomerBillingState = {
 export type StripeCheckoutSession = {
   readonly id: string;
   readonly url: string;
+  /** When Stripe stops accepting payment on it. */
+  readonly expiresAt: Date;
+};
+
+/**
+ * What expiring a customer's open Checkout Sessions found.
+ *
+ * `completed` counts sessions that were open when listed but had been paid by the time the expiry
+ * reached them: a purchase that landed during the sweep, which the caller must treat as a
+ * subscription it has not seen yet.
+ */
+export type CheckoutSessionSweep = {
+  readonly expired: number;
+  readonly completed: number;
 };
 
 export type StripePortalSession = {
@@ -121,13 +135,23 @@ export type CreateCustomerInput = {
   readonly idempotencyKey: string;
 };
 
+/**
+ * A hosted Checkout for one catalog price.
+ *
+ * Deliberately **no idempotency key**. Creation runs under the user's advisory lock right after every
+ * other open session of the customer has been expired, so a replayed key would hand back a session
+ * this very request has just expired. A retry of the same HTTP call is still keyed — the SDK keys
+ * every POST it sends — and a second user action is meant to get a fresh session while the old one
+ * stops being payable.
+ */
 export type CreateCheckoutSessionInput = {
   readonly customerId: string;
   readonly userId: string;
   readonly priceId: string;
   readonly successUrl: string;
   readonly cancelUrl: string;
-  readonly idempotencyKey: string;
+  /** Between 30 minutes and 24 hours ahead, Stripe's own bounds. */
+  readonly expiresAt: Date;
 };
 
 export type CreatePortalSessionInput = {
@@ -184,6 +208,16 @@ export interface StripeGateway {
   createCheckoutSession(
     input: CreateCheckoutSessionInput,
   ): Promise<StripeCheckoutSession>;
+
+  /**
+   * Expires every Checkout Session still open for this customer, so none of them can be paid.
+   *
+   * The one-subscription invariant's guard for hosted Checkout (decision document section 15): two
+   * sessions opened before either is paid would otherwise both be payable, and each payment creates
+   * its own subscription. Called under the user's advisory lock before a new session is created, so
+   * at most one session per customer is ever payable.
+   */
+  expireOpenCheckoutSessions(customerId: string): Promise<CheckoutSessionSweep>;
 
   createPortalSession(
     input: CreatePortalSessionInput,

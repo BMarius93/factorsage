@@ -10,7 +10,9 @@ import {
   createStockDataRedisClient,
   dailyStateChunkKey,
   decodeDailyStateChunk,
+  listingFloor,
   materializeDailyFundamentals,
+  statementsWithEvidencedAvailability,
   subtractYears,
 } from "@intrinsic/stock-data";
 import { collectOperands } from "@intrinsic/strategy";
@@ -226,17 +228,21 @@ export async function auditFundamentalFrames(input: {
     }
 
     // The production materializer again, on the rebuild's own inputs: the statement retention the
-    // rebuild reads (thirty-seven years, clamped to the listing) and the stored sessions.
+    // rebuild reads (thirty-seven years), the pre-listing rule it applies (DATA-03) and the stored
+    // sessions.
     const materializeStarted = Date.now();
     const horizon = subtractYears(input.asOf, FUNDAMENTALS_RETENTION_YEARS);
-    const statements = await store.getFinancialStatementRevisions({
-      securityId: security.id,
-      from:
-        security.ipoDate && security.ipoDate > horizon
-          ? security.ipoDate
-          : horizon,
-      to: input.asOf,
-    });
+    const statements = statementsWithEvidencedAvailability(
+      await store.getFinancialStatementRevisions({
+        securityId: security.id,
+        from: horizon,
+        to: input.asOf,
+      }),
+      listingFloor({
+        ipoDate: security.ipoDate,
+        earliestPriceDate: await store.getEarliestDailyPriceDate(security.id),
+      }),
+    );
     const fresh = new Map(
       materializeDailyFundamentals({
         securityId: security.id,

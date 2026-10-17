@@ -232,8 +232,8 @@ Key properties:
 
 - **One methodology, two sources.** The adapter feeds benchmark bars (via a bar adapter over
   `seriesId`) through the exact kernels and the exact weekly completed-bar path stocks use. No
-  second formula, no new rounding convention (Decision 6): values are the kernels' doubles, the
-  same convention the Monitor's in-memory recomputation already established.
+  second formula, and the stock's own storage scale (Decision 6, revised by FIN-12): values are the
+  kernels' doubles rounded exactly as a stock's `DECIMAL(20,8)` write-and-read rounds them.
 - **Computed once per distinct ETF per backtest run / Monitor cycle** — never per candidate stock,
   never per condition. The context is process memory for the run/cycle; nothing is persisted or
   cached across runs, so there is no new invalidation surface: a re-base or tail correction is
@@ -354,14 +354,30 @@ non-anchored series refusing to evaluate.
 RVOL follows the stock rules exactly: prior-session baseline, zero baseline → absent, non-finite
 volume poisons its window, `0` is a real reading.
 
-### 5.5 Precision (Decision 6)
+### 5.5 Precision (Decision 6, revised by FIN-12)
 
-ETF values are the kernels' raw doubles — the Monitor's established in-memory convention — with
-**no** new quantization. Parity evidence: identical OHLCV histories fed to the stock calculators and
-through the benchmark adapter produce bit-identical 21-series output (same functions, proven, not
-assumed), plus boundary tests at thresholds (strict `is above`/`is below` at equality, `is close to`
-at exactly 2%, warm-up first-value indices). The storage-quantization difference between persisted
-stock values and in-memory values is pre-existing (Monitor vs backtest) and documented, not new.
+ETF values are read **at the stock's storage scale**: `buildBenchmarkTechnicalContext` passes every
+technical value through `quantizeToStoredDecimal` (`stored-decimal.ts`), which reproduces a stock's
+write-and-read exactly — Prisma binds the double at 16 significant digits, then PostgreSQL rounds
+to `numeric(20, 8)` half away from zero. So a stock and an ETF fed identical bars read identical
+values and decide identical bars identically, exact ties included.
+
+Why (owner ruling on the 2026-10-16 audit, FIN-12): `movingAverage` keeps one running window sum,
+so a close equal to its exact window mean usually sits a few ulps above or below the computed mean.
+A stock's persisted average rounds that residue away; the original raw-double ETF values did not,
+and strict `is above`/`is below` decided exact ties on float noise (45 of 47 exact ETF ties in the
+stored data; `XLK` 2012-12-20 exited ten positions at once). No global epsilon (that would change
+stock semantics) and no kernel change (that would change every stored stock value and force a
+derived-revision rebuild). No stored data changes; ETF results change only where a value lands on
+a tie or a threshold at the ninth decimal.
+
+Evidence: `stored-decimal.integration.test.ts` writes values through the stock store and reads them
+back (the quantizer matches bit for bit), and feeds one tie-dense history to a stock read from
+PostgreSQL and to an ETF — all 21 series identical, every exact SMA tie a tie on both paths;
+`benchmark-technicals.test.ts` keeps the parity tests (ETF = quantized stock kernel output), the
+25-bar FIN-12 case and a tie sweep at SMA 20/50/100/200. Boundary tests at thresholds (strict
+`is above`/`is below` at equality, `is close to` at exactly 2%, warm-up first-value indices) are
+unchanged.
 
 ## 6. Backwards compatibility and snapshot strategy (Decision 5)
 
@@ -537,7 +553,10 @@ in §10.
   result — see §13.7). `BacktestEtfConditionDiagnosticsResponse` is `{code, ticker, status,
   firstSession?, latestSession?, basisGeneration?, submittedBasisGeneration?}` with `status` one of
   `READY`, `NOT_BOOTSTRAPPED`,
-  `NOT_SYNCHRONIZED`, `NO_FINALIZED_SESSIONS`, `LOAD_FAILED`. Counting undecidable sessions per
+  `NOT_SYNCHRONIZED`, `NO_FINALIZED_SESSIONS`, `LOAD_FAILED`. (Since 2026-10-16 a `LOAD_FAILED`
+  fund stops the run with `EXECUTION_FAILED` instead of completing it on undecidable rules, and a
+  Monitor holds the members reading it — a failed read is not missing data; MON-02,
+  `docs/decisions/monitor-eod-v2.md` §3.5.) Counting undecidable sessions per
   cause would have meant threading a reason through the evaluator's tri-state result, which Decision
   9 rules out ("tri-state semantics unchanged"); the fund's first and latest evaluable session say
   where pre-listing and unfinalized sessions begin and end, and warm-up is a fixed property of each

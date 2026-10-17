@@ -136,6 +136,8 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       (await real.listActiveMonitors()).filter((m) => created.has(m.monitorId)),
     loadSignalStates: (id) => real.loadSignalStates(id),
     loadCheckpoints: (id) => real.loadCheckpoints(id),
+    loadSecuritiesWithTransitions: (id) =>
+      real.loadSecuritiesWithTransitions(id),
     resolveUnvisitedStates: (input) => real.resolveUnvisitedStates(input),
     pruneCheckpoints: (input) => real.pruneCheckpoints(input),
     markScanned: (monitors, now) => real.markScanned(monitors, now),
@@ -815,46 +817,89 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
      * applies only to a loaded snapshot whose newest session is older than the stock's. Treating a
      * failed read as "the fund did not print" steps every member older than the late-recovery horizon
      * — a new Monitor's replay, a resumed pause, an outage catch-up — through sessions decided with
-     * the ETF rule NOT_EVALUABLE, and they are never decided again. Written as the hold the product
-     * owes those members; fails on `bebf3dc7`, and `it.fails` flips red once a failed read holds them.
+     * the ETF rule NOT_EVALUABLE, and they are never decided again (failed on `bebf3dc7`). A member
+     * reading an ETF that could not be read is now held, and replays once the ETF reads again —
+     * exactly as a Monitor that never saw the failure.
      */
-    it.fails(
-      "KNOWN DEFECT MON-02: holds a replaying member at its checkpoint when the ETF it reads could not be loaded",
-      async () => {
-        const security = await createSecurity("2026-06-01");
-        const closes: Record<string, number> = {};
-        for (
-          let cursor = new Date("2026-06-01T00:00:00.000Z");
-          cursor.toISOString().slice(0, 10) <= "2026-10-14";
-          cursor.setUTCDate(cursor.getUTCDate() + 1)
-        ) {
-          const weekday = cursor.getUTCDay();
-          if (weekday !== 0 && weekday !== 6) {
-            closes[cursor.toISOString().slice(0, 10)] = 105;
-          }
+    it("MON-02: holds a replaying member while the ETF it reads cannot be loaded, then replays it as an uninterrupted Monitor does", async () => {
+      const security = await createSecurity("2026-06-01");
+      const closes: Record<string, number> = {};
+      for (
+        let cursor = new Date("2026-06-01T00:00:00.000Z");
+        cursor.toISOString().slice(0, 10) <= "2026-10-14";
+        cursor.setUTCDate(cursor.getUTCDate() + 1)
+      ) {
+        const weekday = cursor.getUTCDay();
+        if (weekday !== 0 && weekday !== 6) {
+          closes[cursor.toISOString().slice(0, 10)] = 105;
         }
-        await seed(
-          security,
-          closes,
-          after("2026-10-14"),
-          "2026-10-14",
-          "2026-06-01",
-        );
-        etfThrough.date = "2026-10-14";
-        const monitorId = await createMonitor([security], both, {
-          replay: true,
-          listedAt: new Date("2026-10-01T12:00:00.000Z"),
-        });
-        const failing = {
-          ...etfContexts,
-          loader: {
-            ...etfContexts.loader,
-            readFullBenchmarkHistory: async () => {
-              throw new Error("Redis timed out reading benchmark:v1:*");
-            },
+      }
+      await seed(
+        security,
+        closes,
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-06-01",
+      );
+      etfThrough.date = "2026-10-14";
+      const monitorId = await createMonitor([security], both, {
+        replay: true,
+        listedAt: new Date("2026-10-01T12:00:00.000Z"),
+      });
+      const failing = {
+        ...etfContexts,
+        loader: {
+          ...etfContexts.loader,
+          readFullBenchmarkHistory: async () => {
+            throw new Error("Redis timed out reading benchmark:v1:*");
           },
-        };
-        const summary = await new MonitorEodEvaluation(
+        },
+      };
+      const summary = await new MonitorEodEvaluation(
+        repository,
+        data,
+        new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => clock.now,
+        }),
+        createLogger({ service: "worker", level: "silent" }),
+        {
+          securityConcurrency: 2,
+          lateRecoveryMs: 24 * 60 * 60_000,
+          now: () => clock.now,
+        },
+        failing as never,
+      ).run(1);
+      // Nothing may be decided on a rule whose input could not be read.
+      expect(summary.membersAwaitingEtf).toBe(1);
+      expect(await checkpoint(monitorId, security.id)).toBeNull();
+      expect(await transitions(monitorId)).toHaveLength(0);
+
+      // Still unreadable a week later — far past the late-recovery horizon: still held.
+      clock.now = after("2026-10-21");
+      const later = await new MonitorEodEvaluation(
+        repository,
+        data,
+        new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => clock.now,
+        }),
+        createLogger({ service: "worker", level: "silent" }),
+        {
+          securityConcurrency: 2,
+          lateRecoveryMs: 24 * 60 * 60_000,
+          now: () => clock.now,
+        },
+        failing as never,
+      ).run(2);
+      expect(later.membersAwaitingEtf).toBe(1);
+      expect(await transitions(monitorId)).toHaveLength(0);
+
+      // The ETF reads again: the member replays its window once, as a control Monitor that never
+      // saw the failure replays the same window on the same data.
+      clock.now = after("2026-10-14");
+      const working = () =>
+        new MonitorEodEvaluation(
           repository,
           data,
           new EodFinalityPolicy({
@@ -867,15 +912,35 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
             lateRecoveryMs: 24 * 60 * 60_000,
             now: () => clock.now,
           },
-          failing as never,
-        ).run(1);
-        etfThrough.date = "2026-10-13";
-        // Nothing may be decided on a rule whose input could not be read.
-        expect(summary.membersAwaitingEtf).toBe(1);
-        expect(await checkpoint(monitorId, security.id)).toBeNull();
-        expect(await transitions(monitorId)).toHaveLength(0);
-      },
-    );
+          etfContexts as never,
+        );
+      expect((await working().run(3)).membersReplayed).toBe(1);
+      const control = await createMonitor([security], both, {
+        replay: true,
+        listedAt: new Date("2026-10-01T12:00:00.000Z"),
+      });
+      created.delete(monitorId);
+      expect((await working().run(4)).membersReplayed).toBe(1);
+      created.add(monitorId);
+      const normalized = async (id: string) =>
+        (await transitions(id)).map((t) =>
+          [
+            t.levelId,
+            day(t.observationDate),
+            t.fromState,
+            t.toState,
+            t.reason,
+            t.origin,
+          ].join("|"),
+        );
+      expect(await normalized(monitorId)).toEqual(await normalized(control));
+      expect((await transitions(monitorId)).length).toBeGreaterThan(0);
+      // And a further pass decides nothing twice.
+      const settled = (await transitions(monitorId)).length;
+      await working().run(5);
+      expect(await transitions(monitorId)).toHaveLength(settled);
+      etfThrough.date = "2026-10-13";
+    });
   });
 
   it("passes a session a halted security never prints only once a read past the late-recovery horizon proves it", async () => {
@@ -1284,58 +1349,134 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
      * administratively and loses its state **and** its checkpoint; when the owner restores the
      * membership, the member again has no checkpoint and no state while its `listedAt` is still
      * before the window was fixed — exactly the replay predicate — so the whole window is decided a
-     * second time, duplicating every Signal it opened.
-     *
-     * Written as the behaviour the product promises. It fails on `bebf3dc7`; `it.fails` keeps the
-     * suite green while the defect is open, and turns red the moment the fix lands so this is
-     * converted into an ordinary case.
+     * second time, duplicating every Signal it opened. Failed on `bebf3dc7`; a member with any
+     * transition recorded by the Monitor is now never replayed. What re-entry does instead is §4's:
+     * the occurrence still open when the membership ended is closed administratively, and a setup
+     * that still holds is reconstructed as one new occurrence on its true activation session.
      */
-    it.fails(
-      "KNOWN DEFECT MON-01: never replays the window again when a member's membership ends and is restored",
-      async () => {
-        const security = await createSecurity("2026-03-02");
-        await seed(
-          security,
-          weekdays("2026-03-02", "2026-10-14", (date) =>
-            date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
-          ),
-          after("2026-10-14"),
-          "2026-10-14",
-          "2026-03-02",
-        );
-        const monitorId = await createMonitor([security], signalAbove(), {
-          replay: true,
-          listedAt,
-        });
-        expect((await evaluation().run(1)).membersReplayed).toBe(1);
-        const replayed = await signals(monitorId);
-        expect(replayed).toHaveLength(2);
+    it("MON-01: never replays the window again when a member's membership ends and is restored", async () => {
+      const security = await createSecurity("2026-03-02");
+      await seed(
+        security,
+        weekdays("2026-03-02", "2026-10-14", (date) =>
+          date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
+        ),
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-03-02",
+      );
+      const monitorId = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      expect((await evaluation().run(1)).membersReplayed).toBe(1);
+      const replayed = await signals(monitorId);
+      expect(replayed).toHaveLength(2);
 
-        // The owner bounds the membership (it stops being ongoing), the pass ends it…
-        await setMembership(monitorId, security, [
-          { start: "2026-03-02", end: "2026-10-09" },
-        ]);
-        await evaluation().run(2);
-        expect(
-          (await transitions(monitorId)).some(
-            (t) => t.reason === "MEMBERSHIP_CHANGED",
-          ),
-        ).toBe(true);
+      // The owner bounds the membership (it stops being ongoing), the pass ends it…
+      await setMembership(monitorId, security, [
+        { start: "2026-03-02", end: "2026-10-09" },
+      ]);
+      await evaluation().run(2);
+      expect(
+        (await transitions(monitorId)).some(
+          (t) => t.reason === "MEMBERSHIP_CHANGED",
+        ),
+      ).toBe(true);
 
-        // …and restores it. The member re-enters as a new membership: reconstructed at the newest
-        // session, never replayed.
-        await setMembership(monitorId, security, "FULL");
-        const third = await evaluation().run(3);
-        expect(third.membersReplayed).toBe(0);
-        const occurrences = await signals(monitorId);
-        const opened = occurrences.map(
-          (signal) =>
-            `${signal.securityId}|${signal.levelId}|${day(signal.observationDate)}`,
+      // …and restores it. The member re-enters as a new membership: reconstructed at the newest
+      // session, never replayed.
+      await setMembership(monitorId, security, "FULL");
+      const third = await evaluation().run(3);
+      expect(third.membersReplayed).toBe(0);
+
+      // No session the window decided is decided again: every market-decided change appears once.
+      const decided = (await transitions(monitorId))
+        .filter(
+          (t) => t.origin !== "ADMINISTRATIVE" && t.reason !== "RECONSTRUCTED",
+        )
+        .map(
+          (t) =>
+            `${t.levelId}|${day(t.observationDate)}|${t.toState}|${t.reason}`,
         );
-        // No session's activation is recorded twice.
-        expect(new Set(opened).size).toBe(opened.length);
-      },
-    );
+      expect(new Set(decided).size).toBe(decided.length);
+      // The past occurrence the window opened and closed stays one occurrence…
+      const occurrences = await signals(monitorId);
+      expect(
+        occurrences.filter(
+          (signal) => day(signal.observationDate) === "2026-03-02",
+        ),
+      ).toHaveLength(1);
+      // …and the one still active when the membership ended was closed administratively; re-entry
+      // reconstructs the setup that still holds as one new occurrence (§4), the only open one.
+      expect(
+        occurrences.map((signal) => [
+          day(signal.observationDate),
+          signal.resolutionReason,
+        ]),
+      ).toEqual([
+        ["2026-03-02", "CONDITIONS_ENDED"],
+        ["2026-09-15", "MEMBERSHIP_CHANGED"],
+        ["2026-09-15", null],
+      ]);
+      const reentry = (await transitions(monitorId)).filter(
+        (t) => t.reason === "RECONSTRUCTED",
+      );
+      expect(reentry.map((t) => [day(t.observationDate), t.origin])).toEqual([
+        ["2026-03-02", "HISTORY"],
+        ["2026-09-15", "HISTORY"],
+      ]);
+    });
+
+    it("replays a member exactly once when the pass that replayed it crashed before committing", async () => {
+      const security = await createSecurity("2026-03-02");
+      await seed(
+        security,
+        weekdays("2026-03-02", "2026-10-14", (date) =>
+          date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
+        ),
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-03-02",
+      );
+      const monitorId = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      const crashing: MonitorEvaluationRepository = {
+        ...repository,
+        applyMemberEvaluation: async () => {
+          throw new Error("process killed before the replay committed");
+        },
+      };
+      const crashed = await new MonitorEodEvaluation(
+        crashing,
+        data,
+        new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => clock.now,
+        }),
+        createLogger({ service: "worker", level: "silent" }),
+        {
+          securityConcurrency: 1,
+          lateRecoveryMs: 86_400_000,
+          now: () => clock.now,
+        },
+      ).run(1);
+      expect(crashed.securitiesFailed).toBe(1);
+      expect(await transitions(monitorId)).toEqual([]);
+
+      // The retry replays the same window, once; a further pass adds nothing.
+      expect((await evaluation().run(2)).membersReplayed).toBe(1);
+      const afterRetry = await transitions(monitorId);
+      expect(afterRetry.length).toBeGreaterThan(0);
+      expect((await evaluation().run(3)).membersReplayed).toBe(0);
+      expect(await transitions(monitorId)).toHaveLength(afterRetry.length);
+      const opened = (await signals(monitorId)).map(
+        (signal) => `${signal.levelId}|${day(signal.observationDate)}`,
+      );
+      expect(new Set(opened).size).toBe(opened.length);
+    });
 
     it("never replays a Monitor that did not ask for it", async () => {
       const security = await createSecurity("2026-09-01");
