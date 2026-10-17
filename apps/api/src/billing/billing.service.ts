@@ -25,7 +25,7 @@ import {
   STRIPE_BILLING_CONFIG,
   STRIPE_GATEWAY,
 } from "./billing.tokens";
-import type { StripeGateway } from "./stripe-gateway";
+import { toMirroredStatus, type StripeGateway } from "./stripe-gateway";
 
 /**
  * Everything a user can *ask* billing to do, and nothing that decides a plan.
@@ -45,11 +45,23 @@ import type { StripeGateway } from "./stripe-gateway";
  * | Operation | Key | Why that identity |
  * | --- | --- | --- |
  * | Customer creation | `factorsage:customer:<userId>` | Stable **forever**. Two simultaneous first-Checkout requests cannot create two canonical customers, and neither can a retry days later. |
- * | Checkout session | `factorsage:checkout:<userId>:<priceKey>:<requestId>` | Stable for one user action and all its internal retries; a genuinely new attempt is a new request and gets a new key, because a user who abandoned Checkout must be able to start again. |
+ * | Checkout session | *(none, deliberately)* | Created under the user's lock right after every other open session of the customer is expired, so a replayed key would return a session this request has just expired. The SDK keys each POST for its own retries; a second user action gets a fresh session and the old one stops being payable (BILL-02). |
  * | Immediate change | `factorsage:sub-update:<subscriptionId>:<fromPriceId>:<toPriceId>` | The *change* is the identity. A retry of the same transition reuses the key and cannot bill a second proration; a different transition is a different key. |
- * | Scheduled change | `factorsage:sub-schedule:<subscriptionId>:<toPriceId>:<effectiveAt>` | Guards the *creation* of the Subscription Schedule only. The phases update carries no key, because it creates nothing and a replayed key with corrected parameters is refused by Stripe for 24 hours — `StripeApiGateway.scheduleSubscriptionPriceChange` explains why. |
+ * | Scheduled change | `factorsage:sub-schedule:<subscriptionId>:<toPriceId>:<effectiveAt>:<requestId>` | Guards the *creation* of the Subscription Schedule only, per user action: an upgrade now releases a pending schedule (BILL-01), and the same change asked for again inside Stripe's 24-hour key window must create a new schedule rather than be handed the released one. Stripe itself refuses a second schedule on one subscription. The phases update carries no key, because it creates nothing and a replayed key with corrected parameters is refused by Stripe for 24 hours — `StripeApiGateway.scheduleSubscriptionPriceChange` explains why. |
  * | Portal session | `factorsage:portal:<customerId>:<requestId>` | Per user action. |
  */
+/**
+ * How long a hosted Checkout stays payable. Stripe's own floor is 30 minutes after creation; the margin
+ * keeps a slow round trip from landing under it.
+ */
+export const CHECKOUT_SESSION_LIFETIME_MS = 35 * 60_000;
+
+/**
+ * Bounds for a transaction that holds the user's lock across Stripe calls: a few round trips at the
+ * configured Stripe timeout, and a short wait to start, as reconciliation's own.
+ */
+const STRIPE_LOCKED_TRANSACTION = { timeout: 60_000, maxWait: 10_000 } as const;
+
 @Injectable()
 export class BillingService {
   constructor(
@@ -118,21 +130,41 @@ export class BillingService {
   /**
    * Starts a hosted Checkout for a user who has no paid subscription.
    *
-   * The already-subscribed check runs **inside the user's advisory lock**, together with the
-   * customer resolution, so two simultaneous requests cannot both pass it. Without that, the window
-   * between "no subscription found" and "session created" is exactly wide enough for a double-click
-   * to buy two subscriptions.
+   * Everything up to and including the session's creation runs **inside the user's advisory lock**,
+   * so two simultaneous requests are serialized rather than raced:
+   *
+   * 1. the mirror must hold no paid slot (the cheap, usual refusal);
+   * 2. the customer is resolved, created on first need;
+   * 3. every Checkout Session still open for that customer is **expired** — a session opened in
+   *    another tab, or by a double-submitted request, can no longer be paid (BILL-02: two open
+   *    sessions were both payable and produced two subscriptions and two charges);
+   * 4. Stripe itself must hold no live subscription. The mirror can lag a payment by a webhook's
+   *    delivery time, and after step 3 no further session can complete, so this read is final;
+   * 5. only then is the one payable session created, expiring after
+   *    {@link CHECKOUT_SESSION_LIFETIME_MS} instead of Stripe's default day.
+   *
+   * A live subscription found at step 4 refuses the request, and the mirror is reconciled after the
+   * lock is released so the page stops offering Checkout.
    */
   async createCheckoutSession(input: {
     readonly user: AuthUser;
     readonly priceKey: BillingPriceKey;
-    /** Per-user-action identity for the Stripe idempotency key. */
+    /** Correlates the request in logs; Checkout creation itself carries no idempotency key. */
     readonly requestId: string;
   }): Promise<{ readonly checkoutUrl: string }> {
     const { stripe, catalog, config } = this.requireConfigured();
     const price = catalog.resolveKey(input.priceKey);
+    const alreadySubscribed = () =>
+      new BillingError(
+        "You already have a subscription. Manage it from billing settings instead.",
+        {
+          code: "BILLING_ALREADY_SUBSCRIBED",
+          priceKey: input.priceKey,
+          plan: input.user.plan,
+        },
+      );
 
-    const customerId = await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       await lockUserEntitlementScope(tx, input.user.id);
 
       const existing = await tx.billingSubscription.findUnique({
@@ -140,27 +172,62 @@ export class BillingService {
         select: { status: true },
       });
       if (existing && occupiesPaidSlot(existing.status)) {
-        throw new BillingError(
-          "You already have a subscription. Manage it from billing settings instead.",
-          {
-            code: "BILLING_ALREADY_SUBSCRIBED",
-            priceKey: input.priceKey,
-            plan: input.user.plan,
-          },
-        );
+        throw alreadySubscribed();
       }
 
-      return this.resolveCustomerId(tx, input.user, stripe);
-    });
+      const customerId = await this.resolveCustomerId(tx, input.user, stripe);
 
-    const session = await stripe.createCheckoutSession({
-      customerId,
-      userId: input.user.id,
-      priceId: price.priceId,
-      successUrl: config.checkoutSuccessUrl,
-      cancelUrl: config.checkoutCancelUrl,
-      idempotencyKey: `factorsage:checkout:${input.user.id}:${input.priceKey}:${input.requestId}`,
-    });
+      const sweep = await stripe.expireOpenCheckoutSessions(customerId);
+      if (sweep.expired > 0 || sweep.completed > 0) {
+        this.logger.info({
+          event: "billing.checkout.sessions-expired",
+          actorUserId: input.user.id,
+          expired: sweep.expired,
+          completed: sweep.completed,
+        });
+      }
+
+      const live = await stripe.loadCustomerBillingState(customerId);
+      if (
+        sweep.completed > 0 ||
+        live.subscriptions.some((subscription) =>
+          occupiesPaidSlot(toMirroredStatus(subscription.status)),
+        )
+      ) {
+        this.logger.warn({
+          event: "billing.checkout.refused-live-subscription",
+          actorUserId: input.user.id,
+          priceKey: input.priceKey,
+          completedDuringSweep: sweep.completed,
+        });
+        return { kind: "LIVE_SUBSCRIPTION" as const };
+      }
+
+      const session = await stripe.createCheckoutSession({
+        customerId,
+        userId: input.user.id,
+        priceId: price.priceId,
+        successUrl: config.checkoutSuccessUrl,
+        cancelUrl: config.checkoutCancelUrl,
+        expiresAt: new Date(Date.now() + CHECKOUT_SESSION_LIFETIME_MS),
+      });
+      return { kind: "CREATED" as const, session };
+    }, STRIPE_LOCKED_TRANSACTION);
+
+    if (outcome.kind === "LIVE_SUBSCRIPTION") {
+      // The mirror is behind Stripe. Catch it up now rather than waiting for the webhook, so the
+      // page the user returns to shows the subscription instead of offering Checkout again.
+      await this.reconciliation
+        .reconcileUser({ userId: input.user.id, trigger: "CHECKOUT" })
+        .catch((error: unknown) => {
+          this.logger.warn({
+            event: "billing.checkout.reconcile-failed",
+            actorUserId: input.user.id,
+            err: error,
+          });
+        });
+      throw alreadySubscribed();
+    }
 
     this.logger.info({
       event: "billing.checkout.created",
@@ -168,10 +235,12 @@ export class BillingService {
       priceKey: input.priceKey,
       plan: price.plan,
       billingInterval: price.interval,
-      checkoutSessionId: session.id,
+      checkoutSessionId: outcome.session.id,
+      expiresAt: outcome.session.expiresAt.toISOString(),
+      requestId: input.requestId,
     });
 
-    return { checkoutUrl: session.url };
+    return { checkoutUrl: outcome.session.url };
   }
 
   // -------------------------------------------------------------------------
@@ -232,9 +301,14 @@ export class BillingService {
    * that the product rule does not bend to fit the surface. Portal keeps payment methods, invoices
    * and cancellation, where its behaviour *is* what we want.
    *
+   * The Stripe side runs inside the user's advisory lock and is decided from **live** Stripe state:
+   * the current price the transition is classified from, the cancellation the request is refused
+   * over, and the schedule an immediate change must release. Two requests from two tabs therefore
+   * act one after the other, each on what the previous one left, never on the same stale snapshot.
+   *
    * The entitlement consequence of the change is never inferred here. Stripe is asked, and then
-   * reconciliation reads back canonical state and decides — which is why a failed upgrade payment
-   * leaves the response reporting the previous plan.
+   * reconciliation — after the lock is released, under its own — reads back canonical state and
+   * decides, which is why a failed upgrade payment leaves the response reporting the previous plan.
    */
   async changePlan(input: {
     readonly user: AuthUser;
@@ -244,104 +318,132 @@ export class BillingService {
     const { stripe, catalog } = this.requireConfigured();
     const target = catalog.resolveKey(input.priceKey);
 
-    const subscription = await this.prisma.billingSubscription.findUnique({
-      where: { userId: input.user.id },
-    });
+    const change = await this.prisma.$transaction(async (tx) => {
+      await lockUserEntitlementScope(tx, input.user.id);
 
-    if (!subscription || !occupiesPaidSlot(subscription.status)) {
-      throw new BillingError(
-        "You do not have an active subscription to change. Choose a plan to get started.",
-        {
-          code: "BILLING_NO_SUBSCRIPTION",
-          priceKey: input.priceKey,
-          plan: input.user.plan,
-        },
-      );
-    }
-
-    const current = catalog.resolvePriceId(subscription.stripePriceId);
-    if (!current) {
-      // The subscription is on a price this deployment does not recognize. Classifying a transition
-      // from it would be a guess, and a guess here changes what somebody is charged.
-      this.logger.error({
-        event: "billing.change.unknown-current-price",
-        actorUserId: input.user.id,
-        stripeSubscriptionId: subscription.stripeSubscriptionId,
+      const subscription = await tx.billingSubscription.findUnique({
+        where: { userId: input.user.id },
       });
-      throw new BillingError(
-        "Your subscription needs attention from support before it can be changed.",
-        {
-          code: "BILLING_SUBSCRIPTION_CONFLICT",
-          priceKey: input.priceKey,
-          plan: input.user.plan,
-        },
+
+      if (!subscription || !occupiesPaidSlot(subscription.status)) {
+        throw new BillingError(
+          "You do not have an active subscription to change. Choose a plan to get started.",
+          {
+            code: "BILLING_NO_SUBSCRIPTION",
+            priceKey: input.priceKey,
+            plan: input.user.plan,
+          },
+        );
+      }
+
+      // Every decision below acts on **live** Stripe state, not on the mirror.
+      //
+      // The mirror is a projection and can legitimately be a few seconds behind — a renewal that has
+      // just rolled the period, a webhook still in flight, a change another tab made a moment ago.
+      // Each would be wrong in a way that costs money: the transition is classified from the price
+      // the customer is billed now, an immediate change needs the current item id and must see the
+      // schedule it supersedes, and a scheduled change needs the current period end — scheduling a
+      // phase at a boundary that has already passed is rejected by Stripe (or, worse, would apply a
+      // downgrade early and give away a paid period).
+      const { live, pendingPhase } = await this.loadLiveSubscription(
+        tx,
+        input.user.id,
+        subscription.stripeSubscriptionId,
+        input.priceKey,
       );
-    }
 
-    const currentKey = billingPriceKeyFor(current.plan, current.interval);
-    const transition = classifyBillingTransition(currentKey, input.priceKey);
+      const current = catalog.resolvePriceId(live.currentPriceId);
+      if (!current) {
+        // The subscription is on a price this deployment does not recognize. Classifying a transition
+        // from it would be a guess, and a guess here changes what somebody is charged.
+        this.logger.error({
+          event: "billing.change.unknown-current-price",
+          actorUserId: input.user.id,
+          stripeSubscriptionId: live.id,
+        });
+        throw new BillingError(
+          "Your subscription needs attention from support before it can be changed.",
+          {
+            code: "BILLING_SUBSCRIPTION_CONFLICT",
+            priceKey: input.priceKey,
+            plan: input.user.plan,
+          },
+        );
+      }
 
-    if (transition.effect === "UNCHANGED") {
-      throw new BillingError("You are already on that plan.", {
-        code: "BILLING_CHANGE_NOT_ALLOWED",
-        priceKey: input.priceKey,
-        plan: input.user.plan,
-      });
-    }
+      const currentKey = billingPriceKeyFor(current.plan, current.interval);
+      const transition = classifyBillingTransition(currentKey, input.priceKey);
 
-    // A subscription already scheduled to end is not a subscription to move onto another price:
-    // the user has asked to stop paying, and layering a plan change over that produces a state
-    // neither they nor the schedule can express. Reversing the cancellation in Portal comes first.
-    if (subscription.cancelAtPeriodEnd) {
-      throw new BillingError(
-        "Your subscription is scheduled to cancel. Resume it from billing management before changing plan.",
-        {
+      if (transition.effect === "UNCHANGED") {
+        throw new BillingError("You are already on that plan.", {
           code: "BILLING_CHANGE_NOT_ALLOWED",
           priceKey: input.priceKey,
           plan: input.user.plan,
-        },
-      );
-    }
-
-    this.logger.info({
-      event: "billing.change.requested",
-      actorUserId: input.user.id,
-      from: currentKey,
-      to: input.priceKey,
-      kind: transition.kind,
-      effect: transition.effect,
-    });
-
-    // Both branches act on **live** Stripe state, not on the mirror.
-    //
-    // The mirror is a projection and can legitimately be a few seconds behind — a renewal that has
-    // just rolled the period, a webhook still in flight. Either branch would then be wrong in a way
-    // that costs money: an immediate change needs the current item id, and a scheduled change needs
-    // the current period end, and scheduling a phase at a boundary that has already passed is
-    // rejected by Stripe (or, worse, would apply a downgrade early and give away a paid period).
-    const live = await this.loadLiveSubscription(
-      input.user.id,
-      subscription.stripeSubscriptionId,
-      input.priceKey,
-    );
-
-    let scheduledFor: Date | null = null;
-
-    if (transition.effect === "IMMEDIATE") {
-      if (!live.itemId) {
-        throw new BillingError("Your subscription could not be loaded.", {
-          code: "BILLING_SUBSCRIPTION_CONFLICT",
-          priceKey: input.priceKey,
         });
       }
 
-      await stripe.updateSubscriptionPriceImmediately({
-        subscriptionId: live.id,
-        itemId: live.itemId,
-        priceId: target.priceId,
-        idempotencyKey: `factorsage:sub-update:${live.id}:${current.priceId}:${target.priceId}`,
+      // A subscription already scheduled to end is not a subscription to move onto another price:
+      // the user has asked to stop paying, and layering a plan change over that produces a state
+      // neither they nor the schedule can express. Reversing the cancellation in Portal comes first.
+      if (live.cancelAtPeriodEnd) {
+        throw new BillingError(
+          "Your subscription is scheduled to cancel. Resume it from billing management before changing plan.",
+          {
+            code: "BILLING_CHANGE_NOT_ALLOWED",
+            priceKey: input.priceKey,
+            plan: input.user.plan,
+          },
+        );
+      }
+
+      this.logger.info({
+        event: "billing.change.requested",
+        actorUserId: input.user.id,
+        from: currentKey,
+        to: input.priceKey,
+        kind: transition.kind,
+        effect: transition.effect,
       });
-    } else {
+
+      if (transition.effect === "IMMEDIATE") {
+        if (!live.itemId) {
+          throw new BillingError("Your subscription could not be loaded.", {
+            code: "BILLING_SUBSCRIPTION_CONFLICT",
+            priceKey: input.priceKey,
+          });
+        }
+
+        // An immediate change **supersedes** a scheduled one, so the schedule is released first
+        // (BILL-01). Left attached, Stripe applies the price update *and* keeps the schedule's next
+        // phase: a customer who scheduled Pro → Starter and then bought a year of Pro was charged for
+        // the year and moved to Starter at the old monthly boundary, with no credit. Releasing
+        // before the update — never after — is what makes the outcome safe whichever way the update
+        // goes: paid, the subscription is on the new price with nothing left to undo it; unpaid
+        // (`pending_if_incomplete` holds the update), it stays on the price already paid for with
+        // nothing pending, and the customer may schedule a change again. A release that fails stops
+        // the request before anything is billed.
+        if (live.scheduleId) {
+          await stripe.releaseSubscriptionSchedule(live.scheduleId);
+          this.logger.info({
+            event: "billing.change.pending-change-released",
+            actorUserId: input.user.id,
+            from: currentKey,
+            to: input.priceKey,
+            supersededPendingPrice: pendingPhase
+              ? describePrice(catalog, pendingPhase.priceId)
+              : null,
+          });
+        }
+
+        await stripe.updateSubscriptionPriceImmediately({
+          subscriptionId: live.id,
+          itemId: live.itemId,
+          priceId: target.priceId,
+          idempotencyKey: `factorsage:sub-update:${live.id}:${current.priceId}:${target.priceId}`,
+        });
+        return { currentKey, transition, scheduledFor: null };
+      }
+
       const effectiveAt = live.currentPeriodEnd;
       if (!effectiveAt) {
         // Without a period end there is no boundary to schedule at. Refusing is correct: applying
@@ -364,10 +466,14 @@ export class BillingService {
         subscriptionId: live.id,
         priceId: target.priceId,
         effectiveAt,
-        idempotencyKey: `factorsage:sub-schedule:${live.id}:${target.priceId}:${Math.floor(effectiveAt.getTime() / 1000)}`,
+        idempotencyKey: `factorsage:sub-schedule:${live.id}:${target.priceId}:${Math.floor(effectiveAt.getTime() / 1000)}:${input.requestId}`,
       });
-      scheduledFor = scheduled.effectiveAt;
-    }
+      return {
+        currentKey,
+        transition,
+        scheduledFor: scheduled.effectiveAt as Date | null,
+      };
+    }, STRIPE_LOCKED_TRANSACTION);
 
     // Stripe has moved. Read canonical state back and let the one plan decision run.
     const result = await this.reconciliation.reconcileUser({
@@ -378,18 +484,18 @@ export class BillingService {
     this.logger.info({
       event: "billing.change.completed",
       actorUserId: input.user.id,
-      from: currentKey,
+      from: change.currentKey,
       to: input.priceKey,
-      kind: transition.kind,
-      effect: transition.effect,
+      kind: change.transition.kind,
+      effect: change.transition.effect,
       plan: result.plan,
       planChanged: result.planChanged,
     });
 
     return {
-      effect: transition.effect,
-      kind: transition.kind,
-      effectiveAt: scheduledFor?.toISOString() ?? null,
+      effect: change.transition.effect,
+      kind: change.transition.kind,
+      effectiveAt: change.scheduledFor?.toISOString() ?? null,
       plan: result.plan,
     };
   }
@@ -458,21 +564,29 @@ export class BillingService {
   }
 
   /**
-   * The caller's canonical subscription as Stripe currently holds it.
+   * The caller's canonical subscription as Stripe currently holds it, with its next scheduled phase.
    *
    * Reads through the customer, not by subscription id directly, so a mirrored subscription that
    * belongs to a *different* customer — the shape a restore or a manual edit can leave — is not
    * found and cannot be modified on this user's behalf.
    */
   private async loadLiveSubscription(
+    tx: Parameters<Parameters<PrismaService["$transaction"]>[0]>[0],
     userId: string,
     stripeSubscriptionId: string,
     priceKey: BillingPriceKey,
   ) {
     const { stripe } = this.requireConfigured();
-    const state = await stripe.loadCustomerBillingState(
-      await this.requireCustomerId(userId),
-    );
+    const account = await tx.user.findUnique({
+      where: { id: userId },
+      select: { stripeCustomerId: true },
+    });
+    if (!account?.stripeCustomerId) {
+      throw new BillingError("There is nothing to manage yet.", {
+        code: "BILLING_NO_SUBSCRIPTION",
+      });
+    }
+    const state = await stripe.loadCustomerBillingState(account.stripeCustomerId);
     const live = state.subscriptions.find(
       (candidate) => candidate.id === stripeSubscriptionId,
     );
@@ -487,20 +601,7 @@ export class BillingService {
         priceKey,
       });
     }
-    return live;
-  }
-
-  private async requireCustomerId(userId: string): Promise<string> {
-    const account = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true },
-    });
-    if (!account?.stripeCustomerId) {
-      throw new BillingError("There is nothing to manage yet.", {
-        code: "BILLING_NO_SUBSCRIPTION",
-      });
-    }
-    return account.stripeCustomerId;
+    return { live, pendingPhase: state.scheduledPhases[live.id] ?? null };
   }
 
   private requireConfigured(): {
@@ -520,6 +621,12 @@ export class BillingService {
       config: this.config,
     };
   }
+}
+
+/** A configured price as its logical key for logs, or a marker for one outside the catalog. */
+function describePrice(catalog: BillingCatalog, priceId: string): string {
+  const price = catalog.resolvePriceId(priceId);
+  return price ? billingPriceKeyFor(price.plan, price.interval) : "UNKNOWN_PRICE";
 }
 
 /** The mirror row, projected onto the UI-safe view. No Stripe ids cross this boundary. */

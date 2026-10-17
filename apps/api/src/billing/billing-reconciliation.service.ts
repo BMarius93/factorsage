@@ -91,7 +91,9 @@ export type ReconciliationTrigger =
   /** Immediately after this server asked Stripe to change something. */
   | "PLAN_CHANGE"
   /** The browser came back from a hosted Stripe surface and asked for fresh status. */
-  | "RETURN";
+  | "RETURN"
+  /** A Checkout request found a live subscription at Stripe that the mirror did not show yet. */
+  | "CHECKOUT";
 
 /** A webhook's identity, recorded in the same transaction as the change it authorizes. */
 export type WebhookEventRecord = {

@@ -97,7 +97,16 @@ describe("billing", () => {
       .useValue(new BillingCatalog(BILLING_CONFIG))
       .overrideProvider(STRIPE_GATEWAY)
       .useFactory({
-        factory: () => new FakeStripeGateway({ webhookSecret: WEBHOOK_SECRET }),
+        factory: () =>
+          new FakeStripeGateway({
+            webhookSecret: WEBHOOK_SECRET,
+            intervalOf: (priceId) => {
+              const key = (Object.keys(PRICE_IDS) as BillingPriceKey[]).find(
+                (candidate) => PRICE_IDS[candidate] === priceId,
+              );
+              return key ? BILLING_CATALOG[key].interval : null;
+            },
+          }),
       })
       .compile();
 
@@ -137,6 +146,9 @@ describe("billing", () => {
     stripe.idempotencyKeys.length = 0;
     stripe.callCounts.clear();
     stripe.failNextImmediateChange = false;
+    stripe.failNextScheduleRelease = false;
+    stripe.completeDuringNextSweep = null;
+    stripe.loadLatencyMs = 0;
 
     agent = request.agent(app.getHttpServer());
     await agent
@@ -350,22 +362,126 @@ describe("billing", () => {
       await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
     });
 
-    it("derives the checkout idempotency key from the user, price and request", async () => {
+    it("keeps the customer's idempotency key stable forever and gives Checkout none to replay", async () => {
       await agent
         .post("/billing/checkout")
         .set("x-request-id", "req-fixed-1")
         .send({ priceKey: "PRO_MONTHLY" })
         .expect(201);
-      const key = stripe.idempotencyKeys.find(
-        (entry) => entry.operation === "createCheckoutSession",
-      )?.key;
-      expect(key).toBe(`factorsage:checkout:${userId}:PRO_MONTHLY:req-fixed-1`);
-
       const customerKey = stripe.idempotencyKeys.find(
         (entry) => entry.operation === "createCustomer",
       )?.key;
       // Stable forever, so no retry can ever produce a second canonical customer.
       expect(customerKey).toBe(`factorsage:customer:${userId}`);
+
+      // A replayed Checkout key would hand back a session the sweep below had just expired (BILL-02),
+      // so creation carries none; the SDK still keys the POST for its own network retries.
+      expect(
+        stripe.idempotencyKeys.filter(
+          (entry) => entry.operation === "createCheckoutSession",
+        ),
+      ).toEqual([]);
+      expect(stripe.callCounts.get("createCheckoutSession")).toBe(1);
+    });
+
+    it("gives a session a short life rather than Stripe's default day", async () => {
+      const before = Date.now();
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      const expiresAt = stripe.checkoutSessions[0]!.expiresAt.getTime();
+      // Stripe's floor is 30 minutes after creation; anything near a day is the default it replaced.
+      expect(expiresAt - before).toBeGreaterThanOrEqual(30 * 60_000);
+      expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // One payable Checkout per customer (BILL-02)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Pre-release audit 2026-10-16, finding BILL-02 (`docs/audits/pre-release-audit-2026-10-16.md`):
+   * two Checkout tabs opened before either was paid were both payable in the Stripe sandbox, and
+   * each payment created its own live PRO subscription — two charges, renewing monthly. The guard
+   * read only the mirror, which learns of a payment one webhook later.
+   */
+  describe("one payable Checkout per customer", () => {
+    it("expires the first tab's session when a second is opened, so only one can be paid", async () => {
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+
+      const [first, second] = stripe.checkoutSessions;
+      expect(first?.status).toBe("expired");
+      expect(second?.status).toBe("open");
+      // The first tab is still on screen; paying it is refused by Stripe itself.
+      expect(() => stripe.completeCheckoutSession(first!.id)).toThrow(/not payable/);
+
+      const paid = stripe.completeCheckoutSession(second!.id);
+      await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+      expect(await planOf()).toBe("PRO");
+      expect(
+        [...stripe.subscriptions.values()].filter(
+          (subscription) => subscription.status === "active",
+        ),
+      ).toEqual([expect.objectContaining({ id: paid.id })]);
+    });
+
+    it("leaves exactly one session payable when several requests arrive at once", async () => {
+      stripe.loadLatencyMs = 25;
+      const responses = await Promise.all(
+        (["STARTER_MONTHLY", "PRO_MONTHLY", "PRO_YEARLY"] as const).map((priceKey) =>
+          agent.post("/billing/checkout").send({ priceKey }),
+        ),
+      );
+      expect(responses.map((response) => response.status)).toEqual([201, 201, 201]);
+      expect(stripe.checkoutSessions).toHaveLength(3);
+      expect(
+        stripe.checkoutSessions.filter((session) => session.status === "open"),
+      ).toHaveLength(1);
+      expect(
+        [...stripe.customers.values()].filter((customer) => customer.userId === userId),
+      ).toHaveLength(1);
+    });
+
+    it("refuses a session when Stripe holds a subscription the mirror has not seen, and catches the mirror up", async () => {
+      // The first tab was paid a moment ago and its webhook has not arrived: the mirror is empty.
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      stripe.completeCheckoutSession(stripe.checkoutSessions[0]!.id);
+      expect(
+        await prisma.billingSubscription.findUnique({ where: { userId } }),
+      ).toBeNull();
+
+      const response = await agent
+        .post("/billing/checkout")
+        .send({ priceKey: "PRO_MONTHLY" })
+        .expect(409);
+      expect(response.body.code).toBe("BILLING_ALREADY_SUBSCRIBED");
+      expect(stripe.checkoutSessions).toHaveLength(1);
+      // The refusal reconciled: the page now shows the subscription instead of offering Checkout.
+      expect(await planOf()).toBe("PRO");
+      expect((await status()).canStartCheckout).toBe(false);
+    });
+
+    it("refuses a session when the open one is paid while it is being expired", async () => {
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      stripe.completeDuringNextSweep = stripe.checkoutSessions[0]!.id;
+
+      const response = await agent
+        .post("/billing/checkout")
+        .send({ priceKey: "PRO_MONTHLY" })
+        .expect(409);
+      expect(response.body.code).toBe("BILLING_ALREADY_SUBSCRIBED");
+      expect(stripe.checkoutSessions).toHaveLength(1);
+      expect(stripe.checkoutSessions[0]?.status).toBe("complete");
+      expect(await planOf()).toBe("PRO");
+    });
+
+    it("still lets a customer whose previous subscription ended start again", async () => {
+      const { subscriptionId } = await givenSubscribed("STARTER_MONTHLY");
+      stripe.endSubscription(subscriptionId);
+      await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      expect(stripe.checkoutSessions.at(-1)?.status).toBe("open");
     });
   });
 
@@ -654,22 +770,37 @@ describe("billing", () => {
      * Pre-release audit 2026-10-16, finding BILL-01 (`docs/audits/pre-release-audit-2026-10-16.md`),
      * reproduced in the Stripe sandbox (`billing-lifecycle.sandbox.test.ts`): the user paid $270 for
      * PRO_YEARLY, the downgrade's schedule stayed attached, and at the old monthly boundary Stripe
-     * moved the subscription to STARTER_MONTHLY with no credit. This fake keeps the schedule across
-     * an immediate update exactly as Stripe does. Marked `it.fails` while the IMMEDIATE branch leaves
-     * the schedule attached; it turns red once the abandoned downgrade can no longer apply.
+     * moved the subscription to STARTER_MONTHLY with no credit. The fake keeps a schedule across an
+     * immediate update exactly as Stripe does, so only the release before the update stops it.
      */
-    it.fails("KNOWN DEFECT BILL-01: an immediate upgrade abandons a scheduled downgrade", async () => {
+    it("an immediate upgrade releases a scheduled downgrade, so it can never apply (BILL-01)", async () => {
       const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      const monthlyEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
       await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      expect(stripe.subscriptions.get(subscriptionId)?.scheduledPhase).not.toBeNull();
+
       const upgrade = await agent
         .post("/billing/change")
         .send({ priceKey: "PRO_YEARLY" })
         .expect(201);
-      expect(upgrade.body.effect).toBe("IMMEDIATE");
+      expect(upgrade.body).toMatchObject({
+        effect: "IMMEDIATE",
+        kind: "CADENCE_LENGTHENED",
+        plan: "PRO",
+      });
 
-      // The boundary of the abandoned downgrade arrives.
-      stripe.applyScheduledPhase(subscriptionId);
-      await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+      // Released at Stripe, before the update: nothing is left to move the customer at the old
+      // monthly boundary, and the year they paid for runs from now.
+      const live = stripe.subscriptions.get(subscriptionId)!;
+      expect(live).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_YEARLY,
+        scheduleId: null,
+        scheduledPhase: null,
+      });
+      expect(live.currentPeriodEnd.getTime()).toBeGreaterThan(
+        monthlyEnd.getTime() + 300 * 86_400_000,
+      );
+      expect(stripe.callCounts.get("releaseSubscriptionSchedule")).toBe(1);
 
       const mirror = await prisma.billingSubscription.findUniqueOrThrow({
         where: { userId },
@@ -678,7 +809,149 @@ describe("billing", () => {
         plan: await planOf(),
         interval: mirror.billingInterval,
         pendingPlan: mirror.pendingPlan,
-      }).toEqual({ plan: "PRO", interval: "YEAR", pendingPlan: null });
+        pendingEffectiveAt: mirror.pendingEffectiveAt,
+        stripeScheduleId: mirror.stripeScheduleId,
+      }).toEqual({
+        plan: "PRO",
+        interval: "YEAR",
+        pendingPlan: null,
+        pendingEffectiveAt: null,
+        stripeScheduleId: null,
+      });
+      expect((await status()).subscription?.pendingChange).toBeNull();
+    });
+
+    it("an immediate tier upgrade from yearly releases a scheduled cadence change too", async () => {
+      // Starter yearly → (scheduled) Starter monthly, then Pro monthly: the other path into BILL-01.
+      const { subscriptionId } = await givenSubscribed("STARTER_YEARLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      expect((await status()).subscription?.pendingChange).toMatchObject({
+        plan: "STARTER",
+        interval: "MONTH",
+      });
+
+      await agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_MONTHLY,
+        scheduleId: null,
+        scheduledPhase: null,
+      });
+      expect(await planOf()).toBe("PRO");
+      expect((await status()).subscription?.pendingChange).toBeNull();
+    });
+
+    it("an upgrade whose payment fails grants nothing, and the downgrade it superseded stays released", async () => {
+      const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      stripe.failNextImmediateChange = true;
+
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_YEARLY" })
+        .expect(201);
+      expect(response.body.plan).toBe("PRO");
+
+      // Stripe holds the unpaid update; the customer stays on the monthly price already paid for,
+      // with no pending change — the newer request superseded the older one either way.
+      const live = stripe.subscriptions.get(subscriptionId)!;
+      expect(live).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_MONTHLY,
+        pendingPriceId: PRICE_IDS.PRO_YEARLY,
+        scheduleId: null,
+      });
+      const mirror = await prisma.billingSubscription.findUniqueOrThrow({
+        where: { userId },
+      });
+      expect(mirror).toMatchObject({
+        billingInterval: "MONTH",
+        pendingPlan: null,
+        stripeScheduleId: null,
+      });
+
+      // Once the held update is paid, the year arrives.
+      stripe.applyPendingUpdate(subscriptionId);
+      await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+      expect(
+        (await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } }))
+          .billingInterval,
+      ).toBe("YEAR");
+    });
+
+    it("bills nothing when the superseded schedule cannot be released", async () => {
+      const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      stripe.failNextScheduleRelease = true;
+
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_YEARLY" });
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      expect(stripe.callCounts.get("updateSubscriptionPriceImmediately") ?? 0).toBe(0);
+      // Exactly as before the request: still monthly, the downgrade still scheduled.
+      expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_MONTHLY,
+        scheduledPhase: expect.objectContaining({ priceId: PRICE_IDS.STARTER_MONTHLY }),
+      });
+      expect((await status()).subscription?.pendingChange).toMatchObject({
+        plan: "STARTER",
+      });
+    });
+
+    it("can schedule the same change again after an upgrade released it", async () => {
+      // Starter yearly keeps its period end through a same-interval upgrade, so asking for the same
+      // downgrade again names the same subscription, price and boundary. A creation key derived from
+      // those alone would make Stripe hand back the schedule the upgrade just released.
+      const { subscriptionId } = await givenSubscribed("STARTER_YEARLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      await agent.post("/billing/change").send({ priceKey: "PRO_YEARLY" }).expect(201);
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+
+      const keys = stripe.idempotencyKeys
+        .filter((entry) => entry.operation === "scheduleSubscriptionPriceChange")
+        .map((entry) => entry.key);
+      expect(keys).toHaveLength(2);
+      expect(new Set(keys).size).toBe(2);
+      expect(stripe.subscriptions.get(subscriptionId)?.scheduledPhase).toMatchObject({
+        priceId: PRICE_IDS.STARTER_MONTHLY,
+      });
+    });
+
+    it("applies two simultaneous changes one after the other, each on live state", async () => {
+      // Without serialization both requests read the same live snapshot: the upgrade finds no
+      // schedule to release, the downgrade schedules itself at the old monthly boundary, and the
+      // customer is back in BILL-01's state — a paid year with Starter scheduled a month out.
+      const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      stripe.loadLatencyMs = 25;
+
+      const [downgrade, upgrade] = await Promise.all([
+        agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }),
+        agent.post("/billing/change").send({ priceKey: "PRO_YEARLY" }),
+      ]);
+      expect([downgrade.status, upgrade.status]).toEqual([201, 201]);
+
+      const live = stripe.subscriptions.get(subscriptionId)!;
+      expect(live.currentPriceId).toBe(PRICE_IDS.PRO_YEARLY);
+      // Whichever ran second saw the first: either nothing is pending, or the downgrade waits for
+      // the end of the year that was paid for — never for the abandoned monthly boundary.
+      if (live.scheduledPhase) {
+        expect(live.scheduledPhase.startsAt?.getTime()).toBe(
+          live.currentPeriodEnd.getTime(),
+        );
+      }
+      expect(await planOf()).toBe("PRO");
+    });
+
+    it("refuses the second of two identical upgrades instead of billing it again", async () => {
+      await givenSubscribed("STARTER_MONTHLY");
+      stripe.loadLatencyMs = 25;
+
+      const responses = await Promise.all([
+        agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }),
+        agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }),
+      ]);
+      expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+      expect(stripe.callCounts.get("updateSubscriptionPriceImmediately")).toBe(1);
+      expect(await planOf()).toBe("PRO");
     });
 
     it("refuses a change to the price already held", async () => {

@@ -14,6 +14,7 @@ import {
 } from "./stripe-fixture-gateway";
 import { hasScheduledCancellation } from "./stripe-gateway";
 import type {
+  CheckoutSessionSweep,
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
@@ -191,8 +192,11 @@ export class StripeApiGateway implements StripeGateway {
           subscription_data: {
             metadata: { factorsageUserId: input.userId },
           },
+          // A session left open in a forgotten tab must not stay payable for Stripe's default day.
+          expires_at: Math.floor(input.expiresAt.getTime() / 1000),
         },
-        { idempotencyKey: input.idempotencyKey },
+        // No idempotency key — see `CreateCheckoutSessionInput`. The SDK still keys this POST for
+        // its own retries.
       ),
     );
 
@@ -206,7 +210,63 @@ export class StripeApiGateway implements StripeGateway {
       });
     }
 
-    return { id: session.id, url: session.url };
+    return {
+      id: session.id,
+      url: session.url,
+      expiresAt: new Date(session.expires_at * 1000),
+    };
+  }
+
+  /**
+   * Lists the customer's open sessions and expires each one.
+   *
+   * A session can be paid between the list and its expiry. Stripe then refuses the expiry, and the
+   * session is read back: `complete` is counted rather than treated as a failure, because it is
+   * exactly the purchase the caller has to know about; one that expired on its own meanwhile is
+   * simply done. Anything else is a real failure.
+   */
+  async expireOpenCheckoutSessions(
+    customerId: string,
+  ): Promise<CheckoutSessionSweep> {
+    const open = await this.call("checkout.sessions.list", async () => {
+      const ids: string[] = [];
+      for await (const session of this.stripe.checkout.sessions.list({
+        customer: customerId,
+        status: "open",
+        limit: 100,
+      })) {
+        ids.push(session.id);
+      }
+      return ids;
+    });
+
+    let expired = 0;
+    let completed = 0;
+    for (const sessionId of open) {
+      try {
+        await this.stripe.checkout.sessions.expire(sessionId);
+        expired += 1;
+      } catch (error: unknown) {
+        const session = await this.call("checkout.sessions.retrieve", () =>
+          this.stripe.checkout.sessions.retrieve(sessionId),
+        );
+        if (session.status === "complete") {
+          completed += 1;
+          continue;
+        }
+        if (session.status === "expired") {
+          continue;
+        }
+        throw this.translate("checkout.sessions.expire", error);
+      }
+    }
+
+    this.logger.debug({
+      event: "billing.stripe.checkout.sessions-expired",
+      expired,
+      completed,
+    });
+    return { expired, completed };
   }
 
   async createPortalSession(
