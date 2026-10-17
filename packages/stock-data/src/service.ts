@@ -1229,7 +1229,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   private async readValuationTimeline(
     security: Security,
   ): Promise<ValuationTimeline> {
-    const retention = this.fundamentalsTarget();
+    const retention = this.fundamentalsTarget(security);
     const [revisions, basis, events, splits, ipoDate, earliestPriceDate] =
       await Promise.all([
         // Standalone quarters only: no ratio reads an annual row.
@@ -1498,8 +1498,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * history. No longer clamped to the provider's IPO date (DATA-02): a security has no frame rows
    * before its first bar anyway, and a wrong IPO date must not hide the ones it has.
    */
-  evaluationHistoryStart(_security: Security): LocalDate {
-    return this.productTarget().from;
+  evaluationHistoryStart(security: Security): LocalDate {
+    return this.productTarget(security).from;
   }
 
   /** Catalog rows for a set of internal ids. One read for a whole Monitor evaluation's universe. */
@@ -2049,7 +2049,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     security: Security,
     query: DateRange & { asOf?: string },
   ): Required<DateRange> | null {
-    const target = this.productTarget();
+    const target = this.productTarget(security);
     const to = minOptionalDate(
       minOptionalDate(query.to, query.asOf) ?? target.to,
       target.to,
@@ -2122,7 +2122,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
 
     await this.publishAllFundamentalsYears(
       security.id,
-      this.fundamentalsTarget(),
+      this.fundamentalsTarget(security),
       hydrating,
       lease,
     );
@@ -2263,7 +2263,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     // needs every revision's own availableFromDate as a distinct evaluation event. The same read
     // feeds both statement-derived families; nothing below reads statements per metric or per day.
     // A revision from before the listing is read only on a real filing date (DATA-03).
-    const retention = this.fundamentalsTarget();
+    const retention = this.fundamentalsTarget(security);
     const statements = statementsWithEvidencedAvailability(
       await this.store.getFinancialStatementRevisions({
         securityId: security.id,
@@ -3019,7 +3019,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     // Retention, not visibility: statements from the warm-up years are persisted so the first
     // visible trading day already has TTM and growth context. Rows older than the retention bound
     // are still discarded.
-    const retention = this.fundamentalsTarget();
+    const retention = this.fundamentalsTarget(input.security);
     const statements = loaded
       .filter((statement) => statement.fiscalDate >= retention.from)
       .filter((statement) => statement.fiscalDate <= retention.to);
@@ -3125,7 +3125,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     security: Security,
     query: FinancialStatementQuery,
   ): FinancialStatementQuery {
-    const target = this.productTarget();
+    const target = this.productTarget(security);
     const from = query.from ? maxDate(query.from, target.from) : target.from;
     const to = query.to ? minDate(query.to, target.to) : target.to;
     return {
@@ -3353,10 +3353,6 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * start. There is no surface down there to scope it to, and one canonical prefix is what makes
    * the second deep caller free: every request that reaches past the product boundary converges on
    * the same range, so it is fetched once, covered once, and never re-requested in ragged slices.
-   * A request that reaches the provider's IPO date snaps the same way: nothing is stored before a
-   * genuine listing, so every caller asking for a recent IPO's whole history converges on one range
-   * too. The IPO date is only that hint here — the snap goes to the retention start, so a wrong IPO
-   * date never cuts the read (DATA-02).
    *
    * The upper bound stays today because a resident stock is only usable while its tail is current:
    * freshness, the recent-tail refresh and the manifest all key off it, and nothing is saved by
@@ -3366,17 +3362,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     security: Security,
     requested: Required<DateRange>,
   ): Required<DateRange> {
-    const product = this.productTarget();
-    const retention = this.priceRetentionTarget();
+    const product = this.productTarget(security);
+    const retention = this.priceRetentionTarget(security);
     const warmed = minDate(
       addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS),
       product.to,
     );
-    const deep = security.ipoDate
-      ? maxDate(product.from, security.ipoDate)
-      : product.from;
     return {
-      from: warmed <= deep ? retention.from : warmed,
+      from: warmed <= product.from ? retention.from : warmed,
       to: retention.to,
     };
   }
@@ -3474,7 +3467,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * {@link priceRetentionTarget} — but those rows exist to make a calculation valid on the first
    * visible day, and no product surface may return one.
    */
-  private productTarget(): Required<DateRange> {
+  private productTarget(_security: Security): Required<DateRange> {
     return this.horizonTarget(this.productHistoryYears);
   }
 
@@ -3493,7 +3486,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * invented there — while a wrong IPO date no longer removes years of real bars (`HON`, dated
    * 2001-02-21, whose bars FMP serves from 1996).
    */
-  private priceRetentionTarget(): Required<DateRange> {
+  private priceRetentionTarget(_security: Security): Required<DateRange> {
     return this.horizonTarget(this.priceRetentionYears);
   }
 
@@ -3524,7 +3517,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * Only statement backfill, publication and the rebuild's revision read use this range, and no
    * derived row is ever produced for a warm-up year.
    */
-  private fundamentalsTarget(): Required<DateRange> {
+  private fundamentalsTarget(_security: Security): Required<DateRange> {
     return this.horizonTarget(
       this.productHistoryYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS,
     );
@@ -3582,14 +3575,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * happened to hold decided whether it did (BT-04).
    */
   private projectionRange(
-    _security: Security,
+    security: Security,
     requested: Required<DateRange>,
     bound: "PRODUCT" | "BACKTEST" = "PRODUCT",
   ): Required<DateRange> | null {
     if (bound === "BACKTEST") {
       return requested.from <= requested.to ? requested : null;
     }
-    const target = this.productTarget();
+    const target = this.productTarget(security);
     const from = maxDate(requested.from, target.from);
     const to = minDate(requested.to, target.to);
     return from <= to ? { from, to } : null;
