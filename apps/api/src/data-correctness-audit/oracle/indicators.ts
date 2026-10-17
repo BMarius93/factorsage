@@ -12,9 +12,11 @@
  *   means of the first n gains and losses; afterwards avg = (avg (n-1) + current) / n;
  *   RSI = 100 g / (g + l), and 50 when both averages are zero.
  * - Weekly bars aggregate ISO weeks (Monday start); a week's close is its last observed close and it
- *   becomes effective on that last trading day's row. The week containing the as-of date is still
- *   in progress and excluded. Weekly averages are computed over weekly closes and carried forward
- *   onto every daily row until a newer completed week replaces them.
+ *   becomes effective on that last trading day's row. A week completes at the finalized close of its
+ *   last scheduled session (`docs/decisions/monitor-eod-v2.md` §9): the week containing the as-of
+ *   date is complete when the as-of date is its Friday, and still in progress, so excluded,
+ *   otherwise. Weekly averages are computed over weekly closes and carried forward onto every daily
+ *   row until a newer completed week replaces them.
  */
 
 export type Series = (number | null)[];
@@ -98,11 +100,28 @@ export function isoWeekStart(date: string): string {
 export type WeeklyBar = { weekStart: string; lastDate: string; close: number };
 
 /**
+ * Whether the as-of session completes its own ISO week (`monitor-eod-v2.md` §9).
+ *
+ * The as-of date is a finalized session, so a Friday is always its week's last scheduled session.
+ * A short week whose last scheduled session falls earlier (Thursday before Good Friday) completes
+ * on that Thursday in the product. This oracle has no venue schedule, so it treats such a week as
+ * still in progress: an audit dated on such a Thursday sees that week's weekly values differ, and
+ * the reason is this line, not the product.
+ */
+export function asOfCompletesItsWeek(asOf: string): boolean {
+  return (
+    new Date(
+      Date.UTC(+asOf.slice(0, 4), +asOf.slice(5, 7) - 1, +asOf.slice(8, 10)),
+    ).getUTCDay() === 5
+  );
+}
+
+/**
  * Completed ISO weeks from ascending daily rows.
  *
- * `asOf` excludes its own (in-progress) week. `dropFirstWeek` removes a first week that the stored
- * history truncates rather than a genuine listing week (see the audit report for why this is a
- * parameter rather than a derived fact).
+ * `asOf` excludes its own week while that week is in progress (`asOfCompletesItsWeek`).
+ * `dropFirstWeek` removes a first week that the stored history truncates rather than a genuine
+ * listing week (see the audit report for why this is a parameter rather than a derived fact).
  */
 export function weeklyBars(
   rows: readonly { date: string; close: number }[],
@@ -110,10 +129,15 @@ export function weeklyBars(
   dropFirstWeek: string | null,
 ): WeeklyBar[] {
   const current = isoWeekStart(asOf);
+  const includesCurrent = asOfCompletesItsWeek(asOf);
   const bars: WeeklyBar[] = [];
   for (const row of rows) {
     const week = isoWeekStart(row.date);
-    if (week >= current || week === dropFirstWeek) {
+    if (
+      week > current ||
+      (week === current && !includesCurrent) ||
+      week === dropFirstWeek
+    ) {
       continue;
     }
     const last = bars[bars.length - 1];

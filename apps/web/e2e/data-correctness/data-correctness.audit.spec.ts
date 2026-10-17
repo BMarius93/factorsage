@@ -671,6 +671,13 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await expect(page.getByTestId("dashboard-page")).toBeVisible();
+  // The page shell renders before the feed's own request answers: wait for the feed itself (rows or
+  // its empty state), or the loop below reads a feed that has not loaded yet.
+  await expect(
+    page
+      .getByTestId("dashboard-activity")
+      .or(page.getByTestId("dashboard-activity-empty")),
+  ).toBeVisible();
   for (;;) {
     const older = page.getByRole("button", { name: "Show older activity" });
     if ((await older.count()) === 0) {
