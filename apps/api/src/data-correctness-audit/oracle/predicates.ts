@@ -76,7 +76,10 @@ export function compare(
     if (value === 0) {
       return "NOT_EVALUABLE";
     }
-    return Math.abs(metric - value) / Math.abs(value) <= CLOSE_TO_TOLERANCE
+    // Inclusive, and decided as decimals: a pair exactly 2% apart is inside whatever its binary
+    // rounding (PRED-01). The slack is a millionth of a millionth of the allowed distance.
+    const allowed = CLOSE_TO_TOLERANCE * Math.abs(value);
+    return Math.abs(metric - value) - allowed <= allowed * 1e-12
       ? "TRUE"
       : "FALSE";
   }

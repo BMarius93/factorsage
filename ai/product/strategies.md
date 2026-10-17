@@ -175,6 +175,10 @@ Conceptually, for compatible numeric values:
 abs(metric - value) / abs(value) <= 0.02
 ```
 
+The boundary is inclusive: a value exactly 2% away is close. It is decided on the decimal values
+the operands represent, never on their binary approximations, so 30.6 against 30 and 102 against
+100 answer alike (PRED-01, `signal-evaluation@2`).
+
 If the comparison value is unavailable or cannot be used safely for the calculation, the predicate
 is `NOT_EVALUABLE`, never an invented zero or fallback.
 

@@ -180,10 +180,15 @@ function conditionTest(
     case "IS_BELOW":
       return (metric, value) => metric < value;
     case "IS_CLOSE_TO":
-      // `abs(metric - value) / abs(value) <= 0.02`; an unusable divisor is NOT_EVALUABLE.
-      return (metric, value) =>
-        value !== 0 &&
-        Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE;
+      // `abs(metric - value) / abs(value) <= 0.02`, inclusive and decided as decimals (PRED-01); an
+      // unusable divisor is NOT_EVALUABLE.
+      return (metric, value) => {
+        if (value === 0) {
+          return false;
+        }
+        const allowed = IS_CLOSE_TO_TOLERANCE * Math.abs(value);
+        return Math.abs(metric - value) - allowed <= allowed * 1e-12;
+      };
     default:
       throw new Error(`Unsupported condition operator: ${String(operator)}`);
   }

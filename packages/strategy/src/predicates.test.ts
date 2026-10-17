@@ -33,18 +33,36 @@ describe("condition operators", () => {
     expect(evaluateConditionValues("IS_CLOSE_TO", 0, 0)).toBe(NOT_EVALUABLE);
   });
 
-  // Pre-release audit 2026-10-16, finding PRED-01: the 2% boundary is decided on a binary ratio, so
-  // a value exactly 2% away reads inside for 102/100 but outside for 30.6/30 and 1.02/1, whose
-  // decimal ratios are exactly 0.02 too. Written as the documented rule ("within 2%, inclusive");
-  // fails on `bebf3dc7` and flips red once the comparison is exact.
-  it.fails(
-    "KNOWN DEFECT PRED-01: decides `is close to` at exactly 2% the same way for every decimal pair",
-    () => {
-      expect(evaluateConditionValues("IS_CLOSE_TO", 30.6, 30)).toBe(TRUE);
-      expect(evaluateConditionValues("IS_CLOSE_TO", 1.02, 1)).toBe(TRUE);
-      expect(evaluateConditionValues("IS_CLOSE_TO", 0.98, 1)).toBe(TRUE);
-    },
-  );
+  // Pre-release audit 2026-10-16, finding PRED-01: the 2% boundary was decided on a binary ratio, so
+  // a value exactly 2% away read inside for 102/100 but outside for 30.6/30 and 1.02/1, whose decimal
+  // ratios are exactly 0.02 too.
+  it("decides `is close to` at exactly 2% the same way for every decimal pair (PRED-01)", () => {
+    for (const [metric, value] of [
+      [30.6, 30],
+      [29.4, 30],
+      [1.02, 1],
+      [0.98, 1],
+      [102, 100],
+      [98, 100],
+      [-30.6, -30],
+      [0.000102, 0.0001],
+      [714_000.51, 700_000.5],
+    ] as const) {
+      expect(evaluateConditionValues("IS_CLOSE_TO", metric, value)).toBe(TRUE);
+    }
+  });
+
+  it("still reads one eight-decimal step past the 2% boundary as outside", () => {
+    for (const [metric, value] of [
+      [30.60000001, 30],
+      [29.39999999, 30],
+      [1.02000001, 1],
+      [102.00000001, 100],
+      [97.99999999, 100],
+    ] as const) {
+      expect(evaluateConditionValues("IS_CLOSE_TO", metric, value)).toBe(FALSE);
+    }
+  });
 
   it("is NOT_EVALUABLE whenever an operand is unavailable", () => {
     for (const operator of ["IS_ABOVE", "IS_BELOW", "IS_CLOSE_TO"] as const) {

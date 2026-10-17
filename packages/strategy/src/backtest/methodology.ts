@@ -131,7 +131,7 @@ export const CASH_YIELD_METHODOLOGY_VERSION = "zero-interest@1" as const;
 /**
  * What a Strategy document *means* when it is evaluated.
  *
- * `signal-evaluation@1`: the tri-state Kleene semantics, `NOT_EVALUABLE` propagation, the
+ * `signal-evaluation@2`: the tri-state Kleene semantics, `NOT_EVALUABLE` propagation, the
  * crossing predicates' previous-value rule, proximity comparison, weekly carry-forward and the
  * position Gain/Loss triggers — the whole evaluator, as one coarse revision.
  *
@@ -143,9 +143,15 @@ export const CASH_YIELD_METHODOLOGY_VERSION = "zero-interest@1" as const;
  * Deliberately one version for the whole evaluator rather than one per predicate: the guard only
  * ever asks "can this build honour what that run recorded", and a finer split would multiply
  * bookkeeping without changing a single answer.
+ *
+ * Revision history:
+ * - v1: `is close to` compared the binary ratio `abs(metric - value) / abs(value)` with 0.02, so a
+ *   pair exactly 2% apart read inside for 102/100 but outside for 30.6/30 (PRED-01).
+ * - v2: the 2% boundary is inclusive and decided as the decimals the operands represent
+ *   (`isCloseTo`). Only a pair on the exact boundary changes answer, but that can move a number.
  */
 export const STRATEGY_EVALUATION_METHODOLOGY_VERSION =
-  "signal-evaluation@1" as const;
+  "signal-evaluation@2" as const;
 
 /**
  * Which dates a run simulates.

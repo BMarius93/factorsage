@@ -36,7 +36,8 @@ export class UnsupportedStrategyOperatorError extends Error {
  * Evaluates one Condition from two already-resolved numbers.
  *
  * `is above` and `is below` are strict — `>` and `<` — as `ai/product/strategies.md` states, and
- * there is no inclusive form. `is close to` is `abs(metric - value) / abs(value) <= 2%`, with the 2%
+ * there is no inclusive form. `is close to` is `abs(metric - value) / abs(value) <= 2%`, inclusive
+ * and decided as decimals (`isCloseTo`), with the 2%
  * tolerance owned by `@intrinsic/contracts` so the Builder's help text and this evaluator read one
  * constant. A zero comparison value makes the ratio undefined, which is NOT_EVALUABLE rather than an
  * invented fallback.
@@ -61,13 +62,37 @@ export function evaluateConditionValues(
         : Evaluability.NOT_EVALUABLE;
     case "IS_CLOSE_TO":
       return bothResolved(metric, value) && value !== 0
-        ? fromBoolean(
-            Math.abs(metric - value) / Math.abs(value) <= IS_CLOSE_TO_TOLERANCE,
-          )
+        ? fromBoolean(isCloseTo(metric, value))
         : Evaluability.NOT_EVALUABLE;
     default:
       throw new UnsupportedStrategyOperatorError(operator);
   }
+}
+
+/**
+ * How far past the exact 2% boundary a binary result may sit and still be the boundary itself,
+ * relative to the allowed distance.
+ *
+ * The operands are decimals: stored at eight decimal places, or typed by the user. Their binary
+ * doubles are not exact, so a pair that is exactly 2% apart in decimal can land a few units in the
+ * last place on either side of the tolerance. 30.6 against 30 computed 0.0200000000000000466 and
+ * read as outside, while 102 against 100 read as inside (PRED-01). The rounding error of
+ * `abs(metric - value)` against `0.02 * abs(value)` is about 1e-14 of the allowed distance, so
+ * 1e-12 absorbs it a hundredfold. A real eight-decimal difference from the boundary is at least
+ * 1e-8, which exceeds this slack for every comparison value below 500,000.
+ */
+const CLOSE_TO_BOUNDARY_SLACK = 1e-12;
+
+/**
+ * `abs(metric - value) <= 2% of abs(value)`, inclusive, decided as the decimals the operands
+ * represent (`ai/product/strategies.md`, "is close to"). The caller has already refused a zero or an
+ * unresolved `value`.
+ */
+export function isCloseTo(metric: number, value: number): boolean {
+  const allowed = IS_CLOSE_TO_TOLERANCE * Math.abs(value);
+  return (
+    Math.abs(metric - value) <= allowed + allowed * CLOSE_TO_BOUNDARY_SLACK
+  );
 }
 
 /**
