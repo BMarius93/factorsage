@@ -9,16 +9,37 @@ export type RedisFmpRequestGateOptions = {
   maxQueueDepth: number;
   maxQueueWaitMs: number;
   requestLeaseMs: number;
+  /**
+   * How often a request waiting for a concurrency slot looks again. Defaults to
+   * {@link DEFAULT_CONCURRENCY_POLL_MS}.
+   */
+  concurrencyPollMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
   now?: () => number;
   random?: () => number;
   namespace?: string;
 };
 
+/**
+ * How often a request waiting for a concurrency slot looks again (OPS-05).
+ *
+ * A full concurrent set used to answer "the oldest holder's lease expires in N ms", and the waiter
+ * slept all of it: the lease is a crash bound (`FMP_TIMEOUT_MS × 2`, 30 s by default), while a
+ * request holds its slot for well under a second. A hydration fans out seven provider requests at
+ * once (six statement operations and the price read) against a default of four slots, so the
+ * fifth to seventh slept the full 30 s although slots freed within a second — measured as 10 of 35
+ * securities taking ~40 s instead of ~8 s in a live refresh. Waiters now look again this often; a
+ * crashed holder's slot is still reclaimed only once its lease expires.
+ */
+export const DEFAULT_CONCURRENCY_POLL_MS = 100;
+
+/** Why an admission attempt was refused: the third element of `ACQUIRE_START`'s answer. */
+const REFUSED_FOR_CONCURRENCY = 2;
+
 const ACQUIRE_START = `
 -- acquire-start
 local cooldown = redis.call('PTTL', KEYS[3])
-if cooldown > 0 then return {0, cooldown} end
+if cooldown > 0 then return {0, cooldown, 1} end
 
 local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
@@ -26,18 +47,18 @@ redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
 
 if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[1]) then
   local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-  return {0, math.max(1, tonumber(first[2]) - now)}
+  return {0, math.max(1, tonumber(first[2]) - now), 2}
 end
 
 local current = tonumber(redis.call('GET', KEYS[2]) or '0')
 if current >= tonumber(ARGV[2]) then
-  return {0, math.max(1, redis.call('PTTL', KEYS[2]))}
+  return {0, math.max(1, redis.call('PTTL', KEYS[2])), 3}
 end
 
 redis.call('ZADD', KEYS[1], now + tonumber(ARGV[4]), ARGV[5])
 current = redis.call('INCR', KEYS[2])
 if current == 1 then redis.call('PEXPIRE', KEYS[2], ARGV[3]) end
-return {1, 0}
+return {1, 0, 0}
 `;
 
 const PUBLISH_COOLDOWN = `
@@ -57,6 +78,7 @@ export class RedisFmpRequestGate implements FmpRequestGate {
   private readonly now: () => number;
   private readonly random: () => number;
   private readonly namespace: string;
+  private readonly concurrencyPollMs: number;
   private waiting = 0;
 
   constructor(
@@ -70,6 +92,8 @@ export class RedisFmpRequestGate implements FmpRequestGate {
       maxQueueDepth: options.maxQueueDepth,
       maxQueueWaitMs: options.maxQueueWaitMs,
       requestLeaseMs: options.requestLeaseMs,
+      concurrencyPollMs:
+        options.concurrencyPollMs ?? DEFAULT_CONCURRENCY_POLL_MS,
     })) {
       if (!Number.isInteger(value) || value <= 0) {
         throw new Error(`${name} must be a positive integer`);
@@ -84,6 +108,8 @@ export class RedisFmpRequestGate implements FmpRequestGate {
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
     this.namespace = options.namespace ?? "stock-data:v2:fmp";
+    this.concurrencyPollMs =
+      options.concurrencyPollMs ?? DEFAULT_CONCURRENCY_POLL_MS;
   }
 
   async run<T>(request: () => Promise<T>): Promise<T> {
@@ -121,7 +147,7 @@ export class RedisFmpRequestGate implements FmpRequestGate {
   private async acquireStart(token: string, deadline: number): Promise<void> {
     while (true) {
       this.assertBeforeDeadline(deadline, this.now());
-      const result = asNumberPair(
+      const result = asAdmission(
         await this.redis.eval(
           ACQUIRE_START,
           3,
@@ -138,7 +164,14 @@ export class RedisFmpRequestGate implements FmpRequestGate {
       if (result[0] === 1) {
         return;
       }
-      await this.boundedSleep(result[1], deadline);
+      // A slot frees the moment its holder finishes; only a crashed holder keeps one until its
+      // lease runs out. Look again soon rather than waiting out the oldest lease.
+      await this.boundedSleep(
+        result[2] === REFUSED_FOR_CONCURRENCY
+          ? Math.min(result[1], this.concurrencyPollMs)
+          : result[1],
+        deadline,
+      );
     }
   }
 
@@ -180,13 +213,13 @@ export class RedisFmpRequestGate implements FmpRequestGate {
   }
 }
 
-function asNumberPair(value: unknown): [number, number] {
+function asAdmission(value: unknown): [number, number, number] {
   if (
     !Array.isArray(value) ||
-    value.length !== 2 ||
+    value.length !== 3 ||
     !value.every((entry) => typeof entry === "number")
   ) {
     throw new Error("Redis returned an invalid limiter response");
   }
-  return value as [number, number];
+  return value as [number, number, number];
 }
