@@ -31,7 +31,9 @@ import {
 class ChosenListings implements FmpSecurityCatalogPort {
   constructor(private readonly listings: readonly MappedFmpSecurityListing[]) {}
 
-  async getStockUniverse(exchangeCode: string): Promise<MappedFmpSecurityListing[]> {
+  async getStockUniverse(
+    exchangeCode: string,
+  ): Promise<MappedFmpSecurityListing[]> {
     const exchange = exchangeCode.trim().toUpperCase();
     return this.listings.filter(
       ({ listing }) => listing.exchangeCode.trim().toUpperCase() === exchange,
@@ -58,7 +60,9 @@ export function catalogAdmitter(input: {
     const outcomes: AdmissionOutcome[] = [];
     const toAdmit: MappedFmpSecurityListing[] = [];
     for (const listing of listings) {
-      const existing = await input.store.findSecurityByProviderSymbol(listing.symbol);
+      const existing = await input.store.findSecurityByProviderSymbol(
+        listing.symbol,
+      );
       if (existing) {
         outcomes.push({ symbol: listing.symbol, securityId: existing.id });
         continue;
@@ -82,9 +86,12 @@ export function catalogAdmitter(input: {
         SUPPORTED_EXCHANGE_CODES,
         input.cache,
       ).sync();
-      const failed = new Map(failures.map((failure) => [failure.providerSymbol, failure]));
+      const failed = new Map(
+        failures.map((failure) => [failure.providerSymbol, failure]),
+      );
       for (const { providerSymbol } of toAdmit) {
-        const created = await input.store.findSecurityByProviderSymbol(providerSymbol);
+        const created =
+          await input.store.findSecurityByProviderSymbol(providerSymbol);
         if (created) {
           outcomes.push({ symbol: providerSymbol, securityId: created.id });
         } else {

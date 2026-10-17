@@ -44,8 +44,8 @@ function zstdDecompressSync(input: Buffer, options: ZstdOptions): Buffer {
  * The one codec every compressible Redis payload goes through (`docs/decisions/redis-payload-codec-v1.md`).
  *
  * Redis is a projection of PostgreSQL, and its largest values are the yearly history chunks — daily
- * prices, the daily derived state, statements, benchmark bars. They are JSON text that repeats
- * itself heavily, so they are stored compressed, behind a small self-describing envelope:
+ * prices, the daily derived state, benchmark bars. They are JSON text that repeats itself heavily,
+ * so they are stored compressed, behind a small self-describing envelope:
  *
  * ```text
  * offset  size  field
@@ -125,7 +125,9 @@ export type RedisPayloadDictionary = {
   readonly bytes: Buffer;
 };
 
-export function redisPayloadDictionary(content: string): RedisPayloadDictionary {
+export function redisPayloadDictionary(
+  content: string,
+): RedisPayloadDictionary {
   const bytes = Buffer.from(content, "utf8");
   return { id: crc32(bytes) >>> 0, bytes };
 }
@@ -193,7 +195,9 @@ export class RedisPayloadCodec {
     if (typeof payload === "string") {
       return isLegacyText(payload)
         ? { ok: true, text: payload, legacy: true }
-        : unreadable("a text payload that is neither legacy JSON nor an envelope");
+        : unreadable(
+            "a text payload that is neither legacy JSON nor an envelope",
+          );
     }
     if (payload.length === 0) {
       return unreadable("an empty payload");
@@ -210,7 +214,9 @@ export class RedisPayloadCodec {
       return unreadable("an unknown payload format");
     }
     if (payload[2] !== REDIS_PAYLOAD_ENVELOPE_VERSION) {
-      return unreadable(`envelope version ${payload[2]}, not ${REDIS_PAYLOAD_ENVELOPE_VERSION}`);
+      return unreadable(
+        `envelope version ${payload[2]}, not ${REDIS_PAYLOAD_ENVELOPE_VERSION}`,
+      );
     }
     const codec = payload[3] as number;
     const dictionaryId = payload.readUInt32LE(4);
@@ -223,7 +229,9 @@ export class RedisPayloadCodec {
     if (dictionaryId !== 0) {
       dictionary = this.dictionaries.get(dictionaryId);
       if (!dictionary) {
-        return unreadable(`dictionary ${dictionaryId} is not known to this reader`);
+        return unreadable(
+          `dictionary ${dictionaryId} is not known to this reader`,
+        );
       }
     }
     const frame = payload.subarray(REDIS_PAYLOAD_HEADER_BYTES);
@@ -238,7 +246,7 @@ export class RedisPayloadCodec {
     if (raw.length !== length) {
       return unreadable(`decompressed to ${raw.length} bytes, not ${length}`);
     }
-    if ((crc32(raw) >>> 0) !== checksum) {
+    if (crc32(raw) >>> 0 !== checksum) {
       return unreadable("the checksum does not match");
     }
     return { ok: true, text: raw.toString("utf8"), legacy: false };
@@ -285,7 +293,9 @@ function decompress(
         ...(dictionary ? { dictionary } : {}),
       });
     case REDIS_PAYLOAD_CODEC_IDS.brotli:
-      return brotliDecompressSync(frame, { maxOutputLength: Math.max(1, length) });
+      return brotliDecompressSync(frame, {
+        maxOutputLength: Math.max(1, length),
+      });
     case REDIS_PAYLOAD_CODEC_IDS.gzip:
       return gunzipSync(frame, { maxOutputLength: Math.max(1, length) });
     default:
@@ -295,8 +305,9 @@ function decompress(
 
 function codecName(codec: number): string {
   return (
-    Object.entries(REDIS_PAYLOAD_CODEC_IDS).find(([, id]) => id === codec)?.[0] ??
-    `codec ${codec}`
+    Object.entries(REDIS_PAYLOAD_CODEC_IDS).find(
+      ([, id]) => id === codec,
+    )?.[0] ?? `codec ${codec}`
   );
 }
 

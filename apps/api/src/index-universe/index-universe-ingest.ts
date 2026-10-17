@@ -4,7 +4,10 @@ import {
   type Prisma,
   type PrismaClient,
 } from "@intrinsic/database";
-import { VALUATION_RATIO_IDS, type ValuationRatioId } from "@intrinsic/contracts";
+import {
+  VALUATION_RATIO_IDS,
+  type ValuationRatioId,
+} from "@intrinsic/contracts";
 import type { LocalDate, MarketIndexKey } from "@intrinsic/domain";
 import type { StructuredLogger as Logger } from "@intrinsic/observability";
 import {
@@ -147,9 +150,9 @@ export async function runIndexUniverseIngestion(input: {
   }
 
   const progress = new Map(
-    (
-      await prisma.indexUniverseIngestion.findMany({ where: { indexKey } })
-    ).map((row) => [row.securityId, row]),
+    (await prisma.indexUniverseIngestion.findMany({ where: { indexKey } })).map(
+      (row) => [row.securityId, row],
+    ),
   );
   const wantedSymbols = input.selection.symbols
     ? new Set(input.selection.symbols.map((symbol) => symbol.toUpperCase()))
@@ -170,7 +173,10 @@ export async function runIndexUniverseIngestion(input: {
       return true;
     }
     if (row.status === IndexIngestionStatus.FAILED) {
-      return input.selection.retryFailed && row.attempts < input.selection.maxAttempts;
+      return (
+        input.selection.retryFailed &&
+        row.attempts < input.selection.maxAttempts
+      );
     }
     return input.selection.refresh || wantedSymbols !== null;
   });
@@ -219,7 +225,8 @@ export async function runIndexUniverseIngestion(input: {
           succeeded,
           failed,
           elapsedMs: Date.now() - startedAt,
-          providerRequests: sumRequests(input.providerRequests) - requestsBefore,
+          providerRequests:
+            sumRequests(input.providerRequests) - requestsBefore,
         });
       }
     }
@@ -246,7 +253,9 @@ async function ingestSecurity(
 ): Promise<"SUCCEEDED" | "FAILED"> {
   const { prisma, logger } = input;
   const indexKey = MarketIndexKeyEnum[input.indexKey];
-  const key = { indexKey_securityId: { indexKey, securityId: entry.securityId } };
+  const key = {
+    indexKey_securityId: { indexKey, securityId: entry.securityId },
+  };
   const startedAt = Date.now();
   const requestsBefore = input.providerRequests.get(entry.providerSymbol) ?? 0;
   await prisma.indexUniverseIngestion.update({
@@ -266,7 +275,11 @@ async function ingestSecurity(
     const stepStartedAt = Date.now();
     try {
       await work();
-      steps.push({ step, status: "COMPLETED", durationMs: Date.now() - stepStartedAt });
+      steps.push({
+        step,
+        status: "COMPLETED",
+        durationMs: Date.now() - stepStartedAt,
+      });
       return true;
     } catch (error) {
       steps.push({
@@ -286,7 +299,10 @@ async function ingestSecurity(
   };
 
   const core = await run("CORE_HISTORY", null, async () => {
-    await input.stockData.getDailyDerivedState(entry.providerSymbol, input.range);
+    await input.stockData.getDailyDerivedState(
+      entry.providerSymbol,
+      input.range,
+    );
   });
   const valuation = await run(
     "VALUATION_INPUTS",
@@ -294,15 +310,22 @@ async function ingestSecurity(
     async () => {
       // One ratio read refreshes the split list, which is the only valuation input stored; the
       // ratios themselves are computed when read and never persisted.
-      await input.stockData.getDailyValuationRatio(entry.providerSymbol, VALUATION_RATIO_IDS[0] as ValuationRatioId, {
-        from: input.range.to,
-        to: input.range.to,
-      });
+      await input.stockData.getDailyValuationRatio(
+        entry.providerSymbol,
+        VALUATION_RATIO_IDS[0] as ValuationRatioId,
+        {
+          from: input.range.to,
+          to: input.range.to,
+        },
+      );
     },
   );
   const alternative = await run("ALTERNATIVE_DATA", null, async () => {
     const security = await input.stockData.getSecurity(entry.providerSymbol);
-    await input.alternativeData.ensureIngested(security, ALTERNATIVE_DATA_DOMAINS);
+    await input.alternativeData.ensureIngested(
+      security,
+      ALTERNATIVE_DATA_DOMAINS,
+    );
   });
   const ok = core && valuation && alternative;
   const failure = steps.find((step) => step.status === "FAILED");
@@ -311,9 +334,12 @@ async function ingestSecurity(
     data: {
       status: ok ? IndexIngestionStatus.SUCCEEDED : IndexIngestionStatus.FAILED,
       lastCompletedAt: ok ? new Date() : undefined,
-      lastError: ok ? null : (failure?.detail ?? "a step did not run").slice(0, 1_000),
+      lastError: ok
+        ? null
+        : (failure?.detail ?? "a step did not run").slice(0, 1_000),
       providerRequests:
-        (input.providerRequests.get(entry.providerSymbol) ?? 0) - requestsBefore,
+        (input.providerRequests.get(entry.providerSymbol) ?? 0) -
+        requestsBefore,
       durationMs: Date.now() - startedAt,
       stepOutcomes: steps as unknown as Prisma.InputJsonValue,
     },

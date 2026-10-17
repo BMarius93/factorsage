@@ -1998,7 +1998,10 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/UpdateBuiltInMonitorVisibilityRequest" }
+            schema:
+              {
+                $ref: "#/components/schemas/UpdateBuiltInMonitorVisibilityRequest",
+              }
       responses:
         "200":
           description: The stored preference.
@@ -2220,7 +2223,8 @@ paths:
           headers: *rateLimitHeaders
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/BuiltInContentAdminResponse" }
+              schema:
+                { $ref: "#/components/schemas/BuiltInContentAdminResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/RoleForbidden" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
@@ -2286,7 +2290,9 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "#/components/schemas/CongressMemberCatalogSyncResponse" }
+                {
+                  $ref: "#/components/schemas/CongressMemberCatalogSyncResponse",
+                }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/RoleForbidden" }
         "409":
@@ -3222,7 +3228,14 @@ components:
     LegalAcceptanceRecord:
       type: object
       required:
-        [documentKind, documentVersion, documentHash, record, surface, recordedAt]
+        [
+          documentKind,
+          documentVersion,
+          documentHash,
+          record,
+          surface,
+          recordedAt,
+        ]
       properties:
         documentKind: { $ref: "#/components/schemas/LegalDocumentKind" }
         documentVersion: { type: string }
@@ -3656,6 +3669,7 @@ components:
               canRunLive,
               canViewDemo,
               maxSymbols,
+              maxIndexUniverseConstituents,
               maxHistoricalYears,
               maxConcurrentRuns,
             ]
@@ -3663,6 +3677,13 @@ components:
             canRunLive: { type: boolean }
             canViewDemo: { type: boolean }
             maxSymbols: { $ref: "#/components/schemas/EntitlementLimit" }
+            maxIndexUniverseConstituents:
+              allOf:
+                - { $ref: "#/components/schemas/EntitlementLimit" }
+              description: >-
+                The most simultaneous members a backtest over the built-in point-in-time index
+                universe may hold, measured over the run's own period. 0 means the plan does not
+                include it.
             maxHistoricalYears:
               { $ref: "#/components/schemas/EntitlementLimit" }
             maxConcurrentRuns: { $ref: "#/components/schemas/EntitlementLimit" }
@@ -4076,7 +4097,12 @@ components:
             — two members may share a display name, and a rename never moves a group's membership.
         displayName: { type: string }
         chamber: { $ref: "#/components/schemas/CongressChamber" }
-        state: { type: string, maxLength: 8, description: Where the provider reports one. }
+        state:
+          {
+            type: string,
+            maxLength: 8,
+            description: Where the provider reports one.,
+          }
         district:
           type: string
           maxLength: 16
@@ -4170,10 +4196,12 @@ components:
 
     ActorGroupSummary:
       type: object
-      required: [id, name, memberCount, createdAt, updatedAt, ownership, canEdit]
+      required:
+        [id, name, memberCount, createdAt, updatedAt, ownership, canEdit]
       properties:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
-        systemKey: { type: string, description: The immutable identity of a built-in. }
+        systemKey:
+          { type: string, description: The immutable identity of a built-in. }
         canEdit:
           type: boolean
           description: Whether the caller may change it. Presentation only; the API authorizes every change.
@@ -4232,10 +4260,20 @@ components:
     StockListSummary:
       type: object
       required:
-        [id, name, itemCount, createdAt, updatedAt, compliance, ownership, canEdit]
+        [
+          id,
+          name,
+          itemCount,
+          createdAt,
+          updatedAt,
+          compliance,
+          ownership,
+          canEdit,
+        ]
       properties:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
-        systemKey: { type: string, description: The immutable identity of a built-in. }
+        systemKey:
+          { type: string, description: The immutable identity of a built-in. }
         canEdit:
           type: boolean
           description: Whether the caller may change it. Presentation only; the API authorizes every change.
@@ -4246,6 +4284,44 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         compliance: { $ref: "#/components/schemas/StockListCompliance" }
+        universe: { $ref: "#/components/schemas/StockListUniverse" }
+
+    StockListUniverse:
+      type: object
+      description: >-
+        Present only on the built-in point-in-time index universe (`systemKey`
+        `sp500-historical-pit`). Its membership is maintained from the index's historical changes
+        and cannot be edited through the List routes (`canEdit` is false for every caller). A
+        backtest over it is measured by the most members it held at once during the run's period,
+        against `backtests.maxIndexUniverseConstituents`, not by its distinct stock count.
+      required:
+        [
+          kind,
+          indexKey,
+          distinctSecurities,
+          peakSimultaneousMembers,
+          currentMembers,
+          membershipFloor,
+          syncedAt,
+        ]
+      properties:
+        kind: { type: string, enum: [POINT_IN_TIME_INDEX] }
+        indexKey: { type: string, example: SP500 }
+        distinctSecurities:
+          type: integer
+          minimum: 0
+          description: Every tradeable constituent since the floor, current and former.
+        peakSimultaneousMembers:
+          type: integer
+          minimum: 0
+          description: The most members eligible on any one date since the floor.
+        currentMembers: { type: integer, minimum: 0 }
+        membershipFloor: { type: string, format: date }
+        syncedAt:
+          description: When the canonical membership was last synchronized; null if never.
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
 
     StockListItem:
       type: object
@@ -4267,7 +4343,8 @@ components:
 
     StockListDetail:
       type: object
-      required: [id, name, createdAt, updatedAt, items, compliance, ownership, canEdit]
+      required:
+        [id, name, createdAt, updatedAt, items, compliance, ownership, canEdit]
       properties:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
         systemKey: { type: string }
@@ -4281,6 +4358,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/StockListItem" }
         compliance: { $ref: "#/components/schemas/StockListCompliance" }
+        universe: { $ref: "#/components/schemas/StockListUniverse" }
 
     CreateStockListRequest:
       type: object
@@ -4820,7 +4898,9 @@ components:
           type: integer
           enum: [1]
         buyLevels:
-          { $ref: "#/components/schemas/StrategyDefinition/properties/buyLevels" }
+          {
+            $ref: "#/components/schemas/StrategyDefinition/properties/buyLevels",
+          }
         sellLevels:
           {
             $ref: "#/components/schemas/StrategyDefinition/properties/sellLevels",
@@ -4988,7 +5068,8 @@ components:
         note:
           {
             type: string,
-            description: A qualification to show beside the instrument, such as that USO holds oil futures.,
+            description: A qualification to show beside the instrument,
+            such as that USO holds oil futures.,
           }
         status:
           type: string
@@ -5049,7 +5130,8 @@ components:
           {
             type: string,
             format: date,
-            description: The reference session, the newest completed session any fund reached. Absent when nothing is available.,
+            description: The reference session,
+            the newest completed session any fund reached. Absent when nothing is available.,
           }
         groups:
           type: array
@@ -5657,7 +5739,8 @@ components:
             One row per ETF source the run's strategy read, in the definition's catalog order;
             absent for a run whose strategy reads none. A non-READY row is why the ETF conditions
             could not evaluate.
-          items: { $ref: "#/components/schemas/BacktestEtfConditionDiagnostics" }
+          items:
+            { $ref: "#/components/schemas/BacktestEtfConditionDiagnostics" }
         stockSectors:
           type: array
           description: |
@@ -5879,17 +5962,28 @@ components:
         levelId: { type: string }
         kind: { $ref: "#/components/schemas/MonitorSignalKind" }
         observationDate:
-          { type: string, format: date, description: The session the occurrence became active on. }
+          {
+            type: string,
+            format: date,
+            description: The session the occurrence became active on.,
+          }
         observationPrice: { type: number }
-        observationBasis: { $ref: "#/components/schemas/MonitorObservationBasis" }
+        observationBasis:
+          { $ref: "#/components/schemas/MonitorObservationBasis" }
         detectedAt: { type: string, format: date-time }
         resolvedAt:
           type: string
           format: date-time
           description: Set when the occurrence ended. Absent while it is still active.
         resolvedObservationDate:
-          { type: string, format: date, description: The session that ended it, when a session did. }
-        resolutionReason: { $ref: "#/components/schemas/MonitorTransitionReason" }
+          {
+            type: string,
+            format: date,
+            description: The session that ended it,
+            when a session did.,
+          }
+        resolutionReason:
+          { $ref: "#/components/schemas/MonitorTransitionReason" }
         reconstructed:
           type: boolean
           description: True when historical reconstruction, not a live scan, established the activation.
@@ -5907,10 +6001,21 @@ components:
       properties:
         role: { type: string, enum: [CONDITION, TRIGGER] }
         description:
-          { type: string, description: The rule in the canonical Strategy description language. }
+          {
+            type: string,
+            description: The rule in the canonical Strategy description language.,
+          }
         result: { type: string, enum: [TRUE, FALSE, NOT_EVALUABLE] }
-        metric: { type: [number, "null"], description: The left operand compared; null when it did not resolve. }
-        value: { type: [number, "null"], description: The right operand compared; null when it did not resolve. }
+        metric:
+          {
+            type: [number, "null"],
+            description: The left operand compared; null when it did not resolve.,
+          }
+        value:
+          {
+            type: [number, "null"],
+            description: The right operand compared; null when it did not resolve.,
+          }
         previousMetric: { type: [number, "null"] }
         previousValue: { type: [number, "null"] }
 
@@ -5942,15 +6047,33 @@ components:
       required: [evaluatedMembers, currentMembers, listedMembers]
       properties:
         latestSession:
-          { type: string, format: date, description: The newest session any current member was evaluated through. }
+          {
+            type: string,
+            format: date,
+            description: The newest session any current member was evaluated through.,
+          }
         evaluatedMembers: { type: integer, minimum: 0 }
         currentMembers:
-          { type: integer, minimum: 0, description: Members currently in the monitor universe. }
+          {
+            type: integer,
+            minimum: 0,
+            description: Members currently in the monitor universe.,
+          }
         listedMembers: { type: integer, minimum: 0 }
 
     MonitorSignalRow:
       type: object
-      required: [id, state, security, levelKind, levelId, kind, sessionDate, fromHistory]
+      required:
+        [
+          id,
+          state,
+          security,
+          levelKind,
+          levelId,
+          kind,
+          sessionDate,
+          fromHistory,
+        ]
       properties:
         id: { type: string }
         state: { type: string, enum: [ACTIVE, RESOLVED, PENDING_TRIGGER] }
@@ -5961,12 +6084,19 @@ components:
         levelPercentage: { type: integer }
         kind: { $ref: "#/components/schemas/MonitorSignalKind" }
         sessionDate:
-          { type: string, format: date, description: Its activation, or its resolution once resolved. }
+          {
+            type: string,
+            format: date,
+            description: Its activation,
+            or its resolution once resolved.,
+          }
         activatedOn: { type: string, format: date }
         activationPrice: { type: number }
-        observationBasis: { $ref: "#/components/schemas/MonitorObservationBasis" }
+        observationBasis:
+          { $ref: "#/components/schemas/MonitorObservationBasis" }
         resolvedOn: { type: string, format: date }
-        resolutionReason: { $ref: "#/components/schemas/MonitorTransitionReason" }
+        resolutionReason:
+          { $ref: "#/components/schemas/MonitorTransitionReason" }
         fromHistory: { type: boolean }
         why: { $ref: "#/components/schemas/MonitorWhy" }
 
@@ -6007,7 +6137,9 @@ components:
         enabled:
           {
             type: boolean,
-            description: The user's intent, never rewritten by the server. For a built-in, its global switch.,
+            description: The user's intent,
+            never rewritten by the server. For a built-in,
+            its global switch.,
           }
         strategyId: { type: string, format: uuid }
         strategyName: { type: string }
@@ -6022,7 +6154,8 @@ components:
           { $ref: "#/components/schemas/MonitorOperationalStatus" }
         blockedReason: { $ref: "#/components/schemas/MonitorBlockedReason" }
         isPublished: { type: boolean, description: Built-in monitors only. }
-        isGloballyEnabled: { type: boolean, description: Built-in monitors only. }
+        isGloballyEnabled:
+          { type: boolean, description: Built-in monitors only. }
         displayOrder: { type: integer, description: Built-in monitors only. }
         dashboardVisible:
           {
@@ -6085,7 +6218,18 @@ components:
     DashboardMonitor:
       type: object
       required:
-        [id, name, ownership, strategy, stockList, visible, control, freshness, activeCount, pendingCount]
+        [
+          id,
+          name,
+          ownership,
+          strategy,
+          stockList,
+          visible,
+          control,
+          freshness,
+          activeCount,
+          pendingCount,
+        ]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -6093,7 +6237,10 @@ components:
         strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
         stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
         visible:
-          { type: boolean, description: Whether its rows are on this caller's Dashboard. }
+          {
+            type: boolean,
+            description: Whether its rows are on this caller's Dashboard.,
+          }
         control:
           type: string
           enum: [BUILT_IN_PREFERENCE, MONITOR_ENABLED]
@@ -6112,7 +6259,12 @@ components:
       required: [conditions, waitingForTrigger]
       properties:
         exitRule:
-          { type: integer, minimum: 1, description: The FINAL EXIT Exit Rule's position, when there are several. }
+          {
+            type: integer,
+            minimum: 1,
+            description: The FINAL EXIT Exit Rule's position,
+            when there are several.,
+          }
         conditions: { type: array, items: { type: string } }
         trigger: { type: string }
         waitingForTrigger: { type: boolean }
@@ -6120,7 +6272,18 @@ components:
     DashboardRow:
       type: object
       required:
-        [id, state, security, levelKind, reasons, monitor, strategy, stockList, since, reconstructed]
+        [
+          id,
+          state,
+          security,
+          levelKind,
+          reasons,
+          monitor,
+          strategy,
+          stockList,
+          since,
+          reconstructed,
+        ]
       properties:
         id: { type: string, description: Stable and opaque. }
         state: { type: string, enum: [ACTIVE, PENDING_TRIGGER] }
@@ -6140,7 +6303,11 @@ components:
                 ownership: { $ref: "#/components/schemas/ContentOwnership" }
         strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
         stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
-        price: { type: number, description: The price observed when the state began. }
+        price:
+          {
+            type: number,
+            description: The price observed when the state began.,
+          }
         observationDate: { type: string, format: date }
         since: { type: string, format: date-time }
         reconstructed: { type: boolean }
@@ -6163,7 +6330,17 @@ components:
     DashboardActivityEvent:
       type: object
       required:
-        [id, kind, reason, sessionDate, security, levelKind, monitor, strategy, stockList]
+        [
+          id,
+          kind,
+          reason,
+          sessionDate,
+          security,
+          levelKind,
+          monitor,
+          strategy,
+          stockList,
+        ]
       properties:
         id: { type: string, description: Stable and opaque. }
         kind: { type: string, enum: [ACTIVATED, RESOLVED] }
@@ -6184,7 +6361,8 @@ components:
         stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
         signalId: { type: string, format: uuid }
         price: { type: number, description: The occurrence's activation price. }
-        observationBasis: { $ref: "#/components/schemas/MonitorObservationBasis" }
+        observationBasis:
+          { $ref: "#/components/schemas/MonitorObservationBasis" }
         why: { $ref: "#/components/schemas/MonitorWhy" }
 
     DashboardActivityResponse:
@@ -6299,9 +6477,15 @@ components:
         stockListId:
           { type: string, format: uuid, description: Rebinds the monitor. }
         isPublished:
-          { type: boolean, description: Built-in monitors only; administrators only. }
+          {
+            type: boolean,
+            description: Built-in monitors only; administrators only.,
+          }
         isGloballyEnabled:
-          { type: boolean, description: Built-in monitors only; administrators only. }
+          {
+            type: boolean,
+            description: Built-in monitors only; administrators only.,
+          }
         displayOrder:
           type: [integer, "null"]
           minimum: 0

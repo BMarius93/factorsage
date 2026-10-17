@@ -1,4 +1,8 @@
-import { BuyWindowMode, ContentOwnership, type PrismaClient } from "@intrinsic/database";
+import {
+  BuyWindowMode,
+  ContentOwnership,
+  type PrismaClient,
+} from "@intrinsic/database";
 import type { PointInTimeIndexUniverse } from "@intrinsic/domain";
 import type { ProjectedIndexListMember } from "@intrinsic/stock-data";
 
@@ -47,14 +51,18 @@ export async function writeIndexUniverseList(input: {
         where: { stockListId: list.id },
         include: { buyWindows: { orderBy: { startDate: "asc" } } },
       });
-      const bySecurity = new Map(existing.map((item) => [item.securityId, item]));
+      const bySecurity = new Map(
+        existing.map((item) => [item.securityId, item]),
+      );
       const wanted = new Set(members.map((member) => member.securityId));
 
       const removedIds = existing
         .filter((item) => !wanted.has(item.securityId))
         .map((item) => item.id);
       if (removedIds.length > 0) {
-        await tx.stockListItem.deleteMany({ where: { id: { in: removedIds } } });
+        await tx.stockListItem.deleteMany({
+          where: { id: { in: removedIds } },
+        });
       }
 
       let added = 0;
@@ -66,7 +74,9 @@ export async function writeIndexUniverseList(input: {
         endDate: Date | null;
       }[] = [];
       const replaceFor: string[] = [];
-      const fresh = members.filter((member) => !bySecurity.has(member.securityId));
+      const fresh = members.filter(
+        (member) => !bySecurity.has(member.securityId),
+      );
       if (fresh.length > 0) {
         await tx.stockListItem.createMany({
           data: fresh.map((member) => ({
@@ -97,7 +107,8 @@ export async function writeIndexUniverseList(input: {
               return (
                 range !== undefined &&
                 iso(window.startDate) === range.startDate &&
-                (window.endDate === null ? null : iso(window.endDate)) === range.endDate
+                (window.endDate === null ? null : iso(window.endDate)) ===
+                  range.endDate
               );
             });
           if (same) {
@@ -117,13 +128,18 @@ export async function writeIndexUniverseList(input: {
           windowsToCreate.push({
             stockListItemId: itemId,
             startDate: new Date(`${range.startDate}T00:00:00.000Z`),
-            endDate: range.endDate === null ? null : new Date(`${range.endDate}T00:00:00.000Z`),
+            endDate:
+              range.endDate === null
+                ? null
+                : new Date(`${range.endDate}T00:00:00.000Z`),
           });
         }
       }
       for (let offset = 0; offset < replaceFor.length; offset += 500) {
         await tx.stockListBuyWindow.deleteMany({
-          where: { stockListItemId: { in: replaceFor.slice(offset, offset + 500) } },
+          where: {
+            stockListItemId: { in: replaceFor.slice(offset, offset + 500) },
+          },
         });
       }
       for (let offset = 0; offset < windowsToCreate.length; offset += 500) {
@@ -141,7 +157,10 @@ export async function writeIndexUniverseList(input: {
         changed,
         unchanged,
         removed: removedIds.length,
-        windows: members.reduce((total, member) => total + member.ranges.length, 0),
+        windows: members.reduce(
+          (total, member) => total + member.ranges.length,
+          0,
+        ),
       };
     },
     { timeout: 120_000 },

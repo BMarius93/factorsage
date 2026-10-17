@@ -39,7 +39,11 @@ export type IndexUniverseGuardLedger = {
   readonly authorized: number;
   readonly budget: number;
   readonly byEndpoint: Readonly<Record<string, number>>;
-  readonly refusals: readonly { reason: string; endpoint: string; symbol: string | null }[];
+  readonly refusals: readonly {
+    reason: string;
+    endpoint: string;
+    symbol: string | null;
+  }[];
   readonly closed: boolean;
 };
 
@@ -48,8 +52,11 @@ export class IndexUniverseRequestGuard implements FmpRequestGuard {
   private authorizedCount = 0;
   private sentCount = 0;
   private readonly endpointCounts = new Map<string, number>();
-  private readonly refused: { reason: string; endpoint: string; symbol: string | null }[] =
-    [];
+  private readonly refused: {
+    reason: string;
+    endpoint: string;
+    symbol: string | null;
+  }[] = [];
   private closedBy: string | null = null;
 
   constructor(
@@ -89,7 +96,11 @@ export class IndexUniverseRequestGuard implements FmpRequestGuard {
     } else {
       const raw = request.query.symbol;
       const symbol = typeof raw === "string" ? normalizeFmpSymbol(raw) : null;
-      if (!symbol || "symbols" in request.query || "exchange" in request.query) {
+      if (
+        !symbol ||
+        "symbols" in request.query ||
+        "exchange" in request.query
+      ) {
         this.refuse("MALFORMED_REQUEST", request);
       }
       if (!this.symbols.has(symbol as string)) {

@@ -11,11 +11,13 @@ import {
 import { createLogger } from "@intrinsic/observability";
 import {
   membershipWithinHorizon,
+  priceRetentionYears,
   projectIndexList,
   resolutionCandidates,
   STOCK_DATA_CACHE_NAMESPACE,
   subtractYears,
 } from "@intrinsic/stock-data";
+import { reconcileBenchmarkCatalog } from "./benchmarks/benchmark-catalog.service";
 import { catalogAdmitter } from "./index-universe/index-universe-admission.js";
 import {
   runIndexUniverseIngestion,
@@ -36,6 +38,7 @@ import { createIndexUniverseRuntime } from "./index-universe/index-universe-runt
  * pnpm data:index-universe -- ingest            # load every universe security's full history
  * pnpm data:index-universe -- report --out f    # measure what PostgreSQL holds (no provider)
  * pnpm data:index-universe -- protect           # make it resident in Redis's protected tier (no provider)
+ * pnpm data:index-universe -- benchmarks        # load the execution calendar its backtests run on
  * ```
  *
  * Every step is idempotent and resumable: run them again and each does only what is missing. In a
@@ -49,8 +52,12 @@ const COMMANDS = [
   "ingest",
   "report",
   "protect",
+  "benchmarks",
 ] as const;
 type Command = (typeof COMMANDS)[number];
+
+/** The benchmark a universe backtest runs on: its execution calendar and default comparison. */
+const UNIVERSE_BENCHMARK_CODE = "SP500";
 
 type Arguments = {
   command: Command;
@@ -78,6 +85,7 @@ const DEFAULT_BUDGETS: Record<Command, number> = {
   ingest: 120_000,
   report: 1,
   protect: 1,
+  benchmarks: 200,
 };
 
 export function parseIndexUniverseArguments(
@@ -236,7 +244,8 @@ async function main(): Promise<number> {
   const usesProvider =
     args.command === "sync" ||
     args.command === "resolve" ||
-    args.command === "ingest";
+    args.command === "ingest" ||
+    args.command === "benchmarks";
 
   // The guard's scope comes from PostgreSQL before the client exists: nothing can widen it later.
   const scopeRuntime = await createIndexUniverseRuntime({
@@ -272,6 +281,16 @@ async function main(): Promise<number> {
       scopeSymbols = (
         await universeSecurities(scopeRuntime.prisma, args.indexKey)
       ).map((entry) => entry.providerSymbol);
+    } else if (args.command === "benchmarks") {
+      // The catalog is reconciled through the API's own idempotent path, then the guard admits the
+      // one provider symbol the universe benchmark's current series names.
+      await reconcileBenchmarkCatalog(scopeRuntime.prisma);
+      const benchmark = await scopeRuntime.benchmarks.getBenchmark(
+        UNIVERSE_BENCHMARK_CODE,
+      );
+      scopeSymbols = benchmark.series.providerSymbol
+        ? [benchmark.series.providerSymbol]
+        : [];
     }
   } finally {
     await scopeRuntime.close();
@@ -438,6 +457,36 @@ async function main(): Promise<number> {
           writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`);
         }
         print(summary);
+        break;
+      }
+      case "benchmarks": {
+        // From the raw-price retention start, so a run over the whole horizon finds its calendar.
+        const range = {
+          from: subtractYears(
+            args.asOf,
+            priceRetentionYears(runtime.productHistoryYears),
+          ),
+          to: args.asOf,
+        };
+        const benchmark = await runtime.benchmarks.getBenchmark(
+          UNIVERSE_BENCHMARK_CODE,
+        );
+        await runtime.benchmarks.ensureBenchmarkHydrated(
+          benchmark.series,
+          range,
+        );
+        const missing = await runtime.benchmarks.missingBenchmarkCoverage(
+          benchmark.series,
+          range,
+        );
+        print({
+          code: UNIVERSE_BENCHMARK_CODE,
+          seriesId: benchmark.series.id,
+          seriesVersion: benchmark.series.version,
+          range,
+          missingRanges: missing,
+          guard: runtime.guard.ledger(),
+        });
         break;
       }
       case "report": {

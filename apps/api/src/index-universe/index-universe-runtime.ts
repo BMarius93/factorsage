@@ -28,6 +28,8 @@ import {
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
 } from "@intrinsic/stock-data";
+import type { BenchmarkDataService } from "@intrinsic/stock-data";
+import { createBenchmarkDataService } from "../benchmarks/benchmark-data.composition";
 import { IndexUniverseRequestGuard } from "./index-universe-guard.js";
 
 /**
@@ -51,6 +53,8 @@ export type IndexUniverseRuntime = {
   readonly cache: RedisStockDataCache;
   readonly stockData: CanonicalStockDataService;
   readonly alternativeData: CanonicalAlternativeDataService;
+  /** The canonical benchmark loader: the execution calendar every universe backtest runs on. */
+  readonly benchmarks: BenchmarkDataService;
   readonly membershipStore: PrismaIndexMembershipStore;
   readonly membership: IndexMembershipSyncService;
   readonly productHistoryYears: number;
@@ -134,10 +138,14 @@ export async function createIndexUniverseRuntime(input: {
     {
       freshnessMs: alternativeDataConfig.freshnessMs,
       maxPagesPerIngest:
-        input.alternativeDataMaxPages ?? alternativeDataConfig.maxPagesPerIngest,
+        input.alternativeDataMaxPages ??
+        alternativeDataConfig.maxPagesPerIngest,
       onProviderRequest: (request) => {
         countRequest(request.symbol);
-        logger.debug({ event: "alternative-data.provider.request", ...request });
+        logger.debug({
+          event: "alternative-data.provider.request",
+          ...request,
+        });
       },
       onForeignRows: (event) => {
         logger.warn({ event: "alternative-data.foreign-rows", ...event });
@@ -145,19 +153,21 @@ export async function createIndexUniverseRuntime(input: {
     },
   );
 
+  const coordinator = new RedlockLoadCoordinator(redis, {
+    lockDurationMs: stockDataConfig.loadLockDurationMs,
+    lockWaitMs: stockDataConfig.loadLockWaitMs,
+  });
+  const calendar = new CachedTradingCalendar(provider);
   const stockData = new CanonicalStockDataService(
     store,
     provider,
     cache,
-    new RedlockLoadCoordinator(redis, {
-      lockDurationMs: stockDataConfig.loadLockDurationMs,
-      lockWaitMs: stockDataConfig.loadLockWaitMs,
-    }),
+    coordinator,
     {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
       productHistoryYears: stockDataConfig.productHistoryYears,
       stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
-      eod: { ...getEodFinalityConfig(), calendar: new CachedTradingCalendar(provider) },
+      eod: { ...getEodFinalityConfig(), calendar },
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest: (request) => {
@@ -168,6 +178,19 @@ export async function createIndexUniverseRuntime(input: {
       alternativeData,
     },
   );
+
+  const benchmarks = createBenchmarkDataService({
+    prisma,
+    cache: new IoredisCacheClient(redis),
+    provider,
+    coordinator,
+    calendar,
+    logger,
+    onProviderRequest: (request) => {
+      countRequest(request.symbol);
+      logger.debug({ event: "benchmark.provider.request", ...request });
+    },
+  });
 
   const membershipStore = new PrismaIndexMembershipStore(prisma);
   const membership = new IndexMembershipSyncService(membershipStore, provider, {
@@ -185,6 +208,7 @@ export async function createIndexUniverseRuntime(input: {
     cache,
     stockData,
     alternativeData,
+    benchmarks,
     membershipStore,
     membership,
     productHistoryYears: stockDataConfig.productHistoryYears,
