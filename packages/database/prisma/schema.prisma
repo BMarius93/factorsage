@@ -363,6 +363,8 @@ model Security {
   priceBasis          SecurityPriceBasis?
   priceBasisEvents    PriceBasisEvent[]
   stockSplits         StockSplit[]
+  indexConstituents   IndexConstituent[]
+  indexIngestions     IndexUniverseIngestion[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -2114,4 +2116,190 @@ model CongressTrade {
   @@index([securityId, availableFromDate])
   @@index([securityId, kind, availableFromDate])
   @@index([actorId, availableFromDate])
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Point-in-time index membership (`docs/decisions/sp500-historical-pit-v1.md`)
+// ---------------------------------------------------------------------------------------------------
+
+/// An index whose historical membership FactorSage reconstructs.
+enum MarketIndexKey {
+  SP500
+}
+
+/// How a reconstructed membership period's boundaries are known. `END_UNKNOWN` periods are never
+/// projected into a List: an assumed end would invent membership.
+enum IndexMembershipPeriodQuality {
+  CONFIRMED
+  START_BEFORE_LOG
+  END_UNKNOWN
+}
+
+/// Whether a reconstructed constituent is tied to a catalog `Security` whose prices the provider holds.
+/// Only `RESOLVED` and `RESOLVED_PARTIAL` constituents reach the built-in List.
+enum IndexConstituentResolution {
+  RESOLVED
+  RESOLVED_PARTIAL
+  NO_PROVIDER_DATA
+  IDENTITY_REJECTED
+  NOT_ADMISSIBLE
+  PENDING
+}
+
+enum IndexMembershipSyncStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum IndexIngestionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// One row of the provider's index change log, content-addressed and never destructively rewritten:
+/// a row the provider later drops keeps its record with `inLatestSource = false`, and a corrected row
+/// is a new row. `effectiveDate` is the date the change took effect; the provider records no
+/// announcement date, so `announcedDate` stays null until a source that does is added.
+model IndexConstituentChange {
+  id               String         @id @default(uuid())
+  indexKey         MarketIndexKey
+  effectiveDate    DateTime       @db.Date
+  announcedDate    DateTime?      @db.Date
+  /// The provider's label: `addition`, `removal` or `replacement`.
+  changeType       String
+  addedTicker      String?
+  addedName        String?
+  removedTicker    String?
+  removedName      String?
+  reason           String?
+  /// The provider's long-form date, verbatim. Evidence only.
+  providerDateText String?
+  contentHash      String
+  firstSeenAt      DateTime       @default(now())
+  lastSeenAt       DateTime
+  inLatestSource   Boolean        @default(true)
+
+  @@unique([indexKey, contentHash])
+  @@index([indexKey, effectiveDate])
+}
+
+/// The provider's ticker-rename history across issuers, content-addressed like the change log. Read
+/// only by index reconstruction, to follow an issuer through its renames.
+model SymbolChangeRecord {
+  id             String   @id @default(uuid())
+  changeDate     DateTime @db.Date
+  oldSymbol      String
+  newSymbol      String
+  companyName    String?
+  contentHash    String   @unique
+  firstSeenAt    DateTime @default(now())
+  lastSeenAt     DateTime
+  inLatestSource Boolean  @default(true)
+
+  @@index([newSymbol])
+  @@index([oldSymbol])
+}
+
+/// One synchronization of an index's membership: what it read, what it reconstructed and how well
+/// the reconstruction agrees with what is known about the index. Append-only; the newest
+/// `COMPLETED` row describes the current canonical membership.
+model IndexMembershipSync {
+  id                  String                    @id @default(uuid())
+  indexKey            MarketIndexKey
+  status              IndexMembershipSyncStatus @default(RUNNING)
+  algorithmVersion    Int
+  startedAt           DateTime                  @default(now())
+  completedAt         DateTime?
+  /// Digest of every input the reconstruction read, so two syncs over the same source are provably equal.
+  sourceDigest        String?
+  /// The provider's current constituent list as this sync read it: the reconstruction's anchor.
+  currentConstituents Json?
+  /// Counts, anomalies, constituent-count checkpoints and the periods that cannot be reliably reconstructed.
+  summary             Json?
+  error               String?
+
+  @@index([indexKey, startedAt])
+}
+
+/// One reconstructed index constituent: an issuer line that was a member over one or more periods.
+///
+/// Identity is `constituentKey`, never a ticker: `CURRENT:<cik or symbol>` for a current member,
+/// `REMOVAL:<change hash>` for one the change log removed, `ADDITION:<change hash>` for an addition
+/// with no recorded removal. The link to the catalog is `securityId`; several constituents may link to
+/// one `Security` (an issuer that left and rejoined), and the List merges their periods.
+model IndexConstituent {
+  id                 String                     @id @default(uuid())
+  indexKey           MarketIndexKey
+  constituentKey     String
+  /// `CURRENT`, `REMOVAL` or `ORPHAN_ADDITION`.
+  origin             String
+  /// The ticker at the constituent's most recent index event.
+  ticker             String
+  name               String
+  cik                String?
+  /// Every ticker the reconstruction saw this constituent hold, with the rename dates.
+  tickerHistory      Json
+  securityId         String?
+  resolution         IndexConstituentResolution @default(PENDING)
+  /// What the resolution tried and measured: candidates, price coverage, market capitalization, reasons.
+  resolutionEvidence Json?
+  resolvedAt         DateTime?
+  syncId             String
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  security           Security?                  @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  periods            IndexMembershipPeriod[]
+
+  @@unique([indexKey, constituentKey])
+  @@index([securityId])
+  @@index([indexKey, resolution])
+}
+
+/// One period of membership. Dates are inclusive calendar dates, as a List's buy windows are:
+/// `startDate` is the addition's effective date (null: a member before the provider's change log
+/// begins) and `endDate` the day before the removal took effect (null: still a member, or unknown).
+model IndexMembershipPeriod {
+  id              String                       @id @default(uuid())
+  constituentId   String
+  startDate       DateTime?                    @db.Date
+  /// The change log's own date for the addition, kept when `startDate` was refined to the current
+  /// list's first-added date for the same addition; null when the log's date is the start.
+  startLogDate    DateTime?                    @db.Date
+  endDate         DateTime?                    @db.Date
+  /// The end the change log's own date gives, kept when `endDate` was refined with the rest of its
+  /// log date; null when the log's date is the end.
+  endLogDate      DateTime?                    @db.Date
+  quality         IndexMembershipPeriodQuality
+  startChangeHash String?
+  endChangeHash   String?
+  /// How the addition was matched to the constituent: `EXACT_TICKER`, `TICKER_HISTORY` or `NAME`.
+  startMatch      String?
+  constituent     IndexConstituent             @relation(fields: [constituentId], references: [id], onDelete: Cascade)
+
+  @@index([constituentId])
+}
+
+/// Durable progress of the bulk history ingestion of one index universe security: resumable across
+/// processes and restarts, so a run picks up where the last one stopped instead of starting over.
+model IndexUniverseIngestion {
+  indexKey         MarketIndexKey
+  securityId       String
+  status           IndexIngestionStatus @default(PENDING)
+  attempts         Int                  @default(0)
+  lastStartedAt    DateTime?
+  lastCompletedAt  DateTime?
+  /// A code and a sentence, never a provider payload.
+  lastError        String?
+  /// Provider requests the last attempt sent.
+  providerRequests Int                  @default(0)
+  durationMs       Int?
+  /// Per-step outcome of the last attempt.
+  stepOutcomes     Json?
+  updatedAt        DateTime             @updatedAt
+  security         Security             @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([indexKey, securityId])
+  @@index([indexKey, status])
 }

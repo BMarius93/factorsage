@@ -46,3 +46,4 @@ export * from "./alternative-data-prisma-store.js";
 export * from "./alternative-data-service.js";
 export * from "./congress-member-catalog.js";
 export * from "./congress-member-catalog-prisma-store.js";
+export * from "./index-membership/index.js";
