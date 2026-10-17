@@ -47,3 +47,4 @@ export * from "./alternative-data-service.js";
 export * from "./congress-member-catalog.js";
 export * from "./congress-member-catalog-prisma-store.js";
 export * from "./index-membership/index.js";
+export * from "./redis-payload-codec.js";

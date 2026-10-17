@@ -53,6 +53,24 @@ export const INDEX_ADDITION_MIN_MARKET_CAP = 500_000_000;
  */
 export const INDEX_LEGACY_MEMBER_MIN_MARKET_CAP = 100_000_000;
 
+/**
+ * The provider's market capitalization is evidence only while it is consistent with the stock's own
+ * trading: a value below this many days of the stock's median traded value would mean the whole
+ * company changed hands every day or two, which no index member ever did. Such a value is read as
+ * broken data (the provider reports $0 and $6M for some large companies of the 1990s) and ignored.
+ */
+export const MARKET_CAP_CONSISTENCY_DAYS = 2;
+
+/**
+ * The median daily traded value (close × volume) below which a candidate cannot be an index
+ * member's history when its market capitalization cannot be trusted. Every S&P 500 member of the
+ * 1990s traded millions of dollars a day; the histories this refuses trade thousands.
+ */
+export const INDEX_MIN_MEDIAN_DOLLAR_VOLUME = 2_000_000;
+
+/** Sessions at the start of the membership whose traded value is measured. */
+export const DOLLAR_VOLUME_SESSIONS = 60;
+
 /** Forward renames followed from a removal, at most. */
 const MAX_RENAME_STEPS = 6;
 
@@ -138,13 +156,21 @@ export type CandidateEvidence = {
   readonly lastSessionInMembership: LocalDate | null;
   /** Market capitalization on (or within two weeks after) the first membership session. */
   readonly marketCapAtFirstSession: number | null;
+  /** Median close × volume over the first membership sessions ({@link DOLLAR_VOLUME_SESSIONS}). */
+  readonly medianDollarVolume: number | null;
+  /** Whether the market capitalization was consistent enough with trading to be used. */
+  readonly marketCapTrusted: boolean | null;
   /** The minimum the candidate had to meet, given how the membership began. */
   readonly marketCapFloor: number;
   /** The provider's or the directory's name for the candidate, when known. */
   readonly listingName: string | null;
   readonly nameSimilarity: number;
   /** Why the candidate was refused, or null when it was usable. */
-  readonly refusal: "NO_PRICES_IN_MEMBERSHIP" | "IMPLAUSIBLE_MARKET_CAP" | null;
+  readonly refusal:
+    | "NO_PRICES_IN_MEMBERSHIP"
+    | "IMPLAUSIBLE_MARKET_CAP"
+    | "IMPLAUSIBLE_TRADING"
+    | null;
 };
 
 export type ConstituentResolutionDecision = {
@@ -204,7 +230,9 @@ export function decideConstituentResolution(
     };
   }
   const implausible = candidates.find(
-    (candidate) => candidate.refusal === "IMPLAUSIBLE_MARKET_CAP",
+    (candidate) =>
+      candidate.refusal === "IMPLAUSIBLE_MARKET_CAP" ||
+      candidate.refusal === "IMPLAUSIBLE_TRADING",
   );
   if (implausible) {
     return {
@@ -212,7 +240,10 @@ export function decideConstituentResolution(
       symbol: null,
       coverage: null,
       candidates,
-      reason: `${implausible.symbol} has prices for the membership, but a market capitalization of ${formatMoney(implausible.marketCapAtFirstSession)} on ${implausible.firstSessionInMembership}, below the ${formatMoney(implausible.marketCapFloor)} any index member had: they belong to another issuer`,
+      reason:
+        implausible.refusal === "IMPLAUSIBLE_MARKET_CAP"
+          ? `${implausible.symbol} has prices for the membership, but a market capitalization of ${formatMoney(implausible.marketCapAtFirstSession)} on ${implausible.firstSessionInMembership}, below the ${formatMoney(implausible.marketCapFloor)} any index member had: they belong to another issuer`
+          : `${implausible.symbol} has prices for the membership, but traded a median ${formatMoney(implausible.medianDollarVolume)} a day from ${implausible.firstSessionInMembership}, below the ${formatMoney(INDEX_MIN_MEDIAN_DOLLAR_VOLUME)} any index member traded: they belong to another issuer`,
     };
   }
   return {
@@ -227,9 +258,66 @@ export function decideConstituentResolution(
   };
 }
 
+/**
+ * Whether a candidate with prices inside the membership plausibly is an index member's history.
+ *
+ * The market capitalization decides while it is consistent with the stock's own trading
+ * ({@link MARKET_CAP_CONSISTENCY_DAYS}); otherwise — or when there is none — the traded value does.
+ */
+export function plausibilityRefusal(input: {
+  readonly marketCap: number | null;
+  readonly marketCapFloor: number;
+  readonly medianDollarVolume: number | null;
+}): {
+  refusal: "IMPLAUSIBLE_MARKET_CAP" | "IMPLAUSIBLE_TRADING" | null;
+  marketCapTrusted: boolean | null;
+} {
+  const dollarVolume = input.medianDollarVolume ?? 0;
+  if (input.marketCap !== null) {
+    const trusted = input.marketCap >= MARKET_CAP_CONSISTENCY_DAYS * dollarVolume;
+    if (trusted) {
+      return {
+        refusal: input.marketCap < input.marketCapFloor ? "IMPLAUSIBLE_MARKET_CAP" : null,
+        marketCapTrusted: true,
+      };
+    }
+    return {
+      refusal: dollarVolume < INDEX_MIN_MEDIAN_DOLLAR_VOLUME ? "IMPLAUSIBLE_TRADING" : null,
+      marketCapTrusted: false,
+    };
+  }
+  return {
+    refusal: dollarVolume < INDEX_MIN_MEDIAN_DOLLAR_VOLUME ? "IMPLAUSIBLE_TRADING" : null,
+    marketCapTrusted: null,
+  };
+}
+
+/** The median traded value of the first membership sessions, from ascending price rows. */
+export function medianDollarVolume(
+  rows: readonly { date: LocalDate; close: number; volume: number }[],
+  windows: readonly MembershipWindow[],
+): number | null {
+  const values: number[] = [];
+  for (const row of rows) {
+    if (values.length >= DOLLAR_VOLUME_SESSIONS) {
+      break;
+    }
+    if (windows.some((window) => window.from <= row.date && row.date <= window.to)) {
+      values.push(row.close * row.volume);
+    }
+  }
+  if (values.length === 0) {
+    return null;
+  }
+  values.sort((left, right) => left - right);
+  return values[Math.floor(values.length / 2)] as number;
+}
+
 /** A resolved constituent, as the overlap check needs it. */
 export type ResolvedConstituentClaim = {
   readonly constituentKey: string;
+  /** A current member: the provider's current list names this very symbol for it. */
+  readonly current: boolean;
   readonly symbol: string;
   readonly windows: readonly MembershipWindow[];
   /** Whether the symbol was the constituent's own ticker at its last membership event. */
@@ -247,7 +335,9 @@ export type OverlapConflict = {
 
 /**
  * Constituents that were members at the same time and claim the same security. The claim that keeps
- * it: the one whose own ticker is the symbol, then the closer name, then the better coverage, then
+ * it: a current member first — the provider's current list names that very symbol for it, the
+ * strongest identity evidence there is (AT&T Inc. keeps `T` against the AT&T Corp. it absorbed) —
+ * then the one whose own ticker is the symbol, then the closer name, then the better coverage, then
  * the lower key (deterministic). Every other overlapping claim is refused.
  */
 export function overlappingClaims(
@@ -269,6 +359,7 @@ export function overlappingClaims(
     }
     const ranked = [...group].sort(
       (left, right) =>
+        Number(right.current) - Number(left.current) ||
         Number(right.ownTicker) - Number(left.ownTicker) ||
         right.nameSimilarity - left.nameSimilarity ||
         right.coverage - left.coverage ||

@@ -102,6 +102,16 @@ class ObservedClient implements RedisCacheClient {
     this.mgets.push(keys);
     return this.inner.mget(...keys);
   }
+  /** The byte-level `MGET` the cache reads chunks with: one command, counted like `mget`. */
+  async mgetBuffer(...keys: string[]) {
+    const hook = this.beforeNextMget;
+    this.beforeNextMget = null;
+    if (hook) {
+      await hook();
+    }
+    this.mgets.push(keys);
+    return this.inner.mgetBuffer(...keys);
+  }
   set(key: string, value: string) {
     return this.inner.set(key, value);
   }
@@ -132,7 +142,7 @@ class ObservedClient implements RedisCacheClient {
   del(...keys: string[]) {
     return this.inner.del(...keys);
   }
-  eval(script: string, numberOfKeys: number, ...args: string[]) {
+  eval(script: string, numberOfKeys: number, ...args: Array<string | Buffer>) {
     return this.inner.eval(script, numberOfKeys, ...args);
   }
 }

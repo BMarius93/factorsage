@@ -128,6 +128,11 @@ describeInfrastructure(
         this.record("mget", keys);
         return this.inner.mget(...keys);
       }
+      /** The byte-level MGET payload chunks are read with: the same one command. */
+      mgetBuffer(...keys: string[]) {
+        this.record("mget", keys);
+        return this.inner.mgetBuffer(...keys);
+      }
       set(key: string, value: string) {
         this.record("set", [key]);
         return this.inner.set(key, value);
@@ -168,8 +173,8 @@ describeInfrastructure(
         this.record("del", keys);
         return this.inner.del(...keys);
       }
-      eval(script: string, numberOfKeys: number, ...args: string[]) {
-        this.record("eval", args.slice(0, numberOfKeys));
+      eval(script: string, numberOfKeys: number, ...args: Array<string | Buffer>) {
+        this.record("eval", args.slice(0, numberOfKeys).map(String));
         return this.inner.eval(script, numberOfKeys, ...args);
       }
     }

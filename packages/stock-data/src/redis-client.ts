@@ -35,6 +35,10 @@ export class IoredisCacheClient implements RedisCacheClient {
     return this.redis.mget(...keys);
   }
 
+  mgetBuffer(...keys: string[]): Promise<Array<Buffer | null>> {
+    return this.redis.mgetBuffer(...keys);
+  }
+
   set(key: string, value: string): Promise<unknown> {
     return this.redis.set(key, value);
   }
@@ -90,7 +94,7 @@ export class IoredisCacheClient implements RedisCacheClient {
   eval(
     script: string,
     numberOfKeys: number,
-    ...args: string[]
+    ...args: Array<string | Buffer>
   ): Promise<unknown> {
     return this.redis.call("EVAL", script, String(numberOfKeys), ...args);
   }

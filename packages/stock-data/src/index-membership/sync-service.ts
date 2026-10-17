@@ -35,7 +35,9 @@ import {
   expectedSessions,
   INDEX_ADDITION_MIN_MARKET_CAP,
   INDEX_LEGACY_MEMBER_MIN_MARKET_CAP,
+  medianDollarVolume,
   membershipWithinHorizon,
+  plausibilityRefusal,
   nameEvidence,
   overlappingClaims,
   resolutionCandidates,
@@ -151,7 +153,7 @@ function digest(value: unknown): string {
  * provider only for constituents not already resolved under the same membership.
  */
 export class IndexMembershipSyncService {
-  private delisted: Map<string, MappedFmpDelistedCompany[]> | undefined;
+  private delisted: Promise<Map<string, MappedFmpDelistedCompany[]>> | undefined;
 
   constructor(
     private readonly store: IndexMembershipStore,
@@ -373,6 +375,7 @@ export class IndexMembershipSyncService {
       const chosen = decision?.candidates.find((candidate) => candidate.symbol === symbol);
       claims.push({
         constituentKey: constituent.constituentKey,
+        current: constituent.origin === "CURRENT",
         symbol,
         windows: membershipWithinHorizon(constituent.periods, horizon),
         ownTicker: symbol === constituent.ticker,
@@ -520,6 +523,9 @@ export class IndexMembershipSyncService {
       prices.map((row) => row.date).sort(),
       windows,
     );
+    const ascending = [...prices].sort((left, right) =>
+      left.date < right.date ? -1 : left.date > right.date ? 1 : 0,
+    );
     const base = {
       symbol,
       sessionsInMembership: sessions.count,
@@ -527,6 +533,7 @@ export class IndexMembershipSyncService {
       firstSessionInMembership: sessions.first,
       lastSessionInMembership: sessions.last,
       marketCapFloor,
+      medianDollarVolume: medianDollarVolume(ascending, windows),
     };
     if (sessions.count === 0 || sessions.first === null) {
       // Nothing to identify: the listing is only read for a candidate that could be the history.
@@ -535,6 +542,7 @@ export class IndexMembershipSyncService {
         listingName: null,
         nameSimilarity: 0,
         marketCapAtFirstSession: null,
+        marketCapTrusted: null,
         refusal: "NO_PRICES_IN_MEMBERSHIP",
       };
     }
@@ -544,15 +552,18 @@ export class IndexMembershipSyncService {
       to: addDays(sessions.first, MARKET_CAP_LOOKAHEAD_DAYS),
     });
     const marketCap = caps[0]?.marketCap ?? null;
+    const plausibility = plausibilityRefusal({
+      marketCap,
+      marketCapFloor,
+      medianDollarVolume: base.medianDollarVolume,
+    });
     return {
       ...base,
       listingName,
       nameSimilarity: nameEvidence(constituentName, listingName),
       marketCapAtFirstSession: marketCap,
-      refusal:
-        marketCap !== null && marketCap < marketCapFloor
-          ? "IMPLAUSIBLE_MARKET_CAP"
-          : null,
+      marketCapTrusted: plausibility.marketCapTrusted,
+      refusal: plausibility.refusal,
     };
   }
 
@@ -601,10 +612,17 @@ export class IndexMembershipSyncService {
     };
   }
 
-  private async delistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
-    if (this.delisted) {
-      return this.delisted;
-    }
+  /** The delisted directory, read once per service: concurrent probes share the one read. */
+  private delistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
+    this.delisted ??= this.readDelistedDirectory().catch((error: unknown) => {
+      // A failed read is not remembered: the next listing that needs it asks again.
+      this.delisted = undefined;
+      throw error;
+    });
+    return this.delisted;
+  }
+
+  private async readDelistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
     const directory = new Map<string, MappedFmpDelistedCompany[]>();
     for (let page = 0; page < DELISTED_DIRECTORY_MAX_PAGES; page += 1) {
       const { providerRowCount, rows } = await this.provider.getDelistedCompanies(page);
@@ -615,7 +633,6 @@ export class IndexMembershipSyncService {
         break;
       }
     }
-    this.delisted = directory;
     return directory;
   }
 

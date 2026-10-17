@@ -37,7 +37,9 @@ import {
 import { addDays, subtractYears } from "./dates.js";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 import { weekdays } from "./fundamental-metrics.test-helper.js";
+import { cachePayloadText } from "./cache-payload.test-helper.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
+import { REDIS_PAYLOAD_HEADER_BYTES } from "./redis-payload-codec.js";
 import {
   createStockDataRedisClient,
   IoredisCacheClient,
@@ -234,11 +236,11 @@ class RefusingProvider implements FmpStockProviderPort {
 type Hooks = {
   /** Called before each chunk write; throwing fails that write. */
   beforeChunkWrite?: (key: string) => void;
-  /** Rewrites an MGET reply of daily-state chunks; throwing fails the read. */
+  /** Rewrites an MGET reply of daily-state chunk bytes; throwing fails the read. */
   onChunkRead?: (
     keys: string[],
-    payloads: (string | null)[],
-  ) => (string | null)[];
+    payloads: (Buffer | null)[],
+  ) => (Buffer | null)[];
 };
 
 /** The real Redis client, with seams for the failures a disposable cache must survive. */
@@ -251,16 +253,20 @@ class InstrumentedCacheClient extends IoredisCacheClient {
     super(redis);
   }
 
-  override async mget(...keys: string[]) {
-    const payloads = await super.mget(...keys);
+  override async mgetBuffer(...keys: string[]) {
+    const payloads = await super.mgetBuffer(...keys);
     return keys.some((key) => key.includes(":daily-state:")) &&
       this.hooks.onChunkRead
       ? this.hooks.onChunkRead(keys, payloads)
       : payloads;
   }
 
-  override async eval(script: string, numberOfKeys: number, ...args: string[]) {
-    const key = args[0] ?? "";
+  override async eval(
+    script: string,
+    numberOfKeys: number,
+    ...args: Array<string | Buffer>
+  ) {
+    const key = String(args[0] ?? "");
     if (script.includes("set-registered") && key.includes(":daily-state:")) {
       this.hooks.beforeChunkWrite?.(key);
       this.chunkWrites.push(key);
@@ -349,13 +355,20 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     }
   }
 
+  /**
+   * Every year's stored chunk, as the text the payload codec holds. The codec is deterministic, so
+   * equal text is equal bytes; that the bytes are an envelope rather than legacy JSON is asserted
+   * where the chunks are first published.
+   */
   async function chunkBytes(
     ns = namespace,
   ): Promise<Map<number, string | null>> {
-    const payloads = await redis.mget(
-      ...years.map((year) => dailyStateChunkKey(ns, security.id, year)),
+    const texts = await Promise.all(
+      years.map((year) =>
+        cachePayloadText(redis, dailyStateChunkKey(ns, security.id, year)),
+      ),
     );
-    return new Map(years.map((year, index) => [year, payloads[index] ?? null]));
+    return new Map(years.map((year, index) => [year, texts[index] ?? null]));
   }
 
   /** Row count and a digest of every stored derived row: what "PostgreSQL unchanged" means. */
@@ -534,6 +547,11 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     ).toBe(true);
 
     for (const year of years) {
+      // Stored as the compressed payload envelope, never as the uncompressed text.
+      const bytes = await redis.getBuffer(
+        dailyStateChunkKey(namespace, security.id, year),
+      );
+      expect(bytes?.subarray(0, 2).toString("latin1"), String(year)).toBe("FS");
       const payload = published.get(year) as string;
       expect(payload, String(year)).not.toContain("null");
       const decoded = decodeDailyStateChunk(payload, {
@@ -915,8 +933,17 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     const corrupting = serviceOver(
       cacheOver(
         new InstrumentedCacheClient(redis, {
+          // One byte of every compressed frame flipped: the envelope's checksum must refuse it.
           onChunkRead: (_keys, payloads) =>
-            payloads.map((payload) => payload?.replace(/[0-9]/, "x") ?? null),
+            payloads.map((payload) => {
+              if (payload === null) {
+                return null;
+              }
+              const damaged = Buffer.from(payload);
+              const at = REDIS_PAYLOAD_HEADER_BYTES + 4;
+              damaged[at] = (damaged[at] as number) ^ 0xff;
+              return damaged;
+            }),
         }),
       ),
     );

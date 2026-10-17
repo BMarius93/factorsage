@@ -23,6 +23,8 @@ import {
   backtestSnapshotScopeNames,
   backtestTradeReason,
   backtestTradeReasonIndex,
+  BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS,
+  BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES,
   BACKTEST_MAX_SECURITIES,
   BACKTEST_RESULT_MAX_CURVE_POINTS,
   BACKTEST_TRADES_MAX_PAGE_SIZE,
@@ -60,11 +62,14 @@ import {
 import {
   BacktestTradeAction as TradeAction,
   BacktestTradeSource as TradeSource,
+  ContentOwnership,
   type Prisma,
 } from "@intrinsic/database";
 import {
   DEFAULT_BENCHMARK_CODE,
   normalizeBuyWindowConfiguration,
+  peakSimultaneousMembers,
+  pointInTimeIndexUniverseForList,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
@@ -833,16 +838,29 @@ export class BacktestsService {
         "The selected stock list is empty; add at least one stock before running a backtest",
       );
     }
-    if (stockList.items.length > BACKTEST_MAX_SECURITIES) {
-      throw new BacktestConfigurationError(
-        `A backtest can cover at most ${BACKTEST_MAX_SECURITIES} stocks; this list has ${stockList.items.length}`,
-      );
+    // The built-in point-in-time index universe is measured differently from every other List
+    // (`docs/decisions/sp500-historical-pit-v1.md` §5): by the most members it held at once in the
+    // period, against its own entitlement and its own engine ceiling. Only the SYSTEM List itself —
+    // a customer's duplicate is an ordinary List held to the ordinary limits.
+    const indexUniverse =
+      stockList.ownership === ContentOwnership.SYSTEM
+        ? pointInTimeIndexUniverseForList(stockList.systemKey)
+        : null;
+    if (!indexUniverse) {
+      if (stockList.items.length > BACKTEST_MAX_SECURITIES) {
+        throw new BacktestConfigurationError(
+          `A backtest can cover at most ${BACKTEST_MAX_SECURITIES} stocks; this list has ${stockList.items.length}`,
+        );
+      }
+      // The commercial capacity, on top of the absolute engine guard above. It binds first for
+      // every plan — the strictest plan limit is 100 against an engine ceiling of 200 — and it is
+      // also what refuses a List that became oversized through a downgrade: the run is rejected,
+      // while the List itself stays intact and readable.
+      this.entitlements.assertBacktestUniverseLimit(user, {
+        kind: "LIST",
+        symbols: stockList.items.length,
+      });
     }
-    // The commercial capacity, on top of the absolute engine guard above. It binds first for every
-    // plan — the strictest plan limit is 100 against an engine ceiling of 200 — and it is also
-    // what refuses a List that became oversized through a downgrade: the run is rejected, while
-    // the List itself stays intact and readable.
-    this.entitlements.assertBacktestSymbolLimit(user, stockList.items.length);
 
     const benchmarkCode = input.benchmarkCode ?? DEFAULT_BENCHMARK_CODE;
     // `isBacktestSelectable` as well as `isActive`, and the same refusal for both. An internal
@@ -926,7 +944,53 @@ export class BacktestsService {
         (left, right) =>
           left.symbol.localeCompare(right.symbol) ||
           left.securityId.localeCompare(right.securityId),
+      )
+      // An index universe's member that was never a member during the period can never be bought
+      // in it, and so never held: it is left out of the run rather than prepared for nothing. Every
+      // other List keeps every member, exactly as before.
+      .filter(
+        (security) =>
+          !indexUniverse ||
+          security.buyWindowMode === "FULL" ||
+          security.buyWindows.some(
+            (window) =>
+              window.startDate <= input.endDate &&
+              (window.endDate === null || window.endDate >= input.startDate),
+          ),
       );
+
+    let universe: BacktestRunSnapshot["stockList"]["universe"];
+    if (indexUniverse) {
+      const peak = peakSimultaneousMembers(
+        securities.map((security) => ({
+          mode: security.buyWindowMode,
+          ranges: security.buyWindows,
+        })),
+        { from: input.startDate, to: input.endDate },
+      );
+      if (peak.peak === 0) {
+        throw new BacktestConfigurationError(
+          `No constituent of ${stockList.name} was a member between ${input.startDate} and ${input.endDate}`,
+        );
+      }
+      this.entitlements.assertBacktestUniverseLimit(user, {
+        kind: "POINT_IN_TIME_INDEX",
+        peakSimultaneousMembers: peak.peak,
+      });
+      if (
+        securities.length > BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES ||
+        peak.peak > BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS
+      ) {
+        throw new BacktestConfigurationError(
+          `An index-universe backtest can cover at most ${BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES} securities and ${BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS} simultaneous members; this period holds ${securities.length} and ${peak.peak}`,
+        );
+      }
+      universe = {
+        kind: "POINT_IN_TIME_INDEX",
+        indexKey: indexUniverse.indexKey,
+        peakSimultaneousMembers: peak.peak,
+      };
+    }
 
     // Actor groups are mutable configuration, exactly like the stock list above, so the run freezes
     // their membership here. Execution resolves a `GROUP` scope through this frozen list and never
@@ -958,7 +1022,11 @@ export class BacktestsService {
         definitionHash: version.definitionHash,
         definition,
       },
-      stockList: { stockListId: stockList.id, name: stockList.name },
+      stockList: {
+        stockListId: stockList.id,
+        name: stockList.name,
+        ...(universe ? { universe } : {}),
+      },
       securities,
       // Omitted rather than written empty when the strategy references no group, so a snapshot only
       // carries the field when it means something.

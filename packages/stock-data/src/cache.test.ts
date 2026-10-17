@@ -11,24 +11,36 @@ import { priceRetentionYears } from "./service.js";
 import {
   dailyStateChunkKey,
   RedisStockDataCache,
+  stockCachePayloadCodecs,
   type RedisCacheClient,
   type StockManifest,
 } from "./cache.js";
 
+/** The text a stored daily-state chunk holds, through the cache's own payload codec. */
+function chunkText(value: string | Buffer | undefined): string {
+  const decoded = stockCachePayloadCodecs().dailyState.decode(value ?? "");
+  if (!decoded.ok) {
+    throw new Error(decoded.reason);
+  }
+  return decoded.text;
+}
+
 class FakeRedis implements RedisCacheClient {
-  readonly values = new Map<string, string>();
+  /** Holds what the cache wrote: plain text, or a payload envelope's bytes. */
+  readonly values = new Map<string, string | Buffer>();
   readonly sets = new Map<string, Set<string>>();
   readonly sortedSets = new Map<string, Map<string, number>>();
 
   readonly mgets: string[][] = [];
 
   async get(key: string) {
-    return this.values.get(key) ?? null;
+    // A payload envelope is handed back as the bytes it was stored as, exactly like Redis would.
+    return (this.values.get(key) as string | undefined) ?? null;
   }
 
   async mget(...keys: string[]) {
     this.mgets.push(keys);
-    return keys.map((key) => this.values.get(key) ?? null);
+    return keys.map((key) => (this.values.get(key) as string | undefined) ?? null);
   }
 
   async set(key: string, value: string) {
@@ -121,7 +133,7 @@ class FakeRedis implements RedisCacheClient {
     }
     if (script.includes("touch-ready")) {
       const manifest = this.values.get(keys[0]!);
-      if (!manifest || JSON.parse(manifest).status !== "READY") return 0;
+      if (!manifest || JSON.parse(String(manifest)).status !== "READY") return 0;
       const sequence = await this.incr();
       await this.zadd(keys[1]!, sequence, args[0]!);
       return 1;
@@ -423,9 +435,13 @@ describe("columnar daily-state chunks in the yearly cache", () => {
   it("publishes one versioned chunk per year and reads a range across year boundaries in one MGET", async () => {
     const { redis, cache } = await residentCache();
     for (const year of [2023, 2024, 2025]) {
-      expect(
-        redis.values.get(dailyStateChunkKey(namespace, security.id, year)),
-      ).toMatch(/^\{"version":2,/);
+      const stored = redis.values.get(
+        dailyStateChunkKey(namespace, security.id, year),
+      ) as Buffer;
+      // Stored compressed, inside the payload envelope; the text inside is the version-2 chunk.
+      expect(Buffer.isBuffer(stored)).toBe(true);
+      expect(stored.subarray(0, 2).toString("latin1")).toBe("FS");
+      expect(chunkText(stored)).toMatch(/^\{"version":2,/);
     }
     expect(dailyStateChunkKey(namespace, security.id, 2024)).toBe(
       "stock-data:v2:test:security:security-aapl:daily-state:v2:2024",
@@ -512,7 +528,9 @@ describe("columnar daily-state chunks in the yearly cache", () => {
         onUnreadableChunk: (chunk) => unreadable.push(chunk),
       });
       const key = dailyStateChunkKey(namespace, security.id, 2024);
-      redis.values.set(key, damage(redis.values.get(key) as string));
+      // Damage is written as legacy text, which the envelope reads as it always read JSON: the
+      // chunk decoder is what must refuse it.
+      redis.values.set(key, damage(chunkText(redis.values.get(key))));
       await expect(
         cache.readDailyDerivedState(security.id, {
           from: "2023-12-28",

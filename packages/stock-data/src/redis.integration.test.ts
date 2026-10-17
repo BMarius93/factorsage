@@ -25,6 +25,7 @@ import {
 } from "@intrinsic/fmp";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { cachePayloadText } from "./cache-payload.test-helper.js";
 import {
   dailyStateChunkKey,
   RedisStockDataCache,
@@ -2312,7 +2313,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
       expect(cached).toEqual(written);
 
       // The serialized chunk carries absence as absence, not as an explicit null or a zero.
-      const chunk = await redis.get(
+      const chunk = await cachePayloadText(
+        redis,
         dailyStateChunkKey(namespace, security.id, 2026),
       );
       expect(chunk).not.toBeNull();
@@ -2699,7 +2701,8 @@ describeInfrastructure(
             ),
           );
         }
-        const chunk = await fixture.redis.get(
+        const chunk = await cachePayloadText(
+          fixture.redis,
           dailyStateChunkKey(fixture.namespace, fixture.securityId, 2025),
         );
         expect(chunk).toContain('"roicTtm"');
@@ -2895,7 +2898,8 @@ describeInfrastructure(
           [...unstorable.values()].flat().map((date) => date.slice(0, 4)),
         );
         for (const year of years) {
-          const chunk = await fixture.redis.get(
+          const chunk = await cachePayloadText(
+            fixture.redis,
             dailyStateChunkKey(
               fixture.namespace,
               fixture.securityId,

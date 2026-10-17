@@ -13,10 +13,43 @@ import {
   selectFinancialStatements,
 } from "@intrinsic/domain";
 import {
+  DAILY_STATE_CHUNK_DICTIONARY,
   DAILY_STATE_ENCODING_VERSION,
   decodeDailyStateChunk,
   encodeDailyStateChunk,
 } from "./daily-state-chunk.js";
+import {
+  DEFAULT_REDIS_PAYLOAD_CODEC,
+  RedisPayloadCodec,
+  type RedisPayloadCodecConfig,
+} from "./redis-payload-codec.js";
+
+/**
+ * The payload codec of each compressible stock-cache family (`docs/decisions/redis-payload-codec-v1.md`).
+ * Manifests, the identity row, registries and the LRU stay plain: Lua reads them.
+ */
+export type StockCachePayloadCodecs = {
+  readonly prices: RedisPayloadCodec;
+  readonly dailyState: RedisPayloadCodec;
+  readonly statements: RedisPayloadCodec;
+};
+
+export function stockCachePayloadCodecs(
+  config: RedisPayloadCodecConfig = DEFAULT_REDIS_PAYLOAD_CODEC,
+): StockCachePayloadCodecs {
+  const zstd = config.codec === "zstd";
+  return {
+    prices: new RedisPayloadCodec(config),
+    // The field dictionary every daily-state chunk repeats primes the compressor, so a year's chunk
+    // does not pay for it again; readers know it whatever the writer's codec.
+    dailyState: new RedisPayloadCodec(
+      config,
+      zstd ? DAILY_STATE_CHUNK_DICTIONARY : null,
+      [DAILY_STATE_CHUNK_DICTIONARY],
+    ),
+    statements: new RedisPayloadCodec(config),
+  };
+}
 
 export const FINANCIAL_STATEMENT_VERSION = 1;
 
@@ -97,6 +130,12 @@ export type StockDataCacheObserver = {
 export interface RedisCacheClient {
   get(key: string): Promise<string | null>;
   mget(...keys: string[]): Promise<Array<string | null>>;
+  /**
+   * `MGET` returning raw bytes, for the binary payload envelope (`redis-payload-codec.ts`). A client
+   * without it — a test double — falls back to `mget`, which still reads legacy JSON payloads and
+   * any value the double stored as-is.
+   */
+  mgetBuffer?(...keys: string[]): Promise<Array<Buffer | null>>;
   set(key: string, value: string): Promise<unknown>;
   sadd(key: string, ...members: string[]): Promise<unknown>;
   smembers(key: string): Promise<string[]>;
@@ -110,7 +149,7 @@ export interface RedisCacheClient {
   eval(
     script: string,
     numberOfKeys: number,
-    ...args: string[]
+    ...args: Array<string | Buffer>
   ): Promise<unknown>;
 }
 
@@ -180,6 +219,7 @@ export class RedisStockDataCache implements StockDataCache {
     private readonly namespace = STOCK_DATA_CACHE_NAMESPACE,
     private readonly hydrationTtlMs = DEFAULT_HYDRATION_TTL_MS,
     private readonly observer: StockDataCacheObserver = {},
+    private readonly codecs: StockCachePayloadCodecs = stockCachePayloadCodecs(),
   ) {
     if (!Number.isInteger(maxResidentStocks) || maxResidentStocks <= 0) {
       throw new Error("maxResidentStocks must be a positive integer");
@@ -291,9 +331,11 @@ export class RedisStockDataCache implements StockDataCache {
       return null;
     }
     const result = await this.readYearly<DailyPrice>(
+      securityId,
       range,
       (year) => this.priceYearKey(securityId, year),
       (row) => row.date,
+      this.codecs.prices,
     );
     // The manifest check and the yearly `MGET` are separate commands. A republish that began in
     // between — a history replaced after a re-base, above all — could otherwise hand back old years
@@ -319,6 +361,7 @@ export class RedisStockDataCache implements StockDataCache {
       years,
       (row) => row.date,
       (year) => this.priceYearKey(securityId, year),
+      this.codecs.prices,
       hydrating,
     );
   }
@@ -348,7 +391,7 @@ export class RedisStockDataCache implements StockDataCache {
     }
     const years = yearsInRange(range);
     const keys = years.map((year) => this.dailyStateYearKey(securityId, year));
-    const payloads = await this.redis.mget(...keys);
+    const payloads = await this.mgetPayloads(keys);
     // As for prices: a republish that began during the read makes it a miss rather than a mix.
     if (!(await this.manifestUnchanged(securityId, payload))) {
       return null;
@@ -359,8 +402,18 @@ export class RedisStockDataCache implements StockDataCache {
       if (payload === null || payload === undefined) {
         return null;
       }
+      const text = this.codecs.dailyState.decode(payload);
+      if (!text.ok) {
+        this.observer.onUnreadableChunk?.({
+          securityId,
+          year,
+          key: keys[index] as string,
+          reason: `envelope: ${text.reason}`,
+        });
+        return null;
+      }
       const decoded = decodeDailyStateChunk(
-        payload,
+        text.text,
         { securityId, year },
         range,
       );
@@ -401,7 +454,9 @@ export class RedisStockDataCache implements StockDataCache {
       await this.setRegistered(
         securityId,
         this.dailyStateYearKey(securityId, year),
-        encodeDailyStateChunk(securityId, year, yearRows),
+        this.codecs.dailyState.encode(
+          encodeDailyStateChunk(securityId, year, yearRows),
+        ),
         hydrating,
       );
     }
@@ -433,18 +488,28 @@ export class RedisStockDataCache implements StockDataCache {
         ),
       ),
     );
-    const payloads = await this.redis.mget(...keys);
+    const payloads = await this.mgetPayloads(keys);
     if (payloads.some((payload) => payload === null)) {
       return null;
     }
+    const rows: FinancialStatement[] = [];
+    for (const [index, payload] of payloads.entries()) {
+      const decoded = this.codecs.statements.decode(payload as Buffer | string);
+      if (!decoded.ok) {
+        this.observer.onUnreadableChunk?.({
+          securityId,
+          year: Number((keys[index] as string).slice(-4)),
+          key: keys[index] as string,
+          reason: `envelope: ${decoded.reason}`,
+        });
+        return null;
+      }
+      rows.push(...(JSON.parse(decoded.text) as FinancialStatement[]));
+    }
     const selected = selectFinancialStatements(
-      payloads
-        .flatMap(
-          (payload) => JSON.parse(payload ?? "[]") as FinancialStatement[],
-        )
-        .filter(
-          (row) => row.fiscalDate >= range.from && row.fiscalDate <= range.to,
-        ),
+      rows.filter(
+        (row) => row.fiscalDate >= range.from && row.fiscalDate <= range.to,
+      ),
       query,
     );
     await this.touch(securityId);
@@ -465,6 +530,7 @@ export class RedisStockDataCache implements StockDataCache {
       years,
       (row) => row.fiscalDate,
       (year) => this.financialYearKey(securityId, statementType, cadence, year),
+      this.codecs.statements,
       hydrating,
     );
   }
@@ -507,18 +573,44 @@ export class RedisStockDataCache implements StockDataCache {
     return payload === null ? null : (JSON.parse(payload) as T);
   }
 
+  /** `MGET` of payload bytes when the client can, so an enveloped payload is never mangled as text. */
+  private async mgetPayloads(
+    keys: readonly string[],
+  ): Promise<Array<Buffer | string | null>> {
+    return this.redis.mgetBuffer
+      ? this.redis.mgetBuffer(...keys)
+      : this.redis.mget(...keys);
+  }
+
   private async readYearly<T>(
+    securityId: string,
     range: Required<DateRange>,
     keyForYear: (year: number) => string,
     dateOf: (row: T) => string,
+    codec: RedisPayloadCodec,
   ): Promise<T[] | null> {
     const years = yearsInRange(range);
-    const payloads = await this.redis.mget(...years.map(keyForYear));
+    const keys = years.map(keyForYear);
+    const payloads = await this.mgetPayloads(keys);
     if (payloads.some((payload) => payload === null)) {
       return null;
     }
-    return payloads
-      .flatMap((payload) => JSON.parse(payload ?? "[]") as T[])
+    const rows: T[] = [];
+    for (const [index, payload] of payloads.entries()) {
+      const decoded = codec.decode(payload as Buffer | string);
+      if (!decoded.ok) {
+        // A damaged year is a miss like a missing one: the caller rebuilds from PostgreSQL.
+        this.observer.onUnreadableChunk?.({
+          securityId,
+          year: years[index] as number,
+          key: keys[index] as string,
+          reason: `envelope: ${decoded.reason}`,
+        });
+        return null;
+      }
+      rows.push(...(JSON.parse(decoded.text) as T[]));
+    }
+    return rows
       .filter((row) => dateOf(row) >= range.from && dateOf(row) <= range.to)
       .sort((left, right) => dateOf(left).localeCompare(dateOf(right)));
   }
@@ -529,6 +621,7 @@ export class RedisStockDataCache implements StockDataCache {
     years: readonly number[],
     dateOf: (row: T) => string,
     keyForYear: (year: number) => string,
+    codec: RedisPayloadCodec,
     hydrating?: StockManifest,
   ): Promise<void> {
     const byYear = new Map<number, T[]>();
@@ -548,7 +641,7 @@ export class RedisStockDataCache implements StockDataCache {
       await this.setRegistered(
         securityId,
         key,
-        JSON.stringify(values),
+        codec.encode(JSON.stringify(values)),
         hydrating,
       );
     }
@@ -557,7 +650,7 @@ export class RedisStockDataCache implements StockDataCache {
   private async setRegistered(
     securityId: string,
     key: string,
-    value: string,
+    value: string | Buffer,
     hydrating?: StockManifest,
   ): Promise<void> {
     const result = await this.redis.eval(

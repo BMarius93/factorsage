@@ -31,6 +31,20 @@ export class SystemContentReadOnlyError extends Error {
   }
 }
 
+/**
+ * Built-in content that no editor changes, administrators included: a point-in-time index universe's
+ * List is a projection of the canonical membership dataset, rewritten whole by the index
+ * synchronization (`docs/decisions/sp500-historical-pit-v1.md` §5). An edit would diverge from the
+ * dataset and be undone by the next projection. The same refusal, so the same `403`.
+ */
+export class SystemContentMaintainedError extends SystemContentReadOnlyError {
+  constructor(name: string) {
+    super("lists");
+    this.message = `${name} is maintained from the index membership dataset and cannot be edited`;
+    this.name = "SystemContentMaintainedError";
+  }
+}
+
 /** Built-in content is never deleted; an administrator unpublishes or pauses it instead. */
 export class SystemContentProtectedError extends Error {
   constructor(readonly noun: string) {
