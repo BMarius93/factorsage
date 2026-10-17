@@ -1440,7 +1440,10 @@ describe("canonical full-stock hydration", () => {
     store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
     const provider = new FakeProvider();
     const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    // The provider's history starts at the listing, as a genuine IPO's does. (A load reaching the
+    // listing reads the bar there; one that does not, drops it as outside its range.)
     provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2020-06-01"),
       price("2026-08-20"),
     ]);
     const loader = createService(
@@ -1458,6 +1461,33 @@ describe("canonical full-stock hydration", () => {
       start: "2020-06-01",
       end: CANONICAL_RANGE.to,
       startOrigin: "LISTING",
+    });
+  });
+
+  it("reports no listing bound for an IPO date a stored bar contradicts (DATA-02)", async () => {
+    // NEE's shape: the provider dates the IPO years after a bar the stock is stored as having
+    // traded. That IPO date is no listing, and Stock Details must not stop there.
+    const store = new FakeStore();
+    store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
+    store.prices = [price("2010-03-01")];
+    const provider = new FakeProvider();
+    const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    const details = await loader.getStockDetails("AAPL");
+
+    expect(details.history).toEqual({
+      start: CANONICAL_RANGE.from,
+      end: CANONICAL_RANGE.to,
+      startOrigin: "HORIZON",
     });
   });
 
@@ -4193,7 +4223,7 @@ describe("derived-state revision and valuation warm-up retention", () => {
     ).toBe(true);
   });
 
-  it("clamps the warm-up range to a known listing date", async () => {
+  it("retains the warm-up statements of a security listed inside it (DATA-02)", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
@@ -4228,9 +4258,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
     });
 
     const retained = store.financialStatements.map((row) => row.fiscalDate);
-    // Nothing before the listing date is retained, even though the warm-up window reaches back
-    // further for an older company.
-    expect(retained).toEqual(["2021-12-31"]);
+    // Retention is a clock bound only: a statement from before the listing date is kept like any
+    // other, and which of them a calculation reads is decided where it reads them — only on a real
+    // filing date (DATA-03, `listing-evidence.ts`). The IPO date used to discard it here, which a
+    // wrong IPO date turned into years of lost filings.
+    expect(retained).toEqual(["2019-12-31", "2021-12-31"]);
   });
 
   it("encodes the retention policy in the fundamentals dataset variant", async () => {
@@ -5204,9 +5236,10 @@ describe("a backtest executes exactly the period it snapshotted", () => {
     expect(bounds?.firstDate).toBe("1996-08-24");
   });
 
-  it("still starts a security at its own listing date, which is not a clock bound", async () => {
-    // The one narrowing that is real methodology: a security participates on the days its own
-    // frame has rows for. A later listing is not a clipped period.
+  it("starts a security at its own first bar, whatever its IPO date says (DATA-02)", async () => {
+    // A security participates on the days its own frame has rows for. The provider's IPO date
+    // used to clip the frame too, so an IPO date later than a stored bar removed real sessions —
+    // and whether it did depended on the identity the caller held (BT-04).
     const { store, provider, cache } = await ready();
     store.currentSecurity = { ...security, ipoDate: "1996-08-26" };
     const loader = createService(
@@ -5220,7 +5253,7 @@ describe("a backtest executes exactly the period it snapshotted", () => {
       { ...security, ipoDate: "1996-08-26" },
       PERIOD,
     );
-    expect(bounds?.firstDate).toBe("1996-08-26");
+    expect(bounds?.firstDate).toBe("1996-08-24");
   });
 
   it("still hides the retained warm-up years from Stock Details", async () => {

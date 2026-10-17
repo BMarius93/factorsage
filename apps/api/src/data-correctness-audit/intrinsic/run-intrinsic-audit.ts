@@ -8,6 +8,8 @@ import {
   type OracleStatement,
   type Valuation,
 } from "../oracle/intrinsic";
+import { evidencedBeforeListing } from "../oracle/listing";
+import { readListedFrom } from "../stored-listing";
 
 /**
  * Every stored intrinsic value, blend and provenance instant of every audited security against the
@@ -137,7 +139,13 @@ export async function runIntrinsicSection(input: {
   >();
 
   for (const security of input.securities) {
-    const statements = await readStatements(prisma, security.securityId);
+    const allStatements = await readStatements(prisma, security.securityId);
+    // What a valuation may read (DATA-03): a statement from before the listing only on a real
+    // filing date. The point-in-time checks below still cover every stored statement.
+    const listing = await readListedFrom(prisma, security.securityId);
+    const statements = allStatements.filter((statement) =>
+      evidencedBeforeListing(statement, listing),
+    );
     const stored = await readStoredIntrinsic(prisma, security.securityId);
     const dates = stored.map((row) => row.date);
     const valuations = dailyValuations(statements, dates);
@@ -158,7 +166,7 @@ export async function runIntrinsicSection(input: {
     const quarterlySamples: Record<string, unknown>[] = [];
 
     // Point-in-time rules of the statements themselves.
-    for (const statement of statements) {
+    for (const statement of allStatements) {
       pit.statements += 1;
       const dayAfterFiling = new Date(
         Date.parse(`${statement.filingDate}T00:00:00Z`) + 86_400_000,

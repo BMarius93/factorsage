@@ -94,6 +94,12 @@ import {
   type PriceBasisEvent,
   type SecurityPriceBasisState,
 } from "./price-basis.js";
+import {
+  listingDateContradicted,
+  listingFloor,
+  startsAtListing,
+  statementsWithEvidencedAvailability,
+} from "./listing-evidence.js";
 import { applyPriceBasisToIntrinsicStates } from "./share-basis.js";
 import {
   buildValuationTimeline,
@@ -383,8 +389,17 @@ export type PriceBasisObservation = {
     /** Rows after a split-sized move were not saved yet (the ex-date hold). */
     | "HELD"
     /** The earliest stored row changed, but the full comparison found nothing to replace. */
-    | "EARLIEST_ROW_UNCONFIRMED";
+    | "EARLIEST_ROW_UNCONFIRMED"
+    /**
+     * The provider's IPO date is later than the history's first bar: a provider anomaly (DATA-02).
+     * The bars stand; the IPO date is not read as the listing.
+     */
+    | "LISTING_DATE_CONTRADICTED";
   generation?: number;
+  /** The provider's IPO date, on `LISTING_DATE_CONTRADICTED`. */
+  ipoDate?: LocalDate;
+  /** The history's first bar, on `LISTING_DATE_CONTRADICTED`. */
+  firstBar?: LocalDate;
   measuredEvents?: number;
   unexplainedEvents?: number;
   heldFrom?: LocalDate;
@@ -412,7 +427,8 @@ export function logPriceBasisEvent(logger: {
       logger.error(entry);
     } else if (
       observation.outcome === "REPLACEMENT_REFUSED" ||
-      observation.outcome === "EARLIEST_ROW_UNCONFIRMED"
+      observation.outcome === "EARLIEST_ROW_UNCONFIRMED" ||
+      observation.outcome === "LISTING_DATE_CONTRADICTED"
     ) {
       logger.warn(entry);
     } else {
@@ -464,7 +480,10 @@ export type CanonicalStockDataServiceOptions = {
    * not grow one. The API and worker composition roots point this at their own structured logger.
    */
   onProviderRequest?: (event: ProviderRequestEvent) => void;
-  /** Called on every re-base decision; the composition roots log it at `info`. */
+  /**
+   * Called on every re-base decision, and when a rebuild finds the provider's IPO date later than
+   * the history's first bar; the composition roots log it through `logPriceBasisEvent`.
+   */
   onPriceBasisEvent?: (event: PriceBasisObservation) => void;
   /**
    * The alternative-data loader, when this composition offers those metrics.
@@ -1265,18 +1284,27 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     security: Security,
   ): Promise<ValuationTimeline> {
     const retention = this.fundamentalsTarget(security);
-    const [statements, basis, events, splits] = await Promise.all([
-      // Standalone quarters only: no ratio reads an annual row.
-      this.store.getFinancialStatementRevisions({
-        securityId: security.id,
-        cadence: "QUARTERLY",
-        from: retention.from,
-        to: retention.to,
-      }),
-      this.store.getPriceBasis(security.id),
-      this.store.getPriceBasisEvents(security.id),
-      this.store.getStockSplits(security.id),
-    ]);
+    const [revisions, basis, events, splits, ipoDate, earliestPriceDate] =
+      await Promise.all([
+        // Standalone quarters only: no ratio reads an annual row.
+        this.store.getFinancialStatementRevisions({
+          securityId: security.id,
+          cadence: "QUARTERLY",
+          from: retention.from,
+          to: retention.to,
+        }),
+        this.store.getPriceBasis(security.id),
+        this.store.getPriceBasisEvents(security.id),
+        this.store.getStockSplits(security.id),
+        this.storedIpoDate(security),
+        this.store.getEarliestDailyPriceDate(security.id),
+      ]);
+    // The same statements the derived state reads (DATA-03): a pre-listing revision only on a real
+    // filing date, against the stored listing evidence.
+    const statements = statementsWithEvidencedAvailability(
+      revisions,
+      listingFloor({ ipoDate, earliestPriceDate }),
+    );
     return buildValuationTimeline({
       securityId: security.id,
       currency: security.currency,
@@ -1519,9 +1547,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   }
 
   /**
-   * The first session a backtest of this security could replay: the product horizon, clamped to a
-   * known listing date. A Monitor reconstruction whose history read starts here is a replay of the
-   * security's whole canonical history.
+   * The first session a backtest of this security could replay: the product horizon. A Monitor
+   * reconstruction whose history read starts here is a replay of the security's whole canonical
+   * history. No longer clamped to the provider's IPO date (DATA-02): a security has no frame rows
+   * before its first bar anyway, and a wrong IPO date must not hide the ones it has.
    */
   evaluationHistoryStart(security: Security): LocalDate {
     return this.productTarget(security).from;
@@ -1911,8 +1940,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     // derived state already reflects both price history and point-in-time fundamentals. Building
     // intrinsic values first and never rebuilding them would publish a permanently empty
     // intrinsic history.
+    // The enriched identity from here on (DATA-02): the profile step may just have written the
+    // IPO date, and nothing below may act on the catalog row read before it.
     const fundamentals = await this.hydrateFundamentalsWithinLease(
-      security,
+      hydratedSecurity,
       target,
       hydrating,
       lease,
@@ -1951,7 +1982,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       lease.assertOwned();
       await this.assertGeneration(hydrating);
       await this.rebuildDailyDerivedState(
-        security,
+        hydratedSecurity,
         target,
         prices,
         derivedRecalculationStart,
@@ -2313,24 +2344,40 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         ? {}
         : { fromWeek: startOfIsoWeek(writtenFrom) }),
     });
+    // The listing evidence: the stored IPO date, never the one on the identity the caller holds —
+    // a first hydration and a backtest worker can both hold a read from before the profile arrived,
+    // and the same stored data must produce the same rows whoever rebuilds them (DATA-02, BT-04) —
+    // against the first bar this history actually has.
+    const ipoDate = await this.storedIpoDate(security);
+    const firstBar = calculation.prices[0]?.date;
+    if (listingDateContradicted({ ipoDate, earliestPriceDate: firstBar })) {
+      this.onPriceBasisEvent({
+        securityId: security.id,
+        symbol: security.symbol,
+        outcome: "LISTING_DATE_CONTRADICTED",
+        ...(ipoDate ? { ipoDate } : {}),
+        ...(firstBar ? { firstBar } : {}),
+      });
+    }
     const weeklyBars = aggregateCompletedWeeks(
       calculation.prices,
       target.to,
-      this.weeklyHistoryContext(
-        security,
-        calculation.prices[0]?.date ?? calculation.range.from,
-      ),
+      this.weeklyHistoryContext(ipoDate, firstBar ?? calculation.range.from),
       sessionEnds,
     );
     // One bounded read of immutable revisions, not the latest-revision selector: each materializer
     // needs every revision's own availableFromDate as a distinct evaluation event. The same read
     // feeds both statement-derived families; nothing below reads statements per metric or per day.
+    // A revision from before the listing is read only on a real filing date (DATA-03).
     const retention = this.fundamentalsTarget(security);
-    const statements = await this.store.getFinancialStatementRevisions({
-      securityId: security.id,
-      from: retention.from,
-      to: retention.to,
-    });
+    const statements = statementsWithEvidencedAvailability(
+      await this.store.getFinancialStatementRevisions({
+        securityId: security.id,
+        from: retention.from,
+        to: retention.to,
+      }),
+      listingFloor({ ipoDate, earliestPriceDate: firstBar }),
+    );
     const tradingDates = calculation.prices.map((price) => price.date);
     const fundamentalStates = materializeDailyFundamentals({
       securityId: security.id,
@@ -2352,6 +2399,21 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       intrinsicStates,
     });
     return { rows, weeklyBars };
+  }
+
+  /**
+   * The security's IPO date as PostgreSQL holds it.
+   *
+   * Read rather than taken from the identity a caller passes in: the first hydration of a catalog
+   * entry writes the profile — and with it the IPO date — part-way through, and a backtest worker
+   * holds the catalog row it read before preparing. Every listing-dependent calculation reads it
+   * here, so it cannot depend on which of those identities happened to be in hand (DATA-02, BT-04).
+   */
+  private async storedIpoDate(
+    security: Security,
+  ): Promise<LocalDate | undefined> {
+    const [stored] = await this.store.findSecuritiesByIds([security.id]);
+    return stored ? stored.ipoDate : security.ipoDate;
   }
 
   /**
@@ -3457,23 +3519,35 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   ): Promise<StockHistoryBounds> {
     const today = this.today();
     const horizonStart = subtractYears(today, this.stockDetailsHistoryYears);
-    const listing = security.ipoDate;
-    const permitted: StockHistoryBounds =
-      listing !== undefined && listing > horizonStart
-        ? { start: listing, end: today, startOrigin: "LISTING" }
-        : { start: horizonStart, end: today, startOrigin: "HORIZON" };
     // Coverage is read before the earliest row, deliberately. A prefix load commits its rows and
     // the coverage describing them in one transaction; if that commit lands between these two
     // reads, coverage read first is still incomplete and the wider bound is reported, whereas the
     // other order could pair a pre-commit earliest row with post-commit coverage and pin the
-    // client at a row that persisted history now precedes.
+    // client at a row that persisted history now precedes. Read over the whole horizon, because
+    // which bound applies is only known once the earliest row is.
     const coverage = await this.store.getDatasetCoverage(
       security.id,
       "DAILY_PRICE",
       DAILY_PRICE_VARIANT,
-      { from: permitted.start, to: permitted.end },
+      { from: horizonStart, to: today },
     );
     const earliestRow = await this.store.getEarliestDailyPriceDate(security.id);
+    // An IPO date weeks after a stored bar is no listing (DATA-02): the bound is then the horizon,
+    // and the provider's own boundary below, exactly as for a security with no IPO date. One that
+    // is the listing never hides a stored session before it.
+    const listing = listingDateContradicted({
+      ipoDate: security.ipoDate,
+      earliestPriceDate: earliestRow,
+    })
+      ? undefined
+      : listingFloor({
+          ipoDate: security.ipoDate,
+          earliestPriceDate: earliestRow,
+        });
+    const permitted: StockHistoryBounds =
+      listing !== undefined && listing > horizonStart
+        ? { start: listing, end: today, startOrigin: "LISTING" }
+        : { start: horizonStart, end: today, startOrigin: "HORIZON" };
     if (
       earliestRow === null ||
       earliestRow <= addDays(permitted.start, PROVIDER_BOUNDARY_MIN_GAP_DAYS)
@@ -3495,44 +3569,46 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * {@link priceRetentionTarget} — but those rows exist to make a calculation valid on the first
    * visible day, and no product surface may return one.
    */
-  private productTarget(security: Security): Required<DateRange> {
-    return this.horizonTarget(security, this.productHistoryYears);
+  private productTarget(_security: Security): Required<DateRange> {
+    return this.horizonTarget(this.productHistoryYears);
   }
 
   /**
    * Internal retention range for raw daily prices: the product horizon plus the derived-series
-   * warm-up, clamped to a known listing date.
+   * warm-up.
    *
    * Deliberately separate from {@link productTarget}, exactly as `fundamentalsTarget` is. Only the
    * load target, the durable price coverage it records and the derived state calculated from it
    * use this wider range; widening the product target instead would expose the warm-up years
    * through Stock Details, the price and technical APIs and the backtestable period.
    *
-   * The listing clamp is what keeps a recent IPO honest: a security listed inside the retention
-   * window retains from its listing date, and no warm-up row is invented before it.
+   * Not clamped to the provider's IPO date (pre-release audit DATA-02): the provider is asked for
+   * the whole window and the history is whatever it serves. A genuine IPO costs nothing for it — the
+   * first read is one request either way, it returns nothing before the listing, and nothing is
+   * invented there — while a wrong IPO date no longer removes years of real bars (`HON`, dated
+   * 2001-02-21, whose bars FMP serves from 1996).
    */
-  private priceRetentionTarget(security: Security): Required<DateRange> {
-    return this.horizonTarget(security, this.priceRetentionYears);
+  private priceRetentionTarget(_security: Security): Required<DateRange> {
+    return this.horizonTarget(this.priceRetentionYears);
   }
 
-  /** `[max(today - years, ipoDate), today]` — the one horizon shape, one year-arithmetic rule. */
-  private horizonTarget(
-    security: Security,
-    years: number,
-  ): Required<DateRange> {
+  /**
+   * `[today - years, today]` — the one horizon shape, one year-arithmetic rule.
+   *
+   * A clock bound only. No horizon is clamped to the provider's IPO date any more (DATA-02): rows
+   * exist only where the provider served them, so the clamp never removed anything from a genuine
+   * IPO, and it removed real history wherever the IPO date was wrong. The listing still matters for
+   * what predates it — see `listing-evidence.ts`.
+   */
+  private horizonTarget(years: number): Required<DateRange> {
     const today = this.today();
-    const horizonStart = subtractYears(today, years);
-    return {
-      from: security.ipoDate
-        ? maxDate(horizonStart, security.ipoDate)
-        : horizonStart,
-      to: today,
-    };
+    return { from: subtractYears(today, years), to: today };
   }
 
   /**
    * Internal retention range for financial statements: the **product** horizon plus the valuation
-   * warm-up, clamped to a known listing date.
+   * warm-up. Statements from before a listing are retained like any other; which of them a
+   * calculation may read is decided where it reads them (`statementsWithEvidencedAvailability`).
    *
    * Anchored to the product horizon, never to {@link priceRetentionTarget}. The two warm-ups
    * answer different questions — one makes a recursive price series valid on the first visible
@@ -3543,9 +3619,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * Only statement backfill, publication and the rebuild's revision read use this range, and no
    * derived row is ever produced for a warm-up year.
    */
-  private fundamentalsTarget(security: Security): Required<DateRange> {
+  private fundamentalsTarget(_security: Security): Required<DateRange> {
     return this.horizonTarget(
-      security,
       this.productHistoryYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS,
     );
   }
@@ -3559,13 +3634,18 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * series starts with must be a property of the stored prices and not of the read that triggered
    * the rebuild.
    */
-  private weeklyHistoryContext(security: Security, historyStart: LocalDate) {
+  private weeklyHistoryContext(
+    ipoDate: LocalDate | undefined,
+    historyStart: LocalDate,
+  ) {
     return {
       historyStart,
-      historyStartOrigin:
-        security.ipoDate && security.ipoDate >= historyStart
-          ? ("LISTING" as const)
-          : ("HORIZON" as const),
+      // Only an IPO date the bars do not contradict makes the first week a listing week (DATA-02):
+      // a history that starts before the provider's IPO date started at a horizon or at the
+      // provider's own boundary.
+      historyStartOrigin: startsAtListing({ ipoDate, historyStart })
+        ? ("LISTING" as const)
+        : ("HORIZON" as const),
     };
   }
 
@@ -3590,9 +3670,11 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    * again one day past the margin. There is no version of a clock-derived floor that is safe for
    * an immutable period; there is only a version that fails later.
    *
-   * The listing clamp stays, because it is not a clock bound. A security participates on the days
-   * its own frame has rows for, which is `execution-calendar-authoritative@2` and not a clipped
-   * period.
+   * Nor is there a listing bound (DATA-02): a security participates on the days its own frame has
+   * rows for, which is `execution-calendar-authoritative@2` and not a clipped period. The provider's
+   * IPO date used to clip it here, so a wrong one (`NEE`, dated 2014 though its stored bars start in
+   * 1992) silently removed fifteen years of a thirty-year backtest — and which identity the worker
+   * happened to hold decided whether it did (BT-04).
    */
   private projectionRange(
     security: Security,
@@ -3600,9 +3682,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     bound: "PRODUCT" | "BACKTEST" = "PRODUCT",
   ): Required<DateRange> | null {
     if (bound === "BACKTEST") {
-      const listing = security.ipoDate;
-      const from = listing ? maxDate(requested.from, listing) : requested.from;
-      return from <= requested.to ? { from, to: requested.to } : null;
+      return requested.from <= requested.to ? requested : null;
     }
     const target = this.productTarget(security);
     const from = maxDate(requested.from, target.from);
