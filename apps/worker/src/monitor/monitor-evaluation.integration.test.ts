@@ -817,46 +817,89 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
      * applies only to a loaded snapshot whose newest session is older than the stock's. Treating a
      * failed read as "the fund did not print" steps every member older than the late-recovery horizon
      * — a new Monitor's replay, a resumed pause, an outage catch-up — through sessions decided with
-     * the ETF rule NOT_EVALUABLE, and they are never decided again. Written as the hold the product
-     * owes those members; fails on `bebf3dc7`, and `it.fails` flips red once a failed read holds them.
+     * the ETF rule NOT_EVALUABLE, and they are never decided again (failed on `bebf3dc7`). A member
+     * reading an ETF that could not be read is now held, and replays once the ETF reads again —
+     * exactly as a Monitor that never saw the failure.
      */
-    it.fails(
-      "KNOWN DEFECT MON-02: holds a replaying member at its checkpoint when the ETF it reads could not be loaded",
-      async () => {
-        const security = await createSecurity("2026-06-01");
-        const closes: Record<string, number> = {};
-        for (
-          let cursor = new Date("2026-06-01T00:00:00.000Z");
-          cursor.toISOString().slice(0, 10) <= "2026-10-14";
-          cursor.setUTCDate(cursor.getUTCDate() + 1)
-        ) {
-          const weekday = cursor.getUTCDay();
-          if (weekday !== 0 && weekday !== 6) {
-            closes[cursor.toISOString().slice(0, 10)] = 105;
-          }
+    it("MON-02: holds a replaying member while the ETF it reads cannot be loaded, then replays it as an uninterrupted Monitor does", async () => {
+      const security = await createSecurity("2026-06-01");
+      const closes: Record<string, number> = {};
+      for (
+        let cursor = new Date("2026-06-01T00:00:00.000Z");
+        cursor.toISOString().slice(0, 10) <= "2026-10-14";
+        cursor.setUTCDate(cursor.getUTCDate() + 1)
+      ) {
+        const weekday = cursor.getUTCDay();
+        if (weekday !== 0 && weekday !== 6) {
+          closes[cursor.toISOString().slice(0, 10)] = 105;
         }
-        await seed(
-          security,
-          closes,
-          after("2026-10-14"),
-          "2026-10-14",
-          "2026-06-01",
-        );
-        etfThrough.date = "2026-10-14";
-        const monitorId = await createMonitor([security], both, {
-          replay: true,
-          listedAt: new Date("2026-10-01T12:00:00.000Z"),
-        });
-        const failing = {
-          ...etfContexts,
-          loader: {
-            ...etfContexts.loader,
-            readFullBenchmarkHistory: async () => {
-              throw new Error("Redis timed out reading benchmark:v1:*");
-            },
+      }
+      await seed(
+        security,
+        closes,
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-06-01",
+      );
+      etfThrough.date = "2026-10-14";
+      const monitorId = await createMonitor([security], both, {
+        replay: true,
+        listedAt: new Date("2026-10-01T12:00:00.000Z"),
+      });
+      const failing = {
+        ...etfContexts,
+        loader: {
+          ...etfContexts.loader,
+          readFullBenchmarkHistory: async () => {
+            throw new Error("Redis timed out reading benchmark:v1:*");
           },
-        };
-        const summary = await new MonitorEodEvaluation(
+        },
+      };
+      const summary = await new MonitorEodEvaluation(
+        repository,
+        data,
+        new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => clock.now,
+        }),
+        createLogger({ service: "worker", level: "silent" }),
+        {
+          securityConcurrency: 2,
+          lateRecoveryMs: 24 * 60 * 60_000,
+          now: () => clock.now,
+        },
+        failing as never,
+      ).run(1);
+      // Nothing may be decided on a rule whose input could not be read.
+      expect(summary.membersAwaitingEtf).toBe(1);
+      expect(await checkpoint(monitorId, security.id)).toBeNull();
+      expect(await transitions(monitorId)).toHaveLength(0);
+
+      // Still unreadable a week later — far past the late-recovery horizon: still held.
+      clock.now = after("2026-10-21");
+      const later = await new MonitorEodEvaluation(
+        repository,
+        data,
+        new EodFinalityPolicy({
+          calendar: WEEKDAY_TRADING_CALENDAR,
+          now: () => clock.now,
+        }),
+        createLogger({ service: "worker", level: "silent" }),
+        {
+          securityConcurrency: 2,
+          lateRecoveryMs: 24 * 60 * 60_000,
+          now: () => clock.now,
+        },
+        failing as never,
+      ).run(2);
+      expect(later.membersAwaitingEtf).toBe(1);
+      expect(await transitions(monitorId)).toHaveLength(0);
+
+      // The ETF reads again: the member replays its window once, as a control Monitor that never
+      // saw the failure replays the same window on the same data.
+      clock.now = after("2026-10-14");
+      const working = () =>
+        new MonitorEodEvaluation(
           repository,
           data,
           new EodFinalityPolicy({
@@ -869,15 +912,35 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
             lateRecoveryMs: 24 * 60 * 60_000,
             now: () => clock.now,
           },
-          failing as never,
-        ).run(1);
-        etfThrough.date = "2026-10-13";
-        // Nothing may be decided on a rule whose input could not be read.
-        expect(summary.membersAwaitingEtf).toBe(1);
-        expect(await checkpoint(monitorId, security.id)).toBeNull();
-        expect(await transitions(monitorId)).toHaveLength(0);
-      },
-    );
+          etfContexts as never,
+        );
+      expect((await working().run(3)).membersReplayed).toBe(1);
+      const control = await createMonitor([security], both, {
+        replay: true,
+        listedAt: new Date("2026-10-01T12:00:00.000Z"),
+      });
+      created.delete(monitorId);
+      expect((await working().run(4)).membersReplayed).toBe(1);
+      created.add(monitorId);
+      const normalized = async (id: string) =>
+        (await transitions(id)).map((t) =>
+          [
+            t.levelId,
+            day(t.observationDate),
+            t.fromState,
+            t.toState,
+            t.reason,
+            t.origin,
+          ].join("|"),
+        );
+      expect(await normalized(monitorId)).toEqual(await normalized(control));
+      expect((await transitions(monitorId)).length).toBeGreaterThan(0);
+      // And a further pass decides nothing twice.
+      const settled = (await transitions(monitorId)).length;
+      await working().run(5);
+      expect(await transitions(monitorId)).toHaveLength(settled);
+      etfThrough.date = "2026-10-13";
+    });
   });
 
   it("passes a session a halted security never prints only once a read past the late-recovery horizon proves it", async () => {

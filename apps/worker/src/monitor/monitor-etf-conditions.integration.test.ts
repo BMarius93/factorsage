@@ -107,6 +107,8 @@ function etfBars(seriesId: string, dates: readonly LocalDate[]): BenchmarkDailyP
 class FixtureEtfContexts implements EtfContextLoader {
   readonly barsBySeries = new Map<string, BenchmarkDailyPrice[]>();
   lastTailSyncAt = "2026-02-27T22:00:00.000Z";
+  /** Series whose history read fails, as a Redis or PostgreSQL outage makes it fail. */
+  readonly unreadableSeries = new Set<string>();
 
   async getSeries(seriesId: string): Promise<BenchmarkSeries> {
     return {
@@ -122,6 +124,9 @@ class FixtureEtfContexts implements EtfContextLoader {
   }
 
   async readFullBenchmarkHistory(series: BenchmarkSeries): Promise<BenchmarkHistory> {
+    if (this.unreadableSeries.has(series.id)) {
+      throw new Error(`Timed out reading benchmark:v1:${series.id}`);
+    }
     return {
       seriesId: series.id,
       basisGeneration: 0,
@@ -838,6 +843,105 @@ describe("Stock's Sector conditions in a Monitor cycle", () => {
       expect(state?.lastOutcome).toBe("NOT_EVALUABLE");
     },
     30_000,
+  );
+
+  /**
+   * MON-02 on the Stock's Sector path, past the late-recovery horizon. Two Technology stocks read
+   * XLK through their sector; XLK's history cannot be read for three sessions, each evening more
+   * than the one-day horizon after the last. A failed read is not a fund that did not print: both
+   * members are held where they are — never stepped with the sector rule undecidable — while a
+   * stock that maps to no fund goes on. When XLK reads again, every held session is decided in
+   * order, exactly as a Monitor that never saw the outage decided them.
+   */
+  it(
+    "holds members whose sector fund cannot be read, past the horizon, and converges with an uninterrupted Monitor",
+    async () => {
+      const dates = ["2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"];
+      const checkpointOn = async (monitorId: string, securityId: string) =>
+        (
+          await prisma.monitorEvaluationCheckpoint.findFirst({
+            where: { monitorId, securityId },
+          })
+        )?.evaluatedThrough
+          .toISOString()
+          .slice(0, 10) ?? null;
+      seedSectorFunds("2026-03-06");
+      const run = async (outage: boolean) => {
+        etfLoader.lastTailSyncAt = "2026-03-02T21:45:00.000Z";
+        const created = await createSectorMonitor(
+          ["Technology", "Technology", undefined],
+          definitionWithSource(STOCK_SECTOR_SOURCE),
+        );
+        const [first, second, unclassified] = created.securities;
+        // Only this run's Monitor is evaluated, so the two runs cannot see each other.
+        for (const id of [...running]) {
+          if (id !== created.monitorId) running.delete(id);
+        }
+        const held: number[] = [];
+        let sequence = outage ? 140 : 130;
+        await cycleOf(created.loader, SESSION_EVENING).run((sequence += 1));
+        for (const [index, date] of dates.entries()) {
+          for (const security of created.securities) {
+            created.loader.addBar(security.id, date, 101 + index);
+          }
+          etfLoader.lastTailSyncAt = `${date}T21:45:00.000Z`;
+          // The outage covers the first three of the four sessions.
+          if (outage && index < 3) {
+            etfLoader.unreadableSeries.add("series-etf_xlk");
+          } else {
+            etfLoader.unreadableSeries.clear();
+          }
+          const summary = await cycleOf(created.loader, eveningOf(date)).run(
+            (sequence += 1),
+          );
+          held.push(summary.membersAwaitingEtf);
+          if (outage && index < 3) {
+            // Both Technology members stay on Monday; the unclassified one moves on.
+            for (const security of [first!, second!]) {
+              expect(await checkpointOn(created.monitorId, security.id)).toBe(
+                "2026-03-02",
+              );
+            }
+            expect(await checkpointOn(created.monitorId, unclassified!.id)).toBe(
+              date,
+            );
+          }
+        }
+        etfLoader.unreadableSeries.clear();
+        const order = new Map(created.securities.map((security, index) => [security.id, index]));
+        const history = (
+          await prisma.monitorStateTransition.findMany({
+            where: { monitorId: created.monitorId },
+            orderBy: { sequence: "asc" },
+          })
+        )
+          .map((transition) =>
+            [
+              order.get(transition.securityId),
+              transition.levelId,
+              transition.observationDate?.toISOString().slice(0, 10) ?? null,
+              transition.fromState,
+              transition.toState,
+              transition.reason,
+            ].join("|"),
+          )
+          .sort();
+        running.delete(created.monitorId);
+        return { held, history };
+      };
+
+      try {
+        const uninterrupted = await run(false);
+        const interrupted = await run(true);
+        expect(uninterrupted.held).toEqual([0, 0, 0, 0]);
+        expect(interrupted.held).toEqual([2, 2, 2, 0]);
+        expect(interrupted.history).toEqual(uninterrupted.history);
+      } finally {
+        // The fixture is shared by the rest of the file: never leave the fund unreadable.
+        etfLoader.unreadableSeries.clear();
+      }
+    },
+    60_000,
   );
 
   it("latches per source: a named XLK rule switched to Stock's Sector is a logic change, even for a Technology stock", async () => {

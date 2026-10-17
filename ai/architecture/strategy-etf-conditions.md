@@ -537,7 +537,10 @@ in §10.
   result — see §13.7). `BacktestEtfConditionDiagnosticsResponse` is `{code, ticker, status,
   firstSession?, latestSession?, basisGeneration?, submittedBasisGeneration?}` with `status` one of
   `READY`, `NOT_BOOTSTRAPPED`,
-  `NOT_SYNCHRONIZED`, `NO_FINALIZED_SESSIONS`, `LOAD_FAILED`. Counting undecidable sessions per
+  `NOT_SYNCHRONIZED`, `NO_FINALIZED_SESSIONS`, `LOAD_FAILED`. (Since 2026-10-16 a `LOAD_FAILED`
+  fund stops the run with `EXECUTION_FAILED` instead of completing it on undecidable rules, and a
+  Monitor holds the members reading it — a failed read is not missing data; MON-02,
+  `docs/decisions/monitor-eod-v2.md` §3.5.) Counting undecidable sessions per
   cause would have meant threading a reason through the evaluator's tri-state result, which Decision
   9 rules out ("tri-state semantics unchanged"); the fund's first and latest evaluable session say
   where pre-listing and unfinalized sessions begin and end, and warm-up is a fixed property of each

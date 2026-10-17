@@ -301,6 +301,8 @@ const XLC_BARS: BenchmarkDailyPrice[] = XLC_SESSIONS.map((date, index) => ({
 
 type EtfFixture = {
   bars: BenchmarkDailyPrice[];
+  /** The history read fails, as a Redis or PostgreSQL outage makes it fail. */
+  unreadable?: boolean;
   /** The price basis the store holds now; the pins below record 3. */
   basisGeneration?: number;
   /** Coverage the floor gate reports as missing; empty = anchored. */
@@ -332,6 +334,9 @@ class FixtureEtfContexts implements EtfContextLoader {
   ): Promise<BenchmarkHistory> {
     this.calls.push(`readFullBenchmarkHistory:${series.id}`);
     const fixture = this.bySeriesId.get(series.id);
+    if (fixture?.unreadable) {
+      throw new Error(`Timed out reading benchmark:v1:${series.id}`);
+    }
     return {
       seriesId: series.id,
       basisGeneration: fixture?.basisGeneration ?? 3,
@@ -566,12 +571,15 @@ async function execute(
     frozenSectors?: readonly BacktestSnapshotSecuritySector[];
     /** One current catalog sector per security, which execution must ignore. */
     catalogSectors?: readonly (string | undefined)[];
+    /** The run is expected to fail: its failure write is returned instead of a result. */
+    expectFailure?: boolean;
   } = {},
 ): Promise<{
   result: BacktestResult;
   write: BacktestResultWrite;
   loader: ProjectingFrameLoader;
   etfLoader: FixtureEtfContexts;
+  failures: BacktestFailureWrite[];
 }> {
   const loader = new ProjectingFrameLoader(options.stockRsi);
   const repository = new RecordingRepository();
@@ -630,6 +638,16 @@ async function execute(
     },
     lease,
   );
+  if (options.expectFailure) {
+    expect(repository.results).toEqual([]);
+    return {
+      result: undefined as never,
+      write: undefined as never,
+      loader,
+      etfLoader,
+      failures: repository.failures,
+    };
+  }
   expect(repository.failures).toEqual([]);
   expect(repository.results).toHaveLength(1);
   return {
@@ -637,6 +655,7 @@ async function execute(
     write: repository.results[0]!,
     loader,
     etfLoader,
+    failures: repository.failures,
   };
 }
 
@@ -822,6 +841,18 @@ describe("ETF-sourced Conditions executed by the backtest worker", () => {
         basisGeneration: 3,
       },
     ]);
+  });
+
+  it("stops the run, rather than completing it on undecidable rules, when an ETF cannot be read", async () => {
+    const fixtures = new Map(READY_ETF_FIXTURES);
+    fixtures.set("series-xlk", { ...READY_ETF_FIXTURES.get("series-xlk")!, unreadable: true });
+    const { failures } = await execute(strategyOf([XLK_RSI_ABOVE_50]), {
+      etfFixtures: fixtures,
+      expectFailure: true,
+    });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ code: "EXECUTION_FAILED" });
+    expect(JSON.stringify(failures[0])).toContain("XLK could not be read");
   });
 
   it("never buys before the ETF indicator's own genuine warm-up is complete", async () => {
