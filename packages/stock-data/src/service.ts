@@ -248,6 +248,13 @@ const PROVIDER_BOUNDARY_MIN_GAP_DAYS = 7;
  * A date rather than an unbounded query, because the store's bounds read takes a range. No equity
  * series this product can hold starts before it.
  */
+/**
+ * How many times a lease holder re-observes the manifest when starting its hydration finds it moved.
+ * Only lock-free work on READY generations can move it under a held lease, and each such change is a
+ * one-off (an invalidation, an eviction, a TTL expiry), so a handful of attempts is generous.
+ */
+const HYDRATION_START_ATTEMPTS = 4;
+
 const EARLIEST_PERSISTED_PRICE_DATE = "1900-01-01";
 /** An upper bound no stored bar can pass, for a "newest stored bar" aggregate. */
 const LATEST_PERSISTED_PRICE_DATE = "9999-12-31";
@@ -583,6 +590,22 @@ export type StockRefreshState = {
   priceBasisGeneration: number;
 };
 
+/**
+ * Whether a stock's materialized derived state reaches its newest verified bar.
+ *
+ * The price tail alone does not make a stock ready for a session: a `DERIVED_STATE_REVISION` bump
+ * leaves every stock with a current tail and no derived rows under the new revision, and a crash
+ * between a price save and the derived rebuild leaves one so. The Monitor waits for
+ * `derivedThrough`, so the stock EOD preparation asks this as well as the tail question (OPS-02).
+ */
+export function derivedStateCaughtUp(state: StockRefreshState): boolean {
+  return (
+    state.latestVerifiedBar === undefined ||
+    (state.derivedThrough !== undefined &&
+      state.derivedThrough >= state.latestVerifiedBar)
+  );
+}
+
 /** How one EOD preparation of one stock ended (`refreshStockTail`). */
 export type StockTailRefreshResult = {
   status:
@@ -817,6 +840,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         );
         republishStarts.push(target.from);
       } else if (refreshPrices) {
+        await this.assertGeneration(hydrating);
         const refreshed = await this.refreshPriceWithinLease(
           security,
           target,
@@ -832,6 +856,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
 
       let lastFundamentalsRefreshAt = lockedManifest.lastFundamentalsRefreshAt;
       if (refreshFundamentals) {
+        await this.assertGeneration(hydrating);
         const refreshed = await this.refreshFundamentalsWithinLease(
           security,
           target,
@@ -851,6 +876,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       );
       if (derivedRebuildStart) {
         lease.assertOwned();
+        await this.assertGeneration(hydrating);
         await this.rebuildDailyDerivedState(
           security,
           target,
@@ -1001,7 +1027,13 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     if (input.operands && input.operands.length > 0) {
       await this.prepareStockOperands(security, input.operands);
     }
-    const state = await this.stockRefreshState(security);
+    let state = await this.stockRefreshState(security);
+    if (!derivedStateCaughtUp(state)) {
+      // The projection read as current while PostgreSQL's derived state stops short of a verified
+      // bar. Rebuild it from PostgreSQL now rather than leave the Monitor waiting for the next tail.
+      await this.repairDerivedState(security, load);
+      state = await this.stockRefreshState(security);
+    }
     const decision = this.finality.decide(state, input.expectedSession);
     const status: StockTailRefreshResult["status"] =
       decision.action === "SKIP"
@@ -1014,6 +1046,28 @@ export class CanonicalStockDataService implements StockDetailsDataService {
           ? "FROZEN"
           : "AWAITING_PUBLICATION";
     return { status, state };
+  }
+
+  /**
+   * Rebuilds a stock whose durable derived state is behind its prices, under its lease.
+   *
+   * The READY generation, if any, is retired first — under the lease it is this caller's to retire —
+   * so the hydration cannot stop at `covers`: it then finds the derived coverage gap and rebuilds it
+   * from stored prices and statements, with no provider read for anything already held.
+   */
+  private async repairDerivedState(
+    security: Security,
+    load: Required<DateRange>,
+  ): Promise<void> {
+    await this.coordinator.run(this.stockResource(security), async (lease) => {
+      const manifest = await this.cache.getManifest(security.id);
+      await this.cache.invalidateManifest(manifest);
+      await this.hydrateWithinLease(
+        security,
+        this.maintainedTarget(load, manifest),
+        lease,
+      );
+    });
   }
 
   async getStockDetails(
@@ -1600,7 +1654,11 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       return cached;
     }
     await this.cache.invalidateManifest(observedManifest);
-    await this.ensureStockHydrated(security, load);
+    // As for the projections: repairing a miss must not narrow what the stock already holds.
+    await this.ensureStockHydrated(
+      security,
+      this.maintainedTarget(load, observedManifest),
+    );
     cached = await this.cache.readFinancialStatements(security.id, bounded);
     return cached ?? this.store.getFinancialStatements(security.id, bounded);
   }
@@ -1702,15 +1760,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     const target = this.maintainedTarget(required, afterLock);
     const hydrating = this.hydratingManifest(security, afterLock, target);
     lease.assertOwned();
-    if (!(await this.cache.beginHydration(afterLock, hydrating))) {
-      const current = await this.cache.getManifest(security.id);
-      // Only a competing hydration that already covers this request settles it. One that
-      // finished a narrower range leaves the prefix still missing, so this call must fail
-      // rather than report a range it did not load.
-      if (this.covers(current, required)) {
-        return;
-      }
-      throw new Error("Stock cache hydration generation changed");
+    if (!(await this.beginHydrationUnderLease(security, afterLock, hydrating, required))) {
+      return;
     }
 
     // No unconditional ownership check here: the profile step asserts around its own writes and
@@ -1722,6 +1773,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       security,
       lease,
     );
+    await this.assertGeneration(hydrating);
     // Before anything is loaded beside the stored history, it is verified once against the
     // provider's (`historical-price-basis-v1.md`, §7, rule 1). A replacement re-establishes the
     // whole target's coverage, so the gaps read below are then none.
@@ -1777,6 +1829,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       );
     }
     lease.assertOwned();
+    await this.assertGeneration(hydrating);
     let priceChange: { earliestChangedDate?: string } = {};
     if (missing.length > 0) {
       // Rows loaded beside a stored history are saved only once its earliest row confirms the
@@ -1853,6 +1906,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     lease.assertOwned();
 
     const prices = await this.store.getDailyPrices(security.id, target);
+    await this.assertGeneration(hydrating);
     // Fundamentals are hydrated before the derived rebuild so READY always means the persisted
     // derived state already reflects both price history and point-in-time fundamentals. Building
     // intrinsic values first and never rebuilding them would publish a permanently empty
@@ -1895,6 +1949,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     ]);
     if (derivedRecalculationStart) {
       lease.assertOwned();
+      await this.assertGeneration(hydrating);
       await this.rebuildDailyDerivedState(
         security,
         target,
@@ -1946,6 +2001,54 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     }
   }
 
+  /**
+   * Starts this lease's HYDRATING generation over whatever the manifest holds now.
+   *
+   * The lease is held, so no other process can be hydrating this stock; what can still move the
+   * manifest between the read under the lock and the compare-and-set is lock-free work on a READY
+   * generation — a reader invalidating one it could not be served from, the LRU evicting it for
+   * another stock's publish, or an abandoned generation's TTL running out. None of that is a
+   * competing owner, so the start is retried against the manifest as it now stands instead of
+   * failing the caller with "generation changed". The range stays the one computed from the first
+   * observation: it is never narrowed because a READY generation was removed meanwhile.
+   *
+   * Returns false when the manifest that is there now already covers the request — nothing to do.
+   */
+  private async beginHydrationUnderLease(
+    security: Security,
+    observed: StockManifest | null,
+    hydrating: StockManifest,
+    required: Required<DateRange>,
+  ): Promise<boolean> {
+    let current = observed;
+    for (let attempt = 0; attempt < HYDRATION_START_ATTEMPTS; attempt += 1) {
+      if (await this.cache.beginHydration(current, hydrating)) {
+        return true;
+      }
+      current = await this.cache.getManifest(security.id);
+      if (this.covers(current, required)) {
+        return false;
+      }
+    }
+    throw new Error("Stock cache hydration generation changed");
+  }
+
+  /**
+   * Confirms this lease's HYDRATING generation is still the stock's current one and keeps it alive.
+   *
+   * Called between the long phases of a hydration or refresh — provider reads, a statement
+   * backfill, a derived rebuild — none of which registers a key. Without it a slow hydration's
+   * generation could expire under a lease that is still held, and the hydration would only learn at
+   * its first Redis write, after its PostgreSQL work. A generation that is gone means another lease
+   * holder has taken the stock over: stopping here keeps this one's remaining durable writes from
+   * landing after the newer holder's.
+   */
+  private async assertGeneration(hydrating: StockManifest): Promise<void> {
+    if (!(await this.cache.renewHydration(hydrating))) {
+      throw new Error("Stock cache hydration generation changed");
+    }
+  }
+
   private async readDailyPriceProjection(
     security: Security,
     requested: Required<DateRange>,
@@ -1988,7 +2091,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       security.id,
       projection,
     );
-    if (result && result.length > 0) {
+    // An empty answer is an answer: the cache publishes empty years on purpose, so a weekend, a
+    // holiday or a year before the first bar reads as no rows. Treating it as a miss rebuilt the
+    // whole stock on every such read (OPS-07).
+    if (result) {
       return result;
     }
     await this.cache.invalidateManifest(observedManifest);
@@ -2000,7 +2106,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       ),
     );
     result = await this.cache.readDailyDerivedState(security.id, projection);
-    if (result && result.length > 0) {
+    if (result) {
       return result;
     }
     return this.store.getDailyDerivedState(security.id, projection);

@@ -378,7 +378,7 @@ supervisor heartbeat.
 
 | Limit | Protects | Evidence | Kind | When |
 | --- | --- | --- | --- | --- |
-| **`STOCK_CACHE_MAX_RESIDENT_STOCKS` ≥ the monitored universe** (operational, not user-facing) | the stock EOD child's run time and Redis write volume (once per session since EOD V2) | EOD V2: 190 s vs 80 s and 4.38 M vs 267 k Redis commands per session at U = 500; V1 boundary table; Redis cost ≈ 0.7 MB per resident security at 12 years, ~2 MB at 34 | hard (configuration) | before production |
+| **`STOCK_CACHE_MAX_RESIDENT_STOCKS` ≥ the monitored universe + the securities of the backtests that may run at once + the API's working set** (operational, not user-facing), with `maxmemory` sized to it | the stock EOD child's run time and Redis write volume (once per session since EOD V2); backtest year-window reads | EOD V2: 190 s vs 80 s and 4.38 M vs 267 k Redis commands per session at U = 500; V1 boundary table; **3.8–4.0 MiB per resident security at 34 years with statements and the r8 derived state** (measured 2026-10-16; the earlier ~2 MB predates them); sizing rule and a 2/4/8 GB table in `docs/audits/stock-data-concurrency-2026-10-16.md` §7 | hard (configuration) | before production |
 | Securities per List: none needed for V1 with the above | — | 500-security Lists were fine at R ≥ U | — | postpone |
 | Total distinct securities monitored per deployment: budget `R` and Redis memory for it | Redis memory, provider budget (about 2 requests each per session) | EOD V2 measurements; ~2 MB Redis per security | soft (capacity plan) | before production |
 | Enabled Monitors per user | nothing measurable; a pass costs per member and new session (~1.7 ms each at 9,000 members) | EOD V2 growing | none | not justified |

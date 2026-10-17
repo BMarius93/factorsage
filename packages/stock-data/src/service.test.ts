@@ -190,11 +190,23 @@ class MemoryCache implements StockDataCache {
     return true;
   }
   async invalidateManifest(manifest: StockManifest | null) {
-    if (!manifest || this.manifests.get(manifest.securityId) !== manifest) {
+    if (
+      !manifest ||
+      manifest.status !== "READY" ||
+      this.manifests.get(manifest.securityId) !== manifest
+    ) {
       return false;
     }
     this.manifests.delete(manifest.securityId);
+    this.prices.delete(manifest.securityId);
+    this.dailyState.delete(manifest.securityId);
     return true;
+  }
+  async renewHydration(hydrating: StockManifest) {
+    return (
+      JSON.stringify(this.manifests.get(hydrating.securityId) ?? null) ===
+      JSON.stringify(hydrating)
+    );
   }
   async readDailyPrices(securityId: string, range: Required<DateRange>) {
     if (this.manifests.get(securityId)?.status !== "READY") return null;
