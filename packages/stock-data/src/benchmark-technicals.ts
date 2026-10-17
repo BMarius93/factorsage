@@ -19,6 +19,7 @@ import type {
 } from "./benchmark-ports.js";
 import { addDays } from "./dates.js";
 import { buildDailyDerivedState } from "./derived-state.js";
+import { quantizeToStoredDecimal } from "./stored-decimal.js";
 import { aggregateCompletedWeeks, type WeekSessionEnds } from "./weekly.js";
 
 /**
@@ -261,7 +262,8 @@ export function buildBenchmarkTechnicalContext(input: {
       rows.forEach((row, position) => {
         const value = row[field];
         if (typeof value === "number") {
-          column[position] = value;
+          // At the stock's storage scale, so an exact tie reads as a tie on both paths (FIN-12).
+          column[position] = quantizeToStoredDecimal(value);
         }
       });
       return [field, column];
