@@ -196,6 +196,11 @@ export type ProjectedIndexListMember = {
  *
  * `END_UNKNOWN` periods are never projected, and neither is any constituent whose resolution is not
  * tradeable. Ordered by security id, so the projection is deterministic.
+ *
+ * One day is restored where the reconstruction's caution would otherwise cut a security's
+ * membership in two: when the same security leaves (one constituent) and rejoins (another) on one
+ * unconfirmed log date — a merger's survivor, a renamed share class — it was a member on that date
+ * under either reading of it (the removal took effect the next session, or the addition that day).
  */
 export function projectIndexList(
   constituents: readonly Pick<
@@ -204,10 +209,11 @@ export function projectIndexList(
   >[],
   floor: LocalDate,
 ): ProjectedIndexListMember[] {
-  const bySecurity = new Map<
-    string,
-    { ranges: BuyWindowRange[]; keys: string[] }
-  >();
+  const tradeable: {
+    securityId: string;
+    constituentKey: string;
+    period: StoredMembershipPeriod;
+  }[] = [];
   for (const constituent of constituents) {
     if (
       constituent.securityId === null ||
@@ -217,26 +223,49 @@ export function projectIndexList(
       continue;
     }
     for (const period of constituent.periods) {
-      if (period.quality === "END_UNKNOWN") {
-        continue;
+      if (period.quality !== "END_UNKNOWN") {
+        tradeable.push({
+          securityId: constituent.securityId,
+          constituentKey: constituent.constituentKey,
+          period,
+        });
       }
-      if (period.endDate !== null && period.endDate < floor) {
-        continue;
-      }
-      const startDate =
-        period.startDate === null || period.startDate < floor
-          ? floor
-          : period.startDate;
-      const entry = bySecurity.get(constituent.securityId) ?? {
-        ranges: [],
-        keys: [],
-      };
-      entry.ranges.push({ startDate, endDate: period.endDate });
-      if (!entry.keys.includes(constituent.constituentKey)) {
-        entry.keys.push(constituent.constituentKey);
-      }
-      bySecurity.set(constituent.securityId, entry);
     }
+  }
+  // Per security, the log dates of removals the reconstruction ended the day before.
+  const removalLogDates = new Map<string, Set<LocalDate>>();
+  for (const { securityId, period } of tradeable) {
+    if (period.endDate !== null && period.endLogDate === null) {
+      const dates = removalLogDates.get(securityId) ?? new Set<LocalDate>();
+      dates.add(addDays(period.endDate, 1));
+      removalLogDates.set(securityId, dates);
+    }
+  }
+
+  const bySecurity = new Map<
+    string,
+    { ranges: BuyWindowRange[]; keys: string[] }
+  >();
+  for (const { securityId, constituentKey, period } of tradeable) {
+    if (period.endDate !== null && period.endDate < floor) {
+      continue;
+    }
+    const deferredFrom =
+      period.startLogDate !== null &&
+      period.startDate === addDays(period.startLogDate, 1)
+        ? period.startLogDate
+        : null;
+    const start =
+      deferredFrom !== null && removalLogDates.get(securityId)?.has(deferredFrom)
+        ? deferredFrom
+        : period.startDate;
+    const startDate = start === null || start < floor ? floor : start;
+    const entry = bySecurity.get(securityId) ?? { ranges: [], keys: [] };
+    entry.ranges.push({ startDate, endDate: period.endDate });
+    if (!entry.keys.includes(constituentKey)) {
+      entry.keys.push(constituentKey);
+    }
+    bySecurity.set(securityId, entry);
   }
   return [...bySecurity.entries()]
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))

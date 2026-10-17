@@ -334,6 +334,8 @@ type Arguments = {
   timeoutMinutes: number;
   startDate: string | null;
   workerEnv: Record<string, string>;
+  /** Caps each worker's PostgreSQL pool, so many workers stay inside `max_connections`. */
+  pgConnections: number | null;
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -354,6 +356,7 @@ function parseArguments(argv: readonly string[]): Arguments {
     timeoutMinutes: 240,
     startDate: null,
     workerEnv: {},
+    pgConnections: null,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] as string;
@@ -401,6 +404,9 @@ function parseArguments(argv: readonly string[]): Arguments {
         break;
       case "--start-date":
         parsed.startDate = value();
+        break;
+      case "--pg-connections":
+        parsed.pgConnections = positive(flag, value());
         break;
       case "--worker-env": {
         const [key, ...parts] = value().split("=");
@@ -829,11 +835,13 @@ async function main(): Promise<void> {
       ...capital,
     };
 
-    const workers = startWorkers(
-      args.concurrency,
-      logDirectory,
-      args.workerEnv,
-    );
+    const overrides = { ...args.workerEnv };
+    if (args.pgConnections !== null && process.env.DATABASE_URL) {
+      const url = new URL(process.env.DATABASE_URL);
+      url.searchParams.set("connection_limit", String(args.pgConnections));
+      overrides.DATABASE_URL = url.toString();
+    }
+    const workers = startWorkers(args.concurrency, logDirectory, overrides);
     const samples: Sample[] = [];
     let sampler: NodeJS.Timeout | null = null;
     const runIds: string[] = [];
@@ -983,7 +991,14 @@ async function main(): Promise<void> {
           totalMemoryBytes: totalmem(),
           node: process.version,
         },
-        workerEnv: args.workerEnv,
+        // Names and safe values only: a URL, key or secret is never written to a report.
+        workerEnv: Object.fromEntries(
+          Object.entries(args.workerEnv).map(([key, value]) => [
+            key,
+            /URL|KEY|SECRET|TOKEN|PASSWORD/i.test(key) ? "<redacted>" : value,
+          ]),
+        ),
+        pgConnectionsPerWorker: args.pgConnections,
         wallMs,
         throughputRunsPerHour:
           Math.round((runs / wallMs) * 3_600_000 * 100) / 100,

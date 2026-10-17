@@ -127,13 +127,20 @@ for a full retention). Redis `used_memory` went from 104 MB to 534 MB.
 
 ### 6. Recovery
 
-Measured on real data, 4 vCPU:
+Measured on real data, 4 vCPU, 2026-10-17:
 
-| Operation                                                                    | Result                                                        |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `protect` over 734 stale securities (rebuild from PostgreSQL), concurrency 4 | 767 s, 731 published, 0 provider requests                     |
-| `protect` again (idempotent)                                                 | 4.8 s, 732 already resident, 2 published, 0 provider requests |
-| integration: flush the namespace, reconcile, publish                         | byte-for-byte the same chunks, no provider, no recalculation  |
+| Operation                                                                                                                                    | Result                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `protect` over 734 stale securities (first fill, old keys replaced), concurrency 4                                                           | 767 s, 731 published, 2 refused then fixed (§3), 0 provider requests                                              |
+| `protect` again (idempotent)                                                                                                                 | 4.8 s, 732 already resident, 2 published, 0 provider requests                                                     |
+| **Redis lost**: every `stock-data:v2:security:*` and `symbol:*` key, the LRU and the protected set deleted (534 MB → 2.5 MB), then `protect` | **775 s**, 734 published, 0 refused, 0 failed, **0 provider requests**; the tier back to 43,818 keys and 530.9 MB |
+| the next thirty-year universe backtest                                                                                                       | completed in 72.6 s with the **identical result digest** of every run before the loss                             |
+| integration: flush the namespace, reconcile, publish                                                                                         | byte-for-byte the same chunks, no provider, no recalculation                                                      |
+
+Without `protect`, the first universe backtest after a loss designates its securities and
+rebuilds each one through the canonical loader as it prepares it; that path reaches the provider
+for a security whose PostgreSQL coverage has a held tail, so `protect` is the provider-free
+recovery.
 
 ## Consequences
 

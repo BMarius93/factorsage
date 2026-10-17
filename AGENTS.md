@@ -10,8 +10,9 @@ Read `ai/README.md` before substantial work.
    `IndexMembershipPeriod`), reconstructed from the provider's index history and identity data,
    projected into CUSTOM buy windows by `pnpm data:index-universe -- project`, and never edited
    through the List routes. Membership is never invented and never substituted with today's
-   constituents: a constituent the provider cannot price or identify is reported, not traded. No
-   other index is synced or reconstructed. Point-in-time membership a user supplies is a different
+   constituents: a constituent the provider cannot price or identify is reported, not traded, and a
+   boundary the provider's dates leave in doubt is placed so membership never starts early (§4 of
+   the decision). No other index is synced or reconstructed. Point-in-time membership a user supplies is a different
    thing and is supported — see invariant 3.
 2. Stock lists are static universes owned by a user or by the system (built-in content, see
    invariant 21); membership references the canonical `Security` catalog, never free-text symbols.

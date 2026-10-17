@@ -56,10 +56,14 @@ const byKey = (
 };
 
 describe("reconstructIndexMembership", () => {
-  it("undoes a replacement: the added issuer joins on the effective date, the removed one leaves the day before", () => {
+  it("undoes a replacement: the added issuer joins on the confirmed effective date, the removed one leaves the day before", () => {
     const replacement = change("2010-01-04", ["B"], ["C"]);
     const result = reconstructIndexMembership(
-      input({ current: [current("A"), current("B")], changes: [replacement] }),
+      input({
+        // B's first-added date confirms the log's date as the effective date.
+        current: [current("A"), current("B", "B Corp", "2010-01-04")],
+        changes: [replacement],
+      }),
     );
 
     expect(byKey(result, "CURRENT:B").periods).toEqual([
@@ -97,7 +101,118 @@ describe("reconstructIndexMembership", () => {
       }),
     ]);
     expect(result.logStart).toBe("2010-01-04");
+    expect(result.additionStarts).toEqual({ refined: 0, confirmed: 1, deferred: 0 });
     expect(result.anomalies).toEqual([]);
+  });
+
+  it("starts an addition no current member confirms the day after the log's date, and ends a removal the day before it", () => {
+    // Twitter: the log dates its addition 2018-06-06, the rebalancing session before it took
+    // effect on 2018-06-07; nothing in today's list can say which, so membership starts on the
+    // 7th — never before the index held it. Its removal shares a log date with Arch Capital's
+    // addition, which today's list refines to 2022-11-01.
+    const joins = change("2018-06-06", ["TWTR", "Twitter"], ["MON", "Monsanto"]);
+    const leaves = change("2022-10-31", ["ACGL", "Arch Capital"], ["TWTR", "Twitter"]);
+    const result = reconstructIndexMembership(
+      input({
+        current: [current("ACGL", "Arch Capital Group", "2022-11-01")],
+        changes: [joins, leaves],
+      }),
+    );
+    expect(byKey(result, `REMOVAL:${leaves.contentHash}`).periods).toEqual([
+      {
+        startDate: "2018-06-07",
+        startLogDate: "2018-06-06",
+        endDate: "2022-10-31",
+        endLogDate: "2022-10-30",
+        quality: "CONFIRMED",
+        startChangeHash: joins.contentHash,
+        endChangeHash: leaves.contentHash,
+        startMatch: "EXACT_TICKER",
+      },
+    ]);
+    // The removed side of an unconfirmed date already ends the day before the log's date.
+    expect(byKey(result, `REMOVAL:${joins.contentHash}`).periods).toEqual([
+      expect.objectContaining({ endDate: "2018-06-05", endLogDate: null }),
+    ]);
+    expect(byKey(result, "CURRENT:ACGL").periods).toEqual([
+      expect.objectContaining({ startDate: "2022-11-01", startLogDate: "2022-10-31" }),
+    ]);
+    expect(result.additionStarts).toEqual({ refined: 1, confirmed: 0, deferred: 1 });
+    expect(result.anomalies).toEqual([]);
+  });
+
+  it("records no membership for an addition removed before any session confirms it", () => {
+    const joins = change("2010-03-04", ["Q"], null);
+    const leaves = change("2010-03-05", null, ["Q"]);
+    const result = reconstructIndexMembership(
+      input({ current: [current("A")], changes: [joins, leaves] }),
+    );
+    expect(result.constituents.map((entry) => entry.constituentKey)).toEqual([
+      "CURRENT:A",
+    ]);
+    expect(result.anomalies).toEqual([
+      {
+        kind: "NO_CONFIRMED_SESSION",
+        date: "2010-03-04",
+        ticker: "Q",
+        changeHash: joins.contentHash,
+      },
+    ]);
+  });
+
+  it("takes the evidence of a current member the log names by a ticker it later gave up", () => {
+    // Bank of New York Mellon was added as BK and is BNY today; Fiserv's addition reads FI, a
+    // ticker it held only from 2023 to 2025, and it is FISV today.
+    const bk = change("1995-03-30", ["BK", "Bank of New York"], null);
+    const fi = change("2001-03-30", ["FI", "Fiserv Inc."], null);
+    const result = reconstructIndexMembership(
+      input({
+        current: [
+          current("BNY", "BNY Mellon", "1995-03-30"),
+          current("FISV", "Fiserv", "2001-04-02"),
+        ],
+        changes: [bk, fi],
+        symbolChanges: [
+          rename("2024-04-09", "BK", "BNY"),
+          rename("2023-06-07", "FISV", "FI"),
+          rename("2025-11-11", "FI", "FISV"),
+        ],
+      }),
+    );
+    expect(byKey(result, "CURRENT:BNY").periods).toEqual([
+      expect.objectContaining({ startDate: "1995-03-30", startLogDate: null }),
+    ]);
+    expect(byKey(result, "CURRENT:FISV").periods).toEqual([
+      expect.objectContaining({ startDate: "2001-04-02", startLogDate: "2001-03-30" }),
+    ]);
+    expect(result.additionStarts).toEqual({ refined: 1, confirmed: 1, deferred: 0 });
+    expect(result.anomalies).toEqual([]);
+  });
+
+  it("defers the start on a log date whose current-list evidence contradicts itself", () => {
+    const first = change("2016-01-29", ["A"], null);
+    const second = change("2016-01-29", ["B"], null);
+    const result = reconstructIndexMembership(
+      input({
+        current: [current("A", "A Corp", "2016-02-01"), current("B", "B Corp", "2016-02-02")],
+        changes: [first, second],
+      }),
+    );
+    for (const key of ["CURRENT:A", "CURRENT:B"]) {
+      expect(byKey(result, key).periods).toEqual([
+        expect.objectContaining({ startDate: "2016-01-30", startLogDate: "2016-01-29" }),
+      ]);
+    }
+    expect(result.anomalies).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "EFFECTIVE_DATE_CONFLICT",
+          date: "2016-01-29",
+          candidates: ["2016-02-01", "2016-02-02"],
+          logDateConfirmed: false,
+        },
+      ]),
+    );
   });
 
   it("follows an issuer through a rename: Facebook joined as FB and is a member today as META", () => {
@@ -110,9 +225,11 @@ describe("reconstructIndexMembership", () => {
       }),
     );
     const meta = byKey(result, "CURRENT:META");
+    // Nothing in today's list confirms the log's date, so membership starts the day after it.
     expect(meta.periods).toEqual([
       expect.objectContaining({
-        startDate: "2013-12-23",
+        startDate: "2013-12-24",
+        startLogDate: "2013-12-23",
         endDate: null,
         startMatch: "EXACT_TICKER",
         quality: "CONFIRMED",
@@ -137,14 +254,19 @@ describe("reconstructIndexMembership", () => {
         symbolChanges: [rename("2005-11-18", "SBC", "T")],
       }),
     );
+    // Neither addition's log date is confirmed by today's list: each starts the day after it.
     expect(byKey(result, "CURRENT:T").periods).toEqual([
-      expect.objectContaining({ startDate: "1983-11-30", endDate: null }),
+      expect.objectContaining({
+        startDate: "1983-12-01",
+        startLogDate: "1983-11-30",
+        endDate: null,
+      }),
     ]);
     expect(
       byKey(result, `REMOVAL:${attCorpLeaves.contentHash}`).periods,
     ).toEqual([
       expect.objectContaining({
-        startDate: "1957-03-04",
+        startDate: "1957-03-05",
         endDate: "2005-11-17",
         quality: "CONFIRMED",
         startMatch: "EXACT_TICKER",
@@ -169,7 +291,7 @@ describe("reconstructIndexMembership", () => {
     );
     expect(byKey(result, "CURRENT:FISV").periods).toEqual([
       expect.objectContaining({
-        startDate: "2001-03-30",
+        startDate: "2001-03-31",
         startMatch: "TICKER_HISTORY",
       }),
     ]);
@@ -183,7 +305,7 @@ describe("reconstructIndexMembership", () => {
       }),
     );
     expect(byKey(result, "CURRENT:ABC").periods).toEqual([
-      expect.objectContaining({ startDate: "2005-06-01", startMatch: "NAME" }),
+      expect.objectContaining({ startDate: "2005-06-02", startMatch: "NAME" }),
     ]);
   });
 
@@ -197,7 +319,7 @@ describe("reconstructIndexMembership", () => {
         origin: "ORPHAN_ADDITION",
         periods: [
           expect.objectContaining({
-            startDate: "2001-04-02",
+            startDate: "2001-04-03",
             endDate: null,
             quality: "END_UNKNOWN",
           }),
@@ -217,11 +339,11 @@ describe("reconstructIndexMembership", () => {
       input({ current: [current("X")], changes: [joins, leaves, rejoins] }),
     );
     expect(byKey(result, "CURRENT:X").periods).toEqual([
-      expect.objectContaining({ startDate: "2015-01-02", endDate: null }),
+      expect.objectContaining({ startDate: "2015-01-03", endDate: null }),
     ]);
     expect(byKey(result, `REMOVAL:${leaves.contentHash}`).periods).toEqual([
       expect.objectContaining({
-        startDate: "2001-03-01",
+        startDate: "2001-03-02",
         endDate: "2008-04-30",
         quality: "CONFIRMED",
       }),
@@ -270,7 +392,7 @@ describe("reconstructIndexMembership", () => {
     expect(
       byKey(result, `REMOVAL:${chryslerLeaves.contentHash}`).periods,
     ).toEqual([
-      expect.objectContaining({ startDate: "1990-01-02", endDate: "1998-11-11" }),
+      expect.objectContaining({ startDate: "1990-01-03", endDate: "1998-11-11" }),
     ]);
   });
 
@@ -335,7 +457,7 @@ describe("reconstructIndexMembership", () => {
         kind: "FIRST_ADDED_MISMATCH",
         ticker: "B",
         providerDateFirstAdded: "2009-01-01",
-        reconstructedStart: "2010-01-04",
+        reconstructedStart: "2010-01-05",
       },
     ]);
   });

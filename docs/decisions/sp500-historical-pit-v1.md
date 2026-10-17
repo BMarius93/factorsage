@@ -33,8 +33,9 @@ Measured on the FMP plan configured for this environment, 2026-10-17:
 | `historical-market-capitalization`                                    | daily market cap                                                   | identity plausibility                                |
 | prices, statements, profile, splits, insider and congressional trades | per security                                                       | the history itself (§6)                              |
 
-The provider records **effective dates only** — no announcement dates — and its log date is often
-the session _before_ the effective date (§3). The log is complete enough to reconstruct 496–499
+The provider records **no announcement dates**, and its change log gives one date per change that
+is either the effective date or the rebalancing session before it — the session before for 221 of
+the 291 log dates today's list can check (§4). The log is complete enough to reconstruct 494–499
 lines per day before 2005, against the index's 500: the provider's history is the limit (§9).
 
 ## §3 Canonical model (PostgreSQL)
@@ -47,9 +48,10 @@ Migration `20261017120000_sp500_historical_pit`:
 - `IndexMembershipSync` — one row per synchronization: source digest, counts, anomalies, quality;
 - `IndexConstituent` — one issuer line: origin (`CURRENT`, `REMOVAL`, `ORPHAN_ADDITION`), ticker
   history, resolution and the evidence for it, and the resolved `securityId`;
-- `IndexMembershipPeriod` — `startDate`/`endDate` (inclusive), the log's own dates beside refined
-  ones (`startLogDate`, `endLogDate`), the change hashes, the identity tier (`startMatch`) and a
-  quality (`CONFIRMED`, `START_BEFORE_LOG`, `END_UNKNOWN`);
+- `IndexMembershipPeriod` — `startDate`/`endDate` (inclusive), the log's own dates beside every
+  boundary that moved away from them (`startLogDate`, `endLogDate`: refined or deferred, §4), the
+  change hashes, the identity tier (`startMatch`) and a quality (`CONFIRMED`, `START_BEFORE_LOG`,
+  `END_UNKNOWN`);
 - `IndexUniverseIngestion` — per-security ingestion progress (§6).
 
 A synchronization replaces the reconstruction transactionally and is idempotent: the same source
@@ -58,7 +60,7 @@ digest produces the same rows. The List is a **projection** of these tables, nev
 ## §4 Reconstruction and identity
 
 `packages/stock-data/src/index-membership/reconstruction.ts` — pure, deterministic, versioned
-(`INDEX_RECONSTRUCTION_ALGORITHM_VERSION` 1):
+(`INDEX_RECONSTRUCTION_ALGORITHM_VERSION` 2):
 
 1. **Backward walk.** Start from the current list; walk the change log from newest to oldest,
    undoing each change. No period is assumed: a period exists only between a recorded addition and
@@ -67,11 +69,25 @@ digest produces the same rows. The List is a **projection** of these tables, nev
    undone along the way (META is FB before 2022-06-09; AT&T Inc. was SBC until it took `T` from the
    AT&T Corp. it absorbed). Additions match a member in three recorded tiers: `EXACT_TICKER`
    (1,376 periods), `TICKER_HISTORY` (92), `NAME` ≥ 0.85 similarity (1).
-3. **Effective dates.** Where the current list's `dateFirstAdded` falls one to four days after a
-   log date and nothing contradicts it, every change on that log date takes the refined date —
-   additions and removals together, because a replacement's two sides take effect together.
-   Measured: of 223 such log dates, 222 agree on one date. Contradictions are reported
-   (`EFFECTIVE_DATE_CONFLICT`, 3) and keep the log's date.
+3. **Effective dates, never early.** A log date is checked against the current list's
+   `dateFirstAdded` of the members it adds (a ticker no current member holds is followed through
+   later renames: Bank of New York was added as BK and is BNY today). One to four days later and
+   uncontradicted, the date is **refined** — every change on it, additions and removals together,
+   because a replacement's two sides take effect together; equal, it is **confirmed**. Measured over
+   the 915 log dates that add an issuer: 221 refined (one day later 152, two 6, three 57, four 6),
+   70 confirmed (two of them contradicted by another member's date — reported as
+   `EFFECTIVE_DATE_CONFLICT` — and kept) and 624 unconfirmed: 623 with no current member to speak
+   for them and one whose members disagree (Google's, 2006-03-31). On those 624 the log's date may
+   name the effective session or the one before it, so an addition starts the **day after** it and a removal ends the day before it:
+   membership is never claimed for a session the provider's records leave in doubt, at the price
+   of one session where the log's date was already effective. A confirmed date is two provider
+   records agreeing, not proof: both date Amazon's addition 2005-11-18, the rebalancing session
+   before its 2005-11-21 effective date (§7), and nothing in the data tells such a date apart (28 of
+   the 68 uncontradicted confirmed dates fall on a Monday, as effective dates mostly do). Of 1,490 applied additions, 311 start
+   on a refined date, 308 on a confirmed one and 871 the day after their log date. A security that
+   leaves and rejoins on one such date (a merger's survivor: DowDuPont becoming DuPont in 2019)
+   keeps that day in the List — under either reading it was a member. Version 1 started those 871
+   additions on the log's date, one session early in most cases (Twitter, Yahoo, Google in §7).
 4. **Never invented.** An addition with no later removal that is not a member today is
    `END_UNKNOWN` (21) and is reported, never projected.
 
@@ -148,9 +164,34 @@ from one the product hydrated.
 | congressional trades | 44,913    | 686        | available 2014-02-01 …         |
 | stock splits         | 2,490     | 548        |                                |
 
-Membership lines per day: 496 (1996-01-02) to 507 (2020-04-03); within the 500–506 band on 7,955
-of 11,247 days; yearly checkpoints 496–499 until 2004, 500 from 2005 to 2014, 502–505 after.
-Interior price gaps: 3 securities (FRO 597 sessions, CVG 17, SVU 10).
+Membership lines per day: 494 (1996-03-29) to 507 (2020-04-03); within the 500–506 band on 7,846
+of 11,247 days (the deferred starts of §4 leave a replacement's day one line short where neither
+side can be placed); yearly checkpoints 496–499 until 2004, 499–500 from 2005 to 2014, 502–505
+after. Interior price gaps: 3 securities (FRO 597 sessions, CVG 17, SVU 10).
+
+**Against published index changes** (S&P Dow Jones Indices' effective dates, the first session as
+a member; the provider's log date in brackets where it differs):
+
+| Change                                                        | Effective                                      | Reconstructed (v2)                                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Yahoo added [1999-12-07]                                      | 1999-12-08                                     | 1999-12-08 — deferred (v1: 1999-12-07)                                                         |
+| NVIDIA for Enron [2001-11-29]                                 | 2001-11-30                                     | NVIDIA from 2001-11-30, Enron through 2001-11-29 — refined                                     |
+| Amazon added [2005-11-18]                                     | 2005-11-21                                     | 2005-11-18 — confirmed by both provider records; one session early                             |
+| Google added [2006-03-31]                                     | 2006-04-03                                     | 2006-04-01, first session 2006-04-03 — deferred (v1: 03-31)                                    |
+| Netflix added [2010-12-17]                                    | 2010-12-20                                     | 2010-12-20 — refined                                                                           |
+| Facebook added [2013-12-20]                                   | 2013-12-23                                     | 2013-12-23 — refined                                                                           |
+| Twitter for Monsanto [2018-06-06]                             | 2018-06-07                                     | Twitter from 2018-06-07 — deferred (v1: 06-06); Monsanto through 2018-06-05, one session short |
+| Tesla added [2020-12-18]                                      | 2020-12-21                                     | 2020-12-21 — refined                                                                           |
+| Moderna added [2021-07-20]                                    | 2021-07-21                                     | 2021-07-21 — refined                                                                           |
+| Arch Capital for Twitter [2022-10-31]                         | 2022-11-01                                     | Twitter through 2022-10-31 — refined                                                           |
+| Airbnb, Uber, Super Micro                                     | 2023-09-18, 2023-12-18, 2024-03-18             | the same — refined                                                                             |
+| Palantir and Dell, DoorDash, Coinbase, AppLovin and Robinhood | 2024-09-23, 2025-03-24, 2025-05-19, 2025-09-22 | the same — confirmed                                                                           |
+
+Sources for the four dates the provider places on the rebalancing session: S&P Dow Jones Indices'
+release of 2018-06-04 (Twitter "prior to the open on Thursday, June 7"), CNN Money 1999-11-30
+(Yahoo "effective at the close of trading Dec. 7"), the March 2006 reports of Google replacing
+Burlington Resources "after the close of trading on March 31", and S&P's 2005-11-14 announcement of
+Amazon replacing AT&T Corp. "after the close on November 18".
 
 **Priced share of member-sessions** — the share of (member, session) pairs with a stored price:
 
@@ -160,9 +201,10 @@ Interior price gaps: 3 securities (FRO 597 sessions, CVG 17, SVU 10).
 
 ## §8 Engine ceilings, worker footprint and throughput
 
-The ceilings in §5 are sized from the measured universe (734 securities, peak 507) with headroom.
-The benchmark of thirty-year runs over the universe — throughput, concurrency, resources and cache
-modes — is in §10.
+The ceilings in §5 are sized from the measured universe (734 securities, peak 507) with headroom:
+a thirty-year run over the whole universe holds ~0.44 GB in one worker process (§10), so the
+2,000-security ceiling bounds a run at roughly 1.2 GB. The benchmark — throughput, concurrency,
+resources and cache modes — is in §10.
 
 ## §9 Known limitations (unreliable periods)
 
@@ -172,7 +214,11 @@ modes — is in §10.
   survivors. Treat 1996–2009 as **unreliable for absolute performance** (under 80 % of member-days
   priced), 2010–2015 as usable with care, 2016 onward as reliable.
 - **Pre-2005 line count.** The log reconstructs 496–499 lines before 2005.
-- **No announcement dates**; effective dates only, refined as in §4.
+- **No announcement dates**, and a log date names either the effective session or the one before
+  it; where today's list cannot tell which (624 log dates, mostly before 2015), membership starts
+  the day after the log's date and ends the day before it (§4) — at such a boundary up to one
+  session short, never early. Where both provider records agree on the session before (Amazon,
+  2005), the start is one session early and cannot be detected.
 - **Terminal crashes.** The re-base hold keeps a final crash bar the provider cannot confirm out of
   PostgreSQL (First Republic, SVB), so those histories end one session early; the canonical loader
   asks the provider for the hold's dates again on every hydration.
@@ -181,7 +227,60 @@ modes — is in §10.
 
 ## §10 Benchmark
 
-See the results section appended below.
+`pnpm --filter @intrinsic/api bench:pit-backtests` (2026-10-17): thirty-year runs (1996-10-17 …
+2026-10-16) over the universe — 732 securities in the period, peak 506 at once — submitted through
+`BacktestsService.submitRun` and executed by real backtest worker processes, warm protected tier.
+Isolated configuration of the benchmark's own processes only: no provider key,
+`EOD_TAIL_REFRESH=frozen`, fundamentals and alternative-data freshness 30 days, the operator
+(`ADMIN`) fixture as owner, a per-worker PostgreSQL pool cap at 8+ workers. No product limit changed.
+
+**Machine:** 4 vCPU Intel Xeon @ 2.80 GHz, 16 GB RAM, no swap; Node 22.23.2, PostgreSQL 16,
+Redis 7.0.15, all on the one VM.
+
+| Run                 | Strategy                              | Workers = runs | Wall    | Per run p50 / p95 | Throughput   | Prep   | Frame reads | Worker CPU / run | CPU busy | Worker RSS total (per process) | Redis out | PG tx  | Failed | Identical |
+| ------------------- | ------------------------------------- | -------------- | ------- | ----------------- | ------------ | ------ | ----------- | ---------------- | -------- | ------------------------------ | --------- | ------ | ------ | --------- |
+| before optimization | simple                                | 1              | 104.5 s | 101.0 s           | 34.5 /h      | 1.4 s  | 86.1 s      | 118.2 s          | 35 %     | 0.41 GB                        | 948 MB    | 19.8 k | 0      | —         |
+| single              | simple                                | 1              | 80.4 s  | 76.9 s            | 44.8 /h      | 1.5 s  | 63.1 s      | 92.7 s           | 35 %     | 0.40 GB                        | 511 MB    | 18.7 k | 0      | yes       |
+| single              | complex                               | 1              | 102.4 s | 98.6 s            | 35.1 /h      | 1.3 s  | 69.6 s      | 114.3 s          | 43 %     | 0.44 GB                        | 511 MB    | 18.4 k | 0      | yes       |
+| single              | monthly (contributions, 10 positions) | 1              | 83.4 s  | 81.3 s            | 43.2 /h      | 1.6 s  | 66.1 s      | 93.6 s           | 46 %     | 0.40 GB                        | 511 MB    | 18.6 k | 0      | yes       |
+| scaling             | simple                                | 2              | 84.6 s  | 81.4 s            | 85.1 /h      | 2.4 s  | 65.5 s      | 87.4 s           | 68 %     | 0.83 GB (0.42)                 | 1.0 GB    | 37.1 k | 0      | yes       |
+| scaling             | simple                                | 4              | 101.0 s | 97.1 / 97.4 s     | **142.6 /h** | 4.0 s  | 78.9 s      | 82.6 s           | 97 %     | 1.74 GB (0.44)                 | 2.0 GB    | 71.1 k | 0      | yes       |
+| scaling             | simple                                | 8              | 209.0 s | 199.6 / 203.6 s   | 137.8 /h     | 6.6 s  | 162.7 s     | 88.8 s           | 99 %     | 3.26 GB (0.44)                 | 4.1 GB    | 142 k  | 0      | yes       |
+| scaling             | simple                                | 16             | 420.9 s | 406.3 / 414.7 s   | 136.9 /h     | 12.2 s | 326.4 s     | 91.4 s           | 99 %     | 6.38 GB (0.44)                 | 8.2 GB    | 287 k  | 0      | yes       |
+
+Every run hit Redis for every chunk (hit rate 1.0, zero misses), reached the provider zero times,
+and failed zero times. Results are deterministic: the 32 simple runs across every level share one
+result digest (summary and every trade), as do the complex and the monthly runs.
+
+The table was measured on the List of reconstruction version 1. After version 2 (§4: 169 windows
+start a day later) the runs were repeated: simple at 2 workers 75.0 s per run (two runs, one
+digest), complex 94.7 s, monthly 77.8 s; hit rate 1.0, no provider request, no failure. The simple
+and complex results changed with the windows (digests `1b5fb2c1…` and `03349aed…`, from
+`1b746559…` and `904d5c07…`); the monthly strategy's did not (`80e02b39…`).
+
+- **Bottleneck: worker CPU.** Throughput rises linearly to 4 workers (one per core) and is flat
+  after — 143 runs/hour at 4, 137 at 16 — while per-run latency doubles with each doubling past 4.
+  Redis spent 91 CPU-seconds and PostgreSQL peaked at 24 active connections at 16 workers; neither
+  is close to saturation. A CPU profile of one run attributes 44 % of worker CPU to decoding
+  daily-state chunks (JSON parse 12 %, row materialization 15 %, column expansion 5 %, zstd 12 %),
+  14 % to price chunks, ~10 % to the simulation and 6 % to GC.
+- **Optimization applied** (identical digests before and after): each window read its own year
+  _and_ the previous one for ten days of leading context the simulation then drops; a per-run
+  carry now hands those rows from one window to the next. One run: 101.0 s → 76.9 s, Redis bytes
+  948 → 511 MB. Lua scripts are sent by `EVALSHA` (commands sent to Redis 43 → 25 MB per run).
+- **Next optimization, not applied:** decode only the columns a strategy reads from the columnar
+  chunk instead of materializing ~100-field rows (~20 % of worker CPU by the profile).
+- **Not run: 32, 64 and 128 workers.** Each worker peaks at ~0.44 GB; 32 workers would need ~14 GB
+  against ~13 GB available with PostgreSQL and Redis on the same VM (64: ~28 GB, 128: ~56 GB), and
+  on 4 cores they would add no throughput — only latency. Stopped at 16 as the last safe level.
+- **Production setting.** `BACKTEST_WORKER_PROCESSES` should be about the core count of the worker
+  host (each run is single-threaded); a Pro user's two concurrent runs then see single-run latency.
+
+**Cache modes.** Warm protected tier: above. Without the tier — a 100-slot LRU over 732 securities —
+each window would miss for most securities and rebuild each one from PostgreSQL: at the measured
+~4 s per security rebuild (`protect`, 4 lanes), ~19,600 rebuilds per run, i.e. **many hours per
+run**; the tier is what makes the universe runnable at all. Redis lost: see the recovery
+measurement in `protected-stock-tier-v1.md` §6.
 
 ## Operations
 

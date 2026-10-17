@@ -37,12 +37,21 @@ import { issuerNameSimilarity } from "./names.js";
  * Its period is `END_UNKNOWN` and is reported, never projected: assuming an end would invent
  * membership. Ambiguities and ticker collisions are reported as anomalies with what was chosen.
  *
- * **Dates.** Every provider date is an effective date (the provider records no announcement date).
- * A period's `startDate` is the addition's effective date; its `endDate` is inclusive, the calendar
- * day before the removal took effect — the index no longer held the issuer from that day's open.
- * Changes dated after `asOf` have not happened yet and are reported, not applied.
+ * **Dates.** The provider records no announcement date, and its change log's date for a change is
+ * either the effective date or — about three times in four where the current list lets it be
+ * checked — the rebalancing session before it ({@link FIRST_ADDED_REFINEMENT_DAYS}). A period's
+ * `startDate` is the first day the index certainly held the issuer: the effective date where the
+ * current list establishes it, otherwise the day after the log's date (an addition never starts
+ * before the index held the issuer, at the price of one session when the log's date was already
+ * effective). Its `endDate` is inclusive, the calendar day before the removal's date — the index no
+ * longer held the issuer from that day's open, or held it one session longer. Membership is
+ * therefore never claimed for a session the provider's records leave in doubt; at a boundary the
+ * log cannot place exactly, it may be one session short. (Where both of the provider's records name
+ * the rebalancing session — Amazon's 2005 addition is dated 2005-11-18 in both, effective
+ * 2005-11-21 — nothing in the data can tell, and the start is that one session early.) Changes
+ * dated after `asOf` have not happened yet and are reported, not applied.
  */
-export const INDEX_RECONSTRUCTION_ALGORITHM_VERSION = 1;
+export const INDEX_RECONSTRUCTION_ALGORITHM_VERSION = 2;
 
 /** A name match must be at least this similar to count as tier-3 evidence. */
 export const INDEX_NAME_MATCH_THRESHOLD = 0.85;
@@ -55,15 +64,21 @@ export const INDEX_NAME_MATCH_THRESHOLD = 0.85;
  * one session: the change log names the session **before** the effective date — the rebalancing
  * close, a Friday when the change took effect on a Monday — while the current list's
  * `dateFirstAdded` is the effective date (Uber: log 2023-12-15, effective 2023-12-18; Tesla: log
- * 2020-12-18, effective 2020-12-21). Measured on 2026-10-17: of the 223 log dates where a current
- * member's first-added date falls one to four days later, 222 agree on a single date.
+ * 2020-12-18, effective 2020-12-21). Measured on 2026-10-17 over the 915 log dates that add an
+ * issuer: 221 are refined (a current member's first-added date one to four days later, nothing
+ * contradicting it), 70 are confirmed (a current member added on the date itself; two of them also
+ * contradicted, and reported) and 624 are unconfirmed — 623 with no current member to speak for
+ * them, one whose members disagree.
  *
  * Where a log date has that evidence and nothing contradicts it — no current member added on the
  * log date itself, no second candidate date — **every** change on that log date takes effect on the
  * refined date, additions and removals alike, because a replacement's two sides take effect
- * together. It is the conservative direction: membership never starts before the index held the
- * issuer. The log's own date is kept beside each refined boundary, and a contradicted log date is
- * reported (`EFFECTIVE_DATE_CONFLICT`) and left as the log has it.
+ * together. A log date a current member's first-added date equals is **confirmed**: both of the
+ * provider's records agree on it, and it is taken as the effective date.
+ * Every other log date — no current member's addition speaks for it, or the evidence contradicts
+ * itself (`EFFECTIVE_DATE_CONFLICT`, reported) — may name either session, so its additions start the
+ * day after it ({@link reconstructIndexMembership}'s "Dates"). The log's own date is kept beside
+ * every boundary that moved away from it.
  */
 export const FIRST_ADDED_REFINEMENT_DAYS = 4;
 
@@ -103,8 +118,9 @@ export type ReconstructedPeriod = {
   /** First day of membership; null when the issuer was a member before the change log begins. */
   readonly startDate: LocalDate | null;
   /**
-   * The change log's own date for the addition, kept when `startDate` was refined away from it
-   * (see {@link FIRST_ADDED_REFINEMENT_DAYS}); null when the log's date is the start.
+   * The change log's own date for the addition, kept when `startDate` moved away from it — refined
+   * to the effective date, or deferred to the next day because nothing confirms the log's date (see
+   * {@link FIRST_ADDED_REFINEMENT_DAYS}); null when the log's date is the start.
    */
   readonly startLogDate: LocalDate | null;
   /** Last day of membership, inclusive; null while a member, or when the end is unknown. */
@@ -188,12 +204,31 @@ export type ReconstructionAnomaly =
       readonly ticker: string;
       readonly providerDateFirstAdded: LocalDate;
       readonly reconstructedStart: LocalDate | null;
+    }
+  | {
+      /**
+       * An addition removed again before the first day the index certainly held it: no session of
+       * membership can be established, so no period is recorded.
+       */
+      readonly kind: "NO_CONFIRMED_SESSION";
+      readonly date: LocalDate;
+      readonly ticker: string;
+      readonly changeHash: string;
     };
 
 export type ReconstructionResult = {
   readonly algorithmVersion: number;
   /** The oldest effective date in the change log: before it, nothing was reconstructed. */
   readonly logStart: LocalDate | null;
+  /**
+   * How every applied addition's start was placed: on a date the current list refined or
+   * confirmed, or deferred to the day after an unconfirmed log date.
+   */
+  readonly additionStarts: {
+    readonly refined: number;
+    readonly confirmed: number;
+    readonly deferred: number;
+  };
   readonly constituents: readonly ReconstructedConstituent[];
   readonly anomalies: readonly ReconstructionAnomaly[];
 };
@@ -220,6 +255,7 @@ export function reconstructIndexMembership(
   input: ReconstructionInput,
 ): ReconstructionResult {
   const anomalies: ReconstructionAnomaly[] = [];
+  const additionStarts = { refined: 0, confirmed: 0, deferred: 0 };
   const walkers: Walker[] = [];
   let active: Walker[] = [];
 
@@ -238,17 +274,24 @@ export function reconstructIndexMembership(
   };
 
   // Determinism: inputs are processed in a canonical order whatever order they arrived in.
-  const refinement = refineEffectiveDates(dedupeChanges(input.changes), input.current);
+  const refinement = refineEffectiveDates(
+    dedupeChanges(input.changes),
+    input.current,
+    input.symbolChanges,
+  );
   for (const conflict of refinement.conflicts) {
     anomalies.push({ kind: "EFFECTIVE_DATE_CONFLICT", ...conflict });
   }
-  const changes = dedupeChanges(input.changes).map(
-    (change): EffectiveChange => ({
+  const changes = dedupeChanges(input.changes).map((change): EffectiveChange => {
+    const refined = refinement.refined.get(change.effectiveDate);
+    return {
       ...change,
       logDate: change.effectiveDate,
-      effectiveDate: refinement.refined.get(change.effectiveDate) ?? change.effectiveDate,
-    }),
-  );
+      effectiveDate: refined ?? change.effectiveDate,
+      startConfirmed:
+        refined !== undefined || refinement.confirmed.has(change.effectiveDate),
+    };
+  });
   const future = changes.filter((change) => change.effectiveDate > input.asOf);
   for (const change of future) {
     anomalies.push({
@@ -302,6 +345,13 @@ export function reconstructIndexMembership(
       if (!change.addedTicker) {
         continue;
       }
+      if (!change.startConfirmed) {
+        additionStarts.deferred += 1;
+      } else if (change.effectiveDate !== change.logDate) {
+        additionStarts.refined += 1;
+      } else {
+        additionStarts.confirmed += 1;
+      }
       const match = matchAddition(active, change, anomalies);
       if (!match) {
         anomalies.push({
@@ -321,9 +371,10 @@ export function reconstructIndexMembership(
           openEndLogDate: null,
           openEndHash: null,
         });
+        const orphanStart = additionStart(change);
         orphan.periods.push({
-          startDate: date,
-          startLogDate: change.logDate === date ? null : change.logDate,
+          startDate: orphanStart,
+          startLogDate: change.logDate === orphanStart ? null : change.logDate,
           endDate: null,
           endLogDate: null,
           quality: "END_UNKNOWN",
@@ -334,16 +385,26 @@ export function reconstructIndexMembership(
         walkers.push(orphan);
         continue;
       }
-      match.walker.periods.push({
-        startDate: date,
-        startLogDate: change.logDate === date ? null : change.logDate,
-        endDate: match.walker.openEnd,
-        endLogDate: match.walker.openEndLogDate,
-        quality: match.walker.openQuality,
-        startChangeHash: change.contentHash,
-        endChangeHash: match.walker.openEndHash,
-        startMatch: match.tier,
-      });
+      const start = additionStart(change);
+      if (match.walker.openEnd !== null && start > match.walker.openEnd) {
+        anomalies.push({
+          kind: "NO_CONFIRMED_SESSION",
+          date,
+          ticker: change.addedTicker,
+          changeHash: change.contentHash,
+        });
+      } else {
+        match.walker.periods.push({
+          startDate: start,
+          startLogDate: change.logDate === start ? null : change.logDate,
+          endDate: match.walker.openEnd,
+          endLogDate: match.walker.openEndLogDate,
+          quality: match.walker.openQuality,
+          startChangeHash: change.contentHash,
+          endChangeHash: match.walker.openEndHash,
+          startMatch: match.tier,
+        });
+      }
       active = active.filter((walker) => walker !== match.walker);
     }
 
@@ -410,7 +471,9 @@ export function reconstructIndexMembership(
     });
   }
 
+  // A walker whose only stint no session confirms (`NO_CONFIRMED_SESSION`) was never a member.
   const constituents = walkers
+    .filter((walker) => walker.periods.length > 0)
     .map(toConstituent)
     .sort((left, right) => compareText(left.constituentKey, right.constituentKey));
 
@@ -437,6 +500,7 @@ export function reconstructIndexMembership(
   return {
     algorithmVersion: INDEX_RECONSTRUCTION_ALGORITHM_VERSION,
     logStart,
+    additionStarts,
     constituents,
     anomalies: anomalies.sort(compareAnomalies),
   };
@@ -469,8 +533,25 @@ function newWalker(input: {
   };
 }
 
-/** A change with its effective date refined; `logDate` is the date the provider's log gives. */
-type EffectiveChange = IndexChangeInput & { readonly logDate: LocalDate };
+/**
+ * A change with its effective date refined; `logDate` is the date the provider's log gives, and
+ * `startConfirmed` whether the current list establishes `effectiveDate` as the effective date.
+ */
+type EffectiveChange = IndexChangeInput & {
+  readonly logDate: LocalDate;
+  readonly startConfirmed: boolean;
+};
+
+/**
+ * The first day the index certainly held an addition: its effective date where the current list
+ * establishes it, otherwise the day after the log's date, which names either the effective session
+ * or the one before it.
+ */
+function additionStart(change: EffectiveChange): LocalDate {
+  return change.startConfirmed
+    ? change.effectiveDate
+    : addDays(change.effectiveDate, 1);
+}
 
 /**
  * Per log date, the effective date the current list's first-added dates establish for it
@@ -479,8 +560,11 @@ type EffectiveChange = IndexChangeInput & { readonly logDate: LocalDate };
 export function refineEffectiveDates(
   changes: readonly IndexChangeInput[],
   current: readonly CurrentConstituentInput[],
+  symbolChanges: readonly SymbolChangeInput[] = [],
 ): {
   refined: Map<LocalDate, LocalDate>;
+  /** Log dates a current member's first-added date equals: both provider records agree on them. */
+  confirmed: ReadonlySet<LocalDate>;
   conflicts: { date: LocalDate; candidates: LocalDate[]; logDateConfirmed: boolean }[];
 } {
   const firstAdded = new Map<string, LocalDate>();
@@ -489,10 +573,30 @@ export function refineEffectiveDates(
       firstAdded.set(member.symbol, member.dateFirstAdded);
     }
   }
+  // An addition is evidence for its log date when its ticker is a current member's, or — when no
+  // current member holds it — leads to one through the renames after that date (Bank of New York
+  // Mellon was added as BK and is BNY today). A ticker a current member holds is never chained: the
+  // rename history is global and tickers are reused (an ETF traded as META until 2022), so a chain
+  // from a held ticker can wander to another issuer.
+  const currentSymbols = new Set(current.map((member) => member.symbol));
+  const renamesByOld = new Map<string, SymbolChangeInput[]>();
+  for (const rename of [...symbolChanges].sort(compareRenames)) {
+    const list = renamesByOld.get(rename.oldSymbol) ?? [];
+    list.push(rename);
+    renamesByOld.set(rename.oldSymbol, list);
+  }
   const candidates = new Map<LocalDate, Set<LocalDate>>();
   const confirmed = new Set<LocalDate>();
   for (const change of changes) {
-    const added = change.addedTicker ? firstAdded.get(change.addedTicker) : undefined;
+    const ticker = change.addedTicker;
+    const added =
+      ticker === null
+        ? undefined
+        : firstAdded.get(
+            currentSymbols.has(ticker)
+              ? ticker
+              : tickerToday(ticker, change.effectiveDate, renamesByOld),
+          );
     if (!added) {
       continue;
     }
@@ -518,7 +622,29 @@ export function refineEffectiveDates(
       conflicts.push({ date, candidates: values, logDateConfirmed: confirmed.has(date) });
     }
   }
-  return { refined, conflicts };
+  return { refined, confirmed, conflicts };
+}
+
+/**
+ * The ticker an issuer that held `ticker` on `date` trades under today, following the renames after
+ * that date in order. Bounded, so a cycle in the provider's rename history cannot loop.
+ */
+function tickerToday(
+  ticker: string,
+  date: LocalDate,
+  renamesByOld: ReadonlyMap<string, readonly SymbolChangeInput[]>,
+): string {
+  let symbol = ticker;
+  let since = date;
+  for (let hop = 0; hop < 16; hop += 1) {
+    const next = renamesByOld.get(symbol)?.find((rename) => rename.date > since);
+    if (!next) {
+      break;
+    }
+    symbol = next.newSymbol;
+    since = next.date;
+  }
+  return symbol;
 }
 
 function matchAddition(

@@ -21,6 +21,7 @@ import {
   type RedisPayloadCodecConfig,
   type RedisPayloadDictionary,
 } from "@intrinsic/stock-data";
+import { repositoryRoot } from "../qa-matrix/matrix-paths";
 
 /**
  * `pnpm --filter @intrinsic/api bench:payload-codec [--securities 40] [--memory-securities 12] [--out f]`
@@ -431,7 +432,7 @@ async function main(): Promise<void> {
       results,
     };
     if (args.out) {
-      const path = resolve(process.cwd(), args.out);
+      const path = resolve(repositoryRoot(), args.out);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
     }

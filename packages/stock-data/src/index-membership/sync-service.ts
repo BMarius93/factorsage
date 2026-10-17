@@ -17,7 +17,6 @@ import { addDays } from "../dates.js";
 import type {
   ConstituentResolutionWrite,
   IndexMembershipStore,
-  StoredIndexChange,
   StoredIndexConstituent,
   StoredSymbolChange,
 } from "./ports.js";
@@ -277,9 +276,9 @@ export class IndexMembershipSyncService {
                 .filter((period) => period.startMatch !== null),
               (period) => period.startMatch as string,
             ),
-            startDatesRefined: result.constituents
-              .flatMap((entry) => entry.periods)
-              .filter((period) => period.startLogDate !== null).length,
+            // Applied additions by how their start was placed: refined or confirmed by the
+            // current list, or deferred to the day after an unconfirmed log date.
+            additionStarts: result.additionStarts,
             anomaliesByKind: countBy(result.anomalies, (anomaly) => anomaly.kind),
             anomalies: result.anomalies,
           },
