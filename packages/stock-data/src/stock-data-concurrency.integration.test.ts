@@ -225,6 +225,10 @@ describeRedis("stock-data under concurrent callers", () => {
     close(): Promise<void>;
   };
 
+  // Every case hydrates its stocks from the retention start (CONC-01), so the teardown deletes a
+  // few hundred thousand rows and every namespace: about 6 s on a quiet machine, which the default
+  // 10 s hook timeout does not cover under load. A teardown cut short leaves the namespaces behind,
+  // and the leak guard then fails the whole run.
   afterAll(async () => {
     await prisma.security.deleteMany({ where: { id: { in: securityIds } } });
     for (const namespace of namespaces) {
@@ -232,7 +236,7 @@ describeRedis("stock-data under concurrent callers", () => {
     }
     admin.disconnect();
     await prisma.$disconnect();
-  });
+  }, 60_000);
 
   async function createSecurity(): Promise<{ id: string; symbol: string }> {
     symbolIndex += 1;
