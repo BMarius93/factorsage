@@ -395,7 +395,11 @@ bounded wait: a concurrency limit held as a sorted set of leases (genuinely roll
 are dropped by score on every acquire), a **fixed** request window built from the same `INCR`
 plus write-TTL-once shape the HTTP limiter uses, a shared `Retry-After` cooldown, a
 bounded queue depth and a bounded queue wait — all in Redis under `stock-data:v2:fmp:*`, so every
-process spends one allowance:
+process spends one allowance. A request waiting for a concurrency slot looks again every
+`DEFAULT_CONCURRENCY_POLL_MS` (100 ms): it used to sleep until the oldest holder's lease expired
+(`FMP_TIMEOUT_MS × 2`, 30 s), which held a cold hydration's fan-out of seven requests for 30 s although
+every slot was free within a second (OPS-05, fixed 2026-10-17). A crashed holder's slot is still
+reclaimed only when its lease expires:
 
 ```text
   web A ─────┐

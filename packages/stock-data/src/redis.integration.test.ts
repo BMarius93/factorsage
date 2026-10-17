@@ -774,6 +774,58 @@ describeRedis("real Redis stock-data infrastructure", () => {
     }
   });
 
+  it("OPS-05: a waiter takes a freed concurrency slot within a poll, not after the oldest lease", async () => {
+    // What a cold hydration does: seven provider requests at once (six statement operations and
+    // the price read) against fewer slots. Each holds its slot for 300 ms; the lease — the bound a
+    // crashed holder keeps a slot for — is 30 s, as in production. Waiters used to sleep until the
+    // oldest lease expired, so the burst took about 30 s although every slot was free within a
+    // second.
+    const pollNamespace = `${namespace}:poll-gate`;
+    const options = {
+      maxConcurrentRequests: 4,
+      rateLimitPerWindow: 100,
+      rateWindowMs: 1_000,
+      maxQueueDepth: 20,
+      maxQueueWaitMs: 60_000,
+      requestLeaseMs: 30_000,
+      namespace: pollNamespace,
+    };
+    try {
+      const gates = [
+        new RedisFmpRequestGate(redisA, options),
+        new RedisFmpRequestGate(redisB, options),
+      ];
+      let active = 0;
+      let maximumActive = 0;
+      const startedAt = Date.now();
+      const results = await Promise.all(
+        Array.from({ length: 7 }, (_, index) =>
+          gates[index % 2]!.run(async () => {
+            active += 1;
+            maximumActive = Math.max(maximumActive, active);
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 300);
+            });
+            active -= 1;
+            return index;
+          }),
+        ),
+      );
+      const elapsedMs = Date.now() - startedAt;
+      expect(results).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      // Never more than the allowance at once, and the whole burst in two rounds plus polling.
+      expect(maximumActive).toBeLessThanOrEqual(4);
+      expect(elapsedMs).toBeLessThan(2_000);
+      expect(await redisA.zcard(`${pollNamespace}:concurrent`)).toBe(0);
+    } finally {
+      await redisA.del(
+        `${pollNamespace}:concurrent`,
+        `${pollNamespace}:rate-window`,
+        `${pollNamespace}:cooldown-until`,
+      );
+    }
+  }, 45_000);
+
   it("admits backlog starts against the rate window in which they actually begin", async () => {
     const backlogNamespace = `${namespace}:backlog-gate`;
     const rateWindowMs = 200;
