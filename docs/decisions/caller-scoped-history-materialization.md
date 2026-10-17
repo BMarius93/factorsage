@@ -2,7 +2,10 @@
 
 ## Status
 
-**Accepted.**
+**Accepted; load scope superseded on 2026-10-17 by `canonical-history-anchoring.md` (CONC-01).**
+Reads are still bounded by the caller's range, but every load now materializes the whole price
+retention window: a caller-scoped load let the first caller's window decide where recursive series
+were anchored, so values already served changed when a later caller widened the stock.
 
 Supersedes one rule of `stock-data-loader-implementation.md`: the line _"Requested ranges are read
 projections, not hydration boundaries"_ and step 2 of its canonical-hydration sequence, _"Compute

@@ -210,7 +210,13 @@ describe("the fifteen Fundamental columns in PostgreSQL", () => {
           };
         }),
         successfulCoverage: [
-          { from: subtractYears(today, priceRetentionYears(30)), to: today },
+          {
+            // A year before the retention start: the loader's own "today" is the newest final
+            // session, which can be a day or more before the UTC date, and every load spans the
+            // retention window (CONC-01).
+            from: subtractYears(today, priceRetentionYears(30) + 1),
+            to: today,
+          },
         ],
         syncedAt,
         tailDate: today,

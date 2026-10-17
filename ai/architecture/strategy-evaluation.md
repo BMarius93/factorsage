@@ -147,7 +147,7 @@ path.
 `packages/stock-data/src/service.ts`, `CanonicalStockDataService`:
 
 - `ensureStockHydrated(security, required)` / `ensureStockFresh(security, required)` — the
-  caller-scoped materialization contract (`docs/decisions/caller-scoped-history-materialization.md`).
+  caller-scoped read contract (`docs/decisions/caller-scoped-history-materialization.md`), every load anchored at the retention start (`docs/decisions/canonical-history-anchoring.md`, CONC-01).
   The range is a parameter: "a caller that wants decades of history says so."
 - `getDailyDerivedState(symbol, range)` → resolve symbol, `loadTarget`, hydrate, freshen, then read
   the projection (Redis yearly chunks → PostgreSQL fallback).

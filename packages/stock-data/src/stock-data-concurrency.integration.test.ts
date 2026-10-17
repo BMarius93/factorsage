@@ -338,10 +338,8 @@ describeRedis("stock-data under concurrent callers", () => {
       startProcess({ namespace, market, clock }),
     );
     const { id, symbol } = await createSecurity();
-    // Prices are a pure function of the market at any width; derived rows read here stay inside
-    // the canonical load (every range whose warm-up reaches the product boundary snaps to the
-    // retention start), where their values do not depend on which caller hydrated first —
-    // see the CONC-01 case below for the ones that do.
+    // Prices are a pure function of the market at any width; derived rows read here are too,
+    // because every load is anchored at the retention start (CONC-01, below).
     const ranges: Required<DateRange>[] = [
       { from: "2025-08-25", to: SESSION },
       { from: "1997-01-01", to: SESSION },
@@ -555,7 +553,9 @@ describeRedis("stock-data under concurrent callers", () => {
     const range = { from: "2023-01-02", to: SESSION };
     try {
       // What a holder that died mid-hydration leaves: a HYDRATING manifest with most of its
-      // fifteen-minute lifetime ahead, a chunk registered to it, and no lock.
+      // fifteen-minute lifetime ahead, a chunk registered to it, and no lock. The chunk's year lies
+      // before the retention window, so the successor — which loads the whole window (CONC-01) —
+      // never writes that key itself: only the takeover's cleanup can remove it.
       const abandoned: StockManifest = {
         securityId: id,
         status: "HYDRATING",
@@ -571,7 +571,7 @@ describeRedis("stock-data under concurrent callers", () => {
         dailyStateEncodingVersion: 0,
       };
       await process.cache.setManifest(abandoned);
-      await process.cache.writeDailyPriceYears(id, [], [2001], abandoned);
+      await process.cache.writeDailyPriceYears(id, [], [1990], abandoned);
 
       const started = Date.now();
       const rows = await process.service.getDailyPrices(symbol, range);
@@ -581,7 +581,7 @@ describeRedis("stock-data under concurrent callers", () => {
       expect(manifest?.status).toBe("READY");
       expect(manifest?.hydrationId).not.toBe("crashed-holder");
       expect(
-        await admin.exists(`${namespace}:security:${id}:prices:1D:2001`),
+        await admin.exists(`${namespace}:security:${id}:prices:1D:1990`),
       ).toBe(0);
     } finally {
       await process.close();
@@ -868,48 +868,87 @@ describeRedis("stock-data under concurrent callers", () => {
 
   /**
    * CONC-01 (found by this suite, 2026-10-16). Recursive series — every EMA, Wilder's RSI — are
-   * anchored at the earliest stored bar (AUD-02), and how early that bar is depends on which caller
-   * hydrated the stock first: a window whose warm-up ends inside the product horizon loads only from
-   * its own warm-up start. When a wider caller later widens the stock, the derived state is rebuilt
-   * from the new first bar and the values of dates already served change — EMA 200W on this history
-   * by about one percent four years in. A backtest run before and after the widening trades on
-   * different numbers. Pinned with `it.fails` until loads are anchored canonically; it turns red
-   * the moment a narrow first hydration and a wide one agree.
+   * anchored at the earliest stored bar (AUD-02). While a load was scoped to the caller's window, a
+   * window whose warm-up ended inside the product horizon loaded only from its own warm-up start,
+   * and when a wider caller later widened the stock the derived state was rebuilt from the new
+   * first bar: the values of dates already served changed (EMA 200W on this history by about one
+   * percent four years in). Every load is now anchored at the retention start, so the first caller's
+   * window no longer decides a value.
    */
-  it.fails(
-    "KNOWN DEFECT CONC-01: a date's derived values do not depend on how much history the first caller loaded",
-    async () => {
-      const namespace = newNamespace();
-      const market = new SyntheticMarket();
-      const clock = { now: NOW };
-      const process = startProcess({ namespace, market, clock });
-      const { symbol } = await createSecurity();
-      const window = { from: "2016-03-01", to: "2016-03-31" };
-      try {
-        // A one-year Stock Details view is this stock's first caller...
-        await process.service.getDailyDerivedState(symbol, {
-          from: "2016-01-04",
-          to: "2016-12-30",
-        });
-        const narrow = await process.service.getDailyDerivedState(
-          symbol,
-          window,
-        );
-        // ...and a thirty-year backtest its second.
-        await process.service.getDailyDerivedState(symbol, {
-          from: "1997-01-02",
-          to: SESSION,
-        });
-        const wide = await process.service.getDailyDerivedState(symbol, window);
-        expect(wide.map((row) => [row.date, row.ema200w, row.ema200d])).toEqual(
-          narrow.map((row) => [row.date, row.ema200w, row.ema200d]),
-        );
-      } finally {
-        await process.close();
+  it("CONC-01: a date's derived values do not depend on how much history the first caller loaded", async () => {
+    const namespace = newNamespace();
+    const market = new SyntheticMarket();
+    const clock = { now: NOW };
+    const process = startProcess({ namespace, market, clock });
+    const { symbol } = await createSecurity();
+    const window = { from: "2016-03-01", to: "2016-03-31" };
+    try {
+      // A one-year Stock Details view is this stock's first caller...
+      await process.service.getDailyDerivedState(symbol, {
+        from: "2016-01-04",
+        to: "2016-12-30",
+      });
+      const narrow = await process.service.getDailyDerivedState(symbol, window);
+      // ...and a thirty-year backtest its second.
+      await process.service.getDailyDerivedState(symbol, {
+        from: "1997-01-02",
+        to: SESSION,
+      });
+      const wide = await process.service.getDailyDerivedState(symbol, window);
+      expect(wide.map((row) => [row.date, row.ema200w, row.ema200d])).toEqual(
+        narrow.map((row) => [row.date, row.ema200w, row.ema200d]),
+      );
+    } finally {
+      await process.close();
+    }
+  }, 120_000);
+
+  it("CONC-01: narrow then wide, wide then narrow and concurrent first callers give identical derived values", async () => {
+    const namespace = newNamespace();
+    const market = new SyntheticMarket();
+    const clock = { now: NOW };
+    const processes = Array.from({ length: 2 }, () =>
+      startProcess({ namespace, market, clock }),
+    );
+    // Three securities over one synthetic market: identical bars, three first-caller orders.
+    const [narrowFirst, wideFirst, concurrent] = await Promise.all(
+      Array.from({ length: 3 }, () => createSecurity()),
+    );
+    const narrow = { from: "2016-01-04", to: "2016-12-30" };
+    const wide = { from: "1997-01-02", to: SESSION };
+    const window = { from: "2014-01-02", to: "2018-12-31" };
+    const values = async (symbol: string) =>
+      (await processes[0]!.service.getDailyDerivedState(symbol, window)).map(
+        ({ securityId: _ignored, ...row }) => row,
+      );
+    try {
+      await processes[0]!.service.getStockDetails(narrowFirst!.symbol, narrow);
+      await processes[1]!.service.getDailyDerivedState(
+        narrowFirst!.symbol,
+        wide,
+      );
+
+      await processes[1]!.service.getDailyDerivedState(wideFirst!.symbol, wide);
+      await processes[0]!.service.getStockDetails(wideFirst!.symbol, narrow);
+
+      await Promise.all([
+        processes[0]!.service.getStockDetails(concurrent!.symbol, narrow),
+        processes[1]!.service.getDailyDerivedState(concurrent!.symbol, wide),
+      ]);
+
+      const expected = await values(wideFirst!.symbol);
+      expect(expected.length).toBeGreaterThan(1_000);
+      expect(expected.some((row) => row.ema200w !== undefined)).toBe(true);
+      expect(await values(narrowFirst!.symbol)).toEqual(expected);
+      expect(await values(concurrent!.symbol)).toEqual(expected);
+      // One price download per security, whichever caller came first.
+      for (const security of [narrowFirst!, wideFirst!, concurrent!]) {
+        expect(market.priceRequestsFor(security.symbol)).toHaveLength(1);
       }
-    },
-    120_000,
-  );
+    } finally {
+      await Promise.all(processes.map((process) => process.close()));
+    }
+  }, 180_000);
 
   describe("bounded stress from a cold cache", () => {
     for (const callers of [2, 10, 25, 50, 100]) {
@@ -924,8 +963,8 @@ describeRedis("stock-data under concurrent callers", () => {
           Array.from({ length: 3 }, () => createSecurity()),
         );
         const random = mulberry32(callers * 7919);
-        // Prices at any width, including the narrow ones that make a later caller widen the
-        // stock; derived rows inside the canonical load only (see the CONC-01 case).
+        // Prices and derived rows at any width: every load is anchored at the retention start, so
+        // no caller's window decides a value (CONC-01).
         const starts = ["1997-01-02", "2006-06-01", "2016-03-01", "2025-09-02"];
         const ends = ["2003-12-31", "2015-06-30", SESSION];
         const before = await commandStats();
@@ -940,13 +979,16 @@ describeRedis("stock-data under concurrent callers", () => {
             const range =
               choice >= 0.4 && choice < 0.8
                 ? {
-                    from: "1997-01-02",
+                    from: starts[Math.floor(random() * starts.length)]!,
                     to: ends[Math.floor(random() * ends.length)]!,
                   }
                 : {
                     from: starts[Math.floor(random() * starts.length)]!,
                     to: SESSION,
                   };
+            if (range.from > range.to) {
+              range.from = "1997-01-02";
+            }
             const service = processes[index % processes.length]!.service;
             const call =
               choice < 0.4

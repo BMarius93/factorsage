@@ -18,10 +18,8 @@ import {
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import {
-  addDays,
   DAILY_DERIVED_STATE_VARIANT,
   DAILY_PRICE_VARIANT,
-  DERIVED_SERIES_WARMUP_DAYS,
   fundamentalsDatasetOperations,
   InMemoryLoadCoordinator,
   NullStockDataCache,
@@ -59,11 +57,6 @@ function daysBeforeToday(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** The product horizon: the oldest day any surface may expose. */
-const runtimeHistoryStart = subtractYears(
-  runtimeToday,
-  STOCK_DETAILS_MAX_HISTORY_YEARS,
-);
 /**
  * The raw-price retention horizon this deployment materializes to.
  *
@@ -1487,34 +1480,21 @@ describe("Stock Details API", () => {
     });
   });
 
-  it("materializes the requested window once and widens only for older history", async () => {
+  it("materializes the whole retention window once, whatever window is read first (CONC-01)", async () => {
     const initial = `/stocks/${loadedSymbol}/prices?from=2020-01-01&to=2020-01-03`;
     await request(app.getHttpServer()).get(initial).expect(200);
     await request(app.getHttpServer()).get(initial).expect(200);
 
-    // The requested window plus the derived warm-up. A cold stock opened for a short window must
-    // not pull the thirty-year retention horizon in behind it.
-    const firstLoad = {
-      from: addDays("2020-01-01", -DERIVED_SERIES_WARMUP_DAYS),
-      to: runtimeToday,
-    };
+    // One provider read, for the whole retention window: the first caller's window must not decide
+    // where the history starts, or the recursive series anchored there.
+    const firstLoad = { from: runtimeRetentionStart, to: runtimeToday };
     expect(provider.dailyCalls).toEqual([firstLoad]);
-    // Still caller-scoped: a short window does not reach the product horizon, let alone the
-    // retention horizon four years behind it.
-    expect(firstLoad.from > runtimeHistoryStart).toBe(true);
 
-    // Reaching further back loads only the prefix that is still missing, never the whole window
-    // again — this is the lazy widening a longer Stock Details range relies on.
+    // Reaching further back loads nothing more.
     const response = await request(app.getHttpServer())
       .get(`/stocks/${loadedSymbol}/prices?from=2019-12-30&to=2020-01-03`)
       .expect(200);
-    expect(provider.dailyCalls).toEqual([
-      firstLoad,
-      {
-        from: addDays("2019-12-30", -DERIVED_SERIES_WARMUP_DAYS),
-        to: addDays(firstLoad.from, -1),
-      },
-    ]);
+    expect(provider.dailyCalls).toEqual([firstLoad]);
     expect(response.body.map((row: { date: string }) => row.date)).toEqual([
       "2019-12-31",
       "2020-01-03",
