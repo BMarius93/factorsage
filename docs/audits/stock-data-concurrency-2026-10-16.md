@@ -246,13 +246,58 @@ needs a lease epoch persisted per security and checked inside each write transac
 change), as the benchmark path does for tail saves with `expectedGeneration`. Recommended as a
 follow-up; not a release blocker given the window.
 
+**Measured 2026-10-17** (`stock-data-residual-risks.integration.test.ts`, plus a two-process Redlock
+experiment kept out of the suite):
+
+- **A stalled event loop does not reach the window.** A child process held a real 4 s lease and
+  blocked its event loop for 6 s with `Atomics.wait`; meanwhile the parent took the stock over
+  and wrote.
+  - Refused 6 of 6 times, writing 1, 20 and 400 rows: "Cannot extend an already-expired lock".
+  - On resuming, redlock's overdue extension refuses an expired lock *locally*. The signal aborts
+    before the write's last ownership check, and no Redis answer is needed.
+- **A silent Redis connection does reach it.** Bytes stop and nothing closes, as on a partition
+  without RST or a failover that strands the old primary's connections.
+  - The holder's extension never answers, so the signal never aborts, and `assertOwned()` passes
+    after the lease has expired in Redis.
+  - Committed 6 of 6 times, after the successor's write. The suite case reproduces it in-process
+    through a proxy the test silences.
+  - Across a concurrent split re-base, the stale derived rows land on the old basis beside re-based
+    prices: more than 100 rows in the case. Nothing rebuilds them until the next revision bump.
+  - Without a re-base, the stale write carries the same provider data, or at worst an older
+    revision of a tail bar, which the next tail read corrects.
+- **An ioredis `commandTimeout` (500 ms on a 2 s lease) turned the same case into a refusal.** It is
+  not a full fix on its own, because the abort arrives only after redlock's extension retries are
+  spent, which can be after expiry.
+
+Two guarantees held in the same suite:
+- **A window read racing the stock EOD refresh is never mixed.** The read made no provider request
+  of its own, waited for the refresh's lease, and returned the whole new version.
+- **A saturated pool fails cleanly.** With `connection_limit=1` and `pool_timeout=1`, 5 of 6
+  concurrent cold hydrations failed with Prisma's pool timeout. None left a READY manifest
+  without its rows, and none left a duplicate row. A retry with a normal pool converged to
+  PostgreSQL's values.
+
+**Decision: persisted fencing tokens (a migration) are not needed.** Two changes close the window
+without a schema change:
+1. **Make `assertOwned()` also refuse once the lease's own expiry has passed locally.** This needs
+   the coordinator to track expiry through its own acquire-and-extend loop instead of `using`.
+   The per-stock advisory lock then orders any later writer after this commit.
+2. **Fence derived and tail saves with the existing price-basis generation**, as
+   `replaceDailyPriceHistory` already does. This also covers the reverse interleaving: a successor
+   that read before a re-base committed. That case is theoretical, a sub-millisecond coincidence
+   with expiry.
+
+Classified **P2, not a release blocker**. It needs a silent Redis connection on one holder for more
+than half a lease while another process takes the stock over, *and* a split re-base of that stock
+in the same window.
+
 ## 6. Open items
 
 | ID | Severity | Item | Recommendation |
 | --- | --- | --- | --- |
 | CONC-01 | P1 (data) | derived EMA/RSI depend on the history loaded at materialization; a narrow first hydration then a widening changes served values (pinned: SC "KNOWN DEFECT CONC-01") | anchor every load canonically — always hydrate from the retention start (the stock EOD child and thirty-year backtests already do), so the anchor is the security's first bar; cost: a never-seen security's first narrow view loads 34 years (≈ 8 provider requests, a few seconds) instead of ≈ 5. Ship with the r8 rebuild so no further revision bump is needed. Separate PR; changes load cost, so it is the owner's call |
-| — | P2 | lease epoch for PostgreSQL writes (§5) | follow-up PR with a migration |
-| R5 | P2 | a backtest's year-window read that misses can hydrate to today, i.e. reach the provider mid-run | read PostgreSQL on a mid-run miss, as `readFinalizedEvaluationFrame` does (audit §6.3 item 4) |
+| — | P2 | stale writer after a silent Redis connection, harmful only across a re-base (§5, measured 2026-10-17) | follow-up, no migration: local lease expiry in `assertOwned()` and a price-basis generation check on derived and tail saves |
+| R5 | P3 | confirmed 2026-10-17: a backtest whose entry is evicted mid-run, after the next session finalized, re-reads the provider's ten-day tail and brings a revision of an in-period bar into its last window. Only the revised session and later ones move, consistent with PostgreSQL; a resident entry never refreshes. A concurrent stock EOD refresh brings the same revision in without any eviction, never mixed within a window | pin the run to its submission cutoff, or read PostgreSQL on a mid-run miss as `readFinalizedEvaluationFrame` does (audit §6.3 item 4); size of the effect = DATA-04 |
 | R8 | P3 | a reader that misses waits up to the full 120 s lock wait and then fails rather than reading PostgreSQL | a short wait and a PostgreSQL fallback for pure reads, as the benchmark readers do |
 | OPS-05 | P2 | a saturated FMP gate sleeps for the oldest lease (30 s) | poll at ≤ 250 ms (audit) |
 | — | P3 | split list single-flight is per process | acceptable; one extra read per process per day |
