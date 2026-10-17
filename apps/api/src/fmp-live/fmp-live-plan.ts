@@ -169,6 +169,22 @@ export const LIVE_FMP_EXCLUSIONS: readonly LiveFmpExclusion[] = [
       "no worker",
   },
   {
+    operation:
+      "S&P 500 point-in-time universe: membership, identity and resolution (pnpm data:index-universe)",
+    classification: "WIDENS_UNIVERSE",
+    endpoints: [
+      "sp500-constituent",
+      "historical-sp500-constituent",
+      "symbol-change",
+      "delisted-companies",
+      "historical-market-capitalization",
+    ],
+    reason:
+      "reconstructs a whole index's membership from the provider's directories and probes every " +
+      "constituent's candidate symbols, market capitalization included — never only the approved " +
+      "securities; it runs only from its own guarded wrapper (scripts/cloud/fmp-index-universe.sh)",
+  },
+  {
     operation: "Institutional holdings (Form 13F)",
     classification: "NOT_APPLICABLE",
     endpoints: [],

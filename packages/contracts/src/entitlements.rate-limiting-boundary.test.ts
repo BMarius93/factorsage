@@ -86,6 +86,8 @@ describe("entitlements do not model request rate", () => {
     expect(differing.sort()).toEqual([
       "backtests.maxConcurrentRuns",
       "backtests.maxHistoricalYears",
+      // The built-in point-in-time universe's simultaneous members: a capacity bound like the rest.
+      "backtests.maxIndexUniverseConstituents",
       "backtests.maxSymbols",
       "lists.maxSymbols",
       "monitors.maxActive",

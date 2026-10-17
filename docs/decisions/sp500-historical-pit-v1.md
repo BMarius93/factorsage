@@ -223,7 +223,7 @@ resources and cache modes — is in §10.
   PostgreSQL (First Republic, SVB), so those histories end one session early; the canonical loader
   asks the provider for the hold's dates again on every hydration.
 - **Identity tie-breaks** are recorded (`AMBIGUOUS_ADDITION` 18, `TICKER_COLLISION` 25,
-  `FIRST_ADDED_MISMATCH` 116) and reviewable in the sync summary.
+  `FIRST_ADDED_MISMATCH` 115) and reviewable in the sync summary.
 
 ## §10 Benchmark
 

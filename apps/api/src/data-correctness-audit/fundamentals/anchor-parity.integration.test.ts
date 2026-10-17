@@ -20,6 +20,7 @@ import {
   decodeDailyStateChunk,
   fundamentalsDatasetOperations,
   priceRetentionYears,
+  stockCachePayloadCodecs,
   subtractYears,
   type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
@@ -440,7 +441,15 @@ describeInfrastructure(
       const chunkRows = async (year: number) => {
         const key = dailyStateChunkKey(namespace, security.id, year);
         expect(chunkKeys, String(year)).toContain(key);
-        const payload = (await redis.get(key)) ?? "";
+        // Stored in the payload codec's envelope (`redis-payload-codec-v1.md`): the chunk's text
+        // is what it decodes to, and the codec refuses a payload that does not round-trip.
+        const envelope = stockCachePayloadCodecs().dailyState.decode(
+          (await redis.getBuffer(key)) ?? Buffer.alloc(0),
+        );
+        expect(envelope.ok ? "readable" : envelope.reason, String(year)).toBe(
+          "readable",
+        );
+        const payload = envelope.ok ? envelope.text : "";
         // Absence is a count in the chunk, never a JSON null or a zero.
         expect(payload, String(year)).not.toContain("null");
         const decoded = decodeDailyStateChunk(payload, {

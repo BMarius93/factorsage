@@ -53,6 +53,7 @@ import {
   decodeDailyStateChunk,
   fundamentalsDatasetVariant,
   priceRetentionYears,
+  stockCachePayloadCodecs,
   subtractYears,
   type StockManifest,
 } from "@intrinsic/stock-data";
@@ -74,6 +75,8 @@ import {
 } from "./stock-data.tokens";
 
 const SLOW = 120_000;
+/** The stock cache's payload codecs: raw chunk reads decode through them. */
+const PAYLOAD_CODECS = stockCachePayloadCodecs();
 
 /**
  * Deterministic "today": a Monday, so weekend availability scenarios are stable — at 18:00 in New
@@ -530,13 +533,18 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     securityId: string,
     year: number,
   ): Promise<Array<Record<string, unknown>> | null> {
-    const payload = await redis.get(
+    const payload = await redis.getBuffer(
       dailyStateChunkKey(namespace, securityId, year),
     );
     if (payload === null) {
       return null;
     }
-    const decoded = decodeDailyStateChunk(payload, { securityId, year });
+    // Chunks are stored in the payload codec's envelope (`redis-payload-codec-v1.md`).
+    const text = PAYLOAD_CODECS.dailyState.decode(payload);
+    if (!text.ok) {
+      throw new Error(`daily-state ${year} is unreadable: ${text.reason}`);
+    }
+    const decoded = decodeDailyStateChunk(text.text, { securityId, year });
     if (!decoded.ok) {
       throw new Error(`daily-state ${year} is unreadable: ${decoded.reason}`);
     }
@@ -1132,11 +1140,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
             dailyStateChunkKey(namespace, securityId, year),
           );
         }
-        // Retained fundamentals years (warm-up included) live under the existing family.
-        expect(keys).toContain(chunkKey(securityId, "financials:income:quarter:v1", 2015));
-        expect(keys).toContain(chunkKey(securityId, "financials:income:quarter:v1", 2026));
-        expect(keys).toContain(chunkKey(securityId, "financials:balance-sheet:quarter:v1", 2024));
-        expect(keys).toContain(chunkKey(securityId, "financials:cash-flow:annual:v1", 2020));
+        // Statements are not projected into Redis (`FINANCIAL_STATEMENT_VERSION` 2): every reader
+        // of them goes to PostgreSQL, and the daily state already carries what they produce.
+        expect(keys.filter((key) => key.includes(":financials:"))).toEqual([]);
         // No separate intrinsic/valuation/blend key family exists.
         expect(keys.filter((key) => /intrinsic|valuation|blend/i.test(key))).toEqual([]);
         const chunk2026 = await readRedisDailyStateYear(securityId, 2026);
@@ -1893,14 +1899,10 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(fiscalDates).toContain("2021-09-30:Q3");
         expect(fiscalDates).not.toContain("2014-12-31:FY");
 
-        // Redis retains the warm-up years under the existing yearly key family.
-        const annual2016 = await redis.get(
-          chunkKey(securityId, "financials:income:annual:v1", 2016),
-        );
-        expect(annual2016).not.toBeNull();
-        expect(JSON.parse(annual2016 as string)).toHaveLength(1);
+        // Redis holds no statement chunk at all (`FINANCIAL_STATEMENT_VERSION` 2): PostgreSQL is
+        // where the warm-up years are retained and read.
         expect(
-          await redis.get(chunkKey(securityId, "financials:income:annual:v1", 2014)),
+          await redis.get(chunkKey(securityId, "financials:income:annual:v1", 2016)),
         ).toBeNull();
 
         // Public financial-statement reads stay bounded to the visible product history.
@@ -2291,7 +2293,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const symbol = symbols.lifecycle;
         const securityId = await securityIdOf(symbol);
         const fixture = provider.fixtures.get(symbol)!;
-        const chunk2025Before = await redis.get(
+        const chunk2025Before = await redis.getBuffer(
           dailyStateChunkKey(namespace, securityId, 2025),
         );
         const statementsBefore = await prisma.financialStatement.count({
@@ -2356,8 +2358,8 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(intrinsicAfter?.blendBalanced).toBe(intrinsicBefore?.blendBalanced);
         // Unrelated historical years remain byte-identical in Redis.
         expect(
-          await redis.get(dailyStateChunkKey(namespace, securityId, 2025)),
-        ).toBe(chunk2025Before);
+          await redis.getBuffer(dailyStateChunkKey(namespace, securityId, 2025)),
+        ).toEqual(chunk2025Before);
         await expectApiDbRedisConsistent(symbol, securityId, {
           from: "2026-08-01",
           to: NEXT,
@@ -2380,7 +2382,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const statementsBefore = await prisma.financialStatement.count({
           where: { securityId },
         });
-        const chunk2025Before = await redis.get(
+        const chunk2025Before = await redis.getBuffer(
           dailyStateChunkKey(namespace, securityId, 2025),
         );
 
@@ -2460,8 +2462,8 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
 
         // Only the affected Redis year was republished from PostgreSQL.
         expect(
-          await redis.get(dailyStateChunkKey(namespace, securityId, 2025)),
-        ).toBe(chunk2025Before);
+          await redis.getBuffer(dailyStateChunkKey(namespace, securityId, 2025)),
+        ).toEqual(chunk2025Before);
         const chunk2026 = (await readRedisDailyStateYear(securityId, 2026)) as Array<{
           date: string;
           intrinsicValues?: Record<string, number>;

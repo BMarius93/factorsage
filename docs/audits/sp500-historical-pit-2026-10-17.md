@@ -23,7 +23,7 @@
 | Addition starts (reconstruction v2)                               | 311 on a refined effective date, 308 on a confirmed one, 871 the day after an unconfirmed log date                        |
 | Lines per day, min / max                                          | 494 (1996-03-29) / 507 (2020-04-03)                                                                                       |
 | Days inside the 500–506 band                                      | 7,846 of 11,247                                                                                                           |
-| Anomalies recorded                                                | 183 (116 first-added mismatch, 25 ticker collision, 21 orphan addition, 18 ambiguous addition, 3 effective-date conflict) |
+| Anomalies recorded                                                | 182 (115 first-added mismatch, 25 ticker collision, 21 orphan addition, 18 ambiguous addition, 3 effective-date conflict) |
 
 `NOT_ADMISSIBLE` = 25 without any provider listing, 3 OTC, 3 CBOE. `IDENTITY_REJECTED` = histories
 belonging to another issuer (a current member's ticker, an implausible market capitalization).
@@ -128,11 +128,19 @@ and complex, unchanged for monthly). **Bottleneck: worker CPU** (chunk decoding 
 simulation ~10 %); Redis and PostgreSQL far from saturation. 32/64/128 workers were not run: ~14 /
 28 / 56 GB of worker memory against ~13 GB available, and no throughput to gain on 4 cores.
 
+**Cache modes.** Warm protected tier: the table. Before the window carry and `EVALSHA`: 101.0 s per
+run and 948 MB read from Redis (first row). Tier lost: one `protect` rebuild from PostgreSQL
+(775 s, no provider request), then the same 72.6 s run and digest. Without the tier, a 100-slot LRU
+over 732 securities would rebuild most securities in every window (~19,600 rebuilds per run at
+~4 s each): estimated at many hours per run and not run.
+
 ## E. Change set
 
 - **Migration:** `20261017120000_sp500_historical_pit` (seven tables, enums; additive only).
 - **Commits:** see the pull request.
-- **Tests added:** reconstruction (14) and resolution (13) units; market-index (6); contracts
+- **Tests added:** reconstruction (18, including the deferred starts, contradicted and renamed
+  evidence, and a membership no session confirms) and resolution (13) units; the List projection
+  and quality report (6, including survivorship and the one-day bridge); market-index (6); contracts
   entitlements (universe allowance); FMP mapper (undatable statement rows); payload codec (12);
   cache protected tier (4 unit, 1 real-Redis); integration: protected publication byte-for-byte,
   LRU isolation, flush recovery, refusals, empty windows, re-base-hold histories, window carry,

@@ -164,22 +164,28 @@ describe("live FMP dataset classification", () => {
 
   it("accounts for every endpoint the client can ask", () => {
     // Each endpoint is either hydrated per security or named in an exclusion with its reason:
-    // nothing the client can do is left unclassified.
+    // nothing the client can do is left unclassified. An endpoint that answers for one security
+    // is hydrated unless an exclusion names it — the point-in-time universe's market
+    // capitalization probe is the one such endpoint.
     const hydrated = new Set(included.flatMap((dataset) => dataset.endpoints));
     const excluded = new Set(
       LIVE_FMP_EXCLUSIONS.flatMap((exclusion) => exclusion.endpoints),
     );
     for (const [endpoint, { subject }] of FMP_ENDPOINT_CLASSES) {
-      if (subject === "SECURITY") {
-        expect(hydrated, endpoint).toContain(endpoint);
-      } else {
+      if (subject !== "SECURITY") {
         expect(excluded, endpoint).toContain(endpoint);
         expect(hydrated, endpoint).not.toContain(endpoint);
+      } else if (!hydrated.has(endpoint)) {
+        expect(excluded, endpoint).toContain(endpoint);
       }
     }
     expect([...hydrated].sort()).toEqual(
       [...FMP_ENDPOINT_CLASSES]
-        .filter(([, endpoint]) => endpoint.subject === "SECURITY")
+        .filter(
+          ([path, endpoint]) =>
+            endpoint.subject === "SECURITY" &&
+            !(path === "historical-market-capitalization"),
+        )
         .map(([path]) => path)
         .sort(),
     );
