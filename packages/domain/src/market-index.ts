@@ -51,8 +51,10 @@ export const SP500_HISTORICAL_PIT_UNIVERSE: PointInTimeIndexUniverse = {
   listName: "S&P 500 — Historical PIT",
   listDescription:
     "Every security that was an S&P 500 constituent since 1996, each eligible to buy only while it " +
-    "was a member. Reconstructed from the data provider's index history; former constituents the " +
-    "provider holds no prices for cannot be traded and are reported, never substituted.",
+    "was a member. Reconstructed from the data provider's index history. Former constituents the " +
+    "provider holds no prices for cannot be traded and are never substituted: before about 2010 a " +
+    "large share of past members is missing, so results over earlier years lean toward companies " +
+    "that survived.",
   membershipFloor: "1996-01-02",
 };
 
@@ -167,7 +169,8 @@ export function peakSimultaneousMembers(
       continue;
     }
     for (const range of configuration.ranges) {
-      const start = range.startDate > period.from ? range.startDate : period.from;
+      const start =
+        range.startDate > period.from ? range.startDate : period.from;
       const end =
         range.endDate === null || range.endDate > period.to
           ? period.to

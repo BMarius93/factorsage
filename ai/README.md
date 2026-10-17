@@ -27,8 +27,14 @@ what the VM provides, how its stacks are started and stopped, and how Stripe and
 
 For anything that asks the real FMP provider on purpose — hydrating real data for a few securities,
 the request budget, the provider guard — read `../docs/development/fmp-live-hydration.md`. In a
-cloud session real provider data is reachable through `pnpm fmp:live` only: at most three
-securities per run.
+cloud session real provider data is reachable through `pnpm fmp:live` (at most three securities per
+run) and, for the S&P 500 point-in-time universe only, through `scripts/cloud/fmp-index-universe.sh`
+(`../docs/decisions/sp500-historical-pit-v1.md`).
+
+For the S&P 500 point-in-time universe — its reconstruction, the built-in List, the Pro allowance
+and the Redis protected tier that keeps it resident — read
+`../docs/decisions/sp500-historical-pit-v1.md`, then `../docs/decisions/protected-stock-tier-v1.md`
+and `../docs/decisions/redis-payload-codec-v1.md` for the Redis side.
 
 For commercial plans, capacity limits, guest behaviour or downgrade semantics, read
 `../docs/decisions/entitlements-v1.md` — the accepted product decision and the source of truth for

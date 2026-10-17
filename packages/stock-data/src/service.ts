@@ -941,17 +941,28 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         target,
       );
       const gaps = missingCoverageRanges(target, coverage);
-      // Only the leading edge may be missing: sessions after the newest synchronization.
+      // The leading edge may be missing: sessions after the newest synchronization.
       const leading = gaps.find((gap) => gap.to >= target.to);
-      if (gaps.some((gap) => gap !== leading)) {
-        return {
-          status: "REFUSED",
-          reason: "PRICE_COVERAGE_GAP",
-          detail: gaps
-            .filter((gap) => gap !== leading)
-            .map((gap) => `${gap.from}..${gap.to}`)
-            .join(","),
-        } as const;
+      // So may a hole that begins after the newest stored bar, when synchronized coverage follows
+      // it: the history ended before the hole, and the provider has since been asked about the dates
+      // after it. That is the shape the re-base hold leaves when a security's final bar is a crash
+      // it cannot verify (`historical-price-basis-v1.md`): the bar is never stored, the hold's
+      // coverage stops before it, and every later read finds nothing. PostgreSQL then holds no bar
+      // inside the hole, and that is exactly what the canonical loader serves for it as well. A hole
+      // with a stored bar after it is a hole in a history, and is refused.
+      const interior = gaps.filter((gap) => gap !== leading);
+      if (interior.length > 0) {
+        const newest = await this.newestStoredPrice(security.id, target);
+        const holes = interior.filter(
+          (gap) => newest === undefined || gap.from <= newest.date,
+        );
+        if (holes.length > 0) {
+          return {
+            status: "REFUSED",
+            reason: "PRICE_COVERAGE_GAP",
+            detail: holes.map((gap) => `${gap.from}..${gap.to}`).join(","),
+          } as const;
+        }
       }
       const durable = {
         from: target.from,
@@ -960,6 +971,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       if (durable.to < durable.from) {
         return { status: "REFUSED", reason: "NO_PRICE_COVERAGE" } as const;
       }
+      // Derived coverage is held to the same rule: only where prices are covered.
       const derivedGaps = missingCoverageRanges(
         durable,
         await this.store.getDatasetCoverage(
@@ -968,6 +980,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
           DAILY_DERIVED_STATE_VARIANT,
           durable,
         ),
+      ).filter(
+        (gap) =>
+          !interior.some((hole) => hole.from <= gap.from && gap.to <= hole.to),
       );
       if (derivedGaps.length > 0) {
         return {
@@ -2169,6 +2184,18 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       projection,
     );
     if (result && result.length > 0) {
+      return result;
+    }
+    // No row is the answer, not a miss, for a window the resident history does not reach: before
+    // the first stored bar or after the last — a backtest window of a security not yet listed or
+    // already delisted. Repairing it would rebuild the whole security for every such window and
+    // still find nothing. Accepted only under the manifest the read was made under.
+    if (
+      result &&
+      this.isCurrent(observedManifest) &&
+      !storedHistoryReaches(observedManifest, projection) &&
+      sameManifest(await this.cache.getManifest(security.id), observedManifest)
+    ) {
       return result;
     }
     await this.cache.invalidateManifest(observedManifest);
@@ -3723,6 +3750,30 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   private nowInstant(): string {
     return this.now().toISOString();
   }
+}
+
+/**
+ * Whether a READY manifest's stored bars reach into `range`. Unknown bounds (a manifest published
+ * before they were recorded) count as reaching, so such a read keeps the repair it always had.
+ */
+function storedHistoryReaches(
+  manifest: StockManifest,
+  range: Required<DateRange>,
+): boolean {
+  if (!manifest.canonicalHistoryStart || !manifest.canonicalHistoryEnd) {
+    return true;
+  }
+  return (
+    manifest.canonicalHistoryStart <= range.to &&
+    manifest.canonicalHistoryEnd >= range.from
+  );
+}
+
+function sameManifest(
+  left: StockManifest | null,
+  right: StockManifest | null,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 /**

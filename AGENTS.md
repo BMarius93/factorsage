@@ -4,9 +4,15 @@ Read `ai/README.md` before substantial work.
 
 ## Product invariants
 
-1. Historical S&P 500 / Dow membership PIT **data** is removed from the product: nothing ships,
-   syncs or reconstructs index constituents. Point-in-time membership a user supplies is a
-   different thing and is supported — see invariant 3.
+1. Historical index membership is reconstructed for **one** universe only: the S&P 500, into the
+   built-in SYSTEM List `sp500-historical-pit` (`docs/decisions/sp500-historical-pit-v1.md`). Its
+   canonical membership lives in PostgreSQL (`IndexConstituentChange`, `IndexConstituent`,
+   `IndexMembershipPeriod`), reconstructed from the provider's index history and identity data,
+   projected into CUSTOM buy windows by `pnpm data:index-universe -- project`, and never edited
+   through the List routes. Membership is never invented and never substituted with today's
+   constituents: a constituent the provider cannot price or identify is reported, not traded. No
+   other index is synced or reconstructed. Point-in-time membership a user supplies is a different
+   thing and is supported — see invariant 3.
 2. Stock lists are static universes owned by a user or by the system (built-in content, see
    invariant 21); membership references the canonical `Security` catalog, never free-text symbols.
 3. Each list membership defines buy eligibility:
@@ -80,9 +86,9 @@ Read `ai/README.md` before substantial work.
     and are different columns: the market-reference indices the Dashboard cards used to show —
     `SP500_INDEX`/`^GSPC`, `DJIA_INDEX`/`^DJI`, `VIX_INDEX`/`^VIX` — are fully active system series
     that a user may never select, and a submission naming one is refused at the canonical boundary,
-    not merely hidden from the picker. `seriesType` (`ETF_PROXY | INDEX`) says what the object *is*
+    not merely hidden from the picker. `seriesType` (`ETF_PROXY | INDEX`) says what the object _is_
     and belongs to the immutable `BenchmarkSeries` definition, so changing it appends a version
-    rather than reinterpreting stored bars; `sourceKind` stays a statement about *how* data is
+    rather than reinterpreting stored bars; `sourceKind` stays a statement about _how_ data is
     obtained. **`SP500` remains the SPY-backed ETF proxy for backtests and for the execution
     calendar** — a funded comparison must be able to buy what it is compared against, and completed
     runs pinned that meaning — so `SP500_INDEX` is a separate series, never a re-pointing of it. Do
@@ -124,7 +130,7 @@ Read `ai/README.md` before substantial work.
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
     PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP
-    LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instances — the third
+LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instances — the third
     is the market-data refresh's `MarketDataRefreshSchedule` row `ETF_MARKET_DATA`, the fourth the
     stock EOD preparation's row `STOCK_EOD` in the same table, each owned by its own worker child so
     neither can delay the Monitor cycle — and any further durable claim must match them rather than
@@ -142,6 +148,15 @@ Read `ai/README.md` before substantial work.
     PostgreSQL's series write lock (`docs/decisions/etf-market-data-v1.md`). Redis's own
     `maxmemory-policy` must therefore never be an `allkeys-*` policy nobody accepted: readiness
     fails on one, and `REDIS_ACCEPTED_EVICTION_POLICY` is the only, explicit override.
+    The S&P 500 point-in-time universe's securities are the stock cache's **protected tier**
+    (`docs/decisions/protected-stock-tier-v1.md`): the same `stock-data:v2:security:*` keys, named by
+    the designation set `stock-data:v2:protected-stocks`, resident outside the LRU and with no TTL
+    once READY. The designation is derived — reconciled from PostgreSQL by
+    `pnpm data:index-universe -- protect`, and added by every universe backtest from its frozen
+    securities — never authored, and only that universe reaches it. A protected security is
+    published from PostgreSQL alone (`publishDurableProjection`); do not add a second key family,
+    namespace or copy for it, and do not let a user's List designate anything. Financial statements
+    are not projected into Redis at all: statement reads go to PostgreSQL.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
     holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
     state — losing one grants allowance rather than destroying anything — so it is keyed by actor,
@@ -231,7 +246,7 @@ Read `ai/README.md` before substantial work.
     path records its acceptance inside the transaction that activates the account. Every mounted
     route is gated on the required Terms version by the global `LegalAcceptanceInterceptor`;
     an exemption is declared with `@LegalAcceptanceExempt(reason)` and the allowlist is pinned
-    *exactly* by `legal-acceptance-coverage.test.ts`, because a missing exemption traps a paying
+    _exactly_ by `legal-acceptance-coverage.test.ts`, because a missing exemption traps a paying
     customer — cancellation, statutory withdrawal, privacy requests, support and logout must stay
     reachable for a user who declines. Operator identity, contacts and legal conclusions are
     never committed or invented: they are `NEXT_PUBLIC_LEGAL_*` placeholders, and a release build
@@ -251,7 +266,7 @@ Read `ai/README.md` before substantial work.
     information became public, plus the derived `availableFromDate` — publication plus one day, the
     same convention `statementPublicAvailabilityDate` applies — which is the **only** date a query or
     a window ever filters on. A lookback is measured in trading sessions on the session a disclosure
-    became *observable*, so one definition serves a historical backtest and a live Monitor; the
+    became _observable_, so one definition serves a historical backtest and a live Monitor; the
     observable session is the first session the evaluation frame's own axis holds on or after that
     date, which is what makes weekends and holidays correct without a second calendar. Outside the
     ingested coverage interval a metric is `NOT_EVALUABLE`, never zero: absence of data and absence of
@@ -467,8 +482,11 @@ evaluator physically cannot read an ungated value.
   is the runbook. Start application stacks there with `scripts/cloud/stack.sh`, not by hand.
 - Provider credentials are never ambient in a cloud session: Stripe is reachable only through
   `scripts/cloud/with-stripe.sh` or `stack.sh up dev --stripe`, in sandbox mode, and FMP only
-  through `scripts/cloud/fmp-live.sh`, which runs the guarded live hydration and nothing else. Do
-  not export `FMP_API_KEY`, `STRIPE_*` or the per-run opt-ins for a whole session.
+  through `scripts/cloud/fmp-live.sh`, which runs the guarded live hydration and nothing else, or
+  `scripts/cloud/fmp-index-universe.sh`, which runs the owner-authorized point-in-time universe
+  commands (`sync`, `resolve`, `ingest`, `benchmarks` with `RUN_INDEX_UNIVERSE_INGESTION=1`) under
+  their own guard and budget, and `project`, `report` and `protect` without a key. Do not export
+  `FMP_API_KEY`, `STRIPE_*` or the per-run opt-ins for a whole session.
 
 ## Live FMP hydration
 

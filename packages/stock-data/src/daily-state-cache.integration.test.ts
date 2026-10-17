@@ -1207,6 +1207,8 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
 
     async function securityWith(input: {
       prices?: { coverage: { from: string; to: string }[] };
+      /** The last stored bar, when the history ends before today. */
+      through?: string;
       derivedFrom?: string;
       fundamentals?: boolean;
     }): Promise<Security> {
@@ -1228,7 +1230,11 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
         TODAY,
         priceRetentionYears(PRODUCT_YEARS),
       );
-      const rows = prices.map((price) => ({ ...price, securityId: row.id }));
+      const rows = prices
+        .filter(
+          (price) => input.through === undefined || price.date <= input.through,
+        )
+        .map((price) => ({ ...price, securityId: row.id }));
       if (input.prices) {
         await store.saveDailyPriceSync({
           securityId: row.id,
@@ -1410,6 +1416,117 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       expect(await chunkBytes(ns)).toEqual(before);
       expect(await cache.hasResidentStock(security.id)).toBe(true);
       expect(await redis.zcard(`${ns}:resident-stocks`)).toBe(0);
+    });
+
+    it("answers a window the history does not reach from the resident chunks, without a repair", async () => {
+      const ns = `${namespace}-protected-empty-windows`;
+      const cache = cacheOver(undefined, { namespace: ns });
+      await cache.protectStocks([security.id]);
+      await serviceOver(cache).publishDurableProjection(security);
+      const invalidations = vi.spyOn(cache, "invalidateManifest");
+      const rebuilds = rebuildSpy();
+      const priceReads = vi.spyOn(store, "getDailyPrices");
+      const derivedReads = vi.spyOn(store, "getDailyDerivedState");
+      try {
+        const service = serviceOver(cache);
+        // Years before the first stored bar (2019-12-02): a backtest window of a security not yet
+        // listed. Each used to invalidate the manifest and rebuild the whole security.
+        for (const year of [2005, 2015, 2018]) {
+          const frame = await service.readDailyEvaluationFrame(
+            security,
+            { from: `${year}-01-01`, to: `${year}-12-31` },
+            FRAME_OPERANDS,
+          );
+          expect(frame.dates, String(year)).toEqual([]);
+        }
+        expect(invalidations).not.toHaveBeenCalled();
+        expect(rebuilds).not.toHaveBeenCalled();
+        expect(priceReads).not.toHaveBeenCalled();
+        expect(derivedReads).not.toHaveBeenCalled();
+      } finally {
+        invalidations.mockRestore();
+        rebuilds.mockRestore();
+        priceReads.mockRestore();
+        derivedReads.mockRestore();
+      }
+      // A window the history reaches still reads its rows.
+      const window = { from: "2019-01-01", to: "2019-12-31" };
+      expectSameFrame(
+        await serviceOver(cache).readDailyEvaluationFrame(
+          security,
+          window,
+          FRAME_OPERANDS,
+        ),
+        await storedFrame(window, FRAME_OPERANDS),
+        "2019",
+      );
+      expect(provider.calls).toEqual([]);
+    });
+
+    it("publishes a history that ended before the hole a re-base hold left, and refuses a hole inside a history", async () => {
+      const ns = `${namespace}-protected-holds`;
+      const cache = cacheOver(undefined, { namespace: ns });
+      const retentionStart = subtractYears(
+        TODAY,
+        priceRetentionYears(PRODUCT_YEARS),
+      );
+      const lastBar = "2023-04-27";
+      // The shape a terminal crash leaves: bars and coverage through the last verified bar, a hole
+      // where the held bar was never stored, then a later read that found nothing.
+      const ended = await securityWith({
+        prices: {
+          coverage: [
+            { from: retentionStart, to: lastBar },
+            { from: "2026-08-14", to: TODAY },
+          ],
+        },
+        through: lastBar,
+        derivedFrom: "retention",
+        fundamentals: true,
+      });
+      await cache.protectStocks([ended.id]);
+      const published =
+        await serviceOver(cache).publishDurableProjection(ended);
+      expect(published).toMatchObject({
+        status: "PUBLISHED",
+        coverage: { from: retentionStart, to: TODAY },
+      });
+      const manifest = (await cache.getManifest(ended.id)) as StockManifest;
+      expect(manifest.canonicalHistoryEnd).toBe(lastBar);
+      // A window after the history ended is answered empty, from Redis, with no repair.
+      const invalidations = vi.spyOn(cache, "invalidateManifest");
+      try {
+        const frame = await serviceOver(cache).readDailyEvaluationFrame(
+          ended,
+          { from: "2025-01-01", to: "2025-12-31" },
+          FRAME_OPERANDS,
+        );
+        expect(frame.dates).toEqual([]);
+        expect(invalidations).not.toHaveBeenCalled();
+      } finally {
+        invalidations.mockRestore();
+      }
+
+      // A bar after the hole makes it a hole in the history.
+      const resumed = await securityWith({
+        prices: {
+          coverage: [
+            { from: retentionStart, to: lastBar },
+            { from: "2026-08-14", to: TODAY },
+          ],
+        },
+        derivedFrom: "retention",
+        fundamentals: true,
+      });
+      await cache.protectStocks([resumed.id]);
+      expect(
+        await serviceOver(cache).publishDurableProjection(resumed),
+      ).toMatchObject({
+        status: "REFUSED",
+        reason: "PRICE_COVERAGE_GAP",
+      });
+      expect(await cache.getManifest(resumed.id)).toBeNull();
+      expect(provider.calls).toEqual([]);
     });
 
     it("refuses what PostgreSQL cannot project completely, and leaves Redis untouched", async () => {

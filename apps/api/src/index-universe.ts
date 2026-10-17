@@ -18,6 +18,7 @@ import {
   subtractYears,
 } from "@intrinsic/stock-data";
 import { reconcileBenchmarkCatalog } from "./benchmarks/benchmark-catalog.service";
+import { repositoryRoot } from "./qa-matrix/matrix-paths";
 import { catalogAdmitter } from "./index-universe/index-universe-admission.js";
 import {
   runIndexUniverseIngestion,
@@ -452,7 +453,7 @@ async function main(): Promise<number> {
           shouldStop: () => stopRequested,
         });
         if (args.out) {
-          const path = resolve(process.cwd(), args.out);
+          const path = resolve(repositoryRoot(), args.out);
           mkdirSync(dirname(path), { recursive: true });
           writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`);
         }
@@ -497,7 +498,7 @@ async function main(): Promise<number> {
           asOf: args.asOf,
         });
         if (args.out) {
-          const path = resolve(process.cwd(), args.out);
+          const path = resolve(repositoryRoot(), args.out);
           mkdirSync(dirname(path), { recursive: true });
           writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
         }
