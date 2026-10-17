@@ -1,6 +1,7 @@
 # S&P 500 Historical PIT, Redis residency and backtest throughput — engineering report, 2026-10-17
 
-- **Branch:** `feat/sp500-historical-pit` (PR to `main`, not merged).
+- **Branch:** `feat/sp500-historical-pit`, pull request
+  [#124](https://github.com/BMarius93/factorsage/pull/124) to `main` (not merged).
 - **Environment:** Claude cloud VM — 4 vCPU Intel Xeon @ 2.80 GHz, 16 GB RAM, no swap; Node 22.23.2,
   PostgreSQL 16, Redis 7.0.15 (`noeviction`, no `maxmemory`), all local. Provider: the FMP plan
   configured for this environment, reached only through `scripts/cloud/fmp-index-universe.sh`.
@@ -137,7 +138,18 @@ over 732 securities would rebuild most securities in every window (~19,600 rebui
 ## E. Change set
 
 - **Migration:** `20261017120000_sp500_historical_pit` (seven tables, enums; additive only).
-- **Commits:** see the pull request.
+- **Commits:** `8993fd7` membership, reconstruction, resolution, ingestion CLI; `07db76f` resolution
+  rules, Pro allowance, payload codec; `8fcf2b1` protected tier, statements out of Redis; `24e6128`
+  benchmark loading, universe-aware UI and OpenAPI, benchmark harnesses; `0e84080` undatable
+  statement rows; `3f0cce2` empty windows answered from Redis, re-base-hold histories; `29f9ddd`
+  window carry and `EVALSHA`; `d060218` reconstruction v2 (no early membership), codec and recovery
+  measurements; `4423882` existing suites held to the new Redis layout.
+- **Existing tests changed** (no test skipped): stock infrastructure, Fundamental anchor parity and
+  read counters, ETF contexts (they read Redis chunks raw or counted text reads, and expected
+  statement chunks); the live-FMP endpoint classification (the index-universe command's endpoints
+  are an exclusion with its reason); the plan-capacity boundary (the universe allowance is a
+  capacity bound); reconstruction fixtures whose log dates nothing confirms (their starts moved a
+  day, by design).
 - **Tests added:** reconstruction (18, including the deferred starts, contradicted and renamed
   evidence, and a membership no session confirms) and resolution (13) units; the List projection
   and quality report (6, including survivorship and the one-day bridge); market-index (6); contracts
@@ -155,11 +167,11 @@ over 732 securities would rebuild most securities in every window (~19,600 rebui
 
 ## F. Completion status
 
-| Objective                                                                                   | Status                                                                                                           |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1. Built-in S&P 500 Historical PIT List, identity-based, verified, Pro allowance end to end | **Done and verified** (data, API, worker, web, OpenAPI, tests)                                                   |
-| 2. Full history in PostgreSQL for every resolvable constituent                              | **Populated and verified** (734/734); 428 constituents have no provider data (blocked by the provider, reported) |
-| 3. Redis audit and codec                                                                    | **Done**; codec comparison measured on real payloads                                                             |
-| 4. Whole universe resident in Redis                                                         | **Populated, verified, recovery measured**                                                                       |
-| 5. Thirty-year backtests and concurrency scaling                                            | **Benchmarked** 1→16 workers; 32–128 not safe on this host (memory)                                              |
-| 6. Validation gate                                                                          | see the pull request                                                                                             |
+| Objective                                                                                   | Status                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Built-in S&P 500 Historical PIT List, identity-based, verified, Pro allowance end to end | **Done and verified** (data, API, worker, web, OpenAPI, tests)                                                                                                             |
+| 2. Full history in PostgreSQL for every resolvable constituent                              | **Populated and verified** (734/734); 428 constituents have no provider data (blocked by the provider, reported)                                                           |
+| 3. Redis audit and codec                                                                    | **Done**; codec comparison measured on real payloads                                                                                                                       |
+| 4. Whole universe resident in Redis                                                         | **Populated, verified, recovery measured**                                                                                                                                 |
+| 5. Thirty-year backtests and concurrency scaling                                            | **Benchmarked** 1→16 workers; 32–128 not safe on this host (memory)                                                                                                        |
+| 6. Validation gate                                                                          | **Passed locally**: lint, typecheck, 7,325 tests, Redis suite, OpenAPI, build, migration drift; Playwright (lists, backtests, built-ins, entitlements, stocks): 128 passed |
