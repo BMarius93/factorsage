@@ -298,9 +298,17 @@ than at creation means a Monitor created switched off, or blocked by its plan, r
 before it first runs, not a longer stretch.
 
 A **member replays** when it was listed by the time the window was fixed, has no checkpoint and no
-state. Its first session is the window's, or its ongoing membership's start when that is later
-(§4). A member listed afterwards is a new member and is reconstructed at its newest session. A
-member whose data arrives late replays the same window when it does.
+state, and has no transition recorded by this Monitor. Its first session is the window's, or its
+ongoing membership's start when that is later (§4). A member listed afterwards is a new member and
+is reconstructed at its newest session. A member whose data arrives late replays the same window
+when it does.
+
+The transition condition makes the replay **one-shot per member**. A membership that ends deletes
+the member's state and checkpoint (§4); without the condition, restoring the membership replayed the
+whole window a second time and duplicated every Signal it had opened (pre-release audit MON-01,
+fixed 2026-10-16). A restored member re-enters as a new membership and is reconstructed at its
+newest session. A replay that crashed before its transaction committed wrote nothing, so the next
+pass replays it, once.
 
 ### 5.2 How a level replays
 

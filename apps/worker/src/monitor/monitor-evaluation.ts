@@ -182,6 +182,11 @@ type PreparedMonitor = {
   currentMemberIds: SecurityId[];
   /** The initial replay window, when this Monitor asked for one (`monitor-eod-v2.md` §5). */
   replayWindow: { windowStart: LocalDate; fixedAt: Date } | null;
+  /**
+   * Securities this Monitor has recorded any transition for, read only when it has a replay window.
+   * A member that has history here has been decided by this Monitor and is never replayed again.
+   */
+  securitiesWithHistory: ReadonlySet<string>;
   /** Securities with any persisted state: never replayed, whatever their checkpoint says. */
   securitiesWithState: ReadonlySet<string>;
 };
@@ -274,6 +279,7 @@ export class MonitorEodEvaluation {
         const states = await this.repository.loadSignalStates(
           monitor.monitorId,
         );
+        const replayWindow = await this.replayWindowOf(monitor, expected, now);
         prepared.push({
           monitor,
           definition,
@@ -284,7 +290,13 @@ export class MonitorEodEvaluation {
           etfCodes: [...collectEtfOperands(definition).keys()].sort(),
           readsSector: collectSectorOperands(definition).length > 0,
           currentMemberIds: [],
-          replayWindow: await this.replayWindowOf(monitor, expected, now),
+          replayWindow,
+          securitiesWithHistory:
+            replayWindow === null
+              ? new Set<string>()
+              : await this.repository.loadSecuritiesWithTransitions(
+                  monitor.monitorId,
+                ),
           // Keys are `signalStateKey(securityId, levelId)`; a security id holds no space.
           securitiesWithState: new Set(
             [...states.keys()].map((key) => key.split(" ")[0]!),
@@ -613,11 +625,17 @@ export class MonitorEodEvaluation {
       // A new Monitor's initial universe replays its window: a member listed by the time the
       // window was fixed, never evaluated, with no state. Its first session is the window's, or the
       // membership's when that began later. A member listed afterwards is new, and reconstructed.
+      //
+      // "Never evaluated" is the transition history, not the checkpoint and state alone: a
+      // membership that ends deletes both, and restoring it would otherwise replay the whole window
+      // a second time and duplicate every Signal it opened (MON-01). A restored member re-enters as
+      // a new membership — reconstructed at its newest session (§4), never replayed.
       const window = entry.prepared.replayWindow;
       const replayFrom =
         window !== null &&
         !checkpoint &&
         !entry.prepared.securitiesWithState.has(entry.member.securityId) &&
+        !entry.prepared.securitiesWithHistory.has(entry.member.securityId) &&
         entry.member.listedAt !== undefined &&
         entry.member.listedAt <= window.fixedAt
           ? entry.membershipStart !== null &&

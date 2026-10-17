@@ -203,6 +203,8 @@ export function scopedRepository(
       ),
     loadSignalStates: (id) => real.loadSignalStates(id),
     loadCheckpoints: (id) => real.loadCheckpoints(id),
+    loadSecuritiesWithTransitions: (id) =>
+      real.loadSecuritiesWithTransitions(id),
     resolveUnvisitedStates: (input) => real.resolveUnvisitedStates(input),
     pruneCheckpoints: (input) => real.pruneCheckpoints(input),
     markScanned: (monitors, now) => real.markScanned(monitors, now),

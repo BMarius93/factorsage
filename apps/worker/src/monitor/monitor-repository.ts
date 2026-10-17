@@ -249,6 +249,11 @@ export interface MonitorEvaluationRepository {
   /** Each member's evaluation progress for one Monitor, keyed by security id. */
   loadCheckpoints(monitorId: string): Promise<Map<string, PersistedCheckpoint>>;
   /**
+   * The securities this Monitor has ever recorded a transition for — decided history that outlives
+   * the member's state and checkpoint, which a membership ending deletes.
+   */
+  loadSecuritiesWithTransitions(monitorId: string): Promise<Set<string>>;
+  /**
    * Persists one member's EOD evaluation — every level's changes, Signals and state, and the
    * checkpoint they advance — in one transaction behind the binding fence, the checkpoint's own
    * previous value and every state's `stateVersion`. Nothing is written when any of them moved.
@@ -685,6 +690,15 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
       }
       throw error;
     }
+  }
+
+  async loadSecuritiesWithTransitions(monitorId: string): Promise<Set<string>> {
+    const rows = await this.prisma.monitorStateTransition.findMany({
+      where: { monitorId },
+      distinct: ["securityId"],
+      select: { securityId: true },
+    });
+    return new Set(rows.map((row) => row.securityId));
   }
 
   async loadCheckpoints(
