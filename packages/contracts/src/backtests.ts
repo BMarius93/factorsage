@@ -75,6 +75,15 @@ export const BACKTEST_MAX_MAXIMUM_POSITIONS = 100;
 export const BACKTEST_MAX_PERIOD_YEARS = 30;
 /** Guards the run before it starts rather than letting a worker exhaust memory mid-execution. */
 export const BACKTEST_MAX_SECURITIES = 200;
+/**
+ * The same guard for the built-in point-in-time index universe, whose distinct securities over a
+ * thirty-year period are about twice its simultaneous members: every one is prepared, but only the
+ * members and held positions of a year are evaluated in it. Sized from the S&P 500 universe's
+ * measured worker footprint (`docs/decisions/sp500-historical-pit-v1.md` §8).
+ */
+export const BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES = 2_000;
+/** The most simultaneous members an index universe may hold at once for the engine to run it. */
+export const BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS = 600;
 
 export type CreateBacktestRunRequest = {
   strategyId: string;
@@ -955,6 +964,13 @@ export function backtestSnapshotVersionFor(
     : BACKTEST_SNAPSHOT_VERSION;
 }
 
+/** The point-in-time index universe a run's List carried, frozen at submission. */
+export type BacktestSnapshotIndexUniverse = {
+  kind: "POINT_IN_TIME_INDEX";
+  indexKey: string;
+  peakSimultaneousMembers: number;
+};
+
 /**
  * One resolved list member, frozen at submission.
  *
@@ -1124,6 +1140,14 @@ export type BacktestRunSnapshot = {
   stockList: {
     stockListId: string;
     name: string;
+    /**
+     * Present only when the List is the built-in point-in-time index universe
+     * (`docs/decisions/sp500-historical-pit-v1.md`): which index, and the most members its frozen
+     * windows held at once inside the period, as the submission measured it. The worker checks the
+     * figure against the frozen windows and its engine ceiling. Absent for every other List, so
+     * their snapshots and `snapshotHash` are byte-for-byte what they always were.
+     */
+    universe?: BacktestSnapshotIndexUniverse;
   };
   securities: BacktestSnapshotSecurity[];
   /**

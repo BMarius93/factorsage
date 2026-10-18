@@ -1,6 +1,9 @@
 import {
   ACTOR_SCOPE_KINDS,
   asAlternativeDataMetric,
+  BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS,
+  BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES,
+  BACKTEST_MAX_SECURITIES,
   collectStrategyEtfSources,
   CONDITION_OPERATORS,
   ETF_COMPATIBLE_METRIC_KINDS,
@@ -17,7 +20,10 @@ import {
   type StrategyMetric,
   type StrategySignal,
 } from "@intrinsic/contracts";
-import type { BuyWindowConfiguration } from "@intrinsic/domain";
+import {
+  peakSimultaneousMembers,
+  type BuyWindowConfiguration,
+} from "@intrinsic/domain";
 
 /** A stored submission snapshot the worker cannot execute. */
 export class BacktestSnapshotError extends Error {
@@ -127,6 +133,8 @@ export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
       );
     }
   });
+
+  refuseOversizedUniverse(value as BacktestRunSnapshot);
 
   // The returned snapshot is a copy whenever the upcast changed anything: `value` — the document
   // the claim carried, and the shape of the persisted row — is never written through.
@@ -451,5 +459,58 @@ function finiteNumber(value: unknown, path: string): void {
 function localDate(value: unknown, path: string): void {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new BacktestSnapshotError(`${path} is not a calendar date`);
+  }
+}
+
+/**
+ * The engine's own ceilings, re-checked where the run executes (`docs/decisions/sp500-historical-pit-v1.md`
+ * §5): an ordinary List's snapshot holds at most `BACKTEST_MAX_SECURITIES` securities; the built-in
+ * point-in-time index universe's at most `BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES`, and its recorded
+ * peak of simultaneous members must be exactly what its frozen windows hold inside the period and
+ * within `BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS`.
+ *
+ * The plan was decided at submission and is deliberately not re-decided here — a run queued before a
+ * downgrade still executes at its original size (`docs/decisions/entitlements-v1.md` §9). What is
+ * checked is what protects the worker: a snapshot no API build would have written is refused before
+ * a single security is prepared.
+ */
+function refuseOversizedUniverse(snapshot: BacktestRunSnapshot): void {
+  const universe = snapshot.stockList?.universe;
+  if (universe === undefined) {
+    if (snapshot.securities.length > BACKTEST_MAX_SECURITIES) {
+      throw new BacktestSnapshotError(
+        `snapshot.securities holds ${snapshot.securities.length} securities, above the engine ceiling of ${BACKTEST_MAX_SECURITIES}`,
+      );
+    }
+    return;
+  }
+  if (universe.kind !== "POINT_IN_TIME_INDEX") {
+    throw new BacktestSnapshotError(
+      "snapshot.stockList.universe is not a universe kind this engine defines",
+    );
+  }
+  if (snapshot.securities.length > BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES) {
+    throw new BacktestSnapshotError(
+      `snapshot.securities holds ${snapshot.securities.length} securities, above the index-universe ceiling of ${BACKTEST_MAX_INDEX_UNIVERSE_SECURITIES}`,
+    );
+  }
+  const measured = peakSimultaneousMembers(
+    snapshot.securities.map(
+      (security): BuyWindowConfiguration => ({
+        mode: security.buyWindowMode,
+        ranges: security.buyWindows,
+      }),
+    ),
+    { from: snapshot.period.startDate, to: snapshot.period.endDate },
+  ).peak;
+  if (measured !== universe.peakSimultaneousMembers) {
+    throw new BacktestSnapshotError(
+      `snapshot.stockList.universe.peakSimultaneousMembers is ${universe.peakSimultaneousMembers}, but its frozen windows hold ${measured}`,
+    );
+  }
+  if (measured > BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS) {
+    throw new BacktestSnapshotError(
+      `snapshot universe holds ${measured} simultaneous members, above the engine ceiling of ${BACKTEST_MAX_INDEX_UNIVERSE_CONSTITUENTS}`,
+    );
   }
 }

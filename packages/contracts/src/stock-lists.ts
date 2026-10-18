@@ -52,6 +52,28 @@ export const STOCK_LIST_DESCRIPTION_MAX_LENGTH = 500;
 export const STOCK_LIST_MAX_SECURITIES_PER_ADD = 100;
 export const BUY_WINDOW_MAX_RANGES = 100;
 
+/**
+ * The point-in-time index universe a built-in List carries (`docs/decisions/sp500-historical-pit-v1.md`).
+ * Present only on that List.
+ */
+export type StockListUniverseResponse = {
+  kind: "POINT_IN_TIME_INDEX";
+  indexKey: string;
+  /** Distinct securities the List holds: every tradeable constituent since the floor. */
+  distinctSecurities: number;
+  /**
+   * The most members eligible on any one date since the floor. A backtest's plan check measures the
+   * same quantity over its own period.
+   */
+  peakSimultaneousMembers: number;
+  /** Members whose membership is ongoing. */
+  currentMembers: number;
+  /** The earliest date the List's membership is projected from. */
+  membershipFloor: string;
+  /** When the canonical membership was last synchronized with the provider; null if never. */
+  syncedAt: string | null;
+};
+
 /** One row of `GET /lists`: enough to render the collection without loading memberships. */
 export type StockListSummaryResponse = ContentOwnershipResponse & {
   id: string;
@@ -62,6 +84,8 @@ export type StockListSummaryResponse = ContentOwnershipResponse & {
   updatedAt: string;
   /** Built-in content is not a customer's List and is always compliant. */
   compliance: StockListComplianceResponse;
+  /** Present only on a point-in-time index universe's built-in List. */
+  universe?: StockListUniverseResponse;
 };
 
 /**
@@ -99,6 +123,8 @@ export type StockListDetailResponse = ContentOwnershipResponse & {
   updatedAt: string;
   items: StockListItemResponse[];
   compliance: StockListComplianceResponse;
+  /** Present only on a point-in-time index universe's built-in List. */
+  universe?: StockListUniverseResponse;
 };
 
 /**

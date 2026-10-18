@@ -55,6 +55,7 @@ import {
 } from "./job-lease.js";
 import {
   BACKTEST_DATA_REVISIONS,
+  EvaluationWindowCarry,
   PriceBasisChangedError,
   withEtfOperandColumns,
   type DailyPriceBounds,
@@ -119,6 +120,7 @@ export interface BacktestFrameLoader {
       resolveGroupMembers?: (groupId: string) => Promise<readonly string[]>;
       priceBasisGeneration?: number;
       valuation?: ValuationTimeline;
+      carry?: EvaluationWindowCarry;
     },
   ): Promise<EvaluationFrame>;
 }
@@ -227,6 +229,11 @@ type PreparedRun = {
    * the honest reading for a run submitted before the group was referenced.
    */
   resolveGroupMembers: (groupId: string) => Promise<readonly string[]>;
+  /**
+   * The rows each security's window leaves for the next (`EvaluationWindowCarry`): one per run, so a
+   * window reads its own year rather than the previous year's chunks again for its leading context.
+   */
+  carry: EvaluationWindowCarry;
 };
 
 export type BacktestProcessorOptions = {
@@ -266,6 +273,16 @@ export type BacktestProcessorDependencies = {
   debugArchives?: BacktestDebugArchives;
   /** Provider requests this process has made, when the capture is on. See `ProviderRequestMeter`. */
   providerRequests?: () => ProviderRequestCounts;
+  /**
+   * The stock cache's protected tier (`docs/decisions/protected-stock-tier-v1.md`). A run over the
+   * built-in point-in-time index universe designates its securities before preparing them, so each
+   * is made resident outside the bounded LRU instead of cycling through it and evicting the stocks
+   * people are looking at — and a Redis that lost the designation regains it from the run's own
+   * frozen membership. Only that universe reaches it: a user's List never carries one.
+   */
+  protectedTier?: {
+    protectStocks(securityIds: readonly string[]): Promise<number>;
+  };
 };
 
 /**
@@ -610,7 +627,8 @@ export class BacktestProcessor implements BacktestJobProcessor {
             }),
             loader: this.dependencies.etfContexts.loader,
             now: this.now(),
-            publicationDelayMs: this.dependencies.etfContexts.publicationDelayMs,
+            publicationDelayMs:
+              this.dependencies.etfContexts.publicationDelayMs,
             isScheduledSession:
               this.dependencies.etfContexts.isScheduledSession,
             logger: this.dependencies.logger,
@@ -632,6 +650,19 @@ export class BacktestProcessor implements BacktestJobProcessor {
         `The ETF data for ${unreadableEtfs.map((diagnostic) => diagnostic.ticker).join(", ")} could not be read.`,
         { unreadableEtfs: unreadableEtfs.map((diagnostic) => diagnostic.code) },
       );
+    }
+
+    if (snapshot.stockList?.universe && this.dependencies.protectedTier) {
+      const designated = await this.dependencies.protectedTier.protectStocks(
+        snapshot.securities.map((member) => member.securityId),
+      );
+      if (designated > 0) {
+        this.dependencies.logger.info({
+          event: "backtest.protected-tier.designated",
+          indexKey: snapshot.stockList.universe.indexKey,
+          designated,
+        });
+      }
     }
 
     const loaded: (PreparedSecurity | null)[] = snapshot.securities.map(
@@ -749,6 +780,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       benchmark: await this.loadBenchmark(snapshot, period, archive),
       executionCalendar,
       resolveGroupMembers: frozenActorGroupResolver(snapshot),
+      carry: new EvaluationWindowCarry(),
     };
   }
 
@@ -833,8 +865,8 @@ export class BacktestProcessor implements BacktestJobProcessor {
       prepared: {
         security,
         sectorEtfCode:
-          (member.sector?.etfCode as StrategyEtfSourceCode | null | undefined) ??
-          null,
+          (member.sector?.etfCode as
+            StrategyEtfSourceCode | null | undefined) ?? null,
         coverage,
         ...(coverage.priceBasisGeneration === undefined
           ? {}
@@ -1256,6 +1288,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
             prepared.operands,
             {
               resolveGroupMembers: prepared.resolveGroupMembers,
+              carry: prepared.carry,
               ...(entry.priceBasisGeneration === undefined
                 ? {}
                 : { priceBasisGeneration: entry.priceBasisGeneration }),

@@ -2,6 +2,8 @@ import {
   assertBacktestConcurrency,
   assertBacktestHistoricalDepth,
   assertBacktestSymbolLimit,
+  assertBacktestUniverseLimit,
+  type BacktestUniverseUsage,
   assertCanCreateCustomList,
   assertCanCreateCustomStrategy,
   assertCanEnableMonitor,
@@ -129,6 +131,14 @@ export class EntitlementsService {
 
   assertBacktestSymbolLimit(user: AuthUser, symbolCount: number): void {
     assertBacktestSymbolLimit(this.entitlementsOf(user), symbolCount);
+  }
+
+  /**
+   * The backtest universe against the plan: an ordinary List by its members, the built-in
+   * point-in-time index universe by the most members it held at once in the period.
+   */
+  assertBacktestUniverseLimit(user: AuthUser, usage: BacktestUniverseUsage): void {
+    assertBacktestUniverseLimit(this.entitlementsOf(user), usage);
   }
 
   assertBacktestHistoricalDepth(user: AuthUser, requestedYears: number): void {

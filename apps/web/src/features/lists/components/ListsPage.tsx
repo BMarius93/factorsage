@@ -151,11 +151,15 @@ export function ListsPage() {
         cardRole: "identity",
         render: (list) => (
           <Link className={styles.nameLink} href={`/lists/${list.id}`}>
-            <span className={styles.name}>
-              {list.name}
-            </span>
+            <span className={styles.name}>{list.name}</span>
             {list.description ? (
               <span className={styles.description}>{list.description}</span>
+            ) : null}
+            {list.universe ? (
+              <span className={styles.description} data-testid="list-universe">
+                Point-in-time · {list.universe.distinctSecurities} stocks over
+                time, up to {list.universe.peakSimultaneousMembers} at once
+              </span>
             ) : null}
           </Link>
         ),
@@ -175,8 +179,8 @@ export function ListsPage() {
               </StatusBadge>
               {list.compliance.symbolLimit === null ? null : (
                 <span className={styles.overLimitReason}>
-                  {list.compliance.symbolCount} of{" "}
-                  {list.compliance.symbolLimit} stocks allowed
+                  {list.compliance.symbolCount} of {list.compliance.symbolLimit}{" "}
+                  stocks allowed
                 </span>
               )}
             </span>
@@ -255,7 +259,9 @@ export function ListsPage() {
     ];
     const showCompliance =
       scope === "own" && own.some((list) => !list.compliance.compliant);
-    return all.filter((column) => column.key !== "compliance" || showCompliance);
+    return all.filter(
+      (column) => column.key !== "compliance" || showCompliance,
+    );
   };
 
   // "New list" lives in the header in every state — loading, empty, error, populated — so it
@@ -331,9 +337,9 @@ export function ListsPage() {
                 title="You haven't created any lists yet"
                 body={
                   <p>
-                    Group the stocks you care about into a named list, then
-                    set each stock&apos;s membership whenever a universe needs
-                    it. Start with <strong>New list</strong> above.
+                    Group the stocks you care about into a named list, then set
+                    each stock&apos;s membership whenever a universe needs it.
+                    Start with <strong>New list</strong> above.
                   </p>
                 }
               />

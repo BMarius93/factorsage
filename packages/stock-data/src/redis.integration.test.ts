@@ -25,8 +25,10 @@ import {
 } from "@intrinsic/fmp";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { cachePayloadText } from "./cache-payload.test-helper.js";
 import {
   dailyStateChunkKey,
+  FINANCIAL_STATEMENT_VERSION,
   RedisStockDataCache,
   type StockManifest,
 } from "./cache.js";
@@ -222,69 +224,15 @@ describeRedis("real Redis stock-data infrastructure", () => {
     }
   });
 
-  it("stores immutable financial revisions in yearly chunks and preserves asOf selection", async () => {
-    const financialSecurityId = `${securityId}-financials`;
-    await cacheA.evict(financialSecurityId);
-    const first = financialRow(financialSecurityId, {
-      fiscalDate: "2021-03-31",
-      filingDate: "2021-04-20",
-      availableFromDate: "2021-04-21",
-      observedAt: "2021-04-20T12:00:00.000Z",
-      contentHash: "rev-1",
-      values: { revenue: 100 },
-    });
-    const second = financialRow(financialSecurityId, {
-      fiscalDate: "2021-03-31",
-      filingDate: "2021-05-20",
-      availableFromDate: "2021-05-21",
-      observedAt: "2021-05-20T12:00:00.000Z",
-      contentHash: "rev-2",
-      values: { revenue: 200 },
-    });
-    await cacheA.writeFinancialStatementYears(
-      financialSecurityId,
-      [first, second],
-      "INCOME",
-      "QUARTERLY",
-      [2021],
-    );
-    await cacheA.setManifest(readyManifest(financialSecurityId));
-
-    await expect(
-      cacheB.readFinancialStatements(financialSecurityId, {
-        statementTypes: ["INCOME"],
-        cadence: "QUARTERLY",
-        from: "2021-01-01",
-        to: "2021-12-31",
-        asOf: "2021-05-01",
-      }),
-    ).resolves.toMatchObject([
-      { contentHash: "rev-1", values: { revenue: 100 } },
-    ]);
-    await expect(
-      cacheB.readFinancialStatements(financialSecurityId, {
-        statementTypes: ["INCOME"],
-        cadence: "QUARTERLY",
-        from: "2021-01-01",
-        to: "2021-12-31",
-      }),
-    ).resolves.toMatchObject([
-      { contentHash: "rev-2", values: { revenue: 200 } },
-    ]);
-    await cacheA.evict(financialSecurityId);
-  });
-
   it("shares global LRU order and evicts every registered key for one stock", async () => {
     await cacheA.writeDailyPriceYears(
       securityId,
       [stockPrice(securityId, "2021-01-04", 3)],
       [2021],
     );
-    await cacheA.writeFinancialStatementYears(
+    await cacheA.writeDailyDerivedStateYears(
       securityId,
-      [financialRow(securityId)],
-      "INCOME",
-      "QUARTERLY",
+      [{ securityId, date: "2021-01-04", sma20d: 3 }],
       [2021],
     );
     await cacheA.setManifest(readyManifest(securityId));
@@ -303,9 +251,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       await redisA.get(`${namespace}:security:${securityId}:prices:1D:2021`),
     ).toBeNull();
     expect(
-      await redisA.get(
-        `${namespace}:security:${securityId}:financials:income:quarter:v1:2021`,
-      ),
+      await redisA.get(dailyStateChunkKey(namespace, securityId, 2021)),
     ).toBeNull();
   });
 
@@ -355,6 +301,96 @@ describeRedis("real Redis stock-data infrastructure", () => {
       await redisA.del(
         `${lruNamespace}:resident-stocks`,
         `${lruNamespace}:access-sequence`,
+      );
+    }
+  });
+
+  it("keeps the protected tier out of the LRU across clients, in both directions", async () => {
+    const tierNamespace = `${namespace}:protected-tier`;
+    const tierA = new RedisStockDataCache(
+      new IoredisCacheClient(redisA),
+      1,
+      tierNamespace,
+    );
+    const tierB = new RedisStockDataCache(
+      new IoredisCacheClient(redisB),
+      1,
+      tierNamespace,
+    );
+    const stocks = ["p", "q", "r"].map((id) => `security-${id}`);
+    const publish = async (cache: RedisStockDataCache, stock: string) => {
+      await cache.writeDailyPriceYears(
+        stock,
+        [stockPrice(stock, "2021-01-04", 3)],
+        [2021],
+      );
+      await cache.setManifest(readyManifest(stock));
+    };
+    const lru = () =>
+      redisA.zrange(`${tierNamespace}:resident-stocks`, "0", "-1");
+    try {
+      // `p` is resident through the LRU first, then designated: it leaves the LRU, keeping its keys.
+      await publish(tierA, stocks[0]!);
+      await expect(tierB.protectStocks([stocks[0]!])).resolves.toBe(1);
+      expect(await lru()).toEqual([]);
+      await publish(tierB, stocks[1]!);
+      await publish(tierA, stocks[2]!);
+      await expect(tierA.hasResidentStock(stocks[0]!)).resolves.toBe(true);
+      await expect(tierA.hasResidentStock(stocks[1]!)).resolves.toBe(false);
+      expect(await lru()).toEqual([stocks[2]]);
+      // Touching a protected stock never hands it an LRU position.
+      await tierB.touch(stocks[0]!);
+      expect(await lru()).toEqual([stocks[2]]);
+      // A refresh of a protected stock is admitted although it has no LRU position.
+      const manifest = (await tierA.getManifest(stocks[0]!)) as StockManifest;
+      const hydrating = {
+        ...manifest,
+        status: "HYDRATING" as const,
+        hydrationId: "protected-refresh",
+      };
+      await expect(tierB.beginRefresh(manifest, hydrating)).resolves.toBe(true);
+      await expect(tierB.completeHydration(hydrating, manifest)).resolves.toBe(
+        true,
+      );
+      for (const key of await redisA.smembers(
+        `${tierNamespace}:security:${stocks[0]}:keys`,
+      )) {
+        expect(await redisA.pttl(key), key).toBe(-1);
+      }
+
+      // Leaving the tier, `p` rejoins the LRU as its newest member and capacity evicts `r`.
+      await expect(tierA.reconcileProtectedStocks([])).resolves.toEqual({
+        added: 0,
+        removed: 1,
+        designated: 0,
+      });
+      expect(await lru()).toEqual([stocks[0]]);
+      await expect(tierB.hasResidentStock(stocks[2]!)).resolves.toBe(false);
+      expect(
+        await redisA.get(
+          `${tierNamespace}:security:${stocks[2]}:prices:1D:2021`,
+        ),
+      ).toBeNull();
+
+      // An explicit eviction removes a protected stock's keys but not its designation.
+      await tierA.protectStocks([stocks[0]!]);
+      await tierB.evict(stocks[0]!);
+      await expect(tierA.hasResidentStock(stocks[0]!)).resolves.toBe(false);
+      await expect(tierA.protectedStocks()).resolves.toEqual([stocks[0]]);
+      expect(
+        await redisA.exists(`${tierNamespace}:security:${stocks[0]}:keys`),
+      ).toBe(0);
+    } finally {
+      for (const stock of stocks) {
+        const registry = `${tierNamespace}:security:${stock}:keys`;
+        const keys = await redisA.smembers(registry);
+        if (keys.length > 0) await redisA.del(...keys);
+        await redisA.del(registry);
+      }
+      await redisA.del(
+        `${tierNamespace}:resident-stocks`,
+        `${tierNamespace}:access-sequence`,
+        `${tierNamespace}:protected-stocks`,
       );
     }
   });
@@ -416,7 +452,6 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.pttl(keys.security)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.dailyState)).toBeGreaterThan(0);
-    expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 150);
@@ -426,7 +461,6 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.get(keys.security)).not.toBeNull();
     expect(await redisA.get(keys.price)).not.toBeNull();
     expect(await redisA.get(keys.dailyState)).not.toBeNull();
-    expect(await redisA.get(keys.financial)).not.toBeNull();
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 200);
@@ -437,7 +471,6 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.get(keys.security)).toBeNull();
     expect(await redisA.get(keys.price)).toBeNull();
     expect(await redisA.get(keys.dailyState)).toBeNull();
-    expect(await redisA.get(keys.financial)).toBeNull();
     await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
   });
 
@@ -466,7 +499,6 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.pttl(keys.security)).toBe(-1);
       expect(await redisA.pttl(keys.price)).toBe(-1);
       expect(await redisA.pttl(keys.dailyState)).toBe(-1);
-      expect(await redisA.pttl(keys.financial)).toBe(-1);
 
       await new Promise<void>((resolve) => {
         setTimeout(resolve, hydrationTtlMs + 100);
@@ -477,7 +509,6 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.get(keys.security)).not.toBeNull();
       expect(await redisA.get(keys.price)).not.toBeNull();
       expect(await redisA.get(keys.dailyState)).not.toBeNull();
-      expect(await redisA.get(keys.financial)).not.toBeNull();
       await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(true);
     } finally {
       await cache.evict(ttlSecurityId);
@@ -517,7 +548,6 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.pttl(keys.security)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.dailyState)).toBeGreaterThan(0);
-      expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
       await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
     } finally {
       const registered = await redisA.smembers(keys.registry);
@@ -2373,7 +2403,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
       expect(cached).toEqual(written);
 
       // The serialized chunk carries absence as absence, not as an explicit null or a zero.
-      const chunk = await redis.get(
+      const chunk = await cachePayloadText(
+        redis,
         dailyStateChunkKey(namespace, security.id, 2026),
       );
       expect(chunk).not.toBeNull();
@@ -2760,7 +2791,8 @@ describeInfrastructure(
             ),
           );
         }
-        const chunk = await fixture.redis.get(
+        const chunk = await cachePayloadText(
+          fixture.redis,
           dailyStateChunkKey(fixture.namespace, fixture.securityId, 2025),
         );
         expect(chunk).toContain('"roicTtm"');
@@ -2774,7 +2806,8 @@ describeInfrastructure(
         );
 
         // 4. The metrics live inside the existing yearly daily-state chunks: no key family of
-        //    their own, and every key belongs to a family the cache already had.
+        //    their own, and every key belongs to a family the cache already had. Financial
+        //    statements have none either: PostgreSQL answers for them.
         const keys = await fixture.namespaceKeys();
         expect(
           keys.some((key) =>
@@ -2791,7 +2824,7 @@ describeInfrastructure(
             key === `${fixture.namespace}:symbol:${fixture.symbol}:security` ||
             (key.startsWith(prefix) &&
               new RegExp(
-                `^(manifest|keys|security|prices:1D:\\d{4}|daily-state:v${DAILY_STATE_ENCODING_VERSION}:\\d{4}|financials:[a-z-]+:(quarter|annual):v1:\\d{4})$`,
+                `^(manifest|keys|security|prices:1D:\\d{4}|daily-state:v${DAILY_STATE_ENCODING_VERSION}:\\d{4})$`,
               ).test(key.slice(prefix.length)));
           expect(known, key).toBe(true);
         }
@@ -2956,7 +2989,8 @@ describeInfrastructure(
           [...unstorable.values()].flat().map((date) => date.slice(0, 4)),
         );
         for (const year of years) {
-          const chunk = await fixture.redis.get(
+          const chunk = await cachePayloadText(
+            fixture.redis,
             dailyStateChunkKey(
               fixture.namespace,
               fixture.securityId,
@@ -3395,7 +3429,6 @@ function hydrationKeys(namespace: string, securityId: string, symbol: string) {
     security: `${namespace}:symbol:${symbol}:security`,
     price: `${prefix}:prices:1D:2021`,
     dailyState: dailyStateChunkKey(namespace, securityId, 2021),
-    financial: `${prefix}:financials:income:quarter:v1:2021`,
   };
 }
 
@@ -3436,14 +3469,6 @@ async function writeRepresentativeHydration(
     [2021],
     hydrating,
   );
-  await cache.writeFinancialStatementYears(
-    securityId,
-    [financialRow(securityId)],
-    "INCOME",
-    "QUARTERLY",
-    [2021],
-    hydrating,
-  );
 }
 
 function readyManifest(securityId: string): StockManifest {
@@ -3460,28 +3485,8 @@ function readyManifest(securityId: string): StockManifest {
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
     lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
     priceDatasetVersion: PRICE_DATASET_VERSION,
-    financialStatementVersion: 1,
+    financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
     derivedStateRevision: DERIVED_STATE_REVISION,
     dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
-  };
-}
-
-function financialRow(
-  securityId: string,
-  overrides: Partial<FinancialStatement> = {},
-): FinancialStatement {
-  return {
-    securityId,
-    statementType: "INCOME",
-    fiscalDate: "2021-03-31",
-    fiscalYear: 2021,
-    period: "Q1",
-    reportedCurrency: "USD",
-    filingDate: "2021-04-20",
-    availableFromDate: "2021-04-21",
-    observedAt: "2021-04-20T12:00:00.000Z",
-    contentHash: "baseline",
-    values: { revenue: 100 },
-    ...overrides,
   };
 }

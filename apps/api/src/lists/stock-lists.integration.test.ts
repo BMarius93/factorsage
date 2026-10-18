@@ -186,6 +186,139 @@ describe("stock lists", () => {
       .expect(401);
   });
 
+  /**
+   * The built-in point-in-time index universe (`docs/decisions/sp500-historical-pit-v1.md` §5): a
+   * projection of the canonical membership, readable by everyone, measured in its responses, and
+   * never edited through these routes — administrators included.
+   */
+  describe("the maintained point-in-time universe", () => {
+    const universeKey = "sp500-historical-pit";
+    const adminEmail = `list-admin-${suffix}@example.test`;
+    let universeId = "";
+    let firstItemId = "";
+    let admin: ReturnType<typeof request.agent>;
+
+    beforeAll(async () => {
+      // Only a test leftover can hold the key in the test database: the projection refuses it.
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+      const list = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: universeKey,
+          name: "S&P 500 — Historical PIT",
+          items: {
+            create: [
+              {
+                // A former member, then two current ones that overlapped it for a year.
+                securityId: securityIds[0] as string,
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("1996-01-02T00:00:00.000Z"),
+                      endDate: new Date("2008-09-14T00:00:00.000Z"),
+                    },
+                  ],
+                },
+              },
+              {
+                securityId: securityIds[1] as string,
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2007-09-15T00:00:00.000Z"),
+                      endDate: null,
+                    },
+                  ],
+                },
+              },
+              {
+                securityId: securityIds[2] as string,
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2008-01-02T00:00:00.000Z"),
+                      endDate: null,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        include: { items: { orderBy: { createdAt: "asc" } } },
+      });
+      universeId = list.id;
+      firstItemId = list.items[0]?.id ?? "";
+      const passwordHash = await app.get(PasswordService).hash(password);
+      await prisma.user.create({
+        data: {
+          email: adminEmail,
+          passwordHash,
+          emailVerifiedAt: new Date(),
+          plan: "PRO",
+          role: "ADMIN",
+        },
+      });
+      admin = request.agent(app.getHttpServer());
+      await admin
+        .post("/auth/login")
+        .send({ email: adminEmail, password })
+        .expect(200);
+    });
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { email: adminEmail } });
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+    });
+
+    it("measures the universe in the collection and the detail, and offers no edit", async () => {
+      const collection = (await owner.get("/lists").expect(200))
+        .body as StockListSummaryResponse[];
+      const summary = collection.find((list) => list.id === universeId);
+      expect(summary?.canEdit).toBe(false);
+      expect(summary?.universe).toEqual({
+        kind: "POINT_IN_TIME_INDEX",
+        indexKey: "SP500",
+        distinctSecurities: 3,
+        peakSimultaneousMembers: 3,
+        currentMembers: 2,
+        membershipFloor: "1996-01-02",
+        syncedAt: null,
+      });
+      const detail = (await admin.get(`/lists/${universeId}`).expect(200))
+        .body as StockListDetailResponse;
+      expect(detail.canEdit).toBe(false);
+      expect(detail.universe?.peakSimultaneousMembers).toBe(3);
+    });
+
+    it("refuses every edit, administrators included", async () => {
+      const refusals = [
+        admin.patch(`/lists/${universeId}`).send({ name: "Renamed" }),
+        admin
+          .post(`/lists/${universeId}/items`)
+          .send({ securityIds: [securityIds[0]] }),
+        admin.delete(`/lists/${universeId}/items/${firstItemId}`),
+        admin
+          .put(`/lists/${universeId}/items/${firstItemId}/buy-windows`)
+          .send({ mode: "FULL", ranges: [] }),
+      ];
+      for (const pending of refusals) {
+        const response = await pending;
+        expect(response.status).toBe(403);
+        expect(response.body.code).toBe("SYSTEM_CONTENT_READ_ONLY");
+      }
+      const after = await prisma.stockList.findUniqueOrThrow({
+        where: { id: universeId },
+        include: { items: { include: { buyWindows: true } } },
+      });
+      expect(after.name).toBe("S&P 500 — Historical PIT");
+      expect(after.items).toHaveLength(3);
+    });
+  });
+
   it("creates an empty list and lists it with a zero item count", async () => {
     const created = await createListViaApi(owner, {
       name: `  Empty ${suffix}  `,

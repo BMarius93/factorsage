@@ -4,6 +4,7 @@ import {
   assertBacktestConcurrency,
   assertBacktestHistoricalDepth,
   assertBacktestSymbolLimit,
+  assertBacktestUniverseLimit,
   assertCanCreateCustomList,
   assertCanCreateCustomStrategy,
   assertCanEnableMonitor,
@@ -92,6 +93,15 @@ describe("the entitlement matrix", () => {
     expect(plan("PRO").backtests.maxSymbols).toBe(100);
   });
 
+  it("extends only Pro to the point-in-time index universe, by simultaneous members", () => {
+    expect(GUEST.backtests.maxIndexUniverseConstituents).toBe(0);
+    expect(plan("FREE").backtests.maxIndexUniverseConstituents).toBe(0);
+    expect(plan("STARTER").backtests.maxIndexUniverseConstituents).toBe(0);
+    expect(plan("PRO").backtests.maxIndexUniverseConstituents).toBe(550);
+    // The custom-list limit is untouched by the extension.
+    expect(plan("PRO").backtests.maxSymbols).toBe(100);
+  });
+
   it("caps backtest history at 5 / 15 / 30 years", () => {
     expect(plan("FREE").backtests.maxHistoricalYears).toBe(5);
     expect(plan("STARTER").backtests.maxHistoricalYears).toBe(15);
@@ -171,6 +181,7 @@ describe("the ADMIN role", () => {
     expect(freeAdmin.admin.canAccessAdminSurfaces).toBe(true);
     expect(freeAdmin.backtests.maxConcurrentRuns).toBeNull();
     expect(freeAdmin.lists.maxSymbols).toBeNull();
+    expect(freeAdmin.backtests.maxIndexUniverseConstituents).toBeNull();
     expect(freeAdmin.monitors.maxActive).toBeNull();
     // Still a FREE customer commercially: the role never becomes a plan.
     expect(ADMIN_ENTITLEMENTS.tier).toBe("ADMIN");
@@ -193,6 +204,59 @@ describe("the ADMIN role", () => {
     expect(PLAN_ENTITLEMENTS.FREE.lists.maxSymbols).toBe(10);
     expect(PLAN_ENTITLEMENTS.FREE.admin.canAccessAdminSurfaces).toBe(false);
     expect(GUEST_ENTITLEMENTS.authenticated).toBe(false);
+  });
+});
+
+describe("backtest universe limit", () => {
+  it("holds an ordinary List to the symbol limit, built-in or not", () => {
+    expect(() =>
+      assertBacktestUniverseLimit(plan("PRO"), { kind: "LIST", symbols: 100 }),
+    ).not.toThrow();
+    expect(
+      reasonOf(() =>
+        assertBacktestUniverseLimit(plan("PRO"), { kind: "LIST", symbols: 101 }),
+      ),
+    ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
+  });
+
+  it("measures the index universe by simultaneous members, against its own limit", () => {
+    // About 1,200 distinct securities over thirty years, never more than ~507 at once.
+    expect(() =>
+      assertBacktestUniverseLimit(plan("PRO"), {
+        kind: "POINT_IN_TIME_INDEX",
+        peakSimultaneousMembers: 507,
+      }),
+    ).not.toThrow();
+    expect(
+      reasonOf(() =>
+        assertBacktestUniverseLimit(plan("PRO"), {
+          kind: "POINT_IN_TIME_INDEX",
+          peakSimultaneousMembers: 551,
+        }),
+      ),
+    ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
+    for (const value of ["FREE", "STARTER"] as const) {
+      expect(
+        reasonOf(() =>
+          assertBacktestUniverseLimit(plan(value), {
+            kind: "POINT_IN_TIME_INDEX",
+            peakSimultaneousMembers: 1,
+          }),
+        ),
+      ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
+    }
+    const admin = resolveEntitlements({
+      kind: "AUTHENTICATED",
+      userId: "user-1",
+      plan: "FREE",
+      role: "ADMIN",
+    });
+    expect(() =>
+      assertBacktestUniverseLimit(admin, {
+        kind: "POINT_IN_TIME_INDEX",
+        peakSimultaneousMembers: 507,
+      }),
+    ).not.toThrow();
   });
 });
 

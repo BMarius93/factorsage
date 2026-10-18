@@ -16,6 +16,14 @@ A submitted run selects:
 - `maximumPositions`;
 - a benchmark to compare against.
 
+The stock list's size is measured against the plan's `backtests.maxSymbols` (100 for Pro). The one
+exception is the built-in **S&P 500 — Historical PIT** universe
+(`docs/decisions/sp500-historical-pit-v1.md` §5): it is measured by the most members eligible on any
+one date of the requested period, against `backtests.maxIndexUniverseConstituents` (Pro 550, Free
+and Starter 0), and by the engine ceilings of 2,000 securities and 600 simultaneous members.
+Members that were never members during the period are left out of the run, and the snapshot
+records the universe and its measured peak. A customer's copy of the universe is an ordinary list.
+
 There is no user-entered maximum-allocation percentage. The full-position portfolio fraction is
 derived at execution:
 

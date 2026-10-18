@@ -365,6 +365,16 @@ export function ListDetail({ listId }: ListDetailProps) {
               <StatusBadge tone="neutral">
                 {stockCountLabel(detail.items.length)}
               </StatusBadge>
+              {detail.universe ? (
+                <StatusBadge
+                  tone="neutral"
+                  variant="outline"
+                  testId="universe-badge"
+                >
+                  Point-in-time · up to{" "}
+                  {detail.universe.peakSimultaneousMembers} at once
+                </StatusBadge>
+              ) : null}
               {detail.compliance.compliant ? null : (
                 <StatusBadge tone="warning" testId="list-over-limit-badge">
                   Over plan limit
@@ -404,6 +414,18 @@ export function ListDetail({ listId }: ListDetailProps) {
           }
         />
         {builtIn && editable ? <BuiltInEditNotice thing="list" /> : null}
+        {detail.universe ? (
+          // Why this built-in cannot be edited, and what its membership means for a backtest.
+          <p className={styles.universeNotice} data-testid="universe-notice">
+            Membership is reconstructed from the index's historical changes
+            since {formatMembershipDate(detail.universe.membershipFloor)} and
+            maintained automatically: {detail.universe.currentMembers} current
+            members and{" "}
+            {detail.universe.distinctSecurities -
+              detail.universe.currentMembers}{" "}
+            former ones. A backtest buys each stock only while it was a member.
+          </p>
+        ) : null}
 
         {detail.compliance.compliant ? null : (
           // The explanation lives on the page, not in a tooltip a phone cannot open (UI-021).

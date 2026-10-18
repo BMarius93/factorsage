@@ -1355,10 +1355,16 @@ export class PrismaStockDataStore implements StockDataStore {
         ...(statementPeriods(query.cadence)
           ? { period: { in: statementPeriods(query.cadence) } }
           : {}),
-        ...(query.from
-          ? { fiscalDate: { gte: toDatabaseDate(query.from) } }
+        // One `fiscalDate` filter carrying both bounds: two spreads of the key would let the upper
+        // bound replace the lower one.
+        ...(query.from || query.to
+          ? {
+              fiscalDate: {
+                ...(query.from ? { gte: toDatabaseDate(query.from) } : {}),
+                ...(query.to ? { lte: toDatabaseDate(query.to) } : {}),
+              },
+            }
           : {}),
-        ...(query.to ? { fiscalDate: { lte: toDatabaseDate(query.to) } } : {}),
         ...(query.asOf
           ? { availableFromDate: { lte: toDatabaseDate(query.asOf) } }
           : {}),

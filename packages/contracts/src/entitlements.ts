@@ -173,6 +173,17 @@ export type Entitlements = {
      */
     readonly canViewDemo: boolean;
     readonly maxSymbols: EntitlementLimit;
+    /**
+     * The built-in point-in-time index universe (`S&P 500 — Historical PIT`,
+     * `docs/decisions/sp500-historical-pit-v1.md`): the most members the universe held **at once**
+     * inside the requested period. It replaces `maxSymbols` for that List and for no other — a
+     * customer's own List, including a duplicate of the built-in, is still held to `maxSymbols`.
+     *
+     * Measured by simultaneous membership because that is the universe a strategy chooses from on
+     * any date: about 500 lines, although roughly twice as many distinct securities pass through the
+     * index over thirty years. `0` means the plan does not include index universes.
+     */
+    readonly maxIndexUniverseConstituents: EntitlementLimit;
     /** Maximum requested period length, in years. Execution only — see `stocks.maxHistoricalYears`. */
     readonly maxHistoricalYears: EntitlementLimit;
     readonly maxConcurrentRuns: EntitlementLimit;
@@ -219,6 +230,7 @@ export const GUEST_ENTITLEMENTS: Entitlements = {
     canRunLive: false,
     canViewDemo: false,
     maxSymbols: 0,
+    maxIndexUniverseConstituents: 0,
     maxHistoricalYears: 0,
     maxConcurrentRuns: 0,
   },
@@ -230,6 +242,7 @@ function authenticatedEntitlements(input: {
   tier: EntitlementTier;
   listSymbols: number;
   backtestSymbols: number;
+  indexUniverseConstituents: number;
   backtestYears: number;
   concurrentRuns: number;
   activeMonitors: number;
@@ -254,6 +267,7 @@ function authenticatedEntitlements(input: {
       canRunLive: true,
       canViewDemo: true,
       maxSymbols: input.backtestSymbols,
+      maxIndexUniverseConstituents: input.indexUniverseConstituents,
       maxHistoricalYears: input.backtestYears,
       maxConcurrentRuns: input.concurrentRuns,
     },
@@ -273,6 +287,7 @@ export const PLAN_ENTITLEMENTS: Readonly<Record<UserPlan, Entitlements>> = {
     tier: "FREE",
     listSymbols: 10,
     backtestSymbols: 10,
+    indexUniverseConstituents: 0,
     backtestYears: 5,
     concurrentRuns: 1,
     activeMonitors: 1,
@@ -281,6 +296,7 @@ export const PLAN_ENTITLEMENTS: Readonly<Record<UserPlan, Entitlements>> = {
     tier: "STARTER",
     listSymbols: 50,
     backtestSymbols: 50,
+    indexUniverseConstituents: 0,
     backtestYears: 15,
     concurrentRuns: 1,
     activeMonitors: 3,
@@ -289,6 +305,9 @@ export const PLAN_ENTITLEMENTS: Readonly<Record<UserPlan, Entitlements>> = {
     tier: "PRO",
     listSymbols: 100,
     backtestSymbols: 100,
+    // The S&P 500 holds 500 companies, at most about 507 lines with dual share classes; the owner
+    // extended Pro to the whole universe on 2026-10-17 (`docs/decisions/sp500-historical-pit-v1.md`).
+    indexUniverseConstituents: 550,
     backtestYears: 30,
     concurrentRuns: 2,
     activeMonitors: 10,
@@ -318,6 +337,7 @@ export const ADMIN_ENTITLEMENTS = {
   lists: { maxSymbols: null },
   backtests: {
     maxSymbols: null,
+    maxIndexUniverseConstituents: null,
     maxHistoricalYears: null,
     maxConcurrentRuns: null,
   },
@@ -525,6 +545,50 @@ export function assertBacktestSymbolLimit(
         tier: entitlements.tier,
         limit,
         requested: symbolCount,
+      },
+    );
+  }
+}
+
+/**
+ * The universe a backtest would run over, as the entitlement check measures it.
+ *
+ * - `LIST`: an ordinary List, measured by its members — every customer List, and every built-in
+ *   that is not an index universe.
+ * - `POINT_IN_TIME_INDEX`: the built-in index universe, measured by the most members it held at once
+ *   inside the requested period.
+ */
+export type BacktestUniverseUsage =
+  | { readonly kind: "LIST"; readonly symbols: number }
+  | {
+      readonly kind: "POINT_IN_TIME_INDEX";
+      readonly peakSimultaneousMembers: number;
+    };
+
+/**
+ * The backtest universe's size against the plan: `maxSymbols` for a List,
+ * `maxIndexUniverseConstituents` for the point-in-time index universe. One code for both, because
+ * to a user both say "this universe is larger than your plan's backtests allow".
+ */
+export function assertBacktestUniverseLimit(
+  entitlements: Entitlements,
+  usage: BacktestUniverseUsage,
+): void {
+  if (usage.kind === "LIST") {
+    assertBacktestSymbolLimit(entitlements, usage.symbols);
+    return;
+  }
+  const limit = entitlements.backtests.maxIndexUniverseConstituents;
+  if (!withinLimit(limit, usage.peakSimultaneousMembers)) {
+    refuse(
+      limit === 0
+        ? "Your plan does not include backtests over the S&P 500 Historical PIT universe"
+        : `Your plan allows index universes of up to ${limit} simultaneous members; this one holds ${usage.peakSimultaneousMembers}`,
+      {
+        code: "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
+        tier: entitlements.tier,
+        limit: limit ?? 0,
+        requested: usage.peakSimultaneousMembers,
       },
     );
   }

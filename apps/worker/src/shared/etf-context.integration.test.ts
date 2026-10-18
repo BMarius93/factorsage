@@ -167,12 +167,19 @@ class RefusingProvider implements FmpBenchmarkProviderPort {
   }
 }
 
-/** Counts the year chunks reads ask Redis for. */
+/**
+ * Counts the year chunks reads ask Redis for — as text (legacy JSON) or as the payload codec's
+ * binary envelopes (`redis-payload-codec-v1.md`).
+ */
 class CountingClient extends IoredisCacheClient {
   chunkReads = 0;
   override async mget(...keys: string[]) {
     this.chunkReads += keys.length;
     return super.mget(...keys);
+  }
+  override async mgetBuffer(...keys: string[]) {
+    this.chunkReads += keys.length;
+    return super.mgetBuffer(...keys);
   }
 }
 

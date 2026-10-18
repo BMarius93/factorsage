@@ -24,6 +24,7 @@ import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   dailyStateChunkKey,
+  FINANCIAL_STATEMENT_VERSION,
   RedisStockDataCache,
   type StockDataCacheObserver,
   type StockManifest,
@@ -37,13 +38,16 @@ import {
 import { addDays, subtractYears } from "./dates.js";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
 import { weekdays } from "./fundamental-metrics.test-helper.js";
+import { cachePayloadText } from "./cache-payload.test-helper.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
+import { REDIS_PAYLOAD_HEADER_BYTES } from "./redis-payload-codec.js";
 import {
   createStockDataRedisClient,
   IoredisCacheClient,
 } from "./redis-client.js";
 import {
   CanonicalStockDataService,
+  EvaluationWindowCarry,
   fundamentalsDatasetOperations,
   priceRetentionYears,
   type ProviderRequestEvent,
@@ -234,11 +238,11 @@ class RefusingProvider implements FmpStockProviderPort {
 type Hooks = {
   /** Called before each chunk write; throwing fails that write. */
   beforeChunkWrite?: (key: string) => void;
-  /** Rewrites an MGET reply of daily-state chunks; throwing fails the read. */
+  /** Rewrites an MGET reply of daily-state chunk bytes; throwing fails the read. */
   onChunkRead?: (
     keys: string[],
-    payloads: (string | null)[],
-  ) => (string | null)[];
+    payloads: (Buffer | null)[],
+  ) => (Buffer | null)[];
 };
 
 /** The real Redis client, with seams for the failures a disposable cache must survive. */
@@ -251,16 +255,20 @@ class InstrumentedCacheClient extends IoredisCacheClient {
     super(redis);
   }
 
-  override async mget(...keys: string[]) {
-    const payloads = await super.mget(...keys);
+  override async mgetBuffer(...keys: string[]) {
+    const payloads = await super.mgetBuffer(...keys);
     return keys.some((key) => key.includes(":daily-state:")) &&
       this.hooks.onChunkRead
       ? this.hooks.onChunkRead(keys, payloads)
       : payloads;
   }
 
-  override async eval(script: string, numberOfKeys: number, ...args: string[]) {
-    const key = args[0] ?? "";
+  override async eval(
+    script: string,
+    numberOfKeys: number,
+    ...args: Array<string | Buffer>
+  ) {
+    const key = String(args[0] ?? "");
     if (script.includes("set-registered") && key.includes(":daily-state:")) {
       this.hooks.beforeChunkWrite?.(key);
       this.chunkWrites.push(key);
@@ -349,13 +357,20 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     }
   }
 
+  /**
+   * Every year's stored chunk, as the text the payload codec holds. The codec is deterministic, so
+   * equal text is equal bytes; that the bytes are an envelope rather than legacy JSON is asserted
+   * where the chunks are first published.
+   */
   async function chunkBytes(
     ns = namespace,
   ): Promise<Map<number, string | null>> {
-    const payloads = await redis.mget(
-      ...years.map((year) => dailyStateChunkKey(ns, security.id, year)),
+    const texts = await Promise.all(
+      years.map((year) =>
+        cachePayloadText(redis, dailyStateChunkKey(ns, security.id, year)),
+      ),
     );
-    return new Map(years.map((year, index) => [year, payloads[index] ?? null]));
+    return new Map(years.map((year, index) => [year, texts[index] ?? null]));
   }
 
   /** Row count and a digest of every stored derived row: what "PostgreSQL unchanged" means. */
@@ -534,6 +549,11 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     ).toBe(true);
 
     for (const year of years) {
+      // Stored as the compressed payload envelope, never as the uncompressed text.
+      const bytes = await redis.getBuffer(
+        dailyStateChunkKey(namespace, security.id, year),
+      );
+      expect(bytes?.subarray(0, 2).toString("latin1"), String(year)).toBe("FS");
       const payload = published.get(year) as string;
       expect(payload, String(year)).not.toContain("null");
       const decoded = decodeDailyStateChunk(payload, {
@@ -549,6 +569,11 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     const cached = await cacheOver().readDailyDerivedState(security.id, range);
     expect(cached).toStrictEqual(persisted);
     expect(JSON.stringify(cached)).toBe(JSON.stringify(persisted));
+    // Financial statements are not projected: PostgreSQL alone answers for them.
+    expect(registered.filter((key) => key.includes(":financials:"))).toEqual(
+      [],
+    );
+    expect(await namespaceKeys(`${namespace}:*:financials:*`)).toEqual([]);
   });
 
   it("serves every year boundary, leap day and partial window exactly as PostgreSQL does", async () => {
@@ -650,7 +675,7 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       coverageStart: "2026-01-01",
       coverageEnd: TODAY,
       priceDatasetVersion: 1,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: 7,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -799,6 +824,55 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     expect(manifest.status).toBe("READY");
   });
 
+  it("drops an older deployment's statement chunks, rebuilding from PostgreSQL before reading", async () => {
+    // What revision 1 left: yearly statement chunks registered beside the daily state, under a
+    // READY manifest that names the statement revision it was published with.
+    const registry = `${namespace}:security:${security.id}:keys`;
+    const statementKeys = years.map(
+      (year) =>
+        `${namespace}:security:${security.id}:financials:income:quarter:v1:${year}`,
+    );
+    for (const key of statementKeys) {
+      await redis.set(key, "[]");
+      await redis.sadd(registry, key);
+    }
+    const manifestKey = `${namespace}:security:${security.id}:manifest`;
+    const revisionOne = JSON.parse(
+      (await redis.get(manifestKey)) as string,
+    ) as StockManifest;
+    await redis.set(
+      manifestKey,
+      JSON.stringify({ ...revisionOne, financialStatementVersion: 1 }),
+    );
+
+    const rebuilds = rebuildSpy();
+    const writes = vi.spyOn(store, "saveDailyDerivedState");
+    try {
+      const served = await serviceOver().getDailyDerivedState(symbol, range);
+      expect(JSON.stringify(served)).toBe(JSON.stringify(persisted));
+      expectNoProviderAndNoRebuild(rebuilds, writes);
+    } finally {
+      rebuilds.mockRestore();
+      writes.mockRestore();
+    }
+    // Deleted through the registry with the rest of the old generation, never orphaned.
+    expect(await redis.exists(...statementKeys)).toBe(0);
+    expect(await namespaceKeys(`${namespace}:*:financials:*`)).toEqual([]);
+    expect(
+      (await redis.smembers(registry)).filter((key) =>
+        key.includes(":financials:"),
+      ),
+    ).toEqual([]);
+    expect(await chunkBytes()).toEqual(published);
+    const manifest = JSON.parse(
+      (await redis.get(manifestKey)) as string,
+    ) as StockManifest;
+    expect(manifest.financialStatementVersion).toBe(
+      FINANCIAL_STATEMENT_VERSION,
+    );
+    expect(manifest.status).toBe("READY");
+  });
+
   it("recovers a backtest window read (no hydration check) that lands on a version-1 cache", async () => {
     const window = { from: "2022-01-01", to: "2022-12-31" };
     const operands = [PRICE_OPERAND, fundamentalMetricOperand("ROIC_TTM")];
@@ -915,8 +989,17 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     const corrupting = serviceOver(
       cacheOver(
         new InstrumentedCacheClient(redis, {
+          // One byte of every compressed frame flipped: the envelope's checksum must refuse it.
           onChunkRead: (_keys, payloads) =>
-            payloads.map((payload) => payload?.replace(/[0-9]/, "x") ?? null),
+            payloads.map((payload) => {
+              if (payload === null) {
+                return null;
+              }
+              const damaged = Buffer.from(payload);
+              const at = REDIS_PAYLOAD_HEADER_BYTES + 4;
+              damaged[at] = (damaged[at] as number) ^ 0xff;
+              return damaged;
+            }),
         }),
       ),
     );
@@ -1034,6 +1117,56 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     expect(provider.calls).toEqual([]);
   });
 
+  it("reads a run's consecutive windows once with a carry: the same frames, only each window's own year", async () => {
+    const read: string[][] = [];
+    const client = new InstrumentedCacheClient(redis, {
+      onChunkRead: (keys, payloads) => {
+        read.push(keys);
+        return payloads;
+      },
+    });
+    const carried = serviceOver(cacheOver(client));
+    const plain = serviceOver();
+    const carry = new EvaluationWindowCarry();
+    for (const year of years.filter((each) => each >= 2020)) {
+      const window = {
+        from: `${year}-01-01`,
+        to: year === 2026 ? TODAY : `${year}-12-31`,
+      };
+      read.length = 0;
+      const frame = await carried.readDailyEvaluationFrame(
+        security,
+        window,
+        FRAME_OPERANDS,
+        { carry },
+      );
+      expectSameFrame(
+        frame,
+        await plain.readDailyEvaluationFrame(security, window, FRAME_OPERANDS),
+        String(year),
+      );
+      const yearsRead = new Set(
+        read.flat().map((key) => Number(key.slice(-4))),
+      );
+      // The first window has no previous one; every later one reads its own year alone.
+      expect([...yearsRead].sort(), String(year)).toEqual(
+        year === 2020 ? [2019, 2020] : [year],
+      );
+    }
+    // A window that does not follow the kept one reads its context as before.
+    read.length = 0;
+    await carried.readDailyEvaluationFrame(
+      security,
+      { from: "2022-01-01", to: "2022-12-31" },
+      FRAME_OPERANDS,
+      { carry },
+    );
+    expect(new Set(read.flat().map((key) => Number(key.slice(-4))))).toEqual(
+      new Set([2021, 2022]),
+    );
+    expect(provider.calls).toEqual([]);
+  });
+
   it("gives the Monitor's PostgreSQL frame, on every session, the stored value the backtest frame reads", async () => {
     const service = serviceOver();
     // Sessions across event starts, an invalidation gap, a currency-conflict stretch and a year end.
@@ -1082,5 +1215,426 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       }
     }
     expect(provider.calls).toEqual([]);
+  });
+
+  /**
+   * The protected tier (`docs/decisions/protected-stock-tier-v1.md`): the same keys, published from
+   * PostgreSQL alone, resident outside the LRU and rebuilt identically after a flush.
+   */
+  describe("the protected tier", () => {
+    const extraSecurities: string[] = [];
+
+    afterAll(async () => {
+      if (extraSecurities.length > 0) {
+        await prisma.security.deleteMany({
+          where: { id: { in: extraSecurities } },
+        });
+      }
+    });
+
+    function readyManifestFor(securityId: string): StockManifest {
+      return {
+        securityId,
+        status: "READY",
+        productHistoryYears: PRODUCT_YEARS,
+        priceRetentionYears: priceRetentionYears(PRODUCT_YEARS),
+        coverageStart: "2026-01-01",
+        coverageEnd: TODAY,
+        priceDatasetVersion: 1,
+        financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
+        derivedStateRevision: 7,
+        dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
+      };
+    }
+
+    async function publishThroughLru(cache: RedisStockDataCache, id: string) {
+      await cache.writeDailyDerivedStateYears(
+        id,
+        [{ securityId: id, date: TODAY, sma20d: 1 }],
+        [2026],
+      );
+      await cache.setManifest(readyManifestFor(id));
+    }
+
+    async function securityWith(input: {
+      prices?: { coverage: { from: string; to: string }[] };
+      /** The last stored bar, when the history ends before today. */
+      through?: string;
+      derivedFrom?: string;
+      fundamentals?: boolean;
+    }): Promise<Security> {
+      const suffixed = `P${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+      const row = await prisma.security.create({
+        data: {
+          providerSymbol: suffixed,
+          symbol: suffixed,
+          name: "Protected Tier Refusal Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      extraSecurities.push(row.id);
+      const retentionStart = subtractYears(
+        TODAY,
+        priceRetentionYears(PRODUCT_YEARS),
+      );
+      const rows = prices
+        .filter(
+          (price) => input.through === undefined || price.date <= input.through,
+        )
+        .map((price) => ({ ...price, securityId: row.id }));
+      if (input.prices) {
+        await store.saveDailyPriceSync({
+          securityId: row.id,
+          prices: rows,
+          successfulCoverage: input.prices.coverage,
+          syncedAt: SYNCED_AT,
+          tailDate: TODAY,
+          freshThrough: TODAY,
+        });
+      }
+      if (input.derivedFrom) {
+        await store.saveDailyDerivedState({
+          securityId: row.id,
+          rows: designedRows(
+            row.id,
+            rows.map((price) => price.date),
+          ),
+          weeklyPrices: [],
+          successfulCoverage: {
+            from:
+              input.derivedFrom === "retention"
+                ? retentionStart
+                : input.derivedFrom,
+            to: TODAY,
+          },
+          syncedAt: SYNCED_AT,
+        });
+      }
+      if (input.fundamentals) {
+        for (const operation of fundamentalsDatasetOperations(PRODUCT_YEARS)) {
+          await store.upsertDatasetState({
+            securityId: row.id,
+            dataset: operation.dataset,
+            variant: operation.variant,
+            syncedAt: SYNCED_AT,
+          });
+        }
+      }
+      return (await serviceOver().findSecuritiesByIds([row.id]))[0] as Security;
+    }
+
+    it("publishes from PostgreSQL alone the very bytes a hydration publishes, with no TTL", async () => {
+      const ns = `${namespace}-protected-publish`;
+      const cache = cacheOver(undefined, {
+        namespace: ns,
+        maxResidentStocks: 1,
+      });
+      await cache.protectStocks([security.id]);
+      const rebuilds = rebuildSpy();
+      const writes = vi.spyOn(store, "saveDailyDerivedState");
+      try {
+        const result =
+          await serviceOver(cache).publishDurableProjection(security);
+        expect(result).toMatchObject({
+          status: "PUBLISHED",
+          coverage: { to: TODAY },
+        });
+        expectNoProviderAndNoRebuild(rebuilds, writes);
+        // The whole retention target, not a caller's window.
+        const manifest = (await cache.getManifest(
+          security.id,
+        )) as StockManifest;
+        expect(manifest.coverageStart).toBe(
+          subtractYears(TODAY, priceRetentionYears(PRODUCT_YEARS)),
+        );
+        expect(await chunkBytes(ns)).toEqual(published);
+        // Resident for good: nothing under the security carries a TTL once READY.
+        const registered = await redis.smembers(
+          `${ns}:security:${security.id}:keys`,
+        );
+        expect(registered.length).toBeGreaterThan(years.length);
+        for (const key of registered) {
+          expect(await redis.pttl(key), key).toBe(-1);
+        }
+        // A second publication finds it resident and writes nothing.
+        expect(
+          await serviceOver(cache).publishDurableProjection(security),
+        ).toMatchObject({
+          status: "ALREADY_RESIDENT",
+        });
+        expectNoProviderAndNoRebuild(rebuilds, writes);
+      } finally {
+        rebuilds.mockRestore();
+        writes.mockRestore();
+      }
+    });
+
+    it("stays resident and serves backtest windows from Redis while the LRU evicts around it", async () => {
+      const ns = `${namespace}-protected-lru`;
+      const cache = cacheOver(undefined, {
+        namespace: ns,
+        maxResidentStocks: 1,
+      });
+      await cache.protectStocks([security.id]);
+      await serviceOver(cache).publishDurableProjection(security);
+      await publishThroughLru(cache, "lru-first");
+      await publishThroughLru(cache, "lru-second");
+
+      expect(await cache.hasResidentStock(security.id)).toBe(true);
+      expect(await cache.hasResidentStock("lru-first")).toBe(false);
+      expect(await cache.hasResidentStock("lru-second")).toBe(true);
+      expect(await redis.zrange(`${ns}:resident-stocks`, "0", "-1")).toEqual([
+        "lru-second",
+      ]);
+
+      const priceReads = vi.spyOn(store, "getDailyPrices");
+      const derivedReads = vi.spyOn(store, "getDailyDerivedState");
+      const windows: Required<DateRange>[] = [];
+      try {
+        const service = serviceOver(cache);
+        for (const year of years.filter((each) => each >= 2020)) {
+          const window = {
+            from: `${year}-01-01`,
+            to: year === 2026 ? TODAY : `${year}-12-31`,
+          };
+          windows.push(window);
+          const frame = await service.readDailyEvaluationFrame(
+            security,
+            window,
+            FRAME_OPERANDS,
+          );
+          expect(frame.dates.length, String(year)).toBeGreaterThan(0);
+        }
+        // Every window came from the resident chunks.
+        expect(priceReads).not.toHaveBeenCalled();
+        expect(derivedReads).not.toHaveBeenCalled();
+      } finally {
+        priceReads.mockRestore();
+        derivedReads.mockRestore();
+      }
+      const service = serviceOver(cache);
+      for (const window of windows) {
+        expectSameFrame(
+          await service.readDailyEvaluationFrame(
+            security,
+            window,
+            FRAME_OPERANDS,
+          ),
+          await storedFrame(window, FRAME_OPERANDS),
+          window.from,
+        );
+      }
+      // Still protected, still outside the LRU after every read.
+      expect(await redis.zrange(`${ns}:resident-stocks`, "0", "-1")).toEqual([
+        "lru-second",
+      ]);
+      expect(provider.calls).toEqual([]);
+    });
+
+    it("is rebuilt byte for byte from PostgreSQL alone after Redis loses everything", async () => {
+      const ns = `${namespace}-protected-recovery`;
+      const cache = cacheOver(undefined, {
+        namespace: ns,
+        maxResidentStocks: 1,
+      });
+      await cache.reconcileProtectedStocks([security.id]);
+      await serviceOver(cache).publishDurableProjection(security);
+      const before = await chunkBytes(ns);
+      await flushNamespace(`${ns}:*`);
+      expect(await cache.protectedStocks()).toEqual([]);
+      expect(await cache.hasResidentStock(security.id)).toBe(false);
+
+      // What the operator command and every index-universe run do: designate from PostgreSQL's
+      // membership, then publish.
+      const rebuilds = rebuildSpy();
+      const writes = vi.spyOn(store, "saveDailyDerivedState");
+      try {
+        await cache.reconcileProtectedStocks([security.id]);
+        expect(
+          await serviceOver(cache).publishDurableProjection(security),
+        ).toMatchObject({
+          status: "PUBLISHED",
+        });
+        expectNoProviderAndNoRebuild(rebuilds, writes);
+      } finally {
+        rebuilds.mockRestore();
+        writes.mockRestore();
+      }
+      expect(await chunkBytes(ns)).toEqual(before);
+      expect(await cache.hasResidentStock(security.id)).toBe(true);
+      expect(await redis.zcard(`${ns}:resident-stocks`)).toBe(0);
+    });
+
+    it("answers a window the history does not reach from the resident chunks, without a repair", async () => {
+      const ns = `${namespace}-protected-empty-windows`;
+      const cache = cacheOver(undefined, { namespace: ns });
+      await cache.protectStocks([security.id]);
+      await serviceOver(cache).publishDurableProjection(security);
+      const invalidations = vi.spyOn(cache, "invalidateManifest");
+      const rebuilds = rebuildSpy();
+      const priceReads = vi.spyOn(store, "getDailyPrices");
+      const derivedReads = vi.spyOn(store, "getDailyDerivedState");
+      try {
+        const service = serviceOver(cache);
+        // Years before the first stored bar (2019-12-02): a backtest window of a security not yet
+        // listed. Each used to invalidate the manifest and rebuild the whole security.
+        for (const year of [2005, 2015, 2018]) {
+          const frame = await service.readDailyEvaluationFrame(
+            security,
+            { from: `${year}-01-01`, to: `${year}-12-31` },
+            FRAME_OPERANDS,
+          );
+          expect(frame.dates, String(year)).toEqual([]);
+        }
+        expect(invalidations).not.toHaveBeenCalled();
+        expect(rebuilds).not.toHaveBeenCalled();
+        expect(priceReads).not.toHaveBeenCalled();
+        expect(derivedReads).not.toHaveBeenCalled();
+      } finally {
+        invalidations.mockRestore();
+        rebuilds.mockRestore();
+        priceReads.mockRestore();
+        derivedReads.mockRestore();
+      }
+      // A window the history reaches still reads its rows.
+      const window = { from: "2019-01-01", to: "2019-12-31" };
+      expectSameFrame(
+        await serviceOver(cache).readDailyEvaluationFrame(
+          security,
+          window,
+          FRAME_OPERANDS,
+        ),
+        await storedFrame(window, FRAME_OPERANDS),
+        "2019",
+      );
+      expect(provider.calls).toEqual([]);
+    });
+
+    it("publishes a history that ended before the hole a re-base hold left, and refuses a hole inside a history", async () => {
+      const ns = `${namespace}-protected-holds`;
+      const cache = cacheOver(undefined, { namespace: ns });
+      const retentionStart = subtractYears(
+        TODAY,
+        priceRetentionYears(PRODUCT_YEARS),
+      );
+      const lastBar = "2023-04-27";
+      // The shape a terminal crash leaves: bars and coverage through the last verified bar, a hole
+      // where the held bar was never stored, then a later read that found nothing.
+      const ended = await securityWith({
+        prices: {
+          coverage: [
+            { from: retentionStart, to: lastBar },
+            { from: "2026-08-14", to: TODAY },
+          ],
+        },
+        through: lastBar,
+        derivedFrom: "retention",
+        fundamentals: true,
+      });
+      await cache.protectStocks([ended.id]);
+      const published =
+        await serviceOver(cache).publishDurableProjection(ended);
+      expect(published).toMatchObject({
+        status: "PUBLISHED",
+        coverage: { from: retentionStart, to: TODAY },
+      });
+      const manifest = (await cache.getManifest(ended.id)) as StockManifest;
+      expect(manifest.canonicalHistoryEnd).toBe(lastBar);
+      // A window after the history ended is answered empty, from Redis, with no repair.
+      const invalidations = vi.spyOn(cache, "invalidateManifest");
+      try {
+        const frame = await serviceOver(cache).readDailyEvaluationFrame(
+          ended,
+          { from: "2025-01-01", to: "2025-12-31" },
+          FRAME_OPERANDS,
+        );
+        expect(frame.dates).toEqual([]);
+        expect(invalidations).not.toHaveBeenCalled();
+      } finally {
+        invalidations.mockRestore();
+      }
+
+      // A bar after the hole makes it a hole in the history.
+      const resumed = await securityWith({
+        prices: {
+          coverage: [
+            { from: retentionStart, to: lastBar },
+            { from: "2026-08-14", to: TODAY },
+          ],
+        },
+        derivedFrom: "retention",
+        fundamentals: true,
+      });
+      await cache.protectStocks([resumed.id]);
+      expect(
+        await serviceOver(cache).publishDurableProjection(resumed),
+      ).toMatchObject({
+        status: "REFUSED",
+        reason: "PRICE_COVERAGE_GAP",
+      });
+      expect(await cache.getManifest(resumed.id)).toBeNull();
+      expect(provider.calls).toEqual([]);
+    });
+
+    it("refuses what PostgreSQL cannot project completely, and leaves Redis untouched", async () => {
+      const ns = `${namespace}-protected-refusals`;
+      const cache = cacheOver(undefined, { namespace: ns });
+      const retentionStart = subtractYears(
+        TODAY,
+        priceRetentionYears(PRODUCT_YEARS),
+      );
+      const cases: [Promise<Security>, string][] = [
+        [securityWith({}), "NO_PRICE_COVERAGE"],
+        [
+          securityWith({
+            prices: {
+              coverage: [
+                { from: retentionStart, to: "2021-12-31" },
+                { from: "2022-03-01", to: TODAY },
+              ],
+            },
+            derivedFrom: "retention",
+            fundamentals: true,
+          }),
+          "PRICE_COVERAGE_GAP",
+        ],
+        [
+          securityWith({
+            prices: { coverage: [{ from: retentionStart, to: TODAY }] },
+            derivedFrom: "2023-01-01",
+            fundamentals: true,
+          }),
+          "DERIVED_STATE_INCOMPLETE",
+        ],
+        [
+          securityWith({
+            prices: { coverage: [{ from: retentionStart, to: TODAY }] },
+            derivedFrom: "retention",
+          }),
+          "FUNDAMENTALS_NOT_INGESTED",
+        ],
+      ];
+      for (const [pending, reason] of cases) {
+        const refused = await pending;
+        await cache.protectStocks([refused.id]);
+        expect(
+          await serviceOver(cache).publishDurableProjection(refused),
+          reason,
+        ).toMatchObject({
+          status: "REFUSED",
+          reason,
+        });
+        expect(await cache.getManifest(refused.id), reason).toBeNull();
+        expect(
+          await namespaceKeys(`${ns}:security:${refused.id}:*`),
+          reason,
+        ).toEqual([]);
+      }
+      expect(provider.calls).toEqual([]);
+    });
   });
 });

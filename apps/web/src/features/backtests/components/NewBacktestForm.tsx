@@ -241,10 +241,19 @@ export function NewBacktestForm() {
       update("startDate", startForPeriodYears(values.endDate, planYears));
     }
   };
-  const chosenListSize = lists.find(
-    (list) => list.id === values.stockListId,
-  )?.itemCount;
+  const selectedList = lists.find((list) => list.id === values.stockListId);
+  const chosenListSize = selectedList?.itemCount;
+  // The built-in point-in-time index universe is measured by the most members it holds at once,
+  // against its own allowance (`docs/decisions/sp500-historical-pit-v1.md`); the server measures the
+  // same quantity over the run's own period and decides.
+  const chosenUniverse = selectedList?.universe;
+  const maxUniverse = limits?.maxIndexUniverseConstituents ?? null;
+  const universeTooLarge =
+    chosenUniverse !== undefined &&
+    maxUniverse !== null &&
+    chosenUniverse.peakSimultaneousMembers > maxUniverse;
   const listTooLarge =
+    chosenUniverse === undefined &&
     maxSymbols !== null &&
     chosenListSize !== undefined &&
     chosenListSize > maxSymbols;
@@ -470,6 +479,26 @@ export function NewBacktestForm() {
                     >
                       This list has {chosenListSize} stocks; your plan runs up
                       to {maxSymbols} per backtest.
+                    </p>
+                  ) : universeTooLarge ? (
+                    <p
+                      className={styles.limitText}
+                      data-state="over"
+                      data-testid="backtest-universe-over-limit"
+                    >
+                      {maxUniverse === 0
+                        ? "Your plan does not include point-in-time index universes."
+                        : `This universe holds up to ${chosenUniverse.peakSimultaneousMembers} members at once; your plan runs up to ${maxUniverse}.`}
+                    </p>
+                  ) : chosenUniverse ? (
+                    <p
+                      className={forms.hint}
+                      data-testid="backtest-universe-summary"
+                    >
+                      Point-in-time membership:{" "}
+                      {chosenUniverse.distinctSecurities} stocks over time, up
+                      to {chosenUniverse.peakSimultaneousMembers} at once. Each
+                      stock is bought only while it was a member.
                     </p>
                   ) : null}
                 </div>

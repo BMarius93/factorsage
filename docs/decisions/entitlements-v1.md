@@ -69,9 +69,17 @@ V1 explicitly has:
 | Run live Backtests | No | Yes | Yes | Yes |
 | View Backtest results | No | Yes | Yes | Yes |
 | Symbols per live Backtest | N/A | 10 | 50 | 100 |
+| S&P 500 — Historical PIT universe: simultaneous members per live Backtest | N/A | 0 | 0 | 550 |
 | Backtest historical depth | N/A | 5 years | 15 years | 30 years |
 | Concurrent live Backtests | 0 | 1 | 1 | 2 |
 | Active Monitors | 0 | 1 | 3 | 10 |
+
+The S&P 500 point-in-time universe row was added on 2026-10-17 by the owner
+(`docs/decisions/sp500-historical-pit-v1.md` §5): the built-in universe holds ~730 securities over
+time but at most ~507 at once, so it is measured by the most members eligible on one date of the
+run's period (`backtests.maxIndexUniverseConstituents`), never by its distinct count against
+`backtests.maxSymbols`. It applies to that one SYSTEM List only; every other List, including a
+customer's copy of it, keeps the symbol row above.
 
 There is no commercial restriction on which indicator, condition, trigger, calculated series, or intrinsic-value primitive an authenticated user may use. Monetization is based on product capacity, not on locking analytical primitives behind higher tiers.
 
@@ -332,6 +340,7 @@ entitlements.lists.maxSymbols
 entitlements.strategies.canCreateCustom
 entitlements.backtests.canRunLive
 entitlements.backtests.maxSymbols
+entitlements.backtests.maxIndexUniverseConstituents
 entitlements.backtests.maxHistoricalYears
 entitlements.backtests.maxConcurrentRuns
 entitlements.monitors.maxActive

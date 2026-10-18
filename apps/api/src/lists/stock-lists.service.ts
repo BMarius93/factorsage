@@ -4,12 +4,16 @@ import type {
   StockListDetailResponse,
   StockListItemResponse,
   StockListSummaryResponse,
+  StockListUniverseResponse,
   UpdateStockListRequest,
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import {
   normalizeBuyWindowConfiguration,
+  peakSimultaneousMembers,
+  pointInTimeIndexUniverseForList,
   type BuyWindowConfiguration,
+  type PointInTimeIndexUniverse,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
@@ -20,6 +24,7 @@ import {
   mutableWhere,
   ownershipResponse,
   readableWhere,
+  SystemContentMaintainedError,
   SystemContentProtectedError,
   type ContentViewer,
 } from "../builtins/content-access";
@@ -130,13 +135,55 @@ function itemResponse(item: ItemRow): StockListItemResponse {
   };
 }
 
+/**
+ * The point-in-time index universe a List carries: only the SYSTEM List whose `systemKey` names one.
+ * A customer's duplicate of it is an ordinary List.
+ */
+function maintainedUniverse(list: {
+  ownership: "USER" | "SYSTEM";
+  systemKey: string | null;
+}): PointInTimeIndexUniverse | null {
+  return list.ownership === "SYSTEM"
+    ? pointInTimeIndexUniverseForList(list.systemKey)
+    : null;
+}
+
+/**
+ * A universe's measured size, from its members' windows: distinct securities, the most members at
+ * once since the floor, and the members today.
+ */
+export function universeResponse(
+  universe: PointInTimeIndexUniverse,
+  windows: readonly BuyWindowConfiguration[],
+  today: string,
+  syncedAt: Date | null,
+): StockListUniverseResponse {
+  return {
+    kind: "POINT_IN_TIME_INDEX",
+    indexKey: universe.indexKey,
+    distinctSecurities: windows.length,
+    peakSimultaneousMembers: peakSimultaneousMembers(windows, {
+      from: universe.membershipFloor,
+      to: today,
+    }).peak,
+    currentMembers: windows.filter((configuration) =>
+      configuration.ranges.some((range) => range.endDate === null),
+    ).length,
+    membershipFloor: universe.membershipFloor,
+    syncedAt: syncedAt?.toISOString() ?? null,
+  };
+}
+
 function detailResponse(
   list: ListDetailRow,
   compliance: StockListComplianceResponse,
   viewer: ContentViewer,
+  universe?: StockListUniverseResponse,
 ): StockListDetailResponse {
   return {
     ...ownershipResponse(list, viewer),
+    // A maintained universe is edited by its synchronization, never through the List routes.
+    ...(universe ? { canEdit: false } : {}),
     id: list.id,
     name: list.name,
     ...(list.description === null ? {} : { description: list.description }),
@@ -144,6 +191,7 @@ function detailResponse(
     updatedAt: list.updatedAt.toISOString(),
     items: list.items.map(itemResponse),
     compliance,
+    ...(universe ? { universe } : {}),
   };
 }
 
@@ -214,7 +262,48 @@ export class StockListsService {
       ],
       include: { _count: { select: { items: true } } },
     });
-    return lists.map((list) => this.summaryOf(list, viewer));
+    const universes = new Map<string, StockListUniverseResponse>();
+    for (const list of lists) {
+      const universe = maintainedUniverse(list);
+      if (universe) {
+        universes.set(list.id, await this.measureUniverse(list.id, universe));
+      }
+    }
+    return lists.map((list) => this.summaryOf(list, viewer, universes.get(list.id)));
+  }
+
+  /** A maintained universe's measured size, read from its members' windows. */
+  private async measureUniverse(
+    listId: string,
+    universe: PointInTimeIndexUniverse,
+    loaded?: readonly { buyWindowMode: "FULL" | "CUSTOM"; buyWindows: { startDate: Date; endDate: Date | null }[] }[],
+  ): Promise<StockListUniverseResponse> {
+    const items =
+      loaded ??
+      (await this.prisma.stockListItem.findMany({
+        where: { stockListId: listId },
+        select: {
+          buyWindowMode: true,
+          buyWindows: { select: { startDate: true, endDate: true } },
+        },
+      }));
+    const sync = await this.prisma.indexMembershipSync.findFirst({
+      where: { indexKey: universe.indexKey, status: "COMPLETED" },
+      orderBy: { completedAt: "desc" },
+      select: { completedAt: true },
+    });
+    return universeResponse(
+      universe,
+      items.map((item) => ({
+        mode: item.buyWindowMode,
+        ranges: item.buyWindows.map((window) => ({
+          startDate: fromDatabaseDate(window.startDate),
+          endDate: window.endDate === null ? null : fromDatabaseDate(window.endDate),
+        })),
+      })),
+      new Date().toISOString().slice(0, 10),
+      sync?.completedAt ?? null,
+    );
   }
 
   private summaryOf(
@@ -222,9 +311,11 @@ export class StockListsService {
       include: { _count: { select: { items: true } } };
     }>,
     viewer: ContentViewer,
+    universe?: StockListUniverseResponse,
   ): StockListSummaryResponse {
     return {
       ...ownershipResponse(list, viewer),
+      ...(universe ? { canEdit: false } : {}),
       id: list.id,
       name: list.name,
       ...(list.description === null ? {} : { description: list.description }),
@@ -232,6 +323,7 @@ export class StockListsService {
       createdAt: list.createdAt.toISOString(),
       updatedAt: list.updatedAt.toISOString(),
       compliance: this.complianceOf(list, viewer, list._count.items),
+      ...(universe ? { universe } : {}),
     };
   }
 
@@ -276,6 +368,10 @@ export class StockListsService {
     const list = assertMutable(row, viewer, "lists");
     if (!list) {
       throw new StockListNotFoundError();
+    }
+    const universe = maintainedUniverse(list);
+    if (universe) {
+      throw new SystemContentMaintainedError(universe.listName);
     }
     return list;
   }
@@ -448,10 +544,12 @@ export class StockListsService {
     if (!list) {
       throw new StockListNotFoundError();
     }
+    const universe = maintainedUniverse(list);
     return detailResponse(
       list,
       this.complianceOf(list, viewer, list.items.length),
       viewer,
+      universe ? await this.measureUniverse(list.id, universe, list.items) : undefined,
     );
   }
 

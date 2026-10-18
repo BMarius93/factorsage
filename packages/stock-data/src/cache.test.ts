@@ -11,12 +11,23 @@ import { priceRetentionYears } from "./service.js";
 import {
   dailyStateChunkKey,
   RedisStockDataCache,
+  stockCachePayloadCodecs,
   type RedisCacheClient,
   type StockManifest,
 } from "./cache.js";
 
+/** The text a stored daily-state chunk holds, through the cache's own payload codec. */
+function chunkText(value: string | Buffer | undefined): string {
+  const decoded = stockCachePayloadCodecs().dailyState.decode(value ?? "");
+  if (!decoded.ok) {
+    throw new Error(decoded.reason);
+  }
+  return decoded.text;
+}
+
 class FakeRedis implements RedisCacheClient {
-  readonly values = new Map<string, string>();
+  /** Holds what the cache wrote: plain text, or a payload envelope's bytes. */
+  readonly values = new Map<string, string | Buffer>();
   readonly sets = new Map<string, Set<string>>();
   readonly sortedSets = new Map<string, Map<string, number>>();
 
@@ -27,7 +38,8 @@ class FakeRedis implements RedisCacheClient {
   refuseWrites = false;
 
   async get(key: string) {
-    return this.values.get(key) ?? null;
+    // A payload envelope is handed back as the bytes it was stored as, exactly like Redis would.
+    return (this.values.get(key) as string | undefined) ?? null;
   }
 
   async mget(...keys: string[]) {
@@ -35,7 +47,9 @@ class FakeRedis implements RedisCacheClient {
     const hook = this.beforeNextMget;
     this.beforeNextMget = undefined;
     await hook?.();
-    return keys.map((key) => this.values.get(key) ?? null);
+    return keys.map(
+      (key) => (this.values.get(key) as string | undefined) ?? null,
+    );
   }
 
   async set(key: string, value: string) {
@@ -114,7 +128,11 @@ class FakeRedis implements RedisCacheClient {
     }
     if (script.includes("begin-refresh")) {
       if (this.values.get(keys[0]!) !== args[1]) return 0;
-      if (!this.sortedSets.get(keys[2]!)?.has(args[0]!)) return 0;
+      if (
+        !this.sortedSets.get(keys[2]!)?.has(args[0]!) &&
+        !this.sets.get(keys[3]!)?.has(args[0]!)
+      )
+        return 0;
       this.values.set(keys[0]!, args[2]!);
       await this.sadd(keys[1]!, keys[0]!);
       await this.zrem(keys[2]!, args[0]!);
@@ -133,7 +151,9 @@ class FakeRedis implements RedisCacheClient {
     }
     if (script.includes("touch-ready")) {
       const manifest = this.values.get(keys[0]!);
-      if (!manifest || JSON.parse(manifest).status !== "READY") return 0;
+      if (!manifest || JSON.parse(String(manifest)).status !== "READY")
+        return 0;
+      if (this.sets.get(keys[3]!)?.has(args[0]!)) return 1;
       const sequence = await this.incr();
       await this.zadd(keys[1]!, sequence, args[0]!);
       return 1;
@@ -143,17 +163,45 @@ class FakeRedis implements RedisCacheClient {
       if (args[4] ? current !== args[4] : current !== undefined) return 0;
       this.values.set(keys[0]!, args[0]!);
       await this.sadd(keys[1]!, keys[0]!);
+      if (this.sets.get(keys[4]!)?.has(args[1]!)) {
+        await this.zrem(keys[2]!, args[1]!);
+        return 1;
+      }
       const sequence = await this.incr();
       await this.zadd(keys[2]!, sequence, args[1]!);
-      while ((await this.zcard(keys[2]!)) > Number(args[2])) {
-        const victim = (await this.zrange(keys[2]!, 0, 0))[0];
-        if (!victim) break;
-        const registry = `${args[3]}:security:${victim}:keys`;
-        await this.del(...(this.sets.get(registry) ?? []));
-        await this.del(registry);
-        await this.zrem(keys[2]!, victim);
-      }
+      await this.evictBeyond(keys[2]!, keys[4]!, Number(args[2]), args[3]!);
       return 1;
+    }
+    if (script.includes("protected-ready")) {
+      if (!this.sets.get(keys[0]!)?.has(args[0]!)) return 0;
+      const manifest = this.values.get(keys[1]!);
+      return manifest && JSON.parse(String(manifest)).status === "READY"
+        ? 1
+        : 0;
+    }
+    if (script.includes("unprotect-stocks")) {
+      let removed = 0;
+      for (const id of args.slice(2)) {
+        if (!this.sets.get(keys[0]!)?.delete(id)) continue;
+        removed += 1;
+        const manifest = this.values.get(`${args[1]}:security:${id}:manifest`);
+        if (manifest && JSON.parse(String(manifest)).status === "READY") {
+          await this.zadd(keys[1]!, await this.incr(), id);
+        }
+      }
+      await this.evictBeyond(keys[1]!, keys[0]!, Number(args[0]), args[1]!);
+      return removed;
+    }
+    if (script.includes("protect-stocks")) {
+      let added = 0;
+      for (const id of args) {
+        const set = this.sets.get(keys[0]!) ?? new Set<string>();
+        if (!set.has(id)) added += 1;
+        set.add(id);
+        this.sets.set(keys[0]!, set);
+        await this.zrem(keys[1]!, id);
+      }
+      return added;
     }
     if (script.includes("invalidate-manifest")) {
       const current = this.values.get(keys[0]!);
@@ -169,13 +217,35 @@ class FakeRedis implements RedisCacheClient {
       return this.values.get(keys[0]!) === args[0] ? 1 : 0;
     }
     if (script.includes("evict-resident-stock")) {
-      if (!this.sortedSets.get(keys[1]!)?.has(args[0]!)) return 0;
+      if (
+        !this.sortedSets.get(keys[1]!)?.has(args[0]!) &&
+        !this.sets.get(keys[2]!)?.has(args[0]!)
+      )
+        return 0;
       await this.del(...(this.sets.get(keys[0]!) ?? []));
       await this.del(keys[0]!);
       await this.zrem(keys[1]!, args[0]!);
       return 1;
     }
     throw new Error("Unexpected Redis script");
+  }
+
+  /** The LRU capacity loop every publish runs; a protected victim is dropped from the LRU only. */
+  private async evictBeyond(
+    resident: string,
+    protectedSet: string,
+    capacity: number,
+    namespace: string,
+  ) {
+    while ((await this.zcard(resident)) > capacity) {
+      const victim = (await this.zrange(resident, 0, 0))[0];
+      if (!victim) break;
+      await this.zrem(resident, victim);
+      if (this.sets.get(protectedSet)?.has(victim)) continue;
+      const registry = `${namespace}:security:${victim}:keys`;
+      await this.del(...(this.sets.get(registry) ?? []));
+      await this.del(registry);
+    }
   }
 }
 
@@ -392,6 +462,108 @@ describe("canonical yearly stock cache", () => {
   });
 });
 
+describe("the protected tier", () => {
+  const namespace = "stock-data:v2:test";
+  async function publish(cache: RedisStockDataCache, id: string) {
+    await cache.writeDailyPriceYears(
+      id,
+      [{ ...price("2020-01-02", 2), securityId: id }],
+      [2020],
+    );
+    await cache.setManifest(readyManifest(id));
+  }
+
+  function keysOf(redis: FakeRedis, id: string) {
+    return [...redis.values.keys()].filter((key) => key.includes(`:${id}:`));
+  }
+
+  it("keeps a protected stock resident outside the LRU: it takes no slot and is never a victim", async () => {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(redis, 1, namespace);
+    await expect(cache.protectStocks(["a"])).resolves.toBe(1);
+    await publish(cache, "a");
+    await publish(cache, "b");
+    await publish(cache, "c");
+
+    await expect(cache.hasResidentStock("a")).resolves.toBe(true);
+    await expect(cache.hasResidentStock("b")).resolves.toBe(false);
+    await expect(cache.hasResidentStock("c")).resolves.toBe(true);
+    expect(keysOf(redis, "a")).not.toEqual([]);
+    expect(keysOf(redis, "b")).toEqual([]);
+    // The LRU holds only what it can evict.
+    await expect(
+      redis.zrange(`${namespace}:resident-stocks`, 0, 9),
+    ).resolves.toEqual(["c"]);
+    // A read of a protected stock does not give it an LRU position.
+    await cache.readDailyPrices("a", { from: "2020-01-01", to: "2020-12-31" });
+    await expect(
+      redis.zrange(`${namespace}:resident-stocks`, 0, 9),
+    ).resolves.toEqual(["c"]);
+  });
+
+  it("moves a stock between the tiers on designation, and applies capacity to one that leaves", async () => {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(redis, 1, namespace);
+    await publish(cache, "a");
+    await cache.protectStocks(["a"]);
+    // Designation frees the LRU slot the stock held.
+    await expect(redis.zcard(`${namespace}:resident-stocks`)).resolves.toBe(0);
+    await publish(cache, "b");
+    await expect(cache.hasResidentStock("a")).resolves.toBe(true);
+    await expect(cache.hasResidentStock("b")).resolves.toBe(true);
+
+    // Leaving the tier, `a` rejoins the LRU as its most recent member; capacity evicts `b`.
+    await expect(cache.reconcileProtectedStocks([])).resolves.toEqual({
+      added: 0,
+      removed: 1,
+      designated: 0,
+    });
+    await expect(cache.protectedStocks()).resolves.toEqual([]);
+    await expect(cache.hasResidentStock("a")).resolves.toBe(true);
+    await expect(cache.hasResidentStock("b")).resolves.toBe(false);
+    expect(keysOf(redis, "b")).toEqual([]);
+
+    await expect(cache.reconcileProtectedStocks(["a", "b"])).resolves.toEqual({
+      added: 2,
+      removed: 0,
+      designated: 2,
+    });
+    await expect(cache.protectedStocks()).resolves.toEqual(["a", "b"]);
+    await expect(redis.zcard(`${namespace}:resident-stocks`)).resolves.toBe(0);
+  });
+
+  it("evicts a protected stock only when asked, keeping its designation", async () => {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(redis, 1, namespace);
+    await cache.protectStocks(["a"]);
+    await publish(cache, "a");
+    await cache.evict("a");
+    expect(keysOf(redis, "a")).toEqual([]);
+    await expect(cache.hasResidentStock("a")).resolves.toBe(false);
+    await expect(cache.protectedStocks()).resolves.toEqual(["a"]);
+    // Designated but not READY is not resident; publishing makes it resident again.
+    await publish(cache, "a");
+    await expect(cache.hasResidentStock("a")).resolves.toBe(true);
+  });
+
+  it("refreshes a protected stock in place, outside the LRU", async () => {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(redis, 1, namespace);
+    await cache.protectStocks(["a"]);
+    await publish(cache, "a");
+    const ready = (await cache.getManifest("a")) as StockManifest;
+    const hydrating: StockManifest = {
+      ...ready,
+      status: "HYDRATING",
+      hydrationId: "refresh",
+    };
+    await expect(cache.beginRefresh(ready, hydrating)).resolves.toBe(true);
+    await expect(cache.completeHydration(hydrating, ready)).resolves.toBe(true);
+    await expect(cache.hasResidentStock("a")).resolves.toBe(true);
+    await expect(redis.zcard(`${namespace}:resident-stocks`)).resolves.toBe(0);
+  });
+});
+
 describe("a Redis that refuses writes", () => {
   it("still serves a read it has already made, and reports the lost LRU access", async () => {
     // A `noeviction` Redis at `maxmemory` refuses the LRU's write after the read succeeded. The data
@@ -424,51 +596,25 @@ describe("a Redis that refuses writes", () => {
   });
 });
 
-describe("statement reads across a refresh", () => {
-  function statement(fiscalDate: string, revenue: number) {
-    return {
-      securityId: security.id,
-      statementType: "INCOME" as const,
-      period: "FY",
-      fiscalDate,
-      filingDate: fiscalDate,
-      availableFromDate: fiscalDate,
-      values: { revenue },
-    } as unknown as Parameters<
-      RedisStockDataCache["writeFinancialStatementYears"]
-    >[1][number];
-  }
-
+describe("price reads across a refresh", () => {
+  // Statements are no longer projected into Redis (`FINANCIAL_STATEMENT_VERSION` 2); the same
+  // guarantee holds for every yearly family that still is.
   it("never returns years from two generations in one read", async () => {
     const redis = new FakeRedis();
     const cache = new RedisStockDataCache(redis, 2, "stock-data:v2:test");
     const ready = {
       ...readyManifest(security.id),
-      coverageStart: "2024-01-01",
+      coverageStart: "2024-01-02",
       coverageEnd: "2025-12-31",
     };
     await cache.setManifest(ready);
-    for (const [year, revenue] of [
-      [2024, 1],
-      [2025, 1],
-    ] as const) {
-      await cache.writeFinancialStatementYears(
-        security.id,
-        [statement(`${year}-12-31`, revenue)],
-        "INCOME",
-        "ANNUAL",
-        [year],
-      );
-    }
-    const query = {
-      statementTypes: ["INCOME" as const],
-      cadence: "ANNUAL" as const,
-      from: "2024-01-01",
-      to: "2025-12-31",
-    };
-    expect(
-      await cache.readFinancialStatements(security.id, query),
-    ).toHaveLength(2);
+    await cache.writeDailyPriceYears(
+      security.id,
+      [price("2024-03-01", 1), price("2025-03-03", 1)],
+      [2024, 2025],
+    );
+    const range = { from: "2024-01-02", to: "2025-12-31" };
+    expect(await cache.readDailyPrices(security.id, range)).toHaveLength(2);
 
     // A refresh begins while the read is in flight and has rewritten one year of two when the
     // read's MGET lands: the answer would be one year old and one year new.
@@ -480,18 +626,14 @@ describe("statement reads across a refresh", () => {
     };
     redis.beforeNextMget = async () => {
       await cache.beginRefresh(ready, refreshing);
-      await cache.writeFinancialStatementYears(
+      await cache.writeDailyPriceYears(
         security.id,
-        [statement("2025-12-31", 2)],
-        "INCOME",
-        "ANNUAL",
+        [price("2025-03-03", 2)],
         [2025],
         refreshing,
       );
     };
-    await expect(
-      cache.readFinancialStatements(security.id, query),
-    ).resolves.toBeNull();
+    await expect(cache.readDailyPrices(security.id, range)).resolves.toBeNull();
   });
 });
 
@@ -545,9 +687,13 @@ describe("columnar daily-state chunks in the yearly cache", () => {
   it("publishes one versioned chunk per year and reads a range across year boundaries in one MGET", async () => {
     const { redis, cache } = await residentCache();
     for (const year of [2023, 2024, 2025]) {
-      expect(
-        redis.values.get(dailyStateChunkKey(namespace, security.id, year)),
-      ).toMatch(/^\{"version":2,/);
+      const stored = redis.values.get(
+        dailyStateChunkKey(namespace, security.id, year),
+      ) as Buffer;
+      // Stored compressed, inside the payload envelope; the text inside is the version-2 chunk.
+      expect(Buffer.isBuffer(stored)).toBe(true);
+      expect(stored.subarray(0, 2).toString("latin1")).toBe("FS");
+      expect(chunkText(stored)).toMatch(/^\{"version":2,/);
     }
     expect(dailyStateChunkKey(namespace, security.id, 2024)).toBe(
       "stock-data:v2:test:security:security-aapl:daily-state:v2:2024",
@@ -634,7 +780,9 @@ describe("columnar daily-state chunks in the yearly cache", () => {
         onUnreadableChunk: (chunk) => unreadable.push(chunk),
       });
       const key = dailyStateChunkKey(namespace, security.id, 2024);
-      redis.values.set(key, damage(redis.values.get(key) as string));
+      // Damage is written as legacy text, which the envelope reads as it always read JSON: the
+      // chunk decoder is what must refuse it.
+      redis.values.set(key, damage(chunkText(redis.values.get(key))));
       await expect(
         cache.readDailyDerivedState(security.id, {
           from: "2023-12-28",

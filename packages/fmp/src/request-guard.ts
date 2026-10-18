@@ -151,6 +151,23 @@ export const FMP_ENDPOINT_CLASSES: ReadonlyMap<string, FmpEndpointClass> =
       "senate-profile",
       { subject: "DIRECTORY", dataset: "CONGRESS_MEMBER_DIRECTORY" },
     ],
+    [
+      "historical-market-capitalization",
+      { subject: "SECURITY", dataset: "MARKET_CAPITALIZATION" },
+    ],
+    [
+      "sp500-constituent",
+      { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
+    ],
+    [
+      "historical-sp500-constituent",
+      { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
+    ],
+    ["symbol-change", { subject: "DIRECTORY", dataset: "SYMBOL_HISTORY" }],
+    [
+      "delisted-companies",
+      { subject: "DIRECTORY", dataset: "DELISTED_LISTINGS" },
+    ],
     ["company-screener", { subject: "EXCHANGE", dataset: "SECURITY_CATALOG" }],
     [
       "holidays-by-exchange",

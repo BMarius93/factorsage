@@ -23,6 +23,7 @@ import {
   createStockDataRedisClient,
   dailyStateChunkKey,
   decodeDailyStateChunk,
+  stockCachePayloadCodecs,
   encodeDailyStateChunk,
   priceRetentionYears,
   subtractYears,
@@ -412,6 +413,10 @@ class CountingCacheClient extends IoredisCacheClient {
     this.count("MGET");
     return super.mget(...keys);
   }
+  override mgetBuffer(...keys: string[]) {
+    this.count("MGET");
+    return super.mgetBuffer(...keys);
+  }
   override set(key: string, value: string) {
     this.count("SET");
     return super.set(key, value);
@@ -593,16 +598,21 @@ async function main(): Promise<void> {
         await store.getDailyDerivedState(security.id, coverage),
       );
 
-      const chunks = await redis.mget(
+      const chunks = await redis.mgetBuffer(
         ...years.map((year) =>
           dailyStateChunkKey(namespace, security.id, year),
         ),
       );
+      const codec = stockCachePayloadCodecs().dailyState;
+      const chunkTexts = chunks.map((chunk) => {
+        const text = codec.decode(chunk ?? Buffer.alloc(0));
+        return text.ok ? text.text : "";
+      });
       let rows = 0;
       let mismatches = 0;
       years.forEach((year, index) => {
         const expected = stored.get(year) ?? [];
-        const decoded = decodeDailyStateChunk(chunks[index] ?? "", {
+        const decoded = decodeDailyStateChunk(chunkTexts[index] ?? "", {
           securityId: security.id,
           year,
         });
@@ -631,7 +641,7 @@ async function main(): Promise<void> {
         years.map((year, index) => [
           `${namespace}:valuation:${security.id}:${year}`,
           columnarWithValuation(
-            chunks[index] ?? "",
+            chunkTexts[index] ?? "",
             stored.get(year)?.length ?? 0,
             year,
           ),

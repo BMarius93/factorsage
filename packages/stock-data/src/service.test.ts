@@ -3,7 +3,6 @@ import {
   type ValuationRatioId,
 } from "@intrinsic/contracts";
 import {
-  FINANCIAL_STATEMENT_TYPES,
   FUNDAMENTAL_METRIC_FIELDS,
   FUNDAMENTAL_METRIC_IDS,
   TECHNICAL_SERIES_FIELDS,
@@ -23,7 +22,11 @@ import {
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import { readOperand, valuationRatioOperand } from "@intrinsic/strategy";
 import { describe, expect, it, vi } from "vitest";
-import type { StockDataCache, StockManifest } from "./cache.js";
+import {
+  FINANCIAL_STATEMENT_VERSION,
+  type StockDataCache,
+  type StockManifest,
+} from "./cache.js";
 import {
   InMemoryLoadCoordinator,
   type LoadCoordinator,
@@ -130,7 +133,6 @@ class MemoryCache implements StockDataCache {
   readonly manifests = new Map<string, StockManifest>();
   readonly prices = new Map<string, DailyPrice[]>();
   readonly dailyState = new Map<string, DailyDerivedState[]>();
-  readonly financials = new Map<string, FinancialStatement[]>();
   readonly priceYearWrites: number[][] = [];
 
   async getSecurity(symbol: string) {
@@ -241,58 +243,6 @@ class MemoryCache implements StockDataCache {
       ),
     );
   }
-  async readFinancialStatements(
-    securityId: string,
-    query: FinancialStatementQuery,
-  ) {
-    const manifest = this.manifests.get(securityId);
-    if (manifest?.status !== "READY") return null;
-    const from = query.from ?? manifest.coverageStart;
-    const to = query.to ?? manifest.coverageEnd;
-    if (!from || !to || from > to) return [];
-    const statementTypes = query.statementTypes ?? FINANCIAL_STATEMENT_TYPES;
-    const cadences: readonly FinancialStatementCadence[] = query.cadence
-      ? [query.cadence]
-      : ["QUARTERLY", "ANNUAL"];
-    const rangeYears = yearSpan(from, to);
-    const rows: FinancialStatement[] = [];
-    for (const statementType of statementTypes) {
-      for (const cadence of cadences) {
-        for (const year of rangeYears) {
-          const key = `${securityId}:${statementType}:${cadence}:${year}`;
-          const chunk = this.financials.get(key);
-          if (!chunk) {
-            return null;
-          }
-          rows.push(...chunk);
-        }
-      }
-    }
-    return selectFinancialStatements(
-      rows.filter((row) => row.fiscalDate >= from && row.fiscalDate <= to),
-      query,
-    );
-  }
-  async writeFinancialStatementYears(
-    securityId: string,
-    rows: readonly FinancialStatement[],
-    statementType: FinancialStatement["statementType"],
-    cadence: FinancialStatementCadence,
-    writeYears: readonly number[],
-    _hydrating?: StockManifest,
-  ) {
-    for (const year of writeYears) {
-      const key = `${securityId}:${statementType}:${cadence}:${year}`;
-      this.financials.set(
-        key,
-        rows
-          .filter((row) => Number(row.fiscalDate.slice(0, 4)) === year)
-          .sort((left, right) =>
-            left.fiscalDate.localeCompare(right.fiscalDate),
-          ),
-      );
-    }
-  }
   async hasResidentStock(securityId: string) {
     return this.manifests.get(securityId)?.status === "READY";
   }
@@ -301,11 +251,6 @@ class MemoryCache implements StockDataCache {
     this.manifests.delete(securityId);
     this.prices.delete(securityId);
     this.dailyState.delete(securityId);
-    for (const key of [...this.financials.keys()]) {
-      if (key.startsWith(`${securityId}:`)) {
-        this.financials.delete(key);
-      }
-    }
   }
 }
 
@@ -410,8 +355,7 @@ class FakeStore implements StockDataStore {
   async findSecuritiesByIds(
     securityIds: readonly string[],
   ): Promise<Security[]> {
-    return this.currentSecurity &&
-      securityIds.includes(this.currentSecurity.id)
+    return this.currentSecurity && securityIds.includes(this.currentSecurity.id)
       ? [this.currentSecurity]
       : [];
   }
@@ -454,7 +398,9 @@ class FakeStore implements StockDataStore {
   async createSecurityCatalogEntries(entries: readonly SecurityCatalogEntry[]) {
     return entries.length;
   }
-  async updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<Security> {
+  async updateSecurityCatalogEntry(
+    entry: SecurityCatalogEntry,
+  ): Promise<Security> {
     return { ...entry.security, id: "security-updated" };
   }
   async getProfile() {
@@ -1091,7 +1037,9 @@ describe("canonical full-stock hydration", () => {
       // (30 visible + 7 warm-up) years of capacity plus the existing safety tails.
       new Set([(30 + 7) * 4 + 8, 30 + 7 + 2]),
     );
-    expect(cache.manifests.get(security.id)?.financialStatementVersion).toBe(1);
+    expect(cache.manifests.get(security.id)?.financialStatementVersion).toBe(
+      FINANCIAL_STATEMENT_VERSION,
+    );
     expect(
       cache.manifests.get(security.id)?.lastFundamentalsRefreshAt,
     ).toBeDefined();
@@ -1179,7 +1127,9 @@ describe("canonical full-stock hydration", () => {
     });
 
     expect(provider.financialRequests).toHaveLength(6);
-    expect(cache.manifests.get(security.id)?.financialStatementVersion).toBe(1);
+    expect(cache.manifests.get(security.id)?.financialStatementVersion).toBe(
+      FINANCIAL_STATEMENT_VERSION,
+    );
   });
   it("deduplicates identical concurrent requests into one stock hydration", async () => {
     const store = new FakeStore();
@@ -1589,7 +1539,7 @@ describe("canonical full-stock hydration", () => {
       priceRetentionYears: priceRetentionYears(30),
       hydratedAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -1697,7 +1647,7 @@ describe("canonical full-stock hydration", () => {
     expect(cache.manifests.get(security.id)?.status).toBe("READY");
   });
 
-  it("rehydrates Redis fundamentals from durable store without FMP calls when cadence states are complete", async () => {
+  it("serves statements from the durable store after an eviction, rehydrating without FMP calls when cadence states are complete", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
@@ -1737,7 +1687,9 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.financialRequests).toEqual([]);
     expect(statements).toHaveLength(2);
-    expect(cache.financials.size).toBeGreaterThan(0);
+    // The evicted stock is resident again, rebuilt from PostgreSQL; statements themselves are not
+    // projected into the cache (`FINANCIAL_STATEMENT_VERSION`).
+    expect(cache.manifests.get(security.id)?.status).toBe("READY");
   });
 
   it("repairs a missing technical suffix without rewriting prior history", async () => {
@@ -1900,7 +1852,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -1985,7 +1937,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2040,7 +1992,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2099,7 +2051,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: staleFundamentals,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2151,7 +2103,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2207,7 +2159,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2265,7 +2217,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: staleFundamentalsAt,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2346,7 +2298,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: staleFundamentalsAt,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2417,7 +2369,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2538,7 +2490,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -2570,7 +2522,10 @@ describe("canonical full-stock hydration", () => {
 
     // The next session is a new question: once Tuesday is final it is asked for at once.
     now = new Date("2026-08-25T20:31:00.000Z");
-    await loader.getDailyPrices("AAPL", { from: "2026-08-20", to: "2026-08-25" });
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-25",
+    });
     expect(provider.ranges).toHaveLength(3);
     expect(provider.ranges[2]?.to).toBe("2026-08-25");
   });
@@ -2655,7 +2610,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     };
@@ -4059,7 +4014,7 @@ describe("Fundamental Metrics in the derived-state lifecycle", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: 6,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -4145,7 +4100,7 @@ describe("derived-state revision and valuation warm-up retention", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: 1,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -4682,7 +4637,7 @@ describe("complete price coverage", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: 1,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -5175,7 +5130,7 @@ describe("a backtest executes exactly the period it snapshotted", () => {
       lastPriceRefreshAt: A_WEEK_LATER,
       lastFundamentalsRefreshAt: A_WEEK_LATER,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -5332,7 +5287,7 @@ describe("re-base-safe price loading", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -5880,7 +5835,7 @@ describe("the price basis around a refused whole read and in the preparation pha
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -5936,7 +5891,7 @@ describe("a Monitor frame read across a replacement", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -6010,7 +5965,7 @@ describe("valuation inputs in the preparation phases and the reads", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });
@@ -6226,7 +6181,7 @@ describe("a valuation ratio's daily history for Stock Details", () => {
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      financialStatementVersion: 1,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       derivedStateRevision: DERIVED_STATE_REVISION,
       dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
     });

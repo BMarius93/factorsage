@@ -184,6 +184,7 @@ the first place. A test reads the source for both.
 | Benchmark series (SPY, `^GSPC`, `^DJI`, `^VIX`)                   | `historical-price-eod/full`          | Each is another provider symbol, not one of the approved securities                                            |
 | Stock EOD preparation for Monitors, incl. the built-ins' thirty   | calendar, prices, statements         | Hydrates every current member of every running Monitor's list. No worker is started, and a worker holds no key |
 | Backtests and the QA matrix                                       | prices, statements, a benchmark      | Hydrates a whole Stock List, up to 200 securities, and 33 for the matrix                                       |
+| S&P 500 point-in-time universe (`pnpm data:index-universe`)       | index directories, renames, delisted listings, market capitalization | Reconstructs a whole index and probes every constituent's symbols; it runs only from its own guarded wrapper |
 | Form 13F institutional holdings                                   | —                                    | Not part of the product (`AGENTS.md` invariant 23)                                                             |
 | Company logos                                                     | —                                    | The web app reads the provider's unmetered image host; no key, no dataset                                      |
 

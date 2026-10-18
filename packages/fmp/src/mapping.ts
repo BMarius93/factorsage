@@ -246,20 +246,31 @@ function mapFmpFinancialStatementRows<T extends FinancialStatementType>(input: {
   rows: readonly FmpFinancialStatementDto[];
   fields: readonly string[];
 }): FinancialStatementDraft<T>[] {
-  return input.rows.map((row) => {
+  const mapped: FinancialStatementDraft<T>[] = [];
+  for (const row of input.rows) {
     requiredString(row.symbol, "financial statement symbol");
     const period = financialPeriod(row.period);
-    return {
+    const fiscalDate = localDate(row.date, "financial statement date");
+    // A statement is placed in time by its filing date alone. One the provider sends without a
+    // readable filing date cannot be made point-in-time available, so it is left out — never dated
+    // from its fiscal date or its acceptance timestamp, which would be a guess — and the rest of the
+    // symbol's history is kept. One malformed historical filing must not cost a security its whole
+    // fundamentals history, the rule alternative-data rows already follow (`optionalLocalDate`).
+    const filingDate = optionalLocalDate(row.filingDate);
+    if (!filingDate) {
+      continue;
+    }
+    mapped.push({
       securityId: input.securityId,
       statementType: input.statementType,
-      fiscalDate: localDate(row.date, "financial statement date"),
+      fiscalDate,
       fiscalYear: fiscalYear(row.fiscalYear),
       period,
       reportedCurrency: requiredString(
         row.reportedCurrency,
         "reportedCurrency",
       ),
-      filingDate: localDate(row.filingDate, "filingDate"),
+      filingDate,
       ...(typeof row.acceptedDate === "string" && row.acceptedDate.trim()
         ? { providerAcceptedDate: row.acceptedDate.trim() }
         : {}),
@@ -267,8 +278,9 @@ function mapFmpFinancialStatementRows<T extends FinancialStatementType>(input: {
         row,
         input.fields,
       ) as FinancialStatementDraft<T>["values"],
-    };
-  });
+    });
+  }
+  return mapped;
 }
 
 export function normalizeFmpPercentage(
@@ -875,7 +887,9 @@ export function mapFmpInsiderTrades(
     });
     const typeOfOwner = optionalString(row.typeOfOwner);
     const companyCik = optionalString(row.companyCik);
-    const acquisitionOrDisposition = optionalString(row.acquisitionOrDisposition);
+    const acquisitionOrDisposition = optionalString(
+      row.acquisitionOrDisposition,
+    );
     const directOrIndirect = optionalString(row.directOrIndirect);
     const formType = optionalString(row.formType);
     const securityName = optionalString(row.securityName);

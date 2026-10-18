@@ -11,6 +11,10 @@ import {
   encodeBenchmarkChunk,
 } from "./benchmark-chunk.js";
 import {
+  DEFAULT_REDIS_PAYLOAD_CODEC,
+  RedisPayloadCodec,
+} from "./redis-payload-codec.js";
+import {
   BENCHMARK_PRICE_DATASET_VERSION,
   type BenchmarkCacheHead,
   type BenchmarkCacheRead,
@@ -103,6 +107,7 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
   private readonly namespace: string;
   private readonly stageTtlMs: number;
   private readonly observer: BenchmarkCacheObserver;
+  private readonly codec: RedisPayloadCodec;
 
   constructor(
     private readonly redis: RedisCacheClient,
@@ -110,11 +115,14 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
       namespace?: string;
       stageTtlMs?: number;
       observer?: BenchmarkCacheObserver;
+      /** The chunk payload codec (`redis-payload-codec.ts`); legacy JSON chunks stay readable. */
+      codec?: RedisPayloadCodec;
     } = {},
   ) {
     this.namespace = options.namespace ?? BENCHMARK_CACHE_NAMESPACE;
     this.stageTtlMs = options.stageTtlMs ?? DEFAULT_BENCHMARK_STAGE_TTL_MS;
     this.observer = options.observer ?? {};
+    this.codec = options.codec ?? new RedisPayloadCodec(DEFAULT_REDIS_PAYLOAD_CODEC);
     if (!Number.isInteger(this.stageTtlMs) || this.stageTtlMs <= 0) {
       throw new Error("stageTtlMs must be a positive integer");
     }
@@ -152,7 +160,7 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
       }
       return {
         key: this.chunkKey(seriesId, year, digest),
-        payload: encodeBenchmarkChunk(seriesId, year, rows),
+        payload: this.codec.encode(encodeBenchmarkChunk(seriesId, year, rows)),
       };
     });
     for (let offset = 0; offset < staged.length; offset += STAGE_BATCH) {
@@ -384,7 +392,9 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
     const keys = ascending.map((year) =>
       this.chunkKey(head.seriesId, year, head.chunks[String(year)] as string),
     );
-    const payloads = await this.redis.mget(...keys);
+    const payloads: Array<Buffer | string | null> = this.redis.mgetBuffer
+      ? await this.redis.mgetBuffer(...keys)
+      : await this.redis.mget(...keys);
     if (payloads.some((payload) => payload === null)) {
       // The head moved on and its predecessor's chunks were removed. Never patched up from
       // whatever is still there: the caller reads the new head instead.
@@ -392,11 +402,10 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
     }
     const rows: BenchmarkDailyPrice[] = [];
     for (const [index, year] of ascending.entries()) {
-      const decoded = decodeBenchmarkChunk(
-        payloads[index] as string,
-        { seriesId: head.seriesId, year },
-        range,
-      );
+      const text = this.codec.decode(payloads[index] as Buffer | string);
+      const decoded = text.ok
+        ? decodeBenchmarkChunk(text.text, { seriesId: head.seriesId, year }, range)
+        : ({ ok: false, reason: `envelope: ${text.reason}` } as const);
       if (!decoded.ok) {
         const key = keys[index] as string;
         this.observer.onUnreadableChunk?.({
