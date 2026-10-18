@@ -108,7 +108,9 @@ chunks of ~420 bytes each: **53,582 keys, 544.0 MB**.
 Codec comparison on real stored histories (40 securities, 2,800 chunks; `redis-payload-codec-v1.md`
 "Measured"): zstd-3 cuts `MEMORY USAGE` by 84 % for prices and 58 % for daily state; gzip and brotli
 at comparable speed land within a few percent; zstd-19 would save a further ~95 MB of the tier at
-~20× the encode CPU on every hydration and was not adopted. Decompression is ~6 s of a thirty-year
+~20× the encode CPU on every hydration and was not adopted. Binary numeric packing (float64
+columns, with and without byte shuffling) compressed worse than text — 143 KB per security at zstd-3
+against 157 KB for row JSON and 122 KB for one JSON array per field — and read no faster. Decompression is ~6 s of a thirty-year
 run's ~93 s CPU; parsing, not decompression, is the read cost.
 
 **Recovery:** see `protected-stock-tier-v1.md` §6 (flush everything, rebuild from PostgreSQL,

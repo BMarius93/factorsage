@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
+import * as zlib from "node:zlib";
+import { isDeepStrictEqual } from "node:util";
 import {
   getRedisConfig,
   getStockDataConfig,
@@ -23,8 +25,15 @@ import {
 } from "@intrinsic/stock-data";
 import { repositoryRoot } from "../qa-matrix/matrix-paths";
 
+/** Node 22's zstd binding, typed here as the payload codec types it (`@types/node` predates it). */
+const zstd = zlib as unknown as {
+  zstdCompressSync(input: Buffer, options?: { params?: Record<number, number> }): Buffer;
+  zstdDecompressSync(input: Buffer): Buffer;
+  constants: Record<string, number>;
+};
+
 /**
- * `pnpm --filter @intrinsic/api bench:payload-codec [--securities 40] [--memory-securities 12] [--out f]`
+ * `pnpm --filter @intrinsic/api bench:payload-codec [--securities 40] [--memory-securities 12] [--families a,b] [--out f]`
  *
  * Measures every candidate Redis payload encoding on **real** stored histories
  * (`docs/decisions/redis-payload-codec-v1.md`): the yearly price and daily-state chunks exactly as
@@ -101,6 +110,8 @@ type Arguments = {
   memorySecurities: number;
   repeats: number;
   out: string | null;
+  /** The families to measure (`--families prices,prices-binary`); every one when absent. */
+  families: string[] | null;
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -109,6 +120,7 @@ function parseArguments(argv: readonly string[]): Arguments {
     memorySecurities: 12,
     repeats: 3,
     out: null,
+    families: null,
   };
   const rest = argv.filter((value) => value !== "--");
   for (let index = 0; index < rest.length; index += 1) {
@@ -134,6 +146,12 @@ function parseArguments(argv: readonly string[]): Arguments {
       case "--out":
         parsed.out = value();
         break;
+      case "--families":
+        parsed.families = value()
+          .split(",")
+          .map((family) => family.trim())
+          .filter((family) => family.length > 0);
+        break;
       default:
         throw new Error(`Unknown argument ${flag}`);
     }
@@ -145,7 +163,82 @@ type SecurityPayloads = {
   securityId: string;
   years: number[];
   texts: Record<Family, string[]>;
+  /** Each year's price rows, for the binary candidates. */
+  priceRows: DailyPrice[][];
 };
+
+/**
+ * Binary numeric packing, measured beside the text forms: one year of prices as a row count, the
+ * dates as days since 1970 (`Int32`) and every numeric field as an `Float64Array` column (`NaN` for
+ * an absent `vwap`). Lossless by construction — a JSON number parses to exactly this float64 — and
+ * verified on every decode. `shuffle` transposes each column's bytes (all first bytes, then all
+ * second bytes…) so the exponent bytes, which repeat, sit together for the compressor.
+ */
+const BINARY_PRICE_FIELDS = ["open", "high", "low", "close", "volume", "vwap"] as const;
+
+function encodeBinaryPrices(rows: readonly DailyPrice[], shuffle: boolean): Buffer {
+  const count = rows.length;
+  const buffer = Buffer.alloc(4 + count * 4 + BINARY_PRICE_FIELDS.length * count * 8);
+  buffer.writeUInt32LE(count, 0);
+  let offset = 4;
+  for (const row of rows) {
+    buffer.writeInt32LE(Math.round(Date.parse(`${row.date}T00:00:00Z`) / 86_400_000), offset);
+    offset += 4;
+  }
+  for (const field of BINARY_PRICE_FIELDS) {
+    const column = new Float64Array(count);
+    rows.forEach((row, index) => {
+      const value = (row as Record<string, unknown>)[field];
+      column[index] = typeof value === "number" ? value : Number.NaN;
+    });
+    const bytes = new Uint8Array(column.buffer);
+    if (shuffle) {
+      for (let byte = 0; byte < 8; byte += 1) {
+        for (let index = 0; index < count; index += 1) {
+          buffer[offset + byte * count + index] = bytes[index * 8 + byte] as number;
+        }
+      }
+    } else {
+      buffer.set(bytes, offset);
+    }
+    offset += count * 8;
+  }
+  return buffer;
+}
+
+function decodeBinaryPrices(securityId: string, buffer: Buffer, shuffle: boolean): DailyPrice[] {
+  const count = buffer.readUInt32LE(0);
+  const dates: string[] = [];
+  let offset = 4;
+  for (let index = 0; index < count; index += 1) {
+    dates.push(new Date(buffer.readInt32LE(offset) * 86_400_000).toISOString().slice(0, 10));
+    offset += 4;
+  }
+  const columns = BINARY_PRICE_FIELDS.map(() => {
+    const bytes = new Uint8Array(count * 8);
+    if (shuffle) {
+      for (let byte = 0; byte < 8; byte += 1) {
+        for (let index = 0; index < count; index += 1) {
+          bytes[index * 8 + byte] = buffer[offset + byte * count + index] as number;
+        }
+      }
+    } else {
+      bytes.set(buffer.subarray(offset, offset + count * 8));
+    }
+    offset += count * 8;
+    return new Float64Array(bytes.buffer);
+  });
+  return dates.map((date, index) => {
+    const row: Record<string, unknown> = { securityId, date };
+    BINARY_PRICE_FIELDS.forEach((field, column) => {
+      const value = (columns[column] as Float64Array)[index] as number;
+      if (field !== "vwap" || !Number.isNaN(value)) {
+        row[field] = value;
+      }
+    });
+    return row as DailyPrice;
+  });
+}
 
 /** Each year's price rows exactly as `RedisStockDataCache.writeDailyPriceYears` spells them. */
 function priceTexts(
@@ -250,6 +343,11 @@ async function main(): Promise<void> {
       payloads.push({
         securityId,
         years,
+        priceRows: years.map((year) =>
+          prices
+            .filter((row) => row.date.startsWith(`${year}-`))
+            .sort((left, right) => left.date.localeCompare(right.date)),
+        ),
         texts: {
           prices: priceTexts(prices, years),
           "prices-columnar": columnarPriceTexts(prices, years),
@@ -267,8 +365,10 @@ async function main(): Promise<void> {
     }
 
     const results: Record<string, unknown>[] = [];
+    const measured = (family: string) =>
+      args.families === null || args.families.includes(family);
     for (const candidate of candidates()) {
-      for (const family of candidate.families) {
+      for (const family of candidate.families.filter(measured)) {
         const dictionary = candidate.dictionary?.(family) ?? null;
         const codec = new RedisPayloadCodec(
           candidate.config,
@@ -408,6 +508,131 @@ async function main(): Promise<void> {
             : {}),
         });
         process.stderr.write(`${candidate.name} ${family} done\n`);
+      }
+    }
+
+    // Binary numeric packing for prices (see `encodeBinaryPrices`), compared with the row text.
+    for (const shuffle of measured("prices-binary") ? [false, true] : []) {
+      for (const level of [0, 3, 19]) {
+        const name = `binary-f64${shuffle ? "-shuffle" : ""}${level === 0 ? "" : `-zstd-${level}`}`;
+        const compress = (raw: Buffer) =>
+          level === 0
+            ? raw
+            : zstd.zstdCompressSync(raw, {
+                params: {
+                  [zstd.constants.ZSTD_c_compressionLevel as number]: level,
+                },
+              });
+        const decompress = (stored: Buffer) =>
+          level === 0 ? stored : zstd.zstdDecompressSync(stored);
+        const rawTextBytes = payloads.reduce(
+          (sum, entry) =>
+            sum + entry.texts.prices.reduce((inner, text) => inner + Buffer.byteLength(text), 0),
+          0,
+        );
+        let stored: Buffer[] = [];
+        const encodeWall: number[] = [];
+        const encodeCpu: number[] = [];
+        const decodeWall: number[] = [];
+        const decodeCpu: number[] = [];
+        let rawBinaryBytes = 0;
+        for (let repeat = 0; repeat < args.repeats; repeat += 1) {
+          const cpu = process.cpuUsage();
+          const started = performance.now();
+          rawBinaryBytes = 0;
+          stored = payloads.flatMap((entry) =>
+            entry.priceRows.map((rows) => {
+              const raw = encodeBinaryPrices(rows, shuffle);
+              rawBinaryBytes += raw.length;
+              return compress(raw);
+            }),
+          );
+          encodeWall.push(performance.now() - started);
+          const used = process.cpuUsage(cpu);
+          encodeCpu.push((used.user + used.system) / 1_000);
+
+          const cpuDecode = process.cpuUsage();
+          const startedDecode = performance.now();
+          let index = 0;
+          for (const entry of payloads) {
+            for (const rows of entry.priceRows) {
+              const decoded = decodeBinaryPrices(
+                entry.securityId,
+                decompress(stored[index] as Buffer),
+                shuffle,
+              );
+              index += 1;
+              if (repeat === 0 && !isDeepStrictEqual(decoded, rows.map((row) => ({ ...row })))) {
+                throw new Error(`${name}: a price year did not round-trip`);
+              }
+            }
+          }
+          decodeWall.push(performance.now() - startedDecode);
+          const usedDecode = process.cpuUsage(cpuDecode);
+          decodeCpu.push((usedDecode.user + usedDecode.system) / 1_000);
+        }
+        const storedBytes = stored.reduce((sum, payload) => sum + payload.length, 0);
+
+        const memorySet = payloads.slice(0, args.memorySecurities);
+        const keys: string[] = [];
+        const pipeline = redis.pipeline();
+        for (const entry of memorySet) {
+          entry.priceRows.forEach((rows, index) => {
+            const key = `${runNamespace}:${name}:${entry.securityId}:${entry.years[index]}`;
+            pipeline.set(key, compress(encodeBinaryPrices(rows, shuffle)));
+            keys.push(key);
+          });
+        }
+        await pipeline.exec();
+        const usage = redis.pipeline();
+        for (const key of keys) {
+          usage.call("MEMORY", "USAGE", key, "SAMPLES", "0");
+        }
+        const memoryBytes = ((await usage.exec()) ?? []).reduce(
+          (sum, [, value]) => sum + Number(value ?? 0),
+          0,
+        );
+        const readMs: number[] = [];
+        for (const entry of memorySet) {
+          const entryKeys = entry.years.map(
+            (year) => `${runNamespace}:${name}:${entry.securityId}:${year}`,
+          );
+          const started = performance.now();
+          const fetched = await redis.mgetBuffer(...entryKeys);
+          for (const payload of fetched) {
+            decodeBinaryPrices(entry.securityId, decompress(payload as Buffer), shuffle);
+          }
+          readMs.push(performance.now() - started);
+        }
+        for (let offset = 0; offset < keys.length; offset += 500) {
+          await redis.del(...keys.slice(offset, offset + 500));
+        }
+        const rawMb = rawTextBytes / 1_048_576;
+        const best = (values: number[]) => Math.min(...values);
+        results.push({
+          candidate: name,
+          family: "prices-binary",
+          payloads: stored.length,
+          // Throughput is per MB of the row *text* the same rows spell, so it compares with the
+          // text candidates directly.
+          rawBytes: rawTextBytes,
+          rawBinaryBytes,
+          storedBytes,
+          ratio: round(rawTextBytes / storedBytes, 3),
+          encodeMbPerSecond: round(rawMb / (best(encodeWall) / 1_000), 1),
+          encodeCpuMsPerMb: round(best(encodeCpu) / rawMb, 2),
+          decodeMbPerSecond: round(rawMb / (best(decodeWall) / 1_000), 1),
+          decodeCpuMsPerMb: round(best(decodeCpu) / rawMb, 2),
+          decodeIncludesRows: true,
+          redisMemory: {
+            securities: memorySet.length,
+            keys: keys.length,
+            memoryUsageBytes: memoryBytes,
+            perSecurityBytes: Math.round(memoryBytes / Math.max(1, memorySet.length)),
+          },
+          readPerSecurityMs: mapValues(stats(readMs), (value) => round(value, 2)),
+        });
+        process.stderr.write(`${name} prices-binary done\n`);
       }
     }
 

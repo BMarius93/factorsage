@@ -105,18 +105,25 @@ payload exactly.
 
 **Prices** (row chunks, 39.2 MiB of text):
 
-| Candidate                             | Ratio | Redis per security | Encode MB/s | Decode MB/s | Decode CPU ms/MB | Read p50 / p95 |
-| ------------------------------------- | ----- | ------------------ | ----------- | ----------- | ---------------- | -------------- |
-| none                                  | 1.00  | 1,001 KB           | 559         | 1,096       | 0.9              | 8.2 / 25.7 ms  |
-| gzip-6                                | 7.03  | 152 KB             | 55          | 300         | 3.5              | 9.5 / 13.1 ms  |
-| brotli-4                              | 7.05  | 152 KB             | 84          | 315         | 3.3              | 10.4 / 18.8 ms |
-| zstd-1                                | 7.12  | 151 KB             | 120         | 183         | 5.4              | 11.1 / 16.6 ms |
-| **zstd-3** (adopted)                  | 6.79  | 157 KB             | 79          | 239         | 4.4              | 10.9 / 16.4 ms |
-| zstd-19                               | 9.34  | 118 KB             | 2           | 271         | 3.8              | 11.0 / 13.6 ms |
-| brotli-11                             | 9.96  | 110 KB             | 1           | 224         | 4.7              | 17.6 / 22.8 ms |
-| one array per field, zstd-3 (not yet) | 9.01¹ | 122 KB             | 47          | 117         | 8.8              | —              |
+| Candidate                               | Ratio | Redis per security | Encode MB/s | Decode MB/s | Decode CPU ms/MB | Read p50 / p95 |
+| --------------------------------------- | ----- | ------------------ | ----------- | ----------- | ---------------- | -------------- |
+| none                                    | 1.00  | 1,001 KB           | 559         | 1,096       | 0.9              | 8.2 / 25.7 ms  |
+| gzip-6                                  | 7.03  | 152 KB             | 55          | 300         | 3.5              | 9.5 / 13.1 ms  |
+| brotli-4                                | 7.05  | 152 KB             | 84          | 315         | 3.3              | 10.4 / 18.8 ms |
+| zstd-1                                  | 7.12  | 151 KB             | 120         | 183         | 5.4              | 11.1 / 16.6 ms |
+| **zstd-3** (adopted)                    | 6.79  | 157 KB             | 79          | 239         | 4.4              | 10.9 / 16.4 ms |
+| zstd-19                                 | 9.34  | 118 KB             | 2           | 271         | 3.8              | 11.0 / 13.6 ms |
+| brotli-11                               | 9.96  | 110 KB             | 1           | 224         | 4.7              | 17.6 / 22.8 ms |
+| one array per field, zstd-3 (not yet)   | 9.01¹ | 122 KB             | 47          | 117         | 8.8              | —              |
+| float64 columns, zstd-3²                | 7.59¹ | 143 KB             | 125         | 79²         | 13.2²            | 15.0 / 19.3 ms |
+| float64 columns, byte-shuffled, zstd-3² | 5.15¹ | 197 KB             | 129         | 102²        | 10.1²            | 11.7 / 19.4 ms |
+| float64 columns, zstd-19²               | 8.65¹ | 125 KB             | 11          | 100²        | 10.5²            | 10.7 / 24.4 ms |
 
 ¹ Against the row text; the columnar text itself is a third of it (13.6 MB against 41.1 MB).
+² Binary numeric packing (`--families prices-binary`, a second run on the same sample, where row
+JSON at zstd-3 read in 10.6 / 16.5 ms): a year as its row count, dates as days since 1970 and one
+`Float64Array` per field — lossless, verified on every decode. Its decode includes building the
+rows, which the text candidates' decode leaves to `JSON.parse`.
 
 The full grid (zstd 1–19, brotli 1–11, gzip 1–9, with and without dictionaries) is in the
 benchmark's JSON output (`artifacts/redis-payload-codec/benchmark.json`, git-ignored).
@@ -140,6 +147,11 @@ What the numbers decide:
   open as a later, writer-only change.
 - **The field dictionary** gains 1–3 % on daily state at zstd-3 and 4 % at zstd-19, for nothing at
   read time. A price dictionary gains nothing (a price chunk repeats no header) and is not used.
+- **Binary numeric packing does not pay.** Float64 columns are a third of the row text but
+  compress worse than text does: 143 KB per security at zstd-3 (9 % below row JSON, 17 % above
+  columnar JSON), 125 KB at zstd-19 (above row JSON's 118 KB), and transposing the bytes makes it
+  worse (197 KB) — exchange prices are short decimals, which text spells in few digits and a
+  float64 in eight noisy bytes. Its read was no faster. Not adopted.
 - **Next format change:** prices as one array per field compress 22 % smaller than row JSON at the
   same level (122 KB against 157 KB per security), and parse like the daily-state chunk.
 
