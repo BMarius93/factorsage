@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { prismaFloatBoundAtScale, storedAtScale } from "./decimal";
 import {
+  asOfCompletesItsWeek,
   exponentialMovingAverage,
   isoWeekStart,
   referenceIndicators,
   simpleMovingAverage,
+  weeklyBars,
   wilderRsi,
 } from "./indicators";
 import {
@@ -181,6 +183,31 @@ describe("reference indicators", () => {
       "2024-03-25",
     ]);
     expect(isoWeekStart("2024-03-31")).toBe("2024-03-25");
+  });
+
+  it("completes the as-of week on its Friday, and only then (monitor-eod-v2.md §9)", () => {
+    const rows = [
+      { date: "2026-10-05", close: 1 },
+      { date: "2026-10-09", close: 2 },
+      { date: "2026-10-12", close: 3 },
+      { date: "2026-10-15", close: 4 },
+      { date: "2026-10-16", close: 5 },
+    ];
+    // Friday as-of: the week of 2026-10-12 is complete and effective on its Friday row only.
+    expect(
+      referenceIndicators(rows, { asOf: "2026-10-16", dropFirstWeek: null })
+        .weekStart,
+    ).toEqual([null, "2026-10-05", "2026-10-05", "2026-10-05", "2026-10-12"]);
+    expect(
+      weeklyBars(rows, "2026-10-16", null).map((bar) => bar.close),
+    ).toEqual([2, 5]);
+    // Thursday as-of: the same week is still in progress.
+    const thursday = rows.slice(0, 4);
+    expect(
+      weeklyBars(thursday, "2026-10-15", null).map((bar) => bar.close),
+    ).toEqual([2]);
+    expect(asOfCompletesItsWeek("2026-10-16")).toBe(true);
+    expect(asOfCompletesItsWeek("2026-10-15")).toBe(false);
   });
 });
 

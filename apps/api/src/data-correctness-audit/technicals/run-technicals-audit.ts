@@ -2,6 +2,7 @@ import type { PrismaClient } from "@intrinsic/database";
 import type { AuditWriter } from "../artifacts";
 import { ComparisonLedger } from "../comparison";
 import {
+  asOfCompletesItsWeek,
   INDICATORS,
   isoWeekStart,
   referenceIndicators,
@@ -169,8 +170,10 @@ export async function runTechnicalsSection(input: {
       }
       const visible = row.date >= input.horizonStart;
       const target = visible ? ledger : warmup;
-      // The last completed week is only decidable for rows before the as-of week.
-      const decidableWeek = isoWeekStart(row.date) < isoWeekStart(input.asOf);
+      // The as-of week is decidable once it is complete: on its Friday (`asOfCompletesItsWeek`).
+      const decidableWeek =
+        isoWeekStart(row.date) < isoWeekStart(input.asOf) ||
+        asOfCompletesItsWeek(input.asOf);
       for (const indicator of INDICATORS) {
         if (indicator.timeframe === "W" && !decidableWeek) {
           continue;
