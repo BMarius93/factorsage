@@ -158,7 +158,7 @@ from one the product hydrated.
 | Dataset              | Rows      | Securities | Span                           |
 | -------------------- | --------- | ---------- | ------------------------------ |
 | daily prices         | 4,994,827 | 734        | 1992-10-16 … 2026-10-16        |
-| daily derived state  | 4,991,123 | 734        | 1992-10-16 … 2026-10-16        |
+| daily derived state  | 4,994,826 | 734        | 1992-10-16 … 2026-10-16        |
 | financial statements | 318,130   | 732        | fiscal 1989-10-31 … 2026-09-30 |
 | insider transactions | 2,569,857 | 729        | available 2003-05-06 …         |
 | congressional trades | 44,913    | 686        | available 2014-02-01 …         |
@@ -256,7 +256,9 @@ The table was measured on the List of reconstruction version 1. After version 2 
 start a day later) the runs were repeated: simple at 2 workers 75.0 s per run (two runs, one
 digest), complex 94.7 s, monthly 77.8 s; hit rate 1.0, no provider request, no failure. The simple
 and complex results changed with the windows (digests `1b5fb2c1…` and `03349aed…`, from
-`1b746559…` and `904d5c07…`); the monthly strategy's did not (`80e02b39…`).
+`1b746559…` and `904d5c07…`); the monthly strategy's did not (`80e02b39…`). After merging `main`
+(DATA-02 repaired BNY's derived history before 2007): simple at 2 workers 78.6 s, one digest
+(`9ac57a4f…`), no provider request.
 
 - **Bottleneck: worker CPU.** Throughput rises linearly to 4 workers (one per core) and is flat
   after — 143 runs/hour at 4, 137 at 16 — while per-run latency doubles with each doubling past 4.

@@ -114,6 +114,12 @@ registered key of the 734 securities:
 Per security: mean 723 KB, p50 877 KB, p95 940 KB, max 1.05 MB (35 yearly chunks of each family
 for a full retention). Redis `used_memory` went from 104 MB to 534 MB.
 
+Since retention targets became clock bounds (`main`'s DATA-02, merged 2026-10-17), the 372
+securities listed after the retention start are published over the whole retention too, their
+pre-listing years as empty chunks (~420 bytes of `MEMORY USAGE` per security-year): **53,582 keys,
+544.0 MB**, per security mean 741 KB, p95 941 KB. `protect` republished them from PostgreSQL with no
+provider request.
+
 - **Eviction policy.** Redis's own `maxmemory-policy` must stay `noeviction` (or no `maxmemory`):
   an `allkeys-*` policy could evict a protected chunk. Readiness already refuses one
   (`REDIS_ACCEPTED_EVICTION_POLICY` is the only override).
@@ -146,6 +152,6 @@ recovery.
 
 - A universe backtest's windows are answered from Redis without a PostgreSQL read.
 - The LRU keeps its 100 slots for the stocks people read; the universe no longer competes for them.
-- Redis needs ~0.55 GB more for the universe. A larger universe (another index) is a budget
+- Redis needs ~0.55 GB more for the universe (544 MB measured). A larger universe (another index) is a budget
   decision, re-checked with `protect --dry-run` before it is designated.
 - Losing Redis costs one `protect` (~13 minutes) or the first universe backtest's preparation.

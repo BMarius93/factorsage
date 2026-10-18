@@ -56,7 +56,7 @@ List's own description says so.
 | Dataset in PostgreSQL | Rows      | Securities | Span                           |
 | --------------------- | --------- | ---------- | ------------------------------ |
 | daily prices          | 4,994,827 | 734        | 1992-10-16 … 2026-10-16        |
-| daily derived state   | 4,991,123 | 734        | 1992-10-16 … 2026-10-16        |
+| daily derived state   | 4,994,826 | 734        | 1992-10-16 … 2026-10-16        |
 | financial statements  | 318,130   | 732        | fiscal 1989-10-31 … 2026-09-30 |
 | insider transactions  | 2,569,857 | 729        | 2003-05-06 …                   |
 | congressional trades  | 44,913    | 686        | 2014-02-01 …                   |
@@ -76,6 +76,11 @@ List's own description says so.
   (such a row is left out, never dated by guess) and retried: 2 requests.
 - **Interior price gaps:** 3 securities (FRO 597 sessions, CVG 17, SVU 10). Two failed banks (FRC,
   SVB) end one session early: the re-base hold keeps a terminal crash bar it cannot verify.
+- **One truncated derived history, repaired:** BNY's prices start in 1992 (Bank of New York, as BK)
+  but its derived state started at the provider's 2007-07-01 "IPO" (the Mellon merger) — the
+  listing-date clamp `main` removed (DATA-02). After merging `main`, the canonical loader rebuilt it
+  (1992-10-19 onward, 36 provider requests, all calendar and tail) and `protect` found the whole
+  universe resident. Derived rows now cover every price row in the retention target.
 
 ## C. Redis
 
@@ -93,9 +98,12 @@ coordination state and are never encoded.
 3. A protected tier for the universe: same keys, outside the LRU, no TTL, published from
    PostgreSQL alone.
 
-**Measured tier** (`MEMORY USAGE` of every registered key, 734 securities, 43,818 keys):
-530.9 MB — daily state 398.4 MB, prices 125.6 MB, registries 5.7 MB, manifests and identities
+**Measured tier** (`MEMORY USAGE` of every registered key, 734 securities, 43,818 keys) before
+merging `main`: 530.9 MB — daily state 398.4 MB, prices 125.6 MB, registries 5.7 MB, manifests and identities
 0.8 MB; per security mean 723 KB, p95 940 KB, max 1.05 MB. Redis `used_memory` 104 MB → 534 MB.
+After merging `main` (retention targets became clock bounds, DATA-02), the 372 securities listed
+after the retention start are projected over the whole retention, pre-listing years as empty
+chunks of ~420 bytes each: **53,582 keys, 544.0 MB**.
 
 Codec comparison on real stored histories (40 securities, 2,800 chunks; `redis-payload-codec-v1.md`
 "Measured"): zstd-3 cuts `MEMORY USAGE` by 84 % for prices and 58 % for daily state; gzip and brotli
@@ -143,7 +151,8 @@ over 732 securities would rebuild most securities in every window (~19,600 rebui
   benchmark loading, universe-aware UI and OpenAPI, benchmark harnesses; `0e84080` undatable
   statement rows; `3f0cce2` empty windows answered from Redis, re-base-hold histories; `29f9ddd`
   window carry and `EVALSHA`; `d060218` reconstruction v2 (no early membership), codec and recovery
-  measurements; `4423882` existing suites held to the new Redis layout.
+  measurements; `4423882` existing suites held to the new Redis layout; `2c361c6` merge of `main`
+  (conflicts in the stock cache, its service and the worker composition, resolved and re-validated).
 - **Existing tests changed** (no test skipped): stock infrastructure, Fundamental anchor parity and
   read counters, ETF contexts (they read Redis chunks raw or counted text reads, and expected
   statement chunks); the live-FMP endpoint classification (the index-universe command's endpoints

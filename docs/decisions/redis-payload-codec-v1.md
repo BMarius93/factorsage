@@ -145,7 +145,7 @@ What the numbers decide:
 
 ## Consequences
 
-- The protected tier of 734 securities fits in ~0.53 GB (`protected-stock-tier-v1.md`).
+- The protected tier of 734 securities fits in ~0.54 GB (`protected-stock-tier-v1.md`).
 - Reading a chunk costs a decompression and a CRC; on a backtest's frame read it is a minority of
   the decode cost, which is dominated by JSON parsing and row materialization.
 - A future codec change (a level, a trained dictionary, a binary columnar price chunk) is a writer
