@@ -143,7 +143,65 @@ must be empty.
 
 ## Validation
 
-RESULTS_PLACEHOLDER
+Measured on this environment's real PostgreSQL and Redis (4 vCPU, 16 GB, Redis 7.0.15), 2026-10-19.
+Artifacts: `artifacts/sp500-historical-pit/tiers-*.json`, `protect-after-loss.json`,
+`tiers-backtests.jsonl` (git-ignored). No step reached the provider unless stated.
+
+**Population.** The three recovered constituents (`sp500-historical-pit-v1.md` §4.1) took the
+universe to 735 securities; Cablevision's ingestion routed it straight into the protected tier.
+Nine stocks no universe holds (SHOP, SNOW, ROKU, ZM, NET, RBLX, TM, ASML, MDB) were hydrated through
+the guarded live command (141 provider requests) and landed in the LRU; the protected tier's bytes
+did not move.
+
+| Tier                | Securities                      | Keys   | Bytes (`MEMORY USAGE`)               |
+| ------------------- | ------------------------------- | ------ | ------------------------------------ |
+| Protected           | 735, all READY, none with a TTL | 53,655 | 544.3 MB (mean 0.74 MB, p95 0.94 MB) |
+| LRU (the nine)      | 9                               | 657    | 3.5 MB (0.39 MB each)                |
+| Redis `used_memory` |                                 | 54,073 | 549.4 MB                             |
+
+**Exact LRU eviction** (`bench:stock-cache-tiers -- lru`, `STOCK_LRU_MAX_SECURITIES=5`): 32 Stock
+Details reads — every ordinary security, re-reads, re-admissions after eviction, protected reads
+between — each compared with a reference count-bounded LRU. **0 mismatches**: after every read the
+LRU held exactly the model's members in the model's order, every victim had no key left, and every
+read equalled PostgreSQL's rows. The first read under the lowered capacity evicted the 86 surplus
+members at once. Hits took a median 4 ms; a miss rebuilt the security from PostgreSQL in 0.3–1.8 s
+(median 0.48 s) and evicted exactly one victim; protected reads (3 ms) never changed the LRU. The
+protected tier's digest (every designation, manifest and registry, plus every chunk byte of six
+securities) was identical before and after.
+
+**Concurrency** (`-- concurrency`, six OS processes, capacity 3): 720 random reads (511 LRU, 209
+protected, 351 of them cold rebuilds) in 59 s. 0 mismatches against PostgreSQL, 0 errors, the LRU
+never above 3 in 10,060 samples taken during the run, no key left behind by any evicted security,
+protected digest unchanged, audit clean, 0 provider requests. Four processes at capacity 4: 480
+reads (193 cold), 0 mismatches, 0 errors, never above 4 in 8,303 samples.
+
+**Restart.** `SHUTDOWN SAVE` and a restart: 54,073 keys reloaded from the RDB snapshot; the tier
+digest (designations, manifests, registries, chunk bytes, LRU order) was identical.
+
+**Loss and rehydration.** Every `stock-data:v2` key deleted (549 MB → 1.9 MB), then `protect`:
+735 published from PostgreSQL alone in **736 s**, 0 refused, 0 provider requests, 544.3 MB. Deleting
+six securities again and republishing them reproduced their price and daily-state chunks byte for
+byte. The nine LRU securities came back through ordinary reads.
+
+**No duplication.** Every audit (before, after population, after each experiment, after the
+backtests): 0 securities in both tiers, 0 universe securities in the LRU, 0 READY securities in
+neither, 0 protected keys with a TTL.
+
+**Backtests** (`bench:pit-backtests`, simple SMA-200 strategy, 1996-10-21 → 2026-10-16, isolated
+configuration: no provider, frozen tails):
+
+| Run                                                                     | Per run                          | Throughput                   | Result                                    |
+| ----------------------------------------------------------------------- | -------------------------------- | ---------------------------- | ----------------------------------------- |
+| Universe (735), 1 worker, 2 runs                                        | 71.7 s, 70.8 s (PR #124: 76.9 s) | 47.8 /h                      | identical digests, Redis hit rate 1.0     |
+| Universe, 4 workers, 4 runs                                             | p50 92.9 s (PR #124: 97.1 s)     | 148.8 /h (PR #124: 142.6 /h) | identical digests (all six universe runs) |
+| Mixed List (14 protected + 9 LRU), cold then warm                       | 9.3 s, 3.9 s                     | —                            | identical digests                         |
+| Mixed List, `STOCK_LRU_MAX_SECURITIES=3` (289 evictions during the run) | 148 s                            | —                            | **the same digest**                       |
+
+The routing and the count-enforcing touch cost nothing measurable on the universe runs (the period
+is four days shorter than PR #124's, which it does not explain): a protected read is one
+`SISMEMBER` more than before, an LRU read one `ZCARD`. A List whose ordinary securities exceed the
+LRU's count stays correct and becomes slow — every year window rebuilds them from PostgreSQL —
+which is what the count is sized against (§2).
 
 ## Consequences
 
