@@ -53,7 +53,7 @@ correct only until either side moves and then is silently wrong.
 | `POST /lists/:id/items` | `assertListSymbolLimitIn` — transactional, inside the list row lock |
 | `POST /strategies` | `assertCanCreateCustomStrategy` |
 | `POST /strategies/:id/duplicate` | `assertCanCreateCustomStrategy` |
-| `POST /backtests` | `assertCanRunLiveBacktest`, `assertBacktestHistoricalDepth`, `assertBacktestSymbolLimit`, `assertBacktestConcurrency` (transactional) |
+| `POST /backtests` | `assertCanRunLiveBacktest`, `assertBacktestHistoricalDepth`, `assertBacktestUniverseLimit` (`maxSymbols` for a List, `maxIndexUniverseConstituents` against the period's peak simultaneous members for the built-in point-in-time universe), `assertBacktestConcurrency` (transactional) |
 | `POST /monitors`, `PATCH /monitors/:id` | `assertCanEnableMonitor` — transactional |
 | backtest worker claim | `PrismaBacktestJobRepository.claimNextJob` |
 | Monitor cycle | `PrismaMonitorRepository.listActiveMonitors` |

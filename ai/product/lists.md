@@ -44,6 +44,20 @@ compliant. A customer sees a built-in list read-only; an administrator gets the 
 without a delete action. The browser UI is presentation only — the API/service layer is the
 authorization authority.
 
+### The maintained point-in-time universe
+
+One built-in list is not edited by anybody: **S&P 500 — Historical PIT** (`systemKey`
+`sp500-historical-pit`, `docs/decisions/sp500-historical-pit-v1.md`). It is a projection of the
+canonical index membership — every security that was an S&P 500 constituent since 1996, each with
+CUSTOM buy windows exactly as long as its memberships — rewritten whole by
+`pnpm data:index-universe -- project`. `canEdit` is `false` for every caller, administrators
+included, and every List write answers `403` `SYSTEM_CONTENT_READ_ONLY` (the
+`SystemContentMaintainedError`). Its summary and detail carry a `universe` object: the distinct
+securities, the most members it held on one date, the current members, the membership floor and
+when the membership was last synchronized. Duplicating it gives an ordinary list held to the
+ordinary limits (734 members exceed every plan's 100-stock limit, so the copy is refused for
+customers).
+
 ### Duplicating a list
 
 A signed-in user may **duplicate** any list they can read — their own or a built-in

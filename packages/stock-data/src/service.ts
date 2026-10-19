@@ -50,10 +50,7 @@ import {
   type StockDetails,
   type StockHistoryBounds,
 } from "@intrinsic/domain";
-import type {
-  FmpStockSplitPort,
-  FmpStockProviderPort,
-} from "@intrinsic/fmp";
+import type { FmpStockSplitPort, FmpStockProviderPort } from "@intrinsic/fmp";
 import {
   FINANCIAL_STATEMENT_VERSION,
   yearsInRange,
@@ -120,9 +117,7 @@ import {
   resolveSecuritySearchLimit,
   SECURITY_SEARCH_CANDIDATE_FACTOR,
 } from "./security-search.js";
-import {
-  monitorWindowCalendarDays,
-} from "./evaluation-window.js";
+import { monitorWindowCalendarDays } from "./evaluation-window.js";
 import {
   aggregateCompletedWeeks,
   resolveWeekSessionEnds,
@@ -360,10 +355,7 @@ export type ProviderRequestEvent = {
   symbol: string;
   securityId: string;
   dataset:
-    | "SECURITY_PROFILE"
-    | "DAILY_PRICE"
-    | "FINANCIAL_STATEMENTS"
-    | "STOCK_SPLIT";
+    "SECURITY_PROFILE" | "DAILY_PRICE" | "FINANCIAL_STATEMENTS" | "STOCK_SPLIT";
   reason: ProviderRequestReason;
   from?: string;
   to?: string;
@@ -518,7 +510,85 @@ export type EvaluationFrameOptions = {
    * of the generation it pinned, and reads them once.
    */
   valuation?: ValuationTimeline;
+  /**
+   * The run's {@link EvaluationWindowCarry}: when the previous window of the same run ended the day
+   * before this one, the leading context is taken from the rows it left instead of re-reading and
+   * re-decoding the previous year's chunks. The rows are the ones that window read, under the same
+   * pinned generation, so the frame is the same frame.
+   */
+  carry?: EvaluationWindowCarry;
 };
+
+/**
+ * The rows one backtest's calendar-year windows hand to the next, per security
+ * (`docs/decisions/protected-stock-tier-v1.md`, "Windows").
+ *
+ * Every window is read with a few calendar days of leading context before it, and those days lie in
+ * the previous year — whose chunks the previous window has just read and decoded. Keeping the rows
+ * of those last days lets the next window read only its own year: half the Redis bytes and half the
+ * chunk decoding of a thirty-year run, with the frame unchanged. A carry is scoped to one run; it is
+ * used only for a window that starts the day after the kept one ended, under the same price-basis
+ * generation, and only for short contexts, so it holds a few rows per security.
+ */
+export class EvaluationWindowCarry {
+  private readonly bySecurity = new Map<
+    string,
+    {
+      generation: number;
+      through: LocalDate;
+      keptFrom: LocalDate;
+      prices: DailyPrice[];
+      derived: DailyDerivedState[];
+    }
+  >();
+
+  /** The kept rows inside `[from, before)` for a window starting on `before`, or null. */
+  take(
+    securityId: string,
+    generation: number,
+    from: LocalDate,
+    before: LocalDate,
+  ): { prices: DailyPrice[]; derived: DailyDerivedState[] } | null {
+    const kept = this.bySecurity.get(securityId);
+    if (
+      !kept ||
+      kept.generation !== generation ||
+      addDays(kept.through, 1) !== before ||
+      kept.keptFrom > from
+    ) {
+      return null;
+    }
+    const inside = <T extends { date: LocalDate }>(rows: readonly T[]) =>
+      rows.filter((row) => row.date >= from && row.date < before);
+    return { prices: inside(kept.prices), derived: inside(kept.derived) };
+  }
+
+  /** Keeps the rows from `keptFrom` through `through`, the end of the window just read. */
+  keep(
+    securityId: string,
+    generation: number,
+    keptFrom: LocalDate,
+    through: LocalDate,
+    prices: readonly DailyPrice[],
+    derived: readonly DailyDerivedState[],
+  ): void {
+    const tail = <T extends { date: LocalDate }>(rows: readonly T[]) =>
+      rows.filter((row) => row.date >= keptFrom && row.date <= through);
+    this.bySecurity.set(securityId, {
+      generation,
+      through,
+      keptFrom,
+      prices: tail(prices),
+      derived: tail(derived),
+    });
+  }
+}
+
+/**
+ * The longest leading context a carry keeps rows for. Longer contexts (an alternative-data lookback
+ * in sessions) read the previous year's chunks as before rather than keep weeks of rows per security.
+ */
+const EVALUATION_CARRY_MAX_CONTEXT_DAYS = 31;
 
 /** What `prepareDailyEvaluationData` reports: the period's coverage and its price basis. */
 export type PreparedDailyEvaluationData = DailyPriceBounds & {
@@ -609,6 +679,28 @@ export type StockRefreshState = {
   priceBasisGeneration: number;
 };
 
+/** Why {@link CanonicalStockDataService.publishDurableProjection} left a security unpublished. */
+export type DurableProjectionRefusal =
+  /** PostgreSQL holds no synchronized price history inside the retention target. */
+  | "NO_PRICE_COVERAGE"
+  /** The synchronized price history has a hole before its newest date. */
+  | "PRICE_COVERAGE_GAP"
+  /** The materialized derived state does not cover the price history. */
+  | "DERIVED_STATE_INCOMPLETE"
+  /** A financial-statement dataset was never synchronized. */
+  | "FUNDAMENTALS_NOT_INGESTED";
+
+export type DurableProjectionResult =
+  | {
+      status: "PUBLISHED";
+      coverage: Required<DateRange>;
+      years: number;
+      priceRows: number;
+      derivedRows: number;
+    }
+  | { status: "ALREADY_RESIDENT"; coverage: Required<DateRange> }
+  | { status: "REFUSED"; reason: DurableProjectionRefusal; detail?: string };
+
 /**
  * Whether a stock's materialized derived state reaches its newest verified bar.
  *
@@ -675,7 +767,8 @@ export class CanonicalStockDataService implements StockDetailsDataService {
 
   constructor(
     private readonly store: StockDataStore,
-    private readonly provider: FmpStockProviderPort & Partial<FmpStockSplitPort>,
+    private readonly provider: FmpStockProviderPort &
+      Partial<FmpStockSplitPort>,
     private readonly cache: StockDataCache,
     private readonly coordinator: LoadCoordinator,
     options: CanonicalStockDataServiceOptions = {},
@@ -938,6 +1031,181 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   }
 
   /**
+   * Republishes a security's whole Redis projection — its retained price history and unified daily
+   * derived state — from PostgreSQL alone: never a provider request, never a recalculation.
+   *
+   * The protected tier's publisher (`docs/decisions/protected-stock-tier-v1.md`). It publishes the
+   * durable coverage exactly: the retention target cut at the newest date PostgreSQL has
+   * synchronized, so a tail PostgreSQL has not read yet stays a freshness question for the read
+   * path (`ensureStockFresh`), as after any hydration. A security already resident over that whole
+   * range is left untouched. One PostgreSQL cannot project completely is refused and Redis is left
+   * as it was — repairing it is ingestion's work, through the canonical loader, never this one's.
+   */
+  async publishDurableProjection(
+    security: Security,
+  ): Promise<DurableProjectionResult> {
+    const target = this.loadTarget(security, this.productTarget(security));
+    const resident = await this.cache.getManifest(security.id);
+    if (
+      this.covers(resident, target) &&
+      resident.coverageEnd !== undefined &&
+      (await this.durableCoverageEnd(security, target)) <= resident.coverageEnd
+    ) {
+      return {
+        status: "ALREADY_RESIDENT",
+        coverage: { from: target.from, to: resident.coverageEnd },
+      };
+    }
+    return this.coordinator.run(this.stockResource(security), async (lease) => {
+      const coverage = await this.store.getDatasetCoverage(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+        target,
+      );
+      const gaps = missingCoverageRanges(target, coverage);
+      // The leading edge may be missing: sessions after the newest synchronization.
+      const leading = gaps.find((gap) => gap.to >= target.to);
+      // So may a hole that begins after the newest stored bar, when synchronized coverage follows
+      // it: the history ended before the hole, and the provider has since been asked about the dates
+      // after it. That is the shape the re-base hold leaves when a security's final bar is a crash
+      // it cannot verify (`historical-price-basis-v1.md`): the bar is never stored, the hold's
+      // coverage stops before it, and every later read finds nothing. PostgreSQL then holds no bar
+      // inside the hole, and that is exactly what the canonical loader serves for it as well. A hole
+      // with a stored bar after it is a hole in a history, and is refused.
+      const interior = gaps.filter((gap) => gap !== leading);
+      if (interior.length > 0) {
+        const newest = await this.newestStoredPrice(security.id, target);
+        const holes = interior.filter(
+          (gap) => newest === undefined || gap.from <= newest.date,
+        );
+        if (holes.length > 0) {
+          return {
+            status: "REFUSED",
+            reason: "PRICE_COVERAGE_GAP",
+            detail: holes.map((gap) => `${gap.from}..${gap.to}`).join(","),
+          } as const;
+        }
+      }
+      const durable = {
+        from: target.from,
+        to: leading ? addDays(leading.from, -1) : target.to,
+      };
+      if (durable.to < durable.from) {
+        return { status: "REFUSED", reason: "NO_PRICE_COVERAGE" } as const;
+      }
+      // Derived coverage is held to the same rule: only where prices are covered.
+      const derivedGaps = missingCoverageRanges(
+        durable,
+        await this.store.getDatasetCoverage(
+          security.id,
+          "DAILY_DERIVED_STATE",
+          DAILY_DERIVED_STATE_VARIANT,
+          durable,
+        ),
+      ).filter(
+        (gap) =>
+          !interior.some((hole) => hole.from <= gap.from && gap.to <= hole.to),
+      );
+      if (derivedGaps.length > 0) {
+        return {
+          status: "REFUSED",
+          reason: "DERIVED_STATE_INCOMPLETE",
+          detail: derivedGaps.map((gap) => `${gap.from}..${gap.to}`).join(","),
+        } as const;
+      }
+      const states = await Promise.all(
+        this.fundamentalsOperationsForHistory().map((operation) =>
+          this.store.getDatasetState(
+            security.id,
+            operation.dataset,
+            operation.variant,
+          ),
+        ),
+      );
+      if (states.some((state) => !state)) {
+        return {
+          status: "REFUSED",
+          reason: "FUNDAMENTALS_NOT_INGESTED",
+        } as const;
+      }
+
+      const observed = await this.cache.getManifest(security.id);
+      const hydrating = this.hydratingManifest(security, observed, durable);
+      lease.assertOwned();
+      if (!(await this.cache.beginHydration(observed, hydrating))) {
+        throw new Error("Stock cache hydration generation changed");
+      }
+      const [prices, derived, tailRefreshAt] = await Promise.all([
+        this.store.getDailyPrices(security.id, durable),
+        this.store.getDailyDerivedState(security.id, durable),
+        this.store.getLatestCoverageSyncContainingDate(
+          security.id,
+          "DAILY_PRICE",
+          DAILY_PRICE_VARIANT,
+          durable.to,
+        ),
+      ]);
+      lease.assertOwned();
+      const years = yearsInRange(durable);
+      await this.cache.setSecurity(security, hydrating);
+      await this.cache.writeDailyPriceYears(
+        security.id,
+        prices,
+        years,
+        hydrating,
+      );
+      await this.cache.writeDailyDerivedStateYears(
+        security.id,
+        derived,
+        years,
+        hydrating,
+      );
+      lease.assertOwned();
+      if (
+        !(await this.cache.completeHydration(
+          hydrating,
+          this.readyManifest(
+            security,
+            durable,
+            prices,
+            this.nowInstant(),
+            tailRefreshAt ?? undefined,
+            this.oldestRequiredSyncAt(states),
+          ),
+        ))
+      ) {
+        throw new Error("Stock cache hydration generation changed");
+      }
+      return {
+        status: "PUBLISHED",
+        coverage: durable,
+        years: years.length,
+        priceRows: prices.length,
+        derivedRows: derived.length,
+      } as const;
+    });
+  }
+
+  /** The newest date PostgreSQL's price coverage reaches inside `target`, without a gap before it. */
+  private async durableCoverageEnd(
+    security: Security,
+    target: Required<DateRange>,
+  ): Promise<string> {
+    const gaps = missingCoverageRanges(
+      target,
+      await this.store.getDatasetCoverage(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+        target,
+      ),
+    );
+    const first = gaps[0];
+    return first ? addDays(first.from, -1) : target.to;
+  }
+
+  /**
    * What durable storage proves about one stock's end-of-day tail. Provider-free and Redis-free.
    *
    * The newest stored bar, the newest leading-edge provider read (when it was issued, and the
@@ -951,7 +1219,11 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    */
   async stockRefreshState(security: Security): Promise<StockRefreshState> {
     const [coverage, freshness, derived, bounds] = await Promise.all([
-      this.store.getDatasetState(security.id, "DAILY_PRICE", DAILY_PRICE_VARIANT),
+      this.store.getDatasetState(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+      ),
       this.store.getDatasetState(
         security.id,
         "DAILY_PRICE",
@@ -985,7 +1257,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
               })
             )?.lastDate;
     return {
-      ...(coverage?.earliestDate ? { coverageStart: coverage.earliestDate } : {}),
+      ...(coverage?.earliestDate
+        ? { coverageStart: coverage.earliestDate }
+        : {}),
       ...(bounds ? { earliestBar: bounds.firstDate } : {}),
       ...(bounds ? { latestBar: bounds.lastDate } : {}),
       ...(lastTailSyncAt ? { lastTailSyncAt } : {}),
@@ -1176,7 +1450,10 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     context: Required<DateRange>,
     options: EvaluationFrameOptions,
   ): Promise<ReadonlyMap<OperandKey, AlternativeDataFacts> | undefined> {
-    if (!this.alternativeData || alternativeDataDomainsFor(operands).length === 0) {
+    if (
+      !this.alternativeData ||
+      alternativeDataDomainsFor(operands).length === 0
+    ) {
       return undefined;
     }
     return this.alternativeData.loadFacts({
@@ -1463,14 +1740,29 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       options.priceBasisGeneration !== undefined
         ? options.priceBasisGeneration
         : await this.priceBasisGeneration(security.id);
-    const [prices, derived, alternativeData, valuation] = await Promise.all([
-      this.readDailyPriceProjection(security, context, "BACKTEST"),
-      this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
-      // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
-      this.loadAlternativeDataFacts(security, operands, context, options),
-      // The prepared inputs when the run passes them, so a window never reads the statements again.
-      options.valuation ?? this.loadValuationTimeline(security, operands),
-    ]);
+    // The leading context from the previous window's rows when it ended the day before this one;
+    // otherwise read with the rest. Either way the rows are the same rows.
+    const contextDays = daysBetween(context.from, period.from);
+    const carry =
+      contextDays <= EVALUATION_CARRY_MAX_CONTEXT_DAYS
+        ? options.carry
+        : undefined;
+    const carried =
+      carry?.take(security.id, expected, context.from, period.from) ?? null;
+    const read = carried ? { from: period.from, to: context.to } : context;
+    const [readPrices, readDerived, alternativeData, valuation] =
+      await Promise.all([
+        this.readDailyPriceProjection(security, read, "BACKTEST"),
+        this.readDailyDerivedStateProjection(security, read, "BACKTEST"),
+        // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
+        this.loadAlternativeDataFacts(security, operands, context, options),
+        // The prepared inputs when the run passes them, so a window never reads the statements again.
+        options.valuation ?? this.loadValuationTimeline(security, operands),
+      ]);
+    const prices = carried ? [...carried.prices, ...readPrices] : readPrices;
+    const derived = carried
+      ? [...carried.derived, ...readDerived]
+      : readDerived;
     const current = await this.priceBasisGeneration(security.id);
     if (current !== expected) {
       throw new PriceBasisChangedError(
@@ -1480,6 +1772,14 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         current,
       );
     }
+    carry?.keep(
+      security.id,
+      expected,
+      addDays(period.to, 1 - contextDays),
+      period.to,
+      prices,
+      derived,
+    );
     return projectEvaluationFrame({
       security,
       prices,
@@ -1519,7 +1819,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     const expected = await this.priceBasisGeneration(security.id);
     const [prices, derived, alternativeData, valuation] = await Promise.all([
       projection ? this.store.getDailyPrices(security.id, projection) : [],
-      projection ? this.store.getDailyDerivedState(security.id, projection) : [],
+      projection
+        ? this.store.getDailyDerivedState(security.id, projection)
+        : [],
       this.loadAlternativeDataFacts(security, operands, context, {}),
       this.loadValuationTimeline(security, operands),
     ]);
@@ -1677,19 +1979,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     });
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
-    const observedManifest = await this.cache.getManifest(security.id);
-    let cached = await this.cache.readFinancialStatements(security.id, bounded);
-    if (cached) {
-      return cached;
-    }
-    await this.cache.invalidateManifest(observedManifest);
-    // As for the projections: repairing a miss must not narrow what the stock already holds.
-    await this.ensureStockHydrated(
-      security,
-      this.maintainedTarget(load, observedManifest),
-    );
-    cached = await this.cache.readFinancialStatements(security.id, bounded);
-    return cached ?? this.store.getFinancialStatements(security.id, bounded);
+    // Statements are not projected into Redis (`FINANCIAL_STATEMENT_VERSION`): the hydration above
+    // guarantees PostgreSQL holds them, and PostgreSQL answers.
+    return this.store.getFinancialStatements(security.id, bounded);
   }
 
   async getIntrinsicValues(
@@ -2128,6 +2420,18 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     if (result) {
       return result;
     }
+    // No row is the answer, not a miss, for a window the resident history does not reach: before
+    // the first stored bar or after the last — a backtest window of a security not yet listed or
+    // already delisted. Repairing it would rebuild the whole security for every such window and
+    // still find nothing. Accepted only under the manifest the read was made under.
+    if (
+      result &&
+      this.isCurrent(observedManifest) &&
+      !storedHistoryReaches(observedManifest, projection) &&
+      sameManifest(await this.cache.getManifest(security.id), observedManifest)
+    ) {
+      return result;
+    }
     await this.cache.invalidateManifest(observedManifest);
     await this.ensureStockHydrated(
       security,
@@ -2226,12 +2530,6 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       throw new Error("Fundamentals hydration is incomplete");
     }
 
-    await this.publishAllFundamentalsYears(
-      security.id,
-      this.fundamentalsTarget(security),
-      hydrating,
-      lease,
-    );
     return {
       lastFundamentalsRefreshAt: this.oldestRequiredSyncAt(states),
       derivedRebuildStart,
@@ -3052,51 +3350,12 @@ export class CanonicalStockDataService implements StockDetailsDataService {
             ? row.availableFromDate
             : minDate(derivedRebuildStart, row.availableFromDate);
       }
-      await this.cache.writeFinancialStatementYears(
-        security.id,
-        rows,
-        result.operation.statementType,
-        result.operation.cadence,
-        result.changedYears,
-        hydrating,
-      );
       lease.assertOwned();
     }
     return {
       lastFundamentalsRefreshAt: this.nowInstant(),
       derivedRebuildStart,
     };
-  }
-
-  /**
-   * Publishes every retained fundamentals year, warm-up years included, under the existing yearly
-   * key family. There is no separate warm-up dataset or key.
-   */
-  private async publishAllFundamentalsYears(
-    securityId: string,
-    retention: Required<DateRange>,
-    hydrating: StockManifest,
-    lease: LoadLease,
-  ): Promise<void> {
-    const years = yearsInRange(retention);
-    for (const operation of this.fundamentalsOperationsForHistory()) {
-      const rows = await this.store.getFinancialStatementRevisions({
-        securityId,
-        statementType: operation.statementType,
-        cadence: operation.cadence,
-        from: retention.from,
-        to: retention.to,
-      });
-      await this.cache.writeFinancialStatementYears(
-        securityId,
-        rows,
-        operation.statementType,
-        operation.cadence,
-        years,
-        hydrating,
-      );
-      lease.assertOwned();
-    }
   }
 
   private async syncFundamentalsOperation(input: {
@@ -3773,6 +4032,38 @@ export class CanonicalStockDataService implements StockDetailsDataService {
 }
 
 /**
+ * Whether a READY manifest's stored bars reach into `range`. Unknown bounds (a manifest published
+ * before they were recorded) count as reaching, so such a read keeps the repair it always had.
+ */
+function storedHistoryReaches(
+  manifest: StockManifest,
+  range: Required<DateRange>,
+): boolean {
+  if (!manifest.canonicalHistoryStart || !manifest.canonicalHistoryEnd) {
+    return true;
+  }
+  return (
+    manifest.canonicalHistoryStart <= range.to &&
+    manifest.canonicalHistoryEnd >= range.from
+  );
+}
+
+function sameManifest(
+  left: StockManifest | null,
+  right: StockManifest | null,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Calendar days from `from` to `to`. */
+function daysBetween(from: LocalDate, to: LocalDate): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) /
+      86_400_000,
+  );
+}
+
+/**
  * Daily technical projection over the unified derived state.
  *
  * Weekly values are read straight off the daily row: the materializer already carried the latest
@@ -3970,4 +4261,3 @@ function sameStoredValue(
 function namesValuationRatio(operands: readonly OperandKey[]): boolean {
   return operands.some((key) => operandValuationRatioId(key) !== null);
 }
-

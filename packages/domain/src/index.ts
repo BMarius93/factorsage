@@ -11,3 +11,4 @@ export * from "./benchmarks.js";
 export * from "./market-overview-etfs.js";
 export * from "./alternative-data.js";
 export * from "./corporate-actions.js";
+export * from "./market-index.js";

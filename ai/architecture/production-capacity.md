@@ -15,6 +15,23 @@ byte columns below as upper bounds; `pnpm bench:daily-state-cache` measures the 
 `../../docs/decisions/retain-wide-column-calculated-series-storage.md` ("Redis chunk layout") holds
 its numbers.
 
+## Backtests over the S&P 500 point-in-time universe (measured 2026-10-17)
+
+`docs/decisions/sp500-historical-pit-v1.md` §10 holds the full table; the capacity facts:
+
+- **One thirty-year run** over the universe (732 securities, 31 calendar-year windows) costs one
+  worker ~77–99 s of wall and ~83–114 s of CPU on a 2.8 GHz Xeon vCPU, ~0.44 GB of RSS, ~511 MB
+  read from Redis and ~18.5 k PostgreSQL transactions, with the protected tier warm
+  (`docs/decisions/protected-stock-tier-v1.md`). Preparation is ~1.5 s; frame reads are ~80 %.
+- **Throughput is worker CPU.** On 4 vCPU: 45 runs/h with 1 worker, 85 with 2, 143 with 4, then
+  flat (138 at 8, 137 at 16) while latency grows linearly. Size `BACKTEST_WORKER_PROCESSES` to
+  the worker host's cores; memory is ~0.45 GB per worker.
+- **Redis and PostgreSQL are not the wall.** At 16 concurrent runs Redis used 91 CPU-seconds over
+  421 s and PostgreSQL peaked at 24 active connections. Each worker's Prisma pool should still be
+  capped (`connection_limit`) when many workers share one `max_connections`.
+- **The protected tier is the precondition.** Without it a 100-slot LRU rebuilds most securities
+  from PostgreSQL in every window: hours per run.
+
 ## Monitor EOD V2 (measured 2026-10-15)
 
 Monitor EOD V2 (`../../docs/decisions/monitor-eod-v2.md`) split the Monitor's work in two. The

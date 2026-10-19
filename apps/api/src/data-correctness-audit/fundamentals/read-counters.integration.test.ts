@@ -128,6 +128,11 @@ describeInfrastructure(
         this.record("mget", keys);
         return this.inner.mget(...keys);
       }
+      /** The byte-level MGET payload chunks are read with: the same one command. */
+      mgetBuffer(...keys: string[]) {
+        this.record("mget", keys);
+        return this.inner.mgetBuffer(...keys);
+      }
       set(key: string, value: string) {
         this.record("set", [key]);
         return this.inner.set(key, value);
@@ -168,8 +173,8 @@ describeInfrastructure(
         this.record("del", keys);
         return this.inner.del(...keys);
       }
-      eval(script: string, numberOfKeys: number, ...args: string[]) {
-        this.record("eval", args.slice(0, numberOfKeys));
+      eval(script: string, numberOfKeys: number, ...args: Array<string | Buffer>) {
+        this.record("eval", args.slice(0, numberOfKeys).map(String));
         return this.inner.eval(script, numberOfKeys, ...args);
       }
     }
@@ -455,12 +460,9 @@ describeInfrastructure(
         // The durable history, read once to republish the yearly chunks.
         expect(cost.derivedSelects, label).toBe(1);
       }
-      // Re-publishing the resident security reads its statements for the statement cache, as every
-      // hydration does: one read per statement family and cadence the cache holds, whatever the
-      // range or the number of its days.
-      expect(flushedFull.statementSql).toBe(
-        fundamentalsDatasetOperations(30).length,
-      );
+      // Re-publishing the resident security reads no statements: they are not projected into Redis
+      // (`FINANCIAL_STATEMENT_VERSION` 2), and the daily state already carries what they produce.
+      expect(flushedFull.statementSql).toBe(0);
       expect(flushedMonth.statementSql).toBe(flushedFull.statementSql);
       expect(flushedMonth.derivedSelects).toBe(flushedFull.derivedSelects);
       expect(provider.calls).toEqual([]);

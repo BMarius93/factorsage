@@ -113,9 +113,15 @@ describe("shared FMP provider gate", () => {
     //
     // The QA-matrix calendar capture (`pnpm qa:matrix:capture-calendar`) pins the venue holiday
     // schedule a sweep replays: a few dozen opt-in requests, through the same gate.
+    //
+    // The point-in-time index universe command (`pnpm data:index-universe`) synchronizes an index's
+    // membership and loads every constituent's full history — the largest provider job there is —
+    // so it above all shares the gate. Its client also carries a guard: a fixed symbol scope read
+    // from the canonical membership and a request budget.
     expect(files).toEqual([
       "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
       "apps/api/src/fmp-live/fmp-live-runtime.ts",
+      "apps/api/src/index-universe/index-universe-runtime.ts",
       "apps/api/src/ingest-alternative-data.ts",
       "apps/api/src/qa-matrix-capture-calendar.ts",
       "apps/api/src/resync-canonical-stock-data.ts",
@@ -171,12 +177,13 @@ describe("shared FMP provider gate", () => {
     }
   });
 
-  it("restricts no client but the live hydration run's", () => {
-    // `FmpClient` takes an optional guard that refuses requests outside a security scope and
-    // beyond a request budget. It exists for the deliberate live run and for nothing else: a guard
-    // on a production client would refuse the catalog sync, a Monitor's quotes and every security
-    // nobody listed. So it is named in exactly one composition root, and that root still shares
-    // the gate like the rest (the cases above apply to it unchanged).
+  it("restricts no client but the deliberate operator runs'", () => {
+    // `FmpClient` takes an optional guard that refuses requests outside a scope and beyond a
+    // request budget. It exists for two deliberate operator runs and for nothing else: the live
+    // hydration of up to three securities, and the owner-authorized index-universe load, whose
+    // scope is the canonical membership's symbols. A guard on a production client would refuse the
+    // catalog sync and every security nobody listed. Both roots still share the gate like the rest
+    // (the cases above apply to them unchanged).
     const guarded = files.filter((file) =>
       /\bguard\b/.test(
         readFileSync(join(REPO_ROOT, file), "utf8").replace(
@@ -185,7 +192,10 @@ describe("shared FMP provider gate", () => {
         ),
       ),
     );
-    expect(guarded).toEqual(["apps/api/src/fmp-live/fmp-live-runtime.ts"]);
+    expect(guarded).toEqual([
+      "apps/api/src/fmp-live/fmp-live-runtime.ts",
+      "apps/api/src/index-universe/index-universe-runtime.ts",
+    ]);
   });
 
   it("keeps the browser-facing logo proxy off the metered API", () => {

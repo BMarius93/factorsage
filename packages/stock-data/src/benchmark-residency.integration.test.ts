@@ -9,6 +9,8 @@ import type {
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { cachePayloadText } from "./cache-payload.test-helper.js";
+import { RedisPayloadCodec } from "./redis-payload-codec.js";
 import {
   BENCHMARK_CHUNK_ENCODING_VERSION,
   decodeBenchmarkChunk,
@@ -128,6 +130,11 @@ class CountingClient extends IoredisCacheClient {
   override async mget(...keys: string[]) {
     this.chunkReads += keys.length;
     return super.mget(...keys);
+  }
+  /** Chunks are read as bytes (the payload envelope); counted exactly like `mget`. */
+  override async mgetBuffer(...keys: string[]) {
+    this.chunkReads += keys.length;
+    return super.mgetBuffer(...keys);
   }
 }
 
@@ -933,8 +940,10 @@ describeResidency("benchmark history residency, reads and refresh", () => {
       expect(head.basisGeneration).toBe(1);
       for (const [year, digest] of Object.entries(head.chunks)) {
         expect(digest).not.toBe(before.chunks[year]);
-        const payload = await redis.get(
+        const payload = await cachePayloadText(
+          redis,
           `${namespace}:benchmark:${series.id}:daily-price:v1:${year}:${digest}`,
+          new RedisPayloadCodec(),
         );
         const decoded = decodeBenchmarkChunk(payload as string, {
           seriesId: series.id,

@@ -146,6 +146,51 @@ describe("ListDetail", () => {
     ).toBeNull();
   });
 
+  it("explains a maintained point-in-time universe and keeps it read-only even for an administrator", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail(
+        [
+          item("item-1", "AAPL", {
+            buyWindowMode: "CUSTOM",
+            buyWindows: [{ startDate: "1996-01-02", endDate: null }],
+          }),
+          item("item-2", "LEHMQ", {
+            buyWindowMode: "CUSTOM",
+            buyWindows: [{ startDate: "1996-01-02", endDate: "2008-09-15" }],
+          }),
+        ],
+        {
+          ownership: "SYSTEM",
+          systemKey: "sp500-historical-pit",
+          // The API answers false for the maintained universe, administrators included.
+          canEdit: false,
+          universe: {
+            kind: "POINT_IN_TIME_INDEX",
+            indexKey: "SP500",
+            distinctSecurities: 2,
+            peakSimultaneousMembers: 2,
+            currentMembers: 1,
+            membershipFloor: "1996-01-02",
+            syncedAt: "2026-10-17T10:00:00.000Z",
+          },
+        },
+      ),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    expect(screen.getByTestId("universe-badge").textContent).toContain(
+      "up to 2 at once",
+    );
+    const notice = (screen.getByTestId("universe-notice").textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(notice).toContain("1 current members and 1 former ones");
+    expect(notice).toContain("buys each stock only while it was a member");
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByTestId("add-stocks-button")).toBeNull();
+  });
+
   it("lets an administrator edit a built-in list but never offers to delete it", async () => {
     fetchStockListMock.mockResolvedValue(
       detail([item("item-1", "AAPL")], {

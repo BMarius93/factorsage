@@ -43,6 +43,30 @@ import {
   type MappedFmpProfile,
   type MappedFmpSecurityListing,
 } from "./mapping.js";
+import {
+  FMP_DELISTED_COMPANIES_PAGE_SIZE,
+  FMP_MARKET_CAP_REQUEST_LIMIT,
+  FMP_MEMBERSHIP_INDEX_PATHS,
+  FMP_SYMBOL_CHANGE_REQUEST_LIMIT,
+  mapFmpDelistedCompanies,
+  mapFmpIndexChanges,
+  mapFmpIndexConstituents,
+  mapFmpMarketCapitalizations,
+  mapFmpSymbolChanges,
+  type FmpDelistedCompanyDto,
+  type FmpIndexChangeDto,
+  type FmpIndexConstituentDto,
+  type FmpIndexMembershipPort,
+  type FmpMappedRows,
+  type FmpMarketCapitalizationDto,
+  type FmpMembershipIndex,
+  type FmpSymbolChangeDto,
+  type MappedFmpDelistedCompany,
+  type MappedFmpIndexChange,
+  type MappedFmpIndexConstituent,
+  type MappedFmpMarketCapitalization,
+  type MappedFmpSymbolChange,
+} from "./index-membership-mapping.js";
 import type { FmpRequestDescriptor, FmpRequestGuard } from "./request-guard.js";
 
 export type FmpClientConfig = {
@@ -154,7 +178,8 @@ export class FmpClient
     FmpInsiderTradingPort,
     FmpCongressTradingPort,
     FmpCongressMemberDirectoryPort,
-    FmpStockSplitPort
+    FmpStockSplitPort,
+    FmpIndexMembershipPort
 {
   private readonly gate: FmpRequestGate;
   private readonly guard: FmpRequestGuard | undefined;
@@ -414,6 +439,88 @@ export class FmpClient
       providerRowCount: Array.isArray(payload) ? payload.length : 0,
       rows: mapFmpCongressMemberProfiles(payload),
     };
+  }
+
+  /** Today's constituents of an index (`docs/decisions/sp500-historical-pit-v1.md`). One request. */
+  async getIndexConstituents(
+    index: FmpMembershipIndex,
+  ): Promise<FmpMappedRows<MappedFmpIndexConstituent>> {
+    const payload = await this.request<FmpIndexConstituentDto[]>(
+      FMP_MEMBERSHIP_INDEX_PATHS[index].constituents,
+      {},
+    );
+    return mapFmpIndexConstituents(payload);
+  }
+
+  /**
+   * Every addition and removal the provider records for an index, in one request. Each row carries
+   * the date the change took effect; the provider records no announcement date.
+   */
+  async getIndexChanges(
+    index: FmpMembershipIndex,
+  ): Promise<FmpMappedRows<MappedFmpIndexChange>> {
+    const payload = await this.request<FmpIndexChangeDto[]>(
+      FMP_MEMBERSHIP_INDEX_PATHS[index].changes,
+      {},
+    );
+    return mapFmpIndexChanges(payload);
+  }
+
+  /**
+   * The provider's whole ticker-rename history, in one request.
+   *
+   * The endpoint answers 100 rows unless asked for more. A response that fills the requested limit
+   * may have been cut short, and identities reconstructed from part of the history would be wrong
+   * without saying so, so such a response is refused rather than returned.
+   */
+  async getSymbolChanges(): Promise<FmpMappedRows<MappedFmpSymbolChange>> {
+    const payload = await this.request<FmpSymbolChangeDto[]>("symbol-change", {
+      limit: String(FMP_SYMBOL_CHANGE_REQUEST_LIMIT),
+    });
+    if (payload.length >= FMP_SYMBOL_CHANGE_REQUEST_LIMIT) {
+      throw new FmpProviderError(
+        `The symbol-change history filled its ${FMP_SYMBOL_CHANGE_REQUEST_LIMIT}-row limit and may be truncated`,
+      );
+    }
+    return mapFmpSymbolChanges(payload);
+  }
+
+  /** One page of ended listings, newest first. The provider's history ends around 2015. */
+  async getDelistedCompanies(page: number): Promise<{
+    providerRowCount: number;
+    rows: MappedFmpDelistedCompany[];
+  }> {
+    const payload = await this.request<FmpDelistedCompanyDto[]>(
+      "delisted-companies",
+      {
+        page: String(Math.max(0, Math.trunc(page))),
+        limit: String(FMP_DELISTED_COMPANIES_PAGE_SIZE),
+      },
+    );
+    return {
+      providerRowCount: payload.length,
+      rows: mapFmpDelistedCompanies(payload).rows,
+    };
+  }
+
+  /**
+   * One symbol's daily market capitalization inside a range, ascending. Used only to check that a
+   * symbol's history plausibly belongs to an index member before it is linked to one.
+   */
+  async getHistoricalMarketCapitalization(
+    symbol: string,
+    range: { from: string; to: string },
+  ): Promise<MappedFmpMarketCapitalization[]> {
+    const payload = await this.request<FmpMarketCapitalizationDto[]>(
+      "historical-market-capitalization",
+      {
+        symbol: symbol.trim().toUpperCase(),
+        from: range.from,
+        to: range.to,
+        limit: String(FMP_MARKET_CAP_REQUEST_LIMIT),
+      },
+    );
+    return mapFmpMarketCapitalizations(payload).rows;
   }
 
   private async request<T>(

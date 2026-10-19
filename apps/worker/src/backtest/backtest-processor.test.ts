@@ -672,3 +672,92 @@ describe("engine methodology compatibility", () => {
     }
   });
 });
+
+/**
+ * A run over the built-in point-in-time index universe keeps its securities out of the bounded LRU
+ * (`docs/decisions/protected-stock-tier-v1.md`): it designates them to the protected tier before the
+ * first one is prepared, so preparing ~700 securities never evicts the stocks people are reading.
+ */
+describe("the protected tier", () => {
+  const universeSnapshot = () =>
+    snapshotDocument({
+      stockList: {
+        stockListId: "list-1",
+        name: "S&P 500 — Historical PIT",
+        universe: {
+          kind: "POINT_IN_TIME_INDEX",
+          indexKey: "SP500",
+          peakSimultaneousMembers: 1,
+        },
+      },
+    });
+
+  function recordingProcessor() {
+    const events: string[] = [];
+    const repository = new RecordingRepository();
+    const processor = new BacktestProcessor(
+      {
+        repository,
+        securities: {
+          findByIds: async (ids: readonly string[]) =>
+            new Map(
+              ids.map((id) => [
+                id,
+                {
+                  id,
+                  symbol: "AAA",
+                  name: "AAA Inc.",
+                  exchangeCode: "NASDAQ",
+                  currency: "USD",
+                  type: "STOCK",
+                  isAdr: false,
+                  isActivelyTrading: true,
+                } satisfies Security,
+              ]),
+            ),
+        },
+        stockData: {
+          prepareDailyEvaluationData: async (security: Security) => {
+            events.push(`prepare:${security.id}`);
+            return null;
+          },
+          readDailyEvaluationFrame: async () => {
+            throw new Error("no frame should be needed in these cases");
+          },
+        },
+        benchmarks: new RecordingBenchmarks(new Set(), {
+          prices: [{ date: "2020-01-02", close: 100 }],
+          missingCoverage: [],
+        }),
+        etfContexts: stubEtfContexts(),
+        logger,
+        protectedTier: {
+          protectStocks: async (ids: readonly string[]) => {
+            events.push(`protect:${[...ids].join(",")}`);
+            return ids.length;
+          },
+        },
+      },
+      {
+        frameConcurrency: 1,
+        checkpointEveryDays: 5,
+        checkpointMinIntervalMs: 0,
+        leaseMs: 60_000,
+        workerId: "worker-under-test",
+      },
+    );
+    return { processor, events };
+  }
+
+  it("designates an index universe's securities before preparing any of them", async () => {
+    const { processor, events } = recordingProcessor();
+    await processor.process(claimOf(universeSnapshot()), lease);
+    expect(events).toEqual(["protect:security-1", "prepare:security-1"]);
+  });
+
+  it("designates nothing for a user's List", async () => {
+    const { processor, events } = recordingProcessor();
+    await processor.process(claimOf(snapshotDocument()), lease);
+    expect(events).toEqual(["prepare:security-1"]);
+  });
+});

@@ -11,6 +11,7 @@ import {
 } from "@intrinsic/domain";
 import { assertOneRowPerTradingDay } from "./derived-state.js";
 import { INTRINSIC_MODEL_SOURCE_FIELDS } from "./intrinsic-values.js";
+import { redisPayloadDictionary } from "./redis-payload-codec.js";
 
 /**
  * Version of the Redis `daily-state` chunk encoding: how one security's yearly derived state is laid
@@ -114,6 +115,17 @@ export const DAILY_STATE_CHUNK_FIELDS: readonly string[] = COLUMNS.map(
 );
 
 const FIELDS_JSON = JSON.stringify(DAILY_STATE_CHUNK_FIELDS);
+
+/**
+ * The bytes every version-2 chunk begins with apart from its identity — the header and the field
+ * dictionary — as a compression dictionary. Built from the registries like the columns, so a field
+ * added to a registry changes the dictionary's id with it: a payload written under the old one is
+ * then refused by the envelope and rebuilt, exactly as its field dictionary would be refused.
+ */
+export const DAILY_STATE_CHUNK_DICTIONARY = redisPayloadDictionary(
+  `{"version":${DAILY_STATE_ENCODING_VERSION},"securityId":"00000000-0000-0000-0000-000000000000","year":2000` +
+    `,"fields":${FIELDS_JSON},"dates":["2000-01-03","2000-01-04"],"columns":[[`,
+);
 
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
 

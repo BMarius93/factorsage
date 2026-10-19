@@ -865,6 +865,257 @@ describe("backtests", () => {
     });
   });
 
+  /**
+   * The built-in point-in-time index universe (`docs/decisions/sp500-historical-pit-v1.md` §5):
+   * measured by the most members it holds at once in the run's period, against the plan's own
+   * allowance and the engine's ceiling — and only the SYSTEM List itself.
+   */
+  describe("the point-in-time index universe", () => {
+    const universeKey = "sp500-historical-pit";
+    const starterEmail = `backtest-starter-${suffix}@example.test`;
+    const adminEmail = `backtest-admin-${suffix}@example.test`;
+    const extraSymbols = Array.from(
+      { length: 600 },
+      (_, index) => `BTU${index}-${suffix}`,
+    );
+    let universeListId = "";
+    let starter: ReturnType<typeof request.agent>;
+    let admin: ReturnType<typeof request.agent>;
+    let starterStrategyId = "";
+    let adminStrategyId = "";
+
+    async function strategyFor(userId: string): Promise<string> {
+      const created = await prisma.strategy.create({
+        data: {
+          userId,
+          name: "Universe strategy",
+          versions: {
+            create: {
+              versionNumber: 1,
+              definition: definition as unknown as object,
+              definitionHash,
+            },
+          },
+        },
+      });
+      return created.id;
+    }
+
+    beforeAll(async () => {
+      // Only a test leftover can hold the key in the test database: the ingestion refuses it.
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+      const list = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: universeKey,
+          name: "S&P 500 — Historical PIT",
+          items: {
+            create: [
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("A")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2020-03-01T00:00:00.000Z"),
+                      endDate: new Date("2020-06-30T00:00:00.000Z"),
+                    },
+                  ],
+                },
+              },
+              {
+                // A member only before the period: left out of a 2020 run.
+                securityId: securityIdsBySymbol.get(symbolOf("B")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2019-01-01T00:00:00.000Z"),
+                      endDate: new Date("2019-12-31T00:00:00.000Z"),
+                    },
+                  ],
+                },
+              },
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("C")) ?? "",
+                buyWindowMode: "FULL",
+              },
+            ],
+          },
+        },
+      });
+      universeListId = list.id;
+
+      const passwordHash = await app.get(PasswordService).hash(password);
+      await prisma.user.createMany({
+        data: [
+          {
+            email: starterEmail,
+            passwordHash,
+            emailVerifiedAt: new Date(),
+            plan: "STARTER",
+          },
+          {
+            email: adminEmail,
+            passwordHash,
+            emailVerifiedAt: new Date(),
+            plan: "PRO",
+            role: "ADMIN",
+          },
+        ],
+      });
+      const users = await prisma.user.findMany({
+        where: { email: { in: [starterEmail, adminEmail] } },
+        select: { id: true, email: true },
+      });
+      starterStrategyId = await strategyFor(
+        users.find((row) => row.email === starterEmail)?.id ?? "",
+      );
+      adminStrategyId = await strategyFor(
+        users.find((row) => row.email === adminEmail)?.id ?? "",
+      );
+      starter = request.agent(app.getHttpServer());
+      admin = request.agent(app.getHttpServer());
+      await starter
+        .post("/auth/login")
+        .send({ email: starterEmail, password })
+        .expect(200);
+      await admin
+        .post("/auth/login")
+        .send({ email: adminEmail, password })
+        .expect(200);
+    });
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({
+        where: { email: { in: [starterEmail, adminEmail] } },
+      });
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+      await prisma.security.deleteMany({
+        where: { providerSymbol: { in: extraSymbols } },
+      });
+    });
+
+    it("freezes the universe and its period's members for Pro, leaving out members outside the period", async () => {
+      const run = await submit({ stockListId: universeListId });
+      const stored = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true, securityCount: true },
+      });
+      const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+      expect(snapshot.stockList.universe).toEqual({
+        kind: "POINT_IN_TIME_INDEX",
+        indexKey: "SP500",
+        peakSimultaneousMembers: 2,
+      });
+      expect(snapshot.securities.map((security) => security.symbol)).toEqual([
+        symbolOf("A"),
+        symbolOf("C"),
+      ]);
+      expect(stored.securityCount).toBe(2);
+    });
+
+    it("refuses a plan without the universe", async () => {
+      const refused = await starter
+        .post("/backtests")
+        .send(
+          submission({
+            strategyId: starterStrategyId,
+            stockListId: universeListId,
+          }),
+        )
+        .expect(403);
+      expect(refused.body).toMatchObject({
+        code: "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
+        limit: 0,
+        requested: 2,
+      });
+    });
+
+    it("refuses more simultaneous members than Pro allows, and than the engine runs for anyone", async () => {
+      await prisma.security.createMany({
+        data: extraSymbols.map((providerSymbol, index) => ({
+          providerSymbol,
+          symbol: `BTU${index}${shortSuffix}`,
+          name: `Universe Member ${index}`,
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: "STOCK",
+          isAdr: false,
+          isActivelyTrading: true,
+        })),
+      });
+      const extra = await prisma.security.findMany({
+        where: { providerSymbol: { in: extraSymbols } },
+        select: { id: true },
+      });
+      await prisma.stockListItem.createMany({
+        data: extra.map((security) => ({
+          stockListId: universeListId,
+          securityId: security.id,
+          buyWindowMode: "FULL" as const,
+        })),
+      });
+      try {
+        const overPlan = await owner
+          .post("/backtests")
+          .send(submission({ stockListId: universeListId }))
+          .expect(403);
+        expect(overPlan.body).toMatchObject({
+          code: "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
+          limit: 550,
+          requested: 602,
+        });
+        const overEngine = await admin
+          .post("/backtests")
+          .send(
+            submission({
+              strategyId: adminStrategyId,
+              stockListId: universeListId,
+            }),
+          )
+          .expect(400);
+        expect(overEngine.body.code).toBe("BACKTEST_INVALID");
+        expect(overEngine.body.message).toContain("600 simultaneous members");
+      } finally {
+        await prisma.stockListItem.deleteMany({
+          where: {
+            stockListId: universeListId,
+            securityId: { in: extra.map((security) => security.id) },
+          },
+        });
+      }
+    });
+
+    it("holds a customer's copy of the members to the ordinary List rules", async () => {
+      const copy = await prisma.stockList.create({
+        data: {
+          userId: ownerUserId,
+          name: "My copy of the universe",
+          items: {
+            create: ["A", "B", "C"].map((letter) => ({
+              securityId: securityIdsBySymbol.get(symbolOf(letter)) ?? "",
+              buyWindowMode: "FULL" as const,
+            })),
+          },
+        },
+      });
+      try {
+        const run = await submit({ stockListId: copy.id });
+        const stored = await prisma.backtestRun.findUniqueOrThrow({
+          where: { id: run.id },
+          select: { snapshot: true },
+        });
+        const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+        expect(snapshot.stockList.universe).toBeUndefined();
+        expect(snapshot.securities).toHaveLength(3);
+      } finally {
+        await prisma.backtestRun.deleteMany({ where: { stockListId: copy.id } });
+        await prisma.stockList.delete({ where: { id: copy.id } });
+      }
+    });
+  });
+
   it("lists only the caller's runs, newest queued first", async () => {
     const first = await submit();
     const second = await submit();

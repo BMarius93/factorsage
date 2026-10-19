@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Redis } from "ioredis";
 import type { RedisCacheClient } from "./cache.js";
 
@@ -33,6 +34,10 @@ export class IoredisCacheClient implements RedisCacheClient {
 
   mget(...keys: string[]): Promise<Array<string | null>> {
     return this.redis.mget(...keys);
+  }
+
+  mgetBuffer(...keys: string[]): Promise<Array<Buffer | null>> {
+    return this.redis.mgetBuffer(...keys);
   }
 
   set(key: string, value: string): Promise<unknown> {
@@ -87,11 +92,37 @@ export class IoredisCacheClient implements RedisCacheClient {
     return this.redis.del(...keys);
   }
 
-  eval(
+  /**
+   * `EVALSHA` by the script's SHA-1, falling back to `EVAL` — which also loads it — when the server
+   * does not know it yet (a fresh or restarted Redis, a `SCRIPT FLUSH`). The scripts are sent once
+   * per server instead of with every call: a cache read touches its LRU entry through one, thousands
+   * of times per backtest window. A script is idempotent per call either way, and a `NOSCRIPT` reply
+   * means nothing ran.
+   */
+  async eval(
     script: string,
     numberOfKeys: number,
-    ...args: string[]
+    ...args: Array<string | Buffer>
   ): Promise<unknown> {
-    return this.redis.call("EVAL", script, String(numberOfKeys), ...args);
+    let sha = this.scriptShas.get(script);
+    if (sha === undefined) {
+      sha = createHash("sha1").update(script).digest("hex");
+      this.scriptShas.set(script, sha);
+    }
+    try {
+      return await this.redis.call(
+        "EVALSHA",
+        sha,
+        String(numberOfKeys),
+        ...args,
+      );
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("NOSCRIPT")) {
+        throw error;
+      }
+      return this.redis.call("EVAL", script, String(numberOfKeys), ...args);
+    }
   }
+
+  private readonly scriptShas = new Map<string, string>();
 }

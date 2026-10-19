@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { FmpClient, FmpProviderError, type FmpRequestGate } from "./client.js";
+import { FMP_MEMBERSHIP_INDEX_PATHS } from "./index-membership-mapping.js";
 import { financialStatementPath } from "./mapping.js";
 import {
   FMP_ENDPOINT_CLASSES,
@@ -128,13 +129,18 @@ describe("FMP endpoint classification", () => {
     const literal = [
       ...source.matchAll(/this\.request<[^>]*>\(\s*"([^"]+)"/g),
     ].map((match) => match[1] as string);
-    // The statement and congress endpoints are chosen at run time rather than written inline.
+    // The statement, congress and index-membership endpoints are chosen at run time rather than
+    // written inline.
     const computed = [
       financialStatementPath("INCOME"),
       financialStatementPath("BALANCE_SHEET"),
       financialStatementPath("CASH_FLOW"),
       "senate-trades",
       "house-trades",
+      ...Object.values(FMP_MEMBERSHIP_INDEX_PATHS).flatMap((paths) => [
+        paths.constituents,
+        paths.changes,
+      ]),
     ];
     expect(literal).toEqual([
       "profile",
@@ -144,10 +150,13 @@ describe("FMP endpoint classification", () => {
       "splits",
       "insider-trading/search",
       "senate-profile",
+      "symbol-change",
+      "delisted-companies",
+      "historical-market-capitalization",
     ]);
-    // Nine `this.request` calls in the client: the seven above and two with a computed path. A
-    // tenth is an endpoint somebody added without deciding what it is about.
-    expect(source.match(/this\.request</g)).toHaveLength(9);
+    // Fourteen `this.request` calls in the client: the ten above and four with a computed path. A
+    // fifteenth is an endpoint somebody added without deciding what it is about.
+    expect(source.match(/this\.request</g)).toHaveLength(14);
     expect([...FMP_ENDPOINT_CLASSES.keys()].sort()).toEqual(
       [...literal, ...computed].sort(),
     );
@@ -163,7 +172,14 @@ describe("FMP endpoint classification", () => {
       "company-screener",
       "holidays-by-exchange",
     ]);
-    expect(bySubject("SECURITY")).toHaveLength(9);
+    expect(bySubject("SECURITY")).toHaveLength(10);
+    expect(bySubject("DIRECTORY")).toEqual([
+      "delisted-companies",
+      "historical-sp500-constituent",
+      "senate-profile",
+      "sp500-constituent",
+      "symbol-change",
+    ]);
   });
 });
 

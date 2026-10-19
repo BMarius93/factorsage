@@ -11,7 +11,11 @@ import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import { seriesOperand } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RedisStockDataCache, type StockManifest } from "./cache.js";
+import {
+  FINANCIAL_STATEMENT_VERSION,
+  RedisStockDataCache,
+  type StockManifest,
+} from "./cache.js";
 import { InMemoryLoadCoordinator } from "./coordination.js";
 import { addDays, subtractYears } from "./dates.js";
 import {
@@ -774,7 +778,7 @@ describeRetention(
             lastPriceRefreshAt: NOW,
             lastFundamentalsRefreshAt: NOW,
             priceDatasetVersion: PRICE_DATASET_VERSION,
-            financialStatementVersion: 1,
+            financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
             derivedStateRevision: DERIVED_STATE_REVISION,
             dailyStateEncodingVersion: DAILY_STATE_ENCODING_VERSION,
           };

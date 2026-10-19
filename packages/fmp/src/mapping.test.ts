@@ -187,6 +187,29 @@ describe("FMP mapping", () => {
       }),
     ).toThrow("Invalid FMP financial statement symbol");
   });
+
+  it("leaves out only a statement it cannot place in time, and reads a timestamped filing by its day", () => {
+    const mapped = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "INCOME",
+      rows: [
+        financialRow({ date: "2024-03-31", filingDate: "2024-05-02" }),
+        // No readable filing date: never dated from its fiscal date or acceptance timestamp.
+        financialRow({
+          date: "2005-12-31",
+          filingDate: null,
+          acceptedDate: "2006-02-28 16:01:00",
+        }),
+        financialRow({ date: "2004-12-31", filingDate: "" }),
+        financialRow({ date: "2003-12-31", filingDate: "not-a-date" }),
+        financialRow({ date: "2002-12-31", filingDate: "2003-03-14 00:00:00" }),
+      ],
+    });
+    expect(mapped.map((row) => [row.fiscalDate, row.filingDate])).toEqual([
+      ["2024-03-31", "2024-05-02"],
+      ["2002-12-31", "2003-03-14"],
+    ]);
+  });
 });
 
 /**
@@ -234,17 +257,26 @@ describe("FMP financial statement value semantics", () => {
   it("keeps changeInWorkingCapital signed in both directions", () => {
     // It is already the signed cash-flow contribution, so either sign is a valid provider value
     // and neither may be reinterpreted as a conventional positive delta-NWC.
-    expect(cashFlowValues({ changeInWorkingCapital: 1_185_000_000 })
-      .changeInWorkingCapital).toBe(1_185_000_000);
-    expect(cashFlowValues({ changeInWorkingCapital: -2_400_000_000 })
-      .changeInWorkingCapital).toBe(-2_400_000_000);
+    expect(
+      cashFlowValues({ changeInWorkingCapital: 1_185_000_000 })
+        .changeInWorkingCapital,
+    ).toBe(1_185_000_000);
+    expect(
+      cashFlowValues({ changeInWorkingCapital: -2_400_000_000 })
+        .changeInWorkingCapital,
+    ).toBe(-2_400_000_000);
   });
 
   it("keeps interestExpense as the positive expense magnitude the provider reports", () => {
     const mapped = mapFmpFinancialStatements({
       securityId: "security-1",
       statementType: "INCOME",
-      rows: [financialRow({ interestExpense: 559_000_000, incomeTaxExpense: 4_713_000_000 })],
+      rows: [
+        financialRow({
+          interestExpense: 559_000_000,
+          incomeTaxExpense: 4_713_000_000,
+        }),
+      ],
     });
 
     expect(mapped[0]?.values.interestExpense).toBe(559_000_000);
@@ -255,7 +287,8 @@ describe("FMP financial statement value semantics", () => {
     // The provider identity holds on real data...
     const consistent = cashFlowValues();
     expect(consistent.freeCashFlow).toBe(
-      (consistent.operatingCashFlow ?? 0) + (consistent.capitalExpenditure ?? 0),
+      (consistent.operatingCashFlow ?? 0) +
+        (consistent.capitalExpenditure ?? 0),
     );
 
     // ...but the mapper never derives or corrects it: a deliberately inconsistent provider value
@@ -345,8 +378,13 @@ describe("FMP financial statement value semantics", () => {
     // Standalone quarters sum to the annual row; this is the provider's cadence semantics, and
     // the application relies on it rather than recomputing quarters from cumulative values.
     const annual = cashFlowValues();
-    const sum = (field: "operatingCashFlow" | "capitalExpenditure" | "commonDividendsPaid" | "changeInWorkingCapital") =>
-      quarters.reduce((total, quarter) => total + quarter[field], 0);
+    const sum = (
+      field:
+        | "operatingCashFlow"
+        | "capitalExpenditure"
+        | "commonDividendsPaid"
+        | "changeInWorkingCapital",
+    ) => quarters.reduce((total, quarter) => total + quarter[field], 0);
     expect(sum("operatingCashFlow")).toBe(annual.operatingCashFlow);
     expect(sum("capitalExpenditure")).toBe(annual.capitalExpenditure);
     expect(sum("commonDividendsPaid")).toBe(annual.commonDividendsPaid);
@@ -410,7 +448,11 @@ describe("mapFmpStockUniverse", () => {
 
   it("treats a missing trading flag as tradable so only an explicit false deactivates", () => {
     const [row] = mapFmpStockUniverse([
-      { symbol: "AAPL", companyName: "Apple Inc.", exchangeShortName: "NASDAQ" },
+      {
+        symbol: "AAPL",
+        companyName: "Apple Inc.",
+        exchangeShortName: "NASDAQ",
+      },
     ]);
 
     expect(row?.listing.isActivelyTrading).toBe(true);
@@ -472,9 +514,9 @@ describe("mapFmpExchangeHolidays", () => {
 
   it("refuses a response that is not a schedule", () => {
     // The dangerous failure is a silent empty schedule: a caller would read it as "open every day".
-    expect(() =>
-      mapFmpExchangeHolidays({ error: "nope" } as never),
-    ).toThrow(/exchange holiday schedule/);
+    expect(() => mapFmpExchangeHolidays({ error: "nope" } as never)).toThrow(
+      /exchange holiday schedule/,
+    );
   });
 });
 

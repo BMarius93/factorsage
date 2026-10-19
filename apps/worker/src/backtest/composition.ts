@@ -67,6 +67,8 @@ export type BacktestRuntime = {
    */
   debugArchives?: BacktestDebugArchives;
   providerRequests?: () => ProviderRequestCounts;
+  /** The stock cache's protected tier, which a point-in-time index run designates its securities to. */
+  protectedTier: BacktestProcessorDependencies["protectedTier"];
   close(): Promise<void>;
 };
 
@@ -124,7 +126,6 @@ export function createBacktestRuntime(
     }),
   });
 
-
   // The alternative-data loader, built from the **same gated provider**: an insider or congressional
   // ingest spends the same Redis-coordinated allowance as a price read, so it can never starve one.
   const alternativeData = new CanonicalAlternativeDataService(
@@ -134,7 +135,10 @@ export function createBacktestRuntime(
       freshnessMs: alternativeDataConfig.freshnessMs,
       maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
       onProviderRequest: (request) => {
-        logger.debug({ event: "alternative-data.provider.request", ...request });
+        logger.debug({
+          event: "alternative-data.provider.request",
+          ...request,
+        });
       },
     },
   );
@@ -156,25 +160,26 @@ export function createBacktestRuntime(
 
   // `stockDetailsHistoryYears` is deliberately not set here: it narrows what the Stock Details
   // surface may explore, and a backtest names its own period inside the product horizon.
+  const stockCache = new RedisStockDataCache(
+    new IoredisCacheClient(redis),
+    stockDataConfig.maxResidentStocks,
+    STOCK_DATA_CACHE_NAMESPACE,
+    DEFAULT_HYDRATION_TTL_MS,
+    {
+      // Repaired from PostgreSQL either way; this is what makes the repair visible.
+      onUnreadableChunk: (chunk) => {
+        logger.warn({ event: "stock-data.cache.chunk-unreadable", ...chunk });
+      },
+      // The read was served; only its LRU recency was lost (a Redis refusing writes).
+      onTouchFailed: ({ securityId, error }) => {
+        logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
+      },
+    },
+  );
   const stockData = new CanonicalStockDataService(
     new PrismaStockDataStore(prisma),
     provider,
-    new RedisStockDataCache(
-      new IoredisCacheClient(redis),
-      stockDataConfig.maxResidentStocks,
-      STOCK_DATA_CACHE_NAMESPACE,
-      DEFAULT_HYDRATION_TTL_MS,
-      {
-        // Repaired from PostgreSQL either way; this is what makes the repair visible.
-        onUnreadableChunk: (chunk) => {
-          logger.warn({ event: "stock-data.cache.chunk-unreadable", ...chunk });
-        },
-        // The read was served; only its LRU recency was lost (a Redis refusing writes).
-        onTouchFailed: ({ securityId, error }) => {
-          logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
-        },
-      },
-    ),
+    stockCache,
     coordinator,
     {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
@@ -247,6 +252,7 @@ export function createBacktestRuntime(
     ...(providerMeter
       ? { providerRequests: () => providerMeter.counts() }
       : {}),
+    protectedTier: stockCache,
     async close(): Promise<void> {
       redis.disconnect();
       await prisma.$disconnect();
