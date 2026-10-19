@@ -58,6 +58,11 @@ export type StoredIndexConstituent = {
   readonly cik: string | null;
   readonly tickerHistory: readonly TickerSpan[];
   readonly securityId: string | null;
+  /**
+   * The first day `securityId`'s prices are this constituent's history (an identity correction's
+   * `securityFrom`); null when they are its history throughout. Membership before it is unpriced.
+   */
+  readonly securityFrom: LocalDate | null;
   readonly resolution: IndexConstituentResolution;
   readonly resolutionEvidence: unknown;
   readonly periods: readonly StoredMembershipPeriod[];
@@ -66,6 +71,7 @@ export type StoredIndexConstituent = {
 export type ConstituentResolutionWrite = {
   readonly constituentKey: string;
   readonly securityId: string | null;
+  readonly securityFrom: LocalDate | null;
   readonly resolution: IndexConstituentResolution;
   readonly evidence: unknown;
 };
@@ -102,7 +108,10 @@ export interface IndexMembershipStore {
   /** Every rename the newest source listed. */
   loadSymbolChanges(): Promise<StoredSymbolChange[]>;
 
-  startSync(indexKey: MarketIndexKey, algorithmVersion: number): Promise<string>;
+  startSync(
+    indexKey: MarketIndexKey,
+    algorithmVersion: number,
+  ): Promise<string>;
   completeSync(
     syncId: string,
     result: {
@@ -116,7 +125,11 @@ export interface IndexMembershipStore {
     indexKey: MarketIndexKey,
   ): Promise<IndexMembershipSyncRecord | null>;
   /** Merges a later summary section (resolution, projection) into a completed sync's summary. */
-  amendSyncSummary(syncId: string, section: string, value: unknown): Promise<void>;
+  amendSyncSummary(
+    syncId: string,
+    section: string,
+    value: unknown,
+  ): Promise<void>;
 
   /**
    * Makes the stored constituents exactly `constituents`, in one transaction. A constituent whose
@@ -139,5 +152,9 @@ export interface IndexMembershipStore {
    * resumes without asking the provider again. Discarded with the rest of the evidence when the
    * constituent's membership changes.
    */
-  saveProbe(indexKey: MarketIndexKey, constituentKey: string, probe: unknown): Promise<void>;
+  saveProbe(
+    indexKey: MarketIndexKey,
+    constituentKey: string,
+    probe: unknown,
+  ): Promise<void>;
 }

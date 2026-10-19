@@ -2242,6 +2242,10 @@ model IndexConstituent {
   /// Every ticker the reconstruction saw this constituent hold, with the rename dates.
   tickerHistory      Json
   securityId         String?
+  /// The first day `securityId`'s prices are this constituent's history, set only by an identity
+  /// correction whose symbol's earlier prices belong to another issuer (an acquirer's own listing
+  /// before a merger). Null: they are its history throughout. Membership before it is unpriced.
+  securityFrom       DateTime?                  @db.Date
   resolution         IndexConstituentResolution @default(PENDING)
   /// What the resolution tried and measured: candidates, price coverage, market capitalization, reasons.
   resolutionEvidence Json?

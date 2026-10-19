@@ -401,6 +401,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
                 tickerHistory:
                   constituent.tickerHistory as unknown as Prisma.InputJsonValue,
                 securityId: null,
+                securityFrom: null,
                 resolution: ResolutionEnum.PENDING,
                 // Evidence of a membership that no longer exists would mislead; this says why the
                 // resolution starts over instead.
@@ -475,6 +476,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
       cik: row.cik,
       tickerHistory: row.tickerHistory as unknown as TickerSpan[],
       securityId: row.securityId,
+      securityFrom: optionalLocal(row.securityFrom),
       resolution: row.resolution as IndexConstituentResolution,
       resolutionEvidence: row.resolutionEvidence,
       periods: row.periods.map(toStoredPeriod).sort(comparePeriods),
@@ -514,6 +516,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
             },
             data: {
               securityId: write.securityId,
+              securityFrom: optionalDate(write.securityFrom),
               resolution: write.resolution as ResolutionEnum,
               resolutionEvidence: write.evidence as Prisma.InputJsonValue,
               resolvedAt,

@@ -14,6 +14,7 @@ import {
 } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
 import {
+  matchIdentityCorrections,
   membershipWithinHorizon,
   priceRetentionYears,
   projectIndexList,
@@ -274,11 +275,19 @@ async function main(): Promise<number> {
       );
       const renames = await scopeRuntime.membershipStore.loadSymbolChanges();
       const symbols = new Set<string>();
-      for (const constituent of constituents) {
-        const windows = membershipWithinHorizon(constituent.periods, horizon);
-        if (windows.length === 0) {
+      const inHorizon = constituents.filter(
+        (constituent) =>
+          membershipWithinHorizon(constituent.periods, horizon).length > 0,
+      );
+      // An identity correction's symbol is the only one its constituent is probed against.
+      const corrections = matchIdentityCorrections(args.indexKey, inHorizon);
+      for (const constituent of inHorizon) {
+        const correction = corrections.applied.get(constituent.constituentKey);
+        if (correction) {
+          symbols.add(correction.symbol);
           continue;
         }
+        const windows = membershipWithinHorizon(constituent.periods, horizon);
         for (const symbol of resolutionCandidates(
           constituent,
           windows.at(-1)?.to as LocalDate,

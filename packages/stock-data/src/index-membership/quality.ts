@@ -4,7 +4,10 @@ import {
   type LocalDate,
 } from "@intrinsic/domain";
 import { addDays } from "../dates.js";
-import type { StoredIndexConstituent, StoredMembershipPeriod } from "./ports.js";
+import type {
+  StoredIndexConstituent,
+  StoredMembershipPeriod,
+} from "./ports.js";
 
 /**
  * How well a reconstruction agrees with what is known about the index, and the List it projects.
@@ -197,22 +200,29 @@ export type ProjectedIndexListMember = {
  * `END_UNKNOWN` periods are never projected, and neither is any constituent whose resolution is not
  * tradeable. Ordered by security id, so the projection is deterministic.
  *
+ * A constituent whose security's prices are its history only from `securityFrom` (an identity
+ * correction: an acquirer's own listing before a merger) projects nothing earlier; its earlier
+ * membership stays in the canonical dataset, unpriced.
+ *
  * One day is restored where the reconstruction's caution would otherwise cut a security's
  * membership in two: when the same security leaves (one constituent) and rejoins (another) on one
  * unconfirmed log date — a merger's survivor, a renamed share class — it was a member on that date
  * under either reading of it (the removal took effect the next session, or the addition that day).
  */
 export function projectIndexList(
-  constituents: readonly Pick<
+  constituents: readonly (Pick<
     StoredIndexConstituent,
     "constituentKey" | "securityId" | "resolution" | "periods"
-  >[],
+  > &
+    Partial<Pick<StoredIndexConstituent, "securityFrom">>)[],
   floor: LocalDate,
 ): ProjectedIndexListMember[] {
   const tradeable: {
     securityId: string;
     constituentKey: string;
     period: StoredMembershipPeriod;
+    /** The first day the security's prices are this constituent's: nothing earlier is projected. */
+    securityFrom: LocalDate | null;
   }[] = [];
   for (const constituent of constituents) {
     if (
@@ -228,6 +238,7 @@ export function projectIndexList(
           securityId: constituent.securityId,
           constituentKey: constituent.constituentKey,
           period,
+          securityFrom: constituent.securityFrom ?? null,
         });
       }
     }
@@ -246,8 +257,20 @@ export function projectIndexList(
     string,
     { ranges: BuyWindowRange[]; keys: string[] }
   >();
-  for (const { securityId, constituentKey, period } of tradeable) {
+  for (const {
+    securityId,
+    constituentKey,
+    period,
+    securityFrom,
+  } of tradeable) {
     if (period.endDate !== null && period.endDate < floor) {
+      continue;
+    }
+    if (
+      securityFrom !== null &&
+      period.endDate !== null &&
+      period.endDate < securityFrom
+    ) {
       continue;
     }
     const deferredFrom =
@@ -256,10 +279,15 @@ export function projectIndexList(
         ? period.startLogDate
         : null;
     const start =
-      deferredFrom !== null && removalLogDates.get(securityId)?.has(deferredFrom)
+      deferredFrom !== null &&
+      removalLogDates.get(securityId)?.has(deferredFrom)
         ? deferredFrom
         : period.startDate;
-    const startDate = start === null || start < floor ? floor : start;
+    const clipped =
+      securityFrom !== null && (start === null || start < securityFrom)
+        ? securityFrom
+        : start;
+    const startDate = clipped === null || clipped < floor ? floor : clipped;
     const entry = bySecurity.get(securityId) ?? { ranges: [], keys: [] };
     entry.ranges.push({ startDate, endDate: period.endDate });
     if (!entry.keys.includes(constituentKey)) {

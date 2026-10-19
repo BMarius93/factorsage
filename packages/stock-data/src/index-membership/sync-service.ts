@@ -14,6 +14,12 @@ import type {
   MappedFmpProfile,
 } from "@intrinsic/fmp";
 import { addDays } from "../dates.js";
+import {
+  matchIdentityCorrections,
+  storedCorrectionId,
+  windowsFrom,
+  type IndexIdentityCorrection,
+} from "./corrections.js";
 import type {
   ConstituentResolutionWrite,
   IndexMembershipStore,
@@ -70,7 +76,11 @@ export type IndexUniverseListing = {
 
 export type AdmissionOutcome =
   | { readonly symbol: string; readonly securityId: string }
-  | { readonly symbol: string; readonly securityId: null; readonly reason: string };
+  | {
+      readonly symbol: string;
+      readonly securityId: null;
+      readonly reason: string;
+    };
 
 /**
  * Admits the chosen symbols to the catalog through the one catalog writer, returning each symbol's
@@ -82,11 +92,37 @@ export type IndexUniverseAdmitter = (
 ) => Promise<readonly AdmissionOutcome[]>;
 
 export type IndexMembershipEvent =
-  | { event: "index.sync.source"; indexKey: MarketIndexKey; changes: number; renames: number; current: number; dropped: Record<string, number> }
-  | { event: "index.sync.reconstructed"; indexKey: MarketIndexKey; constituents: number; anomalies: number }
-  | { event: "index.resolve.progress"; indexKey: MarketIndexKey; done: number; total: number }
-  | { event: "index.resolve.completed"; indexKey: MarketIndexKey; byResolution: Record<string, number> }
-  | { event: "index.resolve.probe-failed"; indexKey: MarketIndexKey; constituentKey: string; error: string };
+  | {
+      event: "index.sync.source";
+      indexKey: MarketIndexKey;
+      changes: number;
+      renames: number;
+      current: number;
+      dropped: Record<string, number>;
+    }
+  | {
+      event: "index.sync.reconstructed";
+      indexKey: MarketIndexKey;
+      constituents: number;
+      anomalies: number;
+    }
+  | {
+      event: "index.resolve.progress";
+      indexKey: MarketIndexKey;
+      done: number;
+      total: number;
+    }
+  | {
+      event: "index.resolve.completed";
+      indexKey: MarketIndexKey;
+      byResolution: Record<string, number>;
+    }
+  | {
+      event: "index.resolve.probe-failed";
+      indexKey: MarketIndexKey;
+      constituentKey: string;
+      error: string;
+    };
 
 export type IndexMembershipSyncResult = {
   readonly syncId: string;
@@ -94,11 +130,18 @@ export type IndexMembershipSyncResult = {
   readonly constituents: number;
   readonly anomalies: readonly ReconstructionAnomaly[];
   readonly quality: MembershipQualityReport;
-  readonly replaced: Awaited<ReturnType<IndexMembershipStore["replaceConstituents"]>>;
+  readonly replaced: Awaited<
+    ReturnType<IndexMembershipStore["replaceConstituents"]>
+  >;
 };
 
 export type IndexResolutionResult = {
   readonly attempted: number;
+  /** Identity corrections applied, by id, and those that matched no single constituent. */
+  readonly corrections: {
+    readonly applied: readonly string[];
+    readonly unmatched: readonly { id: string; matches: number }[];
+  };
   /** Probes the provider failed this run; those constituents stay `PENDING` for the next one. */
   readonly failedProbes: number;
   readonly byResolution: Record<IndexConstituentResolution, number>;
@@ -138,7 +181,10 @@ export function symbolChangeContentHash(row: {
 }
 
 function digest(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
+  return createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex")
+    .slice(0, 32);
 }
 
 /**
@@ -152,7 +198,8 @@ function digest(value: unknown): string {
  * provider only for constituents not already resolved under the same membership.
  */
 export class IndexMembershipSyncService {
-  private delisted: Promise<Map<string, MappedFmpDelistedCompany[]>> | undefined;
+  private delisted:
+    Promise<Map<string, MappedFmpDelistedCompany[]>> | undefined;
 
   constructor(
     private readonly store: IndexMembershipStore,
@@ -162,6 +209,8 @@ export class IndexMembershipSyncService {
       readonly onEvent?: (event: IndexMembershipEvent) => void;
       /** Probes run at most this many at once; the provider gate still bounds the requests. */
       readonly probeConcurrency?: number;
+      /** The reviewed identity corrections (`corrections.ts`); replaced only by tests. */
+      readonly identityCorrections?: readonly IndexIdentityCorrection[];
     } = {},
   ) {}
 
@@ -201,11 +250,17 @@ export class IndexMembershipSyncService {
       });
       await this.store.recordIndexChanges(
         indexKey,
-        changes.rows.map((row) => ({ ...row, contentHash: indexChangeContentHash(row) })),
+        changes.rows.map((row) => ({
+          ...row,
+          contentHash: indexChangeContentHash(row),
+        })),
         seenAt,
       );
       await this.store.recordSymbolChanges(
-        renames.rows.map((row) => ({ ...row, contentHash: symbolChangeContentHash(row) })),
+        renames.rows.map((row) => ({
+          ...row,
+          contentHash: symbolChangeContentHash(row),
+        })),
         seenAt,
       );
 
@@ -279,7 +334,10 @@ export class IndexMembershipSyncService {
             // Applied additions by how their start was placed: refined or confirmed by the
             // current list, or deferred to the day after an unconfirmed log date.
             additionStarts: result.additionStarts,
-            anomaliesByKind: countBy(result.anomalies, (anomaly) => anomaly.kind),
+            anomaliesByKind: countBy(
+              result.anomalies,
+              (anomaly) => anomaly.kind,
+            ),
             anomalies: result.anomalies,
           },
           quality,
@@ -297,7 +355,9 @@ export class IndexMembershipSyncService {
     } catch (error) {
       await this.store.failSync(
         syncId,
-        error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        error instanceof Error
+          ? `${error.name}: ${error.message}`
+          : String(error),
       );
       throw error;
     }
@@ -319,8 +379,22 @@ export class IndexMembershipSyncService {
       (constituent) =>
         membershipWithinHorizon(constituent.periods, horizon).length > 0,
     );
+    const corrections = matchIdentityCorrections(
+      indexKey,
+      inScope,
+      this.options.identityCorrections,
+    );
+    const correctionOf = (constituent: StoredIndexConstituent) =>
+      corrections.applied.get(constituent.constituentKey) ?? null;
+    // A constituent whose correction changed — added, edited or withdrawn — is decided again.
+    const correctionChanged = (constituent: StoredIndexConstituent) =>
+      (correctionOf(constituent)?.id ?? null) !==
+      storedCorrectionId(constituent);
     const toProbe = inScope.filter(
-      (constituent) => input.force || constituent.resolution === "PENDING",
+      (constituent) =>
+        input.force ||
+        constituent.resolution === "PENDING" ||
+        correctionChanged(constituent),
     );
 
     const decisions = new Map<string, ConstituentResolutionDecision>();
@@ -330,14 +404,25 @@ export class IndexMembershipSyncService {
       toProbe,
       this.options.probeConcurrency ?? 4,
       async (constituent) => {
-        const stored = storedProbe(constituent);
+        const stored = correctionChanged(constituent)
+          ? null
+          : storedProbe(constituent);
         if (stored && !input.force) {
           decisions.set(constituent.constituentKey, stored);
         } else {
           try {
-            const decision = await this.probeConstituent(constituent, horizon, renames);
+            const decision = await this.probeConstituent(
+              constituent,
+              horizon,
+              renames,
+              correctionOf(constituent),
+            );
             decisions.set(constituent.constituentKey, decision);
-            await this.store.saveProbe(indexKey, constituent.constituentKey, decision);
+            await this.store.saveProbe(
+              indexKey,
+              constituent.constituentKey,
+              decision,
+            );
           } catch (error) {
             // Left PENDING with no decision: the next resolution probes it again. One provider
             // failure must not cost the probes every other constituent already paid for.
@@ -346,7 +431,10 @@ export class IndexMembershipSyncService {
               event: "index.resolve.probe-failed",
               indexKey,
               constituentKey: constituent.constituentKey,
-              error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+              error:
+                error instanceof Error
+                  ? `${error.name}: ${error.message}`
+                  : String(error),
             });
           }
         }
@@ -367,23 +455,39 @@ export class IndexMembershipSyncService {
     for (const constituent of inScope) {
       const decision = decisions.get(constituent.constituentKey);
       const symbol = decision ? decision.symbol : symbolOfStored(constituent);
-      const resolution = decision ? decision.resolution : constituent.resolution;
-      if (symbol === null || (resolution !== "RESOLVED" && resolution !== "RESOLVED_PARTIAL")) {
+      const resolution = decision
+        ? decision.resolution
+        : constituent.resolution;
+      if (
+        symbol === null ||
+        (resolution !== "RESOLVED" && resolution !== "RESOLVED_PARTIAL")
+      ) {
         continue;
       }
-      const chosen = decision?.candidates.find((candidate) => candidate.symbol === symbol);
+      const chosen = decision?.candidates.find(
+        (candidate) => candidate.symbol === symbol,
+      );
       claims.push({
         constituentKey: constituent.constituentKey,
         current: constituent.origin === "CURRENT",
         symbol,
-        windows: membershipWithinHorizon(constituent.periods, horizon),
+        // Only the days the security's prices are this constituent's can clash with another's.
+        windows: windowsFrom(
+          membershipWithinHorizon(constituent.periods, horizon),
+          decision
+            ? (decision.correction?.securityFrom ?? null)
+            : constituent.securityFrom,
+        ),
         ownTicker: symbol === constituent.ticker,
-        nameSimilarity: chosen?.nameSimilarity ?? storedNameSimilarity(constituent),
+        nameSimilarity:
+          chosen?.nameSimilarity ?? storedNameSimilarity(constituent),
         coverage: decision?.coverage ?? storedCoverage(constituent),
       });
     }
     const conflicts = overlappingClaims(claims);
-    const refusedByOverlap = new Map(conflicts.map((conflict) => [conflict.refused, conflict]));
+    const refusedByOverlap = new Map(
+      conflicts.map((conflict) => [conflict.refused, conflict]),
+    );
 
     // Admission: every symbol a constituent now resolves to.
     const chosenSymbols = new Set(
@@ -398,7 +502,10 @@ export class IndexMembershipSyncService {
       if (listing) {
         listings.push(listing);
       } else {
-        unlisted.set(symbol, "the provider has neither a profile nor a delisted listing for it");
+        unlisted.set(
+          symbol,
+          "the provider has neither a profile nor a delisted listing for it",
+        );
       }
     }
     const admitted = new Map<string, AdmissionOutcome>();
@@ -408,9 +515,16 @@ export class IndexMembershipSyncService {
 
     const writes: ConstituentResolutionWrite[] = [];
     const tally = Object.fromEntries(
-      (["RESOLVED", "RESOLVED_PARTIAL", "NO_PROVIDER_DATA", "IDENTITY_REJECTED", "NOT_ADMISSIBLE", "PENDING"] as const).map(
-        (resolution) => [resolution, 0],
-      ),
+      (
+        [
+          "RESOLVED",
+          "RESOLVED_PARTIAL",
+          "NO_PROVIDER_DATA",
+          "IDENTITY_REJECTED",
+          "NOT_ADMISSIBLE",
+          "PENDING",
+        ] as const
+      ).map((resolution) => [resolution, 0]),
     ) as Record<IndexConstituentResolution, number>;
     for (const constituent of inScope) {
       const decision = decisions.get(constituent.constituentKey);
@@ -419,10 +533,14 @@ export class IndexMembershipSyncService {
         tally.PENDING += 1;
         continue;
       }
-      const claim = claims.find((entry) => entry.constituentKey === constituent.constituentKey);
+      const claim = claims.find(
+        (entry) => entry.constituentKey === constituent.constituentKey,
+      );
       const conflict = refusedByOverlap.get(constituent.constituentKey);
-      let resolution: IndexConstituentResolution = decision?.resolution ?? constituent.resolution;
+      let resolution: IndexConstituentResolution =
+        decision?.resolution ?? constituent.resolution;
       let securityId: string | null = null;
+      const correction = decision ? (decision.correction ?? null) : null;
       let reason = decision?.reason ?? null;
       if (conflict) {
         resolution = "IDENTITY_REJECTED";
@@ -440,12 +558,27 @@ export class IndexMembershipSyncService {
         }
       }
       tally[resolution] += 1;
-      if (!decision && !conflict && resolution === constituent.resolution && securityId === constituent.securityId) {
+      if (
+        !decision &&
+        !conflict &&
+        resolution === constituent.resolution &&
+        securityId === constituent.securityId
+      ) {
         continue;
       }
+      const storedCorrection = decision
+        ? null
+        : ((constituent.resolutionEvidence as { correction?: unknown } | null)
+            ?.correction ?? null);
       writes.push({
         constituentKey: constituent.constituentKey,
         securityId,
+        securityFrom:
+          securityId === null
+            ? null
+            : decision
+              ? (correction?.securityFrom ?? null)
+              : constituent.securityFrom,
         resolution,
         evidence: {
           reason,
@@ -453,6 +586,11 @@ export class IndexMembershipSyncService {
           coverage: decision?.coverage ?? claim?.coverage ?? null,
           candidates: decision?.candidates ?? candidatesOfStored(constituent),
           ...(conflict ? { overlapConflict: conflict } : {}),
+          ...(correction
+            ? { correction }
+            : storedCorrection
+              ? { correction: storedCorrection }
+              : {}),
         },
       });
     }
@@ -464,10 +602,18 @@ export class IndexMembershipSyncService {
     });
     return {
       attempted: toProbe.length,
+      corrections: {
+        applied: [...corrections.applied.values()]
+          .map((correction) => correction.id)
+          .sort(),
+        unmatched: corrections.unmatched,
+      },
       failedProbes,
       byResolution: tally,
       conflicts: conflicts.length,
-      admitted: [...admitted.values()].filter((outcome) => outcome.securityId !== null).length,
+      admitted: [...admitted.values()].filter(
+        (outcome) => outcome.securityId !== null,
+      ).length,
     };
   }
 
@@ -475,10 +621,16 @@ export class IndexMembershipSyncService {
     constituent: StoredIndexConstituent,
     horizon: { floor: LocalDate; asOf: LocalDate },
     renames: readonly StoredSymbolChange[],
+    correction: IndexIdentityCorrection | null,
   ): Promise<ConstituentResolutionDecision> {
-    const windows = membershipWithinHorizon(constituent.periods, horizon);
-    const lastDay = windows.at(-1)?.to as LocalDate;
-    const candidates = resolutionCandidates(constituent, lastDay, renames);
+    const membership = membershipWithinHorizon(constituent.periods, horizon);
+    // A correction's symbol is probed only over the days its prices are this constituent's.
+    const windows = windowsFrom(membership, correction?.securityFrom);
+    const lastDay = membership.at(-1)?.to as LocalDate;
+    const candidates = correction
+      ? [correction.symbol]
+      : resolutionCandidates(constituent, lastDay, renames);
+
     const firstPeriod = constituent.periods.find(
       (period) =>
         period.quality !== "END_UNKNOWN" &&
@@ -492,7 +644,8 @@ export class IndexMembershipSyncService {
       ? INDEX_ADDITION_MIN_MARKET_CAP
       : INDEX_LEGACY_MEMBER_MIN_MARKET_CAP;
     const evidence: CandidateEvidence[] = [];
-    for (const symbol of candidates) {
+    // A correction whose prices begin after the whole membership has nothing to probe.
+    for (const symbol of windows.length === 0 ? [] : candidates) {
       const item = await this.probeCandidate(
         symbol,
         constituent.name,
@@ -504,7 +657,20 @@ export class IndexMembershipSyncService {
         break;
       }
     }
-    return decideConstituentResolution(evidence);
+    const decision = decideConstituentResolution(evidence);
+    if (!correction) {
+      return decision;
+    }
+    return {
+      ...decision,
+      reason: `identity correction ${correction.id}: ${decision.reason}`,
+      correction: {
+        id: correction.id,
+        symbol: correction.symbol,
+        securityFrom: correction.securityFrom ?? null,
+        evidence: correction.evidence,
+      },
+    };
   }
 
   private async probeCandidate(
@@ -517,7 +683,11 @@ export class IndexMembershipSyncService {
       from: windows[0]?.from as LocalDate,
       to: windows.at(-1)?.to as LocalDate,
     };
-    const prices = await this.provider.getDailyPrices(symbol, PROBE_SECURITY_ID, range);
+    const prices = await this.provider.getDailyPrices(
+      symbol,
+      PROBE_SECURITY_ID,
+      range,
+    );
     const sessions = sessionsWithin(
       prices.map((row) => row.date).sort(),
       windows,
@@ -566,7 +736,10 @@ export class IndexMembershipSyncService {
     };
   }
 
-  private readonly listingCache = new Map<string, Promise<IndexUniverseListing | null>>();
+  private readonly listingCache = new Map<
+    string,
+    Promise<IndexUniverseListing | null>
+  >();
 
   /** The candidate's listing: its profile, or else the delisted directory's row for it. */
   private listingOf(symbol: string): Promise<IndexUniverseListing | null> {
@@ -578,7 +751,9 @@ export class IndexMembershipSyncService {
     return pending;
   }
 
-  private async readListing(symbol: string): Promise<IndexUniverseListing | null> {
+  private async readListing(
+    symbol: string,
+  ): Promise<IndexUniverseListing | null> {
     const profile = await this.provider.getProfile(symbol);
     if (profile && profile.providerSymbol === symbol) {
       return {
@@ -612,7 +787,9 @@ export class IndexMembershipSyncService {
   }
 
   /** The delisted directory, read once per service: concurrent probes share the one read. */
-  private delistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
+  private delistedDirectory(): Promise<
+    Map<string, MappedFmpDelistedCompany[]>
+  > {
     this.delisted ??= this.readDelistedDirectory().catch((error: unknown) => {
       // A failed read is not remembered: the next listing that needs it asks again.
       this.delisted = undefined;
@@ -621,10 +798,13 @@ export class IndexMembershipSyncService {
     return this.delisted;
   }
 
-  private async readDelistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
+  private async readDelistedDirectory(): Promise<
+    Map<string, MappedFmpDelistedCompany[]>
+  > {
     const directory = new Map<string, MappedFmpDelistedCompany[]>();
     for (let page = 0; page < DELISTED_DIRECTORY_MAX_PAGES; page += 1) {
-      const { providerRowCount, rows } = await this.provider.getDelistedCompanies(page);
+      const { providerRowCount, rows } =
+        await this.provider.getDelistedCompanies(page);
       for (const row of rows) {
         directory.set(row.symbol, [...(directory.get(row.symbol) ?? []), row]);
       }
@@ -649,23 +829,31 @@ function storedProbe(
   }
   const evidence = constituent.resolutionEvidence as { probe?: unknown } | null;
   const probe = evidence?.probe as ConstituentResolutionDecision | undefined;
-  return probe && typeof probe.resolution === "string" && Array.isArray(probe.candidates)
+  return probe &&
+    typeof probe.resolution === "string" &&
+    Array.isArray(probe.candidates)
     ? probe
     : null;
 }
 
 function symbolOfStored(constituent: StoredIndexConstituent): string | null {
-  const evidence = constituent.resolutionEvidence as { symbol?: unknown } | null;
+  const evidence = constituent.resolutionEvidence as {
+    symbol?: unknown;
+  } | null;
   return typeof evidence?.symbol === "string" ? evidence.symbol : null;
 }
 
 function storedCoverage(constituent: StoredIndexConstituent): number {
-  const evidence = constituent.resolutionEvidence as { coverage?: unknown } | null;
+  const evidence = constituent.resolutionEvidence as {
+    coverage?: unknown;
+  } | null;
   return typeof evidence?.coverage === "number" ? evidence.coverage : 0;
 }
 
 function candidatesOfStored(constituent: StoredIndexConstituent): unknown {
-  const evidence = constituent.resolutionEvidence as { candidates?: unknown } | null;
+  const evidence = constituent.resolutionEvidence as {
+    candidates?: unknown;
+  } | null;
   return evidence?.candidates ?? [];
 }
 
@@ -681,7 +869,10 @@ function storedNameSimilarity(constituent: StoredIndexConstituent): number {
   return typeof chosen?.nameSimilarity === "number" ? chosen.nameSimilarity : 0;
 }
 
-function countBy<T>(rows: readonly T[], key: (row: T) => string): Record<string, number> {
+function countBy<T>(
+  rows: readonly T[],
+  key: (row: T) => string,
+): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const row of rows) {
     const value = key(row);

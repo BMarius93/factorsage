@@ -1,7 +1,4 @@
-import type {
-  IndexConstituentResolution,
-  LocalDate,
-} from "@intrinsic/domain";
+import type { IndexConstituentResolution, LocalDate } from "@intrinsic/domain";
 import { addDays } from "../dates.js";
 import { issuerNameSimilarity } from "./names.js";
 import type {
@@ -85,7 +82,10 @@ export type MembershipWindow = { from: LocalDate; to: LocalDate };
  * resolved either.
  */
 export function membershipWithinHorizon(
-  periods: readonly Pick<ReconstructedPeriod, "startDate" | "endDate" | "quality">[],
+  periods: readonly Pick<
+    ReconstructedPeriod,
+    "startDate" | "endDate" | "quality"
+  >[],
   horizon: { floor: LocalDate; asOf: LocalDate },
 ): MembershipWindow[] {
   const windows: MembershipWindow[] = [];
@@ -180,6 +180,13 @@ export type ConstituentResolutionDecision = {
   readonly coverage: number | null;
   readonly candidates: readonly CandidateEvidence[];
   readonly reason: string;
+  /** The identity correction (`corrections.ts`) the candidates came from, when one applied. */
+  readonly correction?: {
+    readonly id: string;
+    readonly symbol: string;
+    readonly securityFrom: LocalDate | null;
+    readonly evidence: string;
+  };
 };
 
 /** Weekday count of an inclusive window, times the session share of weekdays. */
@@ -274,20 +281,30 @@ export function plausibilityRefusal(input: {
 } {
   const dollarVolume = input.medianDollarVolume ?? 0;
   if (input.marketCap !== null) {
-    const trusted = input.marketCap >= MARKET_CAP_CONSISTENCY_DAYS * dollarVolume;
+    const trusted =
+      input.marketCap >= MARKET_CAP_CONSISTENCY_DAYS * dollarVolume;
     if (trusted) {
       return {
-        refusal: input.marketCap < input.marketCapFloor ? "IMPLAUSIBLE_MARKET_CAP" : null,
+        refusal:
+          input.marketCap < input.marketCapFloor
+            ? "IMPLAUSIBLE_MARKET_CAP"
+            : null,
         marketCapTrusted: true,
       };
     }
     return {
-      refusal: dollarVolume < INDEX_MIN_MEDIAN_DOLLAR_VOLUME ? "IMPLAUSIBLE_TRADING" : null,
+      refusal:
+        dollarVolume < INDEX_MIN_MEDIAN_DOLLAR_VOLUME
+          ? "IMPLAUSIBLE_TRADING"
+          : null,
       marketCapTrusted: false,
     };
   }
   return {
-    refusal: dollarVolume < INDEX_MIN_MEDIAN_DOLLAR_VOLUME ? "IMPLAUSIBLE_TRADING" : null,
+    refusal:
+      dollarVolume < INDEX_MIN_MEDIAN_DOLLAR_VOLUME
+        ? "IMPLAUSIBLE_TRADING"
+        : null,
     marketCapTrusted: null,
   };
 }
@@ -302,7 +319,9 @@ export function medianDollarVolume(
     if (values.length >= DOLLAR_VOLUME_SESSIONS) {
       break;
     }
-    if (windows.some((window) => window.from <= row.date && row.date <= window.to)) {
+    if (
+      windows.some((window) => window.from <= row.date && row.date <= window.to)
+    ) {
       values.push(row.close * row.volume);
     }
   }
@@ -368,7 +387,10 @@ export function overlappingClaims(
     const kept: ResolvedConstituentClaim[] = [];
     for (const claim of ranked) {
       const clash = kept
-        .map((winner) => ({ winner, overlap: firstOverlap(winner.windows, claim.windows) }))
+        .map((winner) => ({
+          winner,
+          overlap: firstOverlap(winner.windows, claim.windows),
+        }))
         .find((entry) => entry.overlap !== null);
       if (clash) {
         conflicts.push({
@@ -424,7 +446,9 @@ export function nameEvidence(
   constituentName: string,
   listingName: string | null,
 ): number {
-  return Math.round(issuerNameSimilarity(constituentName, listingName) * 1000) / 1000;
+  return (
+    Math.round(issuerNameSimilarity(constituentName, listingName) * 1000) / 1000
+  );
 }
 
 function percent(value: number): string {
