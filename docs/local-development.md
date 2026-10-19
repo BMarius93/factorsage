@@ -52,9 +52,11 @@ Raw daily prices are retained four years further back (34 in total) so long seri
 SMA/EMA 200W are already valid on the first visible day of a maximum-length backtest; that warm-up
 is derived from the catalog registries, is not separately configurable, and is never exposed —
 see `decisions/price-retention-warmup-horizon.md`. Widening an installation that already holds 30
-years fetches only the missing prefix. Cache residency defaults to 100 complete stocks and can be
-changed with `STOCK_CACHE_MAX_RESIDENT_STOCKS`; eviction removes all registered yearly chunks for
-the selected security. FMP retries, provider-wide limiting, and recent-tail freshness settings are
+years fetches only the missing prefix. Cache residency defaults to 100 complete stocks in the ordinary LRU and can be
+changed with `STOCK_LRU_MAX_SECURITIES` (a count of securities; the earlier
+`STOCK_CACHE_MAX_RESIDENT_STOCKS` still works); eviction removes all registered yearly chunks for
+the selected security. S&P 500 point-in-time securities are a protected tier outside that count
+(`docs/decisions/stock-cache-tiers-v1.md`). FMP retries, provider-wide limiting, and recent-tail freshness settings are
 listed in `.env.example`. Deterministic and real-Redis tests do not require FMP. Run Redis coverage
 with `pnpm --filter @intrinsic/stock-data test:redis`. When a local key is present, run the
 deliberately small AAPL verification suite with:

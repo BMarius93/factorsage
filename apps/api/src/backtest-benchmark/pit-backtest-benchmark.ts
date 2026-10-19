@@ -38,8 +38,13 @@ import { repositoryRoot } from "../qa-matrix/matrix-paths";
  * ```bash
  * pnpm --filter @intrinsic/api bench:pit-backtests -- setup
  * pnpm --filter @intrinsic/api bench:pit-backtests -- run --strategy simple --concurrency 4 --label warm
+ * pnpm --filter @intrinsic/api bench:pit-backtests -- run --list mixed --strategy simple
  * pnpm --filter @intrinsic/api bench:pit-backtests -- cleanup
  * ```
+ *
+ * `--list mixed` runs over a user List of the operator's instead of the universe: the
+ * {@link MIXED_LIST_SYMBOLS} the catalog holds, protected-tier securities beside ordinary ones, so one
+ * run reads both stock-cache tiers (`docs/decisions/stock-cache-tiers-v1.md`).
  *
  * **The real path, in an isolated configuration.** Runs are submitted through the product's own
  * `BacktestsService.submitRun` (the QA matrix's pattern: real validation, entitlements, immutable
@@ -70,6 +75,32 @@ import { repositoryRoot } from "../qa-matrix/matrix-paths";
 const OWNER_EMAIL = "pit-benchmark-operator@factorsage.invalid";
 const PRO_EMAIL = "pit-benchmark-pro@factorsage.invalid";
 const STRATEGY_PREFIX = "PIT-BENCH-";
+const MIXED_LIST_NAME = `${STRATEGY_PREFIX}mixed-tiers`;
+
+/**
+ * The mixed List: S&P 500 point-in-time securities (current and former, the three recovered
+ * identities among them) and stocks no built-in universe holds. Symbols the catalog lacks are left
+ * out, so the List is whatever this database can actually run.
+ */
+const MIXED_LIST_SYMBOLS = {
+  universe: [
+    "AAPL",
+    "MSFT",
+    "JPM",
+    "XOM",
+    "KO",
+    "PG",
+    "JNJ",
+    "WMT",
+    "INTC",
+    "IBM",
+    "GE",
+    "MS",
+    "MCO",
+    "CVC",
+  ],
+  ordinary: ["SHOP", "SNOW", "ROKU", "ZM", "NET", "RBLX", "TM", "ASML", "MDB"],
+} as const;
 const DAY_MS = 86_400_000;
 
 type StrategyKey = "simple" | "complex" | "monthly";
@@ -336,6 +367,7 @@ type Arguments = {
   workerEnv: Record<string, string>;
   /** Caps each worker's PostgreSQL pool, so many workers stay inside `max_connections`. */
   pgConnections: number | null;
+  list: "universe" | "mixed";
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -357,6 +389,7 @@ function parseArguments(argv: readonly string[]): Arguments {
     startDate: null,
     workerEnv: {},
     pgConnections: null,
+    list: "universe",
   };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] as string;
@@ -408,6 +441,14 @@ function parseArguments(argv: readonly string[]): Arguments {
       case "--pg-connections":
         parsed.pgConnections = positive(flag, value());
         break;
+      case "--list": {
+        const list = value();
+        if (list !== "universe" && list !== "mixed") {
+          throw new Error("--list must be universe or mixed");
+        }
+        parsed.list = list;
+        break;
+      }
       case "--worker-env": {
         const [key, ...parts] = value().split("=");
         if (!key || parts.length === 0) {
@@ -485,6 +526,56 @@ async function ensureStrategies(
       });
     }
   }
+}
+
+/** The operator's mixed List, created or brought to exactly the catalog's {@link MIXED_LIST_SYMBOLS}. */
+async function ensureMixedList(
+  prisma: PrismaClient,
+  userId: string,
+): Promise<{ id: string; _count: { items: number } }> {
+  const symbols = [
+    ...MIXED_LIST_SYMBOLS.universe,
+    ...MIXED_LIST_SYMBOLS.ordinary,
+  ];
+  const securities = await prisma.security.findMany({
+    where: { symbol: { in: symbols } },
+    select: { id: true },
+  });
+  const existing = await prisma.stockList.findFirst({
+    where: { userId, name: MIXED_LIST_NAME },
+    select: { id: true },
+  });
+  const list =
+    existing ??
+    (await prisma.stockList.create({
+      data: {
+        userId,
+        name: MIXED_LIST_NAME,
+        description: "Protected-tier and ordinary LRU securities in one List.",
+      },
+      select: { id: true },
+    }));
+  await prisma.stockListItem.deleteMany({
+    where: {
+      stockListId: list.id,
+      securityId: { notIn: securities.map((row) => row.id) },
+    },
+  });
+  await prisma.stockListItem.createMany({
+    data: securities.map((row) => ({
+      stockListId: list.id,
+      securityId: row.id,
+    })),
+    skipDuplicates: true,
+  });
+  return {
+    id: list.id,
+    _count: {
+      items: await prisma.stockListItem.count({
+        where: { stockListId: list.id },
+      }),
+    },
+  };
 }
 
 type Sample = {
@@ -796,10 +887,13 @@ async function main(): Promise<void> {
         "Run `setup` first: the benchmark strategies are not seeded",
       );
     }
-    const list = await prisma.stockList.findFirst({
-      where: { systemKey: SP500_HISTORICAL_PIT_UNIVERSE.listSystemKey },
-      select: { id: true, _count: { select: { items: true } } },
-    });
+    const list =
+      args.list === "mixed"
+        ? await ensureMixedList(prisma, owner.id)
+        : await prisma.stockList.findFirst({
+            where: { systemKey: SP500_HISTORICAL_PIT_UNIVERSE.listSystemKey },
+            select: { id: true, _count: { select: { items: true } } },
+          });
     if (!list) {
       throw new Error(
         "The S&P 500 point-in-time List is not projected: run `index-universe project`",
@@ -980,6 +1074,7 @@ async function main(): Promise<void> {
       const entry = {
         label: args.label,
         strategy: args.strategy,
+        list: args.list,
         owner: args.owner,
         concurrency: args.concurrency,
         runs,

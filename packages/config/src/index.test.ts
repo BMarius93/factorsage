@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR,
+  DEFAULT_STOCK_LRU_MAX_SECURITIES,
   getApiConfig,
   getAuthConfig,
   getBacktestDebugArchiveConfig,
@@ -11,6 +12,7 @@ import {
   getGoogleOAuthConfig,
   getEodFinalityConfig,
   getStockEodWorkerConfig,
+  getStockDataConfig,
   getMarketDataWorkerConfig,
   getRedisConfig,
   getRedisEvictionPolicyConfig,
@@ -1036,5 +1038,46 @@ describe("getStripeBillingConfig", () => {
         sandbox({ STRIPE_PRICE_PRO_MONTHLY: "price_starter_m" }),
       ),
     ).toThrow(/each logical price must map to its own Stripe price/);
+  });
+});
+
+describe("stock LRU capacity", () => {
+  it("is a count of distinct securities, 100 by default", () => {
+    expect(DEFAULT_STOCK_LRU_MAX_SECURITIES).toBe(100);
+    expect(getStockDataConfig({}).lruMaxSecurities).toBe(100);
+    expect(
+      getStockDataConfig({ STOCK_LRU_MAX_SECURITIES: "2000" }).lruMaxSecurities,
+    ).toBe(2000);
+  });
+
+  it("still reads the earlier names", () => {
+    expect(
+      getStockDataConfig({ STOCK_CACHE_MAX_RESIDENT_STOCKS: "250" })
+        .lruMaxSecurities,
+    ).toBe(250);
+    expect(
+      getStockDataConfig({ STOCK_CACHE_MAX_RESIDENT_SYMBOLS: "40" })
+        .lruMaxSecurities,
+    ).toBe(40);
+    expect(
+      getStockDataConfig({
+        STOCK_LRU_MAX_SECURITIES: "300",
+        STOCK_CACHE_MAX_RESIDENT_STOCKS: "300",
+      }).lruMaxSecurities,
+    ).toBe(300);
+  });
+
+  it("refuses two names with different values, and anything but a positive integer", () => {
+    expect(() =>
+      getStockDataConfig({
+        STOCK_LRU_MAX_SECURITIES: "2000",
+        STOCK_CACHE_MAX_RESIDENT_STOCKS: "100",
+      }),
+    ).toThrow("name different stock LRU capacities");
+    for (const value of ["0", "-1", "1.5", "2GB"]) {
+      expect(() =>
+        getStockDataConfig({ STOCK_LRU_MAX_SECURITIES: value }),
+      ).toThrow("must be a positive integer");
+    }
   });
 });

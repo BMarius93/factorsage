@@ -27,6 +27,9 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  canonicalProtectedTierEligibility,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import type { BenchmarkDataService } from "@intrinsic/stock-data";
 import { createBenchmarkDataService } from "../benchmarks/benchmark-data.composition";
@@ -117,14 +120,18 @@ export async function createIndexUniverseRuntime(input: {
   const store = new PrismaStockDataStore(prisma);
   const cache = new RedisStockDataCache(
     new IoredisCacheClient(redis),
-    stockDataConfig.maxResidentStocks,
+    stockDataConfig.lruMaxSecurities,
     STOCK_DATA_CACHE_NAMESPACE,
     DEFAULT_HYDRATION_TTL_MS,
     {
       onUnreadableChunk: (chunk) => {
         logger.warn({ event: "stock-data.cache.chunk-unreadable", ...chunk });
       },
+      ...stockCacheTierObserver(logger),
     },
+    stockCachePayloadCodecs(),
+    // The tier every admission routes to: the built-in universes from PostgreSQL.
+    canonicalProtectedTierEligibility(prisma, logger),
   );
 
   const providerRequests = new Map<string, number>();

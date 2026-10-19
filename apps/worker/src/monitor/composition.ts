@@ -33,6 +33,9 @@ import {
   MARKET_DATA_CALENDAR_EXCHANGE,
   type ProviderRequestEvent,
   type TradingCalendar,
+  canonicalProtectedTierEligibility,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import type {
   MonitorEtfContexts,
@@ -121,7 +124,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     provider,
     new RedisStockDataCache(
       new IoredisCacheClient(redis),
-      stockDataConfig.maxResidentStocks,
+      stockDataConfig.lruMaxSecurities,
       STOCK_DATA_CACHE_NAMESPACE,
       DEFAULT_HYDRATION_TTL_MS,
       {
@@ -133,7 +136,11 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
         onTouchFailed: ({ securityId, error }) => {
           logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
         },
+        ...stockCacheTierObserver(logger),
       },
+      stockCachePayloadCodecs(),
+      // The tier every admission routes to: the built-in universes from PostgreSQL.
+      canonicalProtectedTierEligibility(prisma, logger),
     ),
     coordinator,
     {

@@ -1,12 +1,16 @@
 import type { PrismaClient } from "@intrinsic/database";
 import type { MarketIndexKey } from "@intrinsic/domain";
 import type { StructuredLogger as Logger } from "@intrinsic/observability";
-import type {
-  CanonicalStockDataService,
-  DurableProjectionRefusal,
-  PrismaStockDataStore,
-  RedisStockDataCache,
-  createStockDataRedisClient,
+import {
+  inspectRedisEvictionPolicy,
+  loadProtectedTierSecurityIds,
+  type CanonicalStockDataService,
+  type DurableProjectionRefusal,
+  type PrismaStockDataStore,
+  type RedisEvictionAssessment,
+  type RedisStockDataCache,
+  type StockCacheTierAudit,
+  type createStockDataRedisClient,
 } from "@intrinsic/stock-data";
 import { universeSecurities } from "./index-universe-ingest.js";
 
@@ -26,6 +30,9 @@ type Redis = ReturnType<typeof createStockDataRedisClient>;
  *    optional budget; a tier that would not fit is refused rather than pushed into an OOM.
  * 4. Afterwards the tier is measured exactly — `MEMORY USAGE` of every registered key — and every
  *    designated security's residency is verified.
+ *
+ * A Redis whose own eviction policy could evict any key (`allkeys-*`, not accepted by the operator)
+ * is refused before anything is written.
  */
 export type ProtectedResidencySummary = {
   indexKey: MarketIndexKey;
@@ -85,6 +92,8 @@ export async function runProtectedResidency(input: {
   readonly logger: Logger;
   readonly providerRequests: ReadonlyMap<string, number>;
   readonly shouldStop: () => boolean;
+  /** `REDIS_ACCEPTED_EVICTION_POLICY`, when an operator accepted an `allkeys-*` policy. */
+  readonly acceptedEvictionPolicy?: string;
 }): Promise<ProtectedResidencySummary> {
   const { logger } = input;
   const startedAt = Date.now();
@@ -94,6 +103,17 @@ export async function runProtectedResidency(input: {
   );
   const ids = securities.map((security) => security.id).sort();
   const before = await redisMemory(input.redis);
+  // A tier Redis itself may evict is no protected tier (`stock-cache-tiers-v1.md` §4).
+  const eviction = await inspectRedisEvictionPolicy(input.redis, {
+    ...(input.acceptedEvictionPolicy
+      ? { acceptedPolicy: input.acceptedEvictionPolicy }
+      : {}),
+  });
+  if (eviction.verdict === "UNSAFE") {
+    throw new Error(
+      `Refusing to publish the protected tier: ${eviction.detail}`,
+    );
+  }
 
   // The footprint check runs before any write: a tier that would not fit is never started.
   const resident = await residentIds(input.cache, ids);
@@ -331,4 +351,42 @@ function sumRequests(requests: ReadonlyMap<string, number>): number {
     total += count;
   }
   return total;
+}
+
+export type TierAuditSummary = {
+  eviction: RedisEvictionAssessment;
+  memory: RedisMemory;
+  audit: StockCacheTierAudit;
+  footprint: { protected: TierFootprint; lru: TierFootprint };
+};
+
+/**
+ * Both stock-cache tiers as they stand (`docs/decisions/stock-cache-tiers-v1.md` §5): the cache's
+ * own invariant audit against PostgreSQL's universe, the exact bytes each tier holds, and how Redis
+ * itself may evict. Read-only, and never reaches the provider.
+ */
+export async function runTierAudit(input: {
+  readonly prisma: PrismaClient;
+  readonly redis: Redis;
+  readonly cache: RedisStockDataCache;
+  readonly namespace: string;
+  readonly acceptedEvictionPolicy?: string;
+}): Promise<TierAuditSummary> {
+  const eligible = new Set(await loadProtectedTierSecurityIds(input.prisma));
+  const audit = await input.cache.auditTiers(eligible);
+  const designated = await input.cache.protectedStocks();
+  const lru = await input.cache.lruStocks();
+  return {
+    eviction: await inspectRedisEvictionPolicy(input.redis, {
+      ...(input.acceptedEvictionPolicy
+        ? { acceptedPolicy: input.acceptedEvictionPolicy }
+        : {}),
+    }),
+    memory: await redisMemory(input.redis),
+    audit,
+    footprint: {
+      protected: await measureTier(input.redis, input.namespace, designated),
+      lru: await measureTier(input.redis, input.namespace, lru),
+    },
+  };
 }

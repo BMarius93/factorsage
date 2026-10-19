@@ -240,6 +240,7 @@ export const LIVE_FMP_CHILD_INHERITED_VARIABLES: readonly string[] = [
   "FMP_MAX_QUEUE_DEPTH",
   "FMP_MAX_QUEUE_WAIT_MS",
   // `getStockDataConfig`: horizons, freshness and the hydration lock.
+  "STOCK_LRU_MAX_SECURITIES",
   "STOCK_CACHE_MAX_RESIDENT_STOCKS",
   "STOCK_CACHE_MAX_RESIDENT_SYMBOLS",
   "STOCK_DETAILS_HISTORY_DAYS",

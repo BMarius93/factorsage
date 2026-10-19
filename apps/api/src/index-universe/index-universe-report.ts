@@ -7,7 +7,7 @@ import type {
   MarketIndexKey,
   PointInTimeIndexUniverse,
 } from "@intrinsic/domain";
-import { membershipWithinHorizon } from "@intrinsic/stock-data";
+import { membershipWithinHorizon, windowsFrom } from "@intrinsic/stock-data";
 
 /**
  * What the canonical membership and the stored data actually hold for an index universe, measured
@@ -79,6 +79,7 @@ type ConstituentRow = {
   name: string;
   resolution: string;
   securityId: string | null;
+  securityFrom: Date | null;
   resolutionEvidence: unknown;
   periods: { startDate: Date | null; endDate: Date | null; quality: string }[];
 };
@@ -184,7 +185,11 @@ export async function buildIndexUniverseReport(input: {
     { from: LocalDate; to: LocalDate }[]
   >();
   for (const row of tradeable) {
-    const windows = membershipWithinHorizon(toPeriods(row), horizon);
+    // Only the days the security's prices are this constituent's are priced member-days.
+    const windows = windowsFrom(
+      membershipWithinHorizon(toPeriods(row), horizon),
+      iso(row.securityFrom),
+    );
     windowsBySecurity.set(row.securityId as string, [
       ...(windowsBySecurity.get(row.securityId as string) ?? []),
       ...windows,

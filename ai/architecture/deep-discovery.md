@@ -507,7 +507,7 @@ refusal ("refuses to delete a strategy a monitor is still using").
 at what universe size does the design stop being cheap?
 
 **Per cycle, derived from the code.** With `U` distinct securities across all enabled Monitors,
-`M` enabled Monitors, `L` levels per Strategy and `R` = `STOCK_CACHE_MAX_RESIDENT_STOCKS` (100):
+`M` enabled Monitors, `L` levels per Strategy and `R` = `STOCK_LRU_MAX_SECURITIES` (100; then `STOCK_CACHE_MAX_RESIDENT_STOCKS`):
 
 - **Shared per security (not per user, not per Monitor):** one quote per symbol in batches of 50
   (`ceil(U / 50)` sequential provider requests through the shared gate, 20/s), one manifest and
