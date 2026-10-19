@@ -92,6 +92,14 @@ export class IoredisCacheClient implements RedisCacheClient {
     return this.redis.del(...keys);
   }
 
+  scan(
+    cursor: string,
+    pattern: string,
+    count: number,
+  ): Promise<[string, string[]]> {
+    return this.redis.scan(cursor, "MATCH", pattern, "COUNT", count);
+  }
+
   /**
    * `EVALSHA` by the script's SHA-1, falling back to `EVAL` — which also loads it — when the server
    * does not know it yet (a fresh or restarted Redis, a `SCRIPT FLUSH`). The scripts are sent once

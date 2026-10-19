@@ -180,6 +180,13 @@ export type ConstituentResolutionDecision = {
   readonly coverage: number | null;
   readonly candidates: readonly CandidateEvidence[];
   readonly reason: string;
+  /** The identity correction (`corrections.ts`) the candidates came from, when one applied. */
+  readonly correction?: {
+    readonly id: string;
+    readonly symbol: string;
+    readonly securityFrom: LocalDate | null;
+    readonly evidence: string;
+  };
 };
 
 /** Weekday count of an inclusive window, times the session share of weekdays. */

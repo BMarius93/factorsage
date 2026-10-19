@@ -23,6 +23,7 @@ export const PRODUCT_REDIS_ROOTS = [
   "stock-data:v2:symbol",
   "stock-data:v2:resident-stocks",
   "stock-data:v2:access-sequence",
+  "stock-data:v2:protected-stocks",
   "stock-data:v2:fmp",
   "stock-data:load",
   "benchmark:v1",

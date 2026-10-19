@@ -45,7 +45,7 @@ async function seed(): Promise<void> {
   const redis = createStockDataRedisClient(getRedisConfig().url);
   const cache = new RedisStockDataCache(
     new IoredisCacheClient(redis),
-    getStockDataConfig().maxResidentStocks,
+    getStockDataConfig().lruMaxSecurities,
   );
   const benchmarkCache = new RedisBenchmarkDataCache(
     new IoredisCacheClient(redis),

@@ -9,6 +9,11 @@ key keeps its name and encoding, and a flushed Redis costs a rebuild, never data
 `AGENTS.md` invariant 16 carries the rule; `ai/architecture/production-capacity.md` carries the
 Redis budget, and the cache module (`packages/stock-data/src/cache.ts`) the mechanism.
 
+**Amended by `stock-cache-tiers-v1.md` (2026-10-19):** the tier is now decided at every admission
+from PostgreSQL's universe, not by the Redis set alone (§2 below); no protected key carries a TTL
+even in flight (§1); and the ordinary LRU is `STOCK_LRU_MAX_SECURITIES`, a count enforced at every
+admission and read. Everything else here stands.
+
 ## Context
 
 The stock cache keeps whole securities resident in Redis behind a bounded LRU
@@ -45,9 +50,10 @@ The LRU's scripts honour the designation atomically, in Lua:
 (through `reconcileProtectedStocks`) returns one to the LRU as its most recently used member, and
 the LRU's capacity then applies to it like any other. Both are batched (500 ids per call).
 
-A READY protected security carries **no TTL**. The only TTL any of its keys ever has is the one an
-in-flight generation carries (`hydrationTtlMs`) so that an abandoned hydration or refresh expires
-instead of stranding keys — exactly as for every other security.
+A protected security carries **no TTL** on any key, READY or in flight. (In V1 an in-flight
+generation took `hydrationTtlMs`, so a crashed refresh expired the whole history;
+`stock-cache-tiers-v1.md` made protected hydrations and refreshes persistent generations, which the
+next lease holder takes over instead.)
 
 ### 2. Who is protected
 
@@ -55,7 +61,8 @@ Only the built-in point-in-time universe's securities: every security PostgreSQL
 universe (`IndexConstituent` resolved `RESOLVED`/`RESOLVED_PARTIAL`), current and former alike.
 Former constituents stay protected: a backtest over any period reads them.
 
-The designation is **derived, never authored**:
+The designation is **derived, never authored** (and since `stock-cache-tiers-v1.md` every admission
+routes by PostgreSQL's universe directly; the set is its record):
 
 - `pnpm data:index-universe -- protect` reconciles the set from PostgreSQL;
 - every backtest over the universe designates its own frozen securities before preparing them

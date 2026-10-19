@@ -1132,13 +1132,38 @@ function fmpBaseUrl(env: Environment): string | undefined {
   return url.toString().endsWith("/") ? url.toString() : `${url.toString()}/`;
 }
 
+/** The ordinary stock LRU's default capacity, in distinct securities: unchanged since V1. */
+export const DEFAULT_STOCK_LRU_MAX_SECURITIES = 100;
+
+/**
+ * The ordinary stock LRU's capacity: how many distinct securities outside the protected tier may be
+ * resident at once (`docs/decisions/stock-cache-tiers-v1.md`). A count, never bytes — each security
+ * counts once whatever its history's size, and Redis memory is never an admission or eviction
+ * criterion. The protected tier (the built-in point-in-time universes) is outside it.
+ *
+ * `STOCK_LRU_MAX_SECURITIES` is the name; the earlier `STOCK_CACHE_MAX_RESIDENT_STOCKS` and
+ * `STOCK_CACHE_MAX_RESIDENT_SYMBOLS` still configure it, and naming two different values is refused
+ * rather than resolved by precedence.
+ */
+function stockLruMaxSecurities(env: Environment, names: string[]): number {
+  const set = names.filter((name) => optional(env, name) !== undefined);
+  const values = new Set(set.map((name) => optional(env, name)));
+  if (values.size > 1) {
+    throw new Error(
+      `Invalid application configuration: ${set.join(" and ")} name different stock LRU capacities; set STOCK_LRU_MAX_SECURITIES only`,
+    );
+  }
+  return integer(env, names, DEFAULT_STOCK_LRU_MAX_SECURITIES);
+}
+
 export function getStockDataConfig(env: Environment = process.env) {
   return {
-    maxResidentStocks: integer(
-      env,
-      ["STOCK_CACHE_MAX_RESIDENT_STOCKS", "STOCK_CACHE_MAX_RESIDENT_SYMBOLS"],
-      100,
-    ),
+    // The new name first; the earlier two still configure it.
+    lruMaxSecurities: stockLruMaxSecurities(env, [
+      "STOCK_LRU_MAX_SECURITIES",
+      "STOCK_CACHE_MAX_RESIDENT_STOCKS",
+      "STOCK_CACHE_MAX_RESIDENT_SYMBOLS",
+    ]),
     defaultHistoryDays: integer(env, ["STOCK_DETAILS_HISTORY_DAYS"], 365),
     /**
      * The product horizon: the oldest day a user may select, chart, query or backtest.

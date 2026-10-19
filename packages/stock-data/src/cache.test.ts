@@ -90,7 +90,7 @@ class FakeRedis implements RedisCacheClient {
       .sort(
         (left, right) => left[1] - right[1] || left[0].localeCompare(right[0]),
       )
-      .slice(start, stop + 1)
+      .slice(start, stop < 0 ? undefined : stop + 1)
       .map(([member]) => member);
   }
 
@@ -122,12 +122,14 @@ class FakeRedis implements RedisCacheClient {
       await this.del(...(this.sets.get(keys[1]!) ?? []));
       await this.del(keys[1]!);
       await this.zrem(keys[2]!, args[0]!);
+      if (args[5] === "P") await this.sadd(keys[3]!, args[0]!);
       this.values.set(keys[0]!, args[3]!);
       await this.sadd(keys[1]!, keys[0]!);
       return 1;
     }
     if (script.includes("begin-refresh")) {
       if (this.values.get(keys[0]!) !== args[1]) return 0;
+      if (args[4] === "P") await this.sadd(keys[3]!, args[0]!);
       if (
         !this.sortedSets.get(keys[2]!)?.has(args[0]!) &&
         !this.sets.get(keys[3]!)?.has(args[0]!)
@@ -153,24 +155,62 @@ class FakeRedis implements RedisCacheClient {
       const manifest = this.values.get(keys[0]!);
       if (!manifest || JSON.parse(String(manifest)).status !== "READY")
         return 0;
-      if (this.sets.get(keys[3]!)?.has(args[0]!)) return 1;
+      if (this.sets.get(keys[3]!)?.has(args[0]!)) return [1];
+      // Never adds a member: a READY security in neither tier is the caller's to admit.
+      if (!this.sortedSets.get(keys[1]!)?.has(args[0]!)) return 2;
       const sequence = await this.incr();
       await this.zadd(keys[1]!, sequence, args[0]!);
-      return 1;
+      return [
+        1,
+        ...(await this.evictBeyond(
+          keys[1]!,
+          keys[3]!,
+          Number(args[1]),
+          args[2]!,
+        )),
+      ];
+    }
+    if (script.includes("admit-resident")) {
+      const manifest = this.values.get(keys[0]!);
+      if (!manifest || JSON.parse(String(manifest)).status !== "READY")
+        return 0;
+      if (args[3] === "P") await this.sadd(keys[3]!, args[0]!);
+      if (this.sets.get(keys[3]!)?.has(args[0]!)) {
+        await this.zrem(keys[1]!, args[0]!);
+        return [1];
+      }
+      await this.zadd(keys[1]!, await this.incr(), args[0]!);
+      return [
+        1,
+        ...(await this.evictBeyond(
+          keys[1]!,
+          keys[3]!,
+          Number(args[1]),
+          args[2]!,
+        )),
+      ];
     }
     if (script.includes("publish-ready")) {
       const current = this.values.get(keys[0]!);
       if (args[4] ? current !== args[4] : current !== undefined) return 0;
       this.values.set(keys[0]!, args[0]!);
       await this.sadd(keys[1]!, keys[0]!);
+      if (args[5] === "P") await this.sadd(keys[4]!, args[1]!);
       if (this.sets.get(keys[4]!)?.has(args[1]!)) {
         await this.zrem(keys[2]!, args[1]!);
-        return 1;
+        return [1];
       }
       const sequence = await this.incr();
       await this.zadd(keys[2]!, sequence, args[1]!);
-      await this.evictBeyond(keys[2]!, keys[4]!, Number(args[2]), args[3]!);
-      return 1;
+      return [
+        1,
+        ...(await this.evictBeyond(
+          keys[2]!,
+          keys[4]!,
+          Number(args[2]),
+          args[3]!,
+        )),
+      ];
     }
     if (script.includes("protected-ready")) {
       if (!this.sets.get(keys[0]!)?.has(args[0]!)) return 0;
@@ -181,7 +221,7 @@ class FakeRedis implements RedisCacheClient {
     }
     if (script.includes("unprotect-stocks")) {
       let removed = 0;
-      for (const id of args.slice(2)) {
+      for (const id of args.slice(3)) {
         if (!this.sets.get(keys[0]!)?.delete(id)) continue;
         removed += 1;
         const manifest = this.values.get(`${args[1]}:security:${id}:manifest`);
@@ -189,8 +229,15 @@ class FakeRedis implements RedisCacheClient {
           await this.zadd(keys[1]!, await this.incr(), id);
         }
       }
-      await this.evictBeyond(keys[1]!, keys[0]!, Number(args[0]), args[1]!);
-      return removed;
+      return [
+        removed,
+        ...(await this.evictBeyond(
+          keys[1]!,
+          keys[0]!,
+          Number(args[0]),
+          args[1]!,
+        )),
+      ];
     }
     if (script.includes("protect-stocks")) {
       let added = 0;
@@ -230,13 +277,14 @@ class FakeRedis implements RedisCacheClient {
     throw new Error("Unexpected Redis script");
   }
 
-  /** The LRU capacity loop every publish runs; a protected victim is dropped from the LRU only. */
+  /** The LRU capacity loop every admission runs; a protected victim is dropped from the LRU only. */
   private async evictBeyond(
     resident: string,
     protectedSet: string,
     capacity: number,
     namespace: string,
-  ) {
+  ): Promise<string[]> {
+    const victims: string[] = [];
     while ((await this.zcard(resident)) > capacity) {
       const victim = (await this.zrange(resident, 0, 0))[0];
       if (!victim) break;
@@ -245,7 +293,9 @@ class FakeRedis implements RedisCacheClient {
       const registry = `${namespace}:security:${victim}:keys`;
       await this.del(...(this.sets.get(registry) ?? []));
       await this.del(registry);
+      victims.push(victim);
     }
+    return victims;
   }
 }
 
@@ -808,5 +858,94 @@ describe("columnar daily-state chunks in the yearly cache", () => {
         to: "2024-12-31",
       }),
     ).resolves.toBeNull();
+  });
+});
+
+describe("two residency tiers", () => {
+  const ns = "stock-data:v2:test:tiers";
+  const range = { from: "2021-01-01", to: "2021-12-31" };
+  const lru = (redis: FakeRedis) =>
+    redis.zrange(`${ns}:resident-stocks`, 0, -1);
+
+  async function publish(cache: RedisStockDataCache, securityId: string) {
+    await cache.writeDailyPriceYears(
+      securityId,
+      [{ ...price("2021-01-04", 3), securityId }],
+      [2021],
+    );
+    await cache.setManifest(readyManifest(securityId));
+  }
+
+  it("routes a universe security to the protected tier by eligibility alone, outside the LRU's count", async () => {
+    const redis = new FakeRedis();
+    const universe: ReadonlySet<string> = new Set(["universe-1"]);
+    const cache = new RedisStockDataCache(
+      redis,
+      1,
+      ns,
+      undefined,
+      {},
+      undefined,
+      {
+        eligible: async () => universe,
+      },
+    );
+    await publish(cache, "universe-1");
+    await publish(cache, "other-1");
+    await publish(cache, "other-2");
+    expect(await cache.protectedStocks()).toEqual(["universe-1"]);
+    expect(await lru(redis)).toEqual(["other-2"]);
+    await expect(
+      cache.readDailyPrices("universe-1", range),
+    ).resolves.toHaveLength(1);
+    await expect(cache.readDailyPrices("other-1", range)).resolves.toBeNull();
+  });
+
+  it("never adds an LRU member on a read, and reports every eviction with its victims", async () => {
+    const redis = new FakeRedis();
+    const evictions: { admitted: string; victims: string[] }[] = [];
+    const cache = new RedisStockDataCache(redis, 2, ns, undefined, {
+      onLruEviction: (eviction) => evictions.push(eviction),
+    });
+    await publish(cache, "a");
+    await publish(cache, "b");
+    await cache.readDailyPrices("a", range);
+    await publish(cache, "c");
+    expect(evictions).toEqual([{ admitted: "c", victims: ["b"] }]);
+    // A READY security in neither tier is admitted under the count, never just appended.
+    redis.sortedSets.delete(`${ns}:resident-stocks`);
+    await cache.readDailyPrices("a", range);
+    await cache.readDailyPrices("c", range);
+    expect(await lru(redis)).toEqual(["a", "c"]);
+    await publish(cache, "d");
+    expect(evictions.at(-1)).toEqual({ admitted: "d", victims: ["a"] });
+    expect(await lru(redis)).toEqual(["c", "d"]);
+  });
+
+  it("promotes an LRU member the universe newly admits, keeping its data, at the next admission", async () => {
+    const redis = new FakeRedis();
+    let universe: ReadonlySet<string> = new Set(["p"]);
+    const cache = new RedisStockDataCache(
+      redis,
+      2,
+      ns,
+      undefined,
+      {},
+      undefined,
+      {
+        eligible: async () => universe,
+      },
+    );
+    await publish(cache, "p");
+    await publish(cache, "joins");
+    const chunk = redis.values.get(`${ns}:security:joins:prices:1D:2021`);
+    universe = new Set(["p", "joins"]);
+    await publish(cache, "next");
+    expect(await cache.protectedStocks()).toEqual(["joins", "p"]);
+    expect(await lru(redis)).toEqual(["next"]);
+    expect(redis.values.get(`${ns}:security:joins:prices:1D:2021`)).toBe(chunk);
+    await expect(cache.readDailyPrices("joins", range)).resolves.toHaveLength(
+      1,
+    );
   });
 });

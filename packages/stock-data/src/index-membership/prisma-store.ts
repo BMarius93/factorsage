@@ -386,6 +386,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
                 cik: constituent.cik,
                 tickerHistory: constituent.tickerHistory as unknown as Prisma.InputJsonValue,
                 securityId: null,
+                securityFrom: null,
                 resolution: ResolutionEnum.PENDING,
                 // Evidence of a membership that no longer exists would mislead; this says why the
                 // resolution starts over instead.
@@ -458,6 +459,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
       cik: row.cik,
       tickerHistory: row.tickerHistory as unknown as TickerSpan[],
       securityId: row.securityId,
+      securityFrom: optionalLocal(row.securityFrom),
       resolution: row.resolution as IndexConstituentResolution,
       resolutionEvidence: row.resolutionEvidence,
       periods: row.periods.map(toStoredPeriod).sort(comparePeriods),
@@ -497,6 +499,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
             },
             data: {
               securityId: write.securityId,
+              securityFrom: optionalDate(write.securityFrom),
               resolution: write.resolution as ResolutionEnum,
               resolutionEvidence: write.evidence as Prisma.InputJsonValue,
               resolvedAt,
@@ -551,4 +554,28 @@ function indexKeyOf(indexKey: MarketIndexKey): MarketIndexKeyEnum {
 
 function qualityOf(quality: IndexMembershipPeriodQuality): QualityEnum {
   return QualityEnum[quality];
+}
+
+/**
+ * The protected tier's canonical universe (`docs/decisions/stock-cache-tiers-v1.md`): every security
+ * a built-in point-in-time universe admits — any index, current and former constituents alike,
+ * resolved `RESOLVED` or `RESOLVED_PARTIAL`. Historical membership is enough.
+ */
+export async function loadProtectedTierSecurityIds(
+  prisma: Pick<PrismaClient, "indexConstituent">,
+): Promise<string[]> {
+  const rows = await prisma.indexConstituent.findMany({
+    where: {
+      resolution: {
+        in: [ResolutionEnum.RESOLVED, ResolutionEnum.RESOLVED_PARTIAL],
+      },
+      securityId: { not: null },
+    },
+    select: { securityId: true },
+    distinct: ["securityId"],
+  });
+  return rows
+    .map((row) => row.securityId)
+    .filter((id): id is string => id !== null)
+    .sort();
 }

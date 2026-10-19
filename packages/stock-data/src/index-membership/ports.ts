@@ -58,6 +58,11 @@ export type StoredIndexConstituent = {
   readonly cik: string | null;
   readonly tickerHistory: readonly TickerSpan[];
   readonly securityId: string | null;
+  /**
+   * The first day `securityId`'s prices are this constituent's history (an identity correction's
+   * `securityFrom`); null when they are its history throughout. Membership before it is unpriced.
+   */
+  readonly securityFrom: LocalDate | null;
   readonly resolution: IndexConstituentResolution;
   readonly resolutionEvidence: unknown;
   readonly periods: readonly StoredMembershipPeriod[];
@@ -66,6 +71,7 @@ export type StoredIndexConstituent = {
 export type ConstituentResolutionWrite = {
   readonly constituentKey: string;
   readonly securityId: string | null;
+  readonly securityFrom: LocalDate | null;
   readonly resolution: IndexConstituentResolution;
   readonly evidence: unknown;
 };
