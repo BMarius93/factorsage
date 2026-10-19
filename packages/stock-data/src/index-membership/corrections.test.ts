@@ -158,6 +158,7 @@ const LISTINGS: Record<
 
 class FakeProvider implements IndexMembershipProvider {
   readonly priceRequests: string[] = [];
+  readonly profileRequests: string[] = [];
   async getIndexConstituents(): Promise<never> {
     throw new Error("not used");
   }
@@ -177,6 +178,7 @@ class FakeProvider implements IndexMembershipProvider {
     return LISTINGS[symbol] ? [{ date: range.from, marketCap: 9e9 }] : [];
   }
   async getProfile(symbol: string) {
+    this.profileRequests.push(symbol);
     const listing = LISTINGS[symbol];
     return listing
       ? ({
@@ -371,6 +373,16 @@ describe("identity corrections", () => {
     expect(
       (cablevision?.evidence as { correction: { id: string } }).correction.id,
     ).toBe("SP500:cablevision-1:CVC");
+  });
+
+  it("reads listings only for the symbols decided this run, never for every resolved one", async () => {
+    const { admitted, provider } = await resolveAll();
+    expect(admitted.map((listing) => listing.symbol).sort()).toEqual([
+      "CVC",
+      "MCO",
+      "MS",
+    ]);
+    expect(provider.profileRequests.sort()).toEqual(["CVC", "MCO", "MS"]);
   });
 
   it("gives the old Dun & Bradstreet Moody's history, and leaves the spun-off one unresolved", async () => {

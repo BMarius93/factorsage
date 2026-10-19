@@ -489,10 +489,23 @@ export class IndexMembershipSyncService {
       conflicts.map((conflict) => [conflict.refused, conflict]),
     );
 
-    // Admission: every symbol a constituent now resolves to.
+    // Admission: every symbol a constituent was decided to this run, or that has no security yet. A
+    // claim kept from an earlier run keeps the security it was admitted as: re-reading every listing
+    // on every run cost a profile request per resolved symbol, enough to pass the provider's
+    // per-minute allowance on its own.
+    const storedSecurity = new Map(
+      inScope.map((constituent) => [
+        constituent.constituentKey,
+        constituent.securityId,
+      ]),
+    );
+    const keepsSecurity = (claim: ResolvedConstituentClaim) =>
+      !decisions.has(claim.constituentKey) &&
+      (storedSecurity.get(claim.constituentKey) ?? null) !== null;
     const chosenSymbols = new Set(
       claims
         .filter((claim) => !refusedByOverlap.has(claim.constituentKey))
+        .filter((claim) => !keepsSecurity(claim))
         .map((claim) => claim.symbol),
     );
     const listings: IndexUniverseListing[] = [];
@@ -547,7 +560,9 @@ export class IndexMembershipSyncService {
         reason = `${conflict.symbol} is the history of ${conflict.kept}, a member at the same time (${conflict.overlap.from} to ${conflict.overlap.to}); two simultaneous members cannot share one security`;
       } else if (claim) {
         const outcome = admitted.get(claim.symbol);
-        if (outcome && outcome.securityId !== null) {
+        if (keepsSecurity(claim)) {
+          securityId = constituent.securityId;
+        } else if (outcome && outcome.securityId !== null) {
           securityId = outcome.securityId;
         } else {
           resolution = "NOT_ADMISSIBLE";
