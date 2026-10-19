@@ -213,3 +213,7 @@ which is what the count is sized against (§2).
   from the protected tier, never the other way round.
 - Every process that writes the stock cache reads the universe from PostgreSQL once a minute (one
   indexed query over ~1,250 rows).
+- A development Redis shared by stacks on different databases (the hermetic E2E stack shares this
+  one, keyed by row id: `ai/workflows/auth-testing.md`) can hold designations from the other
+  database. `tiers` reports them as `designatedNotEligible`; `protect` returns them to the LRU.
+  Production runs one database per Redis.
