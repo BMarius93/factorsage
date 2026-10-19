@@ -1145,12 +1145,7 @@ export const DEFAULT_STOCK_LRU_MAX_SECURITIES = 100;
  * `STOCK_CACHE_MAX_RESIDENT_SYMBOLS` still configure it, and naming two different values is refused
  * rather than resolved by precedence.
  */
-function stockLruMaxSecurities(env: Environment): number {
-  const names = [
-    "STOCK_LRU_MAX_SECURITIES",
-    "STOCK_CACHE_MAX_RESIDENT_STOCKS",
-    "STOCK_CACHE_MAX_RESIDENT_SYMBOLS",
-  ];
+function stockLruMaxSecurities(env: Environment, names: string[]): number {
   const set = names.filter((name) => optional(env, name) !== undefined);
   const values = new Set(set.map((name) => optional(env, name)));
   if (values.size > 1) {
@@ -1163,7 +1158,12 @@ function stockLruMaxSecurities(env: Environment): number {
 
 export function getStockDataConfig(env: Environment = process.env) {
   return {
-    lruMaxSecurities: stockLruMaxSecurities(env),
+    // The new name first; the earlier two still configure it.
+    lruMaxSecurities: stockLruMaxSecurities(env, [
+      "STOCK_LRU_MAX_SECURITIES",
+      "STOCK_CACHE_MAX_RESIDENT_STOCKS",
+      "STOCK_CACHE_MAX_RESIDENT_SYMBOLS",
+    ]),
     defaultHistoryDays: integer(env, ["STOCK_DETAILS_HISTORY_DAYS"], 365),
     /**
      * The product horizon: the oldest day a user may select, chart, query or backtest.
