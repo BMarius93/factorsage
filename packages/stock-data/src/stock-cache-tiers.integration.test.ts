@@ -294,6 +294,47 @@ describeRedis("stock cache tiers on real Redis", () => {
     expect(await lru(ns)).toEqual([ids[1], ids[0]]);
   });
 
+  it("reaches a capacity lowered by configuration at the next read, not only at the next admission", async () => {
+    const ns = namespace();
+    const before = cacheOn(ns, 3);
+    const ids = ["l", "m", "n"].map((id) => `sec-${id}`) as [
+      string,
+      string,
+      string,
+    ];
+    for (const id of ids) {
+      await hydrate(before, id);
+    }
+    const evictions: { admitted: string; victims: string[] }[] = [];
+    // The same namespace after a deployment lowered STOCK_LRU_MAX_SECURITIES from 3 to 1.
+    const after = cacheOn(ns, 1, {
+      observer: { onLruEviction: (event) => evictions.push(event) },
+      eligibility: staticEligibility(["sec-protected"]),
+    });
+    // A protected read first: it never touches the LRU, over its count or not.
+    await hydrate(after, "sec-protected");
+    expect(
+      await after.readDailyPrices("sec-protected", {
+        from: "2019-01-01",
+        to: "2023-12-31",
+      }),
+    ).toHaveLength(10);
+    expect(await lru(ns)).toEqual(ids);
+    expect(evictions).toEqual([]);
+    expect(
+      await after.readDailyPrices(ids[0], {
+        from: "2019-01-01",
+        to: "2023-12-31",
+      }),
+    ).toHaveLength(10);
+    expect(await lru(ns)).toEqual([ids[0]]);
+    expect(evictions).toEqual([
+      { admitted: ids[0], victims: [ids[1], ids[2]] },
+    ]);
+    expect(await securityKeys(ns, ids[1])).toEqual([]);
+    expect(await securityKeys(ns, ids[2])).toEqual([]);
+  });
+
   it("routes eligible securities to the protected tier at admission, never gives their keys a TTL, and keeps them out of the LRU's count", async () => {
     const ns = namespace();
     const [p1, p2, l1, l2] = ["p1", "p2", "l1", "l2"].map(

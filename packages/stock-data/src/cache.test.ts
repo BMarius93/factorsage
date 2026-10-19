@@ -155,12 +155,20 @@ class FakeRedis implements RedisCacheClient {
       const manifest = this.values.get(keys[0]!);
       if (!manifest || JSON.parse(String(manifest)).status !== "READY")
         return 0;
-      if (this.sets.get(keys[3]!)?.has(args[0]!)) return 1;
+      if (this.sets.get(keys[3]!)?.has(args[0]!)) return [1];
       // Never adds a member: a READY security in neither tier is the caller's to admit.
       if (!this.sortedSets.get(keys[1]!)?.has(args[0]!)) return 2;
       const sequence = await this.incr();
       await this.zadd(keys[1]!, sequence, args[0]!);
-      return 1;
+      return [
+        1,
+        ...(await this.evictBeyond(
+          keys[1]!,
+          keys[3]!,
+          Number(args[1]),
+          args[2]!,
+        )),
+      ];
     }
     if (script.includes("admit-resident")) {
       const manifest = this.values.get(keys[0]!);

@@ -13,29 +13,29 @@ Test gap · Performance risk · Correctness issue · Security issue.
 
 Quick answers (each points at the entry and the owner document):
 
-- *What is live and what is snapshotted?* A Monitor reads the newest Strategy version and the
+- _What is live and what is snapshotted?_ A Monitor reads the newest Strategy version and the
   current List membership at the start of every cycle (1, 2); a backtest snapshots everything at
   submission (`product/backtests.md`).
-- *What does a Monitor actually evaluate?* Every finalized session of each current member, in
+- _What does a Monitor actually evaluate?_ Every finalized session of each current member, in
   order, from a durable checkpoint, read from PostgreSQL alone — no quote and no provisional row (3;
   `docs/decisions/monitor-eod-v2.md` §3); every level of every member (2).
-- *What identifies a market observation?* `(securityId, exchange session date)` (3).
-- *When exactly is a Signal emitted?* When a level's durable lifecycle enters `ACTIVE` — Conditions
+- _What identifies a market observation?_ `(securityId, exchange session date)` (3).
+- _When exactly is a Signal emitted?_ When a level's durable lifecycle enters `ACTIVE` — Conditions
   becoming true, or a fresh Trigger firing while the Conditions hold — and never on a repeated scan
   (4; `docs/decisions/builtin-dashboard-signals-v1.md`).
-- *What happens to active Signals after Strategy/List changes?* Reset only for levels whose logic
+- _What happens to active Signals after Strategy/List changes?_ Reset only for levels whose logic
   or id changed; resolved for removed members; untouched by unrelated edits (1, 2).
-- *How do Monitor and Backtest evaluation differ?* Same evaluator and the same finalized frame; the
+- _How do Monitor and Backtest evaluation differ?_ Same evaluator and the same finalized frame; the
   Monitor steps one session at a time from a checkpoint and has no position (5).
-- *What survives a restart?* Everything: every decision is re-derived from PostgreSQL rows (4, 8).
-- *What can be recomputed?* Every Redis key and every derived series (6, 7).
-- *What is PostgreSQL authoritative for?* All user-owned data, all history, all Monitor state and
-  the two claim protocols. *Redis?* Nothing durable; projections and coordination only (7, 8).
-- *Which work is global and which is per-user?* Hydration, the stock EOD preparation and frames
+- _What survives a restart?_ Everything: every decision is re-derived from PostgreSQL rows (4, 8).
+- _What can be recomputed?_ Every Redis key and every derived series (6, 7).
+- _What is PostgreSQL authoritative for?_ All user-owned data, all history, all Monitor state and
+  the two claim protocols. _Redis?_ Nothing durable; projections and coordination only (7, 8).
+- _Which work is global and which is per-user?_ Hydration, the stock EOD preparation and frames
   are per security and shared; evaluation and Signal state are per Monitor (10).
-- *Which behaviours are deliberate product decisions still open?* `product/monitors.md`,
+- _Which behaviours are deliberate product decisions still open?_ `product/monitors.md`,
   "Open product decisions" (11–13).
-- *Is the stored close purely split-adjusted?* No. It also carries the provider's spin-off
+- _Is the stored close purely split-adjusted?_ No. It also carries the provider's spin-off
   adjustments, which share counts do not follow, so Margin of Safety is biased before them. A
   split after first load would also leave a split-sized step in the stored close (15).
 
@@ -63,11 +63,11 @@ cycles?
   `signalFingerprint` = `strategySignalFingerprint(level.signal)` — the level's own logic with row
   ids stripped, sharing serialization with the definition hash so the two cannot disagree.
 - On evaluation, `decideLevel` compares the row's fingerprint with the current level's:
-  - **same id, same logic** → the lifecycle and the active occurrence continue; an edit to *another*
+  - **same id, same logic** → the lifecycle and the active occurrence continue; an edit to _another_
     level does not touch this one (`monitor-cycle.integration.test.ts` "keeps an unchanged level's
     match when another level of the Strategy is edited");
   - **same id, changed logic** (operator, metric, value, trigger added/removed, condition
-    added/removed) → the row is *stale*: its occurrence is resolved with `LOGIC_CHANGED` (recorded
+    added/removed) → the row is _stale_: its occurrence is resolved with `LOGIC_CHANGED` (recorded
     under the old fingerprint), the state is discarded, and the new logic is **reconstructed** from
     history and advanced by the live observation — so a condition that is true under the new logic
     opens a new occurrence on the same observation ("resets state recorded under different level
@@ -85,7 +85,7 @@ cycles?
 1. Level ids are unique across BUY, SELL and FINAL EXIT within one definition (validator, one
    `LEVEL` namespace), so state rows cannot collide across level kinds.
 2. **A level id is durable identity across versions.** The persisted document's ids only change when
-   a client submits different ids *and* the logic changed (otherwise the hash matches and the
+   a client submits different ids _and_ the logic changed (otherwise the hash matches and the
    persisted document, with its original ids, is returned unchanged). The web Builder edits rows
    in place and never regenerates an existing id (`draftFrom`, reducer spreads).
 3. Only the newest version is evaluated; intermediate versions are history for backtests only.
@@ -146,7 +146,7 @@ members are added, removed, removed and re-added, re-windowed, or changed while 
   emit; the next cycle resolves. One-cycle lag, same as disable.
 
 **Invariants.** Membership is read once per cycle and used for both evaluation and the sweep; the
-sweep names *current securities and levels*, never row ids, so states created in the same cycle are
+sweep names _current securities and levels_, never row ids, so states created in the same cycle are
 never swept by mistake. A Monitor over an emptied List sweeps everything (the "visits nothing" path)
 rather than returning early.
 
@@ -204,7 +204,7 @@ observation appear twice under different dates?
   yet coverage is recorded through that date. That is harmless only because every leading-edge
   sync — a tail refresh or a gap fill that reaches today — also re-reads the **previous** sync's
   own tail window (`unsettledTailStart` in the stock and benchmark loaders). Before that rule, a
-  refresh re-read only the ten days behind *today*, so a session asked for before it existed, or
+  refresh re-read only the ten days behind _today_, so a session asked for before it existed, or
   an in-progress bar, stayed missing or provisional for good once the next sync came more than
   ten days later: the data-correctness audit found MRNA, GOOG and BRK-A missing 2026-09-04,
   ADBE and AAL missing 2026-09-16, and MRNA 2026-09-09 left at an in-session 137.395 against a
@@ -416,13 +416,13 @@ that raises no error?
 
 **Current behaviour.**
 
-| Mutation | What could be stale | How it recovers |
-| --- | --- | --- |
-| Strategy / List / Monitor edited | Nothing cached: no user-scoped key exists; a cycle re-reads PostgreSQL. The web app keeps no client cache library (fetch on render). | n/a |
-| Price tail refreshed / history widened | Yearly price and derived chunks | Rewritten for the affected years in the same lease; a reader that sees no READY projection rebuilds from PostgreSQL |
-| Fundamentals refreshed | Derived intrinsic columns | Rebuilt from the earliest availability date of the loaded batch; revision-gated |
-| Methodology or dataset revision bumped | Every manifest | `isCurrent()` rejects the manifest on the next read; lazy rebuild |
-| Exchange schedule changed | In-process calendar, 24h TTL, last-known-good on refetch failure | Direction of error is safe: an unexpected closure has no trades to date, an unexpected open day is refused for a day (NOT_EVALUABLE), never fabricated |
+| Mutation                                           | What could be stale                                                                                                                                                     | How it recovers                                                                                                                                                                                             |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Strategy / List / Monitor edited                   | Nothing cached: no user-scoped key exists; a cycle re-reads PostgreSQL. The web app keeps no client cache library (fetch on render).                                    | n/a                                                                                                                                                                                                         |
+| Price tail refreshed / history widened             | Yearly price and derived chunks                                                                                                                                         | Rewritten for the affected years in the same lease; a reader that sees no READY projection rebuilds from PostgreSQL                                                                                         |
+| Fundamentals refreshed                             | Derived intrinsic columns                                                                                                                                               | Rebuilt from the earliest availability date of the loaded batch; revision-gated                                                                                                                             |
+| Methodology or dataset revision bumped             | Every manifest                                                                                                                                                          | `isCurrent()` rejects the manifest on the next read; lazy rebuild                                                                                                                                           |
+| Exchange schedule changed                          | In-process calendar, 24h TTL, last-known-good on refetch failure                                                                                                        | Direction of error is safe: an unexpected closure has no trades to date, an unexpected open day is refused for a day (NOT_EVALUABLE), never fabricated                                                      |
 | **Catalog sync renames or deactivates a security** | The cached identity row `stock-data:v2:symbol:<SYMBOL>:security` that `getSecurity` serves Stock Details from. No TTL; refreshed only by profile hydration or eviction. | **Was not refreshed at all** — a stale-but-valid state with no error. Fixed: the sync now writes the updated row through, and an entry whose cache refresh fails is reported as failed rather than updated. |
 
 **Invariants.** Every Redis artifact is either rebuilt from PostgreSQL on the next read or written
@@ -449,12 +449,12 @@ or reschedule?
 
 **Current behaviour.**
 
-| Flow | Dies before commit | Dies after commit, before the follow-up |
-| --- | --- | --- |
-| Stock hydration / tail refresh | Manifest stays `HYDRATING` under a TTL; Redlock expires. Next reader's CAS restarts hydration from PostgreSQL coverage; only the genuinely uncovered range is fetched again. Repeatable, provider cost bounded to the missing delta. | PostgreSQL coverage is recorded; the Redis publish is missing. The next read finds no READY projection and rebuilds it from PostgreSQL with **zero** provider requests (`provider-reuse.integration.test.ts`). |
-| Monitor cycle | Quotes were fetched; transitions not yet committed are lost, committed ones stand (one transaction each). The lease expires or the heartbeat fails; the next cycle re-derives every transition and takes the fast path for the committed ones. No Signal can be emitted twice: the emit and the latch commit together. | `completeScan` not reached: the row stays claimed until the lease expires, recovery clears it with `dueAt` unchanged, the next claim re-runs the cycle immediately and writes nothing. `markScanned` may lag one cycle (cosmetic). |
-| Backtest run | Simulation is repeated from day one on the next claim; progress and milestones of the dead attempt are cleared. Provider work is not repeated (data is persisted before simulation). | `persistResult` flips the run **and** the job to `COMPLETED` in the one transaction, so there is no separate acknowledgement to lose. |
-| Strategy / List / Monitor API writes | Single transactions; nothing external. | n/a |
+| Flow                                 | Dies before commit                                                                                                                                                                                                                                                                                                     | Dies after commit, before the follow-up                                                                                                                                                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stock hydration / tail refresh       | Manifest stays `HYDRATING` under a TTL; Redlock expires. Next reader's CAS restarts hydration from PostgreSQL coverage; only the genuinely uncovered range is fetched again. Repeatable, provider cost bounded to the missing delta.                                                                                   | PostgreSQL coverage is recorded; the Redis publish is missing. The next read finds no READY projection and rebuilds it from PostgreSQL with **zero** provider requests (`provider-reuse.integration.test.ts`).                     |
+| Monitor cycle                        | Quotes were fetched; transitions not yet committed are lost, committed ones stand (one transaction each). The lease expires or the heartbeat fails; the next cycle re-derives every transition and takes the fast path for the committed ones. No Signal can be emitted twice: the emit and the latch commit together. | `completeScan` not reached: the row stays claimed until the lease expires, recovery clears it with `dueAt` unchanged, the next claim re-runs the cycle immediately and writes nothing. `markScanned` may lag one cycle (cosmetic). |
+| Backtest run                         | Simulation is repeated from day one on the next claim; progress and milestones of the dead attempt are cleared. Provider work is not repeated (data is persisted before simulation).                                                                                                                                   | `persistResult` flips the run **and** the job to `COMPLETED` in the one transaction, so there is no separate acknowledgement to lose.                                                                                              |
+| Strategy / List / Monitor API writes | Single transactions; nothing external.                                                                                                                                                                                                                                                                                 | n/a                                                                                                                                                                                                                                |
 
 **Invariants.** Provider work is always followed by a PostgreSQL write that makes it unnecessary
 to repeat; Redis is only ever a rebuildable projection; every side effect that must not repeat
@@ -478,13 +478,13 @@ or Security is deleted — across PostgreSQL, Redis, queued work and in-flight w
 
 **Current behaviour.**
 
-| Deleted | PostgreSQL | Redis | In flight |
-| --- | --- | --- | --- |
-| User | Cascades to OAuth accounts, verification tokens, Lists (+items, +windows), Strategies (+versions), BacktestRuns (+job, progress, milestones, trades, equity, positions, summary), Monitors (+states, +signals). | Nothing: no user-scoped key exists. | A worker holding a claim on a deleted run loses every ownership-guarded write and abandons; a cycle mid-Monitor gets benign FK races and skips that Monitor. |
-| List | Cascades items and windows. **Refused** (`409`) while any Monitor references it. `BacktestRun.stockListId` is set null; the snapshot is unaffected. | Nothing. | Cycle: the Monitor referencing it cannot exist. |
-| Strategy | Cascades versions. **Refused** while any Monitor references it. Runs keep their snapshot; `strategyId`/`strategyVersionId` set null. | Nothing. | as above |
-| Monitor | Cascades signal states and Signals (history goes with the Monitor, deliberately). Strategy and List untouched. | Nothing. | A cycle that loaded it writes nothing durable for it. |
-| Security | Never product-deleted; catalog sync only deactivates. Every reference is `Restrict`. | A deactivated security's cached row can be stale (investigation 7). | — |
+| Deleted  | PostgreSQL                                                                                                                                                                                                      | Redis                                                               | In flight                                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| User     | Cascades to OAuth accounts, verification tokens, Lists (+items, +windows), Strategies (+versions), BacktestRuns (+job, progress, milestones, trades, equity, positions, summary), Monitors (+states, +signals). | Nothing: no user-scoped key exists.                                 | A worker holding a claim on a deleted run loses every ownership-guarded write and abandons; a cycle mid-Monitor gets benign FK races and skips that Monitor. |
+| List     | Cascades items and windows. **Refused** (`409`) while any Monitor references it. `BacktestRun.stockListId` is set null; the snapshot is unaffected.                                                             | Nothing.                                                            | Cycle: the Monitor referencing it cannot exist.                                                                                                              |
+| Strategy | Cascades versions. **Refused** while any Monitor references it. Runs keep their snapshot; `strategyId`/`strategyVersionId` set null.                                                                            | Nothing.                                                            | as above                                                                                                                                                     |
+| Monitor  | Cascades signal states and Signals (history goes with the Monitor, deliberately). Strategy and List untouched.                                                                                                  | Nothing.                                                            | A cycle that loaded it writes nothing durable for it.                                                                                                        |
+| Security | Never product-deleted; catalog sync only deactivates. Every reference is `Restrict`.                                                                                                                            | A deactivated security's cached row can be stale (investigation 7). | —                                                                                                                                                            |
 
 **Invariants.** Signal history lives exactly as long as its Monitor; run history lives exactly as
 long as its user; nothing user-owned is in Redis; no durable row references a deleted row except
@@ -507,7 +507,7 @@ refusal ("refuses to delete a strategy a monitor is still using").
 at what universe size does the design stop being cheap?
 
 **Per cycle, derived from the code.** With `U` distinct securities across all enabled Monitors,
-`M` enabled Monitors, `L` levels per Strategy and `R` = `STOCK_CACHE_MAX_RESIDENT_STOCKS` (100):
+`M` enabled Monitors, `L` levels per Strategy and `R` = `STOCK_LRU_MAX_SECURITIES` (100; then `STOCK_CACHE_MAX_RESIDENT_STOCKS`):
 
 - **Shared per security (not per user, not per Monitor):** one quote per symbol in batches of 50
   (`ceil(U / 50)` sequential provider requests through the shared gate, 20/s), one manifest and
@@ -515,7 +515,7 @@ at what universe size does the design stop being cheap?
   union of every required daily series, one frame. Ten users watching AAPL with ten Strategies
   cost one of each.
 - **Per Monitor:** one state query, `members × L` in-memory evaluations, one orphan-sweep query,
-  and one transaction per *changed* transition only. Steady state writes nothing.
+  and one transaction per _changed_ transition only. Steady state writes nothing.
 - **Universe read:** one query for every enabled Monitor with its list items and buy windows.
 
 **The boundary is `U` versus `R`.** The stock cache keeps the `R` most recently used securities
@@ -529,14 +529,14 @@ lose residency to the sweep. Memory is the other driver: every frame is held unt
 pass, on the order of 100 KB per security for a 200-day window, so a 10,000-security universe
 holds on the order of a gigabyte per cycle.
 
-| Scenario | Shared work | Repeated work | Verdict |
-| --- | --- | --- | --- |
-| 1 user × 100 securities | 2 quote requests, ≤100 frames | 1 Monitor pass | Comfortable; inside `R` |
-| 100 users × same 100 securities | identical to above | 100 Monitor passes (in-memory) | Comfortable; this is the design's best case |
-| 100 users × different Strategies, same securities | one frame per security with the union of operands | 100 passes | Comfortable |
-| 100 users × 100 distinct securities (U = 10,000) | 200 quote requests (~10 s at the gate) | 9,900 re-hydrations per cycle, ~1 GB of frames | Beyond the V1 boundary; cycles run back-to-back |
-| 1 user, one huge List | as above for its U | 1 pass | Same wall; no per-List cap exists |
-| Many active Signals | — | none: an unchanged match costs no write; the detail read is capped at 100 rows | Comfortable |
+| Scenario                                          | Shared work                                       | Repeated work                                                                  | Verdict                                         |
+| ------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| 1 user × 100 securities                           | 2 quote requests, ≤100 frames                     | 1 Monitor pass                                                                 | Comfortable; inside `R`                         |
+| 100 users × same 100 securities                   | identical to above                                | 100 Monitor passes (in-memory)                                                 | Comfortable; this is the design's best case     |
+| 100 users × different Strategies, same securities | one frame per security with the union of operands | 100 passes                                                                     | Comfortable                                     |
+| 100 users × 100 distinct securities (U = 10,000)  | 200 quote requests (~10 s at the gate)            | 9,900 re-hydrations per cycle, ~1 GB of frames                                 | Beyond the V1 boundary; cycles run back-to-back |
+| 1 user, one huge List                             | as above for its U                                | 1 pass                                                                         | Same wall; no per-List cap exists               |
+| Many active Signals                               | —                                                 | none: an unchanged match costs no write; the detail read is capped at 100 rows | Comfortable                                     |
 
 **Invariants.** Provider requests are `O(U)` per 6h plus `O(U / 50)` per cycle, never per Monitor.
 Signal writes are `O(transitions)`, never `O(evaluations)`.
@@ -820,10 +820,10 @@ Recorded so they are not "fixed".
   the latch was decided, not the last confirmation; `Monitor.lastScanAt` carries the cycle.
 - **`markScanned` bypassing Prisma to avoid `@updatedAt`.** A scan is not a user edit; the
   collection's newest-changed ordering must not move on every cycle.
-- **The stock loader's `today()` being the UTC day.** *Superseded by
-  `docs/decisions/eod-finality-v1.md`:* it is now the EOD cutoff, the newest date whose bar is final.
-- **Today's `DailyPrice` row existing during the session.** *Superseded by
-  `docs/decisions/eod-finality-v1.md`:* no loader requests or stores it; a row an older loader
+- **The stock loader's `today()` being the UTC day.** _Superseded by
+  `docs/decisions/eod-finality-v1.md`:_ it is now the EOD cutoff, the newest date whose bar is final.
+- **Today's `DailyPrice` row existing during the session.** _Superseded by
+  `docs/decisions/eod-finality-v1.md`:_ no loader requests or stores it; a row an older loader
   stored provisionally is re-read once its session is final.
 - **The Monitor reading the derived tail straight from PostgreSQL** while prices come from the Redis
   projection: an empty projection is a cache miss that would re-hydrate the security every cycle.

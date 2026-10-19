@@ -559,7 +559,8 @@ export class RedisStockDataCache implements StockDataCache {
    * protected one has no LRU position and nothing changes. Touching never adds an LRU member — that
    * would bypass the capacity — except for a READY security no tier counts at all (a Redis that lost
    * its LRU or its designation while the chunks survived), which is then **admitted** like any
-   * publication: routed by eligibility, and under the LRU's capacity.
+   * publication: routed by eligibility, and under the LRU's capacity. Every LRU touch enforces the
+   * count, so a capacity lowered by configuration takes effect at the next LRU read.
    */
   async touch(securityId: string): Promise<void> {
     const result = await this.redis.eval(
@@ -570,8 +571,11 @@ export class RedisStockDataCache implements StockDataCache {
       this.accessSequenceKey(),
       this.protectedKey(),
       securityId,
+      String(this.lruMaxSecurities),
+      this.namespace,
     );
     if (result !== 2) {
+      this.reportEviction(securityId, result);
       return;
     }
     const tier = await this.tierOf(securityId);
@@ -1339,9 +1343,12 @@ return 1
 `;
 
 /**
- * A read's access: `0` not READY, `1` recorded (an LRU member moved to most recent, or a protected
- * security, which has no position), `2` READY but counted by neither tier — the caller then admits
- * it (`admit-resident`). Never adds an LRU member itself, so a touch can never pass the capacity.
+ * A read's access: `0` not READY, `{1, victim…}` recorded (an LRU member moved to most recent, or a
+ * protected security, which has no position), `2` READY but counted by neither tier — the caller then
+ * admits it (`admit-resident`). Never adds an LRU member itself. An LRU read enforces the count
+ * (`ARGV[2]`), which costs one `ZCARD` when nothing is over it: a capacity lowered by configuration is
+ * then reached at the next LRU read, not only at the next admission. A protected read changes
+ * nothing in the LRU.
  */
 const TOUCH_READY = `
 -- touch-ready
@@ -1350,10 +1357,15 @@ local manifest = redis.call('GET', KEYS[1])
 if manifest == false then return 0 end
 local ok, value = pcall(cjson.decode, manifest)
 if not ok or value.status ~= 'READY' then return 0 end
-if redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1 then return 1 end
+-- A protected read never touches the LRU.
+if redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1 then return {1} end
 if redis.call('ZSCORE', KEYS[2], ARGV[1]) == false then return 2 end
 redis.call('ZADD', KEYS[2], next_sequence(KEYS[2], KEYS[3]), ARGV[1])
-return 1
+local victims = {}
+enforce_capacity(KEYS[2], KEYS[4], ARGV[3], tonumber(ARGV[2]), victims)
+local reply = {1}
+for _, victim in ipairs(victims) do reply[#reply + 1] = victim end
+return reply
 `;
 
 /**
