@@ -13,27 +13,30 @@ import {
 import { FmpClient } from "@intrinsic/fmp";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import {
+  type AlternativeDataStore,
+  CachedTradingCalendar,
   CanonicalAlternativeDataService,
   CanonicalCongressMemberCatalogService,
+  canonicalProtectedTierEligibility,
   CanonicalSecurityCatalogService,
-  CachedTradingCalendar,
   CanonicalStockDataService,
+  type CongressMemberCatalogService,
+  createStockDataRedisClient,
   DEFAULT_HYDRATION_TTL_MS,
+  inspectRedisEvictionPolicy,
+  IoredisCacheClient,
+  type LoadCoordinator,
+  logPriceBasisEvent,
   PrismaAlternativeDataStore,
   PrismaCongressMemberCatalogStore,
-  STOCK_DATA_CACHE_NAMESPACE,
-  createStockDataRedisClient,
-  IoredisCacheClient,
   PrismaStockDataStore,
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
-  inspectRedisEvictionPolicy,
-  logPriceBasisEvent,
-  type AlternativeDataStore,
-  type CongressMemberCatalogService,
-  type LoadCoordinator,
   type SecurityCatalogService,
+  STOCK_DATA_CACHE_NAMESPACE,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
   type StockDataCache,
   type StockDataStore,
   type StockDetailsDataService,
@@ -161,14 +164,15 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
     },
     {
       provide: STOCK_DATA_CACHE,
-      inject: [STOCK_DATA_REDIS, STOCK_DATA_LOGGER],
+      inject: [STOCK_DATA_REDIS, STOCK_DATA_LOGGER, PrismaService],
       useFactory: (
         redis: StockDataRedisClient,
         logger: StructuredLogger,
+        prisma: PrismaService,
       ): StockDataCache =>
         new RedisStockDataCache(
           new IoredisCacheClient(redis),
-          getStockDataConfig().maxResidentStocks,
+          getStockDataConfig().lruMaxSecurities,
           STOCK_DATA_CACHE_NAMESPACE,
           DEFAULT_HYDRATION_TTL_MS,
           {
@@ -187,7 +191,11 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
                 err: error,
               });
             },
+            ...stockCacheTierObserver(logger),
           },
+          stockCachePayloadCodecs(),
+          // The tier every admission routes to: the built-in universes from PostgreSQL.
+          canonicalProtectedTierEligibility(prisma, logger),
         ),
     },
     {

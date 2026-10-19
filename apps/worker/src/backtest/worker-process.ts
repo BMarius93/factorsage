@@ -52,6 +52,7 @@ process.on("uncaughtException", (err: unknown) => {
 });
 
 const runtime = createBacktestRuntime(logger);
+void runtime.reportRedisEvictionPolicy();
 
 const loop = new BacktestWorkerLoop(
   runtime.repository,

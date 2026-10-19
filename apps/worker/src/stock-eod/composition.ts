@@ -12,19 +12,22 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
+  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
+  createStockDataRedisClient,
   DEFAULT_HYDRATION_TTL_MS,
   EodFinalityPolicy,
   IoredisCacheClient,
+  logPriceBasisEvent,
   PrismaAlternativeDataStore,
   PrismaStockDataStore,
+  type ProviderRequestEvent,
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
-  createStockDataRedisClient,
-  logPriceBasisEvent,
-  type ProviderRequestEvent,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import {
   PrismaMarketDataRefreshScheduleRepository,
@@ -51,7 +54,9 @@ export type StockEodRuntime = {
  * page read hydrating the same stock, spends the one provider budget, and agrees with every reader on
  * which session is the newest final one. It owns no second cache and no second loader.
  */
-export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime {
+export function createStockEodRuntime(
+  logger: StructuredLogger,
+): StockEodRuntime {
   const stockDataConfig = getStockDataConfig();
   const fmpTraffic = getFmpTrafficConfig();
   const alternativeDataConfig = getAlternativeDataConfig();
@@ -85,7 +90,10 @@ export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime
       maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
       onProviderRequest: (request) => {
         providerRequests += 1;
-        logger.debug({ event: "alternative-data.provider.request", ...request });
+        logger.debug({
+          event: "alternative-data.provider.request",
+          ...request,
+        });
       },
     },
   );
@@ -99,7 +107,7 @@ export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime
     provider,
     new RedisStockDataCache(
       new IoredisCacheClient(redis),
-      stockDataConfig.maxResidentStocks,
+      stockDataConfig.lruMaxSecurities,
       STOCK_DATA_CACHE_NAMESPACE,
       DEFAULT_HYDRATION_TTL_MS,
       {
@@ -108,9 +116,17 @@ export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime
         },
         // The read was served; only its LRU recency was lost (a Redis refusing writes).
         onTouchFailed: ({ securityId, error }) => {
-          logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
+          logger.warn({
+            event: "stock-data.cache.touch-failed",
+            securityId,
+            err: error,
+          });
         },
+        ...stockCacheTierObserver(logger),
       },
+      stockCachePayloadCodecs(),
+      // The tier every admission routes to: the built-in universes from PostgreSQL.
+      canonicalProtectedTierEligibility(prisma, logger),
     ),
     new RedlockLoadCoordinator(redis, {
       lockDurationMs: stockDataConfig.loadLockDurationMs,

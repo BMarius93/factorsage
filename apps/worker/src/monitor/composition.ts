@@ -13,25 +13,28 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
-  EodFinalityPolicy,
   CanonicalBenchmarkDataService,
+  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
-  PrismaBenchmarkDataStore,
-  RedisBenchmarkDataCache,
-  logBenchmarkCacheEvent,
-  logUnreadableBenchmarkChunk,
-  PrismaAlternativeDataStore,
+  createStockDataRedisClient,
+  DEFAULT_HYDRATION_TTL_MS,
+  EodFinalityPolicy,
   IoredisCacheClient,
+  logBenchmarkCacheEvent,
+  logPriceBasisEvent,
+  logUnreadableBenchmarkChunk,
+  MARKET_DATA_CALENDAR_EXCHANGE,
+  PrismaAlternativeDataStore,
+  PrismaBenchmarkDataStore,
   PrismaStockDataStore,
+  type ProviderRequestEvent,
+  RedisBenchmarkDataCache,
   RedisFmpRequestGate,
   RedisStockDataCache,
-  STOCK_DATA_CACHE_NAMESPACE,
-  DEFAULT_HYDRATION_TTL_MS,
   RedlockLoadCoordinator,
-  createStockDataRedisClient,
-  logPriceBasisEvent,
-  MARKET_DATA_CALENDAR_EXCHANGE,
-  type ProviderRequestEvent,
+  STOCK_DATA_CACHE_NAMESPACE,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
   type TradingCalendar,
 } from "@intrinsic/stock-data";
 import type {
@@ -101,7 +104,10 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       freshnessMs: alternativeDataConfig.freshnessMs,
       maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
       onProviderRequest: (request) => {
-        logger.debug({ event: "alternative-data.provider.request", ...request });
+        logger.debug({
+          event: "alternative-data.provider.request",
+          ...request,
+        });
       },
     },
   );
@@ -121,7 +127,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     provider,
     new RedisStockDataCache(
       new IoredisCacheClient(redis),
-      stockDataConfig.maxResidentStocks,
+      stockDataConfig.lruMaxSecurities,
       STOCK_DATA_CACHE_NAMESPACE,
       DEFAULT_HYDRATION_TTL_MS,
       {
@@ -131,9 +137,17 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
         },
         // The read was served; only its LRU recency was lost (a Redis refusing writes).
         onTouchFailed: ({ securityId, error }) => {
-          logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
+          logger.warn({
+            event: "stock-data.cache.touch-failed",
+            securityId,
+            err: error,
+          });
         },
+        ...stockCacheTierObserver(logger),
       },
+      stockCachePayloadCodecs(),
+      // The tier every admission routes to: the built-in universes from PostgreSQL.
+      canonicalProtectedTierEligibility(prisma, logger),
     ),
     coordinator,
     {

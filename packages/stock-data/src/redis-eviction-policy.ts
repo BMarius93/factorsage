@@ -2,19 +2,22 @@
  * Whether the Redis this process talks to can evict what the product relies on staying resident
  * (`docs/decisions/etf-market-data-v1.md`, "Redis eviction policy").
  *
- * The application's own LRU decides which stocks are resident, and it never touches the benchmark
+ * The application's own count-bounded LRU decides which ordinary stocks are resident, and it never
+ * touches the protected stock tier (`docs/decisions/stock-cache-tiers-v1.md`) or the benchmark
  * namespace. Redis's server-side `maxmemory-policy` is a different mechanism, outside the
- * application, and an `allkeys-*` policy may evict **any** key once memory is full: a committed
- * benchmark head or chunk — which carries no TTL precisely because it must stay — a hydration lock,
- * or the provider gate's shared cooldown. A TTL-free key is no protection against it, and neither is
- * a key prefix. Nothing would fail loudly; the residency guarantee would simply stop holding.
+ * application, and an `allkeys-*` policy may evict **any** key once memory is full: a protected
+ * universe security's chunk or a committed benchmark head — which carry no TTL precisely because
+ * they must stay — a hydration lock, or the provider gate's shared cooldown. A TTL-free key is no
+ * protection against it, and neither is a key prefix. Nothing would fail loudly; the residency
+ * guarantee would simply stop holding.
  *
  * So the policy is read (`INFO memory`, which managed services permit where `CONFIG GET` is often
  * refused) and judged:
  *
  * - `SAFE` — `noeviction`, or no memory limit at all, so Redis never evicts;
  * - `TOLERATED` — a `volatile-*` policy: only keys with a TTL can be evicted, and no committed
- *   projection key has one, but a lock or a rate-limit counter may still go under pressure;
+ *   projection key has one — no protected-tier key ever has one, even mid-hydration — but a lock,
+ *   a rate-limit counter or an ordinary stock's in-flight hydration may still go under pressure;
  * - `ACCEPTED` — an `allkeys-*` policy the operator named in `REDIS_ACCEPTED_EVICTION_POLICY`;
  * - `UNSAFE` — any other `allkeys-*` policy. Readiness refuses it;
  * - `UNKNOWN` — the policy could not be read. Reported, never treated as a failure.
@@ -80,7 +83,7 @@ export function assessRedisEvictionPolicy(
     return {
       verdict: "TOLERATED",
       ...base,
-      detail: `${policy}: committed projections carry no TTL and are never evicted, but locks and counters with a TTL may be; noeviction is the supported policy`,
+      detail: `${policy}: committed projections and the protected stock tier carry no TTL and are never evicted, but locks and counters with a TTL may be; noeviction is the supported policy`,
     };
   }
   if (policy.startsWith("allkeys-")) {
@@ -88,13 +91,13 @@ export function assessRedisEvictionPolicy(
       return {
         verdict: "ACCEPTED",
         ...base,
-        detail: `${policy} accepted by REDIS_ACCEPTED_EVICTION_POLICY: any key may be evicted, so benchmark residency is not guaranteed`,
+        detail: `${policy} accepted by REDIS_ACCEPTED_EVICTION_POLICY: any key may be evicted, so neither the protected stock tier nor benchmark residency is guaranteed`,
       };
     }
     return {
       verdict: "UNSAFE",
       ...base,
-      detail: `${policy}: Redis may evict any key, including the always-resident benchmark histories, hydration locks and the provider gate's cooldown. Set maxmemory-policy noeviction, or name the policy in REDIS_ACCEPTED_EVICTION_POLICY to accept that`,
+      detail: `${policy}: Redis may evict any key, including the protected stock tier, the always-resident benchmark histories, hydration locks and the provider gate's cooldown. Set maxmemory-policy noeviction, or name the policy in REDIS_ACCEPTED_EVICTION_POLICY to accept that`,
     };
   }
   return {

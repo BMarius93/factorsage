@@ -5,6 +5,7 @@ import {
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
+  getRedisEvictionPolicyConfig,
   getStockDataConfig,
   getMarketDataWorkerConfig,
 } from "@intrinsic/config";
@@ -12,27 +13,31 @@ import { PrismaClient } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { FmpClient } from "@intrinsic/fmp";
 import {
+  CachedTradingCalendar,
   CanonicalAlternativeDataService,
   CanonicalBenchmarkDataService,
-  CachedTradingCalendar,
+  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
-  PrismaAlternativeDataStore,
-  IoredisCacheClient,
-  PrismaBenchmarkDataStore,
-  PrismaStockDataStore,
-  RedisBenchmarkDataCache,
-  RedisFmpRequestGate,
-  RedisStockDataCache,
-  STOCK_DATA_CACHE_NAMESPACE,
-  DEFAULT_HYDRATION_TTL_MS,
-  RedlockLoadCoordinator,
   createStockDataRedisClient,
+  DEFAULT_HYDRATION_TTL_MS,
+  EodFinalityPolicy,
+  inspectRedisEvictionPolicy,
+  IoredisCacheClient,
   logBenchmarkCacheEvent,
   logPriceBasisEvent,
   logUnreadableBenchmarkChunk,
-  EodFinalityPolicy,
   MARKET_DATA_CALENDAR_EXCHANGE,
+  PrismaAlternativeDataStore,
+  PrismaBenchmarkDataStore,
+  PrismaStockDataStore,
   type ProviderRequestEvent,
+  RedisBenchmarkDataCache,
+  RedisFmpRequestGate,
+  RedisStockDataCache,
+  RedlockLoadCoordinator,
+  STOCK_DATA_CACHE_NAMESPACE,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import type { ProviderRequestCounts } from "./debug/backtest-debug-archive.js";
 import {
@@ -69,6 +74,11 @@ export type BacktestRuntime = {
   providerRequests?: () => ProviderRequestCounts;
   /** The stock cache's protected tier, which a point-in-time index run designates its securities to. */
   protectedTier: BacktestProcessorDependencies["protectedTier"];
+  /**
+   * Logs once how this Redis evicts (`docs/decisions/stock-cache-tiers-v1.md` §4): an `allkeys-*`
+   * policy nobody accepted could evict the protected tier, and a worker reads it on every window.
+   */
+  reportRedisEvictionPolicy(): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -162,7 +172,7 @@ export function createBacktestRuntime(
   // surface may explore, and a backtest names its own period inside the product horizon.
   const stockCache = new RedisStockDataCache(
     new IoredisCacheClient(redis),
-    stockDataConfig.maxResidentStocks,
+    stockDataConfig.lruMaxSecurities,
     STOCK_DATA_CACHE_NAMESPACE,
     DEFAULT_HYDRATION_TTL_MS,
     {
@@ -172,9 +182,17 @@ export function createBacktestRuntime(
       },
       // The read was served; only its LRU recency was lost (a Redis refusing writes).
       onTouchFailed: ({ securityId, error }) => {
-        logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
+        logger.warn({
+          event: "stock-data.cache.touch-failed",
+          securityId,
+          err: error,
+        });
       },
+      ...stockCacheTierObserver(logger),
     },
+    stockCachePayloadCodecs(),
+    // The tier every admission routes to: the built-in universes from PostgreSQL.
+    canonicalProtectedTierEligibility(prisma, logger),
   );
   const stockData = new CanonicalStockDataService(
     new PrismaStockDataStore(prisma),
@@ -253,6 +271,20 @@ export function createBacktestRuntime(
       ? { providerRequests: () => providerMeter.counts() }
       : {}),
     protectedTier: stockCache,
+    async reportRedisEvictionPolicy(): Promise<void> {
+      const assessment = await inspectRedisEvictionPolicy(
+        redis,
+        getRedisEvictionPolicyConfig(),
+      );
+      const entry = { event: "redis.eviction-policy", ...assessment };
+      if (assessment.verdict === "UNSAFE") {
+        logger.error(entry);
+      } else if (assessment.verdict === "SAFE") {
+        logger.info(entry);
+      } else {
+        logger.warn(entry);
+      }
+    },
     async close(): Promise<void> {
       redis.disconnect();
       await prisma.$disconnect();

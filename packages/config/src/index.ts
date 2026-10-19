@@ -777,7 +777,9 @@ const MAX_MARKET_DATA_WORKER_PROCESSES = 2;
  * the next run rather than holding the claim.
  */
 export function getMarketDataWorkerConfig(env: Environment = process.env) {
-  const processes = Number(optional(env, "MARKET_DATA_WORKER_PROCESSES") ?? "1");
+  const processes = Number(
+    optional(env, "MARKET_DATA_WORKER_PROCESSES") ?? "1",
+  );
   if (
     !Number.isInteger(processes) ||
     processes < 0 ||
@@ -796,21 +798,33 @@ export function getMarketDataWorkerConfig(env: Environment = process.env) {
       ["MARKET_DATA_REFRESH_INTERVAL_MS"],
       10 * 60_000,
     ),
-    pollIntervalMs: integer(env, ["MARKET_DATA_REFRESH_POLL_INTERVAL_MS"], 15_000),
+    pollIntervalMs: integer(
+      env,
+      ["MARKET_DATA_REFRESH_POLL_INTERVAL_MS"],
+      15_000,
+    ),
     leaseMs: integer(env, ["MARKET_DATA_REFRESH_LEASE_MS"], 5 * 60_000),
     heartbeatIntervalMs: integer(
       env,
       ["MARKET_DATA_REFRESH_HEARTBEAT_INTERVAL_MS"],
       30_000,
     ),
-    retryBackoffMs: integer(env, ["MARKET_DATA_REFRESH_RETRY_BACKOFF_MS"], 60_000),
+    retryBackoffMs: integer(
+      env,
+      ["MARKET_DATA_REFRESH_RETRY_BACKOFF_MS"],
+      60_000,
+    ),
     publicationDelayMs: integer(
       env,
       ["MARKET_DATA_EOD_PUBLICATION_DELAY_MS"],
       30 * 60_000,
     ),
     seriesRetryMs: integer(env, ["MARKET_DATA_SERIES_RETRY_MS"], 30 * 60_000),
-    runBudgetMs: integer(env, ["MARKET_DATA_REFRESH_RUN_BUDGET_MS"], 4 * 60_000),
+    runBudgetMs: integer(
+      env,
+      ["MARKET_DATA_REFRESH_RUN_BUDGET_MS"],
+      4 * 60_000,
+    ),
   } as const;
 }
 
@@ -847,7 +861,11 @@ export function getStockEodWorkerConfig(env: Environment = process.env) {
   return {
     /** `0` disables the stock EOD preparation in this process entirely. */
     processes,
-    refreshIntervalMs: integer(env, ["STOCK_EOD_REFRESH_INTERVAL_MS"], 10 * 60_000),
+    refreshIntervalMs: integer(
+      env,
+      ["STOCK_EOD_REFRESH_INTERVAL_MS"],
+      10 * 60_000,
+    ),
     followUpMs: integer(env, ["STOCK_EOD_FOLLOW_UP_MS"], 30_000),
     pollIntervalMs: integer(env, ["STOCK_EOD_POLL_INTERVAL_MS"], 15_000),
     leaseMs: integer(env, ["STOCK_EOD_LEASE_MS"], 5 * 60_000),
@@ -937,7 +955,10 @@ function lateRecoveryHorizon(env: Environment): number {
  */
 export type BacktestDebugArchiveMode = "off" | "full";
 
-const BACKTEST_DEBUG_ARCHIVE_MODES: BacktestDebugArchiveMode[] = ["off", "full"];
+const BACKTEST_DEBUG_ARCHIVE_MODES: BacktestDebugArchiveMode[] = [
+  "off",
+  "full",
+];
 
 export const DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR = ".debug/backtests";
 
@@ -1132,13 +1153,38 @@ function fmpBaseUrl(env: Environment): string | undefined {
   return url.toString().endsWith("/") ? url.toString() : `${url.toString()}/`;
 }
 
+/** The ordinary stock LRU's default capacity, in distinct securities: unchanged since V1. */
+export const DEFAULT_STOCK_LRU_MAX_SECURITIES = 100;
+
+/**
+ * The ordinary stock LRU's capacity: how many distinct securities outside the protected tier may be
+ * resident at once (`docs/decisions/stock-cache-tiers-v1.md`). A count, never bytes — each security
+ * counts once whatever its history's size, and Redis memory is never an admission or eviction
+ * criterion. The protected tier (the built-in point-in-time universes) is outside it.
+ *
+ * `STOCK_LRU_MAX_SECURITIES` is the name; the earlier `STOCK_CACHE_MAX_RESIDENT_STOCKS` and
+ * `STOCK_CACHE_MAX_RESIDENT_SYMBOLS` still configure it, and naming two different values is refused
+ * rather than resolved by precedence.
+ */
+function stockLruMaxSecurities(env: Environment): number {
+  const names = [
+    "STOCK_LRU_MAX_SECURITIES",
+    "STOCK_CACHE_MAX_RESIDENT_STOCKS",
+    "STOCK_CACHE_MAX_RESIDENT_SYMBOLS",
+  ];
+  const set = names.filter((name) => optional(env, name) !== undefined);
+  const values = new Set(set.map((name) => optional(env, name)));
+  if (values.size > 1) {
+    throw new Error(
+      `Invalid application configuration: ${set.join(" and ")} name different stock LRU capacities; set STOCK_LRU_MAX_SECURITIES only`,
+    );
+  }
+  return integer(env, names, DEFAULT_STOCK_LRU_MAX_SECURITIES);
+}
+
 export function getStockDataConfig(env: Environment = process.env) {
   return {
-    maxResidentStocks: integer(
-      env,
-      ["STOCK_CACHE_MAX_RESIDENT_STOCKS", "STOCK_CACHE_MAX_RESIDENT_SYMBOLS"],
-      100,
-    ),
+    lruMaxSecurities: stockLruMaxSecurities(env),
     defaultHistoryDays: integer(env, ["STOCK_DETAILS_HISTORY_DAYS"], 365),
     /**
      * The product horizon: the oldest day a user may select, chart, query or backtest.

@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { getApiConfig, loadRootEnv } from "@intrinsic/config";
+import {
+  getApiConfig,
+  getRedisEvictionPolicyConfig,
+  loadRootEnv,
+} from "@intrinsic/config";
 import {
   isMarketIndexKey,
   pointInTimeIndexUniverse,
@@ -26,7 +30,10 @@ import {
 } from "./index-universe/index-universe-ingest.js";
 import { writeIndexUniverseList } from "./index-universe/index-universe-list.js";
 import { buildIndexUniverseReport } from "./index-universe/index-universe-report.js";
-import { runProtectedResidency } from "./index-universe/index-universe-residency.js";
+import {
+  runProtectedResidency,
+  runTierAudit,
+} from "./index-universe/index-universe-residency.js";
 import { createIndexUniverseRuntime } from "./index-universe/index-universe-runtime.js";
 
 /**
@@ -39,6 +46,7 @@ import { createIndexUniverseRuntime } from "./index-universe/index-universe-runt
  * pnpm data:index-universe -- ingest            # load every universe security's full history
  * pnpm data:index-universe -- report --out f    # measure what PostgreSQL holds (no provider)
  * pnpm data:index-universe -- protect           # make it resident in Redis's protected tier (no provider)
+ * pnpm data:index-universe -- tiers --out f     # audit both stock-cache tiers, read-only (no provider)
  * pnpm data:index-universe -- benchmarks        # load the execution calendar its backtests run on
  * ```
  *
@@ -53,6 +61,7 @@ const COMMANDS = [
   "ingest",
   "report",
   "protect",
+  "tiers",
   "benchmarks",
 ] as const;
 type Command = (typeof COMMANDS)[number];
@@ -86,6 +95,7 @@ const DEFAULT_BUDGETS: Record<Command, number> = {
   ingest: 120_000,
   report: 1,
   protect: 1,
+  tiers: 1,
   benchmarks: 200,
 };
 
@@ -451,6 +461,12 @@ async function main(): Promise<number> {
           logger,
           providerRequests: runtime.providerRequests,
           shouldStop: () => stopRequested,
+          ...(getRedisEvictionPolicyConfig().acceptedPolicy
+            ? {
+                acceptedEvictionPolicy:
+                  getRedisEvictionPolicyConfig().acceptedPolicy,
+              }
+            : {}),
         });
         if (args.out) {
           const path = resolve(repositoryRoot(), args.out);
@@ -458,6 +474,58 @@ async function main(): Promise<number> {
           writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`);
         }
         print(summary);
+        break;
+      }
+      case "tiers": {
+        const summary = await runTierAudit({
+          prisma: runtime.prisma,
+          redis: runtime.redis,
+          cache: runtime.cache,
+          namespace: STOCK_DATA_CACHE_NAMESPACE,
+          ...(getRedisEvictionPolicyConfig().acceptedPolicy
+            ? {
+                acceptedEvictionPolicy:
+                  getRedisEvictionPolicyConfig().acceptedPolicy,
+              }
+            : {}),
+        });
+        if (args.out) {
+          const path = resolve(repositoryRoot(), args.out);
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`);
+        }
+        const { audit } = summary;
+        print({
+          eviction: summary.eviction,
+          memory: summary.memory,
+          protected: {
+            designated: audit.protected.designated,
+            ready: audit.protected.ready,
+            hydrating: audit.protected.hydrating,
+            notResident: audit.protected.notResident.length,
+            securitiesWithTtl: Object.keys(audit.protected.keysWithTtl).length,
+            bytes: summary.footprint.protected.bytes,
+            keys: summary.footprint.protected.keys,
+          },
+          lru: {
+            ...audit.lru,
+            withoutReadyManifest: audit.lru.withoutReadyManifest.length,
+            bytes: summary.footprint.lru.bytes,
+            keys: summary.footprint.lru.keys,
+          },
+          orphans: audit.orphans.length,
+          dualResidency: audit.dualResidency.length,
+          eligibility: audit.eligibility
+            ? {
+                eligible: audit.eligibility.eligible,
+                notDesignated: audit.eligibility.notDesignated.length,
+                designatedNotEligible:
+                  audit.eligibility.designatedNotEligible.length,
+                eligibleInLru: audit.eligibility.eligibleInLru.length,
+              }
+            : null,
+          violations: audit.violations,
+        });
         break;
       }
       case "benchmarks": {

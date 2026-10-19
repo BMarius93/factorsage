@@ -11,6 +11,10 @@ import {
   encodeDailyStateChunk,
 } from "./daily-state-chunk.js";
 import {
+  REDIS_DESIGNATION_ONLY,
+  type ProtectedTierEligibility,
+} from "./protected-tier.js";
+import {
   DEFAULT_REDIS_PAYLOAD_CODEC,
   RedisPayloadCodec,
   type RedisPayloadCodecConfig,
@@ -131,6 +135,19 @@ export type StockDataCacheObserver = {
    * only the eviction order loses this access.
    */
   onTouchFailed?: (failure: { securityId: string; error: unknown }) => void;
+  /**
+   * The LRU admitted a security and, being over its count, evicted these — least recently used
+   * first. Every registered key of each victim is already gone; PostgreSQL is untouched.
+   */
+  onLruEviction?: (eviction: { admitted: string; victims: string[] }) => void;
+  /**
+   * Designating a newly eligible snapshot of the protected universe failed (a Redis refusing writes).
+   * Admissions still route by the snapshot itself; the designation is retried with the next one.
+   */
+  onDesignationSyncFailed?: (failure: {
+    securities: number;
+    error: unknown;
+  }) => void;
 };
 
 export interface RedisCacheClient {
@@ -152,6 +169,12 @@ export interface RedisCacheClient {
   zscore(key: string, member: string): Promise<string | null>;
   zrem(key: string, ...members: string[]): Promise<unknown>;
   del(...keys: string[]): Promise<unknown>;
+  /** `SCAN cursor MATCH pattern COUNT count`, for the tier audit; absent on test doubles. */
+  scan?(
+    cursor: string,
+    pattern: string,
+    count: number,
+  ): Promise<[string, string[]]>;
   eval(
     script: string,
     numberOfKeys: number,
@@ -212,17 +235,37 @@ export interface StockDataCache {
   evict(securityId: string): Promise<void>;
 }
 
+/**
+ * The stock cache: one key family, two residency tiers (`docs/decisions/stock-cache-tiers-v1.md`).
+ *
+ * - **Protected** — every security `eligibility` admits (the built-in point-in-time universes,
+ *   current and former members), plus any `protectStocks` designated: resident outside the LRU,
+ *   never a capacity victim, and none of its keys ever carries a TTL, in flight or READY.
+ * - **LRU** — every other security: at most `lruMaxSecurities` distinct securities, counted once
+ *   each by stable security id however many keys they own; the least recently used one is evicted
+ *   whole when an admission passes the count.
+ *
+ * Both tiers are the same keys, codecs, manifests and generation fence, written by the one canonical
+ * loader; a tier is only which residency rule the Lua scripts apply. Every admission (`beginHydration`,
+ * `beginRefresh`, a READY publication, the first read of a resident security no tier counts) routes
+ * by `eligibility` atomically inside its script, so no consumer can route differently.
+ */
 export class RedisStockDataCache implements StockDataCache {
+  /** The eligibility snapshot whose designation Redis already holds (by identity). */
+  private designated: ReadonlySet<string> | undefined;
+  private designating: Promise<void> | undefined;
+
   constructor(
     private readonly redis: RedisCacheClient,
-    private readonly maxResidentStocks: number,
+    private readonly lruMaxSecurities: number,
     private readonly namespace = STOCK_DATA_CACHE_NAMESPACE,
     private readonly hydrationTtlMs = DEFAULT_HYDRATION_TTL_MS,
     private readonly observer: StockDataCacheObserver = {},
     private readonly codecs: StockCachePayloadCodecs = stockCachePayloadCodecs(),
+    private readonly eligibility: ProtectedTierEligibility = REDIS_DESIGNATION_ONLY,
   ) {
-    if (!Number.isInteger(maxResidentStocks) || maxResidentStocks <= 0) {
-      throw new Error("maxResidentStocks must be a positive integer");
+    if (!Number.isInteger(lruMaxSecurities) || lruMaxSecurities <= 0) {
+      throw new Error("lruMaxSecurities must be a positive integer");
     }
     if (!Number.isInteger(hydrationTtlMs) || hydrationTtlMs <= 0) {
       throw new Error("hydrationTtlMs must be a positive integer");
@@ -267,17 +310,20 @@ export class RedisStockDataCache implements StockDataCache {
     observed: StockManifest | null,
     hydrating: StockManifest,
   ): Promise<boolean> {
+    const tier = await this.tierOf(hydrating.securityId);
     const result = await this.redis.eval(
       BEGIN_HYDRATION,
-      3,
+      4,
       this.manifestKey(hydrating.securityId),
       this.registryKey(hydrating.securityId),
       this.residentKey(),
+      this.protectedKey(),
       hydrating.securityId,
       observed ? "1" : "0",
       observed ? JSON.stringify(observed) : "",
       JSON.stringify(hydrating),
       String(this.hydrationTtlMs),
+      tier,
     );
     return result === 1;
   }
@@ -286,6 +332,7 @@ export class RedisStockDataCache implements StockDataCache {
     observed: StockManifest,
     hydrating: StockManifest,
   ): Promise<boolean> {
+    const tier = await this.tierOf(observed.securityId);
     const result = await this.redis.eval(
       BEGIN_REFRESH,
       4,
@@ -297,6 +344,7 @@ export class RedisStockDataCache implements StockDataCache {
       JSON.stringify(observed),
       JSON.stringify(hydrating),
       String(this.hydrationTtlMs),
+      tier,
     );
     return result === 1;
   }
@@ -506,8 +554,15 @@ export class RedisStockDataCache implements StockDataCache {
     );
   }
 
+  /**
+   * Records a read of a READY security: an LRU member becomes the most recently used one; a
+   * protected one has no LRU position and nothing changes. Touching never adds an LRU member — that
+   * would bypass the capacity — except for a READY security no tier counts at all (a Redis that lost
+   * its LRU or its designation while the chunks survived), which is then **admitted** like any
+   * publication: routed by eligibility, and under the LRU's capacity.
+   */
   async touch(securityId: string): Promise<void> {
-    await this.redis.eval(
+    const result = await this.redis.eval(
       TOUCH_READY,
       4,
       this.manifestKey(securityId),
@@ -516,6 +571,23 @@ export class RedisStockDataCache implements StockDataCache {
       this.protectedKey(),
       securityId,
     );
+    if (result !== 2) {
+      return;
+    }
+    const tier = await this.tierOf(securityId);
+    const admitted = await this.redis.eval(
+      ADMIT_RESIDENT,
+      4,
+      this.manifestKey(securityId),
+      this.residentKey(),
+      this.accessSequenceKey(),
+      this.protectedKey(),
+      securityId,
+      String(this.lruMaxSecurities),
+      this.namespace,
+      tier,
+    );
+    this.reportEviction(securityId, admitted);
   }
 
   /**
@@ -552,6 +624,9 @@ export class RedisStockDataCache implements StockDataCache {
    * Idempotent, and never removes a designation.
    */
   async protectStocks(securityIds: readonly string[]): Promise<number> {
+    if (securityIds.length === 0) {
+      return 0;
+    }
     let added = 0;
     for (const batch of batches(securityIds, PROTECTED_BATCH_SIZE)) {
       added += Number(
@@ -581,18 +656,22 @@ export class RedisStockDataCache implements StockDataCache {
     const leaving = [...current].filter((id) => !desired.has(id));
     let removed = 0;
     for (const batch of batches(leaving, PROTECTED_BATCH_SIZE)) {
-      removed += Number(
-        await this.redis.eval(
-          UNPROTECT_STOCKS,
-          3,
-          this.protectedKey(),
-          this.residentKey(),
-          this.accessSequenceKey(),
-          String(this.maxResidentStocks),
-          this.namespace,
-          ...batch,
-        ),
-      );
+      const result = (await this.redis.eval(
+        UNPROTECT_STOCKS,
+        3,
+        this.protectedKey(),
+        this.residentKey(),
+        this.accessSequenceKey(),
+        String(this.lruMaxSecurities),
+        this.namespace,
+        String(this.hydrationTtlMs),
+        ...batch,
+      )) as unknown[];
+      removed += Number(result[0]);
+      const victims = result.slice(1).map(String);
+      if (victims.length > 0) {
+        this.observer.onLruEviction?.({ admitted: "(unprotected)", victims });
+      }
     }
     const added = await this.protectStocks([...desired]);
     return { added, removed, designated: desired.size };
@@ -601,6 +680,151 @@ export class RedisStockDataCache implements StockDataCache {
   /** The securities designated to the protected tier, resident or not. */
   async protectedStocks(): Promise<string[]> {
     return (await this.redis.smembers(this.protectedKey())).sort();
+  }
+
+  /**
+   * Checks both tiers' invariants over every manifest in the namespace
+   * (`docs/decisions/stock-cache-tiers-v1.md` §5). Read-only. `eligible` is the canonical universe,
+   * when the caller has it; without it only Redis's own designation is checked.
+   */
+  async auditTiers(
+    eligible?: ReadonlySet<string>,
+  ): Promise<StockCacheTierAudit> {
+    if (!this.redis.scan) {
+      throw new Error("The tier audit needs a Redis client that can SCAN");
+    }
+    const prefix = `${this.namespace}:security:`;
+    const suffix = ":manifest";
+    const manifestIds: string[] = [];
+    let cursor = "0";
+    do {
+      const [next, keys] = await this.redis.scan(
+        cursor,
+        `${prefix}*${suffix}`,
+        1_000,
+      );
+      cursor = next;
+      for (const key of keys) {
+        const id = key.slice(prefix.length, key.length - suffix.length);
+        if (!id.includes(":")) {
+          manifestIds.push(id);
+        }
+      }
+    } while (cursor !== "0");
+    const status = new Map<string, string>();
+    for (const batch of batches([...new Set(manifestIds)], AUDIT_BATCH_SIZE)) {
+      const payloads = await this.redis.mget(
+        ...batch.map((id) => this.manifestKey(id)),
+      );
+      batch.forEach((id, index) => {
+        const payload = payloads[index];
+        if (payload) {
+          status.set(id, (JSON.parse(payload) as StockManifest).status);
+        }
+      });
+    }
+    const designated = new Set(await this.redis.smembers(this.protectedKey()));
+    const lru = await this.lruStocks();
+    const lruSet = new Set(lru);
+    const ready = [...status]
+      .filter(([, value]) => value === "READY")
+      .map(([id]) => id);
+    const protectedReady = ready.filter((id) => designated.has(id));
+    const keysWithTtl: Record<string, number> = {};
+    for (const batch of batches(
+      [...designated].filter((id) => status.has(id)),
+      AUDIT_BATCH_SIZE,
+    )) {
+      const counts = (await this.redis.eval(
+        AUDIT_PROTECTED_TTL,
+        0,
+        this.namespace,
+        ...batch,
+      )) as number[];
+      batch.forEach((id, index) => {
+        if (Number(counts[index]) > 0) {
+          keysWithTtl[id] = Number(counts[index]);
+        }
+      });
+    }
+    const sorted = (values: Iterable<string>) => [...values].sort();
+    const audit: StockCacheTierAudit = {
+      namespace: this.namespace,
+      manifests: status.size,
+      protected: {
+        designated: designated.size,
+        ready: protectedReady.length,
+        hydrating: [...designated].filter(
+          (id) => status.get(id) === "HYDRATING",
+        ).length,
+        notResident: sorted([...designated].filter((id) => !status.has(id))),
+        keysWithTtl,
+      },
+      lru: {
+        capacity: this.lruMaxSecurities,
+        members: lru.length,
+        ready: lru.filter((id) => status.get(id) === "READY").length,
+        withoutReadyManifest: sorted(
+          lru.filter((id) => status.get(id) !== "READY"),
+        ),
+      },
+      orphans: sorted(
+        ready.filter((id) => !designated.has(id) && !lruSet.has(id)),
+      ),
+      dualResidency: sorted(lru.filter((id) => designated.has(id))),
+      ...(eligible
+        ? {
+            eligibility: {
+              eligible: eligible.size,
+              notDesignated: sorted(
+                [...eligible].filter((id) => !designated.has(id)),
+              ),
+              designatedNotEligible: sorted(
+                [...designated].filter((id) => !eligible.has(id)),
+              ),
+              eligibleInLru: sorted(lru.filter((id) => eligible.has(id))),
+            },
+          }
+        : {}),
+      violations: [],
+    };
+    const violations = audit.violations;
+    if (audit.lru.members > audit.lru.capacity) {
+      violations.push(
+        `LRU holds ${audit.lru.members} securities, above its capacity of ${audit.lru.capacity}`,
+      );
+    }
+    if (audit.dualResidency.length > 0) {
+      violations.push(
+        `${audit.dualResidency.length} securities are in both tiers`,
+      );
+    }
+    if (Object.keys(keysWithTtl).length > 0) {
+      violations.push(
+        `${Object.keys(keysWithTtl).length} protected securities have keys with a TTL`,
+      );
+    }
+    if (audit.eligibility && audit.eligibility.eligibleInLru.length > 0) {
+      violations.push(
+        `${audit.eligibility.eligibleInLru.length} protected-eligible securities are in the LRU`,
+      );
+    }
+    if (audit.orphans.length > 0) {
+      violations.push(
+        `${audit.orphans.length} READY securities are counted by neither tier (admitted at their next read)`,
+      );
+    }
+    return audit;
+  }
+
+  /** The LRU's members, least recently used first. */
+  async lruStocks(): Promise<string[]> {
+    return this.redis.zrange(this.residentKey(), 0, -1);
+  }
+
+  /** The configured LRU capacity, in distinct securities. */
+  get lruCapacity(): number {
+    return this.lruMaxSecurities;
   }
 
   /** Whether the security's manifest is still exactly the one a read started under. */
@@ -715,6 +939,7 @@ export class RedisStockDataCache implements StockDataCache {
     hydrating: StockManifest | null,
     ready: StockManifest,
   ): Promise<boolean> {
+    const tier = await this.tierOf(ready.securityId);
     const result = await this.redis.eval(
       PUBLISH_READY,
       5,
@@ -725,11 +950,66 @@ export class RedisStockDataCache implements StockDataCache {
       this.protectedKey(),
       JSON.stringify(ready),
       ready.securityId,
-      String(this.maxResidentStocks),
+      String(this.lruMaxSecurities),
       this.namespace,
       hydrating ? JSON.stringify(hydrating) : "",
+      tier,
     );
-    return result === 1;
+    return this.reportEviction(ready.securityId, result);
+  }
+
+  /**
+   * An admitting script's reply: `0` refused, or `{1, victim…}` — admitted, with the securities the
+   * LRU evicted to stay within its count, least recently used first.
+   */
+  private reportEviction(admitted: string, result: unknown): boolean {
+    if (!Array.isArray(result)) {
+      return result === 1;
+    }
+    if (Number(result[0]) !== 1) {
+      return false;
+    }
+    const victims = result.slice(1).map(String);
+    if (victims.length > 0) {
+      this.observer.onLruEviction?.({ admitted, victims });
+    }
+    return true;
+  }
+
+  /**
+   * The tier a security is admitted to: `P` when the canonical universe admits it, else `L`. The
+   * scripts also honour a Redis designation (`protectStocks`), so `L` means "unless designated".
+   *
+   * A new eligibility snapshot is designated in Redis before it is acted on — the securities that
+   * joined it leave the LRU with their data intact (promotion) — so the designation a Redis lost is
+   * restored by the first admission of every process after it reloads the universe.
+   */
+  private async tierOf(securityId: string): Promise<"P" | "L"> {
+    const eligible = await this.eligibility.eligible();
+    if (eligible !== this.designated && eligible.size > 0) {
+      await this.designate(eligible);
+    }
+    return eligible.has(securityId) ? "P" : "L";
+  }
+
+  private async designate(eligible: ReadonlySet<string>): Promise<void> {
+    this.designating ??= (async () => {
+      const previous = this.designated;
+      const joined = [...eligible].filter((id) => !previous?.has(id));
+      try {
+        await this.protectStocks(joined);
+        this.designated = eligible;
+      } catch (error: unknown) {
+        // Routing does not depend on it: every admission carries its own tier.
+        this.observer.onDesignationSyncFailed?.({
+          securities: joined.length,
+          error,
+        });
+      }
+    })().finally(() => {
+      this.designating = undefined;
+    });
+    await this.designating;
   }
 
   private symbolSecurityKey(symbol: string): string {
@@ -765,6 +1045,41 @@ export class RedisStockDataCache implements StockDataCache {
     return `${this.namespace}:access-sequence`;
   }
 }
+
+/** What `auditTiers` found. `violations` is empty when both tiers hold their invariants. */
+export type StockCacheTierAudit = {
+  readonly namespace: string;
+  /** Manifests in the namespace, READY or HYDRATING. */
+  readonly manifests: number;
+  readonly protected: {
+    readonly designated: number;
+    readonly ready: number;
+    readonly hydrating: number;
+    /** Designated, with no manifest: published again by `protect` or the next read. */
+    readonly notResident: readonly string[];
+    /** Per protected security, how many of its keys carry a TTL; must be empty. */
+    readonly keysWithTtl: Readonly<Record<string, number>>;
+  };
+  readonly lru: {
+    readonly capacity: number;
+    readonly members: number;
+    readonly ready: number;
+    /** Members whose manifest is gone or HYDRATING: dropped at their next admission or eviction. */
+    readonly withoutReadyManifest: readonly string[];
+  };
+  /** READY securities in neither tier. */
+  readonly orphans: readonly string[];
+  /** Securities in both tiers; must be empty. */
+  readonly dualResidency: readonly string[];
+  readonly eligibility?: {
+    readonly eligible: number;
+    readonly notDesignated: readonly string[];
+    readonly designatedNotEligible: readonly string[];
+    /** Must be empty. */
+    readonly eligibleInLru: readonly string[];
+  };
+  readonly violations: string[];
+};
 
 export class NullStockDataCache implements StockDataCache {
   async getSecurity(_symbol: string): Promise<Security | null> {
@@ -862,6 +1177,50 @@ export function dailyStateChunkKey(
   return `${namespace}:security:${securityId}:daily-state:v${DAILY_STATE_ENCODING_VERSION}:${year}`;
 }
 
+/**
+ * Lua shared by the admitting scripts (`docs/decisions/stock-cache-tiers-v1.md`).
+ *
+ * `next_sequence` is the LRU's clock: an `INCR`, never below the newest score already in the LRU, so
+ * a counter lost on its own (an operator's `DEL`) cannot rank new accesses behind old ones.
+ *
+ * `enforce_capacity` evicts least-recently-used members until the LRU holds at most `max` distinct
+ * securities, deleting every registered key of each victim in the same script — a security is never
+ * half evicted, and no reader can count it as resident afterwards. A protected victim (impossible
+ * while the scripts keep the tiers disjoint) only leaves the LRU; its keys stay.
+ */
+const LRU_LUA = `
+local function next_sequence(resident, counter)
+  local sequence = redis.call('INCR', counter)
+  local newest = redis.call('ZRANGE', resident, -1, -1, 'WITHSCORES')
+  if newest[2] ~= nil and tonumber(newest[2]) >= sequence then
+    sequence = tonumber(newest[2]) + 1
+    redis.call('SET', counter, string.format('%d', sequence))
+  end
+  return sequence
+end
+local function enforce_capacity(resident, protected, namespace, max, victims)
+  while redis.call('ZCARD', resident) > max do
+    local victim = redis.call('ZRANGE', resident, 0, 0)[1]
+    if victim == nil then break end
+    redis.call('ZREM', resident, victim)
+    if redis.call('SISMEMBER', protected, victim) == 0 then
+      local registry = namespace .. ':security:' .. victim .. ':keys'
+      local keys = redis.call('SMEMBERS', registry)
+      for _, key in ipairs(keys) do redis.call('DEL', key) end
+      redis.call('DEL', registry)
+      victims[#victims + 1] = victim
+    end
+  end
+end
+`;
+
+/**
+ * Starts a HYDRATING generation over exactly the observed manifest, replacing every key of the
+ * previous one. A protected security (`ARGV[6]` `P`, or already designated) is designated here, and
+ * its generation is **persistent**: no TTL on the manifest or the registry, so no key it writes ever
+ * gets one (`set-registered` follows the manifest). An abandoned one is taken over by the next lease
+ * holder, as any HYDRATING generation is. An LRU security's generation expires whole if abandoned.
+ */
 const BEGIN_HYDRATION = `
 -- begin-hydration
 local current = redis.call('GET', KEYS[1])
@@ -871,22 +1230,39 @@ local keys = redis.call('SMEMBERS', KEYS[2])
 for _, key in ipairs(keys) do redis.call('DEL', key) end
 redis.call('DEL', KEYS[2])
 redis.call('ZREM', KEYS[3], ARGV[1])
-redis.call('SET', KEYS[1], ARGV[4], 'PX', ARGV[5])
-redis.call('SADD', KEYS[2], KEYS[1])
-redis.call('PEXPIRE', KEYS[2], ARGV[5])
+if ARGV[6] == 'P' then redis.call('SADD', KEYS[4], ARGV[1]) end
+if redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1 then
+  redis.call('SET', KEYS[1], ARGV[4])
+  redis.call('SADD', KEYS[2], KEYS[1])
+else
+  redis.call('SET', KEYS[1], ARGV[4], 'PX', ARGV[5])
+  redis.call('SADD', KEYS[2], KEYS[1])
+  redis.call('PEXPIRE', KEYS[2], ARGV[5])
+end
 return 1
 `;
 
+/**
+ * Turns a resident READY generation into a HYDRATING one that keeps its keys. Admitted for an LRU
+ * member or a protected security (designated here when `ARGV[5]` is `P`). A protected refresh stays
+ * persistent — its keys never get a TTL — where an LRU one expires whole if abandoned.
+ */
 const BEGIN_REFRESH = `
 -- begin-refresh
 if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 0 end
-if redis.call('ZSCORE', KEYS[3], ARGV[1]) == false
-  and redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 0 then return 0 end
-redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
-redis.call('SADD', KEYS[2], KEYS[1])
-local keys = redis.call('SMEMBERS', KEYS[2])
-for _, key in ipairs(keys) do redis.call('PEXPIRE', key, ARGV[4]) end
-redis.call('PEXPIRE', KEYS[2], ARGV[4])
+if ARGV[5] == 'P' then redis.call('SADD', KEYS[4], ARGV[1]) end
+local protected = redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1
+if not protected and redis.call('ZSCORE', KEYS[3], ARGV[1]) == false then return 0 end
+if protected then
+  redis.call('SET', KEYS[1], ARGV[3])
+  redis.call('SADD', KEYS[2], KEYS[1])
+else
+  redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
+  redis.call('SADD', KEYS[2], KEYS[1])
+  local keys = redis.call('SMEMBERS', KEYS[2])
+  for _, key in ipairs(keys) do redis.call('PEXPIRE', key, ARGV[4]) end
+  redis.call('PEXPIRE', KEYS[2], ARGV[4])
+end
 redis.call('ZREM', KEYS[3], ARGV[1])
 return 1
 `;
@@ -900,6 +1276,9 @@ return 1
  * the hydration's own generation is less than half-way from expiry, and then for every registered
  * key at once. That replaced a re-expiry of every registered key on every write — K²/2 PEXPIREs for
  * a K-key hydration, about 48,000 for one 34-year stock (OPS-04) — with one pass per half-lifetime.
+ *
+ * A persistent generation (a protected security's: its manifest has no TTL, `PTTL` -1) writes
+ * persistent keys, so nothing of the protected tier ever expires.
  */
 const SET_REGISTERED = `
 -- set-registered
@@ -907,20 +1286,26 @@ local temporaryTtl = 0
 local manifest = redis.call('GET', KEYS[3])
 if ARGV[2] ~= '' then
   if manifest ~= ARGV[2] then return 0 end
-  temporaryTtl = redis.call('PTTL', KEYS[3])
-  if temporaryTtl <= 0 then return 0 end
-  local full = tonumber(ARGV[3])
-  if temporaryTtl < full / 2 then
-    local keys = redis.call('SMEMBERS', KEYS[2])
-    for _, key in ipairs(keys) do redis.call('PEXPIRE', key, full) end
-    redis.call('PEXPIRE', KEYS[2], full)
-    temporaryTtl = full
+  local remaining = redis.call('PTTL', KEYS[3])
+  if remaining ~= -1 then
+    if remaining <= 0 then return 0 end
+    temporaryTtl = remaining
+    local full = tonumber(ARGV[3])
+    if temporaryTtl < full / 2 then
+      local keys = redis.call('SMEMBERS', KEYS[2])
+      for _, key in ipairs(keys) do redis.call('PEXPIRE', key, full) end
+      redis.call('PEXPIRE', KEYS[2], full)
+      temporaryTtl = full
+    end
   end
 elseif manifest ~= false then
   local ok, value = pcall(cjson.decode, manifest)
   if ok and value.status == 'HYDRATING' then
-    temporaryTtl = redis.call('PTTL', KEYS[3])
-    if temporaryTtl <= 0 then return 0 end
+    local remaining = redis.call('PTTL', KEYS[3])
+    if remaining ~= -1 then
+      if remaining <= 0 then return 0 end
+      temporaryTtl = remaining
+    end
   end
 end
 if temporaryTtl > 0 then
@@ -937,12 +1322,15 @@ return 1
  * Its holder calls it between long phases — a provider read, a statement backfill, a derived
  * rebuild — which register no key and would otherwise let a slow hydration's generation expire
  * under a lease it still holds. A handful of calls per hydration, each one pass over the registered
- * keys, so every phase may last up to the whole lifetime.
+ * keys, so every phase may last up to the whole lifetime. A persistent (protected) generation has no
+ * lifetime to renew.
  */
 const RENEW_HYDRATION = `
 -- renew-hydration
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-if redis.call('PTTL', KEYS[1]) <= 0 then return 0 end
+local remaining = redis.call('PTTL', KEYS[1])
+if remaining == -1 then return 1 end
+if remaining <= 0 then return 0 end
 local full = tonumber(ARGV[2])
 local keys = redis.call('SMEMBERS', KEYS[2])
 for _, key in ipairs(keys) do redis.call('PEXPIRE', key, full) end
@@ -950,21 +1338,60 @@ redis.call('PEXPIRE', KEYS[2], full)
 return 1
 `;
 
+/**
+ * A read's access: `0` not READY, `1` recorded (an LRU member moved to most recent, or a protected
+ * security, which has no position), `2` READY but counted by neither tier — the caller then admits
+ * it (`admit-resident`). Never adds an LRU member itself, so a touch can never pass the capacity.
+ */
 const TOUCH_READY = `
 -- touch-ready
+${LRU_LUA}
 local manifest = redis.call('GET', KEYS[1])
 if manifest == false then return 0 end
 local ok, value = pcall(cjson.decode, manifest)
 if not ok or value.status ~= 'READY' then return 0 end
--- A protected security has no LRU position to refresh.
 if redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1 then return 1 end
-local sequence = redis.call('INCR', KEYS[3])
-redis.call('ZADD', KEYS[2], sequence, ARGV[1])
+if redis.call('ZSCORE', KEYS[2], ARGV[1]) == false then return 2 end
+redis.call('ZADD', KEYS[2], next_sequence(KEYS[2], KEYS[3]), ARGV[1])
 return 1
 `;
 
+/**
+ * Admits a READY security no tier counts — its chunks outlived the LRU or the designation — under
+ * the same rules as a publication: protected when `ARGV[4]` is `P` or it is designated, else the
+ * LRU's newest member, with its capacity enforced. Replies `{1, victim…}`, or `0` when it is no
+ * longer READY.
+ */
+const ADMIT_RESIDENT = `
+-- admit-resident
+${LRU_LUA}
+local manifest = redis.call('GET', KEYS[1])
+if manifest == false then return 0 end
+local ok, value = pcall(cjson.decode, manifest)
+if not ok or value.status ~= 'READY' then return 0 end
+if ARGV[4] == 'P' then redis.call('SADD', KEYS[4], ARGV[1]) end
+if redis.call('SISMEMBER', KEYS[4], ARGV[1]) == 1 then
+  redis.call('ZREM', KEYS[2], ARGV[1])
+  return {1}
+end
+redis.call('ZADD', KEYS[2], next_sequence(KEYS[2], KEYS[3]), ARGV[1])
+local victims = {}
+enforce_capacity(KEYS[2], KEYS[4], ARGV[3], tonumber(ARGV[2]), victims)
+local reply = {1}
+for _, victim in ipairs(victims) do reply[#reply + 1] = victim end
+return reply
+`;
+
+/**
+ * Publishes a READY generation over the one it observed (none, or its own HYDRATING one) and admits
+ * the security to its tier: protected when `ARGV[6]` is `P` or it is designated — outside the LRU,
+ * never counted, never a victim — else the LRU's newest member, evicting least-recently-used ones
+ * beyond `ARGV[3]` distinct securities. Every registered key loses its in-flight TTL. Replies
+ * `{1, victim…}`, or `0` when the generation changed.
+ */
 const PUBLISH_READY = `
 -- publish-ready
+${LRU_LUA}
 local current = redis.call('GET', KEYS[1])
 if ARGV[5] ~= '' then
   if current ~= ARGV[5] then return 0 end
@@ -976,27 +1403,17 @@ for _, key in ipairs(registered) do redis.call('PERSIST', key) end
 redis.call('PERSIST', KEYS[2])
 redis.call('SET', KEYS[1], ARGV[1])
 redis.call('SADD', KEYS[2], KEYS[1])
+if ARGV[6] == 'P' then redis.call('SADD', KEYS[5], ARGV[2]) end
 if redis.call('SISMEMBER', KEYS[5], ARGV[2]) == 1 then
-  -- Protected: resident outside the LRU, so it takes no slot and is never a victim.
   redis.call('ZREM', KEYS[3], ARGV[2])
-  return 1
+  return {1}
 end
-local sequence = redis.call('INCR', KEYS[4])
-redis.call('ZADD', KEYS[3], sequence, ARGV[2])
-while redis.call('ZCARD', KEYS[3]) > tonumber(ARGV[3]) do
-  local victim = redis.call('ZRANGE', KEYS[3], 0, 0)[1]
-  if victim == nil then break end
-  redis.call('ZREM', KEYS[3], victim)
-  -- Never true while designation keeps the two disjoint; checked so a protected history can
-  -- never be deleted by an LRU decision.
-  if redis.call('SISMEMBER', KEYS[5], victim) == 0 then
-    local registry = ARGV[4] .. ':security:' .. victim .. ':keys'
-    local keys = redis.call('SMEMBERS', registry)
-    for _, key in ipairs(keys) do redis.call('DEL', key) end
-    redis.call('DEL', registry)
-  end
-end
-return 1
+redis.call('ZADD', KEYS[3], next_sequence(KEYS[3], KEYS[4]), ARGV[2])
+local victims = {}
+enforce_capacity(KEYS[3], KEYS[5], ARGV[4], tonumber(ARGV[3]), victims)
+local reply = {1}
+for _, victim in ipairs(victims) do reply[#reply + 1] = victim end
+return reply
 `;
 
 const INVALIDATE_MANIFEST = `
@@ -1044,35 +1461,64 @@ end
 return added
 `;
 
+/**
+ * Removes designations. A READY security rejoins the LRU as its newest member, under its capacity; a
+ * persistent HYDRATING one gets the in-flight lifetime an LRU generation has (`ARGV[3]`), so an
+ * abandoned one expires instead of staying behind uncounted. Replies `{removed, victim…}`.
+ */
 const UNPROTECT_STOCKS = `
 -- unprotect-stocks
+${LRU_LUA}
 local removed = 0
-for index = 3, #ARGV do
+for index = 4, #ARGV do
   local id = ARGV[index]
   if redis.call('SREM', KEYS[1], id) == 1 then
     removed = removed + 1
-    local manifest = redis.call('GET', ARGV[2] .. ':security:' .. id .. ':manifest')
+    local manifestKey = ARGV[2] .. ':security:' .. id .. ':manifest'
+    local manifest = redis.call('GET', manifestKey)
     if manifest ~= false then
       local ok, value = pcall(cjson.decode, manifest)
       if ok and value.status == 'READY' then
-        redis.call('ZADD', KEYS[2], redis.call('INCR', KEYS[3]), id)
+        redis.call('ZADD', KEYS[2], next_sequence(KEYS[2], KEYS[3]), id)
+      elseif ok and value.status == 'HYDRATING' and redis.call('PTTL', manifestKey) == -1 then
+        local registry = ARGV[2] .. ':security:' .. id .. ':keys'
+        for _, key in ipairs(redis.call('SMEMBERS', registry)) do
+          redis.call('PEXPIRE', key, ARGV[3])
+        end
+        redis.call('PEXPIRE', registry, ARGV[3])
+        redis.call('PEXPIRE', manifestKey, ARGV[3])
       end
     end
   end
 end
-while redis.call('ZCARD', KEYS[2]) > tonumber(ARGV[1]) do
-  local victim = redis.call('ZRANGE', KEYS[2], 0, 0)[1]
-  if victim == nil then break end
-  redis.call('ZREM', KEYS[2], victim)
-  if redis.call('SISMEMBER', KEYS[1], victim) == 0 then
-    local registry = ARGV[2] .. ':security:' .. victim .. ':keys'
-    local keys = redis.call('SMEMBERS', registry)
-    for _, key in ipairs(keys) do redis.call('DEL', key) end
-    redis.call('DEL', registry)
-  end
-end
-return removed
+local victims = {}
+enforce_capacity(KEYS[2], KEYS[1], ARGV[2], tonumber(ARGV[1]), victims)
+local reply = {removed}
+for _, victim in ipairs(victims) do reply[#reply + 1] = victim end
+return reply
 `;
+
+/**
+ * Per protected security of `ARGV[2..]`, how many of its registered keys (and its registry) carry a
+ * TTL. Read-only.
+ */
+const AUDIT_PROTECTED_TTL = `
+-- audit-protected-ttl
+local counts = {}
+for index = 2, #ARGV do
+  local registry = ARGV[1] .. ':security:' .. ARGV[index] .. ':keys'
+  local count = 0
+  if redis.call('PTTL', registry) >= 0 then count = count + 1 end
+  for _, key in ipairs(redis.call('SMEMBERS', registry)) do
+    if redis.call('PTTL', key) >= 0 then count = count + 1 end
+  end
+  counts[#counts + 1] = count
+end
+return counts
+`;
+
+/** Securities per audit `MGET` and TTL script call. */
+const AUDIT_BATCH_SIZE = 100;
 
 /** Ids per protect/unprotect script call: bounded, so one call never blocks Redis for long. */
 const PROTECTED_BATCH_SIZE = 500;

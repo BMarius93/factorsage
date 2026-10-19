@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR,
+  DEFAULT_STOCK_LRU_MAX_SECURITIES,
   getApiConfig,
   getAuthConfig,
   getBacktestDebugArchiveConfig,
@@ -11,6 +12,7 @@ import {
   getGoogleOAuthConfig,
   getEodFinalityConfig,
   getStockEodWorkerConfig,
+  getStockDataConfig,
   getMarketDataWorkerConfig,
   getRedisConfig,
   getRedisEvictionPolicyConfig,
@@ -544,10 +546,13 @@ describe("EOD finality configuration", () => {
 
   it("bounds the late-recovery horizon to the window the recent tail read still covers", () => {
     expect(
-      getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: "259200000" }).lateRecoveryMs,
+      getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: "259200000" })
+        .lateRecoveryMs,
     ).toBe(3 * 24 * 60 * 60_000);
     expect(() =>
-      getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: String(7 * 24 * 60 * 60_000) }),
+      getEodFinalityConfig({
+        EOD_LATE_RECOVERY_MS: String(7 * 24 * 60 * 60_000),
+      }),
     ).toThrow(/EOD_LATE_RECOVERY_MS/);
     expect(() => getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: "0" })).toThrow(
       /EOD_LATE_RECOVERY_MS/,
@@ -555,9 +560,9 @@ describe("EOD finality configuration", () => {
   });
 
   it("freezes stored tails only when asked by name, and refuses anything else", () => {
-    expect(getEodFinalityConfig({ EOD_TAIL_REFRESH: "frozen" }).frozenTails).toBe(
-      true,
-    );
+    expect(
+      getEodFinalityConfig({ EOD_TAIL_REFRESH: "frozen" }).frozenTails,
+    ).toBe(true);
     expect(
       getEodFinalityConfig({ EOD_TAIL_REFRESH: "scheduled" }).frozenTails,
     ).toBe(false);
@@ -1036,5 +1041,46 @@ describe("getStripeBillingConfig", () => {
         sandbox({ STRIPE_PRICE_PRO_MONTHLY: "price_starter_m" }),
       ),
     ).toThrow(/each logical price must map to its own Stripe price/);
+  });
+});
+
+describe("stock LRU capacity", () => {
+  it("is a count of distinct securities, 100 by default", () => {
+    expect(DEFAULT_STOCK_LRU_MAX_SECURITIES).toBe(100);
+    expect(getStockDataConfig({}).lruMaxSecurities).toBe(100);
+    expect(
+      getStockDataConfig({ STOCK_LRU_MAX_SECURITIES: "2000" }).lruMaxSecurities,
+    ).toBe(2000);
+  });
+
+  it("still reads the earlier names", () => {
+    expect(
+      getStockDataConfig({ STOCK_CACHE_MAX_RESIDENT_STOCKS: "250" })
+        .lruMaxSecurities,
+    ).toBe(250);
+    expect(
+      getStockDataConfig({ STOCK_CACHE_MAX_RESIDENT_SYMBOLS: "40" })
+        .lruMaxSecurities,
+    ).toBe(40);
+    expect(
+      getStockDataConfig({
+        STOCK_LRU_MAX_SECURITIES: "300",
+        STOCK_CACHE_MAX_RESIDENT_STOCKS: "300",
+      }).lruMaxSecurities,
+    ).toBe(300);
+  });
+
+  it("refuses two names with different values, and anything but a positive integer", () => {
+    expect(() =>
+      getStockDataConfig({
+        STOCK_LRU_MAX_SECURITIES: "2000",
+        STOCK_CACHE_MAX_RESIDENT_STOCKS: "100",
+      }),
+    ).toThrow("name different stock LRU capacities");
+    for (const value of ["0", "-1", "1.5", "2GB"]) {
+      expect(() =>
+        getStockDataConfig({ STOCK_LRU_MAX_SECURITIES: value }),
+      ).toThrow("must be a positive integer");
+    }
   });
 });

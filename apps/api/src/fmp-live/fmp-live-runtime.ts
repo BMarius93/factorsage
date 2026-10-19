@@ -12,6 +12,7 @@ import { FmpClient, FmpSecurityScope } from "@intrinsic/fmp";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CanonicalAlternativeDataService,
+  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
   createStockDataRedisClient,
   DEFAULT_HYDRATION_TTL_MS,
@@ -24,6 +25,8 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import { LIVE_FMP_MAX_SECURITIES } from "./fmp-live-arguments";
 import { LiveFmpRunGuard } from "./fmp-live-guard";
@@ -167,7 +170,7 @@ export function createLiveFmpRuntime(input: {
   const store = new PrismaStockDataStore(prisma);
   const cache = new RedisStockDataCache(
     new IoredisCacheClient(redis),
-    stockDataConfig.maxResidentStocks,
+    stockDataConfig.lruMaxSecurities,
     input.redisNamespace ?? STOCK_DATA_CACHE_NAMESPACE,
     DEFAULT_HYDRATION_TTL_MS,
     {
@@ -175,7 +178,11 @@ export function createLiveFmpRuntime(input: {
       onUnreadableChunk: (chunk) => {
         logger.warn({ event: "stock-data.cache.chunk-unreadable", ...chunk });
       },
+      ...stockCacheTierObserver(logger),
     },
+    stockCachePayloadCodecs(),
+    // The tier every admission routes to: the built-in universes from PostgreSQL.
+    canonicalProtectedTierEligibility(prisma, logger),
   );
 
   const alternativeData = new CanonicalAlternativeDataService(

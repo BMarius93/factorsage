@@ -9,6 +9,7 @@
 #   RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh benchmarks
 #   scripts/cloud/fmp-index-universe.sh report --out artifacts/sp500-historical-pit/report.json
 #   scripts/cloud/fmp-index-universe.sh protect --concurrency 4
+#   scripts/cloud/fmp-index-universe.sh tiers --out artifacts/sp500-historical-pit/tiers.json
 #
 # The owner authorized this universe-wide load (2026-10-17). It is deliberately not a general
 # wrapper: it cannot start a stack, a worker or a test run with the provider configured. Its
@@ -30,7 +31,7 @@ if [ "${1:-}" = "--" ]; then
   shift
 fi
 if [ "$#" -eq 0 ]; then
-  echo "Usage: [RUN_INDEX_UNIVERSE_INGESTION=1] scripts/cloud/fmp-index-universe.sh <sync|resolve|project|ingest|benchmarks|report|protect> [options]" >&2
+  echo "Usage: [RUN_INDEX_UNIVERSE_INGESTION=1] scripts/cloud/fmp-index-universe.sh <sync|resolve|project|ingest|benchmarks|report|protect|tiers> [options]" >&2
   exit 2
 fi
 
@@ -53,7 +54,7 @@ case "$command" in
     key="$LIVE_FMP_API_KEY"
     exec env -u LIVE_FMP_API_KEY -u FMP_BASE_URL FMP_API_KEY="$key" pnpm data:index-universe -- "$@"
     ;;
-  project | report | protect)
+  project | report | protect | tiers)
     exec env -u LIVE_FMP_API_KEY pnpm data:index-universe -- "$@"
     ;;
   *)

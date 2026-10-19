@@ -52,7 +52,7 @@ describe("E2E fixture reseed", () => {
   const redis = createStockDataRedisClient(getRedisConfig().url);
   const realCache = new RedisStockDataCache(
     new IoredisCacheClient(redis),
-    getStockDataConfig().maxResidentStocks,
+    getStockDataConfig().lruMaxSecurities,
   );
   const realBenchmarkCache = new RedisBenchmarkDataCache(
     new IoredisCacheClient(redis),

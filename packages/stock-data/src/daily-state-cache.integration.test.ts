@@ -30,6 +30,8 @@ import {
   type StockManifest,
 } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
+import { loadProtectedTierSecurityIds } from "./index-membership/prisma-store.js";
+import { CanonicalProtectedTierEligibility } from "./protected-tier.js";
 import {
   DAILY_STATE_CHUNK_FIELDS,
   DAILY_STATE_ENCODING_VERSION,
@@ -1467,6 +1469,92 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
       expect(await chunkBytes(ns)).toEqual(before);
       expect(await cache.hasResidentStock(security.id)).toBe(true);
       expect(await redis.zcard(`${ns}:resident-stocks`)).toBe(0);
+    });
+
+    it("routes by PostgreSQL's universe: after Redis loses everything an ordinary read rebuilds it into the protected tier, which LRU traffic never evicts", async () => {
+      const ns = `${namespace}-protected-routing`;
+      // The universe as PostgreSQL holds it: a resolved constituent of the built-in index.
+      const constituent = await prisma.indexConstituent.create({
+        data: {
+          indexKey: "SP500",
+          constituentKey: `TEST:${randomUUID()}`,
+          origin: "REMOVAL",
+          ticker: symbol,
+          name: "Former Constituent",
+          tickerHistory: [],
+          securityId: security.id,
+          resolution: "RESOLVED",
+          syncId: "test-sync",
+        },
+      });
+      const eligibility = new CanonicalProtectedTierEligibility(() =>
+        loadProtectedTierSecurityIds(prisma),
+      );
+      const routed = (client = new IoredisCacheClient(redis)) =>
+        new RedisStockDataCache(
+          client,
+          1,
+          ns,
+          undefined,
+          {},
+          undefined,
+          eligibility,
+        );
+      const other = await securityWith({
+        prices: {
+          coverage: [
+            {
+              from: subtractYears(TODAY, priceRetentionYears(PRODUCT_YEARS)),
+              to: TODAY,
+            },
+          ],
+        },
+        derivedFrom: "retention",
+        fundamentals: true,
+      });
+      try {
+        await flushNamespace(`${ns}:*`);
+        const rebuilds = rebuildSpy();
+        const writes = vi.spyOn(store, "saveDailyDerivedState");
+        try {
+          // No designation in Redis, no operator command: the read itself routes the security.
+          const served = await serviceOver(routed()).getDailyDerivedState(
+            symbol,
+            range,
+          );
+          expect(JSON.stringify(served)).toBe(JSON.stringify(persisted));
+          expectNoProviderAndNoRebuild(rebuilds, writes);
+        } finally {
+          rebuilds.mockRestore();
+          writes.mockRestore();
+        }
+        const cache = routed();
+        expect(await cache.protectedStocks()).toContain(security.id);
+        expect(await redis.zcard(`${ns}:resident-stocks`)).toBe(0);
+        expect(await chunkBytes(ns)).toEqual(published);
+        for (const key of await namespaceKeys(
+          `${ns}:security:${security.id}:*`,
+        )) {
+          expect(await redis.pttl(key), key).toBe(-1);
+        }
+
+        // A one-slot LRU takes an ordinary security beside it, published from PostgreSQL alone: the
+        // universe security stays where it is.
+        expect(
+          await serviceOver(routed()).publishDurableProjection(other),
+        ).toMatchObject({ status: "PUBLISHED" });
+        expect(await redis.zrange(`${ns}:resident-stocks`, "0", "-1")).toEqual([
+          other.id,
+        ]);
+        await routed().evict(other.id);
+        expect(await chunkBytes(ns)).toEqual(published);
+        const audit = await cache.auditTiers(await eligibility.eligible());
+        expect(audit.violations).toEqual([]);
+        expect(audit.dualResidency).toEqual([]);
+      } finally {
+        await prisma.indexConstituent.delete({ where: { id: constituent.id } });
+        await flushNamespace(`${ns}:*`);
+      }
     });
 
     it("answers a window the history does not reach from the resident chunks, without a repair", async () => {
