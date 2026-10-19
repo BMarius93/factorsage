@@ -43,6 +43,7 @@
     "bench:daily-state-cache": "tsx src/cache-benchmark/daily-state-cache-benchmark.ts",
     "bench:payload-codec": "tsx src/cache-benchmark/payload-codec-benchmark.ts",
     "bench:pit-backtests": "tsx src/backtest-benchmark/pit-backtest-benchmark.ts",
+    "bench:stock-cache-tiers": "tsx src/cache-benchmark/stock-cache-tier-validation.ts",
     "billing:reconcile": "tsx src/reconcile-billing.ts",
     "billing:verify-catalog": "tsx src/verify-stripe-catalog.ts",
     "test:billing:sandbox": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/valuation build && pnpm --filter @intrinsic/testing build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && vitest run src/billing/billing.sandbox.smoke.test.ts",

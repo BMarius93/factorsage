@@ -101,14 +101,43 @@ median daily traded value is required instead); one security per constituent at 
 current member keeps its own symbol). Admission to the catalog goes through
 `CanonicalSecurityCatalogService` (NASDAQ, NYSE and AMEX only).
 
-Outcome over the horizon (1,242 constituents): `RESOLVED` 728, `RESOLVED_PARTIAL` 33 (prices cover
-under 90 % of the membership), `NO_PROVIDER_DATA` 428, `IDENTITY_REJECTED` 22, `NOT_ADMISSIBLE` 31
-(exchange outside the catalog, e.g. CBOE- or OTC-listed, or no listing at all). **734 tradeable
-securities**; 10 overlap conflicts resolved, all recorded.
+Outcome over the horizon (1,242 constituents): `RESOLVED` 731, `RESOLVED_PARTIAL` 33 (prices cover
+under 90 % of the membership), `NO_PROVIDER_DATA` 425, `IDENTITY_REJECTED` 22, `NOT_ADMISSIBLE` 31
+(exchange outside the catalog, e.g. CBOE- or OTC-listed, or no listing at all). **735 tradeable
+securities**; 10 overlap conflicts resolved, all recorded. (734 and 428 before the identity
+corrections of §4.1.)
+
+### §4.1 Identity corrections
+
+A read-only audit of the 428 `NO_PROVIDER_DATA` constituents against every provider endpoint that
+could hold their history (2026-10-19) found three whose prices the provider does hold, under a
+symbol the generic candidates cannot reach; 423 have none anywhere and 2 are another share class
+(Comcast's), which is not substituted. The three are corrected by an explicit, reviewed list
+(`index-membership/corrections.ts`), never by a rule: each correction names **one** constituent —
+matched on ticker, name, origin and the change log's own dates all at once, applied only when
+exactly one constituent matches, and reported when none does — and the one candidate symbol it is
+probed against. The measured checks still decide (prices inside the membership, plausibility, one
+security per member at a time), and a changed correction is re-probed automatically.
+
+| Constituent (log dates)                                        | Symbol                   | Evidence                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Cablevision Systems (2010-12-17 → 2016-06-23), logged as `RMG` | `CVC`                    | `RMG` was RiskMetrics' until 2010 and Romeo Power's from 2020; Cablevision traded as CVC throughout, and CVC's history covers the membership. RMG and its renames are never probed for it                                                                                                              |
+| Dun & Bradstreet (1979-12-27 → 2000-10-02)                     | `MCO`                    | the legal entity that spun off the new D&B on 2000-09-30 and renamed itself Moody's; its history is MCO's, continuous through the spin-off. The spun-off D&B constituent (2008-12-02 → 2017-04-04) is a different company and stays `NO_PROVIDER_DATA`                                                 |
+| Dean Witter Discover (1993-07-12 → 1997-05-30)                 | `MS`                     | the legal survivor of the 1997-05-31 merger with Morgan Stanley Group; MS's history starts at Dean Witter's 1993-02-23 listing and runs unbroken through the merger (17.64 on 1997-05-30, 17.74 at the next open — no 1.65 exchange-ratio jump)                                                        |
+| Morgan Stanley (current, added 1995-09-21)                     | `MS` **from 1997-06-02** | the member was Morgan Stanley Group until the merger; the MS prices before the merged company's first session are Dean Witter's, so this constituent was being given another member's prices for 1995–1997. `IndexConstituent.securityFrom` records the date; the membership before it stays, unpriced |
+
+The last row is what lets the third one resolve at all: without it, Dean Witter's and Morgan
+Stanley Group's memberships both claim MS from 1996 to 1997 and the overlap rule refuses Dean
+Witter. With it, MS is one continuous List member from 1996 — Dean Witter Discover's history to
+1997-06-01, the merged company's from 1997-06-02 — and Moody's is one from 1996 (the old D&B line's
+removal and MCO's deferred start share the 2000-10-02 log date, so that day is kept, §4). Applying
+them cost 12 provider requests to resolve and 27 to ingest Cablevision (3,217 sessions,
+2003-09-10 → 2016-06-20, 183 statements); priced member-days rose in 1996 from 41.9 % to 42.2 %, in
+2012 from 82.1 % to 82.3 % and in 2016 from 91.4 % to 91.5 %. The List went to 735 members.
 
 ## §5 The built-in List and backtests
 
-`pnpm data:index-universe -- project` writes the List: 734 members, 759 buy windows (a security
+`pnpm data:index-universe -- project` writes the List: 735 members, 761 buy windows since §4.1 (a security
 that left and rejoined the index has two). Its `canEdit` is false for every caller, administrators
 included, and every List write refuses it (`SystemContentMaintainedError`); duplicating it gives an
 ordinary List held to ordinary limits.

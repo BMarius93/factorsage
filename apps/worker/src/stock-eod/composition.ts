@@ -25,6 +25,9 @@ import {
   createStockDataRedisClient,
   logPriceBasisEvent,
   type ProviderRequestEvent,
+  canonicalProtectedTierEligibility,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import {
   PrismaMarketDataRefreshScheduleRepository,
@@ -99,7 +102,7 @@ export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime
     provider,
     new RedisStockDataCache(
       new IoredisCacheClient(redis),
-      stockDataConfig.maxResidentStocks,
+      stockDataConfig.lruMaxSecurities,
       STOCK_DATA_CACHE_NAMESPACE,
       DEFAULT_HYDRATION_TTL_MS,
       {
@@ -110,7 +113,11 @@ export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime
         onTouchFailed: ({ securityId, error }) => {
           logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
         },
+        ...stockCacheTierObserver(logger),
       },
+      stockCachePayloadCodecs(),
+      // The tier every admission routes to: the built-in universes from PostgreSQL.
+      canonicalProtectedTierEligibility(prisma, logger),
     ),
     new RedlockLoadCoordinator(redis, {
       lockDurationMs: stockDataConfig.loadLockDurationMs,

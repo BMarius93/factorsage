@@ -14,6 +14,12 @@ import type {
   MappedFmpProfile,
 } from "@intrinsic/fmp";
 import { addDays } from "../dates.js";
+import {
+  matchIdentityCorrections,
+  storedCorrectionId,
+  windowsFrom,
+  type IndexIdentityCorrection,
+} from "./corrections.js";
 import type {
   ConstituentResolutionWrite,
   IndexMembershipStore,
@@ -99,6 +105,11 @@ export type IndexMembershipSyncResult = {
 
 export type IndexResolutionResult = {
   readonly attempted: number;
+  /** Identity corrections applied, by id, and those that matched no single constituent. */
+  readonly corrections: {
+    readonly applied: readonly string[];
+    readonly unmatched: readonly { id: string; matches: number }[];
+  };
   /** Probes the provider failed this run; those constituents stay `PENDING` for the next one. */
   readonly failedProbes: number;
   readonly byResolution: Record<IndexConstituentResolution, number>;
@@ -162,6 +173,8 @@ export class IndexMembershipSyncService {
       readonly onEvent?: (event: IndexMembershipEvent) => void;
       /** Probes run at most this many at once; the provider gate still bounds the requests. */
       readonly probeConcurrency?: number;
+      /** The reviewed identity corrections (`corrections.ts`); replaced only by tests. */
+      readonly identityCorrections?: readonly IndexIdentityCorrection[];
     } = {},
   ) {}
 
@@ -319,8 +332,22 @@ export class IndexMembershipSyncService {
       (constituent) =>
         membershipWithinHorizon(constituent.periods, horizon).length > 0,
     );
+    const corrections = matchIdentityCorrections(
+      indexKey,
+      inScope,
+      this.options.identityCorrections,
+    );
+    const correctionOf = (constituent: StoredIndexConstituent) =>
+      corrections.applied.get(constituent.constituentKey) ?? null;
+    // A constituent whose correction changed — added, edited or withdrawn — is decided again.
+    const correctionChanged = (constituent: StoredIndexConstituent) =>
+      (correctionOf(constituent)?.id ?? null) !==
+      storedCorrectionId(constituent);
     const toProbe = inScope.filter(
-      (constituent) => input.force || constituent.resolution === "PENDING",
+      (constituent) =>
+        input.force ||
+        constituent.resolution === "PENDING" ||
+        correctionChanged(constituent),
     );
 
     const decisions = new Map<string, ConstituentResolutionDecision>();
@@ -330,12 +357,19 @@ export class IndexMembershipSyncService {
       toProbe,
       this.options.probeConcurrency ?? 4,
       async (constituent) => {
-        const stored = storedProbe(constituent);
+        const stored = correctionChanged(constituent)
+          ? null
+          : storedProbe(constituent);
         if (stored && !input.force) {
           decisions.set(constituent.constituentKey, stored);
         } else {
           try {
-            const decision = await this.probeConstituent(constituent, horizon, renames);
+            const decision = await this.probeConstituent(
+              constituent,
+              horizon,
+              renames,
+              correctionOf(constituent),
+            );
             decisions.set(constituent.constituentKey, decision);
             await this.store.saveProbe(indexKey, constituent.constituentKey, decision);
           } catch (error) {
@@ -376,7 +410,13 @@ export class IndexMembershipSyncService {
         constituentKey: constituent.constituentKey,
         current: constituent.origin === "CURRENT",
         symbol,
-        windows: membershipWithinHorizon(constituent.periods, horizon),
+        // Only the days the security's prices are this constituent's can clash with another's.
+        windows: windowsFrom(
+          membershipWithinHorizon(constituent.periods, horizon),
+          decision
+            ? (decision.correction?.securityFrom ?? null)
+            : constituent.securityFrom,
+        ),
         ownTicker: symbol === constituent.ticker,
         nameSimilarity: chosen?.nameSimilarity ?? storedNameSimilarity(constituent),
         coverage: decision?.coverage ?? storedCoverage(constituent),
@@ -385,10 +425,23 @@ export class IndexMembershipSyncService {
     const conflicts = overlappingClaims(claims);
     const refusedByOverlap = new Map(conflicts.map((conflict) => [conflict.refused, conflict]));
 
-    // Admission: every symbol a constituent now resolves to.
+    // Admission: every symbol a constituent was decided to this run, or that has no security yet. A
+    // claim kept from an earlier run keeps the security it was admitted as: re-reading every listing
+    // on every run cost a profile request per resolved symbol, enough to pass the provider's
+    // per-minute allowance on its own.
+    const storedSecurity = new Map(
+      inScope.map((constituent) => [
+        constituent.constituentKey,
+        constituent.securityId,
+      ]),
+    );
+    const keepsSecurity = (claim: ResolvedConstituentClaim) =>
+      !decisions.has(claim.constituentKey) &&
+      (storedSecurity.get(claim.constituentKey) ?? null) !== null;
     const chosenSymbols = new Set(
       claims
         .filter((claim) => !refusedByOverlap.has(claim.constituentKey))
+        .filter((claim) => !keepsSecurity(claim))
         .map((claim) => claim.symbol),
     );
     const listings: IndexUniverseListing[] = [];
@@ -423,13 +476,16 @@ export class IndexMembershipSyncService {
       const conflict = refusedByOverlap.get(constituent.constituentKey);
       let resolution: IndexConstituentResolution = decision?.resolution ?? constituent.resolution;
       let securityId: string | null = null;
+      const correction = decision ? (decision.correction ?? null) : null;
       let reason = decision?.reason ?? null;
       if (conflict) {
         resolution = "IDENTITY_REJECTED";
         reason = `${conflict.symbol} is the history of ${conflict.kept}, a member at the same time (${conflict.overlap.from} to ${conflict.overlap.to}); two simultaneous members cannot share one security`;
       } else if (claim) {
         const outcome = admitted.get(claim.symbol);
-        if (outcome && outcome.securityId !== null) {
+        if (keepsSecurity(claim)) {
+          securityId = constituent.securityId;
+        } else if (outcome && outcome.securityId !== null) {
           securityId = outcome.securityId;
         } else {
           resolution = "NOT_ADMISSIBLE";
@@ -443,9 +499,19 @@ export class IndexMembershipSyncService {
       if (!decision && !conflict && resolution === constituent.resolution && securityId === constituent.securityId) {
         continue;
       }
+      const storedCorrection = decision
+        ? null
+        : ((constituent.resolutionEvidence as { correction?: unknown } | null)
+            ?.correction ?? null);
       writes.push({
         constituentKey: constituent.constituentKey,
         securityId,
+        securityFrom:
+          securityId === null
+            ? null
+            : decision
+              ? (correction?.securityFrom ?? null)
+              : constituent.securityFrom,
         resolution,
         evidence: {
           reason,
@@ -453,6 +519,11 @@ export class IndexMembershipSyncService {
           coverage: decision?.coverage ?? claim?.coverage ?? null,
           candidates: decision?.candidates ?? candidatesOfStored(constituent),
           ...(conflict ? { overlapConflict: conflict } : {}),
+          ...(correction
+            ? { correction }
+            : storedCorrection
+              ? { correction: storedCorrection }
+              : {}),
         },
       });
     }
@@ -464,6 +535,12 @@ export class IndexMembershipSyncService {
     });
     return {
       attempted: toProbe.length,
+      corrections: {
+        applied: [...corrections.applied.values()]
+          .map((correction) => correction.id)
+          .sort(),
+        unmatched: corrections.unmatched,
+      },
       failedProbes,
       byResolution: tally,
       conflicts: conflicts.length,
@@ -475,10 +552,16 @@ export class IndexMembershipSyncService {
     constituent: StoredIndexConstituent,
     horizon: { floor: LocalDate; asOf: LocalDate },
     renames: readonly StoredSymbolChange[],
+    correction: IndexIdentityCorrection | null,
   ): Promise<ConstituentResolutionDecision> {
-    const windows = membershipWithinHorizon(constituent.periods, horizon);
-    const lastDay = windows.at(-1)?.to as LocalDate;
-    const candidates = resolutionCandidates(constituent, lastDay, renames);
+    const membership = membershipWithinHorizon(constituent.periods, horizon);
+    // A correction's symbol is probed only over the days its prices are this constituent's.
+    const windows = windowsFrom(membership, correction?.securityFrom);
+    const lastDay = membership.at(-1)?.to as LocalDate;
+    const candidates = correction
+      ? [correction.symbol]
+      : resolutionCandidates(constituent, lastDay, renames);
+
     const firstPeriod = constituent.periods.find(
       (period) =>
         period.quality !== "END_UNKNOWN" &&
@@ -492,7 +575,8 @@ export class IndexMembershipSyncService {
       ? INDEX_ADDITION_MIN_MARKET_CAP
       : INDEX_LEGACY_MEMBER_MIN_MARKET_CAP;
     const evidence: CandidateEvidence[] = [];
-    for (const symbol of candidates) {
+    // A correction whose prices begin after the whole membership has nothing to probe.
+    for (const symbol of windows.length === 0 ? [] : candidates) {
       const item = await this.probeCandidate(
         symbol,
         constituent.name,
@@ -504,7 +588,20 @@ export class IndexMembershipSyncService {
         break;
       }
     }
-    return decideConstituentResolution(evidence);
+    const decision = decideConstituentResolution(evidence);
+    if (!correction) {
+      return decision;
+    }
+    return {
+      ...decision,
+      reason: `identity correction ${correction.id}: ${decision.reason}`,
+      correction: {
+        id: correction.id,
+        symbol: correction.symbol,
+        securityFrom: correction.securityFrom ?? null,
+        evidence: correction.evidence,
+      },
+    };
   }
 
   private async probeCandidate(

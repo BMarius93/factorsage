@@ -149,15 +149,20 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     PostgreSQL's series write lock (`docs/decisions/etf-market-data-v1.md`). Redis's own
     `maxmemory-policy` must therefore never be an `allkeys-*` policy nobody accepted: readiness
     fails on one, and `REDIS_ACCEPTED_EVICTION_POLICY` is the only, explicit override.
-    The S&P 500 point-in-time universe's securities are the stock cache's **protected tier**
-    (`docs/decisions/protected-stock-tier-v1.md`): the same `stock-data:v2:security:*` keys, named by
-    the designation set `stock-data:v2:protected-stocks`, resident outside the LRU and with no TTL
-    once READY. The designation is derived — reconciled from PostgreSQL by
-    `pnpm data:index-universe -- protect`, and added by every universe backtest from its frozen
-    securities — never authored, and only that universe reaches it. A protected security is
-    published from PostgreSQL alone (`publishDurableProjection`); do not add a second key family,
-    namespace or copy for it, and do not let a user's List designate anything. Financial statements
-    are not projected into Redis at all: statement reads go to PostgreSQL.
+    The stock cache has **two residency tiers over one key family**
+    (`docs/decisions/stock-cache-tiers-v1.md`, `docs/decisions/protected-stock-tier-v1.md`): the
+    **protected tier** — every security a built-in point-in-time universe admits in PostgreSQL,
+    current and former members alike — resident outside the LRU, never a victim, and with no TTL on
+    any key, in flight or READY; and the **LRU tier** for everything else, bounded by
+    `STOCK_LRU_MAX_SECURITIES` distinct securities (a count, never bytes). Every admission routes
+    in its Lua script by the canonical universe each composition root reads from PostgreSQL
+    (`canonicalProtectedTierEligibility`); a process that writes the product's stock cache must
+    pass it, and the Redis designation set `stock-data:v2:protected-stocks` is only its derived
+    record (also reconciled by `pnpm data:index-universe -- protect` and added by every universe
+    backtest). A touch never adds an LRU member. Do not add a second key family, namespace, loader
+    or copy for either tier, do not let a user's List designate anything, and do not turn Redis
+    memory into an admission or eviction criterion. Financial statements are not projected into
+    Redis at all: statement reads go to PostgreSQL.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
     holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
     state — losing one grants allowance rather than destroying anything — so it is keyed by actor,

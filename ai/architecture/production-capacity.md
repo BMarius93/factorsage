@@ -85,8 +85,9 @@ and Redis 7.4.11 in Docker Desktop.
   which keeps it resident in Redis. With `U > R` every session re-materializes the evicted
   securities, as the V1 cycle did every five minutes: 2.4 times the wall and 16 times the Redis
   commands at U = 500, R = 100. It happens once per session now, not once per scan, and 190 s still
-  fits the 4-minute run budget, but sizing `STOCK_CACHE_MAX_RESIDENT_STOCKS` to the monitored
-  universe still matters.
+  fits the 4-minute run budget, but sizing `STOCK_LRU_MAX_SECURITIES` (formerly `STOCK_CACHE_MAX_RESIDENT_STOCKS`) to
+  the monitored universe still matters; S&P 500 point-in-time securities are outside it, in the
+  protected tier (`docs/decisions/stock-cache-tiers-v1.md`).
 
 ### The Monitor pass
 
@@ -179,7 +180,7 @@ costs as an upper bound.
 | shared-50 | 50 | 100 | 10,000 | 1.9–3.5 s | 1.3–2.0 s | 2.3–4.3 k | ~24 k | 453 | 2.6 MB | 269–285 MB |
 | stress, R=100 | 1,000 | 200 | 10,000 | **379 s** (over the 300 s cadence) | 648 s | 19 k | **6.1 M** | **8.8 M** | 231 MB | 1,050 MB |
 
-`R` is `STOCK_CACHE_MAX_RESIDENT_STOCKS`. The two `growing` rows differ **only** in `R`; the
+`R` is `STOCK_LRU_MAX_SECURITIES` (then `STOCK_CACHE_MAX_RESIDENT_STOCKS`). The two `growing` rows differ **only** in `R`; the
 tenfold cost is the resident bound, not the workload.
 
 ### Cold start
@@ -395,7 +396,7 @@ supervisor heartbeat.
 
 | Limit | Protects | Evidence | Kind | When |
 | --- | --- | --- | --- | --- |
-| **`STOCK_CACHE_MAX_RESIDENT_STOCKS` ≥ the monitored universe + the securities of the backtests that may run at once + the API's working set** (operational, not user-facing), with `maxmemory` sized to it | the stock EOD child's run time and Redis write volume (once per session since EOD V2); backtest year-window reads | EOD V2: 190 s vs 80 s and 4.38 M vs 267 k Redis commands per session at U = 500; V1 boundary table; **3.8–4.0 MiB per resident security at 34 years with statements and the r8 derived state** (measured 2026-10-16; the earlier ~2 MB predates them); sizing rule and a 2/4/8 GB table in `docs/audits/stock-data-concurrency-2026-10-16.md` §7 | hard (configuration) | before production |
+| **`STOCK_LRU_MAX_SECURITIES` ≥ the monitored universe + the securities of the backtests that may run at once + the API's working set, outside the S&P 500 point-in-time universe** (operational, not user-facing; a count of securities, never bytes; the universe is the protected tier, ~0.55 GB, beside it — `docs/decisions/stock-cache-tiers-v1.md`), with `maxmemory` sized to both | the stock EOD child's run time and Redis write volume (once per session since EOD V2); backtest year-window reads | EOD V2: 190 s vs 80 s and 4.38 M vs 267 k Redis commands per session at U = 500; V1 boundary table; **3.8–4.0 MiB per resident security at 34 years with statements and the r8 derived state** (measured 2026-10-16; the earlier ~2 MB predates them); sizing rule and a 2/4/8 GB table in `docs/audits/stock-data-concurrency-2026-10-16.md` §7 | hard (configuration) | before production |
 | Securities per List: none needed for V1 with the above | — | 500-security Lists were fine at R ≥ U | — | postpone |
 | Total distinct securities monitored per deployment: budget `R` and Redis memory for it | Redis memory, provider budget (about 2 requests each per session) | EOD V2 measurements; ~2 MB Redis per security | soft (capacity plan) | before production |
 | Enabled Monitors per user | nothing measurable; a pass costs per member and new session (~1.7 ms each at 9,000 members) | EOD V2 growing | none | not justified |

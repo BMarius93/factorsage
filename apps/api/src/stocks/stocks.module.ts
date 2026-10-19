@@ -37,6 +37,9 @@ import {
   type StockDataCache,
   type StockDataStore,
   type StockDetailsDataService,
+  canonicalProtectedTierEligibility,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import {
   Inject,
@@ -161,14 +164,15 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
     },
     {
       provide: STOCK_DATA_CACHE,
-      inject: [STOCK_DATA_REDIS, STOCK_DATA_LOGGER],
+      inject: [STOCK_DATA_REDIS, STOCK_DATA_LOGGER, PrismaService],
       useFactory: (
         redis: StockDataRedisClient,
         logger: StructuredLogger,
+        prisma: PrismaService,
       ): StockDataCache =>
         new RedisStockDataCache(
           new IoredisCacheClient(redis),
-          getStockDataConfig().maxResidentStocks,
+          getStockDataConfig().lruMaxSecurities,
           STOCK_DATA_CACHE_NAMESPACE,
           DEFAULT_HYDRATION_TTL_MS,
           {
@@ -187,7 +191,11 @@ class RedisEvictionPolicyReporter implements OnApplicationBootstrap {
                 err: error,
               });
             },
+            ...stockCacheTierObserver(logger),
           },
+          stockCachePayloadCodecs(),
+          // The tier every admission routes to: the built-in universes from PostgreSQL.
+          canonicalProtectedTierEligibility(prisma, logger),
         ),
     },
     {

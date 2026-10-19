@@ -21,6 +21,11 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   logPriceBasisEvent,
+  canonicalProtectedTierEligibility,
+  DEFAULT_HYDRATION_TTL_MS,
+  STOCK_DATA_CACHE_NAMESPACE,
+  stockCachePayloadCodecs,
+  stockCacheTierObserver,
 } from "@intrinsic/stock-data";
 import { QA_MATRIX_SECURITIES } from "@intrinsic/testing";
 
@@ -256,7 +261,13 @@ async function resync(): Promise<void> {
     }),
     new RedisStockDataCache(
       new IoredisCacheClient(redis),
-      stockData.maxResidentStocks,
+      stockData.lruMaxSecurities,
+      STOCK_DATA_CACHE_NAMESPACE,
+      DEFAULT_HYDRATION_TTL_MS,
+      stockCacheTierObserver(logger),
+      stockCachePayloadCodecs(),
+      // The tier every admission routes to: the built-in universes from PostgreSQL.
+      canonicalProtectedTierEligibility(prisma, logger),
     ),
     new RedlockLoadCoordinator(redis, {
       lockDurationMs: stockData.loadLockDurationMs,
