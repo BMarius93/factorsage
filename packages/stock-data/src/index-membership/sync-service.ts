@@ -76,11 +76,7 @@ export type IndexUniverseListing = {
 
 export type AdmissionOutcome =
   | { readonly symbol: string; readonly securityId: string }
-  | {
-      readonly symbol: string;
-      readonly securityId: null;
-      readonly reason: string;
-    };
+  | { readonly symbol: string; readonly securityId: null; readonly reason: string };
 
 /**
  * Admits the chosen symbols to the catalog through the one catalog writer, returning each symbol's
@@ -92,37 +88,11 @@ export type IndexUniverseAdmitter = (
 ) => Promise<readonly AdmissionOutcome[]>;
 
 export type IndexMembershipEvent =
-  | {
-      event: "index.sync.source";
-      indexKey: MarketIndexKey;
-      changes: number;
-      renames: number;
-      current: number;
-      dropped: Record<string, number>;
-    }
-  | {
-      event: "index.sync.reconstructed";
-      indexKey: MarketIndexKey;
-      constituents: number;
-      anomalies: number;
-    }
-  | {
-      event: "index.resolve.progress";
-      indexKey: MarketIndexKey;
-      done: number;
-      total: number;
-    }
-  | {
-      event: "index.resolve.completed";
-      indexKey: MarketIndexKey;
-      byResolution: Record<string, number>;
-    }
-  | {
-      event: "index.resolve.probe-failed";
-      indexKey: MarketIndexKey;
-      constituentKey: string;
-      error: string;
-    };
+  | { event: "index.sync.source"; indexKey: MarketIndexKey; changes: number; renames: number; current: number; dropped: Record<string, number> }
+  | { event: "index.sync.reconstructed"; indexKey: MarketIndexKey; constituents: number; anomalies: number }
+  | { event: "index.resolve.progress"; indexKey: MarketIndexKey; done: number; total: number }
+  | { event: "index.resolve.completed"; indexKey: MarketIndexKey; byResolution: Record<string, number> }
+  | { event: "index.resolve.probe-failed"; indexKey: MarketIndexKey; constituentKey: string; error: string };
 
 export type IndexMembershipSyncResult = {
   readonly syncId: string;
@@ -130,9 +100,7 @@ export type IndexMembershipSyncResult = {
   readonly constituents: number;
   readonly anomalies: readonly ReconstructionAnomaly[];
   readonly quality: MembershipQualityReport;
-  readonly replaced: Awaited<
-    ReturnType<IndexMembershipStore["replaceConstituents"]>
-  >;
+  readonly replaced: Awaited<ReturnType<IndexMembershipStore["replaceConstituents"]>>;
 };
 
 export type IndexResolutionResult = {
@@ -181,10 +149,7 @@ export function symbolChangeContentHash(row: {
 }
 
 function digest(value: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(value))
-    .digest("hex")
-    .slice(0, 32);
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
 }
 
 /**
@@ -198,8 +163,7 @@ function digest(value: unknown): string {
  * provider only for constituents not already resolved under the same membership.
  */
 export class IndexMembershipSyncService {
-  private delisted:
-    Promise<Map<string, MappedFmpDelistedCompany[]>> | undefined;
+  private delisted: Promise<Map<string, MappedFmpDelistedCompany[]>> | undefined;
 
   constructor(
     private readonly store: IndexMembershipStore,
@@ -250,17 +214,11 @@ export class IndexMembershipSyncService {
       });
       await this.store.recordIndexChanges(
         indexKey,
-        changes.rows.map((row) => ({
-          ...row,
-          contentHash: indexChangeContentHash(row),
-        })),
+        changes.rows.map((row) => ({ ...row, contentHash: indexChangeContentHash(row) })),
         seenAt,
       );
       await this.store.recordSymbolChanges(
-        renames.rows.map((row) => ({
-          ...row,
-          contentHash: symbolChangeContentHash(row),
-        })),
+        renames.rows.map((row) => ({ ...row, contentHash: symbolChangeContentHash(row) })),
         seenAt,
       );
 
@@ -334,10 +292,7 @@ export class IndexMembershipSyncService {
             // Applied additions by how their start was placed: refined or confirmed by the
             // current list, or deferred to the day after an unconfirmed log date.
             additionStarts: result.additionStarts,
-            anomaliesByKind: countBy(
-              result.anomalies,
-              (anomaly) => anomaly.kind,
-            ),
+            anomaliesByKind: countBy(result.anomalies, (anomaly) => anomaly.kind),
             anomalies: result.anomalies,
           },
           quality,
@@ -355,9 +310,7 @@ export class IndexMembershipSyncService {
     } catch (error) {
       await this.store.failSync(
         syncId,
-        error instanceof Error
-          ? `${error.name}: ${error.message}`
-          : String(error),
+        error instanceof Error ? `${error.name}: ${error.message}` : String(error),
       );
       throw error;
     }
@@ -418,11 +371,7 @@ export class IndexMembershipSyncService {
               correctionOf(constituent),
             );
             decisions.set(constituent.constituentKey, decision);
-            await this.store.saveProbe(
-              indexKey,
-              constituent.constituentKey,
-              decision,
-            );
+            await this.store.saveProbe(indexKey, constituent.constituentKey, decision);
           } catch (error) {
             // Left PENDING with no decision: the next resolution probes it again. One provider
             // failure must not cost the probes every other constituent already paid for.
@@ -431,10 +380,7 @@ export class IndexMembershipSyncService {
               event: "index.resolve.probe-failed",
               indexKey,
               constituentKey: constituent.constituentKey,
-              error:
-                error instanceof Error
-                  ? `${error.name}: ${error.message}`
-                  : String(error),
+              error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
             });
           }
         }
@@ -455,18 +401,11 @@ export class IndexMembershipSyncService {
     for (const constituent of inScope) {
       const decision = decisions.get(constituent.constituentKey);
       const symbol = decision ? decision.symbol : symbolOfStored(constituent);
-      const resolution = decision
-        ? decision.resolution
-        : constituent.resolution;
-      if (
-        symbol === null ||
-        (resolution !== "RESOLVED" && resolution !== "RESOLVED_PARTIAL")
-      ) {
+      const resolution = decision ? decision.resolution : constituent.resolution;
+      if (symbol === null || (resolution !== "RESOLVED" && resolution !== "RESOLVED_PARTIAL")) {
         continue;
       }
-      const chosen = decision?.candidates.find(
-        (candidate) => candidate.symbol === symbol,
-      );
+      const chosen = decision?.candidates.find((candidate) => candidate.symbol === symbol);
       claims.push({
         constituentKey: constituent.constituentKey,
         current: constituent.origin === "CURRENT",
@@ -479,15 +418,12 @@ export class IndexMembershipSyncService {
             : constituent.securityFrom,
         ),
         ownTicker: symbol === constituent.ticker,
-        nameSimilarity:
-          chosen?.nameSimilarity ?? storedNameSimilarity(constituent),
+        nameSimilarity: chosen?.nameSimilarity ?? storedNameSimilarity(constituent),
         coverage: decision?.coverage ?? storedCoverage(constituent),
       });
     }
     const conflicts = overlappingClaims(claims);
-    const refusedByOverlap = new Map(
-      conflicts.map((conflict) => [conflict.refused, conflict]),
-    );
+    const refusedByOverlap = new Map(conflicts.map((conflict) => [conflict.refused, conflict]));
 
     // Admission: every symbol a constituent was decided to this run, or that has no security yet. A
     // claim kept from an earlier run keeps the security it was admitted as: re-reading every listing
@@ -515,10 +451,7 @@ export class IndexMembershipSyncService {
       if (listing) {
         listings.push(listing);
       } else {
-        unlisted.set(
-          symbol,
-          "the provider has neither a profile nor a delisted listing for it",
-        );
+        unlisted.set(symbol, "the provider has neither a profile nor a delisted listing for it");
       }
     }
     const admitted = new Map<string, AdmissionOutcome>();
@@ -528,16 +461,9 @@ export class IndexMembershipSyncService {
 
     const writes: ConstituentResolutionWrite[] = [];
     const tally = Object.fromEntries(
-      (
-        [
-          "RESOLVED",
-          "RESOLVED_PARTIAL",
-          "NO_PROVIDER_DATA",
-          "IDENTITY_REJECTED",
-          "NOT_ADMISSIBLE",
-          "PENDING",
-        ] as const
-      ).map((resolution) => [resolution, 0]),
+      (["RESOLVED", "RESOLVED_PARTIAL", "NO_PROVIDER_DATA", "IDENTITY_REJECTED", "NOT_ADMISSIBLE", "PENDING"] as const).map(
+        (resolution) => [resolution, 0],
+      ),
     ) as Record<IndexConstituentResolution, number>;
     for (const constituent of inScope) {
       const decision = decisions.get(constituent.constituentKey);
@@ -546,12 +472,9 @@ export class IndexMembershipSyncService {
         tally.PENDING += 1;
         continue;
       }
-      const claim = claims.find(
-        (entry) => entry.constituentKey === constituent.constituentKey,
-      );
+      const claim = claims.find((entry) => entry.constituentKey === constituent.constituentKey);
       const conflict = refusedByOverlap.get(constituent.constituentKey);
-      let resolution: IndexConstituentResolution =
-        decision?.resolution ?? constituent.resolution;
+      let resolution: IndexConstituentResolution = decision?.resolution ?? constituent.resolution;
       let securityId: string | null = null;
       const correction = decision ? (decision.correction ?? null) : null;
       let reason = decision?.reason ?? null;
@@ -573,12 +496,7 @@ export class IndexMembershipSyncService {
         }
       }
       tally[resolution] += 1;
-      if (
-        !decision &&
-        !conflict &&
-        resolution === constituent.resolution &&
-        securityId === constituent.securityId
-      ) {
+      if (!decision && !conflict && resolution === constituent.resolution && securityId === constituent.securityId) {
         continue;
       }
       const storedCorrection = decision
@@ -626,9 +544,7 @@ export class IndexMembershipSyncService {
       failedProbes,
       byResolution: tally,
       conflicts: conflicts.length,
-      admitted: [...admitted.values()].filter(
-        (outcome) => outcome.securityId !== null,
-      ).length,
+      admitted: [...admitted.values()].filter((outcome) => outcome.securityId !== null).length,
     };
   }
 
@@ -698,11 +614,7 @@ export class IndexMembershipSyncService {
       from: windows[0]?.from as LocalDate,
       to: windows.at(-1)?.to as LocalDate,
     };
-    const prices = await this.provider.getDailyPrices(
-      symbol,
-      PROBE_SECURITY_ID,
-      range,
-    );
+    const prices = await this.provider.getDailyPrices(symbol, PROBE_SECURITY_ID, range);
     const sessions = sessionsWithin(
       prices.map((row) => row.date).sort(),
       windows,
@@ -751,10 +663,7 @@ export class IndexMembershipSyncService {
     };
   }
 
-  private readonly listingCache = new Map<
-    string,
-    Promise<IndexUniverseListing | null>
-  >();
+  private readonly listingCache = new Map<string, Promise<IndexUniverseListing | null>>();
 
   /** The candidate's listing: its profile, or else the delisted directory's row for it. */
   private listingOf(symbol: string): Promise<IndexUniverseListing | null> {
@@ -766,9 +675,7 @@ export class IndexMembershipSyncService {
     return pending;
   }
 
-  private async readListing(
-    symbol: string,
-  ): Promise<IndexUniverseListing | null> {
+  private async readListing(symbol: string): Promise<IndexUniverseListing | null> {
     const profile = await this.provider.getProfile(symbol);
     if (profile && profile.providerSymbol === symbol) {
       return {
@@ -802,9 +709,7 @@ export class IndexMembershipSyncService {
   }
 
   /** The delisted directory, read once per service: concurrent probes share the one read. */
-  private delistedDirectory(): Promise<
-    Map<string, MappedFmpDelistedCompany[]>
-  > {
+  private delistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
     this.delisted ??= this.readDelistedDirectory().catch((error: unknown) => {
       // A failed read is not remembered: the next listing that needs it asks again.
       this.delisted = undefined;
@@ -813,13 +718,10 @@ export class IndexMembershipSyncService {
     return this.delisted;
   }
 
-  private async readDelistedDirectory(): Promise<
-    Map<string, MappedFmpDelistedCompany[]>
-  > {
+  private async readDelistedDirectory(): Promise<Map<string, MappedFmpDelistedCompany[]>> {
     const directory = new Map<string, MappedFmpDelistedCompany[]>();
     for (let page = 0; page < DELISTED_DIRECTORY_MAX_PAGES; page += 1) {
-      const { providerRowCount, rows } =
-        await this.provider.getDelistedCompanies(page);
+      const { providerRowCount, rows } = await this.provider.getDelistedCompanies(page);
       for (const row of rows) {
         directory.set(row.symbol, [...(directory.get(row.symbol) ?? []), row]);
       }
@@ -844,31 +746,23 @@ function storedProbe(
   }
   const evidence = constituent.resolutionEvidence as { probe?: unknown } | null;
   const probe = evidence?.probe as ConstituentResolutionDecision | undefined;
-  return probe &&
-    typeof probe.resolution === "string" &&
-    Array.isArray(probe.candidates)
+  return probe && typeof probe.resolution === "string" && Array.isArray(probe.candidates)
     ? probe
     : null;
 }
 
 function symbolOfStored(constituent: StoredIndexConstituent): string | null {
-  const evidence = constituent.resolutionEvidence as {
-    symbol?: unknown;
-  } | null;
+  const evidence = constituent.resolutionEvidence as { symbol?: unknown } | null;
   return typeof evidence?.symbol === "string" ? evidence.symbol : null;
 }
 
 function storedCoverage(constituent: StoredIndexConstituent): number {
-  const evidence = constituent.resolutionEvidence as {
-    coverage?: unknown;
-  } | null;
+  const evidence = constituent.resolutionEvidence as { coverage?: unknown } | null;
   return typeof evidence?.coverage === "number" ? evidence.coverage : 0;
 }
 
 function candidatesOfStored(constituent: StoredIndexConstituent): unknown {
-  const evidence = constituent.resolutionEvidence as {
-    candidates?: unknown;
-  } | null;
+  const evidence = constituent.resolutionEvidence as { candidates?: unknown } | null;
   return evidence?.candidates ?? [];
 }
 
@@ -884,10 +778,7 @@ function storedNameSimilarity(constituent: StoredIndexConstituent): number {
   return typeof chosen?.nameSimilarity === "number" ? chosen.nameSimilarity : 0;
 }
 
-function countBy<T>(
-  rows: readonly T[],
-  key: (row: T) => string,
-): Record<string, number> {
+function countBy<T>(rows: readonly T[], key: (row: T) => string): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const row of rows) {
     const value = key(row);

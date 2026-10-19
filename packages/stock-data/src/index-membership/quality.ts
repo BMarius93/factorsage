@@ -4,10 +4,7 @@ import {
   type LocalDate,
 } from "@intrinsic/domain";
 import { addDays } from "../dates.js";
-import type {
-  StoredIndexConstituent,
-  StoredMembershipPeriod,
-} from "./ports.js";
+import type { StoredIndexConstituent, StoredMembershipPeriod } from "./ports.js";
 
 /**
  * How well a reconstruction agrees with what is known about the index, and the List it projects.
@@ -279,8 +276,7 @@ export function projectIndexList(
         ? period.startLogDate
         : null;
     const start =
-      deferredFrom !== null &&
-      removalLogDates.get(securityId)?.has(deferredFrom)
+      deferredFrom !== null && removalLogDates.get(securityId)?.has(deferredFrom)
         ? deferredFrom
         : period.startDate;
     const clipped =

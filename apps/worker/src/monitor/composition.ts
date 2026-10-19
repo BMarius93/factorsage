@@ -13,29 +13,29 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
-  CanonicalBenchmarkDataService,
-  canonicalProtectedTierEligibility,
-  CanonicalStockDataService,
-  createStockDataRedisClient,
-  DEFAULT_HYDRATION_TTL_MS,
   EodFinalityPolicy,
-  IoredisCacheClient,
-  logBenchmarkCacheEvent,
-  logPriceBasisEvent,
-  logUnreadableBenchmarkChunk,
-  MARKET_DATA_CALENDAR_EXCHANGE,
-  PrismaAlternativeDataStore,
+  CanonicalBenchmarkDataService,
+  CanonicalStockDataService,
   PrismaBenchmarkDataStore,
-  PrismaStockDataStore,
-  type ProviderRequestEvent,
   RedisBenchmarkDataCache,
+  logBenchmarkCacheEvent,
+  logUnreadableBenchmarkChunk,
+  PrismaAlternativeDataStore,
+  IoredisCacheClient,
+  PrismaStockDataStore,
   RedisFmpRequestGate,
   RedisStockDataCache,
-  RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  DEFAULT_HYDRATION_TTL_MS,
+  RedlockLoadCoordinator,
+  createStockDataRedisClient,
+  logPriceBasisEvent,
+  MARKET_DATA_CALENDAR_EXCHANGE,
+  type ProviderRequestEvent,
+  type TradingCalendar,
+  canonicalProtectedTierEligibility,
   stockCachePayloadCodecs,
   stockCacheTierObserver,
-  type TradingCalendar,
 } from "@intrinsic/stock-data";
 import type {
   MonitorEtfContexts,
@@ -104,10 +104,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
       freshnessMs: alternativeDataConfig.freshnessMs,
       maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
       onProviderRequest: (request) => {
-        logger.debug({
-          event: "alternative-data.provider.request",
-          ...request,
-        });
+        logger.debug({ event: "alternative-data.provider.request", ...request });
       },
     },
   );
@@ -137,11 +134,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
         },
         // The read was served; only its LRU recency was lost (a Redis refusing writes).
         onTouchFailed: ({ securityId, error }) => {
-          logger.warn({
-            event: "stock-data.cache.touch-failed",
-            securityId,
-            err: error,
-          });
+          logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
         },
         ...stockCacheTierObserver(logger),
       },

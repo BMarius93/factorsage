@@ -13,7 +13,6 @@ import type { StructuredLogger as Logger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
-  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
   createStockDataRedisClient,
   DEFAULT_HYDRATION_TTL_MS,
@@ -28,6 +27,7 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  canonicalProtectedTierEligibility,
   stockCachePayloadCodecs,
   stockCacheTierObserver,
 } from "@intrinsic/stock-data";

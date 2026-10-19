@@ -12,7 +12,6 @@ import { FmpClient, FmpSecurityScope } from "@intrinsic/fmp";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CanonicalAlternativeDataService,
-  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
   createStockDataRedisClient,
   DEFAULT_HYDRATION_TTL_MS,
@@ -25,6 +24,7 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  canonicalProtectedTierEligibility,
   stockCachePayloadCodecs,
   stockCacheTierObserver,
 } from "@intrinsic/stock-data";

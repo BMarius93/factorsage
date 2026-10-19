@@ -13,29 +13,29 @@ import { PrismaClient } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { FmpClient } from "@intrinsic/fmp";
 import {
-  CachedTradingCalendar,
   CanonicalAlternativeDataService,
   CanonicalBenchmarkDataService,
-  canonicalProtectedTierEligibility,
+  CachedTradingCalendar,
   CanonicalStockDataService,
-  createStockDataRedisClient,
-  DEFAULT_HYDRATION_TTL_MS,
-  EodFinalityPolicy,
-  inspectRedisEvictionPolicy,
-  IoredisCacheClient,
-  logBenchmarkCacheEvent,
-  logPriceBasisEvent,
-  logUnreadableBenchmarkChunk,
-  MARKET_DATA_CALENDAR_EXCHANGE,
   PrismaAlternativeDataStore,
+  IoredisCacheClient,
   PrismaBenchmarkDataStore,
   PrismaStockDataStore,
-  type ProviderRequestEvent,
   RedisBenchmarkDataCache,
   RedisFmpRequestGate,
   RedisStockDataCache,
-  RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  DEFAULT_HYDRATION_TTL_MS,
+  RedlockLoadCoordinator,
+  createStockDataRedisClient,
+  logBenchmarkCacheEvent,
+  logPriceBasisEvent,
+  logUnreadableBenchmarkChunk,
+  EodFinalityPolicy,
+  MARKET_DATA_CALENDAR_EXCHANGE,
+  type ProviderRequestEvent,
+  canonicalProtectedTierEligibility,
+  inspectRedisEvictionPolicy,
   stockCachePayloadCodecs,
   stockCacheTierObserver,
 } from "@intrinsic/stock-data";
@@ -182,11 +182,7 @@ export function createBacktestRuntime(
       },
       // The read was served; only its LRU recency was lost (a Redis refusing writes).
       onTouchFailed: ({ securityId, error }) => {
-        logger.warn({
-          event: "stock-data.cache.touch-failed",
-          securityId,
-          err: error,
-        });
+        logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
       },
       ...stockCacheTierObserver(logger),
     },

@@ -546,13 +546,10 @@ describe("EOD finality configuration", () => {
 
   it("bounds the late-recovery horizon to the window the recent tail read still covers", () => {
     expect(
-      getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: "259200000" })
-        .lateRecoveryMs,
+      getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: "259200000" }).lateRecoveryMs,
     ).toBe(3 * 24 * 60 * 60_000);
     expect(() =>
-      getEodFinalityConfig({
-        EOD_LATE_RECOVERY_MS: String(7 * 24 * 60 * 60_000),
-      }),
+      getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: String(7 * 24 * 60 * 60_000) }),
     ).toThrow(/EOD_LATE_RECOVERY_MS/);
     expect(() => getEodFinalityConfig({ EOD_LATE_RECOVERY_MS: "0" })).toThrow(
       /EOD_LATE_RECOVERY_MS/,
@@ -560,9 +557,9 @@ describe("EOD finality configuration", () => {
   });
 
   it("freezes stored tails only when asked by name, and refuses anything else", () => {
-    expect(
-      getEodFinalityConfig({ EOD_TAIL_REFRESH: "frozen" }).frozenTails,
-    ).toBe(true);
+    expect(getEodFinalityConfig({ EOD_TAIL_REFRESH: "frozen" }).frozenTails).toBe(
+      true,
+    );
     expect(
       getEodFinalityConfig({ EOD_TAIL_REFRESH: "scheduled" }).frozenTails,
     ).toBe(false);

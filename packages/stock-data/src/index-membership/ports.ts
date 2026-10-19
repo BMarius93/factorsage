@@ -108,10 +108,7 @@ export interface IndexMembershipStore {
   /** Every rename the newest source listed. */
   loadSymbolChanges(): Promise<StoredSymbolChange[]>;
 
-  startSync(
-    indexKey: MarketIndexKey,
-    algorithmVersion: number,
-  ): Promise<string>;
+  startSync(indexKey: MarketIndexKey, algorithmVersion: number): Promise<string>;
   completeSync(
     syncId: string,
     result: {
@@ -125,11 +122,7 @@ export interface IndexMembershipStore {
     indexKey: MarketIndexKey,
   ): Promise<IndexMembershipSyncRecord | null>;
   /** Merges a later summary section (resolution, projection) into a completed sync's summary. */
-  amendSyncSummary(
-    syncId: string,
-    section: string,
-    value: unknown,
-  ): Promise<void>;
+  amendSyncSummary(syncId: string, section: string, value: unknown): Promise<void>;
 
   /**
    * Makes the stored constituents exactly `constituents`, in one transaction. A constituent whose
@@ -152,9 +145,5 @@ export interface IndexMembershipStore {
    * resumes without asking the provider again. Discarded with the rest of the evidence when the
    * constituent's membership changes.
    */
-  saveProbe(
-    indexKey: MarketIndexKey,
-    constituentKey: string,
-    probe: unknown,
-  ): Promise<void>;
+  saveProbe(indexKey: MarketIndexKey, constituentKey: string, probe: unknown): Promise<void>;
 }

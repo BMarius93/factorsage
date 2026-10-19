@@ -134,13 +134,21 @@ async function protectedDigest(
     hash.update(`${id}\n${manifest}\n${registered.join(",")}\n`);
   }
   const bytes = createHash("sha256");
+  // Price and daily-state chunks only: a manifest records when it was published, so a rebuild
+  // changes it while every chunk must come back byte for byte.
+  const chunks = createHash("sha256");
   for (const id of sample) {
     for (const key of (
       await runtime.redis.smembers(`${ns}:security:${id}:keys`)
     ).sort()) {
       if ((await runtime.redis.type(key)) === "string") {
+        const value = (await runtime.redis.getBuffer(key)) ?? Buffer.alloc(0);
         bytes.update(key);
-        bytes.update((await runtime.redis.getBuffer(key)) ?? Buffer.alloc(0));
+        bytes.update(value);
+        if (/:(prices:1D|daily-state:v\d+):\d{4}$/.test(key)) {
+          chunks.update(key);
+          chunks.update(value);
+        }
       }
     }
   }
@@ -149,6 +157,7 @@ async function protectedDigest(
     registeredKeys: keys,
     manifestsAndRegistries: hash.digest("hex"),
     sampleChunkBytes: bytes.digest("hex"),
+    sampleChunksOnly: chunks.digest("hex"),
   };
 }
 

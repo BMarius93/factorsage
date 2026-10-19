@@ -12,20 +12,20 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import {
   CachedTradingCalendar,
   CanonicalAlternativeDataService,
-  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
-  createStockDataRedisClient,
   DEFAULT_HYDRATION_TTL_MS,
   EodFinalityPolicy,
   IoredisCacheClient,
-  logPriceBasisEvent,
   PrismaAlternativeDataStore,
   PrismaStockDataStore,
-  type ProviderRequestEvent,
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
   STOCK_DATA_CACHE_NAMESPACE,
+  createStockDataRedisClient,
+  logPriceBasisEvent,
+  type ProviderRequestEvent,
+  canonicalProtectedTierEligibility,
   stockCachePayloadCodecs,
   stockCacheTierObserver,
 } from "@intrinsic/stock-data";
@@ -54,9 +54,7 @@ export type StockEodRuntime = {
  * page read hydrating the same stock, spends the one provider budget, and agrees with every reader on
  * which session is the newest final one. It owns no second cache and no second loader.
  */
-export function createStockEodRuntime(
-  logger: StructuredLogger,
-): StockEodRuntime {
+export function createStockEodRuntime(logger: StructuredLogger): StockEodRuntime {
   const stockDataConfig = getStockDataConfig();
   const fmpTraffic = getFmpTrafficConfig();
   const alternativeDataConfig = getAlternativeDataConfig();
@@ -90,10 +88,7 @@ export function createStockEodRuntime(
       maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
       onProviderRequest: (request) => {
         providerRequests += 1;
-        logger.debug({
-          event: "alternative-data.provider.request",
-          ...request,
-        });
+        logger.debug({ event: "alternative-data.provider.request", ...request });
       },
     },
   );
@@ -116,11 +111,7 @@ export function createStockEodRuntime(
         },
         // The read was served; only its LRU recency was lost (a Redis refusing writes).
         onTouchFailed: ({ securityId, error }) => {
-          logger.warn({
-            event: "stock-data.cache.touch-failed",
-            securityId,
-            err: error,
-          });
+          logger.warn({ event: "stock-data.cache.touch-failed", securityId, err: error });
         },
         ...stockCacheTierObserver(logger),
       },

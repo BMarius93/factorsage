@@ -13,16 +13,16 @@ import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import { createLogger } from "@intrinsic/observability";
 import {
-  canonicalProtectedTierEligibility,
   CanonicalStockDataService,
   createStockDataRedisClient,
-  DEFAULT_HYDRATION_TTL_MS,
   IoredisCacheClient,
-  logPriceBasisEvent,
   PrismaStockDataStore,
   RedisFmpRequestGate,
   RedisStockDataCache,
   RedlockLoadCoordinator,
+  logPriceBasisEvent,
+  canonicalProtectedTierEligibility,
+  DEFAULT_HYDRATION_TTL_MS,
   STOCK_DATA_CACHE_NAMESPACE,
   stockCachePayloadCodecs,
   stockCacheTierObserver,
@@ -114,9 +114,7 @@ export function parseResyncArguments(
   }
 
   if (symbols.length === 0) {
-    throw new Error(
-      "Nothing to resync: pass --matrix or at least one --symbol",
-    );
+    throw new Error("Nothing to resync: pass --matrix or at least one --symbol");
   }
   if (!from || !LOCAL_DATE.test(from)) {
     throw new Error("--from is required and must be YYYY-MM-DD");

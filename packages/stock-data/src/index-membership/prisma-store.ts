@@ -203,9 +203,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
     );
   }
 
-  async loadIndexChanges(
-    indexKey: MarketIndexKey,
-  ): Promise<StoredIndexChange[]> {
+  async loadIndexChanges(indexKey: MarketIndexKey): Promise<StoredIndexChange[]> {
     const rows = await this.prisma.indexConstituentChange.findMany({
       where: { indexKey: indexKeyOf(indexKey), inLatestSource: true },
       orderBy: [{ effectiveDate: "asc" }, { contentHash: "asc" }],
@@ -250,11 +248,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
 
   async completeSync(
     syncId: string,
-    result: {
-      sourceDigest: string;
-      currentConstituents: unknown;
-      summary: unknown;
-    },
+    result: { sourceDigest: string; currentConstituents: unknown; summary: unknown },
   ): Promise<void> {
     await this.prisma.indexMembershipSync.update({
       where: { id: syncId },
@@ -262,8 +256,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
         status: IndexMembershipSyncStatus.COMPLETED,
         completedAt: new Date(),
         sourceDigest: result.sourceDigest,
-        currentConstituents:
-          result.currentConstituents as Prisma.InputJsonValue,
+        currentConstituents: result.currentConstituents as Prisma.InputJsonValue,
         summary: result.summary as Prisma.InputJsonValue,
       },
     });
@@ -312,9 +305,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
         select: { summary: true },
       });
       const summary =
-        row.summary &&
-        typeof row.summary === "object" &&
-        !Array.isArray(row.summary)
+        row.summary && typeof row.summary === "object" && !Array.isArray(row.summary)
           ? (row.summary as Record<string, unknown>)
           : {};
       await tx.indexMembershipSync.update({
@@ -355,8 +346,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
               ticker: constituent.ticker,
               name: constituent.name,
               cik: constituent.cik,
-              tickerHistory:
-                constituent.tickerHistory as unknown as Prisma.InputJsonValue,
+              tickerHistory: constituent.tickerHistory as unknown as Prisma.InputJsonValue,
               syncId,
             })),
           });
@@ -382,11 +372,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
             unchanged += 1;
             await tx.indexConstituent.update({
               where: { id: previous.id },
-              data: {
-                syncId,
-                origin: constituent.origin,
-                cik: constituent.cik,
-              },
+              data: { syncId, origin: constituent.origin, cik: constituent.cik },
             });
           } else {
             changed += 1;
@@ -398,8 +384,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
                 ticker: constituent.ticker,
                 name: constituent.name,
                 cik: constituent.cik,
-                tickerHistory:
-                  constituent.tickerHistory as unknown as Prisma.InputJsonValue,
+                tickerHistory: constituent.tickerHistory as unknown as Prisma.InputJsonValue,
                 securityId: null,
                 securityFrom: null,
                 resolution: ResolutionEnum.PENDING,
@@ -420,9 +405,7 @@ export class PrismaIndexMembershipStore implements IndexMembershipStore {
           .filter((row) => !keep.has(row.constituentKey))
           .map((row) => row.id);
         for (const batch of chunks(removedIds)) {
-          await tx.indexConstituent.deleteMany({
-            where: { id: { in: batch } },
-          });
+          await tx.indexConstituent.deleteMany({ where: { id: { in: batch } } });
         }
 
         // Periods are derived and replaced whole.
