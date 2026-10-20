@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchStockLists } from "../../lists/api/stock-lists-api";
 import { fetchStrategies } from "../../strategies/api/strategies-api";
-import { fetchBenchmarks } from "../api/backtests-api";
+import { createBacktestRun, fetchBenchmarks } from "../api/backtests-api";
 import { NewBacktestForm } from "./NewBacktestForm";
 
 /**
@@ -113,6 +113,7 @@ beforeEach(() => {
   plan = "PRO";
   vi.mocked(fetchStrategies).mockReset().mockResolvedValue([STRATEGY]);
   vi.mocked(fetchBenchmarks).mockReset().mockResolvedValue(BENCHMARKS);
+  vi.mocked(createBacktestRun).mockReset();
 });
 
 describe("NewBacktestForm with the point-in-time index universe", () => {
@@ -126,12 +127,59 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
     expect(screen.queryByTestId("backtest-list-over-limit")).toBeNull();
   });
 
-  it("tells a plan without the universe that it is not included", async () => {
+  it("tells a plan without the universe that it is not included, before anything is submitted (PR-1)", async () => {
     plan = "STARTER";
     await choose(universeList(506));
+    // Marked in the picker, so choosing it is never a surprise.
+    expect(
+      screen.getByRole("option", { name: "S&P 500 — Historical PIT · Pro" }),
+    ).toBeTruthy();
     expect(
       text(await screen.findByTestId("backtest-universe-over-limit")),
-    ).toContain("Your plan does not include point-in-time index universes.");
+    ).toBe(
+      "Backtests over the S&P 500 Historical PIT universe are part of the Pro plan. See plans",
+    );
+    expect(
+      screen.getByTestId("backtest-universe-see-plans").getAttribute("href"),
+    ).toBe("/billing");
+
+    // Running it anyway sends nothing: the field says why, and focus goes to it.
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Strategy"), "strategy-1");
+    await user.click(screen.getByTestId("submit-backtest"));
+    expect(vi.mocked(createBacktestRun)).not.toHaveBeenCalled();
+    const list = screen.getByLabelText("Stock list");
+    expect(document.activeElement).toBe(list);
+    expect(list.getAttribute("aria-invalid")).toBe("true");
+    expect(list.getAttribute("aria-describedby")).toBe("backtest-list-error");
+    expect(text(document.getElementById("backtest-list-error")!)).toContain(
+      "part of the Pro plan",
+    );
+  });
+
+  it("marks nothing in the picker for a plan that includes the universe", async () => {
+    await choose(universeList(506));
+    expect(
+      screen.getByRole("option", { name: "S&P 500 — Historical PIT" }),
+    ).toBeTruthy();
+  });
+
+  it("never tells anyone to remove stocks from the read-only universe when the server refuses it (BT-4)", async () => {
+    const { ApiError } = await import("../../../lib/api/client");
+    vi.mocked(createBacktestRun).mockRejectedValue(
+      new ApiError(
+        403,
+        "Your plan does not include backtests over the S&P 500 Historical PIT universe",
+        "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
+      ),
+    );
+    await choose(universeList(506));
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Strategy"), "strategy-1");
+    await user.click(screen.getByTestId("submit-backtest"));
+    const error = await screen.findByTestId("backtest-submit-error");
+    expect(text(error)).toContain("Choose a different list.");
+    expect(text(error)).not.toContain("remove stocks");
   });
 
   it("compares the most members at once with the plan's universe allowance", async () => {

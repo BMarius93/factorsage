@@ -1,11 +1,8 @@
 "use client";
 
 import {
-  BACKTEST_MAX_INITIAL_CAPITAL,
   BACKTEST_MAX_MAXIMUM_POSITIONS,
-  BACKTEST_MAX_MONTHLY_CONTRIBUTION,
   BACKTEST_MAX_PERIOD_YEARS,
-  BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
   DEFAULT_BENCHMARK_CODE,
   isTerminalBacktestStatus,
@@ -43,6 +40,7 @@ import {
 } from "../utils/submission";
 import { EntitySelect } from "../../../components/ui/EntitySelect";
 import { Select } from "../../../components/ui/Select";
+import { MoneyInput } from "./MoneyInput";
 import styles from "./NewBacktestForm.module.css";
 
 /**
@@ -60,6 +58,25 @@ const FIELD_CONTROLS: readonly (readonly [keyof BacktestFormValues, string])[] =
     ["monthlyContribution", "backtest-contribution"],
     ["maximumPositions", "backtest-max-positions"],
   ];
+
+/**
+ * The id a field's error or hint is rendered under, so the control can name it with
+ * `aria-describedby` (BT-7): a screen reader then reads the reason with the field instead of as a
+ * detached alert, and focusing the first invalid field on submit is enough to explain it.
+ */
+function describedBy(
+  control: string,
+  parts: { readonly error?: boolean; readonly hint?: boolean },
+): string | undefined {
+  if (parts.error) {
+    return `${control}-error`;
+  }
+  return parts.hint ? `${control}-hint` : undefined;
+}
+
+/** What a plan without the point-in-time universe is told, before and instead of a refusal (PR-1). */
+const UNIVERSE_NOT_INCLUDED =
+  "Backtests over the S&P 500 Historical PIT universe are part of the Pro plan.";
 
 const DEFAULT_INITIAL_CAPITAL = "10000";
 const DEFAULT_MAXIMUM_POSITIONS = "10";
@@ -204,7 +221,15 @@ export function NewBacktestForm() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const { errors: found, request } = validateBacktestForm(values);
+    const validated = validateBacktestForm(values);
+    // A universe the plan does not include is refused here, before a request that could only be
+    // refused: the server still enforces it, but the user hears it beside the list, with the way to
+    // the plans, instead of as a failed submission (PR-1 / BT-4).
+    const found: BacktestFormErrors =
+      universeNotIncluded && validated.errors.stockListId === undefined
+        ? { ...validated.errors, stockListId: UNIVERSE_NOT_INCLUDED }
+        : validated.errors;
+    const request = universeNotIncluded ? null : validated.request;
     setErrors(found);
     setSubmitError(null);
     if (request === null) {
@@ -252,6 +277,20 @@ export function NewBacktestForm() {
     chosenUniverse !== undefined &&
     maxUniverse !== null &&
     chosenUniverse.peakSimultaneousMembers > maxUniverse;
+  // Not "too large" but not part of the plan at all: an allowance of zero. Only this case is
+  // decided before submission; a positive allowance is measured by the server over the run's own
+  // period, which may hold fewer members than the universe's all-time peak.
+  const universeNotIncluded = chosenUniverse !== undefined && maxUniverse === 0;
+  /** The list picker marks a universe the plan does not include, so it is never a surprise. */
+  const listOptionLabel = (item: {
+    readonly id: string;
+    readonly name: string;
+  }) => {
+    const list = lists.find((entry) => entry.id === item.id);
+    return list?.universe !== undefined && maxUniverse === 0
+      ? `${item.name} · Pro`
+      : item.name;
+  };
   const listTooLarge =
     chosenUniverse === undefined &&
     maxSymbols !== null &&
@@ -287,9 +326,15 @@ export function NewBacktestForm() {
           </Link>
         ) : null;
       case "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT":
+        // Removing stocks is only advice for a list the user can edit: a built-in list, and above
+        // all the point-in-time universe, is read-only, and its allowance is not a list size (BT-4).
         return (
           <span className={styles.recoveryHint}>
-            Choose a smaller list, or remove stocks from this one.
+            {chosenUniverse !== undefined
+              ? "Choose a different list."
+              : selectedList?.ownership === "SYSTEM"
+                ? "Choose a smaller list."
+                : "Choose a smaller list, or remove stocks from this one."}
           </span>
         );
       default:
@@ -444,10 +489,13 @@ export function NewBacktestForm() {
                     value={values.strategyId}
                     loading={loading}
                     invalid={errors.strategyId !== undefined}
+                    {...(errors.strategyId
+                      ? { describedBy: "backtest-strategy-error" }
+                      : {})}
                     onValueChange={(id) => update("strategyId", id)}
                   />
                   {errors.strategyId ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-strategy-error">
                       {errors.strategyId}
                     </p>
                   ) : null}
@@ -465,15 +513,42 @@ export function NewBacktestForm() {
                     value={values.stockListId}
                     loading={loading}
                     invalid={errors.stockListId !== undefined}
+                    {...(errors.stockListId
+                      ? { describedBy: "backtest-list-error" }
+                      : listTooLarge || universeTooLarge || chosenUniverse
+                        ? { describedBy: "backtest-list-hint" }
+                        : {})}
+                    optionLabel={listOptionLabel}
                     onValueChange={(id) => update("stockListId", id)}
                   />
                   {errors.stockListId ? (
-                    <p className={forms.hint} role="alert">
+                    <p
+                      className={forms.hint}
+                      id="backtest-list-error"
+                      data-testid={
+                        universeNotIncluded
+                          ? "backtest-universe-over-limit"
+                          : undefined
+                      }
+                    >
                       {errors.stockListId}
+                      {universeNotIncluded ? (
+                        <>
+                          {" "}
+                          <Link
+                            className={styles.noticeLink}
+                            href="/billing"
+                            data-testid="backtest-universe-see-plans"
+                          >
+                            See plans
+                          </Link>
+                        </>
+                      ) : null}
                     </p>
                   ) : listTooLarge ? (
                     <p
                       className={styles.limitText}
+                      id="backtest-list-hint"
                       data-state="over"
                       data-testid="backtest-list-over-limit"
                     >
@@ -483,16 +558,29 @@ export function NewBacktestForm() {
                   ) : universeTooLarge ? (
                     <p
                       className={styles.limitText}
+                      id="backtest-list-hint"
                       data-state="over"
                       data-testid="backtest-universe-over-limit"
                     >
-                      {maxUniverse === 0
-                        ? "Your plan does not include point-in-time index universes."
-                        : `This universe holds up to ${chosenUniverse.peakSimultaneousMembers} members at once; your plan runs up to ${maxUniverse}.`}
+                      {maxUniverse === 0 ? (
+                        <>
+                          {UNIVERSE_NOT_INCLUDED}{" "}
+                          <Link
+                            className={styles.noticeLink}
+                            href="/billing"
+                            data-testid="backtest-universe-see-plans"
+                          >
+                            See plans
+                          </Link>
+                        </>
+                      ) : (
+                        `This universe holds up to ${chosenUniverse.peakSimultaneousMembers} members at once; your plan runs up to ${maxUniverse}.`
+                      )}
                     </p>
                   ) : chosenUniverse ? (
                     <p
                       className={forms.hint}
+                      id="backtest-list-hint"
                       data-testid="backtest-universe-summary"
                     >
                       Point-in-time membership:{" "}
@@ -513,6 +601,10 @@ export function NewBacktestForm() {
                     value={values.benchmarkCode}
                     disabled={loading}
                     invalid={errors.benchmarkCode !== undefined}
+                    aria-describedby={describedBy("backtest-benchmark", {
+                      error: errors.benchmarkCode !== undefined,
+                      hint: true,
+                    })}
                     onValueChange={(code) => update("benchmarkCode", code)}
                     placeholder="Select a benchmark…"
                     options={benchmarks.map((benchmark) => ({
@@ -521,11 +613,11 @@ export function NewBacktestForm() {
                     }))}
                   />
                   {errors.benchmarkCode ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-benchmark-error">
                       {errors.benchmarkCode}
                     </p>
                   ) : (
-                    <p className={forms.hint}>
+                    <p className={forms.hint} id="backtest-benchmark-hint">
                       What the run&apos;s growth is compared against.
                     </p>
                   )}
@@ -548,6 +640,9 @@ export function NewBacktestForm() {
                       type="date"
                       value={values.startDate}
                       aria-invalid={errors.startDate !== undefined}
+                      aria-describedby={describedBy("backtest-start", {
+                        error: errors.startDate !== undefined,
+                      })}
                       onChange={(event) =>
                         update("startDate", event.target.value)
                       }
@@ -573,7 +668,7 @@ export function NewBacktestForm() {
                     </button>
                   </div>
                   {errors.startDate ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-start-error">
                       {errors.startDate}
                     </p>
                   ) : null}
@@ -590,10 +685,13 @@ export function NewBacktestForm() {
                     type="date"
                     value={values.endDate}
                     aria-invalid={errors.endDate !== undefined}
+                    aria-describedby={describedBy("backtest-end", {
+                      error: errors.endDate !== undefined,
+                    })}
                     onChange={(event) => update("endDate", event.target.value)}
                   />
                   {errors.endDate ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-end-error">
                       {errors.endDate}
                     </p>
                   ) : null}
@@ -634,24 +732,20 @@ export function NewBacktestForm() {
                 <div className={forms.field}>
                   <label className={forms.label} htmlFor="backtest-capital">
                     Initial capital
+                    <span className={styles.srOnly}> in US dollars</span>
                   </label>
-                  <input
+                  <MoneyInput
                     id="backtest-capital"
-                    className={forms.input}
-                    data-testid="backtest-capital"
-                    type="number"
-                    inputMode="decimal"
-                    min={BACKTEST_MIN_INITIAL_CAPITAL}
-                    max={BACKTEST_MAX_INITIAL_CAPITAL}
-                    step="any"
+                    testId="backtest-capital"
                     value={values.initialCapital}
-                    aria-invalid={errors.initialCapital !== undefined}
-                    onChange={(event) =>
-                      update("initialCapital", event.target.value)
-                    }
+                    invalid={errors.initialCapital !== undefined}
+                    {...(errors.initialCapital
+                      ? { describedBy: "backtest-capital-error" }
+                      : {})}
+                    onValueChange={(raw) => update("initialCapital", raw)}
                   />
                   {errors.initialCapital ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-capital-error">
                       {errors.initialCapital}
                     </p>
                   ) : null}
@@ -662,31 +756,29 @@ export function NewBacktestForm() {
                     className={forms.label}
                     htmlFor="backtest-contribution"
                   >
-                    Monthly contribution <span aria-hidden="true">·</span>{" "}
-                    optional
+                    Monthly contribution
+                    <span className={styles.srOnly}> in US dollars</span>{" "}
+                    <span aria-hidden="true">·</span> optional
                   </label>
-                  <input
+                  <MoneyInput
                     id="backtest-contribution"
-                    className={forms.input}
-                    data-testid="backtest-contribution"
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    max={BACKTEST_MAX_MONTHLY_CONTRIBUTION}
-                    step="any"
+                    testId="backtest-contribution"
                     placeholder="0"
                     value={values.monthlyContribution}
-                    aria-invalid={errors.monthlyContribution !== undefined}
-                    onChange={(event) =>
-                      update("monthlyContribution", event.target.value)
+                    invalid={errors.monthlyContribution !== undefined}
+                    describedBy={
+                      errors.monthlyContribution
+                        ? "backtest-contribution-error"
+                        : "backtest-contribution-hint"
                     }
+                    onValueChange={(raw) => update("monthlyContribution", raw)}
                   />
                   {errors.monthlyContribution ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-contribution-error">
                       {errors.monthlyContribution}
                     </p>
                   ) : (
-                    <p className={forms.hint}>
+                    <p className={forms.hint} id="backtest-contribution-hint">
                       Added to available cash on the first trading day of each
                       month. Leave empty for none.
                     </p>
@@ -711,17 +803,23 @@ export function NewBacktestForm() {
                     step="1"
                     value={values.maximumPositions}
                     aria-invalid={errors.maximumPositions !== undefined}
+                    aria-describedby={
+                      errors.maximumPositions
+                        ? "backtest-max-positions-error backtest-max-positions-hint"
+                        : "backtest-max-positions-hint"
+                    }
                     onChange={(event) =>
                       update("maximumPositions", event.target.value)
                     }
                   />
                   {errors.maximumPositions ? (
-                    <p className={forms.hint} role="alert">
+                    <p className={forms.hint} id="backtest-max-positions-error">
                       {errors.maximumPositions}
                     </p>
                   ) : null}
                   <p
                     className={styles.derived}
+                    id="backtest-max-positions-hint"
                     data-testid="full-position-help"
                   >
                     {helpText}

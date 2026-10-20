@@ -1,0 +1,22 @@
+/* The currency sign sits inside the field, before the amount, in the hint colour: it says what
+   the number is without becoming part of the value. */
+.field {
+  position: relative;
+  display: block;
+}
+
+.currency {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+/* Two classes, so it outranks the shared `forms.input` padding whatever order the modules load. */
+.field .input {
+  padding-left: 28px;
+  font-variant-numeric: tabular-nums;
+}

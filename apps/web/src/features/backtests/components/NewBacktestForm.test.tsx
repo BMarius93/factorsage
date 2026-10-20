@@ -166,9 +166,11 @@ describe("NewBacktestForm", () => {
     expect((screen.getByTestId("backtest-end") as HTMLInputElement).value).toBe(
       "2023-03-01",
     );
+    // Shown grouped, as US dollars, while the field is not being edited (BT-7); the request still
+    // carries the number — see "submits the run and opens its page".
     expect(
       (screen.getByTestId("backtest-capital") as HTMLInputElement).value,
-    ).toBe("25000");
+    ).toBe("25,000");
     expect(
       (screen.getByTestId("backtest-contribution") as HTMLInputElement).value,
     ).toBe("");
