@@ -118,3 +118,49 @@ describe("LoggedStockDataService valuation ratio reads", () => {
     expect(logger.error).not.toHaveBeenCalled();
   });
 });
+
+describe("LoggedStockDataService summary reads", () => {
+  function answering(valuationRatios: unknown) {
+    const summary = {
+      security: { symbol: "AAPL" },
+      valuationRatios,
+    };
+    const delegate = {
+      getStockSummary: vi.fn().mockResolvedValue(summary),
+    } as unknown as StockDetailsDataService;
+    const logger = recordingLogger();
+    return {
+      summary,
+      logger,
+      service: new LoggedStockDataService(
+        delegate,
+        logger as unknown as StructuredLogger,
+      ),
+    };
+  }
+
+  it("logs the cause of ratios whose inputs could not be prepared, and still answers the summary", async () => {
+    const cause = new Error("split list refused");
+    const { service, logger, summary } = answering({ status: "FAILED", cause });
+
+    await expect(service.getStockSummary("AAPL")).resolves.toBe(summary);
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "stock.summary.valuation-ratios.failed",
+        operation: "getStockSummary",
+        symbol: "AAPL",
+        err: cause,
+      }),
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("logs nothing for a summary whose ratios were computed", async () => {
+    const { service, logger } = answering({ status: "AVAILABLE", readings: [] });
+    await service.getStockSummary("AAPL");
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+});

@@ -702,6 +702,41 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/StockDataUnavailable" }
 
+  /stocks/{symbol}/summary:
+    get:
+      tags: [Stocks]
+      operationId: getStockSummary
+      summary: The latest state of one security, for every Stock Details section but the chart.
+      description: |
+        Identity and profile, the newest finalized end-of-day bar with the session before it and
+        the trailing 52-week range, the newest intrinsic value of each model and blend, all five
+        valuation ratios, all fifteen Fundamental Metrics, EMA 50D, EMA 200D and RSI 14D, and the
+        newest quarterly reporting period public by that session. No history is returned: the chart
+        loads its own window from `GET /stocks/{symbol}` independently.
+
+        It waits for the same canonical readiness as every Stock Details read — hydration of the
+        retained history and the end-of-day freshness check, behind the per-security load lock — so
+        a summary and a chart request for a cold security share one hydration. The readings are then
+        selected from one trailing window (`window`, one year ending at the newest finalized
+        session): each is the newest session of the window on which the series has a value, with
+        that session's `date`. Nothing is recalculated for this read: ratios come from the one
+        valuation-ratio calculation, Fundamental Metrics and technicals from the persisted
+        point-in-time derived state, and intrinsic values from the materialized models and blends.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+      responses:
+        "200":
+          description: The security's latest state.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
   /stocks/{symbol}/prices:
     get:
       tags: [Stocks]
@@ -4107,6 +4142,119 @@ components:
         intrinsicValueBlends:
           type: array
           items: { $ref: "#/components/schemas/IntrinsicValueBlend" }
+
+    StockSummaryTechnicalId:
+      type: string
+      description: |
+        The selectable-series identity of a technical the summary reports: EMA 50D, EMA 200D and
+        RSI 14D. Every other moving average and oscillator stays available to the chart.
+      enum: [EMA_50D, EMA_200D, RSI_14D]
+
+    StockSummaryReading:
+      type: object
+      description: |
+        One series' newest reading in the summary window. `date` is the newest session of the
+        window on which the series has a value and `value` is that session's value, in the series'
+        own unit: a valuation ratio is a raw multiple, a Fundamental Metric is in its catalog unit
+        (percentage points or a raw multiple), an EMA is a price and RSI is unitless. When the
+        newest session has no value, the reading is the newest earlier session that does, with its
+        own `date`. Both are **omitted** when no session of the window has a value — never zero and
+        never `null`.
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: A `ValuationRatioId`, `FundamentalMetricId` or `StockSummaryTechnicalId`.
+        date: { type: string, format: date }
+        value: { type: number }
+
+    StockSummaryQuote:
+      type: object
+      description: |
+        The newest finalized end-of-day bar of the summary window; never a live quote.
+        `previousDate`/`previousClose` are the session before it, when the window holds one.
+        `rangeHigh`/`rangeLow` are the highest high and lowest low over the window.
+      required: [date, open, high, low, close, volume, rangeHigh, rangeLow]
+      properties:
+        date: { type: string, format: date }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: number }
+        previousDate: { type: string, format: date }
+        previousClose: { type: number }
+        rangeHigh: { type: number }
+        rangeLow: { type: number }
+
+    StockSummaryQuarter:
+      type: object
+      description: |
+        The newest quarterly reporting period whose statements were public by the quote's session.
+        `fiscalDate` is the period end; `availableFrom` is the first session any of the period's
+        statements could be read on.
+      required: [fiscalYear, period, fiscalDate, availableFrom]
+      properties:
+        fiscalYear: { type: integer }
+        period: { type: string, enum: [Q1, Q2, Q3, Q4] }
+        fiscalDate: { type: string, format: date }
+        availableFrom: { type: string, format: date }
+
+    StockSummaryValuationRatios:
+      type: object
+      description: |
+        `AVAILABLE` carries all five ratios in catalog order. `FAILED` means the inputs the
+        calculation requires — the provider's split list — could not be prepared for this request,
+        so no ratio was computed: a failure to retry, never a statement that the ratios are
+        unavailable for the company.
+      required: [status]
+      properties:
+        status: { type: string, enum: [AVAILABLE, FAILED] }
+        readings:
+          type: array
+          items: { $ref: "#/components/schemas/StockSummaryReading" }
+
+    StockSummary:
+      type: object
+      required:
+        [
+          security,
+          window,
+          intrinsicValues,
+          intrinsicValueBlends,
+          valuationRatios,
+          fundamentals,
+          technicals,
+        ]
+      properties:
+        security: { $ref: "#/components/schemas/Security" }
+        profile: { $ref: "#/components/schemas/SecurityProfile" }
+        window:
+          type: object
+          description: The trailing window the readings were selected from.
+          required: [from, to]
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        quote: { $ref: "#/components/schemas/StockSummaryQuote" }
+        intrinsicValues:
+          type: array
+          description: The newest point of each model in the window, with its own valuation date.
+          items: { $ref: "#/components/schemas/IntrinsicValue" }
+        intrinsicValueBlends:
+          type: array
+          description: The newest point of each blend in the window, with its own valuation date.
+          items: { $ref: "#/components/schemas/IntrinsicValueBlend" }
+        valuationRatios: { $ref: "#/components/schemas/StockSummaryValuationRatios" }
+        fundamentals:
+          type: array
+          description: All fifteen Fundamental Metrics, in catalog order.
+          items: { $ref: "#/components/schemas/StockSummaryReading" }
+        technicals:
+          type: array
+          description: EMA 50D, EMA 200D and RSI 14D, in that order.
+          items: { $ref: "#/components/schemas/StockSummaryReading" }
+        latestQuarter: { $ref: "#/components/schemas/StockSummaryQuarter" }
 
     RecordSecurityViewRequest:
       type: object
