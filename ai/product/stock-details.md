@@ -4,11 +4,117 @@ Stock Details is the full research view for one security. The price series is al
 Technical and intrinsic-value overlays are selected from one shared canonical catalog defined in
 `../../docs/decisions/selectable-series-catalog.md`.
 
+## Page composition and loading
+
+The page reads, top to bottom: the **identity header**, the **Price History chart**, then the
+**financial research cards**. That order is fixed. The cards never move above the chart, and the
+order never follows which answer arrived first.
+
+**Two requests open the page, at the same time, and neither waits for the other:**
+
+| Request                                     | Feeds                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `GET /stocks/:symbol/summary`               | the header and every research card: the latest state only, no history    |
+| `GET /stocks/:symbol?from=&to=` (composite) | the chart's opening year: prices, technicals, intrinsic lines, `history` |
+
+- **Each section has its own lifecycle.** The header, the chart and the cards each hold a
+  placeholder of their final size until their own data lands, so the cards render the moment the
+  summary arrives even while the chart is still loading, and the other way round. Neither placeholder
+  changes the page's layout when it is replaced.
+- **Failures stay local.** A chart failure shows its own error and retry in the chart's place and
+  never reloads the summary; a summary failure shows its own error and retry in the cards' place and
+  never reloads the chart. Only when both fail does the page show one error, with one retry for both.
+- **The header reads whichever answer lands first.** Both carry the canonical identity, the profile
+  and the same newest finalized bar, so the header is the same either way. Until one lands it shows
+  the route's ticker and placeholders.
+- **Not found wins.** A 404 (or a 400 for a route segment that is not a plausible symbol) from either
+  request is the page's not-found state.
+- **No stale data.** The page is keyed by the symbol, and both requests are sequence-guarded and
+  aborted on a symbol change, so nothing of the previous stock — a value, a selection, an error —
+  can appear under the next ticker, even for one frame.
+- **No history is prefetched.** The summary carries no series. A valuation ratio's or a fundamental
+  metric's history is asked for only when one is chosen (see below).
+
+### The summary (`GET /stocks/:symbol/summary`)
+
+One request returns everything the header and the cards show (`StockSummaryResponse` in
+`@intrinsic/contracts`, `docs/openapi.yaml`):
+
+- `security`, `profile` — the canonical identity and company profile.
+- `window` — the trailing year the summary was selected from: the same default window the chart
+  opens on (today minus 365 days to today).
+- `quote` — the window's newest stored bar (always a **finalized** end-of-day bar,
+  `docs/decisions/eod-finality-v1.md`), the previous session's close, and the window's high and low.
+- `intrinsicValues`, `intrinsicValueBlends` — the newest point of each model and blend, with each
+  point's own valuation date and provenance, as the canonical intrinsic reads project them.
+- `valuationRatios` — the five Valuation Ratios on their newest available session, computed by the
+  one valuation calculation (below). `status: "FAILED"` when the calculation's inputs could not be
+  prepared (the provider's split list could not be refreshed): the card says the ratios could not be
+  calculated and offers a retry; it never shows zeros or an older value instead.
+- `fundamentals` — all fifteen Fundamental Metrics from the persisted `DailyDerivedState`.
+- `technicals` — `EMA_50D`, `EMA_200D` and `RSI_14D` (`STOCK_SUMMARY_TECHNICAL_IDS`), resolved
+  through the selectable-series catalog.
+- `latestQuarter` — the newest quarterly period public by the newest session: fiscal year, quarter,
+  the period's end date and the first day its statements could be read.
+
+Every reading is `{ id, date?, value? }`: the **newest session in the window on which that series has
+a value**, and that session's date. Nothing in the summary is calculated for it: it selects from the
+same canonical rows the chart, a Strategy Condition, a backtest and a Monitor read.
+
+- **Missing is never zero.** A series with no value anywhere in the window has no `value`; the card
+  reads `Unavailable`. Zero and negative values are readings and are shown.
+- **As-of dates.** A card names the close its readings belong to ("As of Oct 16, 2026 close"). A
+  reading whose own date is older than that close — a ratio unavailable on the newest session, a
+  metric invalidated by a later revision — is shown with its own date ("as of Aug 1, 2026"), never
+  as current. The Fundamentals card also states the latest reporting period it reflects ("Latest
+  quarter: Q3 FY2026, ended Jun 27, 2026 · public from Aug 1, 2026"), so a reader can tell the
+  latest reading (the close) from the last reporting period (the statements).
+
+**Readiness and caching.** The summary goes through the same canonical read path as every other
+stock read: it waits on the one coordinated hydration of the security's full retained history
+(CONC-01) and the same freshness check, and shares both with the chart's request — two concurrent
+requests for a never-seen stock run one hydration, not two. It is never served from a second
+store or a partial history. So the first view of a never-seen or Redis-evicted security still costs
+that hydration (seconds) before either section can render; after it, the summary reads one year of
+the resident Redis projection plus the statement revisions the ratio calculation needs (tens of
+milliseconds on a warm stock). Responses are not HTTP-cached (`no-store`, like every stock read).
+
+### Research cards
+
+Two columns from 880px, one column below, every metric shown on every width:
+
+- **Left:** Intrinsic Value (blends and models, unchanged), Valuation Ratios, Technicals.
+- **Right:** Fundamentals, Key Facts.
+
+| Card             | Shows                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------- |
+| Intrinsic Value  | every blend and model, price vs value in words (SD-4)                                              |
+| Valuation Ratios | the five ratios in `VALUATION_RATIO_CATALOG` order, as raw multiples (`15.2x`)                     |
+| Technicals       | EMA 50D and EMA 200D in money with the signed price difference, RSI 14D unitless                   |
+| Fundamentals     | the fifteen metrics in their seven catalog groups (`FUNDAMENTAL_METRIC_GROUPED`), each in its unit |
+| Key Facts        | the profile's facts, unchanged                                                                     |
+
+Technicals shows only those three readings — the full moving-average and oscillator families stay
+in the chart's `Indicators` control — and makes no buy/sell call. Labels, order, groups and units
+come from the contracts catalogs; the cards keep no list of their own.
+
+**A card row puts its series on the chart.** Every Valuation Ratio and Fundamental Metric row is a
+button: it selects that series in the chart's Valuation or Fundamentals pane (the same selection the
+`Indicators` control shows), brings the chart into view and announces the change to assistive
+technology. It replaces only that family's choice — one ratio and one metric can be shown together,
+and the overlays are untouched — and loads that series' history lazily, once. A choice made while
+the chart is still loading is applied when it arrives. The row of the series on the chart is marked
+`On chart`.
+
 ## Indicators dropdown
 
-The chart exposes one grouped multi-select control named `Indicators`. It replaces separate
-hard-coded overlay toggles. The groups, ordering, labels, and identifiers come from the canonical
-catalog; the component must not maintain a second local list.
+The chart exposes one grouped control named `Indicators`. It replaces separate hard-coded overlay
+toggles. The groups, ordering, labels, and identifiers come from the canonical catalog; the component
+must not maintain a second local list. The overlays (groups 1–5) are native checkboxes, any number
+at once; Valuation and Fundamentals (groups 6–7) are each **one native radio group** with a `None`
+option, so one of each at a time. The popover is bounded to the viewport and scrolls inside itself;
+from 880px the overlays and the two radio groups sit in two columns. Escape closes it and returns
+focus to the trigger; a press outside it closes it.
 
 Groups:
 
@@ -148,11 +254,11 @@ presentation state and does not alter strategy configuration.
 ## Valuation Ratios
 
 The `Indicators` control has a **Valuation** section between the intrinsic-value models and
-Fundamentals: one native select offering `None` and the five Valuation Ratios — P/E, P/S, P/B, P/FCF
-and EV/EBITDA — flat, with no groups. Identities, labels, order and the explanation shown under the
-select (the ratio's summary and formula) all come from `VALUATION_RATIO_CATALOG` in
+Fundamentals: one native radio group offering `None` and the five Valuation Ratios — P/E, P/S, P/B,
+P/FCF and EV/EBITDA — flat, with no groups. Identities, labels, order and the explanation shown under
+the group (the chosen ratio's summary and formula) all come from `VALUATION_RATIO_CATALOG` in
 `@intrinsic/contracts`, the catalog the Strategy Builder's Valuation category reads; the page keeps
-no list of its own.
+no list of its own. The Valuation Ratios card selects the same ratio (above).
 
 - **One ratio at a time**, drawn in its own pane. A ratio never shares the price scale or a
   Fundamental Metric's: a P/E of 24x has no place on an axis of dollars, nor beside an ROIC of 15%.
@@ -198,12 +304,15 @@ no list of its own.
 
 ## Fundamental Metrics
 
-The `Indicators` control ends with a **Fundamentals** section: one native select offering `None`
-and the fifteen Fundamental Metrics, grouped Growth, Profitability, Quality, Leverage, Liquidity,
-Solvency and Efficiency. Identities, labels, groups, order, units and the explanation shown under
-the select (the metric's summary and formula) all come from `FUNDAMENTAL_METRIC_CATALOG` in
-`@intrinsic/contracts`, the catalog the Strategy Builder reads; the page keeps no list of its own.
-Because this picker shows the groups, it reads the catalog's grouped view
+The `Indicators` control ends with a **Fundamentals** section: one native radio group offering
+`None` and the fifteen Fundamental Metrics, grouped Growth, Profitability, Quality, Leverage,
+Liquidity, Solvency and Efficiency. The groups are labelled sub-fieldsets of the **same** radio
+group, so choosing a metric in one category always replaces a metric chosen in another, and the arrow
+keys move across every metric. Identities, labels, groups, order, units and the explanation shown
+under the group (the chosen metric's summary and formula) all come from `FUNDAMENTAL_METRIC_CATALOG`
+in `@intrinsic/contracts`, the catalog the Strategy Builder reads; the page keeps no list of its own.
+The Fundamentals card selects the same metric (above). Because this picker shows the groups, it
+reads the catalog's grouped view
 (`FUNDAMENTAL_METRIC_GROUPED`): groups in the methodology's group order, and the catalog's order
 inside each group. The one visible difference from the Strategy Builder's flat list is that Current
 Ratio follows both Leverage metrics instead of sitting between Debt / Equity and Net Debt / EBITDA
@@ -257,8 +366,9 @@ TTM.
   an expected return. Technicals keeps the signed figure under one "Price vs avg." column heading
   (SD-6): "+3.20%". The chip is neutral in colour; green/red would assert a judgement.
 - The page is built from shared primitives: `EmptyState` for not-found and load failures,
-  `SectionCard` panels, `FactGrid` key facts and `StatusBadge` listing badges. The lower panels are
-  one ordered flow balanced into two columns from 880px.
+  `SectionCard` panels, `FactGrid` key facts and `StatusBadge` listing badges. The research cards
+  are two explicit stacks side by side from 880px — Intrinsic Value, Valuation Ratios and
+  Technicals on the left; Fundamentals and Key Facts on the right — and one column below.
 - Market capitalisation is not shown: the stock-data contract carries no market-cap field, and
   adding one needs provider data (deferred, see the PR's finding map).
 
