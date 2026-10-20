@@ -6,6 +6,8 @@ import {
   formatLocalDate,
   formatMoney,
   formatMultiple,
+  formatPercent,
+  formatPriceRelative,
   formatSignedMoney,
   formatSignedPercent,
   formatWebsiteHost,
@@ -39,6 +41,48 @@ describe("formatSignedPercent", () => {
   it("converts a fraction into a signed percent", () => {
     expect(formatSignedPercent(0.0124)).toBe("+1.24%");
     expect(formatSignedPercent(-0.0124)).toBe("-1.24%");
+  });
+});
+
+describe("formatPercent", () => {
+  it("converts a fraction into an unsigned percent at two decimals", () => {
+    expect(formatPercent(0.0124)).toBe("1.24%");
+    expect(formatPercent(22.8326)).toBe("2,283.26%");
+  });
+});
+
+describe("formatPriceRelative", () => {
+  it("says which side of the reference the price is on, in words", () => {
+    // Regression (SD-4): "Price vs value: +73.92%" left the reader to decode the sign.
+    expect(formatPriceRelative(0.7392, "value")).toBe(
+      "Price 73.92% above value",
+    );
+    expect(formatPriceRelative(-0.152, "value")).toBe(
+      "Price 15.20% below value",
+    );
+    expect(formatPriceRelative(22.8326, "value")).toBe(
+      "Price 2,283.26% above value",
+    );
+  });
+
+  it("states equality only for an exact zero", () => {
+    expect(formatPriceRelative(0, "value")).toBe("Price equals value");
+    expect(formatPriceRelative(-0, "value")).toBe("Price equals value");
+    // Too small for two decimals, but still a side, never "equals".
+    expect(formatPriceRelative(0.00001, "value")).toBe(
+      "Price 0.00% above value",
+    );
+    expect(formatPriceRelative(-0.00001, "value")).toBe(
+      "Price 0.00% below value",
+    );
+  });
+
+  it("keeps the precision and rounding of the signed figure it replaces", () => {
+    for (const fraction of [0.12345, -0.98765, 0.5, -0.0001, 1.99999]) {
+      expect(formatPriceRelative(fraction, "value")).toContain(
+        formatSignedPercent(fraction).replace(/^[+-]/, ""),
+      );
+    }
   });
 });
 

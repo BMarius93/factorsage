@@ -371,11 +371,25 @@ describe("StockDetails", () => {
       .closest("section")!;
     expect(within(valuation).getByText("Balanced")).toBeDefined();
     expect(within(valuation).getByText("$290.00")).toBeDefined();
-    // One sign convention (UI-018): the price against the value, (232 - 290) / 290 = -20%.
+    // One sign convention (UI-018), said in words (SD-4): (232 - 290) / 290 = -20%, the price
+    // below the value. The model rows read the same way: (232 - 260) / 260 = -10.77%.
     expect(
-      within(valuation).getByText("Price vs value: -20.00%"),
+      within(valuation).getByText("Price 20.00% below value"),
     ).toBeDefined();
     expect(within(valuation).getByText("DCF (FCFF)")).toBeDefined();
+    expect(
+      within(valuation).getByText("Price 10.77% below value"),
+    ).toBeDefined();
+    expect(within(valuation).queryByText(/Price vs value/)).toBeNull();
+    // One explanation of what those percentages are, and are not.
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(
+      within(valuation).getByRole("button", {
+        name: "About price versus value",
+      }),
+    );
+    expect(within(valuation).getByRole("tooltip").textContent).toBe(
+      "Each percentage compares the latest closing price with that intrinsic-value estimate. It is not a forecast or an expected return.",
+    );
     expect(
       within(valuation).getByText(/Valuation as of Aug 28, 2026/),
     ).toBeDefined();
@@ -386,10 +400,19 @@ describe("StockDetails", () => {
     // Daily and weekly rows both use the canonical catalog labels.
     expect(within(technicals).getByText("SMA 200D")).toBeDefined();
     expect(within(technicals).getByText("SMA 20W")).toBeDefined();
-    // Close 232 vs SMA 50D of 220 → price sits 5.45% above.
+    // Close 232 vs SMA 50D of 220 → price sits 5.45% above. The comparison is named once, over
+    // its column (SD-6); each row shows only the signed figure, and keeps the words for a screen
+    // reader.
+    expect(within(technicals).getAllByText("Price vs avg.")).toHaveLength(1);
+    const sma50 = within(technicals).getByText("+5.45%");
+    expect(sma50.textContent).toBe("Price vs average: +5.45%");
+    expect(sma50.firstElementChild?.textContent).toBe("Price vs average: ");
+    // Every row carries its figure: 210 → +10.48%, 225 → +3.11%, 216 → +7.41%, 208 → +11.54%.
     expect(
-      within(technicals).getByText("Price vs average: +5.45%"),
-    ).toBeDefined();
+      [...technicals.querySelectorAll("dd > span:last-child")].map(
+        (chip) => chip.lastChild?.textContent,
+      ),
+    ).toEqual(["+5.45%", "+10.48%", "+3.11%", "+7.41%", "+11.54%"]);
 
     expect(screen.getByText("Sector")).toBeDefined();
     expect(screen.getByText("Technology")).toBeDefined();
@@ -779,9 +802,7 @@ describe("StockDetails", () => {
     const firstAsk = fetchDailyPriceHistoryMock.mock.calls.at(-1)?.[1];
     await user.click(screen.getByRole("button", { name: /Try again/ }));
 
-    await waitFor(() =>
-      expect(chart().dataset.pointCount).not.toBe(before),
-    );
+    await waitFor(() => expect(chart().dataset.pointCount).not.toBe(before));
     // Retry asked for the identical interval: the watermark never moved past the failure.
     expect(fetchDailyPriceHistoryMock.mock.calls.at(-1)?.[1]).toEqual(firstAsk);
     expect(screen.queryByRole("alert")).toBeNull();
@@ -1269,7 +1290,9 @@ describe("StockDetails recording a recently viewed security", () => {
     });
     expect(heading.textContent).toContain("Apple Inc.");
     expect(screen.getByText("$232.00")).toBeDefined();
-    await waitFor(() => expect(recentCalls(fetchMock).length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(recentCalls(fetchMock).length).toBeGreaterThan(0),
+    );
     expect(screen.getByTestId("price-chart")).toBeDefined();
   });
 });

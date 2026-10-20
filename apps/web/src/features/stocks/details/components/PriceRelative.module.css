@@ -10,3 +10,21 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* A blend tile on a phone is narrower than the sentence; it breaks between words instead of
+   running out of the tile. */
+.relative[data-wrap="true"] {
+  max-width: 100%;
+  white-space: normal;
+  text-wrap: balance;
+}
+
+/* The words a `figure` chip leaves to its column heading, kept for a screen reader. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
