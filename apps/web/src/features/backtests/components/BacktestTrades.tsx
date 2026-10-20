@@ -1,19 +1,36 @@
-import type {
-  BacktestTradeAction,
-  BacktestTradeReason,
-  BacktestTradeResponse,
+"use client";
+
+import {
+  BACKTEST_TRADE_ACTIONS,
+  type BacktestTradeAction,
+  type BacktestTradeOrder,
+  type BacktestTradeReason,
+  type BacktestTradeResponse,
 } from "@intrinsic/contracts";
+import { useId } from "react";
+import actions from "../../../components/ui/actions.module.css";
 import {
   DataTable,
+  IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import forms from "../../../components/ui/forms.module.css";
+import { InfoTip } from "../../../components/ui/InfoTip";
+import { Notice } from "../../../components/ui/Notice";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "../../../components/ui/SegmentedControl";
+import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { CollectionFooter } from "../../../components/ui/CollectionFooter";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
+import type { BacktestTradeLogControls } from "../hooks/use-backtest-trades";
 import {
+  formatCount,
   formatDay,
   formatMoney,
   formatShares,
@@ -37,6 +54,39 @@ const ACTION_LABELS = {
  * the simulation period ending. The action stays `Sell`, because that is what happened.
  */
 const END_OF_BACKTEST_REASON = "End of backtest";
+
+type ActionView = BacktestTradeAction | "ALL";
+
+/**
+ * The action filter. `Sell` includes the end-of-backtest liquidations, because they are sales and
+ * the log labels them `Sell 100%`; `Final exit` is only the strategy's own FINAL EXIT.
+ */
+const ACTION_VIEWS: readonly SegmentedOption<ActionView>[] = [
+  { value: "ALL", label: "All" },
+  ...BACKTEST_TRADE_ACTIONS.map((action) => ({
+    value: action,
+    label: ACTION_LABELS[action],
+  })),
+];
+
+const ORDER_OPTIONS: readonly {
+  readonly value: BacktestTradeOrder;
+  readonly label: string;
+}[] = [
+  { value: "desc", label: "Newest first" },
+  { value: "asc", label: "Oldest first" },
+];
+
+/**
+ * What a level's percentage means, from the execution methodology
+ * (`ai/architecture/backtest-execution.md`): a BUY percentage is a target fill of the full-position
+ * budget, `1 / maximumPositions` of the portfolio's value, and a SELL percentage is a fraction of
+ * the position remaining when it executes.
+ */
+const PERCENTAGES_EXPLANATION =
+  "Buy 25% fills a position up to a quarter of a full position: the portfolio's value divided " +
+  "by the run's maximum positions (10% of it with 10). Sell 50% sells half of the shares still " +
+  "held; Final exit and End of backtest sell them all.";
 
 /**
  * Why a trade happened, in the canonical Strategy description language.
@@ -80,6 +130,112 @@ function ReasonCell({ trade }: { readonly trade: BacktestTradeResponse }) {
   );
 }
 
+/**
+ * The completed log's filter, order and export, above the table.
+ *
+ * The action filter is the view (pills); the stock and the order refine it (dropdowns), so the two
+ * shapes never read as competing tab systems. The percentages' explanation sits beside the action
+ * filter rather than in a column header, because a phone's card layout hides the header row.
+ */
+function TradeLogToolbar({
+  controls,
+  totalCount,
+}: {
+  readonly controls: BacktestTradeLogControls;
+  readonly totalCount: number;
+}) {
+  const baseId = useId();
+  const filtering = controls.symbol !== null || controls.action !== null;
+  const matchSummary =
+    filtering && controls.unfilteredCount !== null
+      ? `${formatCount(totalCount)} of ${formatCount(controls.unfilteredCount)} trades match`
+      : null;
+  // A symbol from the URL is offered even before the run's list arrives, so the control never
+  // shows a value it cannot name.
+  const symbols =
+    controls.symbol !== null && !controls.symbols.includes(controls.symbol)
+      ? [...controls.symbols, controls.symbol]
+      : controls.symbols;
+
+  return (
+    <div className={styles.toolbar} data-testid="backtest-trades-toolbar">
+      <div className={styles.filters}>
+        <span className={styles.actionFilter}>
+          <SegmentedControl
+            label="Filter by action"
+            testId="backtest-trades-action-filter"
+            value={controls.action ?? "ALL"}
+            onChange={(next) =>
+              controls.setAction(next === "ALL" ? null : next)
+            }
+            options={ACTION_VIEWS}
+          />
+          <InfoTip
+            label="buy and sell percentages"
+            testId="backtest-trades-percentages-tip"
+          >
+            {PERCENTAGES_EXPLANATION}
+          </InfoTip>
+        </span>
+        <SelectControl
+          id={`${baseId}-symbol`}
+          label="Stock"
+          value={controls.symbol ?? ""}
+          onChange={(next) => controls.setSymbol(next === "" ? null : next)}
+          options={[
+            { value: "", label: "All stocks" },
+            ...symbols.map((symbol) => ({ value: symbol, label: symbol })),
+          ]}
+          testId="backtest-trades-symbol-filter"
+        />
+        <SelectControl
+          id={`${baseId}-order`}
+          label="Sort"
+          value={controls.order}
+          onChange={(next) =>
+            controls.setOrder(next === "asc" ? "asc" : "desc")
+          }
+          options={ORDER_OPTIONS}
+          testId="backtest-trades-order"
+        />
+      </div>
+      {/* The result of a filter, said once for assistive technology. Always present, so a screen
+          reader hears the count change rather than a region appear; the line below shows it. */}
+      <span className={styles.srOnly} role="status">
+        {matchSummary ?? ""}
+      </span>
+      {matchSummary === null ? null : (
+        <div
+          className={styles.filterSummary}
+          data-testid="backtest-trades-filter-summary"
+        >
+          <span>{matchSummary}</span>
+          {/* Filtered to nothing, the empty state below carries the reset; one button is enough. */}
+          {totalCount > 0 ? (
+            <button
+              type="button"
+              className={actions.action}
+              onClick={controls.clearFilters}
+              data-testid="backtest-trades-clear-filters"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+      )}
+      {controls.exportError ? (
+        <Notice
+          tone="error"
+          announce="alert"
+          testId="backtest-trades-export-error"
+        >
+          {controls.exportError}
+        </Notice>
+      ) : null}
+    </div>
+  );
+}
+
 export type BacktestTradesProps = {
   readonly trades: readonly BacktestTradeResponse[];
   readonly title: string;
@@ -96,14 +252,21 @@ export type BacktestTradesProps = {
     /** True while a page request is in flight, so the table can dim rather than blank out. */
     readonly loading?: boolean;
   };
+  /**
+   * The completed log's filter, order and export. Only meaningful with `paging`: the running
+   * page's recent trades are a bounded tail and offer none of it.
+   */
+  readonly controls?: BacktestTradeLogControls;
 };
 
 /**
- * The trade log, newest first.
+ * The trade log, newest first unless the reader turns it around.
  *
  * The same component serves the running page's recent trades and a completed run's full log. They
- * differ in one thing: a completed log is **paged in the database**, so the rows on screen are one
- * page of possibly tens of thousands rather than a bounded tail of them.
+ * differ in what the completed log adds: it is **paged in the database**, so the rows on screen are
+ * one page of possibly tens of thousands rather than a bounded tail of them, and it can be
+ * filtered, re-ordered and exported — all of which the server applies to the whole log, never to
+ * the rows on screen. The running list stays exactly as it was.
  */
 export function BacktestTrades({
   trades,
@@ -111,30 +274,75 @@ export function BacktestTrades({
   emptyMessage,
   truncatedFrom,
   paging,
+  controls,
 }: BacktestTradesProps) {
-  const shown = [...trades].sort(
-    (left, right) => right.sequence - left.sequence,
+  const log = paging && controls ? controls : undefined;
+  const order = log?.order ?? "desc";
+  // The server has already ordered a page; this only keeps a bounded tail newest-first.
+  const shown = [...trades].sort((left, right) =>
+    order === "asc"
+      ? left.sequence - right.sequence
+      : right.sequence - left.sequence,
   );
   const truncated =
     truncatedFrom !== undefined && truncatedFrom > trades.length
       ? truncatedFrom
       : undefined;
   const loadingFirstPage = (paging?.loading ?? false) && shown.length === 0;
+  const filtering =
+    log !== undefined && (log.symbol !== null || log.action !== null);
 
   const columns: readonly DataTableColumn<BacktestTradeResponse>[] = [
+    // The completed log reads its date as a column of its own, sortable like a transaction
+    // history; the running list keeps it under the symbol.
+    ...(log
+      ? [
+          {
+            key: "date",
+            header: "Date",
+            // On a phone the date is a summary line under the identity: it says what it is.
+            cardRole: "summary" as const,
+            // Between 880 and 1,279px it folds back under the stock, so the log keeps the width
+            // it had before the column existed; the order control above the table still sorts.
+            foldIntermediate: true,
+            nowrap: true,
+            sortable: true,
+            render: (trade: BacktestTradeResponse) => (
+              <time dateTime={trade.date} data-testid="backtest-trade-date">
+                {formatDay(trade.date)}
+              </time>
+            ),
+          },
+        ]
+      : []),
     {
       key: "stock",
       header: "Stock",
       cardRole: "identity",
       minWidth: "9rem",
-      render: (trade) => (
-        <StockIdentity
-          symbol={trade.symbol}
-          size="sm"
-          secondary={formatDay(trade.date)}
-          href={`/stocks/${encodeURIComponent(trade.symbol)}`}
-        />
-      ),
+      render: (trade) =>
+        log ? (
+          <>
+            <StockIdentity
+              symbol={trade.symbol}
+              name={trade.name}
+              size="sm"
+              href={`/stocks/${encodeURIComponent(trade.symbol)}`}
+            />
+            <IntermediateOnly testId="backtest-trade-folded-date">
+              <time className={styles.foldedDate} dateTime={trade.date}>
+                {formatDay(trade.date)}
+              </time>
+            </IntermediateOnly>
+          </>
+        ) : (
+          <StockIdentity
+            symbol={trade.symbol}
+            size="sm"
+            secondary={formatDay(trade.date)}
+            href={`/stocks/${encodeURIComponent(trade.symbol)}`}
+          />
+        ),
     },
     {
       key: "action",
@@ -222,11 +430,30 @@ export function BacktestTrades({
       id="backtest-trades"
       title={title}
       aside={
-        paging
-          ? undefined
-          : truncated === undefined
-            ? `${trades.length}`
-            : `${trades.length} of ${truncated}`
+        log ? (
+          <button
+            type="button"
+            className={actions.action}
+            onClick={log.exportCsv}
+            disabled={log.exporting}
+            aria-busy={log.exporting}
+            data-testid="backtest-trades-export"
+          >
+            {log.exporting ? "Exporting…" : "Export CSV"}
+          </button>
+        ) : paging ? undefined : truncated === undefined ? (
+          `${trades.length}`
+        ) : (
+          `${trades.length} of ${truncated}`
+        )
+      }
+      toolbar={
+        log ? (
+          <TradeLogToolbar
+            controls={log}
+            totalCount={paging?.totalCount ?? 0}
+          />
+        ) : undefined
       }
       flush={shown.length > 0}
     >
@@ -249,13 +476,42 @@ export function BacktestTrades({
             columns={columns}
             rows={shown}
             getRowKey={(trade) => String(trade.sequence)}
+            {...(log
+              ? {
+                  sort: { key: "date", direction: order },
+                  onSortChange: (key: string) => {
+                    if (key === "date") {
+                      log.setOrder(order === "desc" ? "asc" : "desc");
+                    }
+                  },
+                }
+              : {})}
             emptyState={
-              <EmptyState
-                variant="compact"
-                testId="backtest-trades-empty"
-                title="No trades"
-                body={<p>{emptyMessage}</p>}
-              />
+              filtering ? (
+                // Filtered to nothing is not "no trades": the run traded, and the way back is one
+                // press away.
+                <EmptyState
+                  variant="compact"
+                  testId="backtest-trades-filtered-empty"
+                  title="No trades match these filters"
+                  actions={
+                    <button
+                      type="button"
+                      className={forms.secondaryButton}
+                      onClick={log?.clearFilters}
+                    >
+                      Clear filters
+                    </button>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  variant="compact"
+                  testId="backtest-trades-empty"
+                  title="No trades"
+                  body={<p>{emptyMessage}</p>}
+                />
+              )
             }
           />
         </div>

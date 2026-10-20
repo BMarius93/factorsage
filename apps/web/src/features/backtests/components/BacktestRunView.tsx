@@ -411,6 +411,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     loading: tradesLoading,
     setPage: setTradesPage,
     setPageSize: setTradesPageSize,
+    controls: tradeLogControls,
   } = useBacktestTrades(runId, status === "COMPLETED");
   useDocumentTitle(run ? `${run.configuration.strategyName} backtest` : null);
   // The terminal checkpoint arrives one request before the refetched detail that carries the
@@ -782,6 +783,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                   onPageSizeChange: setTradesPageSize,
                   loading: tradesLoading,
                 }}
+                controls={tradeLogControls}
               />
             ) : (
               <BacktestTrades

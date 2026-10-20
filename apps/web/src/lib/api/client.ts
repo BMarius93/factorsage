@@ -133,6 +133,30 @@ export async function apiGet<T>(
   return (await response.json()) as T;
 }
 
+/**
+ * Performs a GET for a file — a CSV export — and resolves with its bytes as a `Blob`.
+ *
+ * The same credentials, base URL and error translation as `apiGet`: a refusal still arrives as an
+ * `ApiError` with the API's own message, code and `Retry-After`, so a download never needs a second
+ * way of reading failures. The whole body is read before resolving, so a response the server cut off
+ * part-way rejects instead of yielding a truncated file.
+ */
+export async function apiGetBlob(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<Blob> {
+  const response = await fetch(buildUrl(path, options.query), {
+    credentials: "include",
+    cache: "no-store",
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+
+  if (!response.ok) {
+    throw await toApiError(response, path);
+  }
+  return response.blob();
+}
+
 async function apiSend<T>(
   method: "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
