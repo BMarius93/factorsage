@@ -43,6 +43,9 @@ export function RequireAuth({ children, role }: RequireAuthProps) {
           className={styles.checking}
           role="status"
           data-testid="auth-checking"
+          // A loading state like a skeleton: the shell holds the footer below the fold until the
+          // page that replaces it has rendered (GL-6).
+          data-skeleton=""
         >
           Checking your session…
         </p>

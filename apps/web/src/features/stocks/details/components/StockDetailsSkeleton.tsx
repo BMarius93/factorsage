@@ -6,7 +6,13 @@ import styles from "./StockDetailsSkeleton.module.css";
  */
 export function StockDetailsSkeleton() {
   return (
-    <div className={styles.page} role="status" aria-label="Loading stock details">
+    <div
+      className={styles.page}
+      role="status"
+      aria-label="Loading stock details"
+      // Read by the shell to keep the footer below the fold while loading (GL-6).
+      data-skeleton=""
+    >
       <div className={styles.header}>
         <div className={styles.identity}>
           <span className={`${styles.block} ${styles.titleBlock}`} />

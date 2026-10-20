@@ -53,6 +53,15 @@ describe("RequireAuth", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("marks the session check as a loading state, so the footer stays below the fold (GL-6)", () => {
+    state = { status: "loading" };
+    renderGate();
+
+    expect(
+      screen.getByTestId("auth-checking").hasAttribute("data-skeleton"),
+    ).toBe(true);
+  });
+
   it("sends an anonymous browser to the sign-in page, keeping the URL it asked for (UX-003)", async () => {
     const attempted = "/backtests/new?strategyId=s-1&stockListId=l-2";
     window.history.replaceState(null, "", attempted);

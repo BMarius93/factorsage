@@ -21,6 +21,14 @@
   outline: none;
 }
 
+/* While a page is still a skeleton it is usually shorter than the screen, so the footer rises into
+   view and is then pushed out again as the content arrives (GL-6: a layout shift of 0.14–0.22 on
+   every collection and detail page). Holding the main region at the screen's height until the
+   last skeleton block is gone keeps the footer below the fold; loaded pages are unaffected. */
+.main:has([data-skeleton]) {
+  min-height: calc(100dvh - var(--topbar-height));
+}
+
 .skipLink {
   position: absolute;
   left: -9999px;
@@ -47,4 +55,7 @@
     padding-bottom: 0;
   }
 
+  .main:has([data-skeleton]) {
+    min-height: calc(100dvh - var(--topbar-height-wide));
+  }
 }
