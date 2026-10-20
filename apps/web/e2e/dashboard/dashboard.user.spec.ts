@@ -2,7 +2,7 @@ import { expect, test, type Page } from "../fixtures";
 
 /**
  * A signed-in customer's Dashboard: the same built-in activity a Guest sees, and nothing else — the
- * page is the market overview and the Monitor Activity feed, and choosing which monitors feed it
+ * page is the Monitor Activity feed with Market watch beside it, and choosing which monitors feed it
  * happens on the Monitors page (`e2e/builtins/collections.user.spec.ts`).
  *
  * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`, which also clears any preference a
