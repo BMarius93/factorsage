@@ -1,11 +1,13 @@
 import type { BillingStatusResponse } from "@intrinsic/contracts";
 import {
+  BILLING_CATALOG,
   BILLING_CATALOG_ENTRIES,
   PLAN_ENTITLEMENTS,
 } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatUsd, plansCaption } from "../utils/plan-presentation";
 import { BillingPage } from "./BillingPage";
 
 /**
@@ -161,6 +163,83 @@ describe("BillingPage", () => {
     await userEvent.click(yearly);
     expect((yearly as HTMLInputElement).checked).toBe(true);
     expect((monthly as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("wears the shared segmented control's tinted look, keeping its radios and test ids (PR-2)", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    // The composition itself is CSS, which jsdom does not resolve: `BillingPage.layout.test.ts`.
+    expect(screen.getByTestId("billing-interval-toggle").getAttribute("role")).toBe("radiogroup");
+    const monthly = screen.getByTestId("billing-interval-MONTH");
+    const yearly = screen.getByTestId("billing-interval-YEAR");
+    const pill = (radio: HTMLElement) => radio.closest("label") as HTMLElement;
+    // The shared control's chosen-state attribute — a tint — on the chosen cadence only.
+    expect(pill(monthly).getAttribute("data-active")).toBe("true");
+    expect(pill(yearly).getAttribute("data-active")).toBeNull();
+
+    // Still a radio group: the arrow keys move the selection, as they always did.
+    const user = userEvent.setup();
+    monthly.focus();
+    await user.keyboard("{ArrowRight}");
+    expect((yearly as HTMLInputElement).checked).toBe(true);
+    expect(pill(yearly).getAttribute("data-active")).toBe("true");
+    expect(pill(monthly).getAttribute("data-active")).toBeNull();
+    expect(priceOf("PRO")).toContain("$299");
+  });
+
+  it("adds a monthly equivalent under each yearly price, and only then (PR-3)", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    expect(screen.queryByTestId("plan-price-equivalent-PRO")).toBeNull();
+
+    await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
+
+    for (const plan of ["STARTER", "PRO"] as const) {
+      const yearly = BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits;
+      const equivalent = screen.getByTestId(`plan-price-equivalent-${plan}`);
+      expect(equivalent.textContent).toBe(`≈ ${formatUsd(Math.round(yearly / 12))} / month`);
+      // The charge itself stays the price line, above the equivalent, with its billing note.
+      const price = screen.getByTestId(`plan-price-${plan}`);
+      expect(price.textContent).toBe(`${formatUsd(yearly)}/ year`);
+      expect(
+        price.compareDocumentPosition(equivalent) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(screen.getByTestId(`plan-price-note-${plan}`).textContent).toMatch(
+        /^Billed annually · save \$/,
+      );
+    }
+    expect(screen.getByTestId("plan-price-equivalent-PRO").textContent).toBe("≈ $24.92 / month");
+    // Free has nothing to divide: its line is held empty so the rows stay level.
+    expect(screen.getByTestId("plan-price-equivalent-FREE").textContent).toBe("");
+  });
+
+  it("states the point-in-time universe on every card, from the entitlement matrix (PR-1)", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    for (const plan of ["FREE", "STARTER", "PRO"] as const) {
+      const allowance = PLAN_ENTITLEMENTS[plan].backtests.maxIndexUniverseConstituents;
+      const row = screen.getByTestId(`plan-feature-${plan}-index-universe`);
+      expect(row.textContent).toContain("S&P 500 Historical PIT backtests");
+      if (allowance === 0) {
+        // Marked in words and by a different mark, never just greyed out or left off the card.
+        expect(row.getAttribute("data-included")).toBe("false");
+        expect(row.textContent).toContain("Not included");
+        expect(row.querySelector("path")?.getAttribute("d")).toBe("M4 8h8");
+      } else {
+        expect(row.getAttribute("data-included")).toBe("true");
+        expect(row.textContent).toContain(`Up to ${allowance} index members at once`);
+        expect(row.textContent).not.toContain("Not included");
+      }
+    }
+    const caption = screen.getByTestId("plans-caption").textContent;
+    expect(caption).toBe(plansCaption());
+    expect(caption).not.toMatch(/Plans differ by capacity\.$/);
   });
 
   it("lists each plan's capacities as checked rows quoting the entitlement matrix", async () => {

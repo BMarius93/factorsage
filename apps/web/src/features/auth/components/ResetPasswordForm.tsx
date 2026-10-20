@@ -9,6 +9,7 @@ import { describeRequestError } from "../utils/auth-errors";
 import { forgotPasswordHref, signInHref } from "../utils/guest-routes";
 import { ForgotPasswordForm } from "./ForgotPasswordForm";
 import styles from "./auth-form.module.css";
+import { PasswordInput } from "./PasswordInput";
 
 export const PASSWORD_MISMATCH_MESSAGE = "Both passwords must match.";
 export const PASSWORD_TOO_SHORT_MESSAGE = `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
@@ -123,11 +124,9 @@ export function ResetPasswordForm({
           <label className={styles.label} htmlFor="password">
             New password
           </label>
-          <input
-            className={styles.input}
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             autoComplete="new-password"
             minLength={PASSWORD_MIN_LENGTH}
             value={password}
@@ -144,11 +143,9 @@ export function ResetPasswordForm({
           <label className={styles.label} htmlFor="confirmPassword">
             Confirm new password
           </label>
-          <input
-            className={styles.input}
+          <PasswordInput
             id="confirmPassword"
             name="confirmPassword"
-            type="password"
             autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}

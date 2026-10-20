@@ -13,9 +13,12 @@ Core traits to preserve:
 - Light, calm financial-product UI rather than a dark trading-terminal aesthetic.
 - Near-white page background (`#FCFCFC`) and white primary surfaces.
 - Blue as the primary interactive/brand accent, centered on `#4882FF` with a darker hover/active tone around `#3B73E6`.
-- Dark neutral primary text around `#222222` / `#404040` and muted text around `#667085`.
+- Dark neutral primary text around `#222222` / `#404040` and secondary text around `#5E677B`; every
+  text colour meets WCAG 2.2 AA on every product surface (`ui-system.md`, Tokens: fill and ink).
 - Very light cool borders around `#E6EAF5` and subtle blue-tinted elevation.
-- Green for positive/buy states (`#1E9E78`), red for negative/sell states (`#D1435B`), and restrained orange for warning/final-exit states.
+- Green for positive/buy states (`#1E9E78`), red for negative/sell states (`#D1435B`), and restrained
+  orange for warning/final-exit states. These are fills; the same states written as text use their
+  darker ink tokens.
 - Rounded cards and controls, generally softer than default browser UI. A page-level surface uses
   `--radius-lg`; controls and nested surfaces use smaller radii. The large `--radius-hero` radius is
   reserved for a true outcome hero and is not a default for product cards.

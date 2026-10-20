@@ -42,6 +42,23 @@ function CheckIcon() {
   );
 }
 
+/** A dash: "not included" by shape as well as by colour, and said in words beside it. */
+function ExcludedIcon() {
+  return (
+    <svg
+      className={styles.excluded}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M4 8h8" />
+    </svg>
+  );
+}
+
 /**
  * One purchasable plan, including Free.
  *
@@ -95,12 +112,29 @@ export function PlanCard({
           {pricing.note}
         </p>
       ) : null}
+      {/* Yearly only, and on every card — Free's line stays empty — so the feature rows keep one
+          baseline across the three. Under the charge, never instead of it (PR-3). */}
+      {interval === "YEAR" ? (
+        <p className={styles.priceEquivalent} data-testid={`plan-price-equivalent-${plan}`}>
+          {pricing.monthlyEquivalent}
+        </p>
+      ) : null}
 
       <ul className={styles.features} data-testid={`plan-features-${plan}`}>
         {features.map((feature) => (
-          <li key={feature.id} className={styles.feature}>
-            <CheckIcon />
-            <span>{feature.label}</span>
+          <li
+            key={feature.id}
+            className={styles.feature}
+            data-included={feature.included ? "true" : "false"}
+            data-testid={`plan-feature-${plan}-${feature.id}`}
+          >
+            {feature.included ? <CheckIcon /> : <ExcludedIcon />}
+            <span className={styles.featureText}>
+              <span>{feature.label}</span>
+              {feature.detail ? (
+                <span className={styles.featureDetail}>{feature.detail}</span>
+              ) : null}
+            </span>
           </li>
         ))}
       </ul>

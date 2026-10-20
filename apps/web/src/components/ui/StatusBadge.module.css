@@ -14,18 +14,18 @@
 }
 
 .badge[data-tone="positive"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
   background: var(--color-positive-soft);
 }
 
 .badge[data-tone="negative"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   background: var(--color-negative-soft);
 }
 
 .badge[data-tone="warning"],
 .badge[data-tone="blocked"] {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   background: var(--color-warning-soft);
 }
 
@@ -40,7 +40,7 @@
 }
 
 .badge[data-tone="active"] {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: var(--color-primary-soft);
 }
 

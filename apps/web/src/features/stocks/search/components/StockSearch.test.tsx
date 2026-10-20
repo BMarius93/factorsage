@@ -291,6 +291,32 @@ describe("StockSearch", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
+  it("is not a Tab stop of its own and closes when Tab leaves the field (GL-4)", async () => {
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(
+      <div>
+        <StockSearch />
+        <a href="/lists">Lists</a>
+      </div>,
+    );
+
+    await user.click(screen.getByRole("combobox"));
+    const listbox = screen.getByRole("listbox");
+    // A scrolling list would otherwise become keyboard-focusable in Chromium and swallow the Tab.
+    expect(listbox.getAttribute("tabindex")).toBe("-1");
+
+    // The compact layout's Cancel button is inside the search (hidden by CSS above 380px, present
+    // in jsdom); the next Tab stop after it is outside.
+    const link = screen.getByRole("link", { name: "Lists" });
+    while (document.activeElement !== link) {
+      await user.tab();
+      expect(document.activeElement).not.toBe(listbox);
+    }
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
   it("reports an empty result set for the typed query", async () => {
     respondWith([]);
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

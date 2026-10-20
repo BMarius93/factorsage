@@ -4,6 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import { UNEXPECTED_ERROR } from "../utils/auth-errors";
+import {
+  EMAIL_INVALID_MESSAGE,
+  EMAIL_REQUIRED_MESSAGE,
+} from "../utils/email-address";
 import { REGISTRATION_ACCEPTED_MESSAGE, RegisterForm } from "./RegisterForm";
 
 vi.mock("next/link", () => ({
@@ -153,13 +157,67 @@ describe("RegisterForm (email-first, AUTH-003)", () => {
     expect(registerRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the API's message for a malformed address and keeps the form", async () => {
+  it.each([
+    ["an empty", "", EMAIL_REQUIRED_MESSAGE],
+    ["a blank", "   ", EMAIL_REQUIRED_MESSAGE],
+    ["a malformed", "not-an-address", EMAIL_INVALID_MESSAGE],
+    ["a domain-less", "person@example", EMAIL_INVALID_MESSAGE],
+  ])(
+    "answers %s address beside the field and sends nothing (AU-1)",
+    async (_label, typed, message) => {
+      const user = userEvent.setup();
+      render(<RegisterForm />);
+
+      if (typed !== "") {
+        await user.type(screen.getByLabelText("Email"), typed);
+      }
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      expect(registerRequest).not.toHaveBeenCalled();
+      const fieldError = screen.getByTestId("register-email-error");
+      expect(fieldError.textContent).toBe(message);
+      const input = screen.getByLabelText("Email");
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")).toBe(
+        "register-email-error",
+      );
+      expect(document.activeElement).toBe(input);
+      // A field's own message, not the request-failure alert.
+      expect(screen.queryByTestId("register-error")).toBeNull();
+    },
+  );
+
+  it("clears the field message on edit and sends the corrected address", async () => {
+    registerRequest.mockResolvedValue({ status: "accepted" });
+    const user = userEvent.setup();
+    render(<RegisterForm />);
+
+    await user.type(screen.getByLabelText("Email"), "person@example");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByTestId("register-email-error")).toBeDefined();
+
+    await user.type(screen.getByLabelText("Email"), ".com");
+    expect(screen.queryByTestId("register-email-error")).toBeNull();
+    expect(
+      screen.getByLabelText("Email").getAttribute("aria-describedby"),
+    ).toBe("register-hint");
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(registerRequest).toHaveBeenCalledWith({
+        email: "person@example.com",
+      });
+    });
+  });
+
+  it("still shows the API's message when the server refuses an address", async () => {
+    // The browser's rule only catches obvious typos; the API decides, and its answer is kept.
     registerRequest.mockRejectedValue(
       new ApiError(400, "Enter a valid email address"),
     );
     render(<RegisterForm />);
 
-    await submitEmail("not-an-address");
+    await submitEmail("person@example.com");
 
     const error = await screen.findByTestId("register-error");
     expect(error.textContent).toBe("Enter a valid email address");

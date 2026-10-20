@@ -25,14 +25,14 @@
 
 .chartError {
   margin: 12px 0 0;
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font-size: 13px;
 }
 
 .inlineRetry {
   padding: 0;
   border: 0;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: transparent;
   font-size: 13px;
   font-weight: var(--weight-emphasis);
@@ -40,7 +40,7 @@
 }
 
 .inlineRetry:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 

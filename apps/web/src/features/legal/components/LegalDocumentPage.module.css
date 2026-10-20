@@ -79,7 +79,7 @@
   padding: 1px 6px;
   border: 1px dashed var(--color-warning);
   border-radius: var(--radius-sm);
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   background: var(--color-warning-soft);
   font-size: var(--text-secondary);
   font-weight: var(--weight-emphasis);
@@ -100,7 +100,7 @@
 }
 
 .pendingTag {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-size: var(--text-label-size);
   font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-label-tracking);

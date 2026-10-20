@@ -16,7 +16,7 @@ import {
   type BacktestTradeResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Notice } from "../../../components/ui/Notice";
@@ -349,6 +349,35 @@ function FailurePanel({
   );
 }
 
+/** The worker's progress message, when it is more than the status label the badge already shows. */
+function distinctPhase(
+  message: string | null,
+  status: BacktestRunStatus,
+): message is string {
+  return (
+    message !== null &&
+    message.trim() !== "" &&
+    message.trim().toLowerCase() !==
+      BACKTEST_RUN_STATUS_LABELS[status].toLowerCase()
+  );
+}
+
+/**
+ * What a screen reader hears when the run changes state (BT-5): once per transition, never per
+ * checkpoint. A failure is not announced here — the failure panel is an alert of its own, and
+ * saying it twice would only be noise.
+ */
+function statusAnnouncement(status: BacktestRunStatus): string {
+  switch (status) {
+    case "COMPLETED":
+      return "Backtest completed. The results are ready.";
+    case "FAILED":
+      return "";
+    default:
+      return `Backtest ${BACKTEST_RUN_STATUS_LABELS[status].toLowerCase()}.`;
+  }
+}
+
 export function BacktestRunView({ runId }: BacktestRunViewProps) {
   const {
     loadStatus,
@@ -361,6 +390,20 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     failure,
     retry,
   } = useBacktestRun(runId);
+  // The status the page was opened in is already on screen and is not news; each change after it
+  // is announced once through a polite live region (BT-5).
+  const [announcement, setAnnouncement] = useState("");
+  const announcedStatusRef = useRef<BacktestRunStatus | null>(null);
+  useEffect(() => {
+    if (status === null) {
+      return;
+    }
+    const previous = announcedStatusRef.current;
+    announcedStatusRef.current = status;
+    if (previous !== null && previous !== status) {
+      setAnnouncement(statusAnnouncement(status));
+    }
+  }, [status]);
   // The trade log is paged from the database, and its page lives in the URL. It is only asked for
   // once the run has a durable log to page: a queued, running or failed run has none.
   const {
@@ -368,6 +411,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     loading: tradesLoading,
     setPage: setTradesPage,
     setPageSize: setTradesPageSize,
+    controls: tradeLogControls,
   } = useBacktestTrades(runId, status === "COMPLETED");
   useDocumentTitle(run ? `${run.configuration.strategyName} backtest` : null);
   // The terminal checkpoint arrives one request before the refetched detail that carries the
@@ -542,12 +586,32 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             <BacktestEtfConditions guidance={etfGuidance} />
           ) : null}
 
+          {/* Status changes, announced once each and never the percentage (BT-5). Rendered in
+              every state so the region exists before its first message. */}
+          <p
+            className={styles.srOnly}
+            role="status"
+            data-testid="backtest-status-announcement"
+          >
+            {announcement}
+          </p>
+
           {terminal ? null : (
-            <div data-testid="backtest-progress" aria-label="Backtest progress">
+            <div data-testid="backtest-progress">
+              {/* The status itself is the badge in the header. What this line adds is the phase
+                  the worker reports — and only when it says something the badge does not: a
+                  queued run used to read "Queued" three times over (BT-5). */}
               <div className={styles.progressHead}>
-                <span className={styles.phase}>
-                  {BACKTEST_RUN_STATUS_LABELS[status]}
-                </span>
+                {distinctPhase(message, status) ? (
+                  <span
+                    className={styles.phase}
+                    data-testid="backtest-progress-message"
+                  >
+                    {message}
+                  </span>
+                ) : (
+                  <span />
+                )}
                 <span
                   className={styles.percent}
                   data-testid="backtest-progress-percent"
@@ -558,24 +622,21 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               <div
                 className={styles.track}
                 role="progressbar"
+                aria-label="Backtest progress"
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(percent)}
-                aria-valuetext={`${Math.round(percent)}% complete`}
+                aria-valuetext={
+                  distinctPhase(message, status)
+                    ? `${Math.round(percent)}% complete, ${message}`
+                    : `${Math.round(percent)}% complete`
+                }
               >
                 <span
                   className={styles.fill}
                   style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
                 />
               </div>
-              {message ? (
-                <p
-                  className={styles.progressMessage}
-                  data-testid="backtest-progress-message"
-                >
-                  {message}
-                </p>
-              ) : null}
               {live ? (
                 <p className={styles.progressDetail}>
                   Simulated through {formatDay(live.simulatedThrough)} · day{" "}
@@ -722,6 +783,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                   onPageSizeChange: setTradesPageSize,
                   loading: tradesLoading,
                 }}
+                controls={tradeLogControls}
               />
             ) : (
               <BacktestTrades

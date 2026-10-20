@@ -15,6 +15,9 @@ export function Skeleton({ height, width, radius = "surface" }: SkeletonProps) {
     <span
       className={styles.block}
       data-radius={radius}
+      // Marks the page as still loading for the shell, which holds the footer below the fold
+      // until the last placeholder is gone (GL-6).
+      data-skeleton=""
       style={{
         ...(height ? { height } : {}),
         ...(width ? { width } : {}),

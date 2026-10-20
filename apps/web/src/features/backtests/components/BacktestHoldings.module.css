@@ -6,11 +6,11 @@
 }
 
 .change[data-tone="positive"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .change[data-tone="negative"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 /* The percentage with its concentration bar directly beneath it. */
@@ -46,7 +46,7 @@
 /* A mark carried forward from an older close is stated, never presented as current. */
 .stale {
   max-width: 16rem;
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-size: 11px;
   font-weight: var(--weight-emphasis);
   line-height: 1.4;

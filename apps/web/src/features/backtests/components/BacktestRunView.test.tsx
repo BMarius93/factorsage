@@ -147,6 +147,55 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("metric-trades").textContent).toContain("—");
   });
 
+  it("says a queued run's status once, names its progress bar, and announces only transitions (BT-5)", async () => {
+    fetchRunMock
+      .mockResolvedValueOnce(
+        testDetail("QUEUED", {
+          progress: {
+            percent: 0,
+            message: "Queued",
+            simulatedThrough: null,
+            sequence: 0,
+            updatedAt: null,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        testDetail("COMPLETED", {
+          completedAt: "2026-09-01T10:20:00.000Z",
+          result: testResult(),
+        }),
+      );
+    fetchProgressMock
+      .mockResolvedValueOnce(testProgress("RUNNING", 1, { percent: 40 }))
+      .mockResolvedValue(testProgress("COMPLETED", 2, { percent: 100 }));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The badge says "Queued"; the progress line does not repeat it.
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Queued");
+    expect(screen.queryByTestId("backtest-progress-message")).toBeNull();
+    expect(
+      screen.getByRole("progressbar", { name: "Backtest progress" }),
+    ).toBeTruthy();
+    // Opening the page is not a transition: nothing is announced.
+    const announcement = screen.getByTestId("backtest-status-announcement");
+    expect(announcement.getAttribute("role")).toBe("status");
+    expect(announcement.textContent).toBe("");
+
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    expect(announcement.textContent).toBe("Backtest running.");
+    // A percentage moving is not announced; only the status changing is.
+    expect(announcement.textContent).not.toContain("%");
+
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    await flush();
+    expect(announcement.textContent).toBe(
+      "Backtest completed. The results are ready.",
+    );
+  });
+
   it("replaces the placeholder with a growing three-scenario chart as years complete", async () => {
     fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
     fetchProgressMock
@@ -243,7 +292,10 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
       "+36.00%",
     );
-    expect(screen.getByTestId("metric-alpha").textContent).toContain("+15.00%");
+    // A difference between two returns, in percentage points (BT-2).
+    expect(screen.getByTestId("metric-alpha").textContent).toContain(
+      "+15.00 pp",
+    );
     expect(screen.getByTestId("metric-max-drawdown").textContent).toContain(
       "-14.20%",
     );
@@ -251,6 +303,13 @@ describe("BacktestRunView", () => {
     // only ever read 0. CAGR took the slot.
     expect(screen.queryByTestId("metric-open-positions")).toBeNull();
     expect(screen.getByTestId("metric-cagr").textContent).toContain("+6.30%");
+    // The benchmark's own annualized return and drawdown sit beside the portfolio's (BT-2).
+    expect(screen.getByTestId("metric-cagr-benchmark").textContent).toContain(
+      "+3.90%",
+    );
+    expect(
+      screen.getByTestId("metric-max-drawdown-benchmark").textContent,
+    ).toContain("-18.40%");
     expect(screen.getByText("Trade log")).toBeTruthy();
     // The final state is cash, so there is no holdings section to render at all.
     expect(screen.queryByText("Final holdings")).toBeNull();
@@ -563,18 +622,18 @@ describe("BacktestRunView", () => {
     expect(grid.parentElement).toBe(results);
     expect([...results.children].length).toBe(2);
 
-    // All eight, still, in order.
+    // All eight, in the order a run is judged (BT-2): annualized return and worst decline first.
     expect(
       [...grid.children].map((tile) => tile.getAttribute("data-testid")),
     ).toEqual([
+      "metric-cagr",
+      "metric-max-drawdown",
       "metric-portfolio-return",
       "metric-benchmark-return",
       "metric-alpha",
       "metric-portfolio-value",
       "metric-net-profit",
-      "metric-max-drawdown",
       "metric-trades",
-      "metric-cagr",
     ]);
   });
 

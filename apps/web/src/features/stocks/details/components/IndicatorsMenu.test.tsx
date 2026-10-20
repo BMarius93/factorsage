@@ -14,7 +14,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { overlayColorAt } from "../utils/chart-theme";
+import { seriesColor } from "../utils/chart-theme";
 import { IndicatorsMenu } from "./IndicatorsMenu";
 
 const ALL_IDS = new Set(
@@ -62,7 +62,7 @@ function Harness({
           return next;
         })
       }
-      colorOf={(id) => (selected.has(id) ? overlayColorAt(0) : undefined)}
+      colorOf={(id) => (selected.has(id) ? seriesColor(id) : undefined)}
     />
   );
 }

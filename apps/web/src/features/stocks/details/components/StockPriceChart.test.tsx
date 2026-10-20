@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { createChart } from "lightweight-charts";
 import { StrictMode } from "react";
 import { describe, expect, it, vi, type Mock } from "vitest";
@@ -7,7 +7,13 @@ import type {
   ChartOverlaySeries,
   ChartValuationSeries,
 } from "../utils/chart-series";
-import { CHART_COLORS, overlayColorAt } from "../utils/chart-theme";
+import type { SelectableSeriesId } from "@intrinsic/contracts";
+import {
+  CHART_COLORS,
+  OVERLAY_PALETTE,
+  overlayColors,
+  seriesColor,
+} from "../utils/chart-theme";
 import { StockPriceChart } from "./StockPriceChart";
 
 type FakeSeries = {
@@ -38,6 +44,12 @@ type FakePane = {
   series: FakeSeries[];
   /** Kept when its last series goes, as `addPane(true)` asks the library to. */
   preserved: boolean;
+  /**
+   * The height the library has laid the pane out at: 300 for the price pane and 100 for any other
+   * by default, and 0 for one a test says the library has not laid out yet.
+   */
+  height: number;
+  getHeight: () => number;
 };
 
 /**
@@ -84,6 +96,13 @@ type FakeChart = {
   subscribeCrosshairMove: Mock;
   unsubscribeCrosshairMove: Mock;
   remove: Mock;
+  /**
+   * Whether the pointer is over the chart. While it is, the real library re-fires the crosshair
+   * handlers synchronously from inside `removeSeries`, before the removed series' API is forgotten:
+   * a handler that asks that series for its pane then throws "Value is null".
+   */
+  crosshairActive: boolean;
+  crosshairHandlers: Array<(param: unknown) => void>;
 };
 
 // jsdom cannot rasterize a canvas; the library boundary is mocked and the assertions target the
@@ -115,12 +134,14 @@ vi.mock("lightweight-charts", () => {
         subscribeVisibleLogicalRangeChange,
         unsubscribeVisibleLogicalRangeChange,
       };
-      const newPane = (preserved = false): FakePane => {
+      const newPane = (preserved = false, height = 100): FakePane => {
         const pane: FakePane = {
           setStretchFactor: vi.fn(),
           paneIndex: () => chart.panesList.indexOf(pane),
           series: [],
           preserved,
+          height,
+          getHeight: () => pane.height,
         };
         return pane;
       };
@@ -163,10 +184,16 @@ vi.mock("lightweight-charts", () => {
                   Object.assign(api.scaleOptions, next);
                 }),
               })),
-              getPane: () =>
-                chart.panesList.find((candidate) =>
+              // The real library asserts the series still has a pane (`ensureNotNull`).
+              getPane: () => {
+                const owner = chart.panesList.find((candidate) =>
                   candidate.series.includes(api),
-                ) as FakePane,
+                );
+                if (!owner) {
+                  throw new Error("Value is null");
+                }
+                return owner;
+              },
             };
             pane.series.push(api);
             chart.addedSeries.push({ definition, options, paneIndex, api });
@@ -188,6 +215,15 @@ vi.mock("lightweight-charts", () => {
             chart.panesList.length > 1
           ) {
             chart.panesList.splice(chart.panesList.indexOf(pane), 1);
+          }
+          if (chart.crosshairActive) {
+            for (const handler of chart.crosshairHandlers) {
+              handler({
+                time: "2026-08-26",
+                point: { x: 10, y: 10 },
+                seriesData: new Map(),
+              });
+            }
           }
         }),
         applyOptions: vi.fn(),
@@ -222,11 +258,19 @@ vi.mock("lightweight-charts", () => {
           chart.panesList[first] = chart.panesList[second] as FakePane;
           chart.panesList[second] = held;
         }),
-        subscribeCrosshairMove: vi.fn(),
-        unsubscribeCrosshairMove: vi.fn(),
+        subscribeCrosshairMove: vi.fn((handler: (param: unknown) => void) => {
+          chart.crosshairHandlers.push(handler);
+        }),
+        unsubscribeCrosshairMove: vi.fn((handler: (param: unknown) => void) => {
+          chart.crosshairHandlers = chart.crosshairHandlers.filter(
+            (candidate) => candidate !== handler,
+          );
+        }),
         remove: vi.fn(),
+        crosshairActive: false,
+        crosshairHandlers: [],
       };
-      chart.panesList.push(newPane());
+      chart.panesList.push(newPane(false, 300));
       return chart;
     },
   );
@@ -235,10 +279,21 @@ vi.mock("lightweight-charts", () => {
     AreaSeries: "AreaSeries",
     HistogramSeries: "HistogramSeries",
     LineSeries: "LineSeries",
-    LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
+    LineStyle: {
+      Solid: 0,
+      Dotted: 1,
+      Dashed: 2,
+      LargeDashed: 3,
+      SparseDotted: 4,
+    },
     LineType: { Simple: 0, WithSteps: 1, Curved: 2 },
   };
 });
+
+/** A palette hue for a fixture overlay; which one a real series wears is `overlayColors`'. */
+function hue(slot: number): string {
+  return OVERLAY_PALETTE[slot % OVERLAY_PALETTE.length] as string;
+}
 
 function lastChart(): FakeChart {
   const results = vi.mocked(createChart).mock.results;
@@ -347,7 +402,7 @@ describe("StockPriceChart", () => {
     const overlay = {
       id: "SMA_50D",
       label: "SMA 50D",
-      color: overlayColorAt(0),
+      color: hue(0),
       placement: "PRICE_OVERLAY" as const,
       points: [{ date: "2026-08-28", value: 220 }],
     };
@@ -368,7 +423,7 @@ describe("StockPriceChart", () => {
     // 0 is the price area, 1 is the always-present volume histogram; overlays follow.
     const overlaySeries = chart.addedSeries[2];
     expect(overlaySeries?.definition).toBe("LineSeries");
-    expect(overlaySeries?.options.color).toBe(overlayColorAt(0));
+    expect(overlaySeries?.options.color).toBe(hue(0));
     expect(overlaySeries?.api.setData).toHaveBeenCalledWith([
       { time: "2026-08-28", value: 220 },
     ]);
@@ -431,7 +486,7 @@ describe("StockPriceChart", () => {
     const overlay = {
       id: "BALANCED",
       label: "Balanced",
-      color: overlayColorAt(0),
+      color: hue(0),
       placement: "PRICE_OVERLAY" as const,
       points: [
         { date: "2026-08-27", value: 220 },
@@ -473,21 +528,21 @@ describe("StockPriceChart", () => {
       {
         id: "SMA_50D",
         label: "SMA 50D",
-        color: overlayColorAt(0),
+        color: hue(0),
         placement: "PRICE_OVERLAY" as const,
         points: [{ date: "2026-08-28", value: 220 }],
       },
       {
         id: "SMA_20W",
         label: "SMA 20W",
-        color: overlayColorAt(1),
+        color: hue(1),
         placement: "PRICE_OVERLAY" as const,
         points: [{ date: "2026-08-28", value: 216 }],
       },
       {
         id: "BALANCED",
         label: "Balanced",
-        color: overlayColorAt(2),
+        color: hue(2),
         placement: "PRICE_OVERLAY" as const,
         points: [{ date: "2026-08-28", value: 290 }],
       },
@@ -525,58 +580,74 @@ describe("StockPriceChart", () => {
     expect(legend.textContent).toContain("SMA 50D$220.00");
     expect(legend.textContent).toContain("SMA 20W$216.00");
     expect(legend.textContent).toContain("Balanced$290.00");
-
   });
 
-  it("repaints a reused overlay when the selection shifts its colour position", () => {
+  it("repaints a reused overlay when it has to borrow a hue, and only then", () => {
     const weekly = {
-      id: "SMA_20W",
-      label: "SMA 20W",
+      id: "SMA_100W",
+      label: "SMA 100W",
       placement: "PRICE_OVERLAY" as const,
       points: [{ date: "2026-08-28", value: 216 }],
     };
-    const { rerender } = render(
-      <StockPriceChart
-        points={POINTS}
-        overlays={[{ ...weekly, color: overlayColorAt(0) }]}
-        volume={VOLUME}
-        relativeVolume={NO_RELATIVE_VOLUME}
-        currency="USD"
-        fitKey="1Y"
-        {...FRAME}
-        ariaLabel="AAPL chart"
-      />,
-    );
+    const balanced = {
+      id: "BALANCED",
+      label: "Balanced",
+      placement: "PRICE_OVERLAY" as const,
+      points: [{ date: "2026-08-28", value: 290 }],
+    };
+    const dcf = {
+      id: "DCF_FCFF",
+      label: "DCF (FCFF)",
+      placement: "PRICE_OVERLAY" as const,
+      points: [{ date: "2026-08-28", value: 260 }],
+    };
+    const chartOf = (
+      lines: readonly (typeof weekly | typeof balanced | typeof dcf)[],
+    ) => {
+      const colors = overlayColors(
+        lines.map((line) => line.id as SelectableSeriesId),
+      );
+      return (
+        <StockPriceChart
+          points={POINTS}
+          overlays={lines.map((line) => ({
+            ...line,
+            color: colors.get(line.id as SelectableSeriesId) as string,
+          }))}
+          volume={VOLUME}
+          relativeVolume={NO_RELATIVE_VOLUME}
+          currency="USD"
+          fitKey="1Y"
+          {...FRAME}
+          ariaLabel="AAPL chart"
+        />
+      );
+    };
+    const { rerender } = render(chartOf([weekly]));
 
     const chart = lastChart();
     const overlaySeries = chart.addedSeries[2];
-    expect(overlaySeries?.options.color).toBe(overlayColorAt(0));
+    expect(overlaySeries?.options.color).toBe(seriesColor("SMA_100W"));
 
-    // A daily average is enabled ahead of it, so the weekly line moves to the next palette slot.
-    rerender(
-      <StockPriceChart
-        points={POINTS}
-        overlays={[
-          {
-            id: "SMA_50D",
-            label: "SMA 50D",
-            color: overlayColorAt(0),
-            placement: "PRICE_OVERLAY" as const,
-            points: [{ date: "2026-08-28", value: 220 }],
-          },
-          { ...weekly, color: overlayColorAt(1) },
-        ]}
-        volume={VOLUME}
-        relativeVolume={NO_RELATIVE_VOLUME}
-        currency="USD"
-        fitKey="1Y"
-        {...FRAME}
-        ariaLabel="AAPL chart"
-      />,
-    );
+    // A series that owns a different hue changes nothing about it.
+    rerender(chartOf([weekly, dcf]));
+    expect(overlaySeries?.api.applyOptions).toHaveBeenLastCalledWith({
+      color: seriesColor("SMA_100W"),
+    });
 
-    expect(overlaySeries?.api.applyOptions).toHaveBeenCalledWith({
-      color: overlayColorAt(1),
+    // Balanced owns the same hue and keeps it; the weekly line borrows a free one while both are
+    // drawn, and has its own back once Balanced is off.
+    rerender(chartOf([weekly, balanced, dcf]));
+    const borrowed = (
+      overlaySeries?.api.applyOptions.mock.lastCall?.[0] as { color: string }
+    ).color;
+    expect(borrowed).not.toBe(seriesColor("SMA_100W"));
+    expect(borrowed).not.toBe(seriesColor("BALANCED"));
+    expect(borrowed).not.toBe(seriesColor("DCF_FCFF"));
+
+    rerender(chartOf([weekly, dcf]));
+    expect(overlaySeries?.api.applyOptions).toHaveBeenLastCalledWith({
+      color: seriesColor("SMA_100W"),
     });
   });
 
@@ -1021,7 +1092,10 @@ describe("StockPriceChart", () => {
     // The library's own refusal: with the right edge pinned there is no offset past the last bar
     // for a drag, a wheel or a pinch to reach, in any direction and at any zoom.
     const timeScaleOptions = chart.applyOptions.mock.calls
-      .map((call) => (call[0] as { timeScale?: { fixRightEdge?: boolean } }).timeScale)
+      .map(
+        (call) =>
+          (call[0] as { timeScale?: { fixRightEdge?: boolean } }).timeScale,
+      )
       .filter((options) => options !== undefined);
     expect(timeScaleOptions.at(-1)?.fixRightEdge).toBe(true);
 
@@ -1240,11 +1314,16 @@ describe("StockPriceChart", () => {
   });
 });
 
-function rsiOverlay(id: string, label: string, position: number, value: number) {
+function rsiOverlay(
+  id: string,
+  label: string,
+  position: number,
+  value: number,
+) {
   return {
     id,
     label,
-    color: overlayColorAt(position),
+    color: hue(position),
     placement: "OSCILLATOR_PANE" as const,
     scale: { min: 0, max: 100 },
     points: [{ date: "2026-08-28", value }],
@@ -1255,7 +1334,7 @@ function priceOverlay(position: number) {
   return {
     id: "SMA_50D",
     label: "SMA 50D",
-    color: overlayColorAt(position),
+    color: hue(position),
     placement: "PRICE_OVERLAY" as const,
     points: [{ date: "2026-08-28", value: 220 }],
   };
@@ -1346,6 +1425,10 @@ describe("StockPriceChart oscillator pane", () => {
       priceRange: { minValue: number; maxValue: number };
     };
     expect(autoscale().priceRange).toEqual({ minValue: 0, maxValue: 100 });
+    // With small margins around it, so the taller pane never labels a value beyond 100 (SD-3).
+    expect(rsi?.api.scaleOptions).toMatchObject({
+      scaleMargins: { top: 0.12, bottom: 0.06 },
+    });
     // Unitless axis labels, not money.
     const priceFormat = rsi?.options.priceFormat as {
       type: string;
@@ -1356,7 +1439,7 @@ describe("StockPriceChart oscillator pane", () => {
     // The price pane keeps most of the height. Pane 1 is volume, pane 2 the oscillator, and both
     // factors are relative to the price pane's own 2 — not to 1.
     expect(chart.panesList[1]?.setStretchFactor).toHaveBeenCalledWith(0.45);
-    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.35);
+    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.7);
   });
 
   it("keeps one set of 30/50/70 reference levels no matter how many periods are on", () => {
@@ -1612,8 +1695,12 @@ describe("StockPriceChart oscillator pane", () => {
     const owner7 = seriesShowing(chart, 61.2);
     expect(owner7.api.createPriceLine).toHaveBeenCalledTimes(3);
     // The later periods carry no levels of their own.
-    expect(seriesShowing(chart, 54.3).api.createPriceLine).not.toHaveBeenCalled();
-    expect(seriesShowing(chart, 48.9).api.createPriceLine).not.toHaveBeenCalled();
+    expect(
+      seriesShowing(chart, 54.3).api.createPriceLine,
+    ).not.toHaveBeenCalled();
+    expect(
+      seriesShowing(chart, 48.9).api.createPriceLine,
+    ).not.toHaveBeenCalled();
 
     // 4-6. Disable RSI 7D, the initial owner. 14D and 21D stay drawn and the levels survive
     //      exactly once, having moved to 14D.
@@ -1622,14 +1709,20 @@ describe("StockPriceChart oscillator pane", () => {
     expect(chart.removeSeries).toHaveBeenCalledWith(owner7.api);
     expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
     // Ownership moved to 14D, which now carries the only set; 21D still carries none.
-    expect(seriesShowing(chart, 54.3).api.createPriceLine).toHaveBeenCalledTimes(3);
-    expect(seriesShowing(chart, 48.9).api.createPriceLine).not.toHaveBeenCalled();
+    expect(
+      seriesShowing(chart, 54.3).api.createPriceLine,
+    ).toHaveBeenCalledTimes(3);
+    expect(
+      seriesShowing(chart, 48.9).api.createPriceLine,
+    ).not.toHaveBeenCalled();
 
     // 7-8. Disable RSI 14D: RSI 21D and one set remain.
     show([rsi21]);
     expect(liveOscillatorSeries(chart)).toHaveLength(1);
     expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
-    expect(seriesShowing(chart, 48.9).api.createPriceLine).toHaveBeenCalledTimes(3);
+    expect(
+      seriesShowing(chart, 48.9).api.createPriceLine,
+    ).toHaveBeenCalledTimes(3);
 
     // 9-10. Disable the final RSI: the pane and its levels are gone.
     show([]);
@@ -1682,8 +1775,12 @@ describe("StockPriceChart oscillator pane", () => {
     expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
     // 7D is canonically first, so it takes the levels; 14D detaches its own rather than leaving
     // a second set drawn.
-    expect(seriesShowing(chart, 61.2).api.createPriceLine).toHaveBeenCalledTimes(3);
-    expect(seriesShowing(chart, 54.3).api.removePriceLine).toHaveBeenCalledTimes(3);
+    expect(
+      seriesShowing(chart, 61.2).api.createPriceLine,
+    ).toHaveBeenCalledTimes(3);
+    expect(
+      seriesShowing(chart, 54.3).api.removePriceLine,
+    ).toHaveBeenCalledTimes(3);
   });
 
   it("names each oscillator with its unitless value in the hover legend", () => {
@@ -1827,7 +1924,7 @@ describe("StockPriceChart fundamental pane", () => {
       { time: "2026-08-27", value: 12 },
       { time: "2026-08-28", value: 18.25 },
     ]);
-    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.75);
     expect(chart.panesList[1]?.setStretchFactor).toHaveBeenCalledWith(0.45);
     // The readings keep clear of the pane's edges on the one scale every stretch shares.
     expect(line?.api.scaleOptions).toEqual({
@@ -2018,8 +2115,8 @@ describe("StockPriceChart fundamental pane", () => {
     );
     // The RSI never lands on the fundamental's scale, nor a fundamental on the RSI's.
     expect(oscillatorPane).not.toBe(fundamentalPane);
-    expect(oscillatorPane?.setStretchFactor).toHaveBeenCalledWith(0.35);
-    expect(fundamentalPane?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(oscillatorPane?.setStretchFactor).toHaveBeenCalledWith(0.7);
+    expect(fundamentalPane?.setStretchFactor).toHaveBeenCalledWith(0.75);
     expect(wrapper.dataset.oscillatorPane).toBe("true");
     expect(wrapper.dataset.fundamentalPane).toBe("true");
 
@@ -2117,7 +2214,7 @@ describe("StockPriceChart fundamental pane", () => {
     const placeholder = chart.panesList[2];
     expect(chart.panesList).toHaveLength(3);
     expect(placeholder?.series).toEqual([]);
-    expect(placeholder?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(placeholder?.setStretchFactor).toHaveBeenCalledWith(0.75);
     expect(liveFundamentalSeries(chart)).toEqual([]);
     expect(wrapper.dataset.fundamentalSpace).toBe("true");
     expect(wrapper.dataset.fundamentalPane).toBeUndefined();
@@ -2406,7 +2503,7 @@ describe("StockPriceChart valuation pane", () => {
       { time: "2026-08-27", value: 18.2 },
       { time: "2026-08-28", value: 18.6 },
     ]);
-    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(chart.panesList[2]?.setStretchFactor).toHaveBeenCalledWith(0.75);
     expect(line?.api.scaleOptions).toEqual({
       scaleMargins: { top: 0.2, bottom: 0.15 },
     });
@@ -2656,7 +2753,7 @@ describe("StockPriceChart valuation pane", () => {
           liveValuationSeries(chart).some((entry) => entry.api === series),
         ),
       ).toBe(true);
-      expect(valuationPane?.setStretchFactor).toHaveBeenCalledWith(0.6);
+      expect(valuationPane?.setStretchFactor).toHaveBeenCalledWith(0.75);
       unmount();
     }
   });
@@ -2671,7 +2768,7 @@ describe("StockPriceChart valuation pane", () => {
     expect(chart.addPane).toHaveBeenCalledWith(true);
     const placeholder = chart.panesList[2];
     expect(placeholder?.series).toEqual([]);
-    expect(placeholder?.setStretchFactor).toHaveBeenCalledWith(0.6);
+    expect(placeholder?.setStretchFactor).toHaveBeenCalledWith(0.75);
     expect(wrapper.dataset.valuationSpace).toBe("true");
     expect(wrapper.dataset.valuationPane).toBeUndefined();
     expect(wrapper.dataset.paneOrder).toBe("price,volume,valuation");
@@ -2755,5 +2852,269 @@ describe("StockPriceChart valuation pane", () => {
     expect(liveValuationSeries(chart)).toHaveLength(2);
     expect(chart.panesList).toHaveLength(5);
     expect(chart.removePane).not.toHaveBeenCalled();
+  });
+});
+
+/** Lets the frame the chart asks for after a change run, as the browser would. */
+async function nextFrame() {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  });
+}
+
+/** Each lower pane's title as drawn: which pane, where, and what it says. */
+function paneTitles() {
+  return [
+    ...screen
+      .getByTestId("chart-pane-titles")
+      .querySelectorAll<HTMLElement>("[data-testid='chart-pane-title']"),
+  ].map((title) => ({
+    pane: title.dataset.pane,
+    top: title.style.top,
+    text: [...title.children].map((row) => row.textContent),
+  }));
+}
+
+describe("StockPriceChart pane titles", () => {
+  it("names every lower pane with its series and the newest session's reading", async () => {
+    render(
+      chartWith({
+        overlays: [
+          priceOverlay(0),
+          rsiOverlay("RSI_7D", "RSI 7D", 1, 61.04),
+          rsiOverlay("RSI_14D", "RSI 14D", 2, 54.32),
+        ],
+        valuation: PE,
+        fundamental: ROIC,
+      }),
+    );
+    await nextFrame();
+
+    // Top to bottom in the panes' own order, each at its pane's top edge: the price pane is 300px
+    // tall and every other 100px, each under a 1px separator. The price pane has no title.
+    expect(paneTitles()).toEqual([
+      { pane: "volume", top: "301px", text: ["Volume52.1M"] },
+      {
+        pane: "oscillator",
+        top: "402px",
+        // One decimal and unitless, as on the pane's axis.
+        text: ["RSI 7D61.0", "RSI 14D54.3"],
+      },
+      { pane: "valuation", top: "503px", text: ["P/E19.1x"] },
+      { pane: "fundamental", top: "604px", text: ["ROIC TTM21%"] },
+    ]);
+    // Each series named in its own line colour.
+    const oscillatorDots = [
+      ...screen
+        .getByTestId("chart-pane-titles")
+        .querySelectorAll<HTMLElement>("[data-pane='oscillator'] span > span"),
+    ]
+      .map((dot) => dot.style.backgroundColor)
+      .filter(Boolean);
+    expect(oscillatorDots).toHaveLength(2);
+    expect(new Set(oscillatorDots).size).toBe(2);
+    // Hidden from assistive technology like the readout: it restates the canvas.
+    expect(
+      screen.getByTestId("chart-pane-titles").getAttribute("aria-hidden"),
+    ).toBe("true");
+  });
+
+  it("reads the hovered session while the crosshair is on the chart, and the newest bar after", async () => {
+    render(
+      chartWith({
+        overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)],
+        valuation: PE,
+        fundamental: ROIC,
+      }),
+    );
+    await nextFrame();
+    const chart = lastChart();
+    const onCrosshairMove = chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+      param: unknown,
+    ) => void;
+
+    onCrosshairMove({
+      time: "2026-08-26",
+      seriesData: new Map<unknown, { value: number }>([
+        [chart.addedSeries[0]?.api, { value: 200 }],
+        [chart.addedSeries[1]?.api, { value: 41_237_500 }],
+        [chart.addedSeries[2]?.api, { value: 47.25 }],
+      ]),
+    });
+    expect(paneTitles().map((title) => title.text)).toEqual([
+      ["Volume41.2M"],
+      ["RSI 14D47.3"],
+      ["P/E18.4x"],
+      ["ROIC TTM18.25%"],
+    ]);
+
+    // Inside an unavailable session the ratio and the metric say so; neither carries the reading
+    // before it. A line with no value there shows its name alone.
+    onCrosshairMove({
+      time: "2026-08-27",
+      seriesData: new Map([[chart.addedSeries[0]?.api, { value: 200 }]]),
+    });
+    expect(paneTitles().map((title) => title.text)).toEqual([
+      ["Volume"],
+      ["RSI 14D"],
+      ["P/EUnavailable"],
+      ["ROIC TTMUnavailable"],
+    ]);
+
+    onCrosshairMove({ time: undefined, seriesData: new Map() });
+    expect(paneTitles().map((title) => title.text)).toEqual([
+      ["Volume52.1M"],
+      ["RSI 14D54.3"],
+      ["P/E19.1x"],
+      ["ROIC TTM21%"],
+    ]);
+  });
+
+  // Seen in the browser: hovering the chart while a ratio's history reloaded threw "Value is null".
+  // Removing a series under the pointer re-fires the crosshair inside `removeSeries`, and the
+  // titles asked the removed series for its pane.
+  it("survives series being removed under the pointer, and titles what remains", async () => {
+    const { rerender } = render(
+      chartWith({
+        overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)],
+        valuation: PE,
+        fundamental: ROIC,
+      }),
+    );
+    await nextFrame();
+    const chart = lastChart();
+    chart.crosshairActive = true;
+
+    // The ratio and the metric rebuilt (a reload of their history), then each removed, then the
+    // oscillator removed — every one while the crosshair is on the chart.
+    expect(() =>
+      rerender(
+        chartWith({
+          overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)],
+          valuation: { ...PE, points: [...PE.points] },
+          fundamental: { ...ROIC, points: [...ROIC.points] },
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      rerender(
+        chartWith({ overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)] }),
+      ),
+    ).not.toThrow();
+    expect(() => rerender(chartWith({ overlays: [] }))).not.toThrow();
+
+    chart.crosshairActive = false;
+    await nextFrame();
+    expect(paneTitles().map((title) => title.pane)).toEqual(["volume"]);
+  });
+
+  it("never shows an older reading as the newest one", async () => {
+    // The ratio has been unavailable since 2026-08-26; the RSI's newest point is a session old.
+    const lapsed = valuationSeries({
+      points: [
+        { date: "2026-08-24", value: 18.2 },
+        { date: "2026-08-25", value: 18.6 },
+      ],
+      readings: new Map([
+        ["2026-08-25", 18.6],
+        ["2026-08-26", undefined],
+        ["2026-08-27", undefined],
+        ["2026-08-28", undefined],
+      ]),
+    });
+    render(
+      chartWith({
+        overlays: [
+          {
+            ...rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32),
+            points: [{ date: "2026-08-27", value: 54.32 }],
+          },
+        ],
+        valuation: lapsed,
+      }),
+    );
+    await nextFrame();
+    expect(paneTitles().map((title) => title.text)).toEqual([
+      ["Volume52.1M"],
+      ["RSI 14D"],
+      ["P/EUnavailable"],
+    ]);
+  });
+
+  it("follows the panes into their order and gives a pane no title until it is laid out", async () => {
+    const { rerender, container } = render(chartWith({ fundamental: ROIC }));
+    await nextFrame();
+    expect(paneTitles().map((title) => [title.pane, title.top])).toEqual([
+      ["volume", "301px"],
+      ["fundamental", "402px"],
+    ]);
+
+    // The RSI's pane is created below the fundamental's and swapped above it; the titles follow.
+    // Until the library has laid the new pane out it has no height and no title, and the panes
+    // below it are placed by the heights they do have.
+    const chart = lastChart();
+    const addPaneOnce = chart.addSeries.getMockImplementation()!;
+    chart.addSeries.mockImplementationOnce(
+      (definition: unknown, options: Record<string, unknown>, at?: number) => {
+        const added = addPaneOnce(definition, options, at) as FakeSeries;
+        added.getPane().height = 0;
+        return added;
+      },
+    );
+    const withRsi = chartWith({
+      overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)],
+      fundamental: ROIC,
+    });
+    rerender(withRsi);
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.dataset.paneOrder).toBe(
+      "price,volume,oscillator,fundamental",
+    );
+    await nextFrame();
+    expect(paneTitles().map((title) => [title.pane, title.top])).toEqual([
+      ["volume", "301px"],
+      ["fundamental", "403px"],
+    ]);
+
+    // Laid out, it is named in its place.
+    chart.panesList[2]!.height = 117;
+    onCrosshairLeave(chart);
+    expect(paneTitles().map((title) => [title.pane, title.top])).toEqual([
+      ["volume", "301px"],
+      ["oscillator", "402px"],
+      ["fundamental", "520px"],
+    ]);
+  });
+
+  it("names no pane while a chosen ratio or metric is still on its way", async () => {
+    render(chartWith({ valuationPending: true, fundamentalPending: true }));
+    await nextFrame();
+    expect(paneTitles().map((title) => title.pane)).toEqual(["volume"]);
+  });
+});
+
+/** The pointer leaving the chart, which repaints the titles at the newest bar. */
+function onCrosshairLeave(chart: FakeChart) {
+  const onCrosshairMove = chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+    param: unknown,
+  ) => void;
+  onCrosshairMove({ time: undefined, seriesData: new Map() });
+}
+
+describe("StockPriceChart pane edges", () => {
+  it("leaves out a tick label that would be cut by a pane's edge, on every pane's axis", () => {
+    render(chartWith({ valuation: PE }));
+    expect(lastChart().options.rightPriceScale).toMatchObject({
+      entireTextOnly: true,
+    });
+  });
+
+  it("keeps the volume bars below the volume pane's title", () => {
+    render(chartWith({}));
+    const volumeHistogram = lastChart().addedSeries[1];
+    expect(volumeHistogram?.definition).toBe("HistogramSeries");
+    expect(volumeHistogram?.api.scaleOptions).toEqual({
+      scaleMargins: { top: 0.3, bottom: 0 },
+    });
   });
 });

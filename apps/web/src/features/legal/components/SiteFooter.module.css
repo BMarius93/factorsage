@@ -55,7 +55,7 @@
 /* While the operator's identity is unresolved, say so rather than showing only a brand name:
    a reader must be able to tell "not supplied yet" from "this is who you are contracting with". */
 .pending {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-weight: var(--weight-emphasis);
 }
 

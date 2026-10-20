@@ -185,8 +185,9 @@ no list of its own.
   the publication delay it is the previous session (`docs/decisions/eod-finality-v1.md`) — valued at
   its own close and the statements public on its own date, exactly as a backtest frame reads that
   row. It is never a live quote or an in-progress bar. There is
-  no last-value label: once a ratio has become unavailable it would print an older reading as though
-  it were current.
+  no last-value label on the axis: once a ratio has become unavailable it would print an older
+  reading as though it were current. The pane's title (SD-3) shows the newest session's reading, or
+  `Unavailable` for that session — never the last available one.
 - **Selective loading.** Nothing about valuation ratios is requested until one is chosen; then only
   that ratio, for the history the chart already holds — the opening year, never thirty years — from
   `GET /stocks/:symbol/valuation-ratios/daily`. Older history loaded by panning or a range extends
@@ -228,8 +229,10 @@ TTM.
   rounding is display only, never hides a reading (`0.75x`, never `0.8x`) and never prints a small
   non-zero reading as zero. A hovered session inside a gap reads `Unavailable`.
 - **End of day.** Sessions are completed trading sessions, the same ones the price chart draws; no
-  value is synthesized from a quote or a statement. There is no last-value label: after an
-  invalidation it would print an older reading as though it were current.
+  value is synthesized from a quote or a statement. There is no last-value label on the axis: after
+  an invalidation it would print an older reading as though it were current. The pane's title (SD-3)
+  shows the newest session's reading, or `Unavailable` for that session — never the last available
+  one.
 - **Selective loading.** Nothing about fundamentals is requested until a metric is chosen; then only
   that metric, for the history the chart already holds, from
   `GET /stocks/:symbol/fundamentals/daily`. Older history loaded by panning or a range extends it by
@@ -247,9 +250,12 @@ TTM.
   a list.
 - A **persistent chart key** under the plot names the close and every enabled overlay; the
   crosshair readout still adds values under the pointer.
-- **One sign convention:** every comparison is the price against its reference —
-  "Price vs value: −5.9%", "Price vs average: +3.2%" — so a negative number always means the price
-  is below the reference. The chip is neutral in colour; green/red would assert a judgement.
+- **One sign convention:** every comparison is the price against its reference, and a negative
+  number always means the price is below the reference. Valuation says it in words (SD-4): "Price
+  73.92% above value", "Price 15.20% below value", "Price equals value", with one InfoTip explaining
+  that the percentage compares the latest close with that model's estimate and is not a forecast or
+  an expected return. Technicals keeps the signed figure under one "Price vs avg." column heading
+  (SD-6): "+3.20%". The chip is neutral in colour; green/red would assert a judgement.
 - The page is built from shared primitives: `EmptyState` for not-found and load failures,
   `SectionCard` panels, `FactGrid` key facts and `StatusBadge` listing badges. The lower panels are
   one ordered flow balanced into two columns from 880px.

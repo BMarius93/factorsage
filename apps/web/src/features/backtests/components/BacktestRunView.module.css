@@ -26,13 +26,22 @@
 }
 
 .phase {
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: var(--weight-emphasis);
+  color: var(--color-text-body);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .percent {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   font-size: 14px;
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
@@ -57,13 +66,6 @@
   .fill {
     transition: none;
   }
-}
-
-.progressMessage {
-  margin: 0;
-  color: var(--color-text-body);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .progressDetail {
@@ -213,7 +215,7 @@
 
 .copyButton:hover {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 /* --- Run configuration, below the outcome and collapsed --- */

@@ -81,6 +81,28 @@ describe("VerifyEmailPanel", () => {
     expect(verifyEmail).not.toHaveBeenCalled();
   });
 
+  it("gives each password field its own Show/Hide control, which redeems nothing (AU-1)", async () => {
+    const user = userEvent.setup();
+    render(<VerifyEmailPanel token={TOKEN} />);
+    const fresh = screen.getByLabelText("New password") as HTMLInputElement;
+    const confirm = screen.getByLabelText(
+      "Confirm password",
+    ) as HTMLInputElement;
+    await user.type(confirm, OWNER_PASSWORD);
+
+    const toggles = screen.getAllByRole("button", { name: "Show password" });
+    expect(
+      toggles.map((toggle) => toggle.getAttribute("aria-controls")),
+    ).toEqual([fresh.id, confirm.id]);
+
+    await user.click(toggles[1] as HTMLElement);
+    expect(confirm.type).toBe("text");
+    expect(confirm.value).toBe(OWNER_PASSWORD);
+    expect(fresh.type).toBe("password");
+    expect(verifyEmail).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("verify-error")).toBeNull();
+  });
+
   /**
    * Acceptance is bound to the person holding the link, and to nobody else.
    *

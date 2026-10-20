@@ -386,7 +386,7 @@
 
 .sortButton:hover,
 .sortButton[data-active="true"] {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .sortButton:focus-visible {

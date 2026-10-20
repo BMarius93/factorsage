@@ -160,7 +160,7 @@
 
 .flag[data-tone="warning"] {
   background: var(--color-warning-soft);
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 /* The trend line belongs to the table: a card states the six returns and stops there. */
@@ -212,11 +212,11 @@
 }
 
 .metricValue[data-tone="positive"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .metricValue[data-tone="negative"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .metricValue[data-tone="zero"] {

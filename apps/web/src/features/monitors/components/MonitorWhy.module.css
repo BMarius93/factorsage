@@ -29,11 +29,11 @@
 }
 
 .predicate[data-result="TRUE"] .mark {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .predicate[data-result="FALSE"] .mark {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .values {

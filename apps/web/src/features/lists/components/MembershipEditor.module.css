@@ -79,7 +79,7 @@
 }
 
 .modeOption:focus-within {
-  border-color: var(--color-primary);
+  border-color: var(--color-focus);
   box-shadow: var(--focus-ring-inset);
 }
 
@@ -167,7 +167,7 @@
 
 .fieldError {
   margin: 0;
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font-size: 12px;
   font-weight: var(--weight-emphasis);
 }

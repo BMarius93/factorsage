@@ -28,7 +28,7 @@
 
 .brandLink:focus-visible,
 .navLink:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -63,12 +63,12 @@
 }
 
 .navLink:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: var(--color-primary-soft);
 }
 
 .navLink[data-active="true"] {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .navLink[data-active="true"]::after {

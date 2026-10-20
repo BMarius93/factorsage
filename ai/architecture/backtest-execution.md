@@ -350,6 +350,18 @@ Both the ordered window and the count read `(runId, sequence)`, which is already
 already indexed — **no new index and no migration were needed for paging**. A page past the end is
 clamped to the last real page rather than refused.
 
+The log can be narrowed and turned around in the same queries: `symbol=` (one traded symbol),
+`action=` (`BUY`, `SELL` or `FINAL_EXIT`) and `order=` (`desc`, newest first and the default, or
+`asc`), all by `sequence`. `SELL` includes the end-of-backtest liquidations, which are sales stored
+as `action: SELL` with `source: END_OF_BACKTEST`. The count and every page describe the filtered log
+as a whole, the response carries the run's distinct symbols for the filter, and an unrecognised
+value is ignored rather than refused — the response reports what it applied. Neither column is
+indexed and none was added: the filter reads one run's rows through `(runId, sequence)`, which is
+bounded by that run's trade count. `GET /backtests/{runId}/trades/export` returns the same filtered,
+ordered log as CSV — every matching trade, not the page on screen — streamed in keyset batches so an
+export holds one batch in memory; its own `data-export` rate-limit class, because one request reads a
+whole run.
+
 Each trade carries a **reason**: the canonical Strategy description of the rule that produced it,
 built from the run's own immutable snapshot and never from the strategy as it stands today. The
 strings come from `describeCondition` / `describeTrigger`, the same primitives the Strategy logic

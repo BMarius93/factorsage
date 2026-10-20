@@ -27,6 +27,13 @@ export type BacktestMetricsView = {
    * makes a thirty-year total return comparable to a three-year one.
    */
   readonly portfolioCagrPercent: number | null;
+  /**
+   * The benchmark's own CAGR and maximum drawdown, shown beside the portfolio's (BT-2). Known only
+   * for a completed run — the API derives the first from the stored benchmark return and the run's
+   * span, and the second is stored — so an executing run shows the portfolio figure alone.
+   */
+  readonly benchmarkCagrPercent: number | null;
+  readonly benchmarkMaxDrawdownPercent: number | null;
 };
 
 /** Nothing measured yet: every tile is a placeholder. */
@@ -39,6 +46,8 @@ export const EMPTY_METRICS: BacktestMetricsView = {
   maxDrawdownPercent: null,
   tradeCount: null,
   portfolioCagrPercent: null,
+  benchmarkCagrPercent: null,
+  benchmarkMaxDrawdownPercent: null,
 };
 
 /** The in-flight projection the running page renders between checkpoints. */
@@ -54,6 +63,8 @@ export function liveMetrics(
     maxDrawdownPercent: live.maxDrawdownPercent,
     tradeCount: live.tradeCount,
     portfolioCagrPercent: live.portfolioCagrPercent,
+    benchmarkCagrPercent: null,
+    benchmarkMaxDrawdownPercent: null,
   };
 }
 
@@ -75,5 +86,7 @@ export function resultMetrics(
     maxDrawdownPercent: summary.maxDrawdownPercent,
     tradeCount: summary.totalTrades,
     portfolioCagrPercent: summary.portfolioCagrPercent,
+    benchmarkCagrPercent: summary.benchmarkCagrPercent,
+    benchmarkMaxDrawdownPercent: summary.benchmarkMaxDrawdownPercent,
   };
 }

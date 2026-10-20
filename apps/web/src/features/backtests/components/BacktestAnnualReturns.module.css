@@ -72,11 +72,11 @@
 }
 
 .value[data-tone="positive"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .value[data-tone="negative"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .footnote {

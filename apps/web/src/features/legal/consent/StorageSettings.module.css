@@ -147,12 +147,12 @@
    a glance. */
 tr[data-category="PREFERENCES"] .category {
   border-color: var(--color-warning);
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   background: var(--color-warning-soft);
 }
 
 tr[data-category="NECESSARY"] .category {
   border-color: var(--color-positive-border);
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
   background: var(--color-positive-soft);
 }

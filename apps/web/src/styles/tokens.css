@@ -37,10 +37,13 @@
   --color-surface-contrast: #1f2937;
 
   /* ── Text ───────────────────────────────────────────────────────────────── */
+  /* Every text colour meets WCAG 2.2 AA (4.5:1) on every product surface, including the
+     selected tint (#eef3ff). Secondary stays darker than muted so the hierarchy survives the
+     contrast floor: secondary ≈ 5.7:1 and muted ≈ 5.1:1 on white (GL-1). */
   --color-text-primary: #222222;
   --color-text-body: #404040;
-  --color-text-secondary: #667085;
-  --color-text-muted: #7a7f8c;
+  --color-text-secondary: #5e677b;
+  --color-text-muted: #696e79;
   --color-text-on-primary: #ffffff;
 
   /* ── Borders ────────────────────────────────────────────────────────────── */
@@ -53,29 +56,50 @@
   --color-border-subtle: #f0f3fa;
 
   /* ── Brand ──────────────────────────────────────────────────────────────── */
+  /* The brand blue as an accent: rules, indicators, meters, active underlines, chart strokes.
+     At 3.5:1 on white it is a graphic colour (3:1), never a text colour. */
   --color-primary: #4882ff;
-  --color-primary-hover: #3b73e6;
+  /* The brand blue as a fill that carries white text — the primary button, a selected
+     segment, a count badge. A shade deeper than --color-primary so the text reaches 4.6:1. */
+  --color-primary-solid: #2f6fe8;
+  --color-primary-hover: #2b66d9;
   /* The brand blue as *ink* on a tint. This is the FactorSage action treatment: a
-     tinted button with deep blue text, rather than a slab of saturated colour. */
+     tinted button with deep blue text, rather than a slab of saturated colour. It is also
+     the colour of every blue word: links, the active navigation item, counts. */
   --color-primary-ink: #3b5ccc;
   --color-primary-soft: #eef3ff;
   --color-primary-soft-hover: #e2eaff;
   --color-primary-border: #c8d9ff;
 
   /* ── Financial and operational state ────────────────────────────────────── */
+  /* Each state has a *fill* (lines, sparklines, rules, chart series, borders) and an *ink*
+     for words and figures. The fills are the identity and stay as they were; at 3.4–4.5:1 on
+     white, and less on the tinted surfaces, they are graphic colours only. Every gain, loss,
+     warning or status written as text uses the ink, which keeps the hue, reaches 4.6:1 on white
+     and on its own soft tint, and 4.5:1 on every product surface, the selected tint included. */
   --color-positive: #1e9e78;
+  --color-positive-ink: #187c5f;
   --color-positive-soft: #ecfdf3;
   --color-positive-border: #cfe8d5;
   --color-negative: #d1435b;
+  --color-negative-ink: #cc324c;
   --color-negative-soft: #fff1f2;
   --color-negative-hover: #bd3b51;
   --color-warning: #c26a18;
+  --color-warning-ink: #a55b14;
   --color-warning-soft: #fff7ed;
 
   /* ── Interaction ────────────────────────────────────────────────────────── */
   --color-row-hover: #f5f8ff;
-  --focus-ring: 0 0 0 3px rgb(72 130 255 / 0.24);
-  --focus-ring-inset: 0 0 0 3px rgb(72 130 255 / 0.14);
+  /* One keyboard-focus language (GL-3). The ring is solid, 4.6:1 against white, and kept
+     apart from the control by a 2px gap of surface colour so it reads on any fill.
+     --focus-ring is for buttons, links and other controls; --focus-ring-inset thickens a
+     field's own border (the field also takes --color-focus as its border colour). The global
+     `:focus-visible` rule in globals.css draws the same colour as an outline for anything
+     without its own treatment. */
+  --color-focus: var(--color-primary-solid);
+  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-focus);
+  --focus-ring-inset: 0 0 0 1px var(--color-focus);
 
   /* ── Typography ─────────────────────────────────────────────────────────── */
   /* Geist is a V2 decision, not something inherited from V1 — V1 renders in the OS UI

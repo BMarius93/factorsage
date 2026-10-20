@@ -94,7 +94,7 @@
 /* Destructive items read as destructive only once the menu is open, which is the whole
    point of putting them here. */
 .item[data-tone="danger"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .item[data-tone="danger"]:hover:not(:disabled) {

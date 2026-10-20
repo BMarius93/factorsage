@@ -31,7 +31,7 @@
 }
 
 .link {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   font-weight: var(--weight-emphasis);
   text-decoration: none;
 }
@@ -41,6 +41,6 @@
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }

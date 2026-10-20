@@ -12,12 +12,19 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type MouseEventParams,
+  type SeriesType,
   type Time,
 } from "lightweight-charts";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { LogicalRange, TimeDomain } from "../../../../components/charts/time-domain";
+import type {
+  LogicalRange,
+  TimeDomain,
+} from "../../../../components/charts/time-domain";
 import { useBoundedTimeScale } from "../../../../components/charts/use-bounded-time-scale";
-import { RELATIVE_VOLUME_PERIODS, relativeVolumeLabel } from "@intrinsic/contracts";
+import {
+  RELATIVE_VOLUME_PERIODS,
+  relativeVolumeLabel,
+} from "@intrinsic/contracts";
 import type { RelativeVolumeValuesResponse } from "@intrinsic/contracts";
 import type {
   ChartFundamentalSeries,
@@ -59,28 +66,53 @@ const VOLUME_PANE_INDEX = 1;
  * with the last one, always appending a new pane at the bottom; below the volume pane, the
  * oscillator, valuation ratio and Fundamental Metric panes then keep that order however they were
  * chosen (`arrangeLowerPanes`).
+ *
+ * **A lower pane's factor is its room in the stylesheet, in stretch units.** On a wide screen one
+ * unit is about 168px: the 440px of price, volume and time axis, less the 28px axis and a 1px
+ * separator, over the price pane's 2 and the volume's 0.45. Each lower pane's room in
+ * `StockPriceChart.module.css` is its factor in those pixels plus its own separator, so adding a
+ * pane gives it exactly the room the wrapper grew by and the price pane keeps its height. At 0.7
+ * the oscillator pane is about 117px tall on a wide screen and 92px on a phone — tall enough for
+ * the 30/50/70 levels to read — where 0.35 left it about 66px and 51px and spent the rest of its
+ * room on the price pane. Change a factor and its room together.
  */
-const OSCILLATOR_PANE_STRETCH = 0.35;
+const OSCILLATOR_PANE_STRETCH = 0.7;
 
 /**
- * Relative height of the Fundamental Metric pane, against the price pane's 2. A little taller than
- * the oscillator pane: its scale is the metric's own, not a fixed 0-100, and a step is only legible
- * with some room to move. The wrapper grows by as much, so the price pane keeps its height.
+ * Relative height of the Fundamental Metric pane, against the price pane's 2: about 126px on a wide
+ * screen and 98px on a phone. A little taller than the oscillator pane: its scale is the metric's
+ * own, not a fixed 0-100, and a step is only legible with some room to move. The wrapper grows by
+ * as much (see `OSCILLATOR_PANE_STRETCH`), so the price pane keeps its height.
  */
-const FUNDAMENTAL_PANE_STRETCH = 0.6;
+const FUNDAMENTAL_PANE_STRETCH = 0.75;
 
 /**
  * Relative height of the valuation ratio pane: the Fundamental Metric pane's, for the same reason —
  * its scale is the ratio's own, and a daily line needs room to move. The wrapper grows by as much.
  */
-const VALUATION_PANE_STRETCH = 0.6;
+const VALUATION_PANE_STRETCH = 0.75;
 
 /**
  * Room above and below the readings of a series in a pane of its own — a Fundamental Metric or a
  * valuation ratio — as fractions of its pane, so the highest and lowest readings stay off the
- * separator above and the time axis below.
+ * separator above and the time axis below, and clear of the pane's title in the top corner.
  */
 const PANE_LINE_SCALE_MARGINS = { top: 0.2, bottom: 0.15 } as const;
+
+/**
+ * The volume bars stand on the pane's floor and leave the top third clear: that is where the
+ * pane's title sits, and a tall session must not run underneath it.
+ */
+const VOLUME_SCALE_MARGINS = { top: 0.3, bottom: 0 } as const;
+
+/**
+ * The oscillator pane's margins around its fixed range. Kept small so the axis never labels a value
+ * outside the range, and large enough that the pane's title sits above 100 rather than on it.
+ */
+const OSCILLATOR_SCALE_MARGINS = { top: 0.12, bottom: 0.06 } as const;
+
+/** The library's separator between two panes, which every pane below the first sits under. */
+const PANE_SEPARATOR_HEIGHT = 1;
 
 /**
  * Relative height of the volume pane.
@@ -145,6 +177,9 @@ function formatOscillatorValue(value: number): string {
   return value.toFixed(1);
 }
 
+/** What a pane holds, by the name the DOM contract and the pane titles use. */
+type PaneName = keyof ChartPanes;
+
 /** The chart's panes by what they hold; any of them may be absent. */
 type ChartPanes = {
   readonly price: IPaneApi<Time> | undefined;
@@ -192,22 +227,18 @@ function arrangeLowerPanes(chart: IChartApi, panes: ChartPanes): string {
   panes.fundamental?.setStretchFactor(FUNDAMENTAL_PANE_STRETCH);
   return chart
     .panes()
-    .map((pane) => {
-      if (pane === panes.price) {
-        return "price";
-      }
-      if (pane === panes.volume) {
-        return "volume";
-      }
-      if (pane === panes.oscillator) {
-        return "oscillator";
-      }
-      if (pane === panes.valuation) {
-        return "valuation";
-      }
-      return pane === panes.fundamental ? "fundamental" : "unknown";
-    })
+    .map((pane) => paneNameOf(pane, panes) ?? "unknown")
     .join(",");
+}
+
+/** What `pane` holds, or `undefined` for a pane this component does not know. */
+function paneNameOf(
+  pane: IPaneApi<Time>,
+  panes: ChartPanes,
+): PaneName | undefined {
+  return (Object.keys(panes) as PaneName[]).find(
+    (name) => panes[name] === pane,
+  );
 }
 
 /**
@@ -225,6 +256,10 @@ function linePaneOf(
  * Removes the lines of a series drawn in a pane of its own and any empty pane holding its place.
  * Removing the last line removes its pane with it, so the next line always opens a fresh pane with
  * a fresh scale; a placeholder carries no series and is removed by index.
+ *
+ * The caller forgets the lines *before* calling this. With the pointer on the chart the library
+ * re-fires the crosshair from inside `removeSeries`, and the pane titles read every ref: a removed
+ * series still held there answers `getPane()` with "Value is null".
  */
 function clearPaneLines(
   chart: IChartApi,
@@ -428,6 +463,9 @@ type CrosshairContext = {
   fundamental: ChartFundamentalSeries | undefined;
   currency: string;
   relativeVolume: ReadonlyMap<string, RelativeVolumeValuesResponse>;
+  volume: readonly ChartPoint[];
+  /** The newest bar's session: what the pane titles read while nothing is hovered. */
+  newestDate: string | undefined;
 };
 
 function legendRow(label: string, value: string, color?: string): HTMLElement {
@@ -445,6 +483,104 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
   amount.textContent = value;
   row.append(name, amount);
   return row;
+}
+
+/**
+ * The drawn lines' values on the one session a set of pane titles reads: the hovered session, from
+ * the crosshair, or the newest bar.
+ */
+type SessionReadings = {
+  readonly date: string;
+  readonly volume: number | undefined;
+  readonly overlay: (overlay: ChartOverlaySeries) => number | undefined;
+};
+
+/** A line's value on `date` when its newest point is that session, and nothing otherwise. */
+function newestOn(
+  points: readonly { date: string; value?: number }[],
+  date: string,
+): number | undefined {
+  const newest = points[points.length - 1];
+  return newest?.date === date ? newest.value : undefined;
+}
+
+/**
+ * The newest bar's readings, for the titles while nothing is hovered. A line whose newest point is
+ * older than the newest bar has no reading on it and shows none: an older value would read as
+ * current.
+ */
+function newestReadings(context: CrosshairContext): SessionReadings | null {
+  const date = context.newestDate;
+  if (date === undefined) {
+    return null;
+  }
+  return {
+    date,
+    volume: newestOn(context.volume, date),
+    overlay: (overlay) => newestOn(overlay.points, date),
+  };
+}
+
+/**
+ * What each lower pane's title says on one session: every series the pane draws, by its catalog
+ * label and in its own colour, with its reading in its own unit — exactly what the hover readout
+ * says of it. A line with no value on the session shows its name alone; a ratio or metric loaded
+ * for the session but unavailable on it reads `Unavailable`, never the reading before it.
+ */
+function paneTitleEntries(
+  context: CrosshairContext,
+  session: SessionReadings,
+): Partial<Record<PaneName, HTMLElement[]>> {
+  const { date } = session;
+  const entries: Partial<Record<PaneName, HTMLElement[]>> = {
+    volume: [
+      legendRow(
+        "Volume",
+        session.volume === undefined ? "" : formatVolumeValue(session.volume),
+        CHART_COLORS.volume,
+      ),
+    ],
+    oscillator: context.overlays
+      .filter((overlay) => overlay.placement === "OSCILLATOR_PANE")
+      .map((overlay) => {
+        const value = session.overlay(overlay);
+        return legendRow(
+          overlay.label,
+          value === undefined ? "" : formatOscillatorValue(value),
+          overlay.color,
+        );
+      }),
+  };
+  const { valuation, fundamental } = context;
+  if (valuation) {
+    const reading = valuation.readings.get(date);
+    entries.valuation = [
+      legendRow(
+        valuation.label,
+        !valuation.readings.has(date)
+          ? ""
+          : reading === undefined
+            ? "Unavailable"
+            : formatMultiple(reading),
+        valuation.color,
+      ),
+    ];
+  }
+  if (fundamental) {
+    const reading = fundamental.readings.get(date);
+    entries.fundamental = [
+      legendRow(
+        fundamental.label,
+        !fundamental.readings.has(date)
+          ? ""
+          : reading === undefined
+            ? "Unavailable"
+            : formatFundamentalValue(reading, fundamental.unit),
+        fundamental.color,
+      ),
+    ];
+  }
+  return entries;
 }
 
 /**
@@ -520,24 +656,27 @@ export function StockPriceChart({
     lines: IPriceLine[];
   } | null>(null);
   // The crosshair handler is subscribed once; refs keep it reading current props.
-  const crosshairContextRef = useRef<CrosshairContext>({
+  const crosshairContext: CrosshairContext = {
     overlays,
     valuation,
     fundamental,
     currency,
     relativeVolume,
-  });
-  crosshairContextRef.current = {
-    overlays,
-    valuation,
-    fundamental,
-    currency,
-    relativeVolume,
+    volume,
+    newestDate: points[points.length - 1]?.date,
   };
+  const crosshairContextRef = useRef<CrosshairContext>(crosshairContext);
+  crosshairContextRef.current = crosshairContext;
+  const paneTitlesRef = useRef<HTMLDivElement | null>(null);
+  /** The session under the crosshair, or `null` while the pointer is off the chart. */
+  const hoveredRef = useRef<SessionReadings | null>(null);
+  const titleFrameRef = useRef<number | null>(null);
   // The time-scale subscription is registered once too, and reaching the history edge is reported
   // through a ref for the same reason: it must keep calling the current handler without
   // resubscribing, and without a viewport change ever costing a render.
-  const historyEdgeRef = useRef<((bars: number) => void) | undefined>(undefined);
+  const historyEdgeRef = useRef<((bars: number) => void) | undefined>(
+    undefined,
+  );
   historyEdgeRef.current = onReachHistoryEdge;
   // The framing this chart has already applied. Anything not in this signature — new data for the
   // same window, an overlay toggle, any other rerender — leaves the viewport alone.
@@ -607,6 +746,90 @@ export function StockPriceChart({
     onVisibleRangeChange,
   });
 
+  // The chart's panes by what they hold, as the refs know them now: what every effect that adds or
+  // removes a pane hands to `arrangeLowerPanes`, so the order is restored whichever pane moved.
+  const currentPanes = useCallback(
+    (): ChartPanes => ({
+      price: priceSeriesRef.current?.getPane(),
+      volume: volumeSeriesRef.current?.getPane(),
+      // Every oscillator shares one pane, so any of them names it.
+      oscillator: [...oscillatorOverlaysRef.current]
+        .map((id) => overlaySeriesRef.current.get(id))
+        .find((series) => series !== undefined)
+        ?.getPane(),
+      valuation: linePaneOf(
+        valuationSeriesRef.current,
+        valuationPlaceholderRef.current,
+      ),
+      fundamental: linePaneOf(
+        fundamentalSeriesRef.current,
+        fundamentalPlaceholderRef.current,
+      ),
+    }),
+    [],
+  );
+
+  /**
+   * Names every pane below the price pane in its top-left corner, with the reading of each series
+   * it draws (SD-3): the hovered session's while the crosshair is on the chart, the newest bar's
+   * otherwise. Written straight to the DOM like the hover readout, so pointer movement never
+   * costs a render.
+   *
+   * Each title is placed from the panes' own heights, top to bottom, so it follows the pane order
+   * and every resize. A pane the library has not laid out yet has no height and gets no title until
+   * it has one; the price pane needs none — the section names it, and the readout covers it.
+   */
+  const paintPaneTitles = useCallback(() => {
+    const layer = paneTitlesRef.current;
+    const chart = chartRef.current;
+    if (!layer || !chart) {
+      return;
+    }
+    const context = crosshairContextRef.current;
+    const session = hoveredRef.current ?? newestReadings(context);
+    const entries = session ? paneTitleEntries(context, session) : {};
+    const panes = currentPanes();
+    const titles: HTMLElement[] = [];
+    let top = 0;
+    for (const pane of chart.panes()) {
+      const name = paneNameOf(pane, panes);
+      const height = pane.getHeight();
+      const rows = name === undefined ? undefined : entries[name];
+      if (
+        name !== undefined &&
+        name !== "price" &&
+        height > 0 &&
+        rows?.length
+      ) {
+        const title = document.createElement("div");
+        title.className = styles.paneTitle as string;
+        title.dataset.pane = name;
+        title.dataset.testid = "chart-pane-title";
+        title.style.top = `${top}px`;
+        title.append(...rows);
+        titles.push(title);
+      }
+      top += height + PANE_SEPARATOR_HEIGHT;
+    }
+    layer.replaceChildren(...titles);
+  }, [currentPanes]);
+
+  /**
+   * Repaints the titles once the library has laid the panes out after a change this component
+   * made. The library lays them out on the next animation frame, which it requested with the
+   * change itself; a frame requested after that runs after its own, so the heights read then are
+   * the ones on screen.
+   */
+  const schedulePaneTitles = useCallback(() => {
+    if (titleFrameRef.current !== null) {
+      return;
+    }
+    titleFrameRef.current = requestAnimationFrame(() => {
+      titleFrameRef.current = null;
+      paintPaneTitles();
+    });
+  }, [paintPaneTitles]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -624,7 +847,14 @@ export function StockPriceChart({
         horzLines: { color: CHART_COLORS.grid },
         vertLines: { visible: false },
       },
-      rightPriceScale: { borderColor: CHART_COLORS.axisBorder },
+      rightPriceScale: {
+        borderColor: CHART_COLORS.axisBorder,
+        // A tick label that would straddle a pane's edge is left out rather than cut in half
+        // against the separator — the "44.0x" sliced across the top of a P/E pane (SD-3).
+        // Applied to the chart's right scale, it holds for every pane's axis, including panes
+        // added later.
+        entireTextOnly: true,
+      },
       timeScale: {
         borderColor: CHART_COLORS.axisBorder,
         timeVisible: false,
@@ -633,8 +863,14 @@ export function StockPriceChart({
         minBarSpacing: 0.01,
       },
       crosshair: {
-        horzLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
-        vertLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
+        horzLine: {
+          color: CHART_COLORS.crosshair,
+          labelBackgroundColor: CHART_COLORS.text,
+        },
+        vertLine: {
+          color: CHART_COLORS.crosshair,
+          labelBackgroundColor: CHART_COLORS.text,
+        },
       },
       // Navigation — pan, wheel, pinch, and how far any of them may reach — belongs to the shared
       // bounded time scale attached below, so this chart has exactly one answer to "where may the
@@ -656,7 +892,7 @@ export function StockPriceChart({
 
     // Volume goes into its own always-present pane: a share count has no business on the price
     // scale, and the histogram's own `priceFormat` keeps its axis reading as a count rather than
-    // as money. Its scale margins leave the bars sitting on the pane's floor.
+    // as money. Its scale margins leave the bars sitting on the pane's floor, below its title.
     const volumeSeries = chart.addSeries(
       HistogramSeries,
       {
@@ -672,7 +908,7 @@ export function StockPriceChart({
       VOLUME_PANE_INDEX,
     );
     volumeSeries.priceScale().applyOptions({
-      scaleMargins: { top: 0.1, bottom: 0 },
+      scaleMargins: VOLUME_SCALE_MARGINS,
     });
 
     const onCrosshairMove = (param: MouseEventParams<Time>) => {
@@ -681,12 +917,26 @@ export function StockPriceChart({
         return;
       }
       const priceData = param.seriesData.get(priceSeries) as
-        | { value?: number }
-        | undefined;
+        { value?: number } | undefined;
       if (param.time === undefined || priceData?.value === undefined) {
         legend.hidden = true;
+        // Off the chart: the titles go back to the newest bar.
+        hoveredRef.current = null;
+        paintPaneTitles();
         return;
       }
+      const lineValue = (series: ISeriesApi<SeriesType> | undefined) =>
+        series
+          ? (param.seriesData.get(series) as { value?: number } | undefined)
+              ?.value
+          : undefined;
+      hoveredRef.current = {
+        date: String(param.time),
+        volume: lineValue(volumeSeries),
+        overlay: (overlay) =>
+          lineValue(overlaySeriesRef.current.get(overlay.id)),
+      };
+      paintPaneTitles();
       const {
         overlays: currentOverlays,
         valuation: currentValuation,
@@ -694,7 +944,9 @@ export function StockPriceChart({
         currency: currentCurrency,
         relativeVolume: currentRelativeVolume,
       } = crosshairContextRef.current;
-      legend.replaceChildren(legendRow(formatLocalDate(String(param.time)), ""));
+      legend.replaceChildren(
+        legendRow(formatLocalDate(String(param.time)), ""),
+      );
       legend.append(
         legendRow(
           "Close",
@@ -703,8 +955,7 @@ export function StockPriceChart({
         ),
       );
       const volumeData = param.seriesData.get(volumeSeries) as
-        | { value?: number }
-        | undefined;
+        { value?: number } | undefined;
       if (volumeData?.value !== undefined) {
         legend.append(
           legendRow(
@@ -791,9 +1042,25 @@ export function StockPriceChart({
     // history, and it only ever sees a range the domain already allowed.
     const detachTimeScale = attachChart(chart);
 
+    // The panes are resized with the container — a pane added or removed changes the wrapper's
+    // height — and the titles follow in the same frame. The chart's own `autoSize` observer was
+    // created first, so it runs first, and it lays the panes out and repaints synchronously: the
+    // heights read here are already the new ones.
+    const resizes =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => paintPaneTitles());
+    resizes?.observe(container);
+
     return () => {
       // chart.remove() disposes every series, pane, price line and subscription the instance
       // owns; the refs are cleared so a later effect run cannot touch disposed handles.
+      resizes?.disconnect();
+      if (titleFrameRef.current !== null) {
+        cancelAnimationFrame(titleFrameRef.current);
+        titleFrameRef.current = null;
+      }
+      hoveredRef.current = null;
       detachTimeScale();
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
@@ -815,7 +1082,7 @@ export function StockPriceChart({
       framedRef.current = null;
       drawnOldestRef.current = undefined;
     };
-  }, [attachChart]);
+  }, [attachChart, paintPaneTitles]);
 
   // The money formatter reads the current currency through a ref so the series options hold one
   // stable function: re-creating it on every render would rewrite every series' price format.
@@ -858,6 +1125,8 @@ export function StockPriceChart({
     // resets pane stretch factors when a pane is added or removed beneath this one.
     chart.panes()[VOLUME_PANE_INDEX]?.setStretchFactor(VOLUME_PANE_STRETCH);
     drawnOldestRef.current = points[0]?.date;
+    // A newer bar is what the titles read while nothing is hovered.
+    schedulePaneTitles();
 
     // Older history arrived. Shifting the logical range by exactly the number of bars that
     // appeared in front of it leaves the user looking at the same days, with the empty space they
@@ -884,30 +1153,15 @@ export function StockPriceChart({
     // Through the bounded scale rather than the time scale directly, so framing is the same
     // bounded code path as a reset and cannot put the viewport somewhere a gesture could not.
     applyFrame(frameFrom, frameTo);
-  }, [points, volume, fitKey, frameFrom, frameTo, applyFrame]);
-
-  // The chart's panes by what they hold, as the refs know them now: what every effect that adds or
-  // removes a pane hands to `arrangeLowerPanes`, so the order is restored whichever pane moved.
-  const currentPanes = useCallback(
-    (): ChartPanes => ({
-      price: priceSeriesRef.current?.getPane(),
-      volume: volumeSeriesRef.current?.getPane(),
-      // Every oscillator shares one pane, so any of them names it.
-      oscillator: [...oscillatorOverlaysRef.current]
-        .map((id) => overlaySeriesRef.current.get(id))
-        .find((series) => series !== undefined)
-        ?.getPane(),
-      valuation: linePaneOf(
-        valuationSeriesRef.current,
-        valuationPlaceholderRef.current,
-      ),
-      fundamental: linePaneOf(
-        fundamentalSeriesRef.current,
-        fundamentalPlaceholderRef.current,
-      ),
-    }),
-    [],
-  );
+  }, [
+    points,
+    volume,
+    fitKey,
+    frameFrom,
+    frameTo,
+    applyFrame,
+    schedulePaneTitles,
+  ]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -924,10 +1178,12 @@ export function StockPriceChart({
         if (oscillatorReferenceRef.current?.owner === series) {
           oscillatorReferenceRef.current = null;
         }
-        chart.removeSeries(series);
+        // Forgotten first: removing a series under the pointer re-fires the crosshair, whose pane
+        // titles must not find it (see `clearPaneLines`).
         existing.delete(id);
         priceScaledOverlaysRef.current.delete(id);
         oscillatorIds.delete(id);
+        chart.removeSeries(series);
       }
     }
     // The pane every oscillator shares: the one an oscillator already occupies, or — for the
@@ -985,12 +1241,17 @@ export function StockPriceChart({
         existing.set(overlay.id, series);
         if (overlay.placement === "OSCILLATOR_PANE") {
           oscillatorIds.add(overlay.id);
+          // Small margins around the fixed 0–100 range: the library's default ones made the taller
+          // pane print ticks beyond the range (a "120.0" on an RSI axis), which no reading can reach.
+          series
+            .priceScale()
+            .applyOptions({ scaleMargins: OSCILLATOR_SCALE_MARGINS });
         } else {
           priceScaledOverlaysRef.current.add(overlay.id);
         }
       } else {
-        // Overlay colour is assigned by position within the enabled set, so a reused series can
-        // legitimately change colour when another overlay is added or removed.
+        // A series keeps its own colour, except while a series with an earlier claim to the same
+        // hue is drawn beside it (`overlayColors`), so a reused series can still be repainted.
         series.applyOptions({ color: overlay.color });
       }
       series.setData(overlayLineData(overlay.points));
@@ -1034,9 +1295,10 @@ export function StockPriceChart({
       wrapperRef.current,
       arrangeLowerPanes(chart, currentPanes()),
     );
+    schedulePaneTitles();
     // Deliberately no fitContent here: enabling or disabling an overlay is not a request to
     // reframe the history the user has scrolled to.
-  }, [overlays, currentPanes]);
+  }, [overlays, currentPanes, schedulePaneTitles]);
 
   // The chosen ratio's stretches of available sessions, each drawn as its own ordinary line, and
   // the DOM contract describing them — derived once per ratio history, not on every render.
@@ -1064,13 +1326,11 @@ export function StockPriceChart({
     // Rebuilt whole whenever the ratio or its loaded history changes, exactly as the fundamental's
     // pane is: a new ratio always starts on a fresh pane and a fresh scale, so nothing of the
     // previous ratio's range or line can survive into the next one.
-    clearPaneLines(
-      chart,
-      valuationSeriesRef.current,
-      valuationPlaceholderRef.current,
-    );
+    const staleValuation = valuationSeriesRef.current;
+    const staleValuationPlaceholder = valuationPlaceholderRef.current;
     valuationSeriesRef.current = [];
     valuationPlaceholderRef.current = null;
+    clearPaneLines(chart, staleValuation, staleValuationPlaceholder);
     if (valuation && valuationStretches.length > 0) {
       valuationSeriesRef.current = drawPaneLines(chart, valuationStretches, {
         color: valuation.color,
@@ -1105,7 +1365,14 @@ export function StockPriceChart({
         wrapper.dataset.valuationLine = LINE_TYPE_NAMES[drawnType] ?? "unknown";
       }
     }
-  }, [valuation, valuationStretches, valuationPending, currentPanes]);
+    schedulePaneTitles();
+  }, [
+    valuation,
+    valuationStretches,
+    valuationPending,
+    currentPanes,
+    schedulePaneTitles,
+  ]);
 
   // The chosen metric's stretches of available sessions, each drawn as its own step line, and the
   // DOM contract describing them — derived once per metric history, not on every render.
@@ -1136,13 +1403,11 @@ export function StockPriceChart({
     // nothing of the previous metric's range, unit or line can survive into the next one. A
     // placeholder only ever holds the place of a metric still loading and never carries a line, so
     // it goes on every run: a line is always drawn on a fresh pane of its own.
-    clearPaneLines(
-      chart,
-      fundamentalSeriesRef.current,
-      fundamentalPlaceholderRef.current,
-    );
+    const staleFundamental = fundamentalSeriesRef.current;
+    const staleFundamentalPlaceholder = fundamentalPlaceholderRef.current;
     fundamentalSeriesRef.current = [];
     fundamentalPlaceholderRef.current = null;
+    clearPaneLines(chart, staleFundamental, staleFundamentalPlaceholder);
     if (fundamental && fundamentalStretches.length > 0) {
       const unit = fundamental.unit;
       fundamentalSeriesRef.current = drawPaneLines(
@@ -1175,7 +1440,14 @@ export function StockPriceChart({
       fundamentalSeriesRef.current.length > 0 ||
         fundamentalPlaceholderRef.current !== null,
     );
-  }, [fundamental, fundamentalStretches, fundamentalPending, currentPanes]);
+    schedulePaneTitles();
+  }, [
+    fundamental,
+    fundamentalStretches,
+    fundamentalPending,
+    currentPanes,
+    schedulePaneTitles,
+  ]);
 
   const empty = points.length < 2;
   const hasOscillatorPane = overlays.some(
@@ -1255,6 +1527,14 @@ export function StockPriceChart({
         role="img"
         aria-label={ariaLabel}
       />
+      {/* Each lower pane's title, written by `paintPaneTitles`; hidden from assistive technology
+          like the hover readout, since both only restate the canvas. */}
+      <div
+        ref={paneTitlesRef}
+        data-testid="chart-pane-titles"
+        className={styles.paneTitles}
+        aria-hidden="true"
+      />
       <div
         ref={legendRef}
         data-testid="chart-legend"
@@ -1268,7 +1548,11 @@ export function StockPriceChart({
         </p>
       ) : null}
       {loading ? (
-        <div className={styles.loadingOverlay} role="status" aria-label="Loading price history">
+        <div
+          className={styles.loadingOverlay}
+          role="status"
+          aria-label="Loading price history"
+        >
           <span className={styles.spinner} aria-hidden="true" />
         </div>
       ) : null}

@@ -33,7 +33,7 @@
 /* A problem with the selection itself, said beside it rather than as a field hint. */
 .fieldError {
   margin: 0;
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -91,7 +91,7 @@
 
 .configure:hover {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .scopeSummary {

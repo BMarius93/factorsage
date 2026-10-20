@@ -26,6 +26,7 @@
  * | search or autocomplete                                | `stock-search`      |
  * | a market-data read that can hydrate from the provider | `stock-read`        |
  * | a read of the caller's own rows                       | `standard-read`     |
+ * | a download of a whole result set of the caller's rows | `data-export`       |
  * | something the UI polls on a timer                     | `progress-poll`     |
  * | a write to the caller's own rows                      | `mutation`          |
  * | a write that schedules recurring background work      | `monitor-mutation`  |
@@ -184,6 +185,27 @@ export const RATE_LIMIT_POLICIES = {
     actor: "user",
     points: 240,
     durationSeconds: 60,
+    onRedisFailure: "allow",
+  },
+
+  /**
+   * Downloads of a whole result set of the caller's own rows — today the backtest trade log as CSV.
+   *
+   * Split from `standard-read` for the reason the catalog exists: the classes cost different
+   * amounts. A page of the trade log reads fifty rows; an export reads every trade of a run, about
+   * twenty thousand for the longest runs, and streams a file of several megabytes. Under the read
+   * allowance one caller could ask for that hundreds of times a minute.
+   *
+   * Sized from the UI: an export is one click, and a reader comparing stocks or actions downloads a
+   * handful of filtered files in a sitting. The allowance below is several times that, sustained,
+   * while bounding how much of the database one caller can read through the endpoint. A capacity
+   * policy, so it fails open like the reads it was split from.
+   */
+  "data-export": {
+    description: "Downloads of a complete result set of the caller's own rows.",
+    actor: "user",
+    points: 20,
+    durationSeconds: 300,
     onRedisFailure: "allow",
   },
 

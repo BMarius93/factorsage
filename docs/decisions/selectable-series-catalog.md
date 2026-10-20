@@ -181,5 +181,8 @@ current variant and the existing rebuild mechanism recalculates and replaces the
 
 Overlay colour is deliberately not part of series identity: permanently distinct, legible hues do
 not exist for every catalog entry. `apps/web/src/features/stocks/details/utils/chart-theme.ts` owns
-one palette and assigns a colour by an enabled series' position in canonical catalog order, so a
-given selection always paints the same way and simultaneously enabled series stay distinguishable.
+one palette of twelve and gives each catalog series a home colour, dealt family by family (blends,
+daily averages, weekly averages, models, oscillators), so a series keeps its colour however and in
+whatever order it was enabled (SD-3). Every colour therefore has two owners; when both are on screen,
+the one dealt first keeps it and the other takes the first colour no visible series owns, so series
+shown together stay distinguishable.

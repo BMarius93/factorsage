@@ -3,7 +3,7 @@ import {
   type SelectableSeriesId,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
-import { OVERLAY_PALETTE, overlayColorAt } from "./chart-theme";
+import { OVERLAY_PALETTE, seriesColor } from "./chart-theme";
 import {
   alignToTradingDays,
   availableSeriesIds,
@@ -39,7 +39,6 @@ const SOURCE: SeriesSource = {
     },
   ],
 };
-
 
 /** The chart's trading-day axis for `SOURCE`: the close series' own dates. */
 const TRADING_DAYS = ["2026-08-27", "2026-08-28"];
@@ -80,11 +79,12 @@ describe("series catalog projection", () => {
     // The pane's fixed scale is the catalog's structured 0-100 range, not a hardcoded copy.
     expect(overlays[1]?.scale).toEqual({ min: 0, max: 100 });
     expect(overlays[0]?.scale).toBeUndefined();
-    // Colour positions span both panes, so simultaneously enabled series stay distinct.
+    // Each series wears its own colour in either pane, and the two drawn together stay distinct.
     expect(overlays.map((overlay) => overlay.color)).toEqual([
-      overlayColorAt(0),
-      overlayColorAt(1),
+      seriesColor("SMA_50D"),
+      seriesColor("RSI_7D"),
     ]);
+    expect(overlays[0]?.color).not.toBe(overlays[1]?.color);
   });
 
   it("answers oscillator availability independently per period", () => {
@@ -152,7 +152,7 @@ describe("series catalog projection", () => {
     ).toBe(0);
   });
 
-  it("orders overlays canonically and assigns colours by position, not by identity", () => {
+  it("orders overlays canonically and gives each series its own colour", () => {
     const overlays = buildOverlays(
       SOURCE,
       new Set<SelectableSeriesId>(["DCF_FCFF", "SMA_20W", "SMA_50D"]),
@@ -170,11 +170,20 @@ describe("series catalog projection", () => {
       "DCF (FCFF)",
     ]);
     expect(overlays.map((overlay) => overlay.color)).toEqual([
-      overlayColorAt(0),
-      overlayColorAt(1),
-      overlayColorAt(2),
+      seriesColor("SMA_50D"),
+      seriesColor("SMA_20W"),
+      seriesColor("DCF_FCFF"),
     ]);
     expect(new Set(overlays.map((overlay) => overlay.color)).size).toBe(3);
+    // Colour is the series', not its position: alone, each keeps exactly the same colour.
+    for (const overlay of overlays) {
+      const [alone] = buildOverlays(
+        SOURCE,
+        new Set<SelectableSeriesId>([overlay.id as SelectableSeriesId]),
+        TRADING_DAYS,
+      );
+      expect(alone?.color).toBe(overlay.color);
+    }
   });
 
   it("drops a selected series the loaded history cannot draw", () => {
@@ -194,7 +203,13 @@ describe("series catalog projection", () => {
     // join them with a straight segment — AMZN's Balanced blend was drawn as one diagonal across
     // the 442 trading days its DCF component was unavailable, and AAPL's DDM as a fifteen-year
     // diagonal across the 1996-2012 dividend suspension. Whitespace is what breaks the line.
-    const axis = ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"];
+    const axis = [
+      "2026-01-02",
+      "2026-01-05",
+      "2026-01-06",
+      "2026-01-07",
+      "2026-01-08",
+    ];
 
     it("marks an interior unavailable day as whitespace rather than joining across it", () => {
       expect(
@@ -216,7 +231,10 @@ describe("series catalog projection", () => {
     });
 
     it("leaves a continuous series untouched, so a moving average never becomes stepped", () => {
-      const continuous = axis.map((date, index) => ({ date, value: 10 + index }));
+      const continuous = axis.map((date, index) => ({
+        date,
+        value: 10 + index,
+      }));
       expect(alignToTradingDays(continuous, axis)).toEqual(continuous);
     });
 
@@ -271,24 +289,26 @@ describe("series catalog projection", () => {
             currency: "USD",
           })),
         ),
-        intrinsicValues: ["DCF_FCFF", "RESIDUAL_INCOME", "DDM", "GRAHAM"].flatMap(
-          (model) =>
-            ["2026-01-02", "2026-01-08"].map((valuationDate) => ({
-              valuationDate,
-              sourceDataAsOf: "2026-01-01T22:00:00.000Z",
-              model: model as never,
-              valuePerShare: 20,
-              currency: "USD",
-            })),
+        intrinsicValues: [
+          "DCF_FCFF",
+          "RESIDUAL_INCOME",
+          "DDM",
+          "GRAHAM",
+        ].flatMap((model) =>
+          ["2026-01-02", "2026-01-08"].map((valuationDate) => ({
+            valuationDate,
+            sourceDataAsOf: "2026-01-01T22:00:00.000Z",
+            model: model as never,
+            valuePerShare: 20,
+            currency: "USD",
+          })),
         ),
       };
       const drawable = SELECTABLE_SERIES_CATALOG.filter(
         (entry) => seriesPoints(gapped, entry).length > 0,
       );
       // Every family of the catalog is represented, so this is not a one-family assertion.
-      expect(
-        new Set(drawable.map((entry) => entry.source.kind)),
-      ).toEqual(
+      expect(new Set(drawable.map((entry) => entry.source.kind))).toEqual(
         new Set([
           "MOVING_AVERAGE",
           "OSCILLATOR",
@@ -317,9 +337,6 @@ describe("series catalog projection", () => {
   it("keeps a full palette of distinct hues for simultaneous overlays", () => {
     expect(new Set(OVERLAY_PALETTE).size).toBe(OVERLAY_PALETTE.length);
     expect(OVERLAY_PALETTE.length).toBeGreaterThanOrEqual(12);
-    // Deterministic and total: any position resolves to a palette colour.
-    expect(overlayColorAt(0)).toBe(OVERLAY_PALETTE[0]);
-    expect(overlayColorAt(OVERLAY_PALETTE.length)).toBe(OVERLAY_PALETTE[0]);
     expect(OVERLAY_PALETTE as readonly string[]).not.toContain("#4882ff");
   });
 });

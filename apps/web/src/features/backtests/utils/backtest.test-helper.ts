@@ -132,6 +132,7 @@ export function testResult(
       benchmarkReturnPercent: 21,
       alphaPercent: 15,
       portfolioCagrPercent: 6.3,
+      benchmarkCagrPercent: 3.9,
       maxDrawdownPercent: 14.2,
       benchmarkMaxDrawdownPercent: 18.4,
       realizedPnl: 6_000,
@@ -200,12 +201,18 @@ export function testTradePage(
   overrides: Partial<BacktestTradePageResponse> = {},
 ): BacktestTradePageResponse {
   const items = overrides.items ?? [testTrade()];
+  const totalCount = overrides.totalCount ?? items.length;
   return {
     items,
     page: 1,
     pageSize: 50,
-    totalCount: items.length,
+    totalCount,
     pageCount: 1,
+    unfilteredCount: totalCount,
+    symbols: [...new Set(items.map((trade) => trade.symbol))].sort(),
+    symbol: null,
+    action: null,
+    order: "desc",
     ...overrides,
   };
 }

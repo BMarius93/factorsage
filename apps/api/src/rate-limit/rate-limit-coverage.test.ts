@@ -174,6 +174,14 @@ describe("rate-limit coverage", () => {
     expect(byPolicy.get("progress-poll")).toEqual([
       "GET /backtests/:runId/progress",
     ]);
+    // One request reads a run's whole trade log, where a page of it reads fifty rows: an export
+    // is not an ordinary read, and the page stays one.
+    expect(byPolicy.get("data-export")).toEqual([
+      "GET /backtests/:runId/trades/export",
+    ]);
+    expect(byPolicy.get("standard-read")).toContain(
+      "GET /backtests/:runId/trades",
+    );
     expect(byPolicy.get("billing-mutation")?.sort()).toEqual([
       "POST /billing/change",
       "POST /billing/checkout",

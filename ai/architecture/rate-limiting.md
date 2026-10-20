@@ -163,6 +163,7 @@ number; changing a limit is one edit there.
 | `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                                              |
 | `stock-read`         | 180 / min  | —                    | user→IP | allow            | the seven `/stocks/{symbol}*` reads                                                                       |
 | `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health`, `GET /market-overview`, `GET /dashboard/activity`, `GET /monitors/:monitorId/signals` |
+| `data-export`        | 20 / 5 min | —                    | user→IP | allow            | `GET /backtests/{runId}/trades/export`                                                                    |
 | `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                                         |
 | `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                                            |
 | `monitor-mutation`   | 30 / min   | —                    | user→IP | allow            | monitor create / update / delete                                                                          |
@@ -182,6 +183,12 @@ reaches one:
   for the chosen valuation ratio's once they land; the hook never has two loads outstanding and
   each is a full round trip. Three per second is ~45 window extensions a minute (~36 with one of the
   two chosen, ~30 with both), which no sequential loader reaches.
+- **`data-export`** — split from `standard-read` because the two cost different amounts: a page of
+  the trade log reads fifty rows, while the CSV export reads every trade of a run (about twenty
+  thousand for the longest) and streams a file of several megabytes. An export is one click, and a
+  reader comparing stocks or actions downloads a handful of filtered files in a sitting; the
+  allowance is several times that, sustained, and bounds how much of the database one caller can
+  read through the endpoint. A capacity policy, so it fails open.
 - **`progress-poll`** — `BACKTEST_RUNNING_POLL_INTERVAL_MS` is one second per open run. Five per
   second leaves room for several concurrent runs plus a reload. This is the one allowance set by a
   machine rather than by a person.

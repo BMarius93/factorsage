@@ -407,7 +407,7 @@ describeBenchmark("benchmark loading", () => {
   it("ships the V1 SP500 catalog entry backed by an FMP symbol", () => {
     const sp500 = BENCHMARK_CATALOG.find((entry) => entry.code === "SP500");
     expect(sp500).toBeDefined();
-    expect(sp500?.name).toBe("S&P 500");
+    expect(sp500?.name).toBe("SPY");
     expect(sp500?.sourceKind).toBe("FMP_SYMBOL");
     expect(sp500?.providerSymbol).toBe("SPY");
   });

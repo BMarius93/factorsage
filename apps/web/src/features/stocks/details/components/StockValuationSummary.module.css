@@ -1,3 +1,9 @@
+/* The tip's 16px mark sits centred in a 24px target; pulling the target back by the difference
+   lines the mark up with the section title's edge. */
+.captionTip {
+  margin-inline-start: -4px;
+}
+
 .blendGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

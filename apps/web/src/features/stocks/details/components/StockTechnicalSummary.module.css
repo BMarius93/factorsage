@@ -1,3 +1,17 @@
+/* Names the right-hand comparison column once, over the signed figures it heads. Right-aligned
+   like the figures, whose right edges line up whatever their width; the end padding is the
+   chip's own, so the heading ends where the figures' text does. */
+.columnHeading {
+  padding: 0 8px 6px 0;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-align: right;
+  text-transform: uppercase;
+}
+
 .list {
   margin: 0;
 }

@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { register } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
+import {
+  EMAIL_INVALID_MESSAGE,
+  EMAIL_REQUIRED_MESSAGE,
+  isValidEmailAddress,
+} from "../utils/email-address";
 import { useRedirectIfSignedIn } from "../hooks/use-redirect-if-signed-in";
 import { forgotPasswordHref, signInHref } from "../utils/guest-routes";
 import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
@@ -48,7 +53,9 @@ export function RegisterForm({
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [accepted, setAccepted] = useState(false);
+  const emailInput = useRef<HTMLInputElement>(null);
   // State updates are asynchronous, so a fast double click can reach the handler twice before
   // the disabled button renders; the ref closes that gap.
   const inFlight = useRef(false);
@@ -56,6 +63,21 @@ export function RegisterForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (inFlight.current) {
+      return;
+    }
+    // An empty or malformed address is answered beside the field, as sign-in answers an empty one
+    // (UI-041), rather than by a request that can only come back refused (AU-1). The rule is the
+    // API's own, so nothing the server would accept is stopped here; the server still decides.
+    const invalid =
+      email.trim() === ""
+        ? EMAIL_REQUIRED_MESSAGE
+        : isValidEmailAddress(email)
+          ? null
+          : EMAIL_INVALID_MESSAGE;
+    setFieldError(invalid);
+    if (invalid) {
+      setError(null);
+      emailInput.current?.focus();
       return;
     }
     inFlight.current = true;
@@ -125,18 +147,37 @@ export function RegisterForm({
             Email
           </label>
           <input
+            ref={emailInput}
             className={styles.input}
             id="email"
             name="email"
             type="email"
             autoComplete="email"
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setFieldError(null);
+            }}
             disabled={submitting}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? "register-error" : "register-hint"}
+            aria-invalid={fieldError || error ? true : undefined}
+            aria-describedby={
+              fieldError
+                ? "register-email-error"
+                : error
+                  ? "register-error"
+                  : "register-hint"
+            }
             required
           />
+          {fieldError ? (
+            <p
+              className={styles.fieldError}
+              id="register-email-error"
+              data-testid="register-email-error"
+            >
+              {fieldError}
+            </p>
+          ) : null}
           <p className={styles.hint} id="register-hint">
             We&apos;ll email you a link to confirm the address and choose your
             password.

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "../fixtures";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * The Dashboard as a first-time visitor meets it: the market overview, then the Monitor Activity
@@ -209,15 +209,34 @@ test.describe("guest dashboard", () => {
     await expect(card).toContainText("$");
     await expect(card.locator('[data-card="status"]')).toBeVisible();
 
-    // The session and the price share one unlabelled summary line.
+    // DB-1: the stock shares the card's first line with its price, and the signal shares the next
+    // with the session it was decided on — the price and the session unlabelled.
     const summary = card.locator('td[data-card="summary"]');
     await expect(summary).toHaveCount(2);
-    await expect(summary.first()).not.toContainText(/SESSION/i);
-    await expect(summary.last()).not.toContainText(/PRICE/i);
-    const summaryTops = await summary.evaluateAll((cells) =>
-      cells.map((cell) => Math.round(cell.getBoundingClientRect().top)),
+    const price = card.locator('td[data-column="price"]');
+    const session = card.locator('td[data-column="session"]');
+    await expect(session).not.toContainText(/SESSION/i);
+    await expect(price).not.toContainText(/PRICE/i);
+    const top = (cell: Locator) =>
+      cell.evaluate((element) =>
+        Math.round(element.getBoundingClientRect().top),
+      );
+    expect(await top(price)).toBe(
+      await top(card.locator('td[data-card="identity"]')),
     );
-    expect(summaryTops[0]).toBe(summaryTops[1]);
+    expect(await top(session)).toBe(
+      await top(card.locator('td[data-card="status"]')),
+    );
+    expect(await top(session)).toBeGreaterThan(await top(price));
+    // And the ticker is never what gives way to them.
+    const tickerClipped = await card
+      .getByTestId("dashboard-stock")
+      .evaluate((identity) =>
+        [...identity.querySelectorAll<HTMLElement>('[class*="symbol"]')].some(
+          (symbol) => symbol.scrollWidth > symbol.clientWidth + 1,
+        ),
+      );
+    expect(tickerClipped).toBe(false);
 
     await expect(card.locator('td[data-card="links"]')).toHaveCount(0);
     await expect(card.getByTestId("dashboard-card-monitor")).toHaveText(

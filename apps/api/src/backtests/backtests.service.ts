@@ -29,6 +29,8 @@ import {
   BACKTEST_RESULT_MAX_CURVE_POINTS,
   BACKTEST_TRADES_MAX_PAGE_SIZE,
   BACKTEST_TRADES_PAGE_SIZE,
+  BACKTEST_TRADE_DEFAULT_ORDER,
+  backtestTradesExportFilename,
   BACKTEST_FAILURE_PHASES,
   backtestSnapshotVersionFor,
   canonicalBacktestSnapshotDocument,
@@ -54,6 +56,8 @@ import {
   type BacktestSnapshotSecurity,
   type AuthUser,
   type BacktestTradeAction,
+  type BacktestTradeLogQuery,
+  type BacktestTradeOrder,
   type BacktestTradePageResponse,
   type BacktestTradeReasonIndex,
   type BacktestTradeResponse,
@@ -66,6 +70,7 @@ import {
   type Prisma,
 } from "@intrinsic/database";
 import {
+  benchmarkDisplayName,
   DEFAULT_BENCHMARK_CODE,
   normalizeBuyWindowConfiguration,
   peakSimultaneousMembers,
@@ -74,7 +79,7 @@ import {
 import type { StructuredLogger } from "@intrinsic/observability";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { getBacktestWorkerConfig } from "@intrinsic/config";
-import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
+import { BACKTEST_METHODOLOGY, cagrPercent } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
 import { readableWhere } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
@@ -84,6 +89,12 @@ import {
   EXECUTION_CALENDAR_REFERENCE,
 } from "./backtests.tokens";
 import type { ParsedCreateBacktestRunRequest } from "./backtest-requests";
+import {
+  tradeLogCsvHeader,
+  tradeLogCsvRecord,
+  UTF8_BOM,
+  type TradeLogCsvTrade,
+} from "./trade-log-csv";
 
 /**
  * Raised for a run that does not exist *or* is not owned by the caller. The two cases are
@@ -156,6 +167,9 @@ const RUN_LIST_INCLUDE = {
       portfolioReturnPercent: true,
       benchmarkReturnPercent: true,
       alphaPercent: true,
+      // The stored annualized return, so the collection can compare runs of different lengths
+      // (BT-3) without computing a figure of its own.
+      portfolioCagrPercent: true,
     },
   },
 } satisfies Prisma.BacktestRunInclude;
@@ -503,7 +517,8 @@ function configurationOf(
     benchmark: {
       benchmarkId: snapshot.benchmark.benchmarkId,
       code: snapshot.benchmark.code,
-      name: snapshot.benchmark.name,
+      // The catalog's current words for the same series (BT-1); the snapshot itself is untouched.
+      name: benchmarkDisplayName(snapshot.benchmark),
       sourceKind: snapshot.benchmark.sourceKind,
       methodologyVersion: snapshot.benchmark.methodologyVersion,
     },
@@ -523,7 +538,7 @@ function summaryRowOf(row: RunListRow): BacktestRunSummaryResponse {
     stockListId: row.stockListId,
     stockListName: snapshot.stockList.name,
     benchmarkCode: snapshot.benchmark.code,
-    benchmarkName: snapshot.benchmark.name,
+    benchmarkName: benchmarkDisplayName(snapshot.benchmark),
     startDate: snapshot.period.startDate,
     endDate: snapshot.period.endDate,
     initialCapital: snapshot.capital.initialCapital,
@@ -544,13 +559,20 @@ function summaryRowOf(row: RunListRow): BacktestRunSummaryResponse {
         : toNullableNumber(row.summary.benchmarkReturnPercent),
     alphaPercent:
       row.summary === null ? null : toNullableNumber(row.summary.alphaPercent),
+    portfolioCagrPercent:
+      row.summary === null
+        ? null
+        : toNullableNumber(row.summary.portfolioCagrPercent),
   };
 }
 
 function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
+  const firstSimulatedDate = fromDatabaseDate(row.firstSimulatedDate);
+  const lastSimulatedDate = fromDatabaseDate(row.lastSimulatedDate);
+  const benchmarkReturnPercent = toNullableNumber(row.benchmarkReturnPercent);
   return {
-    firstSimulatedDate: fromDatabaseDate(row.firstSimulatedDate),
-    lastSimulatedDate: fromDatabaseDate(row.lastSimulatedDate),
+    firstSimulatedDate,
+    lastSimulatedDate,
     tradingDays: row.tradingDays,
     investedCapital: toNumber(row.investedCapital),
     finalCash: toNumber(row.finalCash),
@@ -558,9 +580,20 @@ function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
     finalValue: toNumber(row.finalValue),
     netProfit: toNumber(row.netProfit),
     portfolioReturnPercent: toNumber(row.portfolioReturnPercent),
-    benchmarkReturnPercent: toNullableNumber(row.benchmarkReturnPercent),
+    benchmarkReturnPercent,
     alphaPercent: toNullableNumber(row.alphaPercent),
     portfolioCagrPercent: toNullableNumber(row.portfolioCagrPercent),
+    // Read-time, never stored: the engine's own `cagrPercent` applied to the stored benchmark
+    // return over the run's own simulated span — the figure the portfolio's CAGR is measured on,
+    // so the two annualized returns compare like for like (BT-2).
+    benchmarkCagrPercent:
+      benchmarkReturnPercent === null
+        ? null
+        : cagrPercent(
+            1 + benchmarkReturnPercent / 100,
+            firstSimulatedDate,
+            lastSimulatedDate,
+          ),
     maxDrawdownPercent: toNumber(row.maxDrawdownPercent),
     benchmarkMaxDrawdownPercent: toNullableNumber(
       row.benchmarkMaxDrawdownPercent,
@@ -654,6 +687,91 @@ function tradeOf(
     reason: backtestTradeReason(reasons, row),
   };
 }
+
+/**
+ * The trades a trade-log filter selects — always inside one run.
+ *
+ * Neither `symbol` nor `action` is indexed, and no index was added for them: the run's rows are
+ * found through `(runId, sequence)` and the filter is applied to them, so the work is bounded by
+ * one run's trade count (about twenty thousand for the longest runs the product produces), never
+ * by the table's.
+ */
+function tradeLogWhere(
+  runId: string,
+  query: BacktestTradeLogQuery,
+): Prisma.BacktestTradeWhereInput {
+  return {
+    runId,
+    ...(query.symbol === undefined ? {} : { symbol: query.symbol }),
+    ...(query.action === undefined ? {} : { action: query.action }),
+  };
+}
+
+/** Rows read per round trip while exporting: what bounds an export's memory, whatever the run. */
+const TRADE_EXPORT_BATCH_SIZE = 1_000;
+
+/**
+ * The columns an export prints and nothing more: twenty thousand rows do not need the cash and
+ * position bookkeeping each trade also stores.
+ */
+const TRADE_EXPORT_SELECT = {
+  sequence: true,
+  date: true,
+  symbol: true,
+  name: true,
+  action: true,
+  source: true,
+  levelId: true,
+  exitRuleId: true,
+  levelPercentage: true,
+  shares: true,
+  price: true,
+  amount: true,
+  realizedPnl: true,
+  realizedPnlPercent: true,
+} satisfies Prisma.BacktestTradeSelect;
+
+type TradeExportRow = Prisma.BacktestTradeGetPayload<{
+  select: typeof TRADE_EXPORT_SELECT;
+}>;
+
+/**
+ * One exported trade: the stored decimals exactly as persisted, and the same reason the page shows.
+ */
+function tradeExportRecordOf(
+  row: TradeExportRow,
+  reasons: BacktestTradeReasonIndex,
+): TradeLogCsvTrade {
+  return {
+    sequence: row.sequence,
+    date: fromDatabaseDate(row.date),
+    symbol: row.symbol,
+    name: row.name,
+    action: row.action,
+    source: row.source,
+    levelPercentage: row.levelPercentage,
+    shares: row.shares,
+    price: row.price,
+    amount: row.amount,
+    realizedPnl: row.realizedPnl,
+    realizedPnlPercent: row.realizedPnlPercent,
+    reason: backtestTradeReason(reasons, row),
+  };
+}
+
+/** Code-unit order, so the stock filter lists symbols the same way whatever the database collation. */
+function compareSymbols(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Where an export stands, for the events that describe it. Never its content. */
+type TradeExportLogFields = {
+  actorUserId: string;
+  runId: string;
+  symbol: string | null;
+  action: BacktestTradeAction | null;
+  order: BacktestTradeOrder;
+};
 
 /**
  * Per-calendar-year returns, chained off the run's persisted time-weighted return index.
@@ -1213,12 +1331,13 @@ export class BacktestsService {
   }
 
   /**
-   * One page of a completed run's trade log, newest first.
+   * One page of a completed run's trade log, newest first unless asked otherwise.
    *
    * Paged in PostgreSQL, not in the browser: a thirty-year run can execute tens of thousands of
    * trades, and the page a user is looking at is fifty of them. `(runId, sequence)` is already
-   * unique, so both the ordered window and the count read an index rather than the table — no scan
-   * grows with the run, and nothing loads every trade to count them.
+   * unique, so the unfiltered window and count read an index rather than the table. A filter on a
+   * stock or an action is applied in the same queries, so the count, the page count and every page
+   * describe the filtered log as a whole — see `tradeLogWhere` for what that costs.
    *
    * A page past the end is clamped rather than refused: a stale link or a hand-edited query
    * parameter should land on the last page, not on an error.
@@ -1226,23 +1345,25 @@ export class BacktestsService {
   async getTrades(
     userId: string,
     runId: string,
-    request: { page?: number; pageSize?: number } = {},
+    request: BacktestTradeLogQuery & { page?: number; pageSize?: number } = {},
   ): Promise<BacktestTradePageResponse> {
-    const run = await this.prisma.backtestRun.findFirst({
-      where: { id: runId, userId },
-      select: { id: true, snapshot: true },
-    });
-    if (!run) {
-      throw new BacktestRunNotFoundError();
-    }
+    const run = await this.ownedTradeLogRun(userId, runId);
+    const order = request.order ?? BACKTEST_TRADE_DEFAULT_ORDER;
+    const where = tradeLogWhere(run.id, request);
+    const filtered =
+      request.symbol !== undefined || request.action !== undefined;
 
     const pageSize = Math.min(
       Math.max(Math.trunc(request.pageSize ?? BACKTEST_TRADES_PAGE_SIZE), 1),
       BACKTEST_TRADES_MAX_PAGE_SIZE,
     );
-    const totalCount = await this.prisma.backtestTrade.count({
-      where: { runId: run.id },
-    });
+    const [totalCount, unfilteredCount, symbols] = await Promise.all([
+      this.prisma.backtestTrade.count({ where }),
+      filtered
+        ? this.prisma.backtestTrade.count({ where: { runId: run.id } })
+        : null,
+      this.tradedSymbols(run.id),
+    ]);
     const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
     const page = Math.min(
       Math.max(Math.trunc(request.page ?? 1), 1),
@@ -1250,29 +1371,189 @@ export class BacktestsService {
     );
 
     const rows = await this.prisma.backtestTrade.findMany({
-      where: { runId: run.id },
-      // Newest first, which is the order the log has always been read in. `sequence` is the
-      // engine's own execution order, so this is stable across equal dates too.
-      orderBy: { sequence: "desc" },
+      where,
+      // Newest first is the order the log has always been read in, and the default. `sequence` is
+      // the engine's own execution order, so either direction is stable across equal dates too.
+      orderBy: { sequence: order },
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
-    // The run's own frozen definition — never the strategy as it stands today — described once for
-    // the whole page, naming any member or actor group by the name the run froze.
-    const snapshot = withCanonicalStrategyDefinition(
-      readSnapshot(run.snapshot),
-    );
-    const reasons = backtestTradeReasonIndex(
-      snapshot.strategy.definition,
-      await this.snapshotScopeNames(snapshot),
-    );
+    const reasons = await this.tradeReasonIndexOf(run.snapshot);
     return {
       items: rows.map((row) => tradeOf(row, reasons)),
       page,
       pageSize,
       totalCount,
       pageCount,
+      unfilteredCount: unfilteredCount ?? totalCount,
+      symbols,
+      symbol: request.symbol ?? null,
+      action: request.action ?? null,
+      order,
     };
+  }
+
+  /**
+   * The run's trade log as CSV: every trade the filter selects, in the order asked for — the whole
+   * filtered log, not the page on screen.
+   *
+   * Ownership is resolved before anything is returned, so another user's run answers `404` exactly
+   * as the page does. The rows are then read lazily, a batch at a time by keyset on
+   * `(runId, sequence)`, and handed to the caller as text chunks while the response streams: memory
+   * stays one batch whatever the run's length. A completed run's trades never change, so reading
+   * them in batches outside one transaction cannot interleave two versions of the log.
+   *
+   * Every trade carries the reason the page shows, resolved once from the run's own snapshot.
+   */
+  async exportTrades(
+    userId: string,
+    runId: string,
+    query: BacktestTradeLogQuery,
+  ): Promise<{ filename: string; content: AsyncGenerator<string> }> {
+    const startedAt = Date.now();
+    const run = await this.ownedTradeLogRun(userId, runId);
+    const order = query.order ?? BACKTEST_TRADE_DEFAULT_ORDER;
+    const reasons = await this.tradeReasonIndexOf(run.snapshot);
+    const fields: TradeExportLogFields = {
+      actorUserId: userId,
+      runId: run.id,
+      symbol: query.symbol ?? null,
+      action: query.action ?? null,
+      order,
+    };
+    this.logger.info({ event: "backtest.trades.export.started", ...fields });
+    return {
+      filename: backtestTradesExportFilename(run.id, { ...query, order }),
+      content: this.tradeExportChunks(
+        tradeLogWhere(run.id, query),
+        order,
+        reasons,
+        fields,
+        startedAt,
+      ),
+    };
+  }
+
+  /**
+   * The export's text, one chunk per batch: the byte-order mark and the header ride with the first
+   * batch, so a database that cannot answer at all fails the request before anything is sent.
+   *
+   * It logs how the export ended, with its row count and duration and never its content: completed,
+   * failed (the error is rethrown, so the response is cut off rather than ended as if whole), or
+   * aborted when the consumer stopped reading — the client went away mid-download.
+   */
+  private async *tradeExportChunks(
+    where: Prisma.BacktestTradeWhereInput,
+    order: BacktestTradeOrder,
+    reasons: BacktestTradeReasonIndex,
+    fields: TradeExportLogFields,
+    startedAt: number,
+  ): AsyncGenerator<string> {
+    let rowCount = 0;
+    let settled = false;
+    try {
+      let pending = `${UTF8_BOM}${tradeLogCsvHeader()}`;
+      let cursor: number | undefined;
+      for (;;) {
+        const rows = await this.prisma.backtestTrade.findMany({
+          where:
+            cursor === undefined
+              ? where
+              : {
+                  ...where,
+                  sequence: order === "desc" ? { lt: cursor } : { gt: cursor },
+                },
+          orderBy: { sequence: order },
+          take: TRADE_EXPORT_BATCH_SIZE,
+          select: TRADE_EXPORT_SELECT,
+        });
+        rowCount += rows.length;
+        pending += rows
+          .map((row) => tradeLogCsvRecord(tradeExportRecordOf(row, reasons)))
+          .join("");
+        if (pending.length > 0) {
+          yield pending;
+          pending = "";
+        }
+        const last = rows.at(-1);
+        if (last === undefined || rows.length < TRADE_EXPORT_BATCH_SIZE) {
+          break;
+        }
+        cursor = last.sequence;
+      }
+      settled = true;
+      this.logger.info({
+        event: "backtest.trades.export.completed",
+        ...fields,
+        rowCount,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (err) {
+      settled = true;
+      this.logger.error({
+        event: "backtest.trades.export.failed",
+        ...fields,
+        rowCount,
+        durationMs: Date.now() - startedAt,
+        err,
+      });
+      throw err;
+    } finally {
+      if (!settled) {
+        this.logger.info({
+          event: "backtest.trades.export.aborted",
+          ...fields,
+          rowCount,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    }
+  }
+
+  /** The run a trade-log read is about, scoped to its owner: another user's run is not found. */
+  private async ownedTradeLogRun(
+    userId: string,
+    runId: string,
+  ): Promise<{ id: string; snapshot: Prisma.JsonValue }> {
+    const run = await this.prisma.backtestRun.findFirst({
+      where: { id: runId, userId },
+      select: { id: true, snapshot: true },
+    });
+    if (!run) {
+      throw new BacktestRunNotFoundError();
+    }
+    return run;
+  }
+
+  /**
+   * The run's own frozen definition — never the strategy as it stands today — described once for a
+   * whole page or export, naming any member or actor group by the name the run froze.
+   */
+  private async tradeReasonIndexOf(
+    snapshotDocument: Prisma.JsonValue,
+  ): Promise<BacktestTradeReasonIndex> {
+    const snapshot = withCanonicalStrategyDefinition(
+      readSnapshot(snapshotDocument),
+    );
+    return backtestTradeReasonIndex(
+      snapshot.strategy.definition,
+      await this.snapshotScopeNames(snapshot),
+    );
+  }
+
+  /**
+   * Every distinct symbol the run traded, sorted: the stock filter's options.
+   *
+   * A `GROUP BY` over the run's own rows, so the browser learns what the log holds without loading
+   * it. Two securities that share a symbol share an option, exactly as they share a label in the
+   * log the option filters.
+   */
+  private async tradedSymbols(runId: string): Promise<string[]> {
+    const groups = await this.prisma.backtestTrade.groupBy({
+      by: ["symbol"],
+      where: { runId },
+    });
+    return groups.map((group) => group.symbol).sort(compareSymbols);
   }
 
   /**

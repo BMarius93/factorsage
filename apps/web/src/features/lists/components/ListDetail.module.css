@@ -100,7 +100,7 @@
 
 .addWarning {
   margin: 0;
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-size: var(--text-secondary);
   line-height: var(--line-height-body);
 }

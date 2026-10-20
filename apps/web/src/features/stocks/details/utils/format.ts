@@ -47,6 +47,34 @@ export function formatSignedPercent(fraction: number): string {
   }).format(fraction);
 }
 
+/** Fraction in, unsigned percent out: `0.0124` → `"1.24%"`. */
+export function formatPercent(fraction: number): string {
+  return numberFormat("percent", {
+    style: "percent",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(fraction);
+}
+
+/**
+ * Where the price sits against a reference, in words rather than a sign a reader has to decode:
+ * `0.7392` → `"Price 73.92% above value"`, `-0.152` → `"Price 15.20% below value"`, and exactly
+ * `0` → `"Price equals value"`.
+ *
+ * Wording only: `fraction` is `(price - reference) / reference`, the one sign convention every
+ * comparison on Stock Details uses, at the same two decimals as `formatSignedPercent`. A difference
+ * too small for two decimals still says which side the price is on, never "equals".
+ */
+export function formatPriceRelative(
+  fraction: number,
+  reference: string,
+): string {
+  if (fraction === 0) {
+    return `Price equals ${reference}`;
+  }
+  return `Price ${formatPercent(Math.abs(fraction))} ${fraction > 0 ? "above" : "below"} ${reference}`;
+}
+
 /**
  * A Fundamental Metric reading in its own unit, decided by the unit and nothing else:
  * `PERCENT` 15.42 → `"15.42%"`, `MULTIPLE` 0.75 → `"0.75x"`.

@@ -69,6 +69,11 @@ export function SecurityListbox({
         id={listboxId}
         role="listbox"
         aria-labelledby={labelId}
+        // Options are reached with the arrow keys through `aria-activedescendant`, so the list is
+        // never a Tab stop of its own. Without this, Chromium makes the scrolling list focusable,
+        // Tab lands inside it, the field's blur does not count as leaving, and the panel stays
+        // open over whatever the user tabs to next — dialogs included (GL-4).
+        tabIndex={-1}
         {...(mode === "multi" ? { "aria-multiselectable": true } : {})}
       >
         {sections.map((section, sectionIndex) => (

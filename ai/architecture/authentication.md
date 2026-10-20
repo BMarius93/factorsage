@@ -433,6 +433,17 @@ never re-encoded.
   the redirect is always `WEB_BASE_URL` + a validated path. State, PKCE, nonce, single-use
   clearing and every failure redirect are unchanged; a transaction cookie written before this
   field existed (three elements) still completes, to `/`.
+- **Why sign-in is asked for (GL-7).** When `next` survives `safeReturnPath` and names a page a
+  Guest cannot read, `signInReason` (`features/auth/utils/sign-in-reason.ts`) maps the validated path
+  — never the raw query text — to one fixed sentence shown above the form ("Sign in to run and
+  review your backtests."; "Sign in to continue to that page." for any other account-only page).
+  Pages a Guest can already read, the default `/` and the auth pages show no line. It promises no
+  plan's capability, and the redirect after sign-in is unchanged.
+- **Password fields (AU-1).** Every password field is `PasswordInput`: a Show/Hide button
+  (`type="button"`, `aria-controls`, a visually hidden "Show password"/"Hide password" name) that
+  keeps the value, caret and `autocomplete`, and switches back to a password field on submit so a
+  password manager still sees one. Registration validates the address in the browser with the same
+  rule as the API before any request; the server's own validation is unchanged.
 - **Registration.** The register page keeps `next` on its links back to sign-in and to Google, so
   a same-tab sign-in returns correctly. It is **not** put into the activation email: verification
   only activates the account and sets its password (AUTH-002/003); carrying a destination through

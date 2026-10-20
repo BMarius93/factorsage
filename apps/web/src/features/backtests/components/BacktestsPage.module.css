@@ -20,7 +20,7 @@
 }
 
 .nameLink:hover .name {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .nameLink:focus-visible {
@@ -81,11 +81,11 @@
 }
 
 .figure[data-tone="positive"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .figure[data-tone="negative"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .placeholder {
@@ -108,18 +108,42 @@
   }
 }
 
-/* The Stock list cell; between 880 and 1,279px it also carries the folded benchmark. */
+/* The Stock list cell. Between 880 and 1,279px the column folds under the strategy instead. */
 .listCell {
   display: block;
   min-width: 0;
+}
+
+/* The total return, with the benchmark's beside it as a "vs" line where the Benchmark column folds
+   (880–1,279px). */
+.returnCell {
+  display: inline-grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.foldedBenchmark {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
 }
 
 /* The benchmark and what it returned, as one cell. */
 .benchmarkCell {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
+}
+
+/* Just above the intermediate band all nine columns are back and the table is a few pixels short
+   of room: the return wraps under the chip there rather than scrolling the actions away. Any
+   wider and it stays on one line. */
+@media (min-width: 1280px) and (max-width: 1359px) {
+  .benchmarkCell {
+    flex-wrap: wrap;
+  }
 }
 
 .benchmarkReturn {

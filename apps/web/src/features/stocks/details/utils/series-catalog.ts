@@ -16,7 +16,7 @@ import {
   type ChartOverlaySeries,
   type ChartPoint,
 } from "./chart-series";
-import { overlayColorAt } from "./chart-theme";
+import { overlayColors } from "./chart-theme";
 
 /**
  * Adapter between the canonical selectable-series catalog and the Stock Details chart.
@@ -82,9 +82,9 @@ export function availableSeriesIds(
  * Overlay lines for the enabled selection, ordered canonically.
  *
  * Ordering is the catalog's, not the click order, so the legend, the chart and the picker always
- * agree and the deterministic colour policy assigns the same hue to the same selection every time.
- * Colour positions span the whole enabled set across both panes, so simultaneously enabled series
- * stay distinguishable wherever they are drawn. An entry with no point in the loaded history is
+ * agree. Colour belongs to the series rather than to its position in the selection, so a line keeps
+ * its hue however other series are turned on and off, and the series drawn together across both
+ * panes stay distinguishable (`overlayColors`). An entry with no point in the loaded history is
  * dropped rather than drawn as an empty line; what of it is on screen is the viewport's business,
  * not this module's.
  *
@@ -97,28 +97,26 @@ export function buildOverlays(
   /** The chart's trading-day axis, ascending — the dates of the always-visible close series. */
   tradingDays: readonly string[],
 ): ChartOverlaySeries[] {
-  const enabled = SELECTABLE_SERIES_CATALOG.filter((series) =>
-    selected.has(series.id),
-  );
-  return enabled.flatMap((series, position) => {
+  const drawn = SELECTABLE_SERIES_CATALOG.flatMap((series) => {
+    if (!selected.has(series.id)) {
+      return [];
+    }
     const points = seriesPoints(source, series);
-    return points.length === 0
-      ? []
-      : [
-          {
-            id: series.id,
-            label: series.label,
-            color: overlayColorAt(position),
-            ...(series.source.kind === "OSCILLATOR"
-              ? {
-                  placement: "OSCILLATOR_PANE" as const,
-                  scale: { ...series.source.range },
-                }
-              : { placement: "PRICE_OVERLAY" as const }),
-            points: alignToTradingDays(points, tradingDays),
-          },
-        ];
+    return points.length === 0 ? [] : [{ series, points }];
   });
+  const colors = overlayColors(drawn.map(({ series }) => series.id));
+  return drawn.map(({ series, points }) => ({
+    id: series.id,
+    label: series.label,
+    color: colors.get(series.id) as string,
+    ...(series.source.kind === "OSCILLATOR"
+      ? {
+          placement: "OSCILLATOR_PANE" as const,
+          scale: { ...series.source.range },
+        }
+      : { placement: "PRICE_OVERLAY" as const }),
+    points: alignToTradingDays(points, tradingDays),
+  }));
 }
 
 /**

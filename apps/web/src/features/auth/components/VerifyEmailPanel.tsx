@@ -10,6 +10,7 @@ import { ApiError } from "../../../lib/api/client";
 import { verifyEmail } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
 import styles from "./auth-form.module.css";
+import { PasswordInput } from "./PasswordInput";
 import { LegalAcceptanceCheckbox } from "../../legal/components/LegalAcceptanceCheckbox";
 import { signInHref } from "../utils/guest-routes";
 import { ResendVerificationForm } from "./ResendVerificationForm";
@@ -162,11 +163,9 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
           <label className={styles.label} htmlFor="password">
             New password
           </label>
-          <input
-            className={styles.input}
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             autoComplete="new-password"
             minLength={PASSWORD_MIN_LENGTH}
             value={password}
@@ -183,11 +182,9 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
           <label className={styles.label} htmlFor="confirmPassword">
             Confirm password
           </label>
-          <input
-            className={styles.input}
+          <PasswordInput
             id="confirmPassword"
             name="confirmPassword"
-            type="password"
             autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}

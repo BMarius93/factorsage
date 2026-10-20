@@ -24,7 +24,11 @@ import {
 } from "../../auth/__testing__/auth-session";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { SIGN_IN_TO_CHOOSE_PLAN } from "../../auth/utils/sign-in-prompts";
-import { PLAN_CARD_ORDER } from "../utils/plan-presentation";
+import {
+  PLAN_CARD_ORDER,
+  formatUsd,
+  plansCaption,
+} from "../utils/plan-presentation";
 import { BillingPage } from "./BillingPage";
 import { PricingPage } from "./PricingPage";
 
@@ -161,8 +165,32 @@ describe("PricingPage", () => {
         expect(screen.getByTestId(`plan-price-${plan}`).textContent).toContain(
           usd(BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits),
         );
+        // The yearly charge first, its monthly equivalent under it (PR-3).
+        expect(
+          screen.getByTestId(`plan-price-equivalent-${plan}`).textContent,
+        ).toBe(
+          `≈ ${formatUsd(Math.round(BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits / 12))} / month`,
+        );
       }
       expect(screen.getByTestId("billing-catalog").childElementCount).toBe(3);
+    });
+
+    it("tells a visitor which plans include the point-in-time universe (PR-1)", () => {
+      render(<PricingPage />);
+
+      expect(screen.getByTestId("plans-caption").textContent).toBe(
+        plansCaption(),
+      );
+      for (const plan of PLAN_CARD_ORDER) {
+        const allowance =
+          PLAN_ENTITLEMENTS[plan].backtests.maxIndexUniverseConstituents;
+        const row = screen.getByTestId(`plan-feature-${plan}-index-universe`);
+        expect(row.textContent).toContain(
+          allowance === 0
+            ? "Not included"
+            : `Up to ${allowance} index members at once`,
+        );
+      }
     });
 
     it("calls no billing endpoint at all", async () => {
@@ -388,6 +416,9 @@ describe("PricingPage", () => {
         plan,
         price: screen.getByTestId(`plan-price-${plan}`).textContent,
         note: screen.getByTestId(`plan-price-note-${plan}`).textContent,
+        equivalent:
+          screen.queryByTestId(`plan-price-equivalent-${plan}`)?.textContent ??
+          null,
         features: screen.getByTestId(`plan-features-${plan}`).textContent,
       }));
 

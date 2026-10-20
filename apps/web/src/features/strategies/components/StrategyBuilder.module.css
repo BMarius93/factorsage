@@ -70,7 +70,7 @@
 .textInput:focus,
 .textArea:focus,
 .numberInput:focus {
-  border-color: var(--color-primary);
+  border-color: var(--color-focus);
   box-shadow: var(--focus-ring-inset);
 }
 
@@ -85,7 +85,7 @@
 .levelError,
 .sectionError {
   margin: 0;
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -114,15 +114,15 @@
 }
 
 .sectionTitle[data-tone="BUY"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .sectionTitle[data-tone="SELL"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .sectionTitle[data-tone="FINAL_EXIT"] {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .sectionEmpty {
@@ -257,7 +257,7 @@
 
 .segment[data-selected="true"] {
   color: var(--color-text-on-primary);
-  background: var(--color-primary);
+  background: var(--color-primary-solid);
 }
 
 .segmentInput {
@@ -273,7 +273,7 @@
 }
 
 .segment:has(.segmentInput:focus-visible) {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 1px;
 }
 
@@ -303,7 +303,7 @@
   align-items: center;
   gap: 10px;
   margin: 0;
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-size: 11px;
   font-weight: var(--weight-emphasis);
   letter-spacing: 0.12em;
@@ -497,7 +497,7 @@
 }
 
 .rowRemove:hover {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   background: var(--color-negative-soft);
 }
 
@@ -551,7 +551,7 @@
 
 .operandConfigButton:hover {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .operandConfigButton:focus-visible {
@@ -589,7 +589,7 @@
 .addLevel:hover:not(:disabled),
 .addExitRule:hover:not(:disabled) {
   border-style: solid;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: var(--color-primary-soft);
 }
 
@@ -642,7 +642,7 @@
   border: none;
   border-radius: 8px;
   background: var(--color-negative-soft);
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font: inherit;
   font-size: 13px;
   font-weight: var(--weight-emphasis);
@@ -654,11 +654,11 @@
 }
 
 .saveError {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .saveDirty {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-weight: var(--weight-emphasis);
 }
 

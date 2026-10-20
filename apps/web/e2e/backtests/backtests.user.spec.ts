@@ -479,15 +479,16 @@ test.describe("PRO_USER backtests", () => {
 
     // Final metrics, in the same tiles that carried the live ones.
     for (const metric of [
+      // CAGR first (BT-2); it replaced "Open positions", which a terminally liquidated run could
+      // only ever report as 0.
+      "metric-cagr",
+      "metric-max-drawdown",
       "metric-portfolio-return",
       "metric-benchmark-return",
       "metric-alpha",
       "metric-portfolio-value",
       "metric-net-profit",
-      "metric-max-drawdown",
       "metric-trades",
-      // Replaced "Open positions", which a terminally liquidated run could only ever report as 0.
-      "metric-cagr",
     ]) {
       await expect(page.getByTestId(metric)).not.toHaveText(/—$/);
     }

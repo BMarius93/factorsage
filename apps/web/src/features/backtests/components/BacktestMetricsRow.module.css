@@ -32,6 +32,25 @@
   font-size: var(--text-small);
 }
 
+/* The benchmark's figure for the same measure (BT-2): small, neutral, beside the portfolio's on
+   one line where the tile is wide enough and under it where it is not. */
+.comparison {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Two tiles across on a phone, four on a tablet, all eight in one row once the content width can
    carry them without shrinking a value. */
 .grid {
@@ -65,6 +84,10 @@
 }
 
 .value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
   margin: 0;
   color: var(--color-text-primary);
   font-size: 17px;
@@ -74,12 +97,12 @@
   overflow-wrap: anywhere;
 }
 
-.tile[data-tone="positive"] .value {
-  color: var(--color-positive);
+.tile[data-tone="positive"] .figure {
+  color: var(--color-positive-ink);
 }
 
-.tile[data-tone="negative"] .value {
-  color: var(--color-negative);
+.tile[data-tone="negative"] .figure {
+  color: var(--color-negative-ink);
 }
 
 @media (min-width: 600px) {

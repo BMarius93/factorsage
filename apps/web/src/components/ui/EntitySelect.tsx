@@ -48,6 +48,11 @@ type EntitySelectProps = {
   readonly invalid?: boolean;
   readonly describedBy?: string;
   readonly testId?: string;
+  /**
+   * The words an option is shown with, when a surface must add to the name — the New Backtest form
+   * marks a universe the plan does not include (PR-1). Defaults to the name.
+   */
+  readonly optionLabel?: (item: EntitySelectItem) => string;
 };
 
 /**
@@ -69,10 +74,14 @@ export function EntitySelect({
   invalid = false,
   describedBy,
   testId,
+  optionLabel,
 }: EntitySelectProps) {
   const copy = COPY[kind];
   const toOptions = (entries: readonly EntitySelectItem[]) =>
-    entries.map((entry) => ({ value: entry.id, label: entry.name }));
+    entries.map((entry) => ({
+      value: entry.id,
+      label: optionLabel ? optionLabel(entry) : entry.name,
+    }));
   const own = items.filter((item) => item.ownership !== "SYSTEM");
   const builtIns = items.filter((item) => item.ownership === "SYSTEM");
   // Ungrouped when there is only one kind of content: a lone group heading adds nothing.

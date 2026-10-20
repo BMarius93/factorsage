@@ -213,6 +213,27 @@ describe("LoginForm", () => {
     expect(login).not.toHaveBeenCalled();
   });
 
+  it("shows and hides the password without submitting or touching the session (AU-1)", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    const password = screen.getByLabelText("Password") as HTMLInputElement;
+    await user.type(password, "Local-test-password-42");
+
+    await user.click(screen.getByRole("button", { name: "Show password" }));
+
+    expect(password.type).toBe("text");
+    expect(password.value).toBe("Local-test-password-42");
+    expect(password.getAttribute("autocomplete")).toBe("current-password");
+    expect(
+      screen
+        .getByRole("button", { name: "Hide password" })
+        .getAttribute("aria-controls"),
+    ).toBe("password");
+    expect(login).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText(PASSWORD_REQUIRED_MESSAGE)).toBeNull();
+  });
+
   it("sends a visitor who is already signed in on to where they were going (UI-040)", async () => {
     getAuthUser.mockResolvedValueOnce({
       id: "1",

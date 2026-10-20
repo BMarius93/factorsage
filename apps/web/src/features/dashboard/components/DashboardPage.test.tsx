@@ -10,7 +10,7 @@ import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { marketOverviewFixture } from "../../market/__testing__/market-overview";
 import { fetchMarketOverview } from "../../market/api/market-api";
 import { fetchDashboard, fetchMonitorActivity } from "../api/dashboard-api";
-import { DashboardPage } from "./DashboardPage";
+import { DashboardPage, newActivityLabel } from "./DashboardPage";
 
 vi.mock("../api/dashboard-api", () => ({
   fetchDashboard: vi.fn(),
@@ -299,6 +299,54 @@ describe("DashboardPage", () => {
     expect(screen.queryByTestId("dashboard-activity-more")).toBeNull();
   });
 
+  it("pauses on older activity and returns to the newest events on request (DB-2)", async () => {
+    const user = userEvent.setup();
+    fetchActivityMock
+      .mockResolvedValueOnce({
+        viewer: "GUEST",
+        generatedAt: new Date().toISOString(),
+        events: [EVENTS[0]!],
+        nextCursor: "cursor-1",
+      })
+      .mockResolvedValueOnce({
+        viewer: "GUEST",
+        generatedAt: new Date().toISOString(),
+        events: [EVENTS[1]!],
+      });
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-activity");
+    expect(screen.queryByTestId("dashboard-activity-paused")).toBeNull();
+
+    await user.click(screen.getByTestId("dashboard-activity-more"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("dashboard-activity-row")).toHaveLength(2),
+    );
+    const paused = screen.getByTestId("dashboard-activity-paused");
+    expect(within(paused).getByRole("status").textContent).toBe(
+      "Updates are paused while you read older activity.",
+    );
+
+    fetchActivityMock.mockResolvedValueOnce({
+      viewer: "GUEST",
+      generatedAt: new Date().toISOString(),
+      events: [EVENTS[0]!],
+      nextCursor: "cursor-1",
+    });
+    await user.click(screen.getByTestId("dashboard-activity-show-newest"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("dashboard-activity-row")).toHaveLength(1),
+    );
+    expect(screen.queryByTestId("dashboard-activity-paused")).toBeNull();
+    expect(fetchActivityMock).toHaveBeenLastCalledWith(
+      { limit: 15 },
+      expect.anything(),
+    );
+    // The button that asked is gone; focus lands on the newest event instead of on <body>.
+    await waitFor(() =>
+      expect(document.activeElement?.closest("tbody")).not.toBeNull(),
+    );
+  });
+
   it("marks an event the earlier live-quote monitor recorded, quietly", async () => {
     fetchActivityMock.mockResolvedValue({
       viewer: "GUEST",
@@ -450,5 +498,16 @@ describe("DashboardPage", () => {
     expect(why.textContent).toMatch(/Price is above SMA 200D/);
     const origin = within(why).getByTestId("dashboard-card-monitor");
     expect(origin.textContent).toBe("MonitorS&P Value & Trend");
+  });
+});
+
+describe("newActivityLabel (DB-2)", () => {
+  it("states an exact count, says only that something arrived when the count is unknown, and otherwise that updates are paused", () => {
+    expect(newActivityLabel({ count: 1 })).toBe("1 new event");
+    expect(newActivityLabel({ count: 4 })).toBe("4 new events");
+    expect(newActivityLabel({ count: null })).toBe("New events are available.");
+    expect(newActivityLabel(null)).toBe(
+      "Updates are paused while you read older activity.",
+    );
   });
 });
