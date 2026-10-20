@@ -191,3 +191,65 @@
   justify-content: center;
   padding: 12px var(--surface-inset) 0;
 }
+
+/* DB-2 — the feed while older activity is open: automatic refresh is paused, and this line says
+   what has arrived since and offers the way back to the newest events. */
+.pausedBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 var(--surface-inset) 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-selected);
+}
+
+.pausedText {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+}
+
+/* DB-1 — the activity card below 880px. The shared card puts identity and status on one line, and
+   the two badges of an event that ended ("Buy 1", "Ended · conditions no longer hold") then claimed
+   the width the stock needed: tickers truncated to "MP…" and the session date wrapped over four
+   lines. Here the stock shares its line with the price, and the signal shares the next one with the
+   session it was decided on. The card's second column is sized by the short price and date, so the
+   ticker is never what gives way, the badges wrap inside the first column when they must, and the
+   card keeps its number of lines. */
+@media (max-width: 879px) {
+  .activity td[data-column="stock"] {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .activity td[data-column="price"] {
+    grid-row: 1;
+    grid-column: 2;
+    justify-content: flex-end;
+    color: var(--color-text-primary);
+    font-size: var(--text-body);
+    font-weight: var(--weight-emphasis);
+  }
+
+  .activity td[data-column="signal"] {
+    grid-row: 2;
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+
+  .activity td[data-column="session"] {
+    grid-row: 2;
+    grid-column: 2;
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  .activity td[data-column="why"] {
+    grid-row: 3;
+    grid-column: 1 / -1;
+  }
+}

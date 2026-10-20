@@ -268,6 +268,8 @@ export function DataTable<TRow>({
                   data-card={column.cardRole ?? "fact"}
                   data-stacked={column.stacked ? "true" : undefined}
                   data-fold={column.foldIntermediate ? "true" : undefined}
+                  // Lets a feature arrange its own phone card without restating the table.
+                  data-column={column.key}
                   style={columnStyle(column)}
                 >
                   {/* The column header is the cell's label on a phone, where the header

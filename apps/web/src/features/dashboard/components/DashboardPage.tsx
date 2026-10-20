@@ -5,7 +5,7 @@ import type {
   DashboardMonitorResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   CardLinks,
@@ -34,7 +34,10 @@ import {
 import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
 import { MarketOverview } from "../../market/components/MarketOverview";
 import { DASHBOARD_REFRESH_MS, useDashboard } from "../hooks/use-dashboard";
-import { useMonitorActivity } from "../hooks/use-monitor-activity";
+import {
+  type NewActivity,
+  useMonitorActivity,
+} from "../hooks/use-monitor-activity";
 import { FRESHNESS_TONES, freshnessLabel } from "../utils/format";
 import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
 import styles from "./DashboardPage.module.css";
@@ -206,12 +209,30 @@ export function DashboardPage() {
   const now = useNow(30_000);
 
   // The feed re-reads its newest page on the Dashboard's slow timer, so a session evaluated while
-  // the page is open shows up.
-  const reloadActivity = activity.reload;
+  // the page is open shows up — unless the reader has opened older activity, in which case the
+  // timer only reports what is new and the list waits for them (DB-2).
+  const refreshActivity = activity.refresh;
   useEffect(() => {
-    const timer = setInterval(reloadActivity, DASHBOARD_REFRESH_MS);
+    const timer = setInterval(refreshActivity, DASHBOARD_REFRESH_MS);
     return () => clearInterval(timer);
-  }, [reloadActivity]);
+  }, [refreshActivity]);
+
+  // Asking for the newest activity replaces the expanded list and removes the button that asked,
+  // so focus and the view move to the top of the refreshed feed rather than being lost.
+  const returnToNewest = useRef(false);
+  useEffect(() => {
+    if (!returnToNewest.current || activity.paused) return;
+    returnToNewest.current = false;
+    const heading = document.getElementById("activity-title");
+    if (heading && heading.getBoundingClientRect().top < 0) {
+      heading.scrollIntoView({ block: "start" });
+    }
+    document
+      .querySelector<HTMLElement>(
+        '[data-testid="dashboard-activity"] tbody a[href]',
+      )
+      ?.focus({ preventScroll: true });
+  }, [activity.paused, activity.events]);
 
   const monitors = dashboard?.monitors ?? [];
   const shownMonitors = monitors.filter((monitor) => monitor.visible);
@@ -325,15 +346,38 @@ export function DashboardPage() {
                 }
               />
             ) : (
-              <DataTable
-                label="Monitor activity"
-                testId="dashboard-activity"
-                rowTestId="dashboard-activity-row"
-                clickableRows
-                columns={COLUMNS}
-                rows={events}
-                getRowKey={(event) => event.id}
-              />
+              <div className={styles.activity}>
+                {activity.paused ? (
+                  <div
+                    className={styles.pausedBar}
+                    data-testid="dashboard-activity-paused"
+                  >
+                    <p role="status" className={styles.pausedText}>
+                      {newActivityLabel(activity.newActivity)}
+                    </p>
+                    <button
+                      type="button"
+                      className={forms.tintedButton}
+                      data-testid="dashboard-activity-show-newest"
+                      onClick={() => {
+                        returnToNewest.current = true;
+                        activity.reload();
+                      }}
+                    >
+                      Show newest
+                    </button>
+                  </div>
+                ) : null}
+                <DataTable
+                  label="Monitor activity"
+                  testId="dashboard-activity"
+                  rowTestId="dashboard-activity-row"
+                  clickableRows
+                  columns={COLUMNS}
+                  rows={events}
+                  getRowKey={(event) => event.id}
+                />
+              </div>
             )}
             {activity.hasMore ? (
               <div className={styles.more}>
@@ -354,6 +398,22 @@ export function DashboardPage() {
       </div>
     </PageContainer>
   );
+}
+
+/**
+ * What the paused feed says about activity that arrived since the reader opened older pages. A count
+ * only when it is exact; otherwise that there is new activity, and nothing at all is never claimed.
+ */
+export function newActivityLabel(newActivity: NewActivity | null): string {
+  if (newActivity === null) {
+    return "Updates are paused while you read older activity.";
+  }
+  if (newActivity.count === null) {
+    return "New events are available.";
+  }
+  return newActivity.count === 1
+    ? "1 new event"
+    : `${newActivity.count} new events`;
 }
 
 /**
