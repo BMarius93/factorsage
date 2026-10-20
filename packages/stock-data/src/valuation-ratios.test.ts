@@ -1675,3 +1675,133 @@ describe("valuation ratios: each masking rule in isolation", () => {
     expect(pb[1]).toBeNaN();
   });
 });
+
+describe("valuation ratios: a timeline bounded to the sessions it will be read on", () => {
+  /** Calendar days from `from` through `to`, every one a session for this purpose. */
+  function days(from: string, to: string): string[] {
+    const out: string[] = [];
+    for (
+      let time = Date.parse(`${from}T00:00:00Z`);
+      time <= Date.parse(`${to}T00:00:00Z`);
+      time += 86_400_000
+    ) {
+      out.push(new Date(time).toISOString().slice(0, 10));
+    }
+    return out;
+  }
+
+  /**
+   * Three years of quarters with a loss quarter, a doubled share count across a provider split and a
+   * listed upcoming event: available, unavailable and withheld stretches for the bound to cross.
+   */
+  function history(): ValuationInputs {
+    const quarters: Quarter[] = [2022, 2023, 2024].flatMap((year) =>
+      (["Q1", "Q2", "Q3", "Q4"] as const).map((period, index) => {
+        const end = ["03-31", "06-30", "09-30", "12-31"][index] as string;
+        const fiscalDate = `${year}-${end}`;
+        return {
+          fiscalDate,
+          fiscalYear: year,
+          period,
+          availableFromDate: new Date(
+            Date.parse(`${fiscalDate}T00:00:00Z`) + 40 * 86_400_000,
+          )
+            .toISOString()
+            .slice(0, 10),
+        };
+      }),
+    );
+    return inputs({
+      statements: quarters.flatMap((quarter, index) => [
+        statement("INCOME", quarter, {
+          // Doubled from the quarter after the 2023-07-03 split.
+          weightedAverageShsOutDil: index >= 6 ? 200 : 100,
+          // One loss quarter makes P/E unavailable for a stretch.
+          netIncome: index === 9 ? -40 : 5,
+          revenue: 50 + index,
+          ebitda: 10,
+        }),
+        statement("BALANCE_SHEET", quarter, {
+          totalStockholdersEquity: 400 + index * 10,
+          netDebt: 60 - index * 10,
+        }),
+        statement("CASH_FLOW", quarter, {
+          operatingCashFlow: 8,
+          capitalExpenditure: -2,
+        }),
+      ]),
+      splits: [
+        split({ date: "2023-07-03", numerator: 2, denominator: 1 }),
+        split({ date: "2025-08-01", numerator: 3, denominator: 1 }),
+      ],
+      verifiedAt: "2025-01-01T00:00:00.000Z",
+    });
+  }
+
+  it("reads every session on or after the bound exactly as the whole timeline does", () => {
+    const valuation = history();
+    const sessions = days("2022-01-01", "2025-12-31");
+    const closes = sessions.map((_, index) => 10 + (index % 37) * 0.25);
+    const whole = valuationRatioColumns({
+      timeline: buildValuationTimeline(valuation),
+      dates: sessions,
+      closes,
+      ratios: ALL,
+    });
+    // Before every event, on an event date, between events, and after the last one.
+    for (const from of [
+      "2021-06-30",
+      "2023-05-10",
+      "2023-05-11",
+      "2024-01-15",
+      "2025-06-30",
+    ]) {
+      const first = sessions.findIndex((session) => session >= from);
+      const bounded = valuationRatioColumns({
+        timeline: buildValuationTimeline(valuation, { statesFrom: from }),
+        dates: sessions.slice(first),
+        closes: closes.slice(first),
+        ratios: ALL,
+      });
+      for (const ratio of ALL) {
+        const expected = [...(whole.get(ratio) as Float64Array)].slice(first);
+        expect(
+          [...(bounded.get(ratio) as Float64Array)],
+          `${ratio} from ${from}`,
+        ).toEqual(expected);
+      }
+    }
+    // The fixture exercises what it claims to: every ratio has readings, and P/E has gaps between
+    // them — the loss quarter's stretch, before the first full year and inside the listed event.
+    for (const ratio of ALL) {
+      expect(
+        [...(whole.get(ratio) as Float64Array)].some(Number.isFinite),
+        ratio,
+      ).toBe(true);
+    }
+    const pe = [...(whole.get("PRICE_TO_EARNINGS_TTM") as Float64Array)];
+    const firstReading = pe.findIndex(Number.isFinite);
+    expect(pe.slice(firstReading).some(Number.isNaN)).toBe(true);
+  });
+
+  it("builds only the states a session from the bound can read", () => {
+    const valuation = history();
+    const whole = buildValuationTimeline(valuation);
+    const bounded = buildValuationTimeline(valuation, {
+      statesFrom: "2024-06-01",
+    });
+    // The state in force on the bound, and every later one; nothing earlier.
+    const inForce = whole.states
+      .filter((state) => state.from <= "2024-06-01")
+      .at(-1);
+    expect(bounded.states[0]).toEqual(inForce);
+    expect(bounded.states).toEqual(
+      whole.states.filter((state) => state.from >= (inForce?.from as string)),
+    );
+    expect(bounded.states.length).toBeLessThan(whole.states.length);
+    // Without a bound, or before every event, nothing is skipped.
+    expect(
+      buildValuationTimeline(valuation, { statesFrom: "2020-01-01" }).states,
+    ).toEqual(whole.states);
+  });
+});

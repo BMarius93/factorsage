@@ -180,6 +180,16 @@ const RATIO_FAMILIES = {
  */
 export function buildValuationTimeline(
   inputs: ValuationInputs,
+  options: {
+    /**
+     * The earliest session the timeline will ever be read on. A state is built per statement event,
+     * independently of every other, and a session reads only the latest one starting on or before
+     * it — so the states no session from here on can read are skipped, and every session from here
+     * on reads exactly what it reads without the bound. Nothing about a state changes; a timeline
+     * built with a bound must never be read on an earlier session, where it has no state.
+     */
+    statesFrom?: LocalDate;
+  } = {},
 ): ValuationTimeline {
   const statements = inputs.statements.filter(
     (statement) =>
@@ -245,9 +255,10 @@ export function buildValuationTimeline(
       .map((split): ShareChange => ({ kind: "ENTRY", date: split.date })),
   ];
 
-  const eventDates = [
+  const allEventDates = [
     ...new Set(statements.map((statement) => statement.availableFromDate)),
   ].sort();
+  const eventDates = readableEventDates(allEventDates, options.statesFrom);
   const states: ValuationState[] = eventDates.map((date) =>
     stateOn({
       date,
@@ -279,6 +290,28 @@ export function buildValuationTimeline(
       to: addDays(split.date, EVENT_SETTLING_DAYS),
     })),
   };
+}
+
+/**
+ * The statement events a session on or after `from` can read: the last one starting on or before
+ * `from` — the state in force on it — and every later one. All of them without a bound.
+ */
+function readableEventDates(
+  sorted: readonly LocalDate[],
+  from: LocalDate | undefined,
+): readonly LocalDate[] {
+  if (from === undefined) {
+    return sorted;
+  }
+  let first = 0;
+  for (let index = 0; index < sorted.length; index += 1) {
+    if ((sorted[index] as LocalDate) <= from) {
+      first = index;
+    } else {
+      break;
+    }
+  }
+  return sorted.slice(first);
 }
 
 /**

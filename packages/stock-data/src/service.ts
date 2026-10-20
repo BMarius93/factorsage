@@ -1576,6 +1576,7 @@ export class CanonicalStockDataService implements StockDetailsDataService {
    */
   private async readValuationInputs(
     security: Security,
+    options: { statesFrom?: string } = {},
   ): Promise<{ timeline: ValuationTimeline; statements: FinancialStatement[] }> {
     const retention = this.fundamentalsTarget(security);
     const [revisions, basis, events, splits, ipoDate, earliestPriceDate] =
@@ -1600,14 +1601,17 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       listingFloor({ ipoDate, earliestPriceDate }),
     );
     return {
-      timeline: buildValuationTimeline({
-        securityId: security.id,
-        currency: security.currency,
-        statements,
-        verifiedAt: basis?.verifiedAt ?? null,
-        events,
-        splits,
-      }),
+      timeline: buildValuationTimeline(
+        {
+          securityId: security.id,
+          currency: security.currency,
+          statements,
+          verifiedAt: basis?.verifiedAt ?? null,
+          events,
+          splits,
+        },
+        options,
+      ),
       statements,
     };
   }
@@ -2021,7 +2025,9 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       this.store.getProfile(security.id),
       this.readDailyPriceProjection(security, window),
       this.readDailyDerivedStateProjection(security, window),
-      this.readValuationInputs(security),
+      // The same inputs as every ratio read, from every stored revision; only the states no session
+      // of the window can read are not built (`statesFrom`), which leaves every reading unchanged.
+      this.readValuationInputs(security, { statesFrom: window.from }),
     ]);
     const current = await this.priceBasisGeneration(security.id);
     if (current !== expected) {
