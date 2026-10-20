@@ -21,6 +21,72 @@
   composes: hint from "../../../components/ui/forms.module.css";
 }
 
+/* --- A password field and its Show/Hide control (`PasswordInput`) --- */
+
+.passwordField {
+  position: relative;
+}
+
+/* Room on the right for the toggle, so a long password never runs underneath it. */
+/* Composed from the shared field directly: a local class that itself composes from another file
+   is not resolved transitively by the bundler, and the field rendered unstyled. */
+.passwordInput {
+  composes: input from "../../../components/ui/forms.module.css";
+  padding-right: 76px;
+}
+
+/* Inside the field's right edge: 32px tall on a 44px field, comfortably above the 24px minimum
+   target, and wide enough that "Show" and "Hide" occupy the same box. */
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-ink);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.passwordToggle:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+}
+
+.passwordToggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.passwordToggle:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+/* Read by assistive technology, not drawn. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The one line that says why the sign-in page is asking (GL-7), above the form. */
+.context {
+  margin-bottom: 18px;
+}
+
 .primaryButton {
   composes: primaryButton from "../../../components/ui/forms.module.css";
   /* Auth is a single-column, touch-first surface: its buttons keep the touch height everywhere. */

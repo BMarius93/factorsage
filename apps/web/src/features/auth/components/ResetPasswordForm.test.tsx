@@ -73,6 +73,31 @@ describe("ResetPasswordForm", () => {
     ).toBeTruthy();
   });
 
+  it("gives each password field its own Show/Hide control, which submits nothing (AU-1)", async () => {
+    const user = userEvent.setup();
+    render(<ResetPasswordForm token={TOKEN} />);
+    const fresh = screen.getByLabelText("New password") as HTMLInputElement;
+    const confirm = screen.getByLabelText(
+      "Confirm new password",
+    ) as HTMLInputElement;
+    await user.type(fresh, VALID_PASSWORD);
+
+    const toggles = screen.getAllByRole("button", { name: "Show password" });
+    expect(
+      toggles.map((toggle) => toggle.getAttribute("aria-controls")),
+    ).toEqual([fresh.id, confirm.id]);
+
+    await user.click(toggles[0] as HTMLElement);
+    expect(fresh.type).toBe("text");
+    expect(fresh.value).toBe(VALID_PASSWORD);
+    expect(confirm.type).toBe("password");
+    // Both still offer to save a new password, whatever is shown.
+    expect(fresh.getAttribute("autocomplete")).toBe("new-password");
+    expect(confirm.getAttribute("autocomplete")).toBe("new-password");
+    expect(resetPassword).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("reset-password-error")).toBeNull();
+  });
+
   it("asks for a link instead of a password when the URL carries no token", async () => {
     render(<ResetPasswordForm token={null} />);
 

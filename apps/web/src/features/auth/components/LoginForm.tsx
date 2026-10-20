@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { Notice } from "../../../components/ui/Notice";
 import { login } from "../api/auth-api";
 import { describeLoginFailure } from "../utils/auth-errors";
+import { EMAIL_REQUIRED_MESSAGE } from "../utils/email-address";
 import { useRedirectIfSignedIn } from "../hooks/use-redirect-if-signed-in";
 import { forgotPasswordHref, registerHref } from "../utils/guest-routes";
 import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
+import { signInReason } from "../utils/sign-in-reason";
 import styles from "./auth-form.module.css";
 import { GoogleSignInButton } from "./GoogleSignInButton";
+import { PasswordInput } from "./PasswordInput";
 
 type LoginFormProps = {
   /** Message produced by a failed provider redirect back from the API. */
@@ -22,7 +26,7 @@ type LoginFormProps = {
   readonly returnPath?: string;
 };
 
-export const EMAIL_REQUIRED_MESSAGE = "Enter your email address.";
+export { EMAIL_REQUIRED_MESSAGE };
 export const PASSWORD_REQUIRED_MESSAGE = "Enter your password.";
 
 export function LoginForm({
@@ -30,6 +34,8 @@ export function LoginForm({
   returnPath = DEFAULT_RETURN_PATH,
 }: LoginFormProps) {
   const destination = safeReturnPath(returnPath);
+  // Read from the validated destination only, never from the raw query (GL-7).
+  const reason = signInReason(destination);
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -82,6 +88,14 @@ export function LoginForm({
 
   return (
     <>
+      {reason ? (
+        <div className={styles.context}>
+          <Notice tone="info" testId="login-reason">
+            {reason}
+          </Notice>
+        </div>
+      ) : null}
+
       <form className={styles.form} onSubmit={handleSubmit} noValidate>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="email">
@@ -116,11 +130,9 @@ export function LoginForm({
           <label className={styles.label} htmlFor="password">
             Password
           </label>
-          <input
-            className={styles.input}
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             onChange={(event) => {
