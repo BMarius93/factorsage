@@ -17,6 +17,9 @@
   --chart-valuation-room: 0px;
   --chart-fundamental-room: 0px;
   position: relative;
+  /* The chart library layers its own pieces (a pane separator's resize handle sits at z-index 50);
+     keeping them inside the chart means the Indicators popover always opens above the plot. */
+  isolation: isolate;
   width: 100%;
   height: calc(
     340px + var(--chart-oscillator-room) + var(--chart-valuation-room) +

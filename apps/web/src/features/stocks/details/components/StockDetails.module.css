@@ -11,6 +11,14 @@
   }
 }
 
+/* The Indicators popover opens inside the chart's card and may reach below it — over the research
+   cards — so that one card does not clip what overflows it (every other surface keeps the shared
+   clipping). The popover stacks above the page content; nothing inside the chart card needs the
+   clip, since the chart and its key sit inside the card's padding. */
+.chartAnchor > section {
+  overflow: visible;
+}
+
 /* Where a financial card scrolls the page to when it puts a series on the chart: the chart's
    section, clear of the sticky top bar. */
 .chartAnchor {
