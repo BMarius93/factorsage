@@ -10,6 +10,7 @@ import type {
   IntrinsicValueModelResponse,
   IntrinsicValueResponse,
   StockDetailsResponse,
+  StockSummaryResponse,
   ValuationRatioHistoryQuery,
   ValuationRatioId,
 } from "@intrinsic/contracts";
@@ -18,9 +19,11 @@ import { apiGet } from "../../../../lib/api/client";
 /**
  * Stock Details reads against the V2 API.
  *
- * The composite endpoint carries everything the page needs for its default one-year window; the
- * dedicated history endpoints exist for the single lazy full-history load behind the long chart
- * ranges. All requests are bounded, inclusive `YYYY-MM-DD` windows.
+ * Two independent requests open the page: the summary — the latest state every section except the
+ * chart shows — and the chart's composite window (one year of prices, technicals and intrinsic
+ * series). Neither waits for the other. The dedicated history endpoints extend the chart lazily as
+ * the viewport asks for older history, and the single-series endpoints load one chosen valuation
+ * ratio or Fundamental Metric. History requests are bounded, inclusive `YYYY-MM-DD` windows.
  */
 export type StockHistoryWindow = {
   readonly from: string;
@@ -35,6 +38,15 @@ function stockPath(symbol: string, suffix = ""): string {
   return `/stocks/${encodeURIComponent(symbol)}${suffix}`;
 }
 
+/** The page's latest-state summary: no history, no window parameter. */
+export function fetchStockSummary(
+  symbol: string,
+  options: RequestOptions = {},
+): Promise<StockSummaryResponse> {
+  return apiGet<StockSummaryResponse>(stockPath(symbol, "/summary"), options);
+}
+
+/** The chart's opening window: one bounded year of every series the chart can draw. */
 export function fetchStockDetails(
   symbol: string,
   window: StockHistoryWindow,

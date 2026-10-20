@@ -1,3 +1,4 @@
+/* Header, chart, research cards: always in that order, whatever arrives first. */
 .page {
   display: flex;
   flex-direction: column;
@@ -10,64 +11,23 @@
   }
 }
 
-.chartTools {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
+/* Where a financial card scrolls the page to when it puts a series on the chart: the chart's
+   section, clear of the sticky top bar. */
+.chartAnchor {
+  scroll-margin-top: calc(var(--topbar-height) + 12px);
 }
 
 @media (min-width: 880px) {
-  .chartTools {
-    align-items: flex-end;
+  .chartAnchor {
+    scroll-margin-top: calc(var(--topbar-height-wide) + 12px);
   }
 }
 
-.chartError {
-  margin: 12px 0 0;
-  color: var(--color-negative-ink);
-  font-size: 13px;
-}
-
-.inlineRetry {
-  padding: 0;
-  border: 0;
-  color: var(--color-primary-ink);
-  background: transparent;
-  font-size: 13px;
-  font-weight: var(--weight-emphasis);
-  cursor: pointer;
-}
-
-.inlineRetry:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-}
-
-/* The lower sections are one ordered flow. On a wide screen it is balanced into two columns, so
-   neither side ends early above an empty area (UI-018); on a phone it is a single stack. */
-.columns {
-  display: grid;
-  gap: 16px;
-}
-
-@media (min-width: 880px) {
-  .columns {
-    display: block;
-    columns: 2;
-    column-gap: 20px;
-  }
-
-  .columns > * {
-    margin-bottom: 20px;
-    break-inside: avoid;
-  }
-}
-
-/* The chosen valuation ratio's or fundamental's own state under the chart key: still loading, or
-   nothing to draw. */
-.seriesStatus {
-  margin: 8px 0 0;
-  color: var(--color-text-secondary);
-  font-size: 13px;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

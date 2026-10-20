@@ -1,0 +1,68 @@
+/* Two independent stacks from 880px, one column below it. The stacks are explicit rather than a
+   balanced multi-column flow: a balanced flow re-balances when a card's height changes, which would
+   move whole cards across the page as the summary lands. */
+.columns {
+  display: grid;
+  gap: 16px;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .stack {
+    gap: 20px;
+  }
+}
+
+/* Placeholder bodies sized like the cards they stand in for, so the page settles with little
+   movement when the summary lands. */
+.placeholder {
+  display: flex;
+  height: 180px;
+}
+
+.placeholder[data-size="short"] {
+  height: 130px;
+}
+
+.placeholder[data-size="medium"] {
+  height: 200px;
+}
+
+.placeholder[data-size="tall"] {
+  height: 300px;
+}
+
+.placeholder[data-size="fundamentals"] {
+  height: 620px;
+}
+
+@media (min-width: 1280px) {
+  .placeholder[data-size="fundamentals"] {
+    height: 360px;
+  }
+}
+
+.failed {
+  display: block;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

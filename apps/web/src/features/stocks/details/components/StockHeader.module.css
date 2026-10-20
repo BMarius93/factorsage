@@ -87,3 +87,46 @@
   color: var(--color-text-secondary);
   font-size: 14px;
 }
+
+/* The header's placeholders, each the size of what it stands in for: the company name beside the
+   ticker, one row of listing badges, and the close with its as-of line. */
+.namePlaceholder {
+  display: inline-flex;
+  width: min(180px, 40vw);
+  height: 0.62em;
+  min-height: 12px;
+  align-self: center;
+}
+
+.badgesPlaceholder {
+  display: flex;
+  width: min(200px, 60vw);
+  height: 22px;
+}
+
+.quotePlaceholder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pricePlaceholder {
+  display: flex;
+  width: 168px;
+  height: 26px;
+}
+
+.asOfPlaceholder {
+  display: flex;
+  width: 220px;
+  height: 14px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

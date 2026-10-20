@@ -1,44 +1,49 @@
-import { formatLocalDate, formatMoney } from "../utils/format";
-import {
-  priceVersusAverage,
-  type TechnicalSnapshot,
-} from "../utils/technicals";
-import { PriceRelative } from "./PriceRelative";
 import { SectionCard } from "../../../../components/ui/SectionCard";
+import {
+  formatLocalDate,
+  formatMoney,
+  formatOscillator,
+} from "../utils/format";
+import { priceVersusAverage, type TechnicalRow } from "../utils/technicals";
+import { PriceRelative } from "./PriceRelative";
 import styles from "./StockTechnicalSummary.module.css";
 
 type StockTechnicalSummaryProps = {
-  readonly snapshot: TechnicalSnapshot;
-  readonly latestClose?: number;
+  /** EMA 50D, EMA 200D and RSI 14D, in that order (`technicalRows`). */
+  readonly rows: readonly TechnicalRow[];
+  /** The newest close and its session: what each average is compared with. */
+  readonly latestClose?: { readonly value: number; readonly date: string };
   readonly currency: string;
 };
 
 /**
- * Latest catalog moving averages with the close's position relative to each.
+ * The compact Technicals card: EMA 50D, EMA 200D and RSI 14D, and nothing else.
  *
- * Weekly rows carry the latest completed week's value, carried forward onto this trading day by
- * the backend. Indicators still in their warm-up window are absent from the snapshot and simply
- * not rendered.
- *
- * The comparison is named once, by a heading over its column, and every row carries just the
- * signed figure (SD-6): fourteen rows of "Price vs average:" read slower than one heading. A
- * screen reader, which has no column to look up, still hears the words with each figure.
+ * Every other moving average and oscillator stays in the chart's `Indicators` control — only this
+ * permanent card is narrowed. Values are the persisted derived state as the API returned it. Each
+ * average shows where the close sits against it, as the one signed figure under a "Price vs avg."
+ * heading (SD-6), and only when the average belongs to the close's own session; RSI is a unitless
+ * reading and is never compared with a price. There is no Buy or Sell reading of any of it.
  */
 export function StockTechnicalSummary({
-  snapshot,
+  rows,
   latestClose,
   currency,
 }: StockTechnicalSummaryProps) {
-  const relatives = snapshot.readings.map((reading) =>
-    latestClose === undefined
-      ? undefined
-      : priceVersusAverage(latestClose, reading.value),
+  const asOf = latestClose?.date;
+  const relatives = rows.map((row) =>
+    row.kind === "average" &&
+    row.value !== undefined &&
+    latestClose !== undefined &&
+    row.date === latestClose.date
+      ? priceVersusAverage(latestClose.value, row.value)
+      : undefined,
   );
   return (
     <SectionCard
       id="technicals"
       title="Technicals"
-      caption={`Moving averages as of ${formatLocalDate(snapshot.date)}`}
+      {...(asOf ? { caption: `As of ${formatLocalDate(asOf)} close` } : {})}
     >
       {relatives.some((relative) => relative !== undefined) ? (
         <div
@@ -50,13 +55,35 @@ export function StockTechnicalSummary({
         </div>
       ) : null}
       <dl className={styles.list}>
-        {snapshot.readings.map((reading, index) => {
+        {rows.map((row, index) => {
           const relative = relatives[index];
           return (
-            <div key={reading.key} className={styles.row}>
-              <dt className={styles.label}>{reading.label}</dt>
+            <div
+              key={row.id}
+              className={styles.row}
+              data-testid={`technical-${row.id}`}
+            >
+              <dt className={styles.label}>
+                {row.label}
+                {row.date !== undefined &&
+                asOf !== undefined &&
+                row.date !== asOf ? (
+                  <span className={styles.readingDate}>
+                    {" "}
+                    as of {formatLocalDate(row.date)}
+                  </span>
+                ) : null}
+              </dt>
               <dd className={styles.value}>
-                <span>{formatMoney(reading.value, currency)}</span>
+                {row.value === undefined ? (
+                  <span className={styles.unavailable}>Unavailable</span>
+                ) : (
+                  <span>
+                    {row.kind === "oscillator"
+                      ? formatOscillator(row.value)
+                      : formatMoney(row.value, currency)}
+                  </span>
+                )}
                 {relative === undefined ? null : (
                   <PriceRelative
                     reference="average"

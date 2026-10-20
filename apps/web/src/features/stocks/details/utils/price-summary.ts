@@ -1,12 +1,16 @@
-import type { DailyPriceResponse } from "@intrinsic/contracts";
+import type {
+  DailyPriceResponse,
+  StockSummaryQuoteResponse,
+} from "@intrinsic/contracts";
 
 /**
- * Display-level summary of the latest end-of-day bar within a loaded price window.
+ * Display-level summary of the latest end-of-day bar.
  *
- * These are presentation derivations over canonical EOD history, not new market semantics: the
- * change is simply latest close versus the previous trading day's close, and the window range is
- * the high/low across the rows supplied (Stock Details loads a one-year window, making it the
- * conventional 52-week range).
+ * These are presentation derivations over canonical EOD data, not new market semantics: the change
+ * is simply the latest close versus the previous trading day's close, and the range is the high and
+ * low of the trailing year — the conventional 52-week range. The page builds it from the summary's
+ * quote, which the API selects over that year, or — when only the chart's window has arrived — from
+ * that one-year window's rows; both describe the same canonical bars.
  */
 export type PriceChange = {
   absolute: number;
@@ -60,5 +64,34 @@ export function summarizePrices(
     ...(change ? { change } : {}),
     windowHigh,
     windowLow,
+  };
+}
+
+/**
+ * The same summary from the API's latest-state quote: the newest bar, the session before it and the
+ * trailing year's high and low, already selected by the server. The change is derived exactly as
+ * {@link summarizePrices} derives it.
+ */
+export function summarizeQuote(quote: StockSummaryQuoteResponse): PriceSummary {
+  const change =
+    quote.previousClose !== undefined &&
+    quote.previousDate !== undefined &&
+    quote.previousClose > 0
+      ? {
+          absolute: quote.close - quote.previousClose,
+          fraction: (quote.close - quote.previousClose) / quote.previousClose,
+          previousClose: quote.previousClose,
+          previousDate: quote.previousDate,
+        }
+      : undefined;
+  return {
+    latestClose: quote.close,
+    latestDate: quote.date,
+    latestVolume: quote.volume,
+    dayHigh: quote.high,
+    dayLow: quote.low,
+    ...(change ? { change } : {}),
+    windowHigh: quote.rangeHigh,
+    windowLow: quote.rangeLow,
   };
 }

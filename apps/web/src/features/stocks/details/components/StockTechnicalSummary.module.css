@@ -44,3 +44,14 @@
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
 }
+
+.readingDate {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.unavailable {
+  color: var(--color-text-muted);
+  font-size: var(--text-secondary);
+  font-weight: 400;
+}

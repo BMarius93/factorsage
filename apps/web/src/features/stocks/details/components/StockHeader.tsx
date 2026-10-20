@@ -4,6 +4,7 @@ import type {
 } from "@intrinsic/contracts";
 import type { ReactNode } from "react";
 import { PageHeader } from "../../../../components/ui/PageHeader";
+import { Skeleton } from "../../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../../components/ui/StatusBadge";
 import { StockLogo } from "../../../../components/ui/StockIdentity";
 import {
@@ -122,6 +123,56 @@ export function StockHeader({
         ) : (
           <p className={styles.noQuote}>No recent price data</p>
         )
+      }
+    />
+  );
+}
+
+/**
+ * The header before the security's identity has arrived: the same compact frame with the ticker the
+ * route already names as the page's `<h1>`, and placeholders exactly where the company name, the
+ * listing badges and the close will land — so the header neither waits for the API nor changes size
+ * when it answers.
+ */
+export function StockHeaderPlaceholder({
+  symbol,
+  actions,
+}: {
+  /** The normalized ticker from the route. */
+  readonly symbol: string;
+  readonly actions?: ReactNode;
+}) {
+  return (
+    <PageHeader
+      density="compact"
+      testId="stock-header-loading"
+      {...(actions ? { actions } : {})}
+      mark={
+        <StockLogo symbol={symbol} name={symbol} size="lg" loading="eager" />
+      }
+      title={
+        <span className={styles.titleText}>
+          <span className={styles.symbol}>{symbol}</span>
+          <span className={styles.namePlaceholder} aria-hidden="true">
+            <Skeleton height="100%" />
+          </span>
+          <span className={styles.srOnly}>Loading company details</span>
+        </span>
+      }
+      badges={
+        <span className={styles.badgesPlaceholder} aria-hidden="true">
+          <Skeleton height="100%" radius="control" />
+        </span>
+      }
+      aside={
+        <span className={styles.quotePlaceholder} aria-hidden="true">
+          <span className={styles.pricePlaceholder}>
+            <Skeleton height="100%" />
+          </span>
+          <span className={styles.asOfPlaceholder}>
+            <Skeleton height="100%" />
+          </span>
+        </span>
       }
     />
   );

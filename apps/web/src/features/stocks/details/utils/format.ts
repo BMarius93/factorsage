@@ -127,6 +127,15 @@ function formatReading(value: number, minimumFractionDigits: 0 | 1): string {
   }).format(reading);
 }
 
+/**
+ * An oscillator reading — RSI — the one way the product prints one: unitless, one decimal, never a
+ * price, a percentage or a multiple. `58.43` → `"58.4"`. The chart's axis, crosshair and legend and
+ * the Technicals card all read it through here.
+ */
+export function formatOscillator(value: number): string {
+  return value.toFixed(1);
+}
+
 /** Large counts such as share volume: `41_237_500` → `"41.2M"`. */
 export function formatCompactNumber(value: number): string {
   return numberFormat("compact", {
