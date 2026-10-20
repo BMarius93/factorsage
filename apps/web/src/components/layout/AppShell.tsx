@@ -31,7 +31,9 @@ export function AppShell({ children, topbarActions }: AppShellProps) {
         Skip to content
       </a>
       <AppTopbar actions={topbarActions} />
-      <main id="main-content" className={styles.main}>
+      {/* Focusable by script only: the skip link's target, and where a dialog returns focus when
+          the control that opened it no longer exists. */}
+      <main id="main-content" className={styles.main} tabIndex={-1}>
         {children}
       </main>
       <SiteFooter />

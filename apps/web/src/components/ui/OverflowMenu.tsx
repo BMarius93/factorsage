@@ -156,6 +156,9 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
                 {...(item.testId ? { "data-testid": item.testId } : {})}
                 onClick={() => {
                   setOpen(false);
+                  // The item disappears with the menu. Focus moves to the trigger first, so a dialog
+                  // the action opens returns focus there when it closes (GL-2).
+                  triggerRef.current?.focus();
                   item.onSelect();
                 }}
               >

@@ -15,6 +15,12 @@
   min-width: 0;
 }
 
+/* The main region is focused by script only (the skip link, a dialog returning focus); it is a
+   landmark, not a control, so it draws no ring. */
+.main:focus {
+  outline: none;
+}
+
 .skipLink {
   position: absolute;
   left: -9999px;
@@ -40,4 +46,5 @@
   .shell {
     padding-bottom: 0;
   }
+
 }
