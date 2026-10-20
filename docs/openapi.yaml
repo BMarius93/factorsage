@@ -1774,8 +1774,9 @@ paths:
         Readable without a session, and identical for a Guest and a signed-in caller: a fund closed
         where it closed. Exactly twenty exchange-traded funds in three ordered groups — Benchmarks
         (5), Sector Performance (11), Macro & Alternatives (4) — each with six trailing price
-        returns and a one-year trend line. The provider symbol and the storage behind each fund
-        never cross this contract; `ticker` is a display field.
+        returns and, for each of the same six periods, a short trend line over exactly the window
+        that period's return measures. The provider symbol and the storage behind each fund never
+        cross this contract; `ticker` is a display field.
 
         Every number is derived from **end-of-day closes** — `basis` says so explicitly — and nothing
         here is intraday: a session counts only once its close has been published. `returnBasis:
@@ -5149,18 +5150,64 @@ components:
     MarketOverviewSparkline:
       type: object
       description: |
-        The trailing year, downsampled to about one point a week. `values` are closes rebased to 100
-        at the first point, oldest first, so the line carries a shape and never a price; with a full
-        year of history the first point is the `1Y` baseline and the last is the latest session.
+        One period's trend line: the fund's stored end-of-day closes from the period's anchor
+        session — the session its return is measured from — through its `sessionDate`, rebased to
+        100 at the first point, oldest first, so the line carries a shape and never a price. Its
+        first-to-last change is the period's return. Every point is a real session's close in
+        session order; nothing is interpolated. A window of at most 48 sessions (a week, a month)
+        is sent whole; a longer one is thinned deterministically to 48 sessions, keeping both
+        endpoints.
       required: [startDate, endDate, values]
       properties:
-        startDate: { type: string, format: date }
-        endDate: { type: string, format: date }
-        values: { type: array, items: { type: number } }
+        startDate:
+          {
+            type: string,
+            format: date,
+            description: The period's anchor session.,
+          }
+        endDate:
+          { type: string, format: date, description: The fund's sessionDate. }
+        values:
+          type: array
+          minItems: 2
+          maxItems: 48
+          items: { type: number }
+
+    MarketOverviewSparklines:
+      type: object
+      description: |
+        One trend line per period. `null` wherever the period's return is `null`, and where the
+        stored coverage has a gap inside the period's window.
+      required: ["1W", "1M", "3M", "6M", "YTD", "1Y"]
+      properties:
+        "1W":
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
+        "1M":
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
+        "3M":
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
+        "6M":
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
+        YTD:
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
+        "1Y":
+          oneOf:
+            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
+            - { type: "null" }
 
     MarketOverviewInstrument:
       type: object
-      required: [ticker, name, status, returns, sparkline]
+      required: [ticker, name, status, returns, sparklines]
       properties:
         ticker:
           {
@@ -5193,10 +5240,7 @@ components:
             description: The latest completed session the returns are measured to.,
           }
         returns: { $ref: "#/components/schemas/MarketOverviewReturns" }
-        sparkline:
-          oneOf:
-            - { $ref: "#/components/schemas/MarketOverviewSparkline" }
-            - { type: "null" }
+        sparklines: { $ref: "#/components/schemas/MarketOverviewSparklines" }
 
     MarketOverviewGroup:
       type: object

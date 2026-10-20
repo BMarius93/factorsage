@@ -106,20 +106,45 @@ export type MarketOverviewStatus = (typeof MARKET_OVERVIEW_STATUSES)[number];
 export type MarketOverviewReturns = Record<MarketOverviewPeriod, number | null>;
 
 /**
- * The trailing-year trend line, downsampled on the server to about one point a week.
+ * One period's trend line: the instrument's actual end-of-day closes over exactly the window its
+ * return for that period measures.
  *
- * `values` are closes **rebased to 100** at the first point, oldest first, so the line carries the
- * shape of the year and never a price that could be mistaken for an index level. The last point is
- * the latest completed session; with a full year of history the first is the `1Y` baseline, so the
- * line ends at `100 × (1 + returns["1Y"] / 100)`.
+ * The first point is the period's **anchor session** — the same session the return is measured
+ * from — and the last is the instrument's `sessionDate`, so the line's first-to-last change is the
+ * period's return and its direction can never contradict it. `values` are those closes **rebased to
+ * 100** at the first point, oldest first, so the line carries a shape and never a price that could
+ * be mistaken for an index level.
+ *
+ * Every point is a stored session's close, in session order: nothing is interpolated, and a day the
+ * market did not trade has no point. A window of at most
+ * {@link MARKET_OVERVIEW_SPARKLINE_MAX_POINTS} sessions is sent whole — every daily close of a week
+ * or a month — and a longer one is thinned deterministically to that many sessions, keeping both
+ * endpoints and the turns that shape the line.
  */
 export type MarketOverviewSparkline = {
-  /** The session of the first point. */
+  /** The session of the first point: the period's anchor session. */
   startDate: string;
   /** The session of the last point: the instrument's `sessionDate`. */
   endDate: string;
   values: number[];
 };
+
+/**
+ * The most points one period's trend line carries. A week or a month of daily closes always fits
+ * whole; three months and longer are thinned to this many real sessions. Sized for a sparkline a
+ * few dozen pixels wide — more points than pixels would add bytes, not detail.
+ */
+export const MARKET_OVERVIEW_SPARKLINE_MAX_POINTS = 48;
+
+/**
+ * One trend line per period, keyed like {@link MarketOverviewReturns}. A period whose return is
+ * `null` has no line either, and neither does one whose window has a gap in the stored coverage:
+ * a line that silently skipped missing sessions would draw a shape the market never made.
+ */
+export type MarketOverviewSparklines = Record<
+  MarketOverviewPeriod,
+  MarketOverviewSparkline | null
+>;
 
 export type MarketOverviewInstrumentResponse = {
   /** The exchange ticker the product displays. A display field, not a provider identifier. */
@@ -135,8 +160,11 @@ export type MarketOverviewInstrumentResponse = {
   /** The latest completed session the returns are measured to. Absent when `UNAVAILABLE`. */
   sessionDate?: string;
   returns: MarketOverviewReturns;
-  /** Null when fewer than two sessions are available to draw. */
-  sparkline: MarketOverviewSparkline | null;
+  /**
+   * Each period's trend line over the same window as its return, so a surface that shows one
+   * period at a time switches the return and the line together without another request.
+   */
+  sparklines: MarketOverviewSparklines;
 };
 
 export type MarketOverviewGroupResponse = {

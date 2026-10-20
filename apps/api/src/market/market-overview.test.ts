@@ -1,11 +1,16 @@
-import { MARKET_OVERVIEW_PERIODS } from "@intrinsic/contracts";
+import {
+  MARKET_OVERVIEW_PERIODS,
+  MARKET_OVERVIEW_SPARKLINE_MAX_POINTS,
+} from "@intrinsic/contracts";
 import { tradingSessionCloseInstant } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import {
+  buildPeriodSparkline,
   classifyInstruments,
   computeInstrumentPerformance,
   marketOverviewReadRange,
   periodAnchorDate,
+  thinSessions,
   unavailableInstrument,
   type OverviewBar,
 } from "./market-overview";
@@ -313,67 +318,168 @@ describe("computeInstrumentPerformance", () => {
       null,
       null,
     ]);
-    expect(result.sparkline).toBeNull();
+    expect(Object.values(result.sparklines)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
   });
 });
 
-describe("the 1Y sparkline", () => {
-  it("draws 53 weekly points from the 1Y baseline to the latest session", () => {
-    const bars = weekdays(
-      "2025-01-02",
-      "2026-10-09",
-      (index) => 50 + index * 0.25,
+describe("the period sparklines", () => {
+  const year = weekdays(
+    "2025-01-02",
+    "2026-10-09",
+    (index) => 100 + 10 * Math.sin(index / 9) + index * 0.05,
+  );
+
+  it("draws each period over exactly the window its return measures", () => {
+    const result = perform(year);
+
+    for (const period of MARKET_OVERVIEW_PERIODS) {
+      const line = result.sparklines[period];
+      const anchor = result.anchors[period] as string;
+      expect(line?.startDate, period).toBe(anchor);
+      expect(line?.endDate, period).toBe("2026-10-09");
+      expect(line?.values[0], period).toBe(100);
+      // The line's first-to-last change is the period's return, to the rebased line's precision,
+      // so its direction can never contradict the number beside it.
+      expect(line?.values.at(-1), period).toBeCloseTo(
+        100 + (result.returns[period] as number),
+        1,
+      );
+    }
+  });
+
+  it("gives a week and a month every daily close, not a weekly sample", () => {
+    const result = perform(year);
+    const sessionsFrom = (date: string) =>
+      year.filter((bar) => bar.date >= date && bar.date <= "2026-10-09");
+
+    // 2 Oct – 9 Oct: the anchor session and the five that follow it.
+    expect(result.sparklines["1W"]?.values).toEqual(
+      sessionsFrom("2026-10-02").map(
+        (bar) =>
+          Math.round((bar.close / closeOn(year, "2026-10-02")) * 10_000) / 100,
+      ),
     );
-    const result = perform(bars);
-    const sparkline = result.sparkline;
-
-    expect(sparkline?.values).toHaveLength(53);
-    expect(sparkline?.startDate).toBe(result.anchors["1Y"]);
-    expect(sparkline?.endDate).toBe("2026-10-09");
-    expect(sparkline?.values[0]).toBe(100);
-    // The line's first-to-last change is the 1Y return, to the rebased line's precision.
-    expect(sparkline?.values.at(-1)).toBeCloseTo(
-      100 + (result.returns["1Y"] as number),
-      1,
+    expect(result.sparklines["1W"]?.values).toHaveLength(6);
+    // 9 Sep – 9 Oct: twenty-three sessions, every one of them.
+    expect(result.sparklines["1M"]?.values).toHaveLength(
+      sessionsFrom("2026-09-09").length,
     );
+    expect(result.sparklines["1M"]?.values).toHaveLength(23);
   });
 
-  it("keeps real sessions in their real order", () => {
-    const bars = weekdays(
-      "2025-01-02",
-      "2026-10-09",
-      (index) => 100 + 10 * Math.sin(index / 9),
+  it("thins three months and longer to the bound, and the six lines differ", () => {
+    const result = perform(year);
+    for (const period of ["3M", "6M", "YTD", "1Y"] as const) {
+      expect(result.sparklines[period]?.values.length, period).toBe(
+        MARKET_OVERVIEW_SPARKLINE_MAX_POINTS,
+      );
+    }
+    const distinct = new Set(
+      MARKET_OVERVIEW_PERIODS.map((period) =>
+        JSON.stringify(result.sparklines[period]),
+      ),
     );
-    const sparkline = perform(bars).sparkline;
-    expect(sparkline).not.toBeNull();
-    // Rising monotonically through a sine would be a resampling bug; the shape survives.
-    const values = sparkline?.values ?? [];
-    expect(Math.max(...values)).toBeGreaterThan(values[0] as number);
-    expect(Math.min(...values)).toBeLessThan(values[0] as number);
+    expect(distinct.size).toBe(6);
   });
 
-  it("starts at the first session when the history is shorter than a year", () => {
-    const bars = weekdays("2026-06-01", "2026-10-09");
-    const sparkline = perform(bars).sparkline;
-
-    expect(sparkline?.startDate).toBe("2026-06-01");
-    expect(sparkline?.values.length).toBeGreaterThan(15);
-    expect(sparkline?.values.length).toBeLessThan(53);
+  it("anchors YTD on the last session of the previous year", () => {
+    const result = perform(year);
+    expect(result.sparklines.YTD?.startDate).toBe("2025-12-31");
   });
 
-  it("draws nothing from a single session", () => {
-    expect(perform([{ date: "2026-10-09", close: 10 }]).sparkline).toBeNull();
+  it("draws nothing for a period whose return is unavailable", () => {
+    const result = perform(weekdays("2026-06-01", "2026-10-09"));
+
+    expect(result.returns["3M"]).not.toBeNull();
+    expect(result.sparklines["3M"]).not.toBeNull();
+    for (const period of ["6M", "YTD", "1Y"] as const) {
+      expect(result.returns[period], period).toBeNull();
+      // Never a shorter history presented as the longer period.
+      expect(result.sparklines[period], period).toBeNull();
+    }
   });
 
-  it("stays small: twenty lines fit in a few kilobytes", () => {
+  it("draws nothing across a gap in the stored coverage, and never fills it", () => {
+    // 21–25 Sep was never stored: the month's return is sound (both ends are), its line is not.
+    const holed = year.filter(
+      (bar) => bar.date < "2026-09-21" || bar.date > "2026-09-25",
+    );
+    const result = perform(holed, {
+      missing: [{ from: "2026-09-21", to: "2026-09-25" }],
+    });
+
+    expect(result.returns["1W"]).not.toBeNull();
+    expect(result.sparklines["1W"]).not.toBeNull();
+    expect(result.returns["1M"]).not.toBeNull();
+    expect(result.sparklines["1M"]).toBeNull();
+    expect(result.sparklines["1Y"]).toBeNull();
+  });
+
+  it("skips a holiday rather than inventing a close for it", () => {
+    const bars = weekdays("2026-08-03", "2026-10-09", (index) => 100 + index, [
+      "2026-10-07",
+    ]);
+    const line = perform(bars).sparklines["1W"];
+
+    // 2, 5, 6, 8, 9 Oct: five sessions, the holiday is simply not a point.
+    expect(line?.values).toHaveLength(5);
+  });
+
+  it("only selects stored closes, in session order, when it thins", () => {
+    const window = year.slice(-130);
+    const thinned = thinSessions(window, 48);
+
+    expect(thinned).toHaveLength(48);
+    expect(thinned[0]).toBe(window[0]);
+    expect(thinned.at(-1)).toBe(window.at(-1));
+    let previous = -1;
+    for (const point of thinned) {
+      const index = window.indexOf(point);
+      expect(index).toBeGreaterThan(previous);
+      previous = index;
+    }
+    // Deterministic: the same sessions always give the same line.
+    expect(thinSessions(window, 48)).toEqual(thinned);
+  });
+
+  it("keeps the extremes a fixed stride would step over", () => {
+    // A flat series with one spike that a stride of three would skip.
+    const window = weekdays("2026-01-02", "2026-10-09", (index) =>
+      index === 100 ? 140 : 100,
+    );
+    const thinned = thinSessions(window, 48);
+
+    expect(Math.max(...thinned.map((bar) => bar.close))).toBe(140);
+  });
+
+  it("returns a short window whole", () => {
+    const window = year.slice(-10);
+    expect(thinSessions(window, 48)).toEqual(window);
+  });
+
+  it("draws nothing from a single session or an anchor that is not a session", () => {
+    expect(
+      Object.values(perform([{ date: "2026-10-09", close: 10 }]).sparklines),
+    ).toEqual([null, null, null, null, null, null]);
+    expect(buildPeriodSparkline(year, "2026-10-03", [])).toBeNull();
+  });
+
+  it("stays small: six lines for twenty funds fit the payload budget", () => {
     const bars = weekdays(
       "2025-01-02",
       "2026-10-09",
       (index) => 412.37 + index * 0.731,
     );
-    const sparkline = perform(bars).sparkline;
+    const sparklines = perform(bars).sparklines;
 
-    expect(JSON.stringify(sparkline).length * 20).toBeLessThan(12_000);
+    expect(JSON.stringify(sparklines).length * 20).toBeLessThan(40_000);
   });
 });
 
@@ -424,7 +530,14 @@ describe("unavailableInstrument", () => {
         YTD: null,
         "1Y": null,
       },
-      sparkline: null,
+      sparklines: {
+        "1W": null,
+        "1M": null,
+        "3M": null,
+        "6M": null,
+        YTD: null,
+        "1Y": null,
+      },
     });
   });
 });

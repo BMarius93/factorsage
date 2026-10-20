@@ -192,8 +192,10 @@ describe("market overview", () => {
         expect(typeof value).toBe("number");
         expect(Number.isFinite(value)).toBe(true);
       }
-      expect(instrument.sparkline?.values.length).toBeGreaterThanOrEqual(52);
-      expect(instrument.sparkline?.endDate).toBe(body.asOf);
+      for (const line of Object.values(instrument.sparklines)) {
+        expect(line?.values.length).toBeGreaterThanOrEqual(2);
+        expect(line?.endDate).toBe(body.asOf);
+      }
     }
   });
 
@@ -213,8 +215,19 @@ describe("market overview", () => {
     const latest = closeOnOrBefore(asOf);
 
     for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const) {
-      const anchor = closeOnOrBefore(periodAnchorDate(period, asOf));
+      const anchorDate = periodAnchorDate(period, asOf);
+      const anchor = closeOnOrBefore(anchorDate);
       expect(xlk?.returns[period]).toBeCloseTo((latest / anchor - 1) * 100, 10);
+      // The period's line spans the same two stored sessions: it starts at the anchor session,
+      // ends at the latest one, and its first-to-last change is the return.
+      const line = xlk?.sparklines[period];
+      const anchorSession = [...rows]
+        .reverse()
+        .find((row) => row.date <= anchorDate);
+      expect(line?.startDate).toBe(anchorSession?.date);
+      expect(line?.endDate).toBe(asOf);
+      expect(line?.values[0]).toBe(100);
+      expect(line?.values.at(-1)).toBeCloseTo((latest / anchor) * 100, 1);
     }
     // The fixture pins XLK rising and XLE falling over every period.
     expect(
