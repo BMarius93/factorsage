@@ -383,6 +383,7 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
     CONSERVATIVE: "Conservative",
     DIVIDEND: "Dividend",
   };
+  const SUMMARY_AVERAGES = new Set(["ema50d", "ema200d"]);
   const MA_LABELS: Record<string, string> = {
     sma20d: "SMA 20D",
     sma50d: "SMA 50D",
@@ -406,6 +407,10 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
       page.getByRole("heading", { level: 1, name: new RegExp(stock.symbol) }),
     ).toBeVisible({ timeout: 60_000 });
     await expect(page.locator('p[class*="price"]').first()).toBeVisible({
+      timeout: 60_000,
+    });
+    // The cards render from the summary, independently of the chart: wait for them as well.
+    await expect(page.getByTestId("stock-research")).toBeVisible({
       timeout: 60_000,
     });
     if (!stock.latest) {
@@ -498,7 +503,9 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
     }
     const technicals = await text(page, '[aria-labelledby="technicals-title"]');
     for (const [column, value] of Object.entries(stock.movingAverages)) {
-      if (value === null) {
+      // The compact Technicals card states EMA 50D and EMA 200D (with RSI 14D) and no other
+      // average; every other one stays a chart overlay, read by the chart's own checks.
+      if (value === null || !SUMMARY_AVERAGES.has(column)) {
         continue;
       }
       contains(

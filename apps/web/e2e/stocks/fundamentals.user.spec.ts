@@ -90,8 +90,14 @@ function panel(page: Page): Locator {
   return page.getByTestId("indicators-panel");
 }
 
-function fundamentalSelect(page: Page): Locator {
-  return panel(page).getByRole("combobox", { name: "Fundamental metric" });
+/** The one Fundamentals radio group: None and every metric, under the catalog's category headings. */
+function fundamentalSection(page: Page): Locator {
+  return panel(page).getByTestId("fundamentals-section");
+}
+
+/** The radio for one metric identity, or None for an empty one. */
+function fundamentalRadio(page: Page, id: string): Locator {
+  return fundamentalSection(page).locator(`input[type="radio"][value="${id}"]`);
 }
 
 async function openStock(
@@ -127,7 +133,7 @@ async function chooseFundamental(
   id: FundamentalMetricId,
 ): Promise<void> {
   await openIndicators(page);
-  await fundamentalSelect(page).selectOption(id);
+  await fundamentalRadio(page, id).check();
   await expect(chartWrapper(page)).toHaveAttribute("data-fundamental", id);
   await expect(chartWrapper(page)).toHaveAttribute(
     "data-fundamental-unit",
@@ -316,16 +322,22 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     await openIndicators(page);
 
     // One Fundamentals section after the overlay groups, every catalog metric in it exactly once.
-    const legends = panel(page).locator("legend");
+    const legends = panel(page).locator(":scope > div > fieldset > legend");
     await expect(
       legends.filter({ hasText: FUNDAMENTAL_METRICS_LABEL }),
     ).toHaveCount(1);
     await expect(legends.last()).toHaveText(FUNDAMENTAL_METRICS_LABEL);
-    const options = fundamentalSelect(page).locator("option");
+    const options = fundamentalSection(page).getByRole("radio");
     await expect(options).toHaveCount(FUNDAMENTAL_METRIC_CATALOG.length + 1);
-    await expect(options.first()).toHaveText("None");
+    await expect(fundamentalSection(page).locator("label").first()).toHaveText(
+      "None",
+    );
+    await expect(fundamentalRadio(page, "")).toBeChecked();
     await expect(
-      fundamentalSelect(page).locator("option", { hasText: /^ROIC TTM$/ }),
+      fundamentalSection(page).getByRole("radio", {
+        name: "ROIC TTM",
+        exact: true,
+      }),
     ).toHaveCount(1);
     // Nothing is asked for before a metric is chosen.
     expect(requests).toEqual([]);
@@ -473,8 +485,8 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
       },
     );
     await openIndicators(page);
-    await fundamentalSelect(page).selectOption("ROIC_TTM");
-    await fundamentalSelect(page).selectOption("DEBT_TO_EQUITY");
+    await fundamentalRadio(page, "ROIC_TTM").check();
+    await fundamentalRadio(page, "DEBT_TO_EQUITY").check();
     await expect(chartWrapper(page)).toHaveAttribute(
       "data-fundamental",
       "DEBT_TO_EQUITY",
@@ -491,7 +503,7 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     await page.unrouteAll({ behavior: "ignoreErrors" });
 
     // None removes the pane and restores the chart without it.
-    await fundamentalSelect(page).selectOption("");
+    await fundamentalRadio(page, "").check();
     await expect(chartWrapper(page)).not.toHaveAttribute("data-fundamental");
     await expect.poll(() => chartCanvasCount(page)).toBe(baseline);
 
@@ -642,12 +654,12 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     await openStock(page, MOBILE);
     await openIndicators(page);
 
-    // The popover and its select stay inside the screen.
+    // The popover and its radio group stay inside the screen.
     const panelBox = await panel(page).boundingBox();
     expect(panelBox!.x).toBeGreaterThanOrEqual(0);
     expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(MOBILE.width);
-    await fundamentalSelect(page).scrollIntoViewIfNeeded();
-    const selectBox = await fundamentalSelect(page).boundingBox();
+    await fundamentalSection(page).scrollIntoViewIfNeeded();
+    const selectBox = await fundamentalSection(page).boundingBox();
     expect(selectBox!.x + selectBox!.width).toBeLessThanOrEqual(MOBILE.width);
 
     await chooseFundamental(page, "NET_DEBT_TO_EBITDA_TTM");
@@ -722,7 +734,7 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     );
 
     // RSI first: the fundamental's pane is appended below it, already in order.
-    await fundamentalSelect(page).selectOption("");
+    await fundamentalRadio(page, "").check();
     await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
     await rsi.check();
     await expect(wrapper).toHaveAttribute(
@@ -749,7 +761,7 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     // not rendered yet.
     await openIndicators(page);
     await rsi.uncheck();
-    await fundamentalSelect(page).selectOption("");
+    await fundamentalRadio(page, "").check();
     await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
     await page.evaluate(
       () =>
@@ -761,14 +773,14 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     );
     const fundamentalRequests = watchFundamentalRequests(page);
     const orderBetween = await page.evaluate(async () => {
-      const select = document.querySelector<HTMLSelectElement>(
-        '[data-testid="fundamental-select"]',
+      const radio = document.querySelector<HTMLInputElement>(
+        '[data-testid="fundamentals-section"] input[type="radio"][value="NET_DEBT_TO_EBITDA_TTM"]',
       )!;
       const chartWrapper = document.querySelector<HTMLElement>(
         '[role="img"][aria-label*="daily closing price chart"]',
       )!.parentElement!;
-      select.value = "NET_DEBT_TO_EBITDA_TTM";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      // A click is a discrete event: the radio is checked and React's change fires in this task.
+      radio.click();
       // Microtasks only — no timer, so no frame can be rendered in between. React commits a
       // discrete update, effects included, in a microtask; wait for the fundamental's pane to be
       // in the chart's model, and fail loudly rather than test something else if it is not.
@@ -848,7 +860,7 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
         await route.continue();
       },
     );
-    await fundamentalSelect(page).selectOption("ROIC_TTM");
+    await fundamentalRadio(page, "ROIC_TTM").check();
     await expect(page.getByTestId("fundamental-status")).toHaveText(
       "Loading ROIC TTM…",
     );
@@ -902,7 +914,7 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
       },
     );
     await openIndicators(page);
-    await fundamentalSelect(page).selectOption("ROIC_TTM");
+    await fundamentalRadio(page, "ROIC_TTM").check();
     await expect(page.getByTestId("fundamental-status")).toHaveText(
       "Loading ROIC TTM…",
     );
@@ -948,6 +960,6 @@ test.describe("PRO_USER Stock Details fundamental metrics", () => {
     await expect(priceChart(page)).toBeVisible();
     await expect(chartWrapper(page)).not.toHaveAttribute("data-fundamental");
     await openIndicators(page);
-    await expect(fundamentalSelect(page)).toHaveValue("");
+    await expect(fundamentalRadio(page, "")).toBeChecked();
   });
 });
