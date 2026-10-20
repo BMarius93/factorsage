@@ -186,8 +186,23 @@ export function useSecurityCombobox({
       }
       close();
     };
+    // Focus leaving the whole search closes it too, wherever inside it focus was — the field, or a
+    // control beside it such as the compact layout's Cancel. The field's own blur below covers the
+    // common case; this covers the rest, so an open list never sits over the next control (GL-4).
+    const container = containerRef.current;
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && container?.contains(next)) {
+        return;
+      }
+      close();
+    };
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    container?.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      container?.removeEventListener("focusout", onFocusOut);
+    };
   }, [close, open]);
 
   const statusMessage = (() => {
