@@ -387,7 +387,8 @@ describe("backtests", () => {
     const benchmarks = response.body as BenchmarkResponse[];
     const sp500 = benchmarks.find((row) => row.code === DEFAULT_BENCHMARK_CODE);
     expect(sp500).toBeDefined();
-    expect(sp500?.name).toBe("S&P 500");
+    // Named for the series it is — the SPY ETF — not for the index it tracks (BT-1).
+    expect(sp500?.name).toBe("SPY");
     expect(sp500?.currency).toBe("USD");
     // Which series backs the code is a server-side sourcing decision: the browser gets the
     // contract's fields and nothing else. (The catalog *description* explains the sourcing in
@@ -562,7 +563,7 @@ describe("backtests", () => {
       seriesId: expect.any(String),
       seriesVersion: expect.any(Number),
       code: "SP500",
-      name: "S&P 500",
+      name: "SPY",
       sourceKind: "FMP_SYMBOL",
       providerSymbol: "SPY",
       methodologyVersion: 1,
@@ -620,7 +621,7 @@ describe("backtests", () => {
       benchmark: {
         benchmarkId: expect.any(String),
         code: "SP500",
-        name: "S&P 500",
+        name: "SPY",
         sourceKind: "FMP_SYMBOL",
         methodologyVersion: 1,
       },
@@ -636,6 +637,42 @@ describe("backtests", () => {
     expect(run.live).toBeNull();
     expect(run.result).toBeNull();
     expect(run.failure).toBeNull();
+  });
+
+  it("shows a run frozen under the benchmark's old name with the catalog's name for the same series, without rewriting it (BT-1)", async () => {
+    const run = await submit();
+    const stored = await prisma.backtestRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: { snapshot: true },
+    });
+    const snapshot = stored.snapshot as unknown as Record<string, unknown> & {
+      benchmark: Record<string, unknown>;
+    };
+    // What every run submitted before BT-1 froze: the same SPY series, under its old name.
+    const legacy = {
+      ...snapshot,
+      benchmark: { ...snapshot.benchmark, name: "S&P 500" },
+    };
+    await prisma.backtestRun.update({
+      where: { id: run.id },
+      data: { snapshot: legacy as never },
+    });
+
+    const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+      .body as BacktestRunDetailResponse;
+    expect(detail.configuration.benchmark.name).toBe("SPY");
+    const rows = (await owner.get("/backtests").expect(200)).body as {
+      id: string;
+      benchmarkName: string;
+    }[];
+    expect(rows.find((row) => row.id === run.id)?.benchmarkName).toBe("SPY");
+
+    // The snapshot is the reproducibility authority and is never rewritten by a read.
+    const after = await prisma.backtestRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: { snapshot: true },
+    });
+    expect(after.snapshot).toEqual(legacy);
   });
 
   it("creates exactly one queued job together with the run", async () => {
@@ -1133,7 +1170,7 @@ describe("backtests", () => {
       stockListId,
       stockListName: "Core universe",
       benchmarkCode: "SP500",
-      benchmarkName: "S&P 500",
+      benchmarkName: "SPY",
       startDate: "2020-01-01",
       endDate: "2020-12-31",
       initialCapital: 100_000,
@@ -2033,7 +2070,7 @@ describe("backtests", () => {
       expect(calendar.seriesType).toBe("ETF_PROXY");
     });
 
-    it("offers exactly S&P 500 in the selectable catalog", async () => {
+    it("offers exactly SP500 — the SPY series — in the selectable catalog", async () => {
       const listed = (await owner.get("/benchmarks").expect(200))
         .body as { code: string }[];
 

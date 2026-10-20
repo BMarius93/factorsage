@@ -144,9 +144,12 @@ export type BenchmarkCatalogEntry = Omit<Benchmark, "id"> &
 export const BENCHMARK_CATALOG: readonly BenchmarkCatalogEntry[] = [
   {
     code: "SP500",
-    name: "S&P 500",
+    // Named for what the series is — the SPY ETF's share price — rather than for the index it
+    // tracks (BT-1). The code stays `SP500`: completed runs and the execution calendar pinned it,
+    // and `SP500_INDEX` below is the index itself.
+    name: "SPY",
     description:
-      "Large-cap US equity benchmark. Currently sourced from the SPY ETF, which tracks the S&P 500.",
+      "Large-cap US equity benchmark: the SPY ETF (SPDR S&P 500 ETF Trust), which tracks the S&P 500 index but is not the index.",
     sourceKind: "FMP_SYMBOL",
     seriesType: "ETF_PROXY",
     providerSymbol: "SPY",
@@ -504,6 +507,32 @@ export type MarketReferenceCode =
  * hydration serves both roles. The separation is in the code and in the snapshot, not in the bytes.
  */
 export const EXECUTION_CALENDAR_REFERENCE_CODE = "SP500";
+
+/**
+ * The name a run's frozen benchmark is shown with (BT-1).
+ *
+ * A run snapshots its benchmark's name with the rest of its configuration, and the snapshot stays
+ * the reproducibility authority: nothing here rewrites it. The *name* is product wording, though,
+ * not part of what the series means — that is the source and the methodology version, which a
+ * changed definition always raises. So while the catalog still describes exactly the series the run
+ * executed against (same code, same source kind, same methodology version), the run is shown with
+ * the catalog's current name: runs submitted when `SP500` was called "S&P 500" read "SPY" like new
+ * ones, because they compared against the same SPY share price. A benchmark the catalog has since
+ * redefined, or no longer has, keeps the name the run froze.
+ */
+export function benchmarkDisplayName(benchmark: {
+  readonly code: string;
+  readonly name: string;
+  readonly sourceKind: string;
+  readonly methodologyVersion: number;
+}): string {
+  const entry = findBenchmarkCatalogEntry(benchmark.code);
+  return entry !== undefined &&
+    entry.sourceKind === benchmark.sourceKind &&
+    entry.methodologyVersion === benchmark.methodologyVersion
+    ? entry.name
+    : benchmark.name;
+}
 
 export function findBenchmarkCatalogEntry(
   code: string,

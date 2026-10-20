@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   backtestSelectableBenchmarks,
   BENCHMARK_CATALOG,
+  benchmarkDisplayName,
   DEFAULT_BENCHMARK_CODE,
   EXECUTION_CALENDAR_REFERENCE_CODE,
   findBenchmarkCatalogEntry,
@@ -21,7 +22,7 @@ describe("benchmark catalog", () => {
     // able to buy what it is compared against, and completed runs pinned this meaning.
     expect(sp500).toMatchObject({
       code: "SP500",
-      name: "S&P 500",
+      name: "SPY",
       sourceKind: "FMP_SYMBOL",
       seriesType: "ETF_PROXY",
       providerSymbol: "SPY",
@@ -30,6 +31,35 @@ describe("benchmark catalog", () => {
       isActive: true,
       isBacktestSelectable: true,
     });
+  });
+
+  it("shows a run's frozen benchmark under the catalog's name only while the series is unchanged (BT-1)", () => {
+    // A run submitted when SP500 was called "S&P 500" compared against the same SPY series.
+    expect(
+      benchmarkDisplayName({
+        code: "SP500",
+        name: "S&P 500",
+        sourceKind: "FMP_SYMBOL",
+        methodologyVersion: 1,
+      }),
+    ).toBe("SPY");
+    // A redefined series, or one the catalog no longer has, keeps what the run froze.
+    expect(
+      benchmarkDisplayName({
+        code: "SP500",
+        name: "S&P 500",
+        sourceKind: "FMP_SYMBOL",
+        methodologyVersion: 2,
+      }),
+    ).toBe("S&P 500");
+    expect(
+      benchmarkDisplayName({
+        code: "RETIRED",
+        name: "Alternate Live Benchmark",
+        sourceKind: "FMP_SYMBOL",
+        methodologyVersion: 1,
+      }),
+    ).toBe("Alternate Live Benchmark");
   });
 
   it("still defaults submissions and the execution calendar to SP500", () => {

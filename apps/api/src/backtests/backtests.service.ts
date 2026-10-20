@@ -66,6 +66,7 @@ import {
   type Prisma,
 } from "@intrinsic/database";
 import {
+  benchmarkDisplayName,
   DEFAULT_BENCHMARK_CODE,
   normalizeBuyWindowConfiguration,
   peakSimultaneousMembers,
@@ -503,7 +504,8 @@ function configurationOf(
     benchmark: {
       benchmarkId: snapshot.benchmark.benchmarkId,
       code: snapshot.benchmark.code,
-      name: snapshot.benchmark.name,
+      // The catalog's current words for the same series (BT-1); the snapshot itself is untouched.
+      name: benchmarkDisplayName(snapshot.benchmark),
       sourceKind: snapshot.benchmark.sourceKind,
       methodologyVersion: snapshot.benchmark.methodologyVersion,
     },
@@ -523,7 +525,7 @@ function summaryRowOf(row: RunListRow): BacktestRunSummaryResponse {
     stockListId: row.stockListId,
     stockListName: snapshot.stockList.name,
     benchmarkCode: snapshot.benchmark.code,
-    benchmarkName: snapshot.benchmark.name,
+    benchmarkName: benchmarkDisplayName(snapshot.benchmark),
     startDate: snapshot.period.startDate,
     endDate: snapshot.period.endDate,
     initialCapital: snapshot.capital.initialCapital,

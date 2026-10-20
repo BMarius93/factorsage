@@ -75,15 +75,16 @@ test.describe("PRO_USER dashboard", () => {
     await expect(page.getByTestId("sign-in-prompt")).toHaveCount(0);
   });
 
-  test("offers exactly the S&P 500 benchmark and nothing else", async ({
+  test("offers exactly the SPY benchmark and nothing else", async ({
     page,
   }) => {
     // The API first: the catalog the picker is built from.
     const response = await page.request.get(`${apiBaseUrl()}/benchmarks`);
     expect(response.status()).toBe(200);
     const catalog = (await response.json()) as { code: string; name: string }[];
+    // Named for the series it is, the SPY ETF — not for the index it tracks (BT-1).
     expect(catalog.map(({ code, name }) => ({ code, name }))).toEqual([
-      { code: "SP500", name: "S&P 500" },
+      { code: "SP500", name: "SPY" },
     ]);
 
     await page.goto("/backtests/new");
@@ -100,10 +101,10 @@ test.describe("PRO_USER dashboard", () => {
       })),
     );
 
-    // Exactly the one product option beside the empty placeholder — not "contains S&P 500", which
+    // Exactly the one product option beside the empty placeholder — not "contains SPY", which
     // a leaked fixture or an internal index series would also satisfy.
     expect(options.filter((option) => option.value !== "")).toEqual([
-      { value: "SP500", label: "S&P 500" },
+      { value: "SP500", label: "SPY" },
     ]);
   });
 
