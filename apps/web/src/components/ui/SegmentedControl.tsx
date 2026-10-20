@@ -18,9 +18,15 @@ type SegmentedControlProps<TValue extends string> = {
   readonly testId?: string;
   /**
    * Share one row equally between the options instead of wrapping them. For a short, fixed set
-   * that must read as one control on a phone — the market overview's three categories.
+   * that must read as one control in a narrow space — Market watch's six periods.
    */
   readonly fill?: boolean;
+  /**
+   * The row-action height and a tighter gap, for a control that sits inside a dense surface rather
+   * than above a page's content — Market watch's period selector. Desktop-only surfaces only: it
+   * is below a comfortable touch target.
+   */
+  readonly compact?: boolean;
 };
 
 /**
@@ -38,11 +44,13 @@ export function SegmentedControl<TValue extends string>({
   onChange,
   testId,
   fill,
+  compact,
 }: SegmentedControlProps<TValue>) {
   return (
     <div
       className={styles.group}
       data-fill={fill ? "true" : undefined}
+      data-compact={compact ? "true" : undefined}
       role="group"
       aria-label={label}
       {...(testId ? { "data-testid": testId } : {})}
@@ -54,6 +62,7 @@ export function SegmentedControl<TValue extends string>({
           className={styles.option}
           data-active={value === option.value ? "true" : undefined}
           aria-pressed={value === option.value}
+          data-value={option.value}
           onClick={() => onChange(option.value)}
         >
           {option.label}

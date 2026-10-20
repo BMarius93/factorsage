@@ -220,6 +220,9 @@ export function DataTable<TRow>({
                   data-align={column.align ?? "left"}
                   data-card={column.cardRole ?? "fact"}
                   data-fold={column.foldIntermediate ? "true" : undefined}
+                  // The column's key, as every body cell carries it, so a feature that steps a
+                  // column out of its own layout hides the header with it.
+                  data-column={column.key}
                   {...(active
                     ? {
                         "aria-sort":

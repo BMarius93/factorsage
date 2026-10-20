@@ -22,6 +22,13 @@ type SectionCardProps = {
    * backtest result. Do not reach for it to make a section look important.
    */
   readonly hero?: boolean;
+  /**
+   * Makes the body its own scroll region, named with this label, for a surface whose height its
+   * parent bounds (the Dashboard's Market watch sidebar). The heading, aside and toolbar stay put
+   * while the body scrolls. The region takes a tab stop so a keyboard can scroll it, and the page
+   * takes over the wheel when it reaches either end, so it never traps either.
+   */
+  readonly scrollLabel?: string;
   readonly id?: string;
   readonly testId?: string;
   readonly ariaLabel?: string;
@@ -45,6 +52,7 @@ export function SectionCard({
   children,
   flush,
   hero,
+  scrollLabel,
   id,
   testId,
   ariaLabel,
@@ -74,7 +82,18 @@ export function SectionCard({
         </div>
       ) : null}
       {toolbar ? <div className={styles.toolbar}>{toolbar}</div> : null}
-      <div className={styles.body} data-flush={flush ? "true" : undefined}>
+      <div
+        className={styles.body}
+        data-flush={flush ? "true" : undefined}
+        {...(scrollLabel
+          ? {
+              "data-scroll": "true",
+              role: "region",
+              "aria-label": scrollLabel,
+              tabIndex: 0,
+            }
+          : {})}
+      >
         {children}
       </div>
     </section>

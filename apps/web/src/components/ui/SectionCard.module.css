@@ -97,6 +97,29 @@
   padding-top: 14px;
 }
 
+/* A body bounded by its parent scrolls on its own (`scrollLabel`). As a flex item with a scroll
+   container's zero minimum height it gives way to the heading above it, and the surface — itself a
+   scroll container through `overflow: hidden` — gives way to whatever bounds it. */
+.body[data-scroll="true"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* No padding above a scrolling body: content scrolling up must disappear at the region's edge,
+   not show through a gutter above a heading the body holds sticky. The body's content supplies its
+   own top space. */
+.head + .body[data-scroll="true"],
+.toolbar + .body[data-scroll="true"],
+.card > .body[data-scroll="true"] {
+  padding-top: 0;
+}
+
+.body[data-scroll="true"]:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-focus);
+}
+
 /* Below the table/card switch a flush surface dissolves: `DataTable` renders each record
    as its own bordered card there, and keeping the wrapper would draw a box around a stack
    of boxes. The heading stays — it is the section's name, not the card's. */
