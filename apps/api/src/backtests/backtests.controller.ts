@@ -1,3 +1,5 @@
+import type { ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 import type {
   AuthUser,
   BacktestProgressResponse,
@@ -10,6 +12,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Inject,
@@ -18,6 +21,7 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
@@ -26,6 +30,7 @@ import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   backtestInvalid,
   parseCreateBacktestRunRequest,
+  parseTradeLogQuery,
   parseTradePageRequest,
 } from "./backtest-requests";
 import {
@@ -89,24 +94,67 @@ export class BacktestsController {
   }
 
   /**
-   * One page of the run's trade log, newest first.
+   * One page of the run's trade log, newest first unless `order=asc`, optionally narrowed to one
+   * stock and one action.
    *
    * Its own route rather than a field of the result: a long run executes tens of thousands of
    * trades, so the log is read a page at a time from the database and the result payload stays the
-   * size of a page whatever the run's length. Out-of-range paging is clamped, not refused.
+   * size of a page whatever the run's length. Out-of-range paging is clamped, not refused, and an
+   * unrecognised filter is ignored rather than refused — the response reports what was applied.
    */
   @RateLimit("standard-read")
   @Get(":runId/trades")
   async getTrades(
     @CurrentUser() user: AuthUser,
     @Param("runId") runId: string,
-    @Query("page") page?: string,
-    @Query("pageSize") pageSize?: string,
+    @Query("page") page?: unknown,
+    @Query("pageSize") pageSize?: unknown,
+    @Query("symbol") symbol?: unknown,
+    @Query("action") action?: unknown,
+    @Query("order") order?: unknown,
   ): Promise<BacktestTradePageResponse> {
-    const request = parseTradePageRequest({ page, pageSize });
+    const request = parseTradePageRequest({
+      page,
+      pageSize,
+      symbol,
+      action,
+      order,
+    });
     return this.execute(() =>
       this.backtests.getTrades(user.id, runId, request),
     );
+  }
+
+  /**
+   * The run's whole trade log — or the part one filter selects — as a CSV download.
+   *
+   * The same filter and order as the page, read by the same parser, so the file holds exactly the
+   * trades the table could page through. Streamed a batch at a time, so a twenty-thousand-trade run
+   * never sits in memory as one document. `no-store`: the file is the caller's own data.
+   *
+   * Its own rate-limit class: one request reads a whole run's log, where a page reads fifty rows.
+   */
+  @RateLimit("data-export")
+  @Get(":runId/trades/export")
+  @Header("Cache-Control", "no-store")
+  async exportTrades(
+    @CurrentUser() user: AuthUser,
+    @Param("runId") runId: string,
+    @Query("symbol") symbol?: unknown,
+    @Query("action") action?: unknown,
+    @Query("order") order?: unknown,
+  ): Promise<StreamableFile> {
+    const query = parseTradeLogQuery({ symbol, action, order });
+    const { filename, content } = await this.execute(() =>
+      this.backtests.exportTrades(user.id, runId, query),
+    );
+    // At most one chunk read ahead: the next batch is fetched only once the client has taken the
+    // last one, which is what keeps the memory an export holds to a batch.
+    return new StreamableFile(Readable.from(content, { highWaterMark: 1 }), {
+      type: "text/csv; charset=utf-8",
+      // Built from ASCII letters, digits and hyphens only, so it needs no escaping here.
+      disposition: `attachment; filename="${filename}"`,
+    }).setErrorHandler(cutOffExport);
   }
 
   @RateLimit("standard-read")
@@ -142,4 +190,39 @@ export class BacktestsController {
       throw error;
     }
   }
+}
+
+/** What Nest hands a stream's error handler: the HTTP response, typed more narrowly than it is. */
+type StreamErrorResponse = Parameters<
+  Parameters<StreamableFile["setErrorHandler"]>[0]
+>[1];
+
+/**
+ * What an export does when reading the log fails part-way through.
+ *
+ * Nest's default ends the response normally once headers are out, which would hand the caller a
+ * truncated file that looks complete. Before anything is sent this is an ordinary `500`; after,
+ * the connection is cut, so the download fails visibly instead of quietly ending early. The
+ * service has already logged the failure with the run and the rows written.
+ */
+function cutOffExport(error: Error, handed: StreamErrorResponse): void {
+  // Under the Express adapter this is the Node response itself.
+  const response = handed as StreamErrorResponse &
+    Pick<ServerResponse, "setHeader" | "destroy">;
+  if (response.destroyed) {
+    return;
+  }
+  if (response.headersSent) {
+    response.destroy(error);
+    return;
+  }
+  response.statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.setHeader("Content-Disposition", "inline");
+  response.send(
+    JSON.stringify({
+      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+      message: "Internal server error",
+    }),
+  );
 }

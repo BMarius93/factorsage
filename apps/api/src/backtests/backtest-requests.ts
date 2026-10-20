@@ -1,6 +1,11 @@
 import {
   addYears,
   BACKTEST_INVALID_CODE,
+  BACKTEST_TRADE_ACTIONS,
+  BACKTEST_TRADE_DEFAULT_ORDER,
+  BACKTEST_TRADE_ORDERS,
+  type BacktestTradeAction,
+  type BacktestTradeOrder,
   BACKTEST_MAX_INITIAL_CAPITAL,
   BACKTEST_MAX_MAXIMUM_POSITIONS,
   BACKTEST_MAX_MONTHLY_CONTRIBUTION,
@@ -273,7 +278,8 @@ function parseBenchmarkCode(value: unknown): string {
 }
 
 /**
- * `?page=` and `?pageSize=` on the trade log.
+ * `?page=` and `?pageSize=` on the trade log, plus its filter and order
+ * ({@link parseTradeLogQuery}).
  *
  * Deliberately forgiving where a rejection would help nobody: a missing, malformed or
  * out-of-range value falls back to the default rather than answering `400`, and the service
@@ -284,13 +290,80 @@ function parseBenchmarkCode(value: unknown): string {
 export function parseTradePageRequest(query: {
   page?: unknown;
   pageSize?: unknown;
-}): { page?: number; pageSize?: number } {
+  symbol?: unknown;
+  action?: unknown;
+  order?: unknown;
+}): ParsedTradePageRequest {
   const page = parsePositiveInteger(query.page);
   const pageSize = parsePositiveInteger(query.pageSize);
   return {
     ...(page === undefined ? {} : { page }),
     ...(pageSize === undefined ? {} : { pageSize }),
+    ...parseTradeLogQuery(query),
   };
+}
+
+/** A traded symbol is a short ticker; anything longer cannot name one and is ignored. */
+const MAX_TRADE_SYMBOL_LENGTH = 32;
+
+export type ParsedTradeLogQuery = {
+  symbol?: string;
+  action?: BacktestTradeAction;
+  order: BacktestTradeOrder;
+};
+
+export type ParsedTradePageRequest = ParsedTradeLogQuery & {
+  page?: number;
+  pageSize?: number;
+};
+
+/**
+ * `?symbol=`, `?action=` and `?order=` on the trade log and on its CSV export.
+ *
+ * One parser for both routes on purpose: the export is "the log I am looking at, as a file", so a
+ * query string must mean exactly the same trades in the same order on each. It is lenient for the
+ * reason the page parameters are: a malformed or unknown value is ignored — every stock, every
+ * action, newest first — instead of answering `400`, and the page response reports the filter it
+ * actually applied, so the leniency is visible rather than silent. Nothing here can change state.
+ *
+ * A well-formed symbol the run never traded is **not** malformed: it filters to nothing, which is
+ * the true answer, and the browser shows "No trades match".
+ */
+export function parseTradeLogQuery(query: {
+  symbol?: unknown;
+  action?: unknown;
+  order?: unknown;
+}): ParsedTradeLogQuery {
+  const symbol = singleText(query.symbol);
+  const action = singleText(query.action)?.toUpperCase();
+  const order = singleText(query.order)?.toLowerCase();
+  return {
+    ...(symbol !== undefined && symbol.length <= MAX_TRADE_SYMBOL_LENGTH
+      ? { symbol }
+      : {}),
+    ...(action !== undefined && isTradeLogAction(action) ? { action } : {}),
+    order:
+      order !== undefined && isTradeLogOrder(order)
+        ? order
+        : BACKTEST_TRADE_DEFAULT_ORDER,
+  };
+}
+
+/** One non-blank string; a repeated parameter (`?symbol=A&symbol=B`) names no single value. */
+function singleText(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function isTradeLogAction(value: string): value is BacktestTradeAction {
+  return (BACKTEST_TRADE_ACTIONS as readonly string[]).includes(value);
+}
+
+function isTradeLogOrder(value: string): value is BacktestTradeOrder {
+  return (BACKTEST_TRADE_ORDERS as readonly string[]).includes(value);
 }
 
 function parsePositiveInteger(value: unknown): number | undefined {

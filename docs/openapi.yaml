@@ -105,6 +105,12 @@ info:
       points: 240
       durationSeconds: 60
       onRedisFailure: allow
+    data-export:
+      description: Downloads of a complete result set of the caller's own rows.
+      actor: user
+      points: 20
+      durationSeconds: 300
+      onRedisFailure: allow
     progress-poll:
       description: Endpoints the client polls on a fixed interval.
       actor: user
@@ -1602,15 +1608,23 @@ paths:
     get:
       tags: [Backtests]
       operationId: getBacktestTrades
-      summary: One page of a run's trade log, newest first.
+      summary: One page of a run's trade log, newest first unless asked otherwise.
       description: |
         The log is paged in the database rather than in the browser: a thirty-year run can execute
         tens of thousands of trades and the page on screen is fifty of them. Ordering is the
-        engine's own execution sequence, descending.
+        engine's own execution sequence, descending by default.
+
+        `symbol` and `action` narrow the log and `order` turns it around, in the same queries as the
+        paging: `totalCount`, `pageCount` and every page describe the filtered log as a whole, and
+        `unfilteredCount` still reports every trade the run executed. `symbols` lists every stock
+        the run traded, whatever the filter, so a client can offer the filter without loading the
+        log.
 
         Paging is deliberately forgiving. A page past the end is clamped to the last real page and
         the response reports the `page` actually served, so a stale bookmark lands somewhere real;
-        a malformed `page` or `pageSize` falls back to the default rather than answering `400`.
+        a malformed `page` or `pageSize` falls back to the default rather than answering `400`, and
+        an unrecognised filter is ignored — the response's `symbol`, `action` and `order` report
+        what was applied.
 
         Each trade carries the rule that produced it, described from the run's own immutable
         snapshot — never from the strategy as it stands today.
@@ -1625,13 +1639,70 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - { $ref: "#/components/parameters/TradeLogSymbol" }
+        - { $ref: "#/components/parameters/TradeLogAction" }
+        - { $ref: "#/components/parameters/TradeLogOrder" }
       responses:
         "200":
-          description: The requested page, with the run's true trade count.
+          description: The requested page, with the filtered and the run's true trade counts.
           headers: *rateLimitHeaders
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BacktestTradePage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /backtests/{runId}/trades/export:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    get:
+      tags: [Backtests]
+      operationId: exportBacktestTrades
+      summary: A run's trade log as a CSV download — every trade the filter selects.
+      description: |
+        The same filter and order as `GET /backtests/{runId}/trades`, read by the same rules, but
+        the whole filtered log rather than one page: the file holds exactly the trades the table
+        could page through, in the same order. It is streamed in batches, so a long run never sits
+        in memory as one document.
+
+        The file is UTF-8 with a byte-order mark (so spreadsheets decode the non-ASCII text in
+        strategy descriptions and names correctly), CRLF line endings and RFC 4180 quoting. The
+        columns are raw values for a spreadsheet, never localized: `Sequence`, `Date` (ISO),
+        `Symbol`, `Name`, `Action`, `Source`, `Level %`, `Shares`, `Price`, `Amount`,
+        `Realized P/L`, `Realized P/L %` and `Reason`. Numbers are the stored decimals, unrounded;
+        an empty cell is a value that does not exist, such as a buy's realized profit. Any text cell
+        that begins with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'`, so no
+        spreadsheet evaluates it as a formula.
+
+        `Content-Disposition` names the file after the run and the filter, from ASCII letters,
+        digits and hyphens only. Another user's run answers `404`, exactly as the page does.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: data-export }
+      parameters:
+        - { $ref: "#/components/parameters/TradeLogSymbol" }
+        - { $ref: "#/components/parameters/TradeLogAction" }
+        - { $ref: "#/components/parameters/TradeLogOrder" }
+      responses:
+        "200":
+          description: The filtered trade log as a CSV attachment.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="factorsage-trades-<run>[-<symbol>][-<action>][-oldest-first].csv"`'
+              schema: { type: string }
+            Cache-Control:
+              description: "`no-store`: the file is the caller's own data."
+              schema: { type: string }
+            RateLimit-Policy: { $ref: "#/components/headers/RateLimitPolicy" }
+            RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            RateLimit-Remaining:
+              { $ref: "#/components/headers/RateLimitRemaining" }
+            RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            text/csv:
+              schema: { type: string }
+              example: "Sequence,Date,Symbol,Name,Action,Source,Level %,Shares,Price,Amount,Realized P/L,Realized P/L %,Reason\r\n2,2024-03-01,AAPL,Apple Inc.,SELL,END_OF_BACKTEST,,10,180.5,1805,105,6.17647059,End of backtest\r\n"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
@@ -3003,6 +3074,32 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    TradeLogSymbol:
+      name: symbol
+      in: query
+      required: false
+      description: |
+        Only the trades of this symbol, exactly as the log prints it — one of the page response's
+        `symbols`. A symbol the run never traded matches nothing; a blank, repeated or over-long
+        value is ignored.
+      schema: { type: string, maxLength: 32 }
+    TradeLogAction:
+      name: action
+      in: query
+      required: false
+      description: |
+        Only the trades of this action. `SELL` includes the end-of-backtest liquidations, which are
+        sales (`source: END_OF_BACKTEST`); `FINAL_EXIT` is only the strategy's own FINAL EXIT. Case
+        is ignored, and an unrecognised value is ignored rather than refused.
+      schema: { type: string, enum: [BUY, SELL, FINAL_EXIT] }
+    TradeLogOrder:
+      name: order
+      in: query
+      required: false
+      description: |
+        By the engine's execution sequence: `desc` is newest first, `asc` oldest first. Either is
+        chronological and stable across trades on one date. An unrecognised value means `desc`.
+      schema: { type: string, enum: [desc, asc], default: desc }
 
   responses:
     BadRequest:
@@ -3352,6 +3449,7 @@ components:
                 - stock-search
                 - stock-read
                 - standard-read
+                - data-export
                 - progress-poll
                 - mutation
                 - monitor-mutation
@@ -5473,9 +5571,22 @@ components:
     BacktestTradePage:
       type: object
       description: |
-        One page of a completed run's trade log, newest trade first. Paged in the database: an
-        eighteen-thousand-trade run must not ship eighteen thousand rows to display fifty.
-      required: [items, page, pageSize, totalCount, pageCount]
+        One page of a completed run's trade log, newest trade first unless `order` says otherwise.
+        Paged in the database: an eighteen-thousand-trade run must not ship eighteen thousand rows
+        to display fifty. A filter is applied there too, so the counts describe the filtered log.
+      required:
+        [
+          items,
+          page,
+          pageSize,
+          totalCount,
+          pageCount,
+          unfilteredCount,
+          symbols,
+          symbol,
+          action,
+          order,
+        ]
       properties:
         items:
           type: array
@@ -5483,8 +5594,33 @@ components:
           items: { $ref: "#/components/schemas/BacktestTrade" }
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 200 }
-        totalCount: { type: integer, minimum: 0 }
+        totalCount:
+          type: integer
+          minimum: 0
+          description: The trades matching the filter; every trade the run executed without one.
         pageCount: { type: integer, minimum: 1 }
+        unfilteredCount:
+          type: integer
+          minimum: 0
+          description: Every trade the run executed, terminal liquidations included, whatever the filter.
+        symbols:
+          type: array
+          description: |
+            Every distinct symbol the run traded, sorted — the stock filter's options. Independent
+            of the filter.
+          items: { type: string }
+        symbol:
+          description: The symbol filter actually applied, or null for every stock.
+          oneOf: [{ type: string }, { type: "null" }]
+        action:
+          description: The action filter actually applied, or null for every action.
+          oneOf:
+            - { type: string, enum: [BUY, SELL, FINAL_EXIT] }
+            - { type: "null" }
+        order:
+          type: string
+          enum: [desc, asc]
+          description: The order actually applied, by execution sequence.
 
     BacktestHolding:
       type: object

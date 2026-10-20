@@ -864,11 +864,54 @@ export const BACKTEST_TRADES_PAGE_SIZE = 50;
 export const BACKTEST_TRADES_MAX_PAGE_SIZE = 200;
 
 /**
- * One page of a completed run's trade log, newest trade first.
+ * The actions the trade log can be narrowed to: every `BacktestTradeAction`, and nothing else.
+ *
+ * `SELL` includes the end-of-backtest liquidations. They are sales and are stored as
+ * `action: SELL`, with `source: END_OF_BACKTEST` saying who decided them, so the filter reads the
+ * way the log reads: a `Sell 100%` row is found under Sell, and never under Final exit, which is a
+ * decision the strategy made.
+ */
+export const BACKTEST_TRADE_ACTIONS = [
+  "BUY",
+  "SELL",
+  "FINAL_EXIT",
+] as const satisfies readonly BacktestTradeAction[];
+
+/**
+ * The two orders of the trade log, by the engine's execution `sequence`.
+ *
+ * `desc` (newest first) is the order the log has always been read in, and the default. `sequence`
+ * is the order the engine executed in, so either direction is chronological and stable across
+ * trades on the same date.
+ */
+export const BACKTEST_TRADE_ORDERS = ["desc", "asc"] as const;
+
+export type BacktestTradeOrder = (typeof BACKTEST_TRADE_ORDERS)[number];
+
+export const BACKTEST_TRADE_DEFAULT_ORDER: BacktestTradeOrder = "desc";
+
+/**
+ * What a reader narrowed the trade log to: one stock, one action, an order.
+ *
+ * One shape for the page and for the CSV export, so the file a reader downloads holds exactly the
+ * trades the table could page through, in the same order.
+ */
+export type BacktestTradeLogQuery = {
+  /** The traded symbol, exactly as the log prints it. Absent means every stock. */
+  symbol?: string;
+  /** Absent means every action. */
+  action?: BacktestTradeAction;
+  /** Absent means {@link BACKTEST_TRADE_DEFAULT_ORDER}. */
+  order?: BacktestTradeOrder;
+};
+
+/**
+ * One page of a completed run's trade log, newest trade first unless asked otherwise.
  *
  * Paged in the database rather than in the browser: an eighteen-thousand-trade run must not ship
  * eighteen thousand rows to display fifty of them, and `totalCount` comes from a count query rather
- * than from the length of a list nobody loaded.
+ * than from the length of a list nobody loaded. The filter is applied there too, so a filtered
+ * count and every filtered page are correct across the whole log, not just the rows on screen.
  *
  * A page past the end is not an error. The API clamps to the last page and reports the `page` it
  * actually served, so a stale link or a hand-edited query parameter lands somewhere real.
@@ -878,11 +921,66 @@ export type BacktestTradePageResponse = {
   /** 1-based, and the page actually served after clamping. */
   page: number;
   pageSize: number;
-  /** Every trade the run executed, terminal liquidations included. */
+  /** The trades matching the filter; every trade the run executed when there is no filter. */
   totalCount: number;
-  /** At least 1, even for a run that traded nothing. */
+  /** At least 1, even for a filter or a run that matched nothing. */
   pageCount: number;
+  /** Every trade the run executed, terminal liquidations included, whatever the filter. */
+  unfilteredCount: number;
+  /**
+   * Every distinct symbol the run traded, sorted: the stock filter's options.
+   *
+   * Independent of the filter, so narrowing to one action never removes a stock from the list it
+   * was chosen from, and the browser never has to load the log to know what it holds.
+   */
+  symbols: string[];
+  /**
+   * The filter and the order the API actually applied. A value it did not recognise is reported
+   * as absent (and the default order), never echoed back as if it had been honoured.
+   */
+  symbol: string | null;
+  action: BacktestTradeAction | null;
+  order: BacktestTradeOrder;
 };
+
+/** Anything outside these characters becomes a hyphen in an export file name. */
+const EXPORT_FILENAME_UNSAFE = /[^A-Za-z0-9]+/g;
+
+function exportFilenamePart(text: string, maxLength: number): string {
+  return text
+    .replace(EXPORT_FILENAME_UNSAFE, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, maxLength)
+    .replace(/-+$/g, "");
+}
+
+/**
+ * The file name of a trade-log CSV export, e.g. `factorsage-trades-3f2a9c1d-AAPL-sell.csv`.
+ *
+ * Defined once because two places need it: the API's `Content-Disposition` header, and the browser,
+ * which names the file it saves and cannot read that header across origins. It is built only from
+ * ASCII letters, digits and hyphens, so it needs no quoting rules in a header and is a valid file
+ * name on every platform. The filter is part of the name, so two exports of one run never claim to
+ * be the same file.
+ */
+export function backtestTradesExportFilename(
+  runId: string,
+  query: BacktestTradeLogQuery = {},
+): string {
+  const parts = ["factorsage-trades", exportFilenamePart(runId, 8) || "run"];
+  const symbol =
+    query.symbol === undefined ? "" : exportFilenamePart(query.symbol, 24);
+  if (symbol) {
+    parts.push(symbol);
+  }
+  if (query.action) {
+    parts.push(exportFilenamePart(query.action, 16).toLowerCase());
+  }
+  if (query.order === "asc") {
+    parts.push("oldest-first");
+  }
+  return `${parts.join("-")}.csv`;
+}
 
 export type BacktestRunDetailResponse = {
   id: string;
