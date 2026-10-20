@@ -64,6 +64,10 @@ test.describe("guest authentication @smoke", () => {
     // The attempted page rides along, so signing in returns to it (UX-003).
     await expect(page).toHaveURL("/login?next=%2Fbacktests");
     await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);
+    // And the sign-in page says why it is asking (GL-7).
+    await expect(page.getByTestId("login-reason")).toHaveText(
+      "Sign in to run and review your backtests.",
+    );
   });
 
   test("shows a failure and stays signed out for invalid credentials", async ({
