@@ -147,6 +147,55 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("metric-trades").textContent).toContain("—");
   });
 
+  it("says a queued run's status once, names its progress bar, and announces only transitions (BT-5)", async () => {
+    fetchRunMock
+      .mockResolvedValueOnce(
+        testDetail("QUEUED", {
+          progress: {
+            percent: 0,
+            message: "Queued",
+            simulatedThrough: null,
+            sequence: 0,
+            updatedAt: null,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        testDetail("COMPLETED", {
+          completedAt: "2026-09-01T10:20:00.000Z",
+          result: testResult(),
+        }),
+      );
+    fetchProgressMock
+      .mockResolvedValueOnce(testProgress("RUNNING", 1, { percent: 40 }))
+      .mockResolvedValue(testProgress("COMPLETED", 2, { percent: 100 }));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The badge says "Queued"; the progress line does not repeat it.
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Queued");
+    expect(screen.queryByTestId("backtest-progress-message")).toBeNull();
+    expect(
+      screen.getByRole("progressbar", { name: "Backtest progress" }),
+    ).toBeTruthy();
+    // Opening the page is not a transition: nothing is announced.
+    const announcement = screen.getByTestId("backtest-status-announcement");
+    expect(announcement.getAttribute("role")).toBe("status");
+    expect(announcement.textContent).toBe("");
+
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    expect(announcement.textContent).toBe("Backtest running.");
+    // A percentage moving is not announced; only the status changing is.
+    expect(announcement.textContent).not.toContain("%");
+
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    await flush();
+    expect(announcement.textContent).toBe(
+      "Backtest completed. The results are ready.",
+    );
+  });
+
   it("replaces the placeholder with a growing three-scenario chart as years complete", async () => {
     fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
     fetchProgressMock
@@ -254,6 +303,13 @@ describe("BacktestRunView", () => {
     // only ever read 0. CAGR took the slot.
     expect(screen.queryByTestId("metric-open-positions")).toBeNull();
     expect(screen.getByTestId("metric-cagr").textContent).toContain("+6.30%");
+    // The benchmark's own annualized return and drawdown sit beside the portfolio's (BT-2).
+    expect(screen.getByTestId("metric-cagr-benchmark").textContent).toContain(
+      "+3.90%",
+    );
+    expect(
+      screen.getByTestId("metric-max-drawdown-benchmark").textContent,
+    ).toContain("-18.40%");
     expect(screen.getByText("Trade log")).toBeTruthy();
     // The final state is cash, so there is no holdings section to render at all.
     expect(screen.queryByText("Final holdings")).toBeNull();
@@ -303,13 +359,6 @@ describe("BacktestRunView", () => {
             {
               year: "1996",
               simulatedThrough: "1996-12-31",
-    // The benchmark's own annualized return and drawdown sit beside the portfolio's (BT-2).
-    expect(screen.getByTestId("metric-cagr-benchmark").textContent).toContain(
-      "+3.90%",
-    );
-    expect(
-      screen.getByTestId("metric-max-drawdown-benchmark").textContent,
-    ).toContain("-18.40%");
               returnPercent: 4.5,
               partial: true,
             },
@@ -577,6 +626,8 @@ describe("BacktestRunView", () => {
     expect(
       [...grid.children].map((tile) => tile.getAttribute("data-testid")),
     ).toEqual([
+      "metric-cagr",
+      "metric-max-drawdown",
       "metric-portfolio-return",
       "metric-benchmark-return",
       "metric-alpha",
@@ -624,8 +675,6 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("backtest-trades-footer").textContent).toContain(
       "Showing 51–100 of 18348 trades",
     );
-      "metric-cagr",
-      "metric-max-drawdown",
 
     // Each trade says why it happened, in the canonical Strategy language — and the terminal
     // liquidation says the period ended rather than claiming a FINAL EXIT.

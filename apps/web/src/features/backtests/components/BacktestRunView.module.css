@@ -26,9 +26,18 @@
 }
 
 .phase {
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: var(--weight-emphasis);
+  color: var(--color-text-body);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .percent {
@@ -57,13 +66,6 @@
   .fill {
     transition: none;
   }
-}
-
-.progressMessage {
-  margin: 0;
-  color: var(--color-text-body);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .progressDetail {
