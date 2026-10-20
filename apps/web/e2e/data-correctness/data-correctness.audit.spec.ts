@@ -156,8 +156,9 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
       page.locator('[data-testid="backtest-run"][data-status="COMPLETED"]'),
     ).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId("backtest-metrics")).toBeVisible();
+    // The tile's own figure: CAGR and max drawdown also carry the benchmark's beside it (BT-2).
     const tile = async (key: string): Promise<string | null> =>
-      text(page, `[data-testid="metric-${key}"] dd`);
+      text(page, `[data-testid="metric-${key}"] dd > span:first-child`);
     const s = run.summary;
     const signedOrPlaceholder = (value: number | null): string =>
       value === null ? PLACEHOLDER : signedPercentPoints(value);
@@ -176,7 +177,10 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
     record(
       area,
       "Excess return",
-      signedOrPlaceholder(s.alphaPercent ?? null),
+      // A difference between two returns, written in percentage points (BT-2).
+      s.alphaPercent === null || s.alphaPercent === undefined
+        ? PLACEHOLDER
+        : signedPercentPoints(s.alphaPercent).replace(/%$/, " pp"),
       await tile("alpha"),
     );
     record(

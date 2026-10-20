@@ -243,7 +243,10 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
       "+36.00%",
     );
-    expect(screen.getByTestId("metric-alpha").textContent).toContain("+15.00%");
+    // A difference between two returns, in percentage points (BT-2).
+    expect(screen.getByTestId("metric-alpha").textContent).toContain(
+      "+15.00 pp",
+    );
     expect(screen.getByTestId("metric-max-drawdown").textContent).toContain(
       "-14.20%",
     );
@@ -300,6 +303,13 @@ describe("BacktestRunView", () => {
             {
               year: "1996",
               simulatedThrough: "1996-12-31",
+    // The benchmark's own annualized return and drawdown sit beside the portfolio's (BT-2).
+    expect(screen.getByTestId("metric-cagr-benchmark").textContent).toContain(
+      "+3.90%",
+    );
+    expect(
+      screen.getByTestId("metric-max-drawdown-benchmark").textContent,
+    ).toContain("-18.40%");
               returnPercent: 4.5,
               partial: true,
             },
@@ -563,7 +573,7 @@ describe("BacktestRunView", () => {
     expect(grid.parentElement).toBe(results);
     expect([...results.children].length).toBe(2);
 
-    // All eight, still, in order.
+    // All eight, in the order a run is judged (BT-2): annualized return and worst decline first.
     expect(
       [...grid.children].map((tile) => tile.getAttribute("data-testid")),
     ).toEqual([
@@ -572,9 +582,7 @@ describe("BacktestRunView", () => {
       "metric-alpha",
       "metric-portfolio-value",
       "metric-net-profit",
-      "metric-max-drawdown",
       "metric-trades",
-      "metric-cagr",
     ]);
   });
 
@@ -616,6 +624,8 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("backtest-trades-footer").textContent).toContain(
       "Showing 51–100 of 18348 trades",
     );
+      "metric-cagr",
+      "metric-max-drawdown",
 
     // Each trade says why it happened, in the canonical Strategy language — and the terminal
     // liquidation says the period ended rather than claiming a FINAL EXIT.

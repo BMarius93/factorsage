@@ -228,6 +228,12 @@ export type BacktestRunSummaryResponse = {
   portfolioReturnPercent: number | null;
   benchmarkReturnPercent: number | null;
   alphaPercent: number | null;
+  /**
+   * The run's stored compound annual growth rate, null until it completes (and for a span too
+   * short to annualize). The collection compares runs by it: cumulative returns over different
+   * periods are not comparable.
+   */
+  portfolioCagrPercent: number | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -754,6 +760,12 @@ export type BacktestResultSummaryResponse = {
   benchmarkReturnPercent: number | null;
   alphaPercent: number | null;
   portfolioCagrPercent: number | null;
+  /**
+   * The benchmark's compound annual growth rate over the run's own simulated span, derived when
+   * read with the engine's CAGR function from `benchmarkReturnPercent`; never stored. Null when the
+   * run has no benchmark return or the span cannot be annualized.
+   */
+  benchmarkCagrPercent: number | null;
   maxDrawdownPercent: number;
   benchmarkMaxDrawdownPercent: number | null;
   realizedPnl: number;

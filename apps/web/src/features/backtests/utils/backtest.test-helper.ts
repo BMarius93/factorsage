@@ -132,6 +132,7 @@ export function testResult(
       benchmarkReturnPercent: 21,
       alphaPercent: 15,
       portfolioCagrPercent: 6.3,
+      benchmarkCagrPercent: 3.9,
       maxDrawdownPercent: 14.2,
       benchmarkMaxDrawdownPercent: 18.4,
       realizedPnl: 6_000,

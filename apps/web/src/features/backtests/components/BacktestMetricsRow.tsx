@@ -5,6 +5,7 @@ import {
   formatMoney,
   formatSignedMoney,
   formatSignedPercent,
+  formatSignedPoints,
   METRIC_PLACEHOLDER,
 } from "../utils/format";
 import type { BacktestMetricsView } from "../utils/metrics";
@@ -18,6 +19,12 @@ type Tile = {
   readonly value: number | null;
   readonly render: (value: number) => string;
   readonly tone: Tone;
+  /**
+   * The benchmark's figure for the same measure, written small beside the portfolio's in the
+   * neutral text colour (BT-2). Omitted when the run has none — an executing run, a run without a
+   * benchmark value — rather than shown as a placeholder.
+   */
+  readonly comparison?: number | null;
 };
 
 function toneOf(tile: Tile): string | undefined {
@@ -29,7 +36,7 @@ function toneOf(tile: Tile): string | undefined {
 
 export type BacktestMetricsRowProps = {
   readonly metrics: BacktestMetricsView;
-  /** The benchmark's own product name, so the comparison tile never says "S&P 500" by default. */
+  /** The benchmark's own product name, so the comparison tile never names a benchmark by default. */
   readonly benchmarkName: string;
   readonly caption?: ReactNode;
 };
@@ -41,6 +48,11 @@ export type BacktestMetricsRowProps = {
  * not returned 0.00%, and a benchmark with no value at or before the run's first date has no
  * comparison to show. Presenting either as zero would be a fabricated result.
  *
+ * Ordered by how a run is judged (BT-2): its annualized return and its worst decline first — each
+ * with the benchmark's own figure beside it — then the cumulative returns and their difference,
+ * then the money, then the activity. CAGR leads because it is the one return that compares a
+ * thirty-year run with a three-year one.
+ *
  * The section owns no surface. It is a heading and a grid of tiles inside the result hero, exactly
  * as Annual returns is, so the two read as one flat sequence under the chart rather than as a card
  * nested in a card.
@@ -51,6 +63,22 @@ export function BacktestMetricsRow({
   caption,
 }: BacktestMetricsRowProps) {
   const tiles: readonly Tile[] = [
+    {
+      key: "cagr",
+      label: "CAGR",
+      value: metrics.portfolioCagrPercent,
+      render: formatSignedPercent,
+      tone: "signed",
+      comparison: metrics.benchmarkCagrPercent,
+    },
+    {
+      key: "max-drawdown",
+      label: "Max drawdown",
+      value: metrics.maxDrawdownPercent,
+      render: formatDrawdownPercent,
+      tone: "neutral",
+      comparison: metrics.benchmarkMaxDrawdownPercent,
+    },
     {
       key: "portfolio-return",
       label: "Portfolio return",
@@ -70,10 +98,11 @@ export function BacktestMetricsRow({
       // Not "Alpha": this is `portfolio return - benchmark return`, which is excess return. Alpha
       // in its usual sense is a regression intercept against a risk model, and calling a simple
       // difference by that name would claim a measurement the product has not made. The persisted
-      // field keeps its name; only the word the user reads changes.
+      // field keeps its name; only the word the user reads changes. It is a difference between two
+      // percentages, so it is written in percentage points.
       label: "Excess return",
       value: metrics.alphaPercent,
-      render: formatSignedPercent,
+      render: formatSignedPoints,
       tone: "signed",
     },
     {
@@ -91,29 +120,11 @@ export function BacktestMetricsRow({
       tone: "signed",
     },
     {
-      key: "max-drawdown",
-      label: "Max drawdown",
-      value: metrics.maxDrawdownPercent,
-      render: formatDrawdownPercent,
-      tone: "neutral",
-    },
-    {
       key: "trades",
       label: "Trades",
       value: metrics.tradeCount,
       render: formatCount,
       tone: "neutral",
-    },
-    {
-      // Not "Open positions": a completed run liquidates everything it still holds at the end of
-      // its period, so that tile could only ever read 0. CAGR is the figure that makes a
-      // thirty-year total return comparable to a three-year one, and the summary already carries
-      // it.
-      key: "cagr",
-      label: "CAGR",
-      value: metrics.portfolioCagrPercent,
-      render: formatSignedPercent,
-      tone: "signed",
     },
   ];
 
@@ -139,9 +150,22 @@ export function BacktestMetricsRow({
           >
             <dt className={styles.label}>{tile.label}</dt>
             <dd className={styles.value}>
-              {tile.value === null
-                ? METRIC_PLACEHOLDER
-                : tile.render(tile.value)}
+              <span className={styles.figure}>
+                {tile.value === null
+                  ? METRIC_PLACEHOLDER
+                  : tile.render(tile.value)}
+              </span>
+              {tile.comparison !== undefined &&
+              tile.comparison !== null &&
+              tile.value !== null ? (
+                <span
+                  className={styles.comparison}
+                  data-testid={`metric-${tile.key}-benchmark`}
+                >
+                  <span className={styles.srOnly}>, compared with </span>
+                  {benchmarkName} {tile.render(tile.comparison)}
+                </span>
+              ) : null}
             </dd>
           </div>
         ))}

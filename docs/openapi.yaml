@@ -5332,6 +5332,7 @@ components:
           portfolioReturnPercent,
           benchmarkReturnPercent,
           alphaPercent,
+          portfolioCagrPercent,
         ]
       properties:
         id: { type: string, format: uuid }
@@ -5358,6 +5359,9 @@ components:
         portfolioReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
         benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
         alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+        portfolioCagrPercent:
+          description: The run's stored compound annual growth rate; null until it completes.
+          $ref: "#/components/schemas/NullableNumber"
 
     BacktestCurvePoint:
       type: object
@@ -5687,6 +5691,7 @@ components:
           benchmarkReturnPercent,
           alphaPercent,
           portfolioCagrPercent,
+          benchmarkCagrPercent,
           maxDrawdownPercent,
           benchmarkMaxDrawdownPercent,
           realizedPnl,
@@ -5712,6 +5717,11 @@ components:
         benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
         alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
         portfolioCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+        benchmarkCagrPercent:
+          description: >-
+            The benchmark's compound annual growth rate over the run's own simulated span, derived
+            when read from benchmarkReturnPercent; never stored.
+          $ref: "#/components/schemas/NullableNumber"
         maxDrawdownPercent: { type: number }
         benchmarkMaxDrawdownPercent:
           { $ref: "#/components/schemas/NullableNumber" }

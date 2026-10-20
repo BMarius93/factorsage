@@ -81,6 +81,20 @@ export function formatSignedPercent(value: number): string {
 }
 
 /**
+ * A difference between two percentages, in percentage points: `3541.42` → `"+3,541.42 pp"`.
+ *
+ * Excess return is the portfolio's return minus the benchmark's. Writing it with a `%` would read
+ * as a return of its own — "+3,541%" — when it is a gap between two (BT-2).
+ */
+export function formatSignedPoints(value: number): string {
+  return `${numberFormat("signed-percent", {
+    signDisplay: "exceptZero",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)} pp`;
+}
+
+/**
  * Max drawdown, which the contract reports as a positive magnitude.
  *
  * It is rendered as a decline so the direction cannot be misread as a gain; zero stays unsigned

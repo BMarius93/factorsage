@@ -27,7 +27,7 @@ import {
   MARKET_REFERENCE_SERIES,
 } from "@intrinsic/domain";
 import { PrismaBenchmarkDataStore } from "@intrinsic/stock-data";
-import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
+import { BACKTEST_METHODOLOGY, cagrPercent } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -1180,6 +1180,7 @@ describe("backtests", () => {
       portfolioReturnPercent: null,
       benchmarkReturnPercent: null,
       alphaPercent: null,
+      portfolioCagrPercent: null,
     });
 
     const foreign = await other.get("/backtests").expect(200);
@@ -1603,6 +1604,9 @@ describe("backtests", () => {
       benchmarkReturnPercent: 1.6,
       alphaPercent: 1.6,
       portfolioCagrPercent: 0.53,
+      // Derived when read, never stored: the engine's own CAGR of the stored benchmark return
+      // over the run's own simulated span (BT-2).
+      benchmarkCagrPercent: cagrPercent(1.016, isoDate(0), isoDate(lastIndex)),
       maxDrawdownPercent: 2.5,
       benchmarkMaxDrawdownPercent: 3.5,
       realizedPnl: 250,
@@ -1615,6 +1619,7 @@ describe("backtests", () => {
       losingTrades: 0,
       openPositions: 2,
     });
+    expect(result?.summary.benchmarkCagrPercent).toBeGreaterThan(0);
 
     // Downsampled to the shared bound, keeping the true first and last point.
     const curve = result?.curve ?? [];

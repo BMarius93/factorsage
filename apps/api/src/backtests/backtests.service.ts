@@ -75,7 +75,7 @@ import {
 import type { StructuredLogger } from "@intrinsic/observability";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { getBacktestWorkerConfig } from "@intrinsic/config";
-import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
+import { BACKTEST_METHODOLOGY, cagrPercent } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
 import { readableWhere } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
@@ -157,6 +157,9 @@ const RUN_LIST_INCLUDE = {
       portfolioReturnPercent: true,
       benchmarkReturnPercent: true,
       alphaPercent: true,
+      // The stored annualized return, so the collection can compare runs of different lengths
+      // (BT-3) without computing a figure of its own.
+      portfolioCagrPercent: true,
     },
   },
 } satisfies Prisma.BacktestRunInclude;
@@ -546,13 +549,20 @@ function summaryRowOf(row: RunListRow): BacktestRunSummaryResponse {
         : toNullableNumber(row.summary.benchmarkReturnPercent),
     alphaPercent:
       row.summary === null ? null : toNullableNumber(row.summary.alphaPercent),
+    portfolioCagrPercent:
+      row.summary === null
+        ? null
+        : toNullableNumber(row.summary.portfolioCagrPercent),
   };
 }
 
 function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
+  const firstSimulatedDate = fromDatabaseDate(row.firstSimulatedDate);
+  const lastSimulatedDate = fromDatabaseDate(row.lastSimulatedDate);
+  const benchmarkReturnPercent = toNullableNumber(row.benchmarkReturnPercent);
   return {
-    firstSimulatedDate: fromDatabaseDate(row.firstSimulatedDate),
-    lastSimulatedDate: fromDatabaseDate(row.lastSimulatedDate),
+    firstSimulatedDate,
+    lastSimulatedDate,
     tradingDays: row.tradingDays,
     investedCapital: toNumber(row.investedCapital),
     finalCash: toNumber(row.finalCash),
@@ -560,9 +570,20 @@ function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
     finalValue: toNumber(row.finalValue),
     netProfit: toNumber(row.netProfit),
     portfolioReturnPercent: toNumber(row.portfolioReturnPercent),
-    benchmarkReturnPercent: toNullableNumber(row.benchmarkReturnPercent),
+    benchmarkReturnPercent,
     alphaPercent: toNullableNumber(row.alphaPercent),
     portfolioCagrPercent: toNullableNumber(row.portfolioCagrPercent),
+    // Read-time, never stored: the engine's own `cagrPercent` applied to the stored benchmark
+    // return over the run's own simulated span — the figure the portfolio's CAGR is measured on,
+    // so the two annualized returns compare like for like (BT-2).
+    benchmarkCagrPercent:
+      benchmarkReturnPercent === null
+        ? null
+        : cagrPercent(
+            1 + benchmarkReturnPercent / 100,
+            firstSimulatedDate,
+            lastSimulatedDate,
+          ),
     maxDrawdownPercent: toNumber(row.maxDrawdownPercent),
     benchmarkMaxDrawdownPercent: toNullableNumber(
       row.benchmarkMaxDrawdownPercent,

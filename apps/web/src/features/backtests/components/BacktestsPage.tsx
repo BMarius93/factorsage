@@ -33,6 +33,7 @@ import { useBacktestRuns } from "../hooks/use-backtest-runs";
 import {
   formatPeriod,
   formatSignedPercent,
+  formatSignedPoints,
   formatTimestamp,
   METRIC_PLACEHOLDER,
 } from "../utils/format";
@@ -52,8 +53,17 @@ function statusTone(status: BacktestRunStatus): StatusTone {
   }
 }
 
-/** A return, tinted by direction. Zero and "not reported" stay neutral. */
-function ReturnValue({ value }: { readonly value: number | null }) {
+/**
+ * A return, tinted by direction. Zero and "not reported" stay neutral. `format` decides the unit:
+ * a return is a percentage, a difference between two returns is in percentage points.
+ */
+function ReturnValue({
+  value,
+  format = formatSignedPercent,
+}: {
+  readonly value: number | null;
+  readonly format?: (value: number) => string;
+}) {
   if (value === null) {
     return <span className={styles.placeholder}>{METRIC_PLACEHOLDER}</span>;
   }
@@ -62,7 +72,7 @@ function ReturnValue({ value }: { readonly value: number | null }) {
       className={styles.figure}
       data-tone={value === 0 ? undefined : value > 0 ? "positive" : "negative"}
     >
-      {formatSignedPercent(value)}
+      {format(value)}
     </span>
   );
 }
@@ -74,6 +84,24 @@ function ReturnValue({ value }: { readonly value: number | null }) {
  * list was fetched, so opening the app does not start a poll per row.
  */
 /** The benchmark and what it returned over the same period: one fact, in one place. */
+/**
+ * The run's stock list, linked while the list still exists; a list deleted since the run keeps its
+ * snapshotted name as a static chip rather than a link that would 404 (UI-034).
+ */
+function StockListReference({
+  run,
+}: {
+  readonly run: BacktestRunSummaryResponse;
+}) {
+  return (
+    <EntityReferenceChip
+      kind="list"
+      name={run.stockListName}
+      {...(run.stockListId ? { href: `/lists/${run.stockListId}` } : {})}
+    />
+  );
+}
+
 function BenchmarkFact({ run }: { readonly run: BacktestRunSummaryResponse }) {
   return (
     <span className={styles.benchmarkCell}>
@@ -98,12 +126,15 @@ const RUN_SORTS: readonly CollectionSort<BacktestRunSummaryResponse>[] = [
     compare: (a, b) => Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
   },
   {
-    id: "return",
-    label: "Best return",
-    // Runs without a result yet sort after every finished one, in their existing order.
+    // By the stored annualized return, never the cumulative one (BT-3): a thirty-year run's total
+    // return dwarfs a five-year run's whatever their quality, so "best return" ranked by length.
+    id: "cagr",
+    label: "Best CAGR",
+    // Runs without a CAGR yet (in flight, failed, too short to annualize) sort after every run
+    // that has one, in their existing order.
     compare: (a, b) =>
-      (b.portfolioReturnPercent ?? -Infinity) -
-        (a.portfolioReturnPercent ?? -Infinity) || 0,
+      (b.portfolioCagrPercent ?? -Infinity) -
+        (a.portfolioCagrPercent ?? -Infinity) || 0,
   },
   {
     id: "strategy",
@@ -124,12 +155,19 @@ export function BacktestsPage() {
       header: "Strategy",
       cardRole: "identity",
       render: (run) => (
-        <Link className={styles.nameLink} href={`/backtests/${run.id}`}>
-          <span className={styles.name}>{run.strategyName}</span>
-          <span className={styles.period}>
-            {formatPeriod(run.startDate, run.endDate)}
-          </span>
-        </Link>
+        <>
+          <Link className={styles.nameLink} href={`/backtests/${run.id}`}>
+            <span className={styles.name}>{run.strategyName}</span>
+            <span className={styles.period}>
+              {formatPeriod(run.startDate, run.endDate)}
+            </span>
+          </Link>
+          {/* Between 880 and 1,279px the Stock list column folds in here, under the period, as
+              on Monitors: with the CAGR column the run's figures need the room. */}
+          <IntermediateOnly testId="backtest-folded-list">
+            <StockListReference run={run} />
+          </IntermediateOnly>
+        </>
       ),
     },
     {
@@ -180,19 +218,10 @@ export function BacktestsPage() {
       key: "list",
       header: "Stock list",
       cardRole: "links",
-      // Linked while the list still exists; a list deleted since the run keeps its snapshotted
-      // name as a static chip rather than a link that would 404 (UI-034).
+      foldIntermediate: true,
       render: (run) => (
         <span className={styles.listCell}>
-          <EntityReferenceChip
-            kind="list"
-            name={run.stockListName}
-            {...(run.stockListId ? { href: `/lists/${run.stockListId}` } : {})}
-          />
-          {/* The Benchmark column folds in here between 880 and 1,279px. */}
-          <IntermediateOnly testId="backtest-folded-benchmark">
-            <BenchmarkFact run={run} />
-          </IntermediateOnly>
+          <StockListReference run={run} />
         </span>
       ),
     },
@@ -206,21 +235,47 @@ export function BacktestsPage() {
       render: (run) => <BenchmarkFact run={run} />,
     },
     {
-      key: "portfolio",
-      header: "Portfolio",
+      // The annualized return: the one figure that compares runs of different lengths (BT-3).
+      key: "cagr",
+      header: "CAGR",
       align: "right",
       numeric: true,
       nowrap: true,
-      render: (run) => <ReturnValue value={run.portfolioReturnPercent} />,
+      render: (run) => <ReturnValue value={run.portfolioCagrPercent} />,
+    },
+    {
+      key: "portfolio",
+      header: "Total return",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (run) => (
+        <span className={styles.returnCell}>
+          <ReturnValue value={run.portfolioReturnPercent} />
+          {/* Between 880 and 1,279px the Benchmark column folds in here, as the comparison it
+              is — never under the stock list, where it read as part of the list (BT-3). */}
+          <IntermediateOnly testId="backtest-folded-benchmark">
+            <span className={styles.foldedBenchmark}>
+              vs {run.benchmarkName}{" "}
+              {run.benchmarkReturnPercent === null
+                ? METRIC_PLACEHOLDER
+                : formatSignedPercent(run.benchmarkReturnPercent)}
+            </span>
+          </IntermediateOnly>
+        </span>
+      ),
     },
     {
       key: "alpha",
-      // Excess return over the benchmark, not a regression alpha — see `BacktestMetricsRow`.
+      // Excess return over the benchmark, not a regression alpha — see `BacktestMetricsRow`. A
+      // difference between two returns, so it is written in percentage points.
       header: "Excess return",
       align: "right",
       numeric: true,
       nowrap: true,
-      render: (run) => <ReturnValue value={run.alphaPercent} />,
+      render: (run) => (
+        <ReturnValue value={run.alphaPercent} format={formatSignedPoints} />
+      ),
     },
     {
       key: "queued",
