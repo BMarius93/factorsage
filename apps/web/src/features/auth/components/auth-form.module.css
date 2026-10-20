@@ -43,7 +43,7 @@
 /* A field's own message, under the field it is about. */
 .fieldError {
   margin: 0;
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -53,7 +53,7 @@
   padding: 10px 12px;
   border: 1px solid var(--color-positive);
   border-radius: var(--radius-md);
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
   background: var(--color-positive-soft);
   font-size: 14px;
   line-height: 1.5;
@@ -89,7 +89,7 @@
 }
 
 .link {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   font-weight: var(--weight-emphasis);
 }
 

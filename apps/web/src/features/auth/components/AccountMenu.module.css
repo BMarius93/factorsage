@@ -121,14 +121,14 @@
    ring outside them would be clipped by the panel. */
 .menuLink:focus-visible,
 .signOut:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
 
 /* Signing out loses nothing, so it is not red at rest; it takes the destructive tint only under
    the pointer, the way the maintenance menu's destructive rows read once they are reached. */
 .signOut:hover:not(:disabled) {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   background: var(--color-negative-soft);
 }
 
@@ -139,7 +139,7 @@
 
 .error {
   margin: 4px 14px 8px;
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   font-size: var(--text-small);
   line-height: 1.45;
 }

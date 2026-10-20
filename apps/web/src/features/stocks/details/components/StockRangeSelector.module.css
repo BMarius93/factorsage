@@ -49,16 +49,16 @@
 
 .option:hover .pill {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .input:checked + .pill {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: var(--color-primary-soft);
 }
 
 .input:focus-visible + .pill {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }

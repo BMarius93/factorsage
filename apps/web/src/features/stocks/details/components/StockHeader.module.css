@@ -67,12 +67,12 @@
 }
 
 .change[data-direction="up"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
   background: var(--color-positive-soft);
 }
 
 .change[data-direction="down"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
   background: var(--color-negative-soft);
 }
 

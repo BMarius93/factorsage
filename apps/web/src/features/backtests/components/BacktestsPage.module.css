@@ -20,7 +20,7 @@
 }
 
 .nameLink:hover .name {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .nameLink:focus-visible {
@@ -81,11 +81,11 @@
 }
 
 .figure[data-tone="positive"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
 }
 
 .figure[data-tone="negative"] {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .placeholder {

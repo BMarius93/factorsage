@@ -32,7 +32,7 @@
 }
 
 .trigger:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   border-color: var(--color-primary);
 }
 
@@ -71,7 +71,7 @@
 }
 
 .field:focus-within {
-  border-color: var(--color-primary);
+  border-color: var(--color-focus);
   box-shadow: var(--focus-ring-inset);
 }
 
@@ -126,7 +126,7 @@
   flex: none;
   padding: 0 6px;
   border: 0;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: transparent;
   font-size: 14px;
   font-weight: var(--weight-emphasis);
@@ -144,7 +144,7 @@
 .trigger:focus-visible,
 .clear:focus-visible,
 .cancel:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 

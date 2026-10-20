@@ -61,7 +61,7 @@
 }
 
 .segment:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .segment[data-selected="true"],
@@ -191,7 +191,7 @@
   width: 16px;
   height: 16px;
   margin-top: 1px;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .cta {
@@ -244,7 +244,7 @@
 
 .notice[data-tone="warning"] {
   background: var(--color-warning-soft);
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .lead,
@@ -259,14 +259,14 @@
 }
 
 .error {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .linkButton {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   font: inherit;
   text-decoration: underline;
   cursor: pointer;

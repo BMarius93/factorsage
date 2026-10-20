@@ -37,7 +37,7 @@
 }
 
 .select:focus-visible {
-  border-color: var(--color-primary);
+  border-color: var(--color-focus);
   box-shadow: var(--focus-ring-inset);
 }
 

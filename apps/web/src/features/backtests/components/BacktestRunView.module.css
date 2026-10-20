@@ -32,7 +32,7 @@
 }
 
 .percent {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   font-size: 14px;
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
@@ -213,7 +213,7 @@
 
 .copyButton:hover {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 /* --- Run configuration, below the outcome and collapsed --- */

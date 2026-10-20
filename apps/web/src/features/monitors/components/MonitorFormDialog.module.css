@@ -72,7 +72,7 @@
 .capacityHint {
   display: block;
   margin-top: 6px;
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-size: var(--text-secondary);
   line-height: var(--line-height-body);
 }

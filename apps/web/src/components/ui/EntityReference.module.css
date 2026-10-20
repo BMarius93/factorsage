@@ -72,7 +72,7 @@
 
 a.chip:hover {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: var(--color-primary-soft);
 }
 
@@ -89,7 +89,7 @@ a.chip:focus-visible {
 
 a.chip[data-kind="list"]:hover {
   border-color: var(--color-positive);
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
   background: var(--color-positive-soft);
 }
 

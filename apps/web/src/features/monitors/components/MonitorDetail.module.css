@@ -31,7 +31,7 @@
 }
 
 .inlineLink {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   font-weight: var(--weight-emphasis);
   text-decoration: none;
 }
@@ -46,7 +46,7 @@
   margin: 0;
   padding: 10px 14px;
   border-radius: var(--radius-md);
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   background: var(--color-warning-soft);
   font-size: 13px;
   line-height: 1.5;

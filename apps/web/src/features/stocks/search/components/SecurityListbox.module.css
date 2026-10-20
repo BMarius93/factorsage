@@ -94,7 +94,7 @@
 }
 
 .trailing[data-state="chosen"] {
-  color: var(--color-positive);
+  color: var(--color-positive-ink);
   text-transform: uppercase;
 }
 
@@ -116,7 +116,7 @@
 .retry {
   padding: 0;
   border: 0;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: transparent;
   font-size: 13px;
   font-weight: var(--weight-emphasis);
@@ -124,7 +124,7 @@
 }
 
 .retry:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 

@@ -119,7 +119,7 @@
 }
 
 .pending {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
   font-weight: var(--weight-emphasis);
 }
 

@@ -19,11 +19,11 @@
 
 .trigger:hover {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .trigger:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -42,7 +42,7 @@
   padding: 0 5px;
   border-radius: var(--radius-pill);
   color: var(--color-text-on-primary);
-  background: var(--color-primary);
+  background: var(--color-primary-solid);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -132,7 +132,7 @@
 }
 
 .option:has(.checkbox:focus-visible) {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: -1px;
 }
 

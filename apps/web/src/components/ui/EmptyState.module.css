@@ -31,7 +31,7 @@
 }
 
 .panel[data-variant="error"] .title {
-  color: var(--color-negative);
+  color: var(--color-negative-ink);
 }
 
 .panel[data-variant="compact"] .title {

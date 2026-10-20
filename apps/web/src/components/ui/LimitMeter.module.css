@@ -23,7 +23,7 @@
 
 .meter[data-state="full"] .value,
 .meter[data-state="over"] .value {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .track {
