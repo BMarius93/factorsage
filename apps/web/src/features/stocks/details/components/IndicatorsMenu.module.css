@@ -70,6 +70,12 @@
   max-height: min(60vh, 520px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Where opening it scrolls the page to: clear of the sticky top bar, and of the phone's bottom
+     navigation below 880px. */
+  scroll-margin-top: calc(var(--topbar-height) + 12px);
+  scroll-margin-bottom: calc(
+    var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 12px
+  );
   padding: 12px 14px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -104,6 +110,8 @@
     align-items: start;
     width: min(600px, calc(100vw - 64px));
     max-height: min(60vh, 600px);
+    scroll-margin-top: calc(var(--topbar-height-wide) + 12px);
+    scroll-margin-bottom: 12px;
   }
 
   .column + .column {

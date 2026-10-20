@@ -64,6 +64,7 @@ export function IndicatorsMenu({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const baseId = useId();
   const panelId = `${baseId}-indicators`;
   const valuationHintId = `${baseId}-valuation-hint`;
@@ -103,6 +104,15 @@ export function IndicatorsMenu({
     };
   }, [close, open]);
 
+  // Opened low on a short screen, the panel would run past the bottom of the viewport (on a phone,
+  // under the bottom navigation). Bring all of it into view, moving the page no more than needed;
+  // the panel's scroll margins keep it clear of the top bar and the bottom navigation.
+  useEffect(() => {
+    if (open) {
+      panelRef.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [open]);
+
   const count =
     selected.size +
     (valuation === null ? 0 : 1) +
@@ -130,6 +140,7 @@ export function IndicatorsMenu({
       </button>
 
       <div
+        ref={panelRef}
         id={panelId}
         data-testid="indicators-panel"
         className={styles.panel}
