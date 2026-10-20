@@ -3,7 +3,7 @@
 import type { BillingInterval, UserPlan } from "@intrinsic/contracts";
 import type { ReactNode } from "react";
 import type { PlanCardAction, PlanCardState } from "../utils/plan-actions";
-import { PLAN_CARD_ORDER } from "../utils/plan-presentation";
+import { PLAN_CARD_ORDER, plansCaption } from "../utils/plan-presentation";
 import { BillingIntervalToggle } from "./BillingIntervalToggle";
 import { PlanCard } from "./PlanCard";
 import styles from "./BillingPage.module.css";
@@ -41,9 +41,8 @@ export function PlanCatalog({
   return (
     <section className={styles.plans} aria-label="Plans">
       <div className={styles.plansHead}>
-        <p className={styles.plansCaption}>
-          Every plan includes every indicator, valuation model and strategy
-          feature. Plans differ by capacity.
+        <p className={styles.plansCaption} data-testid="plans-caption">
+          {plansCaption()}
         </p>
         <BillingIntervalToggle value={interval} onChange={onIntervalChange} />
       </div>

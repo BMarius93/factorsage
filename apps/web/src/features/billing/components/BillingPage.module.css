@@ -33,41 +33,22 @@
   line-height: 1.5;
 }
 
-/* --- Billing cadence, as a segmented radio group --- */
+/* --- Billing cadence: the shared segmented control's look, over a radio group --- */
 
+/* The pills, their hover and the tinted chosen option (`data-active`) are `SegmentedControl`'s own
+   classes, composed rather than restated, so the cadence cannot drift back into a solid-blue slab
+   beside the page's one solid action (PR-2). What stays local is the radio underneath. */
 .segmented {
-  display: inline-flex;
+  composes: group from "../../../components/ui/SegmentedControl.module.css";
   flex: none;
-  padding: 3px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
 }
 
 .segment {
+  composes: option from "../../../components/ui/SegmentedControl.module.css";
   /* The positioning context its own transparent radio fills; see `.segmentInput`. */
   position: relative;
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
   min-width: 88px;
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: var(--radius-pill);
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  font-weight: var(--weight-emphasis);
-  cursor: pointer;
-}
-
-.segment:hover {
-  color: var(--color-primary-ink);
-}
-
-.segment[data-selected="true"],
-.segment[data-selected="true"]:hover {
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
 }
 
 /* Transparent and full-size rather than clipped to a pixel: the radio stays the thing that is
@@ -163,6 +144,17 @@
   line-height: 1.5;
 }
 
+/* A yearly price per month, under the billing note: as quiet as the note, and one line tall even
+   on Free, where it is empty, so the feature rows stay level across the cards. */
+.priceEquivalent {
+  min-height: 18px;
+  margin: -14px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Takes the slack between cards of different content length, so every button sits on the same
    baseline however the feature text wraps. */
 .features {
@@ -185,6 +177,23 @@
   line-height: 1.45;
 }
 
+/* A row the plan does not include: muted, behind a dash instead of a check, and saying "Not
+   included" in words — never told apart by colour alone. */
+.feature[data-included="false"] {
+  color: var(--color-text-muted);
+}
+
+.featureText {
+  display: grid;
+  gap: 2px;
+}
+
+.featureDetail {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* The brand accent, not `--color-positive`: green and red carry financial and operational
    meaning in this product, and a feature list is neither. */
 .check {
@@ -192,6 +201,13 @@
   height: 16px;
   margin-top: 1px;
   color: var(--color-primary-ink);
+}
+
+.excluded {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--color-text-muted);
 }
 
 .cta {

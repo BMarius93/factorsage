@@ -18,6 +18,12 @@ type BillingIntervalToggleProps = {
  * visually hidden rather than removed, so focus, `:focus-visible` and form semantics all survive
  * the pill styling.
  *
+ * It wears the shared `SegmentedControl`'s look (PR-2) — its pills, its hover and its tinted chosen
+ * option, composed from that component's stylesheet in `BillingPage.module.css` and switched by
+ * the same `data-active` attribute — rather than a solid-blue slab beside the page's one solid
+ * action. Only the look is shared: that component is a row of `aria-pressed` buttons, and the
+ * cadence keeps its radios.
+ *
  * It changes nothing but which of the four catalog prices each card offers. The cadence is never
  * sent on its own: a card's button carries the resolved logical price key, so what the page shows
  * and what the API is asked for cannot disagree.
@@ -37,7 +43,7 @@ export function BillingIntervalToggle({
         <label
           key={interval}
           className={styles.segment}
-          data-selected={interval === value ? "true" : undefined}
+          data-active={interval === value ? "true" : undefined}
         >
           <input
             className={styles.segmentInput}
