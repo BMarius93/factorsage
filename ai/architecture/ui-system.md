@@ -161,6 +161,24 @@ would cross the left edge it left-aligns, and where it would fall under the bott
 bottom navigation it opens upwards. `placeMenu` is the pure rule and is unit-tested. On a phone card
 the trigger sits at the card's **top-right** (see `DataTable`), never beside the bottom action.
 
+Choosing an item moves focus to the trigger before the item runs, so a dialog the item opens
+returns focus to the trigger when it closes (GL-2).
+
+### `Modal`
+
+The one dialog, over the native `<dialog>` (top layer, focus containment, Escape). It owns focus at
+both ends (GL-2): it opens on an element marked `data-autofocus`, else the first form field, else the
+body's first control — never the header's close button — and whichever way it closes it returns focus
+to the control that opened it, or to `#main-content` when that control no longer exists. A dialog's
+own `autoFocus` or `focus()` call still wins.
+
+### `InfoTip`
+
+A one- or two-sentence explanation of the figure beside it, as a toggletip: an "i" button with a
+24 × 24 target that opens on hover where the pointer can hover, toggles on click or tap, and closes on
+Escape, an outside press or focus leaving. It replaces `title` attributes, which keyboard and touch
+cannot reach. Anything longer than two sentences belongs on the page.
+
 ### `WorkflowFooter`
 
 The **default** footer for an ordinary create/edit workflow. Desktop and tablet: a quiet row at the
@@ -289,9 +307,12 @@ built-in Strategy, List and Monitor name reads whole at 1,280px, the longest in 
 columns than room. A column marked `foldIntermediate` steps out there, and the feature renders the
 same facts inside a cell that stays, wrapped in `IntermediateOnly` (displayed only in that band, so
 a fact is never exposed twice): the Dashboard folds Strategy · List · Monitor under the stock, the
-Monitors collection folds Strategy and Stock list under the monitor's name, and Backtests folds the
-Benchmark under the Stock list and drops the low-priority Queued column. Every collection then fits
-its surface at 880, 1,024, 1,280 and 1,440px with its actions visible.
+Monitors collection folds Strategy and Stock list under the monitor's name, Backtests folds the
+Stock list under the strategy and the Benchmark beside the total return and drops the low-priority
+Queued column, and a completed backtest's Trade log folds its Date column back under the stock.
+Every collection then fits its surface at 880, 1,024, 1,280 and 1,440px with its actions visible,
+except two measured on 2026-10-20 that still scroll inside their card from 880px to about 1,030px:
+the Dashboard activity table and the Trade log.
 
 **One row of pills on a phone card.** Each `links` cell is a full-width row of the phone card with
 a label beside its chip. Where the chips say enough on their own, and three labelled rows would cost
@@ -303,8 +324,14 @@ column header no longer names it.
 
 When a table needs one column too many, **fold a fact into the cell it belongs to** rather than
 adding a column: the Monitors table carries the universe size beside the Stock List chip, and the
-Backtests table carries the benchmark's return beside the Benchmark chip. That keeps the
-information and the association, and costs no width.
+Backtests table carries the benchmark's return beside the Benchmark chip — and, where the Benchmark
+column folds (880–1,279px), beside the total return as "vs SPY +x%", never under the stock list it
+would read as part of (BT-3). That keeps the information and the association, and costs no width.
+From 1,280 to 1,359px, where all nine run columns are back a few pixels short of room, the
+benchmark's return wraps under its chip instead.
+
+Every cell carries `data-column` (the column's key), so a feature can arrange its own phone card —
+the Dashboard's activity card does (DB-1) — without restating the table.
 
 A flush table's first and last columns align with the section heading through `--surface-inset`,
 which `SectionCard` publishes and `DataTable` consumes. Do not re-pad a table to line it up.
@@ -504,6 +531,10 @@ filter and the Monitor page's status filter use it (UI-009 … UI-012 build on t
 `fill` shares one row equally between the options instead of wrapping them — for a short, fixed set
 that must read as one control on a phone, like the market overview's three categories.
 
+The billing cadence (Monthly / Yearly) is a radio group with arrow-key movement rather than toggle
+buttons, so it composes this control's `group` and `option` styles instead of rendering the component
+(PR-2): the same tinted selection, without a second look.
+
 ### `Select` / `SelectControl` / `EntitySelect`
 
 `Select` is the product's one native select; nothing renders a bare `<select>`. It owns three
@@ -648,8 +679,10 @@ making anything more consistent.
 button height, a second page gap, a second section-heading size. That is the drift this file exists
 to prevent — and it is what to look for in review, rather than the presence of a number.
 
-One part of the rule is absolute and currently holds: **a hex colour lives only in `tokens.css`.**
-There are none anywhere else in `apps/web/src`, and that is worth keeping true.
+One part of the rule is absolute and holds for every stylesheet: **a hex colour lives only in
+`tokens.css`.** The one exception is canvas chart palettes (`features/stocks/details/utils/chart-theme.ts`,
+`features/backtests/utils/chart-theme.ts`), which Lightweight Charts cannot style through CSS custom
+properties; they mirror token values and say so.
 
 The system is deliberately small. It is grouped, and the groups are the whole vocabulary:
 
@@ -658,9 +691,9 @@ The system is deliberately small. It is grouped, and the groups are the whole vo
 | **Surfaces**    | `--color-background` `--color-surface` `--color-background-translucent` `--color-surface-muted` `--color-surface-soft` `--color-surface-selected` `--color-surface-contrast`                                                   |
 | **Text**        | `--color-text-primary` `--color-text-body` `--color-text-secondary` `--color-text-muted` `--color-text-on-primary`                                                                                                             |
 | **Borders**     | `--color-border` `--color-border-strong` `--color-border-subtle`                                                                                                                                                               |
-| **Brand**       | `--color-primary` `--color-primary-hover` `--color-primary-ink` `--color-primary-soft` `--color-primary-soft-hover` `--color-primary-border`                                                                                   |
-| **State**       | `--color-positive[-soft,-border]` `--color-negative[-soft,-hover]` `--color-warning[-soft]`                                                                                                                                    |
-| **Interaction** | `--color-row-hover` `--focus-ring` `--focus-ring-inset`                                                                                                                                                                        |
+| **Brand**       | `--color-primary` `--color-primary-solid` `--color-primary-hover` `--color-primary-ink` `--color-primary-soft` `--color-primary-soft-hover` `--color-primary-border`                                                           |
+| **State**       | `--color-positive[-ink,-soft,-border]` `--color-negative[-ink,-soft,-hover]` `--color-warning[-ink,-soft]`                                                                                                                     |
+| **Interaction** | `--color-row-hover` `--color-focus` `--focus-ring` `--focus-ring-inset`                                                                                                                                                        |
 | **Type**        | `--text-page-title` `--text-page-title-hero` `--text-section-title` `--text-body` `--text-secondary` `--text-small` `--text-label-size` `--text-label-tracking` `--weight-emphasis` `--line-height-body` `--line-height-tight` |
 | **Geometry**    | `--radius-sm` `--radius-md` `--radius-lg` `--radius-hero` `--radius-pill`                                                                                                                                                      |
 | **Elevation**   | `--shadow-surface` `--shadow-hero` `--shadow-menu` `--shadow-dialog`                                                                                                                                                           |
@@ -681,6 +714,21 @@ The four that carry the most meaning:
 | `--shadow-surface`    | `none`. Ordinary surfaces are flat; a soft blue glow under every panel is what made the product read as a marketing page rather than a tool.         |
 | `--radius-hero`       | The large radius, reserved for one screen. Paired with `--shadow-hero`, and only `<SectionCard hero>` may ask for either.                            |
 | `--color-primary-ink` | Brand blue as **ink** on a tint — the FactorSage action treatment, and why `New …` is not a slab of saturated colour.                                |
+
+**Fill and ink (GL-1).** Every colour that appears as text meets WCAG 2.2 AA — 4.5:1 — on every
+product surface, the selected tint included. The brand blue and the three state colours are _fills_:
+lines, rules, sparklines, chart strokes, meters, borders and the dot of a badge, where 3:1 is the
+requirement and their values are the identity. As **words or figures** they always use their ink:
+`--color-primary-ink`, `--color-positive-ink`, `--color-negative-ink`, `--color-warning-ink` — same hue,
+4.6:1 or better on white and on their own soft tint. A fill that carries white text (the primary
+button, a selected segment, a count badge) uses `--color-primary-solid`. Writing
+`color: var(--color-positive)` is the bug this rule exists to prevent.
+
+**Focus (GL-3).** One focus language: `--focus-ring` (a solid 2px ring in `--color-focus` behind a 2px
+surface-coloured gap, 4.6:1) for controls, and `--focus-ring-inset` with `border-color:
+var(--color-focus)` for a field's own border. A component draws it on `:focus-visible` (fields on
+`:focus`); `globals.css` draws the same colour as an outline, at zero specificity, for anything that
+has no treatment of its own. Never `outline: none` without one of the two in its place.
 
 Name a token for what it **means**, not for the feature that first needed it: `--color-positive`,
 never `--monitor-green`. Before adding one, check whether an existing token already means it: the
@@ -711,6 +759,7 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | ----- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | 380px | Topbar search (`AppTopbar`, `StockSearch`)        | below it the field cannot sit beside the brand and account; it collapses to an icon             |
 | 960px | Strategy Builder side column (`ExplanationPanel`) | the editor rows need ~560px beside a 360px logic column; at 880 they would wrap every predicate |
+| 1280–1359px | Backtests Benchmark cell (`BacktestsPage.module.css`) | all nine run columns return at 1,280px a few pixels short of room; the benchmark's return wraps under its chip until 1,360px rather than scrolling the actions out of the card |
 | 560px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it the Metric takes a line and Condition and Value share the next |
 | 440px **container** | Strategy Builder operand picker (`OperandPicker.module.css`, `@container operand-picker`) | the category tiles read four to a row only when the picker itself is this wide; it is as wide as the rule's fields above 600px and the whole screen below it, so its own width decides; below it they read three to a row |
 
