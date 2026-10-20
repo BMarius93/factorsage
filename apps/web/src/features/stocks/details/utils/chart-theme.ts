@@ -1,3 +1,10 @@
+import {
+  SELECTABLE_SERIES_CATALOG,
+  SELECTABLE_SERIES_GROUPS,
+  type SelectableSeriesGroupId,
+  type SelectableSeriesId,
+} from "@intrinsic/contracts";
+
 /**
  * Central chart palette for Stock Details.
  *
@@ -53,9 +60,8 @@ export const CHART_COLORS = {
 /**
  * Overlay hues, ordered so neighbouring entries stay distinguishable.
  *
- * The catalog offers far more selectable series than a chart can carry in permanently distinct,
- * legible hues, so colour is deliberately not a per-series identity. This palette is the single
- * owner of overlay colour; it avoids the brand blue so an overlay is never mistaken for price.
+ * This palette is the single owner of overlay colour; it avoids the brand blue so an overlay is
+ * never mistaken for price. Which series wears which hue is `overlayColors` below.
  */
 export const OVERLAY_PALETTE = [
   "#1e9e78",
@@ -73,15 +79,80 @@ export const OVERLAY_PALETTE = [
 ] as const;
 
 /**
- * Deterministic overlay colour policy.
+ * The order the palette is dealt to the catalog's families, for colour and nothing else: each
+ * family takes the next hues in its own catalog order, wrapping around the palette. Nothing shows
+ * this order — every surface lists series in the catalog's own order.
  *
- * Colour is assigned by an enabled series' position within the currently enabled set, taken in
- * canonical catalog order, so the same selection always paints the same way and the first twelve
- * simultaneous overlays are always distinct. Callers pass the position; they never invent a hue.
+ * There are twice as many series as hues, so every hue has two owners, and this order decides the
+ * pairs. Dealt in it, the series most often drawn together never share one: the three blends,
+ * the seven daily averages and RSI 14D are all distinct; so are all seven intrinsic-value sources;
+ * and `Balanced`, the default selection, keeps the palette's first hue and shares it with only
+ * `SMA 100W`. The catalog's own order would pair `SMA 200D` with `RSI 14D` and `EMA 50D` with
+ * `Balanced`. A record rather than a list, so a new catalog family cannot go undealt.
  */
-export function overlayColorAt(position: number): string {
-  const palette = OVERLAY_PALETTE;
-  return palette[
-    ((position % palette.length) + palette.length) % palette.length
-  ] as string;
+const COLOR_DEALING_RANK: Readonly<Record<SelectableSeriesGroupId, number>> = {
+  INTRINSIC_VALUE_BLENDS: 0,
+  MOVING_AVERAGES_DAILY: 1,
+  MOVING_AVERAGES_WEEKLY: 2,
+  INTRINSIC_VALUE_MODELS: 3,
+  OSCILLATORS: 4,
+};
+
+/** Every catalog series with its own hue, in dealing order — which is also the order of claim. */
+const DEALT_SERIES: readonly {
+  readonly id: SelectableSeriesId;
+  readonly slot: number;
+}[] = [...SELECTABLE_SERIES_GROUPS]
+  .sort((left, right) => COLOR_DEALING_RANK[left] - COLOR_DEALING_RANK[right])
+  .flatMap((group) =>
+    SELECTABLE_SERIES_CATALOG.filter((series) => series.group === group),
+  )
+  .map((series, position) => ({
+    id: series.id,
+    slot: position % OVERLAY_PALETTE.length,
+  }));
+
+const OWN_SLOT = new Map(DEALT_SERIES.map((entry) => [entry.id, entry.slot]));
+
+/** The hue a series always wears unless the one it shares it with is drawn too. */
+export function seriesColor(id: SelectableSeriesId): string {
+  return OVERLAY_PALETTE[OWN_SLOT.get(id) ?? 0] as string;
+}
+
+/**
+ * Deterministic overlay colour policy: colour belongs to the series, not to the selection.
+ *
+ * Every drawn series wears its own hue (`seriesColor`), so turning another series on or off, in
+ * any order, never repaints it. The one exception keeps lines that are on screen together
+ * distinguishable: when two drawn series own the same hue, the one dealt first keeps it and the
+ * other borrows the first hue no drawn series owns. Only more drawn series than hues can repeat
+ * one. Callers pass what is drawn; they never invent a hue.
+ */
+export function overlayColors(
+  drawn: Iterable<SelectableSeriesId>,
+): Map<SelectableSeriesId, string> {
+  const wanted = new Set(drawn);
+  const claimants = DEALT_SERIES.filter((entry) => wanted.has(entry.id));
+  const taken = new Set<number>();
+  const slots = new Map<SelectableSeriesId, number>();
+  const contested: typeof claimants = [];
+  for (const entry of claimants) {
+    if (taken.has(entry.slot)) {
+      contested.push(entry);
+    } else {
+      taken.add(entry.slot);
+      slots.set(entry.id, entry.slot);
+    }
+  }
+  // Only once every drawn series has claimed its own hue, so a borrowed hue is never one that a
+  // series drawn alongside owns.
+  for (const entry of contested) {
+    const free = OVERLAY_PALETTE.findIndex((_hue, slot) => !taken.has(slot));
+    const slot = free === -1 ? entry.slot : free;
+    taken.add(slot);
+    slots.set(entry.id, slot);
+  }
+  return new Map(
+    [...slots].map(([id, slot]) => [id, OVERLAY_PALETTE[slot] as string]),
+  );
 }

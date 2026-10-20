@@ -4,7 +4,14 @@
    keeps the price chart the primary chart instead of shrinking it every time something is added
    underneath. A valuation ratio or fundamental still loading holds its room through its placeholder
    pane (`data-*-space`), so neither the page nor the price pane changes size on the way from one
-   choice to the next. The room is local geometry, not a shared token. */
+   choice to the next. The room is local geometry, not a shared token.
+
+   Each room is its pane's stretch factor in `StockPriceChart.tsx`, in that chart's pixels per
+   stretch unit (about 168 on a wide screen), plus the pane's 1px separator: the pane gets exactly
+   the room it adds, so the price pane stays the same height however many panes are open. A
+   phone's unit is smaller (about 127), so its rooms are a little more than its panes take and the
+   price pane grows slightly with each. Lower panes: about 117px (oscillator) and 126px (valuation,
+   fundamental) wide, 92px and 98px on a phone; all three open, the chart is 812px and 664px. */
 .wrapper {
   --chart-oscillator-room: 0px;
   --chart-valuation-room: 0px;
@@ -18,15 +25,15 @@
 }
 
 .wrapper[data-oscillator-pane="true"] {
-  --chart-oscillator-room: 100px;
+  --chart-oscillator-room: 104px;
 }
 
 .wrapper[data-valuation-space="true"] {
-  --chart-valuation-room: 120px;
+  --chart-valuation-room: 110px;
 }
 
 .wrapper[data-fundamental-space="true"] {
-  --chart-fundamental-room: 120px;
+  --chart-fundamental-room: 110px;
 }
 
 @media (min-width: 880px) {
@@ -38,15 +45,15 @@
   }
 
   .wrapper[data-oscillator-pane="true"] {
-    --chart-oscillator-room: 120px;
+    --chart-oscillator-room: 118px;
   }
 
   .wrapper[data-valuation-space="true"] {
-    --chart-valuation-room: 140px;
+    --chart-valuation-room: 127px;
   }
 
   .wrapper[data-fundamental-space="true"] {
-    --chart-fundamental-room: 140px;
+    --chart-fundamental-room: 127px;
   }
 }
 
@@ -99,6 +106,39 @@
   width: 8px;
   height: 8px;
   border-radius: var(--radius-pill);
+}
+
+/* Lower-pane titles (SD-3): written imperatively, each placed at its pane's top edge by the chart.
+   They sit in the room each pane keeps clear at its top, under the hover readout and the loading
+   state, and never take a pointer event from the chart beneath. */
+.paneTitles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.paneTitle {
+  position: absolute;
+  left: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  /* Clear of the price axis on the right, as the readout is. */
+  max-width: calc(100% - 72px);
+  margin-top: 3px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-background-translucent);
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  line-height: 16px;
+}
+
+.paneTitle .legendDot {
+  width: 7px;
+  height: 7px;
 }
 
 /* Both full-bleed states sit over the plot, so they must stay transparent to pointer events:
