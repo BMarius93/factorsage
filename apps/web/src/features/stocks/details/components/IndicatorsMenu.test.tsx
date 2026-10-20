@@ -72,6 +72,23 @@ function panel() {
   return screen.getByTestId("indicators-panel");
 }
 
+function valuationRadios(): HTMLInputElement[] {
+  return within(within(panel()).getByTestId("valuation-section")).getAllByRole(
+    "radio",
+  ) as HTMLInputElement[];
+}
+
+function fundamentalRadios(): HTMLInputElement[] {
+  return within(
+    within(panel()).getByTestId("fundamentals-section"),
+  ).getAllByRole("radio") as HTMLInputElement[];
+}
+
+/** The visible label of an option row: the text of the label element wrapping the input. */
+function labelOf(input: HTMLInputElement): string {
+  return input.closest("label")?.textContent ?? "";
+}
+
 describe("IndicatorsMenu", () => {
   it("is closed until the trigger is activated and reports the selection count", async () => {
     const user = userEvent.setup();
@@ -180,47 +197,56 @@ describe("IndicatorsMenu", () => {
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
 
-    const legends = [...panel().querySelectorAll("legend")].map(
-      (legend) => legend.textContent,
-    );
+    const legends = [
+      ...panel().querySelectorAll(":scope > div > fieldset > legend"),
+    ].map((legend) => legend.textContent);
     expect(legends).toEqual([
       ...SELECTABLE_SERIES_GROUPED.map((group) => group.label),
       "Valuation",
       "Fundamentals",
     ]);
-    // Single-selects, so they add no checkbox: the overlay count is the catalog's alone.
+    // Radio groups, so they add no checkbox: the overlay count is the catalog's alone.
     expect(within(panel()).getAllByRole("checkbox")).toHaveLength(
       SELECTABLE_SERIES_CATALOG.length,
     );
-    expect(
-      within(panel()).getAllByRole("combobox", { name: "Valuation ratio" }),
-    ).toHaveLength(1);
-    expect(
-      within(panel()).getAllByRole("combobox", { name: "Fundamental metric" }),
-    ).toHaveLength(1);
+    // Exactly two radio groups: None plus the five ratios, None plus the fifteen metrics.
+    const names = new Set(
+      within(panel())
+        .getAllByRole("radio")
+        .map((radio) => (radio as HTMLInputElement).name),
+    );
+    expect(names.size).toBe(2);
+    expect(valuationRadios()).toHaveLength(1 + VALUATION_RATIO_IDS.length);
+    expect(fundamentalRadios()).toHaveLength(1 + FUNDAMENTAL_METRIC_IDS.length);
   });
 
   it("lists the five valuation ratios by their catalog labels, with None first and chosen", async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
-    const select = within(panel()).getByRole("combobox", {
-      name: "Valuation ratio",
-    }) as HTMLSelectElement;
+    const radios = valuationRadios();
 
     // Nothing is chosen, so nothing about a ratio is loaded.
-    expect(select.value).toBe("");
-    expect(select.options[0]?.textContent).toBe("None");
-    // Written out by hand: a sixth ratio added to the catalog reaches this select and fails here,
+    expect(radios[0]?.checked).toBe(true);
+    expect(labelOf(radios[0]!)).toBe("None");
+    // Written out by hand: a sixth ratio added to the catalog reaches this group and fails here,
     // so Stock Details' coverage of it is a deliberate change.
-    expect(
-      [...select.options].slice(1).map((option) => option.textContent),
-    ).toEqual(["P/E", "P/S", "P/B", "P/FCF", "EV/EBITDA"]);
-    expect([...select.options].slice(1).map((option) => option.value)).toEqual([
+    expect(radios.slice(1).map(labelOf)).toEqual([
+      "P/E",
+      "P/S",
+      "P/B",
+      "P/FCF",
+      "EV/EBITDA",
+    ]);
+    expect(radios.slice(1).map((radio) => radio.value)).toEqual([
       ...VALUATION_RATIO_IDS,
     ]);
     // Flat: the ratios have no groups of their own.
-    expect(select.querySelectorAll("optgroup")).toHaveLength(0);
+    expect(
+      within(panel())
+        .getByTestId("valuation-section")
+        .querySelectorAll("fieldset"),
+    ).toHaveLength(0);
   });
 
   it("chooses each catalog ratio by its own identity, never by its label", async () => {
@@ -228,19 +254,21 @@ describe("IndicatorsMenu", () => {
     const chosen = vi.fn();
     render(<Harness onChooseValuation={chosen} />);
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
-    const select = within(panel()).getByRole("combobox", {
-      name: "Valuation ratio",
-    }) as HTMLSelectElement;
 
     for (const entry of VALUATION_RATIO_CATALOG) {
-      const options = [...select.options].filter(
-        (option) => option.value === entry.id,
+      const radios = valuationRadios().filter(
+        (radio) => radio.value === entry.id,
       );
-      expect(options, entry.id).toHaveLength(1);
-      expect(options[0]?.textContent).toBe(entry.label);
-      await user.selectOptions(select, entry.id);
+      expect(radios, entry.id).toHaveLength(1);
+      expect(labelOf(radios[0]!)).toBe(entry.label);
+      await user.click(radios[0]!);
       expect(chosen).toHaveBeenLastCalledWith(entry.id);
-      expect(select.value).toBe(entry.id);
+      // Exactly one checked: choosing another replaced the previous one.
+      expect(
+        valuationRadios()
+          .filter((radio) => radio.checked)
+          .map((radio) => radio.value),
+      ).toEqual([entry.id]);
     }
     expect(chosen).toHaveBeenCalledTimes(VALUATION_RATIO_CATALOG.length);
   });
@@ -252,30 +280,28 @@ describe("IndicatorsMenu", () => {
     render(<Harness onChooseValuation={ratio} onChooseFundamental={metric} />);
     const trigger = screen.getByRole("button", { name: /Indicators/ });
     await user.click(trigger);
-    const valuation = within(panel()).getByRole("combobox", {
-      name: "Valuation ratio",
-    }) as HTMLSelectElement;
-    const fundamental = within(panel()).getByRole("combobox", {
-      name: "Fundamental metric",
-    }) as HTMLSelectElement;
+    const valuation = (id: string) =>
+      valuationRadios().find((radio) => radio.value === id)!;
+    const fundamental = (id: string) =>
+      fundamentalRadios().find((radio) => radio.value === id)!;
 
-    await user.selectOptions(valuation, "PRICE_TO_EARNINGS_TTM");
+    await user.click(valuation("PRICE_TO_EARNINGS_TTM"));
     // Balanced plus the ratio.
     expect(within(trigger).getByText("2")).toBeDefined();
-    await user.selectOptions(valuation, "PRICE_TO_BOOK");
+    await user.click(valuation("PRICE_TO_BOOK"));
     expect(ratio).toHaveBeenLastCalledWith("PRICE_TO_BOOK");
     expect(within(trigger).getByText("2")).toBeDefined();
 
-    await user.selectOptions(fundamental, "ROIC_TTM");
+    await user.click(fundamental("ROIC_TTM"));
     expect(within(trigger).getByText("3")).toBeDefined();
     // Choosing a metric leaves the ratio as it was, and the other way round.
-    expect(valuation.value).toBe("PRICE_TO_BOOK");
-    await user.selectOptions(valuation, "EV_TO_EBITDA_TTM");
-    expect(fundamental.value).toBe("ROIC_TTM");
+    expect(valuation("PRICE_TO_BOOK").checked).toBe(true);
+    await user.click(valuation("EV_TO_EBITDA_TTM"));
+    expect(fundamental("ROIC_TTM").checked).toBe(true);
 
-    await user.selectOptions(valuation, "");
+    await user.click(valuation(""));
     expect(ratio).toHaveBeenLastCalledWith(null);
-    expect(fundamental.value).toBe("ROIC_TTM");
+    expect(fundamental("ROIC_TTM").checked).toBe(true);
     expect(metric).toHaveBeenCalledTimes(1);
     expect(within(trigger).getByText("2")).toBeDefined();
   });
@@ -287,9 +313,8 @@ describe("IndicatorsMenu", () => {
     expect(within(panel()).queryByTestId("valuation-help")).toBeNull();
 
     for (const entry of VALUATION_RATIO_CATALOG) {
-      await user.selectOptions(
-        within(panel()).getByRole("combobox", { name: "Valuation ratio" }),
-        entry.id,
+      await user.click(
+        valuationRadios().find((radio) => radio.value === entry.id)!,
       );
       const help = within(panel()).getByTestId("valuation-help");
       expect(help.textContent).toBe(`${entry.summary}${entry.formula}`);
@@ -298,21 +323,20 @@ describe("IndicatorsMenu", () => {
     expect(panel().textContent).not.toMatch(/split|re-base|generation|basis/i);
   });
 
-  it("lists every metric exactly once, grouped and ordered by the catalog", async () => {
+  it("lists every metric exactly once, grouped and ordered by the catalog, in one radio group", async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
-    const select = within(panel()).getByRole("combobox", {
-      name: "Fundamental metric",
-    }) as HTMLSelectElement;
+    const section = within(panel()).getByTestId("fundamentals-section");
+    const radios = fundamentalRadios();
 
     // "None" first and chosen: nothing is loaded until a metric is.
-    expect(select.value).toBe("");
-    expect(select.options[0]?.textContent).toBe("None");
+    expect(radios[0]?.checked).toBe(true);
+    expect(labelOf(radios[0]!)).toBe("None");
 
-    const groups = [...select.querySelectorAll("optgroup")].map((group) => [
-      group.label,
-      [...group.querySelectorAll("option")].map((option) => option.value),
+    const groups = [...section.querySelectorAll("fieldset")].map((group) => [
+      group.querySelector("legend")?.textContent,
+      [...group.querySelectorAll("input")].map((input) => input.value),
     ]);
     expect(groups).toEqual([
       [
@@ -334,39 +358,40 @@ describe("IndicatorsMenu", () => {
       ["Solvency", ["INTEREST_COVERAGE_TTM"]],
       ["Efficiency", ["ASSET_TURNOVER_TTM"]],
     ]);
-    const offered = [...select.options]
-      .map((option) => option.value)
-      .filter(Boolean);
+    const offered = radios.map((radio) => radio.value).filter(Boolean);
     expect(offered).toHaveLength(FUNDAMENTAL_METRIC_IDS.length);
     expect(new Set(offered)).toEqual(new Set(FUNDAMENTAL_METRIC_IDS));
+    // One choice across every category, never one per category.
+    expect(new Set(radios.map((radio) => radio.name)).size).toBe(1);
   });
 
   it("chooses each catalog metric by its own identity, label and group", async () => {
-    // Exhaustive over the catalog: a metric added to it reaches this select, under its one label and
-    // its own group, and choosing it hands exactly its identity to the page — never a label and never
-    // anything that names how it is stored.
+    // Exhaustive over the catalog: a metric added to it reaches this group, under its one label and
+    // its own category, and choosing it hands exactly its identity to the page — never a label and
+    // never anything that names how it is stored.
     const user = userEvent.setup();
     const chosen = vi.fn();
     render(<Harness onChooseFundamental={chosen} />);
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
-    const select = within(panel()).getByRole("combobox", {
-      name: "Fundamental metric",
-    }) as HTMLSelectElement;
 
     for (const entry of FUNDAMENTAL_METRIC_CATALOG) {
-      const options = [...select.options].filter(
-        (option) => option.value === entry.id,
+      const radios = fundamentalRadios().filter(
+        (radio) => radio.value === entry.id,
       );
-      expect(options, entry.id).toHaveLength(1);
-      const option = options[0] as HTMLOptionElement;
-      expect(option.textContent).toBe(entry.label);
-      expect((option.parentElement as HTMLOptGroupElement).label).toBe(
-        FUNDAMENTAL_METRIC_GROUP_LABELS[entry.group],
-      );
+      expect(radios, entry.id).toHaveLength(1);
+      const radio = radios[0] as HTMLInputElement;
+      expect(labelOf(radio)).toBe(entry.label);
+      expect(
+        radio.closest("fieldset")?.querySelector("legend")?.textContent,
+      ).toBe(FUNDAMENTAL_METRIC_GROUP_LABELS[entry.group]);
 
-      await user.selectOptions(select, entry.id);
+      await user.click(radio);
       expect(chosen).toHaveBeenLastCalledWith(entry.id);
-      expect(select.value).toBe(entry.id);
+      expect(
+        fundamentalRadios()
+          .filter((candidate) => candidate.checked)
+          .map((candidate) => candidate.value),
+      ).toEqual([entry.id]);
     }
     expect(chosen).toHaveBeenCalledTimes(FUNDAMENTAL_METRIC_CATALOG.length);
   });
@@ -377,18 +402,19 @@ describe("IndicatorsMenu", () => {
     render(<Harness onChooseFundamental={chosen} />);
     const trigger = screen.getByRole("button", { name: /Indicators/ });
     await user.click(trigger);
-    const select = within(panel()).getByRole("combobox", {
-      name: "Fundamental metric",
-    });
+    const radio = (id: string) =>
+      fundamentalRadios().find((candidate) => candidate.value === id)!;
 
-    await user.selectOptions(select, "ROIC_TTM");
+    await user.click(radio("ROIC_TTM"));
     // Balanced plus the fundamental.
     expect(within(trigger).getByText("2")).toBeDefined();
-    await user.selectOptions(select, "DEBT_TO_EQUITY");
+    // Another category's metric replaces it: one group across categories.
+    await user.click(radio("DEBT_TO_EQUITY"));
     expect(chosen).toHaveBeenLastCalledWith("DEBT_TO_EQUITY");
+    expect(radio("ROIC_TTM").checked).toBe(false);
     expect(within(trigger).getByText("2")).toBeDefined();
 
-    await user.selectOptions(select, "");
+    await user.click(radio(""));
     expect(chosen).toHaveBeenLastCalledWith(null);
     expect(within(trigger).getByText("1")).toBeDefined();
   });
@@ -399,9 +425,8 @@ describe("IndicatorsMenu", () => {
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
     expect(within(panel()).queryByTestId("fundamental-help")).toBeNull();
 
-    await user.selectOptions(
-      within(panel()).getByRole("combobox", { name: "Fundamental metric" }),
-      "ROIC_TTM",
+    await user.click(
+      fundamentalRadios().find((radio) => radio.value === "ROIC_TTM")!,
     );
     const roic = FUNDAMENTAL_METRIC_CATALOG.find(
       (entry) => entry.id === "ROIC_TTM",
@@ -411,25 +436,43 @@ describe("IndicatorsMenu", () => {
     expect(help.textContent).toContain(roic?.formula);
   });
 
-  it("reaches the valuation and then the fundamental select from the keyboard, after the overlays", async () => {
+  it("reaches each radio group with one Tab after the overlays, and moves through it with the arrow keys", async () => {
     const user = userEvent.setup();
-    render(<Harness initial={[]} />);
+    const ratio = vi.fn();
+    const metric = vi.fn();
+    render(
+      <Harness
+        initial={[]}
+        onChooseValuation={ratio}
+        onChooseFundamental={metric}
+      />,
+    );
     await user.tab();
     await user.keyboard("{Enter}");
-    const valuation = within(panel()).getByRole("combobox", {
-      name: "Valuation ratio",
-    });
-    const fundamental = within(panel()).getByRole("combobox", {
-      name: "Fundamental metric",
-    });
-    // One tab stop per overlay checkbox, then the valuation select, then the fundamental one.
+    // One tab stop per overlay checkbox, then one for the valuation group's checked radio.
     for (let step = 0; step < SELECTABLE_SERIES_CATALOG.length + 1; step += 1) {
       await user.tab();
     }
-    expect(document.activeElement).toBe(valuation);
-    expect(valuation.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.activeElement).toBe(valuationRadios()[0]);
+    expect(
+      within(panel())
+        .getByTestId("valuation-section")
+        .getAttribute("aria-describedby"),
+    ).toBeTruthy();
+    await user.keyboard("{ArrowDown}");
+    expect(ratio).toHaveBeenLastCalledWith("PRICE_TO_EARNINGS_TTM");
+
+    // The next Tab leaves the valuation group for the fundamentals group.
     await user.tab();
-    expect(document.activeElement).toBe(fundamental);
-    expect(fundamental.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.activeElement).toBe(fundamentalRadios()[0]);
+    // The arrow keys cross category headings: the fifteen metrics are one group.
+    for (let step = 0; step < 4; step += 1) {
+      await user.keyboard("{ArrowDown}");
+    }
+    expect(metric).toHaveBeenLastCalledWith("GROSS_MARGIN_TTM");
+    expect(
+      fundamentalRadios().find((radio) => radio.value === "GROSS_MARGIN_TTM")
+        ?.checked,
+    ).toBe(true);
   });
 });

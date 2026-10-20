@@ -1,34 +1,41 @@
 import {
-  MOVING_AVERAGE_SERIES,
+  findSelectableSeries,
+  STOCK_SUMMARY_TECHNICAL_IDS,
   type DailyTechnicalResponse,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { blendSeries, technicalSeries } from "./chart-series";
 import {
   priceVersusAverage,
-  selectLatestTechnicals,
-  TECHNICAL_INDICATORS,
+  TECHNICAL_SUMMARY_SERIES,
+  technicalRows,
 } from "./technicals";
 
-describe("selectLatestTechnicals", () => {
-  it("projects only the indicators present on the newest row, with catalog labels", () => {
-    const snapshot = selectLatestTechnicals([
-      { date: "2026-08-27", sma20d: 100, sma50d: 90 },
-      { date: "2026-08-28", sma20d: 101, ema200d: 80, sma50w: 95 },
+describe("technicalRows", () => {
+  it("states exactly EMA 50D, EMA 200D and RSI 14D, each with its own reading and session", () => {
+    expect(
+      technicalRows([
+        { id: "RSI_14D", date: "2026-08-27", value: 58.4 },
+        { id: "EMA_50D", date: "2026-08-28", value: 220 },
+      ]),
+    ).toEqual([
+      {
+        id: "EMA_50D",
+        label: "EMA 50D",
+        kind: "average",
+        date: "2026-08-28",
+        value: 220,
+      },
+      // No reading in the window: a row that says so, never a zero.
+      { id: "EMA_200D", label: "EMA 200D", kind: "average" },
+      {
+        id: "RSI_14D",
+        label: "RSI 14D",
+        kind: "oscillator",
+        date: "2026-08-27",
+        value: 58.4,
+      },
     ]);
-
-    expect(snapshot?.date).toBe("2026-08-28");
-    // Ordered by the canonical catalog: daily entries first, then weekly.
-    expect(snapshot?.readings).toEqual([
-      { key: "sma20d", label: "SMA 20D", value: 101 },
-      { key: "ema200d", label: "EMA 200D", value: 80 },
-      { key: "sma50w", label: "SMA 50W", value: 95 },
-    ]);
-  });
-
-  it("returns undefined when there are no rows or no warmed-up indicators", () => {
-    expect(selectLatestTechnicals([])).toBeUndefined();
-    expect(selectLatestTechnicals([{ date: "2026-08-28" }])).toBeUndefined();
   });
 });
 
@@ -59,10 +66,12 @@ describe("technicalSeries", () => {
 });
 
 describe("technical summary rows", () => {
-  it("comes from the canonical catalog rather than a second local list", () => {
-    expect(TECHNICAL_INDICATORS).toHaveLength(MOVING_AVERAGE_SERIES.length);
-    expect(TECHNICAL_INDICATORS.map((row) => row.label)).toEqual(
-      MOVING_AVERAGE_SERIES.map((series) => series.label),
+  it("take their identities from the contract and their labels from the canonical catalog", () => {
+    expect(TECHNICAL_SUMMARY_SERIES.map((row) => row.id)).toEqual([
+      ...STOCK_SUMMARY_TECHNICAL_IDS,
+    ]);
+    expect(TECHNICAL_SUMMARY_SERIES.map((row) => row.label)).toEqual(
+      STOCK_SUMMARY_TECHNICAL_IDS.map((id) => findSelectableSeries(id)?.label),
     );
   });
 });
