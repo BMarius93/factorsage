@@ -1,0 +1,247 @@
+/* Market watch: a compact watchlist inside one SectionCard, bounded by the Dashboard's sidebar.
+ *
+ * The surface, heading, caption and scroll region are the shared SectionCard's; this file only
+ * arranges what sits inside it. Every row is one grid line — mark, ticker over market name, the
+ * return, the line — so the four columns align down all three groups without a table. */
+
+/* Passes the sidebar's height bound down to the surface: a flex column that may shrink, so the
+   SectionCard inside gives way and its body scrolls. */
+.watch {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.periods {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 8px;
+  min-width: 0;
+}
+
+.caption {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--line-height-tight);
+}
+
+.groups {
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
+/* The group's name, held at the top of the scroll region while its rows pass under it. */
+.groupTitle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 10px var(--surface-inset) 6px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  line-height: var(--line-height-tight);
+  text-transform: uppercase;
+}
+
+.group + .group .groupTitle {
+  padding-top: 14px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Mark · ticker over name · return · line. The return column is sized for the widest signed value
+   with one decimal; the line has one fixed width, so every line spans the same pixels. */
+.row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) minmax(3.5rem, auto) 64px;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 40px;
+  padding: 4px var(--surface-inset);
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* The fund's mark: one quiet disc for all twenty, so no icon outranks the ticker beside it. */
+.mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+}
+
+.icon {
+  width: 13px;
+  height: 13px;
+}
+
+.identity {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  line-height: var(--line-height-tight);
+}
+
+.tickerLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ticker {
+  flex: none;
+  color: var(--color-text-primary);
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.01em;
+}
+
+/* The market's name gives way with an ellipsis; the whole of it stays in the title. */
+.name {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `As of 7 Oct`, `No data`: a fund that is behind or empty, said in words beside its ticker. */
+.flag {
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flag[data-tone="warning"] {
+  border-color: transparent;
+  background: var(--color-warning-soft);
+  color: var(--color-warning-ink);
+}
+
+.value {
+  color: var(--color-text-primary);
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.value[data-tone="positive"] {
+  color: var(--color-positive-ink);
+}
+
+.value[data-tone="negative"] {
+  color: var(--color-negative-ink);
+}
+
+.value[data-tone="zero"],
+.value[data-tone="unavailable"] {
+  color: var(--color-text-muted);
+}
+
+.trend {
+  display: block;
+  width: 64px;
+  height: 24px;
+}
+
+/* No line for this period: a dashed rule where the line would be, never an empty gap that reads
+   as a rendering fault. */
+.trendEmpty {
+  display: block;
+  height: 100%;
+  background: linear-gradient(
+      to right,
+      var(--color-border-strong) 50%,
+      transparent 50%
+    )
+    center / 6px 1px repeat-x;
+}
+
+.state {
+  padding: 14px var(--surface-inset) var(--surface-inset);
+}
+
+/* ── Auto ─────────────────────────────────────────────────────────────────── */
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.autoState {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+/* A toggle, pressed while Auto is on: the selected tint and ink, as a chosen segment wears them. */
+.autoButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: var(--action-height);
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+
+.autoButton:hover {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+}
+
+.autoButton[data-active="true"] {
+  border-color: var(--color-primary-border);
+  background: var(--color-surface-selected);
+  color: var(--color-primary-ink);
+}
+
+.autoButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.autoIcon {
+  width: 13px;
+  height: 13px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
