@@ -96,6 +96,13 @@ type FakeChart = {
   subscribeCrosshairMove: Mock;
   unsubscribeCrosshairMove: Mock;
   remove: Mock;
+  /**
+   * Whether the pointer is over the chart. While it is, the real library re-fires the crosshair
+   * handlers synchronously from inside `removeSeries`, before the removed series' API is forgotten:
+   * a handler that asks that series for its pane then throws "Value is null".
+   */
+  crosshairActive: boolean;
+  crosshairHandlers: Array<(param: unknown) => void>;
 };
 
 // jsdom cannot rasterize a canvas; the library boundary is mocked and the assertions target the
@@ -177,10 +184,16 @@ vi.mock("lightweight-charts", () => {
                   Object.assign(api.scaleOptions, next);
                 }),
               })),
-              getPane: () =>
-                chart.panesList.find((candidate) =>
+              // The real library asserts the series still has a pane (`ensureNotNull`).
+              getPane: () => {
+                const owner = chart.panesList.find((candidate) =>
                   candidate.series.includes(api),
-                ) as FakePane,
+                );
+                if (!owner) {
+                  throw new Error("Value is null");
+                }
+                return owner;
+              },
             };
             pane.series.push(api);
             chart.addedSeries.push({ definition, options, paneIndex, api });
@@ -202,6 +215,15 @@ vi.mock("lightweight-charts", () => {
             chart.panesList.length > 1
           ) {
             chart.panesList.splice(chart.panesList.indexOf(pane), 1);
+          }
+          if (chart.crosshairActive) {
+            for (const handler of chart.crosshairHandlers) {
+              handler({
+                time: "2026-08-26",
+                point: { x: 10, y: 10 },
+                seriesData: new Map(),
+              });
+            }
           }
         }),
         applyOptions: vi.fn(),
@@ -236,9 +258,17 @@ vi.mock("lightweight-charts", () => {
           chart.panesList[first] = chart.panesList[second] as FakePane;
           chart.panesList[second] = held;
         }),
-        subscribeCrosshairMove: vi.fn(),
-        unsubscribeCrosshairMove: vi.fn(),
+        subscribeCrosshairMove: vi.fn((handler: (param: unknown) => void) => {
+          chart.crosshairHandlers.push(handler);
+        }),
+        unsubscribeCrosshairMove: vi.fn((handler: (param: unknown) => void) => {
+          chart.crosshairHandlers = chart.crosshairHandlers.filter(
+            (candidate) => candidate !== handler,
+          );
+        }),
         remove: vi.fn(),
+        crosshairActive: false,
+        crosshairHandlers: [],
       };
       chart.panesList.push(newPane(false, 300));
       return chart;
@@ -2938,6 +2968,44 @@ describe("StockPriceChart pane titles", () => {
       ["P/E19.1x"],
       ["ROIC TTM21%"],
     ]);
+  });
+
+  // Seen in the browser: hovering the chart while a ratio's history reloaded threw "Value is null".
+  // Removing a series under the pointer re-fires the crosshair inside `removeSeries`, and the
+  // titles asked the removed series for its pane.
+  it("survives series being removed under the pointer, and titles what remains", async () => {
+    const { rerender } = render(
+      chartWith({
+        overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)],
+        valuation: PE,
+        fundamental: ROIC,
+      }),
+    );
+    await nextFrame();
+    const chart = lastChart();
+    chart.crosshairActive = true;
+
+    // The ratio and the metric rebuilt (a reload of their history), then each removed, then the
+    // oscillator removed — every one while the crosshair is on the chart.
+    expect(() =>
+      rerender(
+        chartWith({
+          overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)],
+          valuation: { ...PE, points: [...PE.points] },
+          fundamental: { ...ROIC, points: [...ROIC.points] },
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      rerender(
+        chartWith({ overlays: [rsiOverlay("RSI_14D", "RSI 14D", 0, 54.32)] }),
+      ),
+    ).not.toThrow();
+    expect(() => rerender(chartWith({ overlays: [] }))).not.toThrow();
+
+    chart.crosshairActive = false;
+    await nextFrame();
+    expect(paneTitles().map((title) => title.pane)).toEqual(["volume"]);
   });
 
   it("never shows an older reading as the newest one", async () => {

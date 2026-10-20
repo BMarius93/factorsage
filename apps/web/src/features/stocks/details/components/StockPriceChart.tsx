@@ -256,6 +256,10 @@ function linePaneOf(
  * Removes the lines of a series drawn in a pane of its own and any empty pane holding its place.
  * Removing the last line removes its pane with it, so the next line always opens a fresh pane with
  * a fresh scale; a placeholder carries no series and is removed by index.
+ *
+ * The caller forgets the lines *before* calling this. With the pointer on the chart the library
+ * re-fires the crosshair from inside `removeSeries`, and the pane titles read every ref: a removed
+ * series still held there answers `getPane()` with "Value is null".
  */
 function clearPaneLines(
   chart: IChartApi,
@@ -1174,10 +1178,12 @@ export function StockPriceChart({
         if (oscillatorReferenceRef.current?.owner === series) {
           oscillatorReferenceRef.current = null;
         }
-        chart.removeSeries(series);
+        // Forgotten first: removing a series under the pointer re-fires the crosshair, whose pane
+        // titles must not find it (see `clearPaneLines`).
         existing.delete(id);
         priceScaledOverlaysRef.current.delete(id);
         oscillatorIds.delete(id);
+        chart.removeSeries(series);
       }
     }
     // The pane every oscillator shares: the one an oscillator already occupies, or — for the
@@ -1320,13 +1326,11 @@ export function StockPriceChart({
     // Rebuilt whole whenever the ratio or its loaded history changes, exactly as the fundamental's
     // pane is: a new ratio always starts on a fresh pane and a fresh scale, so nothing of the
     // previous ratio's range or line can survive into the next one.
-    clearPaneLines(
-      chart,
-      valuationSeriesRef.current,
-      valuationPlaceholderRef.current,
-    );
+    const staleValuation = valuationSeriesRef.current;
+    const staleValuationPlaceholder = valuationPlaceholderRef.current;
     valuationSeriesRef.current = [];
     valuationPlaceholderRef.current = null;
+    clearPaneLines(chart, staleValuation, staleValuationPlaceholder);
     if (valuation && valuationStretches.length > 0) {
       valuationSeriesRef.current = drawPaneLines(chart, valuationStretches, {
         color: valuation.color,
@@ -1399,13 +1403,11 @@ export function StockPriceChart({
     // nothing of the previous metric's range, unit or line can survive into the next one. A
     // placeholder only ever holds the place of a metric still loading and never carries a line, so
     // it goes on every run: a line is always drawn on a fresh pane of its own.
-    clearPaneLines(
-      chart,
-      fundamentalSeriesRef.current,
-      fundamentalPlaceholderRef.current,
-    );
+    const staleFundamental = fundamentalSeriesRef.current;
+    const staleFundamentalPlaceholder = fundamentalPlaceholderRef.current;
     fundamentalSeriesRef.current = [];
     fundamentalPlaceholderRef.current = null;
+    clearPaneLines(chart, staleFundamental, staleFundamentalPlaceholder);
     if (fundamental && fundamentalStretches.length > 0) {
       const unit = fundamental.unit;
       fundamentalSeriesRef.current = drawPaneLines(
