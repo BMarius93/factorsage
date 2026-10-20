@@ -58,14 +58,18 @@
   transform: rotate(180deg);
 }
 
+/* Bounded to the viewport and scrolled inside itself, so every family stays reachable without the
+   popover growing past the screen. The scroll region holds the options themselves, so it is
+   reached and scrolled with Tab like any other control. */
 .panel {
   position: absolute;
   z-index: 20;
   inset-inline-end: 0;
   top: calc(100% + 8px);
-  width: min(300px, calc(100vw - 32px));
-  max-height: min(60vh, 420px);
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(60vh, 520px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px 14px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -73,10 +77,42 @@
   box-shadow: var(--shadow-menu);
 }
 
+/* The grid below would otherwise override the `hidden` attribute's own display. */
+.panel[hidden] {
+  display: none;
+}
+
 /* On phones the popover is anchored to the control's start edge so it cannot run off screen. */
 @media (max-width: 599px) {
   .panel {
     inset-inline: 0 auto;
+  }
+}
+
+/* The multi-select overlays, then the two single-choice families. Stacked on a narrow screen; side
+   by side on a wide one, so the radio lists sit beside the checkboxes rather than far below them. */
+.column + .column {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (min-width: 880px) {
+  .panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    width: min(600px, calc(100vw - 64px));
+    max-height: min(60vh, 600px);
+  }
+
+  .column + .column {
+    margin-top: 0;
+    margin-inline-start: 16px;
+    padding-top: 0;
+    padding-inline-start: 16px;
+    border-top: 0;
+    border-inline-start: 1px solid var(--color-border);
   }
 }
 
@@ -141,11 +177,42 @@
   cursor: not-allowed;
 }
 
-.checkbox {
+.checkbox,
+.radio {
+  flex: none;
   width: 15px;
   height: 15px;
+  margin: 0;
   accent-color: var(--color-primary);
   cursor: inherit;
+}
+
+.option:has(.radio:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -1px;
+}
+
+.option:has(.radio:checked) {
+  color: var(--color-text-primary);
+  background: var(--color-surface-selected);
+}
+
+/* A category heading inside the one Fundamentals radio group: a quiet sub-label, not a section. */
+.subgroup {
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.subgroupLabel {
+  padding: 0 6px;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+}
+
+.subgroup .options {
+  margin-top: 2px;
 }
 
 .swatch {
