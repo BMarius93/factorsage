@@ -101,7 +101,13 @@ exempt by WCAG and are not "fixed" by darkening them.
   fuller brand; 1280px wide padding. 880–1,279px is the intermediate band where wide tables fold
   secondary columns (`foldIntermediate`) into a cell they belong to.
 - Component-local breakpoints are allowed only for a component's own content and are listed in
-  `ui-system.md` (Breakpoints).
+  `ui-system.md` (Breakpoints). A table that does not own the page's width — the Dashboard feed
+  beside its sidebar — adapts to its **own column** with a container query, folding secondary
+  columns into the cells they belong to, never to the viewport.
+- Something that must not exist below a breakpoint is **not mounted** there (`useMediaQuery`, server
+  snapshot `false`), not mounted and hidden: hidden components still fetch and run timers. Its
+  space is reserved in CSS at the same query so it appears without a layout shift. The Dashboard's
+  Market watch sidebar exists from 1,280px only.
 - Below 880px a collection is one card per record, same DOM as the table. A feature may arrange its
   own card from the cells' `data-column` attribute (the Dashboard activity card does), but must
   never let the record's identity — a ticker, a name — be what truncates first.
@@ -194,6 +200,12 @@ exempt by WCAG and are not "fixed" by darkening them.
   0–100 range, with margins small enough that the axis never labels a value outside it.
 - Benchmarks and comparison scenarios are visually secondary to the strategy line (the benchmark
   is grey, the Cash scenario dashed). Chart legends and keys use the same names as the KPIs ("SPY").
+- **Sparklines** (`MarketSparkline`) are plain inline SVG, never a chart instance: no axes, no
+  interaction, a fixed width per list, coloured by the return printed beside them, and drawn over
+  exactly that return's window, so line and number cannot disagree.
+- **Self-changing content** (Market watch's period rotation) has a visible pause/resume control,
+  stops while the tab is hidden and while keyboard focus is inside it, starts paused under
+  `prefers-reduced-motion: reduce`, and is never a live region.
 
 ## 10. States
 

@@ -21,6 +21,16 @@ path and the cache (sections 2 to 5) are unchanged; only the catalog's display l
 (section 1). Where an earlier sentence in this document said the Dashboard states something in a
 footnote, it now states it in the contract only.
 
+**Amended 2026-10-20 — Dashboard V2: Market watch (owner).** Monitor activity becomes the Dashboard's
+primary content, and the twenty funds move out of the full-width tables above it into **Market
+watch**, a compact sidebar beside it on a wide desktop only (section 6, rewritten). The sidebar shows
+**one period at a time** — `1W | 1M | 3M | 6M | YTD | 1Y`, rotating every ten seconds — which
+reverses the earlier rejection of a period selector (see _Alternatives rejected_). Because a period's
+line must cover the same window as that period's return, the contract's single one-year `sparkline`
+is replaced by **six period-specific lines**, `sparklines` (sections 2 and 3). The returns, their
+arithmetic, the data path and the cache are unchanged; the lines are built from the same bounded
+read, so a computation costs no additional database or Redis read.
+
 ## Context
 
 The Dashboard opened with five cards: Run Backtest, three index levels and the current match count.
@@ -81,10 +91,19 @@ gate. Its body is replaced (`MarketOverviewResponse` in `@intrinsic/contracts`):
             "YTD": 23.47,
             "1Y": 32.18,
           },
-          "sparkline": {
-            "startDate": "2025-10-09",
-            "endDate": "2026-10-09",
-            "values": [100, 101.2],
+          "sparklines": {
+            // One per period, keyed like `returns`; null wherever the return is null.
+            "1W": {
+              "startDate": "2026-10-02", // the 1W anchor session
+              "endDate": "2026-10-09", // sessionDate
+              "values": [100, 100.21, 99.87, 100.12, 100.3, 100.48],
+            },
+            "1M": {
+              "startDate": "2026-09-09",
+              "endDate": "2026-10-09",
+              "values": [100 /* … */],
+            },
+            // "3M", "6M", "YTD", "1Y" likewise
           },
         },
       ],
@@ -95,13 +114,16 @@ gate. Its body is replaced (`MarketOverviewResponse` in `@intrinsic/contracts`):
 
 - **The ticker is a display field.** It is what a reader recognises; the benchmark code, series id
   and provider symbol behind it never cross the contract.
-- **No price.** A fund's share price is not an index level, so the contract carries returns and a
-  line rebased to 100, and nothing a page could mistake for `S&P 500 = 7,637`.
+- **No price.** A fund's share price is not an index level, so the contract carries returns and
+  lines rebased to 100, and nothing a page could mistake for `S&P 500 = 7,637`.
+- **Every period's line travels with its return.** A surface that shows one period at a time
+  switches the number and the line together from the one response, without another request.
 - **`null` is not zero.** A return the history cannot support is `null`; zero would claim the fund
   did not move.
 - **Unrounded returns.** Rounding is the display's decision (one decimal in the grid, two in the
   accessible description).
-- The response is about 14 KB uncompressed for twenty funds.
+- The response is about 42 KB uncompressed (about 12 KB gzipped) for twenty funds: six lines of at
+  most 48 points each per fund. It was about 14 KB with the single 53-point line.
 
 ### 3. The arithmetic
 
@@ -128,10 +150,24 @@ One pure module, `apps/api/src/market/market-overview.ts`, tested without a data
   from the data, because the exchange calendar is fetched from the provider and the overview may not
   ask it. A fund behind it is `STALE` and keeps its own `sessionDate`, to which its returns are
   measured. A fund with no completed session is `UNAVAILABLE`.
-- **The trend line** samples the session on or before each of the last 52 weekly steps back from
-  the latest session, prepends the `1Y` anchor session, and rebases to 100: 53 points whose
-  first-to-last change is the `1Y` return. A shorter history starts at its first session; fewer than
-  two points draw nothing.
+- **The trend lines** (`buildPeriodSparkline`). Each period's line is every stored session from
+  **that period's anchor session** — the very session its return is measured from — through the
+  latest completed session, rebased to 100 at the anchor. Its first-to-last change is therefore the
+  period's return (to the line's two decimals), and its direction can never contradict the number
+  beside it. `YTD` starts on the previous year's last session, as its return does.
+  - **Real sessions only.** Every point is a stored close in session order; a weekend or holiday is
+    not a point, and nothing is interpolated.
+  - **Daily where it matters.** A window of at most 48 sessions — every `1W` (about 6) and `1M`
+    (about 22) window — is sent whole, one point per daily close; a weekly sample could not draw a
+    week.
+  - **Bounded beyond.** `3M`, `6M`, `YTD` and `1Y` windows (about 63 to 253 sessions) are thinned to
+    48 sessions by Largest-Triangle-Three-Buckets (`thinSessions`): deterministic, it keeps the first
+    and last session (the true period endpoints) and, from each of 46 equal runs between them, the
+    session that best preserves the line's turns — selecting stored closes, never averaging them.
+  - **Null with its return**, and **null across a gap**: a period whose return is `null` has no
+    line, and neither does one whose window holds a day the stored coverage does not — a line drawn
+    through the hole would show a shape the market never made. The return, whose two endpoints are
+    sound, is unaffected. Fewer than two sessions draw nothing.
 
 ### 4. Where the numbers come from
 
@@ -180,53 +216,68 @@ allow. `Cache-Control: private, max-age=60` — the body is everybody's, but the
 caller's own rate-limit headers, which a shared cache must not hand to someone else. The route moved
 from `stock-read` to `standard-read`: it no longer hydrates anything.
 
-### 6. The Dashboard
+### 6. The Dashboard — Market watch (2026-10-20)
 
-Order: the market overview, then Current matches — unchanged in every behaviour. Nothing stands
-above the overview. The three index cards and the VIX gauge are removed from the web app, and so is
-the whole opening strip: its `Run Backtest` card, because a backtest is started from the Backtests
-area or from the List, Strategy or Monitor it is about, and its Current matches count, because the
-section that lists the matches already counts them on its filters.
+Monitor activity is the page; the funds are a compact sidebar beside it. (The 2026-10-12 composition
+— two columns of eight-column tables above the feed on a desktop, category cards on a phone — is
+retired whole; it is in this file's history.)
 
-The overview exists to be read at a glance and then got past, so it is as short as twenty funds
-allow — 378px on a desktop — and Current matches, its first row included, is on the first screen of
-a 1,440 × 900 display.
-
-- **One table, three times.** From 880px every group is the same eight columns in this order —
-  `Market | 1W | 1M | 3M | 6M | YTD | 1Y | Chart 1Y` — with one 30px line per fund. `Market` is the
-  market's name with the ticker after it in a quieter voice, on that one line; a name too long for
-  its column ends in an ellipsis and never wraps. The six period headings double as sort buttons
-  (strongest first; a second click restores the catalog order). `Chart 1Y` is the trailing-year
-  trend line, inside the row's height.
-- **≥ 1,280px** — two columns. Benchmarks over Macro & Alternatives on the left, Sector Performance
-  on the right, and the two columns **start and end on the same lines**. Sector Performance spans
-  both rows of the left column in one grid, so that holds whatever the groups contain; at the
-  chosen geometry it also holds with nothing stretched, because a second card's title, heading row
-  and border plus the gap come to exactly two rows (24 + 22 + 2 + 12 = 2 × 30). If they ever do
-  not, the difference is shared among the shorter column's rows, never left as space under it.
-  Between 1,280px and 1,439px the table steps down one type size and draws a shorter line, so the
-  longest name still fits.
-- **880–1,279px** — the same three tables, one under another across the page: half of that page
-  cannot hold eight columns.
-- **< 880px** — a category selector (`Benchmarks / Sectors / Macro`, a choice of group, never of
-  period) and a native sort select; one compact card per fund with the market and its ticker on one
-  line and the six returns as a labelled 3 × 2 grid. No trend line on a card. No horizontal
-  scrolling.
-- **No heading and no explanation.** The section has no title — its tables, or on a phone its
-  category selector, are the first thing on the page — and prints nothing about its numbers: no
-  as-of subtitle, no methodology paragraph, no footnotes. It remains a named region for assistive
-  technology, and each group's title is a heading at the level of the Dashboard's other sections.
-  The numbers remain end-of-day price returns, and the contract still says so (`basis`,
-  `returnBasis`, `asOf`, `note`); nothing on the page may describe them as live.
-- **States** — a skeleton with the final layout's geometry (no shift), a clean unavailable panel
-  when nothing has data, an error panel with retry, a `STALE` pill with the fund's own date, a
-  `No data` pill, `—` for an unavailable return (announced as "not available"), `0.0%` for zero.
-- Signed returns use `+` and a true minus sign (U+2212), tabular figures and the financial-state
-  tokens; the trend line's colour follows the `1Y` return and it is announced in words.
+- **≥ 1,280px — two columns.** Monitor activity on the left (about 72%), **Market watch** on the
+  right (`clamp(20rem, 28%, 26rem)`: 336px at 1,280px, 416px from about 1,600px). The sidebar is
+  sticky under the topbar and never taller than the screen below it; its list scrolls inside the
+  surface (a named, focusable region), and at either end the wheel passes back to the page. At the
+  foot of the page it travels up with the grid, never over the footer.
+- **< 1,280px — no Market watch at all.** Not rendered, not hidden: the component is **not mounted**
+  (`useMediaQuery("(min-width: 1280px)")`, whose server snapshot is `false`, so server and hydrating
+  client agree and Market watch mounts right after hydration on a wide desktop). Below the
+  breakpoint it therefore makes no request and starts no timer, and nothing replaces it — no card,
+  no selector, no placeholder. The grid reserves the sidebar's track in CSS at the same query, so
+  the feed does not move when Market watch appears. Crossing the breakpoint mounts or unmounts it,
+  aborting a read still in flight and clearing its timer.
+- **The feed adapts to its own column.** Beside the sidebar a 1,280–1,440px screen gives the feed
+  about 840–955px — less than the intermediate band. Its table therefore follows a **container**
+  query on its own column (`dashboard-main`, below 62rem), not the viewport: the Session column
+  folds under the signal, the Monitor column under the reason (with its label), the badges stack and
+  the cells close up. Every fact stays, shown once, with no sideways scroll. The same fold also
+  removes the scroll the six-column table had from 880px to about 1,030px.
+- **Market watch.** One `SectionCard`: title and Auto control, the period selector
+  (`SegmentedControl`, compact, `1W | 1M | 3M | 6M | YTD | 1Y`), a caption naming the period and the
+  close it is measured to (`1-month return · At close · Oct 9, 2026`), then the three groups in the
+  API's order with their twenty rows. Each row is one grid line: a small local line icon for what the
+  fund tracks (decorative, hidden from assistive technology), the ticker over the market's name, the
+  period's return (right-aligned, tabular, signed, ink tokens), and the period's line (plain SVG,
+  fixed width, coloured by the same return). Group names stay sticky while their rows scroll. A
+  period change changes numbers and lines, never order.
+- **One period, one timer.** The period is one piece of state for the whole list; Auto advances it
+  every ten seconds, `1W → 1M → 3M → 6M → YTD → 1Y → 1W`, with one `setTimeout` re-armed on each
+  change. Choosing a period pauses Auto (`Paused` beside the control); the Auto toggle resumes it
+  with a full interval. Rotation stops while the tab is hidden and while keyboard focus is inside
+  the sidebar, and starts **paused** for a reader who prefers reduced motion. Nothing is a live
+  region, so nothing is announced as it rotates. Changing the period — by hand or by Auto — makes
+  no request.
+- **Isolation.** Market watch has its own request (`useMarketOverview`), its own failure states and
+  an error boundary; it is memoised, so the feed's refreshes do not re-render it, and its rotation
+  does not re-render the feed. A Market watch failure never blanks the Dashboard.
+- **States** — a skeleton of the final geometry, an error panel with retry, a clean unavailable
+  panel, a `STALE` pill with the fund's own date, a `No data` pill, `—` for an unavailable return
+  (announced "not available") with a dashed rule where its line would be.
+- Guests see exactly what a signed-in customer sees in Market watch, and on a phone go straight to
+  the published built-in Monitor activity with the sign-in notice above it.
 
 ## Alternatives rejected
 
-- **A period selector.** It would hide five of the six answers the overview exists to compare.
+- **A period selector** — rejected for the full-width overview, because it would hide five of the
+  six answers the overview existed to compare; **adopted** for Market watch (2026-10-20), where a
+  sidebar a third of the width cannot hold six columns and the owner chose one rotating period over
+  six cramped ones.
+- **Relabelling the one-year line for every period.** A 53-point weekly series cannot draw a week,
+  and a line that does not span its return's window can point the other way from the number beside
+  it.
+- **Six reads, or one per fund, when the period changes** — or a client-side recomputation from a
+  history. The six lines are prepared once per computation from the read the returns already make,
+  so a period change is state only.
+- **Rendering Market watch below 1,280px and hiding it with CSS** — it would still fetch, rotate and
+  re-render on every phone.
 - **Three groups side by side.** It forced a two-line row — eight columns do not fit a third of a
   1,280px page — and two lines per fund made the overview a screen tall. Two columns hold the
   eight-column single-line row. (The original decision chose the opposite; the 2026-10-12 amendment
@@ -243,7 +294,10 @@ a 1,440 × 900 display.
 
 The web app and the API change the contract together: a new web build against an old API — or the
 reverse — renders the market overview's error state (the Current matches section is unaffected).
-Deploy API and web in the same release, or the API first and the web immediately after. Nothing in
+Deploy API and web in the same release, or the API first and the web immediately after. The
+2026-10-20 `sparkline` → `sparklines` change follows the same rule: a Market watch build against an
+API without `sparklines` shows its error state and Monitor activity is unaffected; an older web build
+against the new API simply draws no one-year line. Nothing in
 the database changes. Before the production ETF bootstrap of PR 1 runs, the overview reports every
 fund unavailable and renders its empty state.
 

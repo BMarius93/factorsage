@@ -144,34 +144,29 @@ behaviour, that is the point to generalise, with the shared thing modelling save
 New Backtest must use this phone action bar. Its summary should describe the current configuration
 or allocation state, never V1 credits.
 
-### The Dashboard market overview
+### The Dashboard: Monitor activity and Market watch
 
-The Dashboard opens with the ETF market overview and continues with the Monitor activity feed.
-Nothing stands above the overview: no opening strip, no summary card and no section heading. V1's
-five-card row (`Run Backtest · S&P 500 · DJIA · VIX · Real-time Matches`) is retired whole. The
-market overview (`docs/decisions/etf-market-overview-v1.md`) answers what its three index cards
-gestured at, across twenty funds and six periods; a backtest starts from the Backtests area or from
-the List, Strategy or Monitor it is about; and what monitors observe is listed in the Monitor
-activity feed under it. The overview is a feature-owned composition on the page canvas, not a
-`SectionCard`.
+The Dashboard is the Monitor activity feed. From 1,280px a compact **Market watch** sidebar sits
+beside it (`docs/decisions/etf-market-overview-v1.md` §6); below 1,280px there is no market section
+at all — the feed takes the page. Nothing stands above the feed but a Guest's sign-in notice: no
+opening strip, no summary card. V1's five-card row (`Run Backtest · S&P 500 · DJIA · VIX ·
+Real-time Matches`) is retired whole, and so is the full-width overview of eight-column tables that
+followed it: a backtest starts from the Backtests area or from the List, Strategy or Monitor it is
+about, and what monitors observe is the page's subject.
 
 - **flat, not elevated.** V1 gives each card a soft drop shadow. V2 surfaces use `--shadow-surface`
-  (`none`), because a glow under every panel is the single loudest thing that made V2 read as a
-  different product.
-- **short, so the matches are on the first screen.** The overview is its tables and nothing that
-  introduces or explains them: no title, no subtitle, no methodology, no footnote. Its numbers are
-  still end-of-day price returns — the contract says so — and nothing on the Dashboard says `24h`
-  or live.
-- **one table, three times, on a desktop; purpose-built on a phone.** Every group is the same eight
-  columns — `Market`, the six returns under sortable period headings, `Chart 1Y` — one 30px line per
-  fund, the market named first and its ticker beside it. From 1,280px they stand in two columns that
-  start and end on the same lines: Benchmarks over Macro & Alternatives, beside Sector Performance.
-  From 880px to 1,279px the three run one under another. Below 880px a category selector and one
-  compact card per fund — name and ticker on one line, a labelled 3 × 2 return grid, no trend line —
-  never a squeezed table.
+  (`none`); Market watch is one ordinary `SectionCard`, never a stack of fund cards.
+- **a watchlist, not a dashboard of charts.** Twenty compact grid rows in three groups — a small
+  local icon, ticker over the market's name, one period's return, one 64px line — one period for the
+  whole list at a time, from a compact `1W | 1M | 3M | 6M | YTD | 1Y` selector that Auto rotates
+  every ten seconds. Its numbers are end-of-day price returns; nothing on the Dashboard says `24h` or
+  live.
+- **subordinate.** About a quarter of the content width, sticky and bounded to the screen, its list
+  scrolling inside it. The feed's table adapts to the column it is left (a container query), folding
+  Session and Monitor into the cells they belong to rather than scrolling sideways.
 
-Do not put a summary card, a `Run Backtest` card or a heading back above the overview, and do not
-let either column of it end short of the other.
+Do not put a summary card, a `Run Backtest` card or a market section back above the feed, and do not
+show Market watch, or anything in its place, below 1,280px.
 
 ## Visual tokens and elevation
 
