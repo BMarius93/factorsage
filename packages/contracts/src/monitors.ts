@@ -411,6 +411,27 @@ export type MonitorDetailResponse = MonitorSummaryResponse & {
   coverage?: MonitorCoverageResponse;
 };
 
+/** How a Monitor's current members stand, counted: what its page shows of them. */
+export type MonitorMemberCountsResponse = {
+  /** Every current member of the Monitor's Stock List. */
+  total: number;
+  /** How many of them are in each status; every status is present, zero included. */
+  byStatus: Record<MonitorSecurityStatus, number>;
+};
+
+/**
+ * `GET /monitors/:monitorId?view=summary`: the Monitor's page as it renders, without the two
+ * lists it never shows — every member's row (hundreds for an index universe) and the newest
+ * Signals (the page reads its Signal table a page at a time) — and with the members counted
+ * instead. Everything else is the full detail's, exactly.
+ */
+export type MonitorDetailSummaryResponse = Omit<
+  MonitorDetailResponse,
+  "securities" | "signals"
+> & {
+  memberCounts: MonitorMemberCountsResponse;
+};
+
 export type CreateMonitorRequest = {
   name: string;
   strategyId: string;

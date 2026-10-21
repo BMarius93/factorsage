@@ -25,6 +25,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { ContentViewer } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
+import { visibleMonitorWhere } from "../monitors/monitor-visibility";
 import { monitorStateSince } from "../monitors/signal-since";
 import {
   decodeCursor,
@@ -51,6 +52,14 @@ export class InvalidActivityCursorError extends Error {
   constructor() {
     super("Invalid activity cursor");
     this.name = "InvalidActivityCursorError";
+  }
+}
+
+/** A Monitor whose Activity history was asked for does not exist or is not the viewer's to read. */
+export class MonitorActivityNotFoundError extends Error {
+  constructor() {
+    super("Monitor not found");
+    this.name = "MonitorActivityNotFoundError";
   }
 }
 
@@ -482,6 +491,37 @@ export class DashboardService {
           ? [query.monitorId]
           : [];
     return this.readActivity(viewer, visible, monitorIds, query, now);
+  }
+
+  /**
+   * One Monitor's own Activity history (`GET /monitors/:monitorId/activity`): the Dashboard feed's
+   * events, pages, cursors and `through` re-reads, over that Monitor alone — the same events, the
+   * same order, no second event model.
+   *
+   * Readable exactly where the Monitor's own page is (`visibleMonitorWhere`): its owner's, enabled
+   * or not, and a published built-in, hidden from this viewer's Dashboard or not. The Dashboard
+   * shows what a viewer chose to follow; a Monitor's page shows its whole history.
+   */
+  async getMonitorActivity(
+    viewer: ContentViewer,
+    monitorId: string,
+    query: Omit<ActivityQuery, "monitorId">,
+  ): Promise<DashboardActivityResponse> {
+    const now = this.now();
+    const monitor = await this.prisma.monitor.findFirst({
+      where: { id: monitorId, ...visibleMonitorWhere(viewer) },
+      select: ACTIVITY_MONITOR_SELECT,
+    });
+    if (!monitor) {
+      throw new MonitorActivityNotFoundError();
+    }
+    return this.readActivity(
+      viewer,
+      new Map([[monitor.id, monitor]]),
+      [monitor.id],
+      { ...query, monitorId },
+      now,
+    );
   }
 
   /**

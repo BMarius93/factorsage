@@ -4,6 +4,7 @@ import {
   STRATEGY_SCHEMA_VERSION,
   type DashboardActivityResponse,
   type MonitorDetailResponse,
+  type MonitorDetailSummaryResponse,
   type MonitorSignalPageResponse,
 } from "@intrinsic/contracts";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -765,6 +766,154 @@ describe("Monitor history read models", () => {
         });
       }
     });
+  });
+
+  describe("a Monitor's own Activity history", () => {
+    const history = async (
+      agent: ReturnType<typeof request.agent> | ReturnType<typeof request>,
+      monitorId: string,
+      query = "",
+    ) =>
+      (await agent.get(`/monitors/${monitorId}/activity${query}`).expect(200))
+        .body as DashboardActivityResponse;
+
+    it("is the Dashboard feed narrowed to that Monitor: the same events, in the same order", async () => {
+      const builtIn = await history(guest, ids.builtIn);
+      const narrowed = (
+        await guest
+          .get(`/dashboard/activity?monitorId=${ids.builtIn}`)
+          .expect(200)
+      ).body as DashboardActivityResponse;
+      expect(builtIn.events).toEqual(narrowed.events);
+      expect(builtIn.events.length).toBeGreaterThan(0);
+
+      const own = await history(owner, ids.own);
+      expect(own.events.every((event) => event.monitor.id === ids.own)).toBe(
+        true,
+      );
+      const ownNarrowed = (
+        await owner.get(`/dashboard/activity?monitorId=${ids.own}`).expect(200)
+      ).body as DashboardActivityResponse;
+      expect(own.events).toEqual(ownNarrowed.events);
+    });
+
+    it("keeps a Monitor's history on its own page when the Dashboard does not show it", async () => {
+      const before = await history(owner, ids.builtIn);
+      // Hidden from this viewer's Dashboard: gone from the feed, still on the Monitor's page.
+      await owner
+        .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
+        .send({ visible: false })
+        .expect(200);
+      try {
+        const feed = (
+          await owner
+            .get(`/dashboard/activity?monitorId=${ids.builtIn}`)
+            .expect(200)
+        ).body as DashboardActivityResponse;
+        expect(feed.events).toEqual([]);
+        expect((await history(owner, ids.builtIn)).events).toEqual(
+          before.events,
+        );
+      } finally {
+        await owner
+          .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
+          .send({ visible: true })
+          .expect(200);
+      }
+
+      // Switched off by its owner: no longer on the Dashboard, its history still its own.
+      const ownBefore = await history(owner, ids.own);
+      await prisma.monitor.update({
+        where: { id: ids.own },
+        data: { enabled: false },
+      });
+      try {
+        const feed = (
+          await owner
+            .get(`/dashboard/activity?monitorId=${ids.own}`)
+            .expect(200)
+        ).body as DashboardActivityResponse;
+        expect(feed.events).toEqual([]);
+        expect((await history(owner, ids.own)).events).toEqual(
+          ownBefore.events,
+        );
+      } finally {
+        await prisma.monitor.update({
+          where: { id: ids.own },
+          data: { enabled: true },
+        });
+      }
+    });
+
+    it("is visible exactly where the Monitor is", async () => {
+      await guest.get(`/monitors/${ids.own}/activity`).expect(404);
+      await other.get(`/monitors/${ids.own}/activity`).expect(404);
+      await owner.get(`/monitors/${randomUUID()}/activity`).expect(404);
+      await owner.get(`/monitors/${ids.own}/activity`).expect(200);
+      await other.get(`/monitors/${ids.builtIn}/activity`).expect(200);
+    });
+
+    it("pages with the feed's own cursors, and takes no Monitor filter of its own", async () => {
+      const all = await history(guest, ids.builtIn);
+      const first = await history(guest, ids.builtIn, "?limit=1");
+      expect(first.events).toEqual(all.events.slice(0, 1));
+      expect(first.nextCursor).toBeTruthy();
+      const second = await history(
+        guest,
+        ids.builtIn,
+        `?limit=1&cursor=${encodeURIComponent(first.nextCursor!)}`,
+      );
+      expect(second.events).toEqual(all.events.slice(1, 2));
+      // `through` re-reads the range held, as on the Dashboard.
+      const through = await history(
+        guest,
+        ids.builtIn,
+        `?through=${second.events[0]!.id}`,
+      );
+      expect(through.events).toEqual(all.events.slice(0, 2));
+      const kind = await history(guest, ids.builtIn, "?kind=RESOLVED");
+      expect(kind.events.every((event) => event.kind === "RESOLVED")).toBe(
+        true,
+      );
+
+      await guest
+        .get(`/monitors/${ids.builtIn}/activity?monitorId=${ids.own}`)
+        .expect(400);
+      await guest
+        .get(`/monitors/${ids.builtIn}/activity?cursor=not-a-cursor`)
+        .expect(400);
+    });
+  });
+
+  it("answers the page as it renders with ?view=summary: members counted, no member rows or Signals", async () => {
+    const full = (await guest.get(`/monitors/${ids.builtIn}`).expect(200))
+      .body as MonitorDetailResponse;
+    const summary = (
+      await guest.get(`/monitors/${ids.builtIn}?view=summary`).expect(200)
+    ).body as MonitorDetailSummaryResponse;
+
+    expect(summary).not.toHaveProperty("securities");
+    expect(summary).not.toHaveProperty("signals");
+    expect(summary.memberCounts.total).toBe(full.securities.length);
+    const counted: Record<string, number> = {};
+    for (const entry of full.securities) {
+      counted[entry.status] = (counted[entry.status] ?? 0) + 1;
+    }
+    for (const [status, count] of Object.entries(
+      summary.memberCounts.byStatus,
+    )) {
+      expect(count, status).toBe(counted[status] ?? 0);
+    }
+    // Everything else is the full detail's, exactly.
+    const without = <T extends object>(value: T, keys: readonly string[]) =>
+      Object.fromEntries(
+        Object.entries(value).filter(([key]) => !keys.includes(key)),
+      );
+    expect(without(summary, ["memberCounts"])).toEqual(
+      without(full, ["securities", "signals"]),
+    );
+    // Visible exactly where the full detail is.
+    await guest.get(`/monitors/${ids.own}?view=summary`).expect(404);
   });
 
   describe("the Monitor's Signal table", () => {
