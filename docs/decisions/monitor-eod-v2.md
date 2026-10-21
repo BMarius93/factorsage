@@ -449,37 +449,45 @@ replaced by **Monitor activity**, read from `GET /dashboard/activity` (§6.1). S
 amendments of `docs/decisions/etf-market-overview-v1.md` (2026-10-20, 2026-10-21) Monitor activity is
 the page and the market is a Market watch sidebar flush beside it from 1,280px.
 
-The feed (Dashboard V2, 2026-10-21) is a borderless table of events grouped under one heading per
-exchange session (`October 20, 2026`, from the event's own `sessionDate`, never the viewer's
-calendar), newest first, each heading sticking under the panel's heading while its events scroll and
-written once even when "Show older activity" continues its session. Three columns:
+The feed (Dashboard V2, 2026-10-21) is a table of events inside one **Monitor activity card** — the
+product's ordinary card (radius, border, white surface, padding) on the page's light canvas, holding
+the heading, the filters, every session and the disclosure; events are rows of it, never cards of
+their own. They are grouped under one heading per exchange session (`October 20, 2026`, from the
+event's own `sessionDate`, never the viewer's calendar), newest first, each heading sticking under
+the card's heading while its events scroll and written once even when "Show older activity"
+continues its session. Four columns, aligned across rows of any height:
 
 - **Stock** — the mark, ticker and company name, linked to Stock Details (a click anywhere on the
   row that is not a control follows it);
 - **Signal** — the level in its tone's ink without its step (`Buy`, `Sell`, `Final exit`; the step
   stays the event's own, `data-level-index`, and two steps are always two rows), the event's state
   beside it (`● Activated`, `○ Ended` — read from `kind`, never from the level or a colour; an
-  ending is not drawn as a loss), the Monitor that observed it under them, linked to its page, and a
-  quiet `Intraday quote` on an occurrence the live-quote Monitor recorded;
+  ending is not drawn as a loss), and a quiet `Intraday quote` on an occurrence the live-quote
+  Monitor recorded;
 - **Conditions** — every predicate of the Why, always visible, one per line in the Strategy's own
   order: ✓ held, ✕ did not hold, – could not be decided (never drawn as a failure), the canonical
   description, and the operands compared as arithmetic (`42.50 < 55.00`, a Trigger's move
   `99.50 → 102.50 > 101.00`, `n/a` where an operand did not resolve, `vs` where a relation would
-  mislead). `and` joins a signal's predicates in a reserved gutter; a FINAL EXIT's Exit Rules sit
-  under their labels joined by `or`. A row grows with its conditions and nothing caps it; where the
-  column is narrow the values move under their expression. A `RULE_ONLY` Why shows its wording and
-  says values were not recorded.
+  mislead). A signal's predicates are all required, so they are listed with no `AND` between them;
+  a FINAL EXIT's Exit Rules — alternatives — sit indented under their labels joined by `or`, so the
+  Boolean structure is never flattened. The expression is the line's primary text; the operands
+  follow it smaller, in the muted ink and never bold, on the same line where they fit and under the
+  expression where the column is narrow; the Trigger keeps a small muted `Trigger` label. A row
+  grows with its conditions and nothing caps it. A `RULE_ONLY` Why shows its wording and says values
+  were not recorded;
+- **Monitor** — last, the name of the Monitor that observed the event as a quiet link to its page
+  (`/monitors/{id}`), wrapping inside its column when long; no chip.
 
-There is no Price or Monitor column: the activation price is the Signal table's to show, and a price
-appears in the feed only where a condition compared it. Two dropdowns beside the panel's heading —
+There is no Price column: the activation price is the Signal table's to show, and a price appears in
+the feed only where a condition compared it. Two dropdowns beside the card's heading —
 **Monitor** (`All monitors` or one shown Monitor, by id) and **Event** (`All events`, `Activated`,
 `Ended`) — combine and are applied by the API, so every page, cursor and count is of the filtered
 history; a filter that matches nothing says so and offers **Clear filters**. 15 events open it,
 "Show older activity" appends the next keyset page, and the newest page is re-read on the
 Dashboard's 60-second timer unless older pages are open (DB-2). The freshness fact ("Updated 3 min
 ago") stays beside the heading. Below 40rem of its own column the feed stacks each event — stock and
-signal on one line, every condition under them — and Market watch is not mounted. Nothing is called
-live.
+signal on one line, every condition under them, the Monitor's link last under a small `Monitor`
+label — and Market watch is not mounted. Nothing is called live.
 
 **Monitor page.** The per-stock "Monitored stocks" table and the newest-100 "Recent signals" list
 are replaced by one **Signals** section:

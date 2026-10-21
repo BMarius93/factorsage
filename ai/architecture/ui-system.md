@@ -329,9 +329,9 @@ it *less* room than the intermediate band does. It is not a `DataTable` — it g
 market-session headings, which `DataTable` does not do — but it follows the same rules: explicit
 table roles, one column template for every row (a grid, so a session's sticky heading leaves with
 its last event), and a `dashboard-feed` **container** on its column. From 40rem of that column it is
-three columns — Stock, Signal, Conditions — whose widths scale with the column; below it each event
-stacks (stock and signal on one line, every condition under them) with the column headings visually
-hidden. Nothing in it folds away and nothing scrolls sideways; a row grows with its conditions.
+four columns — Stock, Signal, Conditions, Monitor — whose widths scale with the column; below it each
+event stacks (stock and signal on one line, every condition under them, the Monitor last under its
+own small label) with the column headings visually hidden. Nothing in it folds away and nothing scrolls sideways; a row grows with its conditions.
 
 **One row of pills on a phone card.** Each `links` cell is a full-width row of the phone card with
 a label beside its chip. Where the chips say enough on their own, and three labelled rows would cost
@@ -802,8 +802,7 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | 1280–1359px | Backtests Benchmark cell (`BacktestsPage.module.css`) | all nine run columns return at 1,280px a few pixels short of room; the benchmark's return wraps under its chip until 1,360px rather than scrolling the actions out of the card |
 | 560px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it the Metric takes a line and Condition and Value share the next |
 | 440px **container** | Strategy Builder operand picker (`OperandPicker.module.css`, `@container operand-picker`) | the category tiles read four to a row only when the picker itself is this wide; it is as wide as the rule's fields above 600px and the whole screen below it, so its own width decides; below it they read three to a row |
-| 40rem **container** | Dashboard activity feed (`ActivityFeed.module.css`, `@container dashboard-feed`) | Stock, Signal and Conditions stand side by side only when the feed's own column is this wide; beside Market watch a 1,280px screen leaves it about 57rem and a phone far less, so the column decides; below it each event stacks |
-| 26rem **container** | Dashboard event conditions (`ActivityConditions.module.css`, `@container conditions`) | a condition's values sit on its line only when the conditions cell is this wide; below it they move under their expression rather than squeeze it |
+| 40rem **container** | Dashboard activity feed (`ActivityFeed.module.css`, `@container dashboard-feed`) | Stock, Signal, Conditions and Monitor stand side by side only when the feed's own column is this wide; beside Market watch a 1,280px screen leaves it about 57rem and a phone far less, so the column decides; below it each event stacks |
 | 1280px **mount** | Dashboard Market watch (`DashboardPage.tsx`, `useMediaQuery`) | not a style switch: below it the sidebar is not mounted at all (no request, no timer); the grid reserves its track at the same query so nothing shifts when it mounts after hydration |
 
 Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's

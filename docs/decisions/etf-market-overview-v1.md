@@ -231,7 +231,8 @@ Monitor activity is the page; the funds are a compact sidebar beside it. (The 20
 — two columns of eight-column tables above the feed on a desktop, category cards on a phone — and the
 2026-10-20 card composition with its Auto toggle are retired; they are in this file's history.)
 
-- **≥ 1,280px — two panes, no cards.** Monitor activity takes the width that is left; **Market
+- **≥ 1,280px — two panes.** Monitor activity — one card on the page's light canvas, 24px clear of
+  the sidebar (`docs/decisions/monitor-eod-v2.md` §7) — takes the width that is left; **Market
   watch** is a fixed-width pane (`clamp(330px, 24vw, 360px)`: 330px at 1,280px, 345px at 1,440px,
   360px from 1,500px) flush against the right edge, sticky directly under the topbar and exactly the
   screen's remaining height. No border, radius, shadow or margin of its own: one hairline on its left

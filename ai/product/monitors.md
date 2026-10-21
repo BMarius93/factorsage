@@ -37,7 +37,7 @@ switched-off Monitor.
 How the UI tells a Monitor's story (`docs/decisions/monitor-eod-v2.md` §6–§7): the Dashboard's
 **Monitor activity** feed lists observed activations and endings under one heading per market
 session, newest first — Stock, Signal (`Buy ● Activated`, `Sell ○ Ended`, the level shown without
-its step, the Monitor under it) and every condition with the values that decided it, one per line —
+its step), every condition with the values that decided it, one per line, and the Monitor, linked —
 narrowed by a Monitor and an Event dropdown applied by the API and paged with "Show older activity";
 the product is end of day, never "real-time". The Monitor page has a
 coverage line ("Evaluated through the Oct 13, 2026 close · 497 of 500 current members"), a one-line
@@ -544,8 +544,8 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
 The Dashboard's Monitor activity feed (`docs/decisions/monitor-eod-v2.md` §6–§7) lists the observed
 changes of the Monitors shown — one row per event, the same security under two Monitors, or two
 steps of one level, being two rows — grouped under their market session, newest first, with each
-Monitor's freshness from its real evaluation time. Its columns are Stock, Signal (level, state and
-Monitor) and Conditions; there is no Price column, and Strategy and List are one click away from the
+Monitor's freshness from its real evaluation time. Its columns are Stock, Signal (level and state),
+Conditions and Monitor; there is no Price column, and Strategy and List are one click away from the
 Monitor. Fifteen events open the feed and "Show older activity" pages back. Waiting setups and
 history are on each Monitor's own page, not here.
 
