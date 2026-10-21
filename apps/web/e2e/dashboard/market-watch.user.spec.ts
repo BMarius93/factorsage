@@ -59,11 +59,11 @@ test.describe("PRO_USER dashboard", () => {
     await expect(
       page.locator('[data-testid^="market-watch-row-"]'),
     ).toHaveCount(20);
-    // The customer's own activity, beside it, in the narrow table.
+    // The customer's own activity, beside it, in the same three columns at every desktop width.
     await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     await expect(
       page.getByTestId("dashboard-activity").getByRole("columnheader"),
-    ).toHaveText(["Stock", "Signal", "Why", "Price"]);
+    ).toHaveText(["Stock", "Signal", "Conditions"]);
   });
 
   test("starts a backtest from the Backtests area, not from a Dashboard button", async ({
@@ -132,9 +132,9 @@ test.describe("PRO_USER dashboard", () => {
     await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
     expect(await qaRows(page).count()).toBeGreaterThan(0);
 
-    // A row goes to Stock Details, not to a backtest — from the session the narrow table folds
-    // under the signal, as from anywhere in the row that is not a control.
-    await qaRows(page).first().getByTestId("dashboard-folded-session").click();
+    // A row goes to Stock Details, not to a backtest — from anywhere in the row that is not a
+    // control, its event state included.
+    await qaRows(page).first().getByTestId("dashboard-event-state").click();
     await expect(page).toHaveURL(/\/stocks\/QATEST\d$/);
   });
 

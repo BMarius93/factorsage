@@ -677,8 +677,9 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
 
   // ---- Dashboard: the activity feed -----------------------------------------------------------
   // The first scan reconstructed history and the second observed one session. Only the second's
-  // changes are activity: every occurrence it opened is an "Activated" event on that session, at its
-  // price, and nothing a reconstruction established appears at all.
+  // changes are activity: every occurrence it opened is an "Activated" event under that session's
+  // heading, with no standalone price (Dashboard V2 shows prices only where a condition compared
+  // them), and nothing a reconstruction established appears at all.
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await expect(page.getByTestId("dashboard-page")).toBeVisible();
@@ -705,11 +706,19 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
     const row = feed.nth(index);
     feedRows.push({
       text: await row.innerText(),
-      session: (await row.getByTestId("dashboard-session").innerText()).trim(),
+      // The session is the heading of the group the event sits in.
+      session: (
+        await row
+          .locator(
+            "xpath=ancestor::*[@data-testid='dashboard-session-group'][1]",
+          )
+          .getByTestId("dashboard-session")
+          .innerText()
+      ).trim(),
     });
   }
   const sessionLabel = new Intl.DateTimeFormat("en-US", {
-    month: "short",
+    month: "long",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",
@@ -733,8 +742,13 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
         candidate.text.includes("Activated"),
     );
     record("dashboard", `${id} is activity`, "true", match ? "true" : "false");
-    if (match && row.price !== null) {
-      contains("dashboard", `${id} price`, match.text, money(row.price));
+    if (match) {
+      record(
+        "dashboard",
+        `${id} shows no standalone price`,
+        "false",
+        String(match.text.includes("$")),
+      );
     }
   }
   const reconstructed = dashboard.rows.filter(
