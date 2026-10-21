@@ -244,6 +244,16 @@ seed in agreement — and backfilled for existing rows. Two indexes serve the ta
 `MonitorSignal_active_order_idx` and `MonitorSignal_resolved_order_idx`. It is the first trigger in
 the schema; Prisma neither models nor diffs triggers, so the drift check is unaffected.
 
+Migration `20261021140000_backtest_run_collection_page` serves the backtest collection read a page
+at a time (`GET /backtests?page=`) without opening a snapshot. It adds `BacktestRun.benchmarkName`,
+the benchmark name the snapshot recorded (backfilled from each run's own snapshot, the benchmark's
+current name only as a fallback for a snapshot without one), and replaces `(userId, queuedAt)` with
+`BacktestRun_userId_queuedAt_id_idx` on `(userId, queuedAt DESC, id DESC)`, the default order with its
+tie-break, so a newest-first page is one index range. Search (`ILIKE` over the three stored names),
+the CAGR order (`NULLS LAST`) and the case-insensitive strategy order are raw SQL composed with
+`Prisma.sql`, which is why `@intrinsic/database` now exports `Prisma` as a value. The backfill reads
+every snapshot once; it runs inside the migration's transaction.
+
 `MonitorScanSchedule` is the durable scan cadence: exactly one row, id `GLOBAL`. A worker claims it
 with `SELECT ... FOR UPDATE SKIP LOCKED` once `dueAt` has passed, holds a renewable lease while it
 runs the cycle, then sets the next `dueAt` and releases — so cadence survives a restart, two
