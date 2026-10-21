@@ -85,10 +85,10 @@ test.describe("guest dashboard", () => {
     );
   });
 
-  test("shows the level without its step, beside its state and its Monitor, with no Price or Monitor column", async ({
+  test("shows the level without its step beside its state, the Monitor in its own last column, and no Price column", async ({
     page,
   }) => {
-    for (const width of [1920, 1280]) {
+    for (const width of [1920, 1440, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       const table = page.getByTestId("dashboard-activity");
@@ -96,6 +96,7 @@ test.describe("guest dashboard", () => {
         "Stock",
         "Signal",
         "Conditions",
+        "Monitor",
       ]);
       const rows = qaRows(page);
       await expect(rows).toHaveCount(4);
@@ -107,10 +108,20 @@ test.describe("guest dashboard", () => {
         await expect(row).toHaveAttribute("data-level", "BUY");
         await expect(row).toHaveAttribute("data-level-index", "1");
         await expect(row).not.toContainText(/Buy 1/);
-        // The Monitor is named on every event, linked to its page.
-        await expect(
-          row.getByTestId("dashboard-event-monitor").getByRole("link"),
-        ).toHaveText(/QA Built-in Monitor [AB]/);
+        // The Monitor is named on every event in its own column, as a plain link to its page —
+        // not a chip under the signal.
+        const monitor = row.locator('[data-column="monitor"]');
+        await expect(monitor.getByRole("link")).toHaveText(
+          /QA Built-in Monitor [AB]/,
+        );
+        await expect(monitor.getByRole("link")).toHaveAttribute(
+          "href",
+          /^\/monitors\/[^/]+$/,
+        );
+        await expect(monitor.locator("[data-kind]")).toHaveCount(0);
+        await expect(row.locator('[data-column="signal"]')).not.toContainText(
+          "QA Built-in Monitor",
+        );
         // No standalone price: the activation price is not on the row.
         await expect(row).not.toContainText("$");
       }
@@ -144,7 +155,9 @@ test.describe("guest dashboard", () => {
     ]);
     await expect(lines.nth(0)).toHaveAttribute("data-result", "TRUE");
     await expect(lines.nth(1)).toHaveAttribute("data-result", "FALSE");
-    await expect(lines.nth(1)).toContainText("and");
+    // Each predicate on its own line, with no `AND` between them: a Strategy's Conditions are all
+    // required, which the list says without a connector.
+    await expect(conditions).not.toContainText(/\band\b/i);
     await expect(
       lines.nth(1).getByTestId("dashboard-condition-values"),
     ).toHaveText("90.25 < 92.10");
@@ -153,6 +166,27 @@ test.describe("guest dashboard", () => {
     await expect(
       lines.nth(2).getByTestId("dashboard-condition-values"),
     ).toHaveText("87.25 → 90.25 > 88.75");
+
+    // The expression is what is read; the values that decided it sit beside it, quieter.
+    const look = (locator: ReturnType<typeof lines.nth>) =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          color: style.color,
+          size: parseFloat(style.fontSize),
+          weight: Number(style.fontWeight),
+        };
+      });
+    const expression = await look(
+      lines.nth(1).getByTestId("dashboard-condition-expression"),
+    );
+    const values = await look(
+      lines.nth(1).getByTestId("dashboard-condition-values"),
+    );
+    expect(values.color).not.toBe(expression.color);
+    expect(values.size).toBeLessThanOrEqual(expression.size);
+    expect(values.weight).toBeLessThanOrEqual(400);
+    expect(expression.weight).toBeGreaterThan(values.weight);
   });
 
   test("filters by Monitor, by event, and by both, and offers to clear a filter that matches nothing", async ({
@@ -237,12 +271,14 @@ test.describe("guest dashboard", () => {
 
   test("links the monitor that observed an event", async ({ page }) => {
     await page.goto("/");
+    // From the row's own Monitor column — and the click opens the Monitor, not the row's stock.
     await qaRows(page)
       .filter({ hasText: MONITOR_B })
       .first()
+      .locator('[data-column="monitor"]')
       .getByRole("link", { name: MONITOR_B })
-      .first()
       .click();
+    await expect(page).toHaveURL(/\/monitors\/[^/]+$/);
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
   });
 
@@ -270,9 +306,12 @@ test.describe("guest dashboard", () => {
     for (const line of await card.getByTestId("dashboard-condition").all()) {
       await expect(line).toBeVisible();
     }
-    await expect(card.getByTestId("dashboard-event-monitor")).toContainText(
-      MONITOR_B,
-    );
+    // The Monitor stacks under the conditions, still named and still a link to its page.
+    const monitorLink = card
+      .getByTestId("dashboard-event-monitor")
+      .getByRole("link", { name: MONITOR_B });
+    await expect(monitorLink).toBeVisible();
+    await expect(monitorLink).toHaveAttribute("href", /^\/monitors\/[^/]+$/);
     // The ticker is never what gives way.
     const tickerClipped = await card
       .getByTestId("dashboard-stock")
@@ -312,34 +351,97 @@ test.describe("guest dashboard", () => {
     await expect(dashboard).not.toContainText(/\blive\b|real-time/i);
   });
 
-  test("wraps a long Monitor name onto at most two lines, whole on hover", async ({
+  test("holds Monitor activity in one card on the page's light canvas, events as rows inside it", async ({
+    page,
+  }) => {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      await expect(qaRows(page)).toHaveCount(4);
+      const look = await page.evaluate(() => {
+        const style = (testId: string) =>
+          getComputedStyle(
+            document.querySelector(`[data-testid="${testId}"]`)!,
+          );
+        const card = style("dashboard-activity-section");
+        const rows = [
+          ...document.querySelectorAll(
+            '[data-testid="dashboard-activity-row"]',
+          ),
+        ].map((row) => getComputedStyle(row));
+        return {
+          canvas: style("dashboard-page").backgroundColor,
+          card: {
+            background: card.backgroundColor,
+            border: card.borderTopWidth,
+            radius: card.borderTopLeftRadius,
+          },
+          rowCards: rows.filter(
+            (row) =>
+              parseFloat(row.borderTopLeftRadius) > 0 ||
+              parseFloat(row.borderTopWidth) > 0,
+          ).length,
+        };
+      });
+      expect(look.card, `${width}px`).toEqual({
+        background: "rgb(255, 255, 255)",
+        border: "1px",
+        radius: "16px",
+      });
+      // The canvas around it is the product's light grey, not the card's white.
+      expect(look.canvas, `${width}px`).not.toBe(look.card.background);
+      expect(look.canvas, `${width}px`).not.toBe("rgba(0, 0, 0, 0)");
+      // Each event is a row of the card, never a card of its own.
+      expect(look.rowCards, `${width}px`).toBe(0);
+      await expectNoHorizontalScroll(page, `${width}px`);
+    }
+    // On a desktop the card keeps its distance from Market watch.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const card = await page
+      .getByTestId("dashboard-activity-section")
+      .boundingBox();
+    const sidebar = await page.getByTestId("dashboard-sidebar").boundingBox();
+    expect(
+      (sidebar?.x ?? 0) - ((card?.x ?? 0) + (card?.width ?? 0)),
+    ).toBeGreaterThanOrEqual(16);
+  });
+
+  test("keeps every column aligned under its heading, the Monitor's link within its own column", async ({
     page,
   }) => {
     for (const width of [1920, 1440, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       await expect(qaRows(page)).toHaveCount(4);
-      const chips = await qaRows(page)
-        .first()
-        .getByTestId("dashboard-event-monitor")
-        .locator("[data-kind]")
-        .evaluateAll((nodes) =>
-          nodes.map((node) => {
-            const label = node.firstElementChild as HTMLElement;
-            const style = getComputedStyle(label);
-            const lineHeight = parseFloat(style.lineHeight);
-            const text = label.getBoundingClientRect();
+      const layout = await page
+        .getByTestId("dashboard-activity")
+        .evaluate((table) => {
+          const left = (element: Element) =>
+            Math.round(element.getBoundingClientRect().left);
+          const headers = [
+            ...table.querySelectorAll('[role="columnheader"]'),
+          ].map(left);
+          const rows = [
+            ...table.querySelectorAll('[data-testid="dashboard-activity-row"]'),
+          ].map((row) => {
+            const cell = row.querySelector('[data-column="monitor"]')!;
+            const link = cell.querySelector("a")!;
             return {
-              name: node.textContent ?? "",
-              title: node.getAttribute("title") ?? "",
-              lines: Math.round(text.height / lineHeight),
+              cells: [...row.querySelectorAll('[role="cell"]')].map(left),
+              linkInside:
+                link.getBoundingClientRect().right <=
+                cell.getBoundingClientRect().right + 1,
+              linkOverflows: link.scrollWidth > link.clientWidth + 1,
             };
-          }),
-        );
-      expect(chips, `${width}px`).toHaveLength(1);
-      for (const chip of chips) {
-        expect(chip.lines, `${width}px ${chip.name}`).toBeLessThanOrEqual(2);
-        expect(chip.title).toBe(chip.name);
+          });
+          return { headers, rows };
+        });
+      expect(layout.headers, `${width}px`).toHaveLength(4);
+      // Rows of different heights share one set of columns: each cell starts where its heading does.
+      for (const row of layout.rows) {
+        expect(row.cells, `${width}px`).toEqual(layout.headers);
+        expect(row.linkInside, `${width}px`).toBe(true);
+        expect(row.linkOverflows, `${width}px`).toBe(false);
       }
       await expectNoHorizontalScroll(page, `${width}px`);
     }

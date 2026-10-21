@@ -59,11 +59,11 @@ test.describe("PRO_USER dashboard", () => {
     await expect(
       page.locator('[data-testid^="market-watch-row-"]'),
     ).toHaveCount(20);
-    // The customer's own activity, beside it, in the same three columns at every desktop width.
+    // The customer's own activity, beside it, in the same four columns at every desktop width.
     await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     await expect(
       page.getByTestId("dashboard-activity").getByRole("columnheader"),
-    ).toHaveText(["Stock", "Signal", "Conditions"]);
+    ).toHaveText(["Stock", "Signal", "Conditions", "Monitor"]);
   });
 
   test("starts a backtest from the Backtests area, not from a Dashboard button", async ({

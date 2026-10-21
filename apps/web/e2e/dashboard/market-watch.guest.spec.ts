@@ -728,19 +728,20 @@ test.describe("Market watch on a wide desktop", () => {
         .getByRole("region", { name: "Market watch ETFs" })
         .evaluate((element) => element.scrollTop),
     ).toBe(0);
-    // The panel heading with its filters sticks under the topbar, a session heading under it.
+    // The card's heading with its filters sticks under the topbar (its 60px), a session heading
+    // under it.
     const heading = await page
       .getByRole("heading", { level: 2, name: "Monitor activity" })
       .boundingBox();
     expect(heading?.y ?? 0).toBeGreaterThanOrEqual(64);
-    expect(heading?.y ?? 999).toBeLessThan(64 + 52);
+    expect(heading?.y ?? 999).toBeLessThan(64 + 60);
     await expect(page.getByTestId("dashboard-event-filter")).toBeInViewport();
     const stuck = await page
       .getByTestId("dashboard-session")
       .evaluateAll((all) =>
         all
           .map((element) => element.getBoundingClientRect().top)
-          .filter((top) => top >= 64 + 52 - 1 && top < 64 + 52 + 24),
+          .filter((top) => top >= 64 + 60 - 1 && top < 64 + 60 + 24),
       );
     expect(stuck.length).toBeGreaterThan(0);
     await expectNoHorizontalScroll(page, "scrolled");
@@ -756,6 +757,7 @@ test.describe("Market watch on a wide desktop", () => {
         "Stock",
         "Signal",
         "Conditions",
+        "Monitor",
       ]);
       const rows = page.getByTestId("dashboard-activity-row");
       expect(await rows.count()).toBeGreaterThan(0);
@@ -805,7 +807,8 @@ test.describe("Market watch on a wide desktop", () => {
           ...event.monitor,
           name: "Quality Value and Momentum Confirmation Across Large Caps",
         },
-        // The first event carries its predicates four times over: twelve lines.
+        // The first event carries its predicates four times over: twelve lines, the first of them
+        // a long expression.
         why:
           index === 0 && event.why
             ? {
@@ -815,7 +818,17 @@ test.describe("Market watch on a wide desktop", () => {
                     predicates: Array.from(
                       { length: 4 },
                       () => event.why!.rules[0]!.predicates,
-                    ).flat(),
+                    )
+                      .flat()
+                      .map((predicate, line) =>
+                        line === 0
+                          ? {
+                              ...predicate,
+                              description:
+                                "Price is above the highest SMA 200D close of the trailing fifty-two weeks across the whole universe",
+                            }
+                          : predicate,
+                      ),
                   },
                 ],
               }
@@ -823,7 +836,7 @@ test.describe("Market watch on a wide desktop", () => {
       }));
       await route.fulfill({ response, json: { ...body, events } });
     });
-    for (const width of [1280, 1366]) {
+    for (const width of [1280, 1366, 1440, 1920]) {
       await openDashboard(page, width);
       const first = page.getByTestId("dashboard-activity-row").first();
       const second = page.getByTestId("dashboard-activity-row").nth(1);
@@ -847,6 +860,38 @@ test.describe("Market watch on a wide desktop", () => {
       await expect(first.getByTestId("dashboard-event-monitor")).toContainText(
         "Quality Value",
       );
+      // The long Monitor name wraps inside its own column, which starts under its heading, and the
+      // long expression wraps inside the Conditions column.
+      const contained = await page
+        .getByTestId("dashboard-activity")
+        .evaluate((table) => {
+          const header = [
+            ...table.querySelectorAll('[role="columnheader"]'),
+          ].map((element) => element.getBoundingClientRect());
+          return [
+            ...table.querySelectorAll('[data-testid="dashboard-activity-row"]'),
+          ].every((row) => {
+            const cell = (name: string) =>
+              row
+                .querySelector(`[data-column="${name}"]`)!
+                .getBoundingClientRect();
+            const monitor = cell("monitor");
+            const conditions = cell("conditions");
+            const link = row
+              .querySelector('[data-column="monitor"] a')!
+              .getBoundingClientRect();
+            const lines = [
+              ...row.querySelectorAll('[data-testid="dashboard-condition"]'),
+            ].map((line) => line.getBoundingClientRect());
+            return (
+              Math.abs(monitor.left - header[3]!.left) <= 1 &&
+              link.left >= monitor.left - 1 &&
+              link.right <= monitor.right + 1 &&
+              lines.every((line) => line.right <= conditions.right + 1)
+            );
+          });
+        });
+      expect(contained, `${width}px`).toBe(true);
       const tickerClipped = await first
         .getByTestId("dashboard-stock")
         .evaluate((identity) =>
