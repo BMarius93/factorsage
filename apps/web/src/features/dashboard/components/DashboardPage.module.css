@@ -1,20 +1,26 @@
 /* The Dashboard: one page in two panes — Monitor activity, and from 1,280px Market watch flush
- * against the right edge. Neither pane is a card: no outer border, radius or shadow; one hairline
- * divides them, and subtle rules divide what is inside them.
+ * against the right edge, divided from the feed by one hairline.
  *
- * The feed's column publishes the geometry its contents line up to:
- * - `--feed-inset-start` / `--feed-inset-end`: the gutter its heading, session headings and table
- *   cells keep from the column's edges, so a row's hover tint can still run edge to edge;
+ * Monitor activity is one card on the page's light canvas — the product's ordinary surface
+ * (`SectionCard`'s radius, border, white and flat elevation; see `v1-visual-parity.md`) holding the
+ * heading, the filters, every session and the disclosure. It is written here rather than with
+ * `SectionCard` because that surface clips with `overflow: hidden`, which would end the sticky
+ * heading and session headings inside it; this one clips with `overflow: clip`, which keeps them.
+ *
+ * The card publishes the geometry its contents line up to:
+ * - `--feed-inset-start` / `--feed-inset-end`: the card's padding, kept by its heading, session
+ *   headings and table cells, so a row's hover tint can still run the card's full width;
  * - `--feed-sticky-top`: where a session heading sticks — under the topbar, and on a desktop under
- *   the panel heading too, which sticks there itself;
- * - `dashboard-feed`, a container its table adapts to (a stacked block per event below 40rem). */
+ *   the card's heading too, which sticks there itself.
+ * The feed's column is `dashboard-feed`, a container its table adapts to (a stacked block per event
+ * below 40rem). */
 
 .page {
-  /* The panel heading's fixed height on a desktop, so a session heading knows where to stick. */
-  --activity-header-height: 52px;
+  /* The card heading's fixed height on a desktop, so a session heading knows where to stick. */
+  --activity-header-height: 60px;
 
   min-width: 0;
-  background: var(--color-surface);
+  background: var(--color-background);
 }
 
 /* One column below 1,280px; from it, the feed and the Market watch sidebar. The sidebar's track is
@@ -26,22 +32,21 @@
   align-items: start;
 }
 
+/* The feed's column: the page's gutter around the guest notice and the card. */
 .main {
-  --feed-inset-start: var(--page-pad-mobile);
-  --feed-inset-end: var(--page-pad-mobile);
   --feed-sticky-top: var(--topbar-height);
 
   container: dashboard-feed / inline-size;
   display: grid;
   align-content: start;
+  gap: 16px;
   min-width: 0;
-  padding-bottom: 32px;
+  padding: var(--page-pad-mobile) var(--page-pad-mobile) 32px;
 }
 
 @media (min-width: 600px) {
   .main {
-    --feed-inset-start: var(--page-pad-tablet);
-    --feed-inset-end: var(--page-pad-tablet);
+    padding: 24px var(--page-pad-tablet) 32px;
   }
 }
 
@@ -64,9 +69,8 @@
   }
 
   .main {
-    /* The feed's text starts where the topbar's brand does. */
-    --feed-inset-start: var(--page-pad-wide);
-    --feed-inset-end: 24px;
+    /* The card starts where the topbar's brand does, and keeps 24px from Market watch. */
+    padding: 24px 24px 40px var(--page-pad-wide);
   }
 
   /* Flush under the topbar and against the right edge, exactly the screen's remaining height, and
@@ -82,14 +86,28 @@
     height: calc(100dvh - var(--topbar-height-wide));
     min-height: 0;
     border-left: 1px solid var(--color-border);
+    /* White, as it was before the page's canvas went back to its light grey: Market watch's pane
+       looks exactly as it did. */
+    background: var(--color-surface);
   }
 }
 
+/* The Monitor activity card. */
 .activity {
+  --feed-inset-start: var(--card-pad);
+  --feed-inset-end: var(--card-pad);
+
   min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-surface);
+  /* Rounds what reaches the card's edge (a session band, a row's hover tint) without becoming a
+     scroll container, so the heading and the session headings still stick to the page. */
+  overflow: clip;
 }
 
-/* ── The panel heading ───────────────────────────────────────────────── */
+/* ── The card heading ────────────────────────────────────────────────── */
 /* `Monitor activity · Updated 3 min ago`, and the two filters beside it. On a desktop it sticks
    under the topbar, so the filters are within reach however far the feed has been read. */
 .activityHeader {
@@ -98,7 +116,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
-  padding: 14px var(--feed-inset-end) 10px var(--feed-inset-start);
+  padding: var(--card-pad) var(--feed-inset-end) 10px var(--feed-inset-start);
   background: var(--color-surface);
 }
 
@@ -123,11 +141,11 @@
   min-width: 0;
 }
 
-/* The same heading Market watch wears, so the two panes read as one page. */
+/* The card's title, at the product's section-title size. */
 .title {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: var(--text-body);
+  font-size: var(--text-section-title);
   font-weight: var(--weight-emphasis);
   line-height: var(--line-height-tight);
   white-space: nowrap;
@@ -189,7 +207,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin: 12px var(--feed-inset-end) 0 var(--feed-inset-start);
   padding: 8px 12px;
   border: 1px solid var(--color-primary-border);
   border-radius: var(--radius-sm);
@@ -241,9 +258,9 @@
   padding: 16px var(--feed-inset-end) 0 var(--feed-inset-start);
 }
 
-/* The signals disclosure closes the feed, in the feed's own gutter. */
+/* The signals disclosure closes the card, in the card's own padding. */
 .disclosure {
-  padding: 16px var(--feed-inset-end) 0 var(--feed-inset-start);
+  padding: 16px var(--feed-inset-end) var(--card-pad) var(--feed-inset-start);
 }
 
 .srOnly {

@@ -1,20 +1,22 @@
-/* Monitor activity's feed: a borderless table of events under one heading per market session.
+/* Monitor activity's feed: a table of events, inside the Monitor activity card, under one heading
+ * per market session.
  *
  * Laid out as a grid rather than with table layout, keeping the table's roles (written out in the
- * markup): every row shares one column template, so the three columns align down the page as a
+ * markup): every row shares one column template, so the four columns align down the page as a
  * table's would, while each session's group is a block of its own — which is what lets a session's
  * sticky heading leave with its last event instead of piling up under the next one.
  *
- * It sits edge to edge in the feed's column. The column publishes two insets
- * (`--feed-inset-start`, `--feed-inset-end`) so the first and last cells line up with the panel's
- * heading while a row's hover tint still runs the full width. Rows grow with their conditions;
- * nothing here caps a row's height. */
+ * It sits edge to edge in the Monitor activity card. The card publishes two insets
+ * (`--feed-inset-start`, `--feed-inset-end`) so the first and last cells line up with the card's
+ * heading while a row's hover tint still runs the card's full width. Rows grow with their
+ * conditions; nothing here caps a row's height. */
 
 .feed {
   /* Stock fits a seven-character ticker beside its mark and keeps more of a company's name as the
-     feed widens; Signal fits `Final exit ● Activated`; Conditions takes the rest. */
-  --feed-columns: clamp(13.5rem, 18%, 20rem) clamp(12.5rem, 14%, 15rem)
-    minmax(0, 1fr);
+     feed widens; Signal fits `Final exit ● Activated`; Monitor fits a short name on one line and
+     wraps a long one; Conditions takes the rest. */
+  --feed-columns: clamp(11rem, 17%, 18rem) clamp(9.5rem, 11%, 12rem)
+    minmax(0, 1fr) clamp(8.5rem, 14%, 13rem);
 
   display: block;
   width: 100%;
@@ -50,7 +52,7 @@
 }
 
 /* ── Market session ──────────────────────────────────────────────────── */
-/* `October 20, 2026`, held under the panel's heading while that session's events scroll past, and
+/* `October 20, 2026`, held under the card's heading while that session's events scroll past, and
    carried away by the session's last event. */
 .sessionRow {
   position: sticky;
@@ -108,9 +110,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   color: var(--color-text-primary);
   font-weight: 500;
-  white-space: nowrap;
 }
 
 .state[data-kind="RESOLVED"] {
@@ -130,11 +132,36 @@
   box-shadow: inset 0 0 0 1.5px var(--color-text-muted);
 }
 
-/* The Monitor that observed it, one quiet line under the level. */
+/* The Monitor that observed it: a quiet link in its own column, in the secondary ink until it is
+   pointed at. A long name wraps inside the column rather than widening the row. */
 .monitor {
   display: block;
-  margin-top: 6px;
-  line-height: 1;
+  min-width: 0;
+  font-size: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* The column heading names the cell in the table; only a stacked event shows its own label. */
+.monitorLabel {
+  display: none;
+}
+
+.monitorLink {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.monitorLink:hover {
+  color: var(--color-primary-ink);
+  text-decoration: underline;
+}
+
+.monitorLink:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--focus-ring);
 }
 
 .basis {
@@ -144,20 +171,12 @@
   font-size: var(--text-label-size);
 }
 
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* ── A narrow column: one stacked block per event ────────────────────── */
-/* Below 40rem of its own column (a phone, a narrow tablet) the three cells cannot stand side by
-   side. The stock and the signal share the first line, and the conditions take the full width
-   under them — every one still shown, the values moving under their expressions where they must.
-   The column headings stay in the accessibility tree, visually hidden. */
+/* Below 40rem of its own column (a phone, a narrow tablet) the four cells cannot stand side by
+   side. The stock and the signal share the first line, the conditions take the full width under
+   them — every one still shown, the values moving under their expressions where they must — and
+   the Monitor closes the event under its own small label. The column headings stay in the
+   accessibility tree, visually hidden. */
 @container dashboard-feed (max-width: 39.99rem) {
   .head {
     position: absolute;
@@ -168,8 +187,8 @@
     white-space: nowrap;
   }
 
-  /* The stock keeps at least half the line, so a long Monitor name wraps inside the signal's
-     side instead of pushing the ticker out. */
+  /* The stock keeps at least half the line, so the signal beside it never pushes the ticker
+     out. */
   .row {
     grid-template-columns: minmax(50%, 1fr) minmax(0, auto);
     column-gap: 12px;
@@ -196,5 +215,26 @@
   .conditionsCell {
     grid-column: 1 / -1;
     margin-top: 10px;
+  }
+
+  .monitorCell {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+  }
+
+  .monitor {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .monitorLabel {
+    display: inline;
+    flex: none;
+    color: var(--color-text-muted);
+    font-size: var(--text-label-size);
+    font-weight: var(--weight-emphasis);
+    letter-spacing: var(--text-label-tracking);
+    text-transform: uppercase;
   }
 }

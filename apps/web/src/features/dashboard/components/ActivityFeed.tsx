@@ -1,8 +1,8 @@
 "use client";
 
 import type { DashboardActivityEventResponse } from "@intrinsic/contracts";
+import Link from "next/link";
 import { memo, useMemo, type MouseEvent } from "react";
-import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import { formatDayLong } from "../../../lib/dates";
@@ -39,10 +39,10 @@ export function activityStateLabel(
  * Monitor activity as a feed of market sessions (`docs/decisions/monitor-eod-v2.md` §6–§7,
  * Dashboard V2).
  *
- * A table, deliberately: each event is one row — the stock, what happened and under which Monitor,
- * and every condition that decided it — so the three facts line up down the page however many
- * conditions a row carries. Rows grow with their conditions and are never clipped. The events are
- * grouped under one heading per exchange session (`groupBySession`), newest first, so a date is
+ * A table, deliberately: each event is one row — the stock, what happened, every condition that
+ * decided it and the Monitor that observed it — so the four facts line up down the page however
+ * many conditions a row carries. Rows grow with their conditions and are never clipped. The events
+ * are grouped under one heading per exchange session (`groupBySession`), newest first, so a date is
  * written once rather than on every row.
  *
  * - **The level, without its step.** `Buy`, `Sell`, `Final exit`: the step number a Strategy gives a
@@ -51,7 +51,8 @@ export function activityStateLabel(
  *   session under the same Monitor. The step stays on the row as `data-level-index`.
  * - **No price.** An activation's price is not shown on its own; a price that a condition compared
  *   is shown on that condition's line.
- * - **The Monitor** that observed the event names it under the level, linked to its page.
+ * - **The Monitor** that observed the event has its own column, last: its name as a quiet link to the
+ *   Monitor's page, wrapping rather than widening the row.
  *
  * Table roles are written explicitly, as `DataTable` writes them, because the rows are laid out as
  * a grid rather than with table layout (`ActivityFeed.module.css`). A click on a row that lands on
@@ -84,6 +85,9 @@ export const ActivityFeed = memo(function ActivityFeed({
           <th role="columnheader" scope="col" className={styles.th}>
             Conditions
           </th>
+          <th role="columnheader" scope="col" className={styles.th}>
+            Monitor
+          </th>
         </tr>
       </thead>
       {sessions.map((session) => (
@@ -98,7 +102,7 @@ export const ActivityFeed = memo(function ActivityFeed({
             <th
               role="rowheader"
               scope="rowgroup"
-              colSpan={3}
+              colSpan={4}
               className={styles.sessionHeader}
             >
               <time
@@ -184,14 +188,6 @@ const ActivityRow = memo(function ActivityRow({
             {activityStateLabel(event)}
           </span>
         </span>
-        <span className={styles.monitor} data-testid="dashboard-event-monitor">
-          <span className={styles.srOnly}>Monitor: </span>
-          <EntityReferenceChip
-            kind="monitor"
-            name={event.monitor.name}
-            href={`/monitors/${event.monitor.id}`}
-          />
-        </span>
         {event.observationBasis === "LIVE_QUOTE" ? (
           // An occurrence the earlier live-quote Monitor decided on an intraday price, said quietly.
           <span className={styles.basis} data-testid="dashboard-event-basis">
@@ -205,6 +201,20 @@ const ActivityRow = memo(function ActivityRow({
         data-column="conditions"
       >
         <ActivityConditions why={event.why} />
+      </td>
+      <td className={styles.monitorCell} role="cell" data-column="monitor">
+        <span className={styles.monitor} data-testid="dashboard-event-monitor">
+          {/* The column heading names it in the table; a stacked event names it here instead. */}
+          <span className={styles.monitorLabel} aria-hidden="true">
+            Monitor
+          </span>
+          <Link
+            className={styles.monitorLink}
+            href={`/monitors/${event.monitor.id}`}
+          >
+            {event.monitor.name}
+          </Link>
+        </span>
       </td>
     </tr>
   );

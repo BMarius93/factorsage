@@ -1,20 +1,17 @@
 /* An event's conditions: one column, one predicate per line.
  *
- * The lines share one grid — connector gutter · mark · expression · values — through `subgrid`, so
- * within an event every mark, every expression and every set of values starts at the same x however
- * long its neighbours are. The expression column is as wide as the longest expression up to the
- * room there is, and wraps beyond it; the values never wrap and never clip. Where the column is too
- * narrow for both on one line, the values move under their expression instead. */
+ * Each line is its mark and its text. The text is the condition's expression — the line's primary
+ * text, dark and medium — followed by the operands the decision compared, smaller and in the muted
+ * ink, so the eye reads the rule first and the numbers second. The operands follow the expression
+ * on its line where they fit and move under it where they do not; they never wrap internally and
+ * never clip. There is no connector between the lines of one signal: they are all required. */
 
 .conditions {
-  container: conditions / inline-size;
   min-width: 0;
 }
 
 .lines {
   display: grid;
-  grid-template-columns: 1.75rem 0.875rem minmax(0, max-content) max-content;
-  column-gap: 6px;
   row-gap: 3px;
   margin: 0;
   padding: 0;
@@ -23,28 +20,48 @@
   line-height: 1.4;
 }
 
-.line,
-.ruleLine {
+.line {
   display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
+  grid-template-columns: 0.875rem minmax(0, 1fr);
+  column-gap: 6px;
   align-items: baseline;
   min-width: 0;
 }
 
-/* `and` between the predicates of one signal, `or` between Exit Rules: the product's connectors,
-   in the reserved gutter the Strategy Builder gives them, quiet enough to read past. */
+/* Alternatives: each Exit Rule's lines sit indented under its label, the labels joined by `or`. */
+.lines[data-structure="any-of-rules"] .line {
+  padding-left: 12px;
+}
+
+.ruleLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ruleLine + .ruleLine,
+.line + .ruleLine {
+  margin-top: 4px;
+}
+
+/* `or` between Exit Rules: the one connector the feed shows, because it changes the logic. */
 .connector {
   color: var(--color-text-muted);
   font-size: var(--text-label-size);
   font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-label-tracking);
-  text-align: right;
   text-transform: uppercase;
 }
 
-.mark {
+.ruleLabel {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
   font-weight: var(--weight-emphasis);
+}
+
+/* ✓ held, ✕ did not hold, – could not be decided: subtle marks in the financial inks. */
+.mark {
   text-align: center;
 }
 
@@ -61,38 +78,38 @@
   color: var(--color-warning-ink);
 }
 
-.expression {
+.content {
   min-width: 0;
-  color: var(--color-text-body);
+}
+
+/* The condition itself: what the line says, read first. */
+.expression {
+  color: var(--color-text-primary);
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
+/* `TRIGGER`, where the line is the Trigger rather than a Condition: a small quiet tag that says
+   which, never louder than the condition it qualifies. */
 .role {
   color: var(--color-text-muted);
   font-size: var(--text-label-size);
-  font-weight: var(--weight-emphasis);
+  font-weight: 500;
   letter-spacing: var(--text-label-tracking);
   text-transform: uppercase;
 }
 
+/* `143.63 → 148.30 > 145.31`: the evaluation, readable but subdued — smaller, normal weight, muted,
+   with every operand, comparison and crossover arrow kept. Kept whole: it moves under the
+   expression as one piece rather than breaking across lines. */
 .values {
-  padding-left: 12px;
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.line[data-result="NOT_EVALUABLE"] .values {
+  display: inline-block;
+  margin-left: 2px;
   color: var(--color-text-muted);
-}
-
-.ruleLabel {
-  grid-column: 2 / -1;
-  color: var(--color-text-secondary);
   font-size: var(--text-small);
-  font-weight: var(--weight-emphasis);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .note,
@@ -104,19 +121,6 @@
 
 .unavailable {
   margin: 0;
-}
-
-/* A narrow column: the values take their own line, under the expression they belong to. */
-@container conditions (max-width: 26rem) {
-  .lines {
-    grid-template-columns: 1.75rem 0.875rem minmax(0, 1fr);
-  }
-
-  .values {
-    grid-column: 3;
-    padding-left: 0;
-    text-align: left;
-  }
 }
 
 .srOnly {

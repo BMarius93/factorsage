@@ -32,10 +32,16 @@ const RESULT_TEXT: Record<
  * — ✓ held, ✕ did not hold, – could not be decided, which is never drawn as a failure — and the
  * operands the decision compared (`predicateComparison`). Nothing is evaluated or recomputed here.
  *
- * The logic is shown as the product defines it, never flattened: a signal's Conditions and its
- * Trigger are ANDed, so each line after the first carries `and` in a reserved gutter; a FINAL EXIT
- * reached by several Exit Rules lists each rule under its own label, the rules joined by `or`. A
- * Why recorded without values shows its rules alone and says so.
+ * The logic is shown as the product defines it, never flattened. A signal's Conditions and its
+ * Trigger are all ANDed, so they are simply listed, one per line, with no connector between them:
+ * a list of requirements reads as "all of these". A FINAL EXIT reached by several Exit Rules lists
+ * each rule under its own label, the rules joined by `or` and each rule's lines indented under it,
+ * so alternatives can never read as one AND group. A Why recorded without values shows its rules
+ * alone and says so.
+ *
+ * The condition is what a reader reads first: the expression is the line's primary text, and the
+ * operands it compared follow it smaller and quieter — on the same line where they fit, under the
+ * expression where they do not.
  */
 export function ActivityConditions({
   why,
@@ -52,6 +58,8 @@ export function ActivityConditions({
     );
   }
   const labelled = why.rules.some((rule) => rule.exitRule !== undefined);
+  // Alternatives (Exit Rules, or any Why with more than one rule) keep their `or` structure.
+  const alternatives = labelled || why.rules.length > 1;
 
   return (
     <div
@@ -59,32 +67,29 @@ export function ActivityConditions({
       data-testid={testId}
       data-basis={why.basis}
     >
-      <ol className={styles.lines}>
+      <ol
+        className={styles.lines}
+        data-structure={alternatives ? "any-of-rules" : "all"}
+      >
         {why.rules.flatMap((rule, ruleIndex) => {
           const lines = [];
-          if (labelled) {
+          if (alternatives && (labelled || ruleIndex > 0)) {
             lines.push(
               <li
                 key={`rule-${ruleIndex}`}
                 className={styles.ruleLine}
                 data-testid="dashboard-condition-rule"
               >
-                <span className={styles.connector}>
-                  {ruleIndex > 0 ? "or" : null}
-                </span>
-                <span className={styles.ruleLabel}>
-                  {rule.exitRule === undefined
-                    ? "Exit rule"
-                    : `Exit rule ${rule.exitRule}`}
-                </span>
-              </li>,
-            );
-          } else if (ruleIndex > 0) {
-            // Several rules without labels never happen today; if they did, they would still be
-            // alternatives, and must not read as one AND group.
-            lines.push(
-              <li key={`rule-${ruleIndex}`} className={styles.ruleLine}>
-                <span className={styles.connector}>or</span>
+                {ruleIndex > 0 ? (
+                  <span className={styles.connector}>or</span>
+                ) : null}
+                {labelled ? (
+                  <span className={styles.ruleLabel}>
+                    {rule.exitRule === undefined
+                      ? "Exit rule"
+                      : `Exit rule ${rule.exitRule}`}
+                  </span>
+                ) : null}
               </li>,
             );
           }
@@ -98,34 +103,36 @@ export function ActivityConditions({
                 data-role={predicate.role}
                 data-testid="dashboard-condition"
               >
-                <span className={styles.connector}>
-                  {index > 0 ? "and" : null}
-                </span>
                 <span className={styles.mark} aria-hidden="true">
                   {predicate.result ? MARKS[predicate.result] : null}
                 </span>
-                <span className={styles.expression}>
-                  {predicate.role === "TRIGGER" ? (
-                    <span className={styles.role}>Trigger </span>
-                  ) : null}
-                  <span data-testid="dashboard-condition-expression">
-                    {predicate.description}
-                  </span>
-                  {predicate.result ? (
-                    <span className={styles.srOnly}>
-                      {" "}
-                      — {RESULT_TEXT[predicate.result]}
+                <span className={styles.content}>
+                  <span className={styles.expression}>
+                    {predicate.role === "TRIGGER" ? (
+                      <span className={styles.role}>Trigger </span>
+                    ) : null}
+                    <span data-testid="dashboard-condition-expression">
+                      {predicate.description}
                     </span>
+                    {predicate.result ? (
+                      <span className={styles.srOnly}>
+                        {" "}
+                        — {RESULT_TEXT[predicate.result]}
+                      </span>
+                    ) : null}
+                  </span>
+                  {comparison ? (
+                    <>
+                      {" "}
+                      <span
+                        className={styles.values}
+                        data-testid="dashboard-condition-values"
+                      >
+                        {comparison}
+                      </span>
+                    </>
                   ) : null}
                 </span>
-                {comparison ? (
-                  <span
-                    className={styles.values}
-                    data-testid="dashboard-condition-values"
-                  >
-                    {comparison}
-                  </span>
-                ) : null}
               </li>,
             );
           });

@@ -368,14 +368,22 @@ describe("DashboardPage — the Monitor activity feed", () => {
     ).toBeNull();
   });
 
-  it("shows exactly three columns — no Price and no Monitor column — and no standalone price", async () => {
+  it("shows exactly four columns — Stock, Signal, Conditions, Monitor — and no standalone price", async () => {
     render(<DashboardPage />);
     const table = await screen.findByTestId("dashboard-activity");
     expect(
       within(table)
         .getAllByRole("columnheader")
         .map((header) => header.textContent),
-    ).toEqual(["Stock", "Signal", "Conditions"]);
+    ).toEqual(["Stock", "Signal", "Conditions", "Monitor"]);
+    // Every row has the four cells, in the headings' order, so they align down the table.
+    for (const row of await rows()) {
+      expect(
+        [...row.querySelectorAll(":scope > td")].map((cell) =>
+          cell.getAttribute("data-column"),
+        ),
+      ).toEqual(["stock", "signal", "conditions", "monitor"]);
+    }
     // $210.50 was the activation price. It is gone as a figure of its own …
     expect(table.textContent).not.toMatch(/\$210\.50/);
     expect(table.textContent).not.toMatch(/\$/);
@@ -389,20 +397,32 @@ describe("DashboardPage — the Monitor activity feed", () => {
     expect(within(table).queryByRole("link", { name: "Backtest" })).toBeNull();
   });
 
-  it("names the Monitor on every event, linked to its page, and links the stock", async () => {
+  it("names the Monitor in its own column, linked to its page, and links the stock", async () => {
     render(<DashboardPage />);
     const [buy, sell] = await rows();
     expect(
       within(buy!).getByRole("link", { name: /AAPL/ }).getAttribute("href"),
     ).toBe("/stocks/AAPL");
+    const monitorCell = buy!.querySelector('td[data-column="monitor"]')!;
     expect(
-      within(within(buy!).getByTestId("dashboard-event-monitor"))
+      within(monitorCell as HTMLElement)
         .getByRole("link", { name: "S&P Value & Trend" })
         .getAttribute("href"),
     ).toBe("/monitors/monitor-a");
     expect(
-      within(sell!).getByTestId("dashboard-event-monitor").textContent,
-    ).toBe("Monitor: Nasdaq Trend Confirmation");
+      within(
+        sell!.querySelector('td[data-column="monitor"]') as HTMLElement,
+      ).getByRole("link", { name: "Nasdaq Trend Confirmation" }),
+    ).toBeTruthy();
+    // A plain link, not the reference chip, and nothing about the Monitor left under the signal.
+    expect(monitorCell.querySelector("[data-kind]")).toBeNull();
+    const signal = buy!.querySelector('td[data-column="signal"]')!;
+    expect(signal.textContent).not.toContain("S&P Value & Trend");
+    expect(signal.querySelector("a")).toBeNull();
+    // The small label is for a stacked event only, and is not read twice.
+    expect(
+      within(buy!).getByTestId("dashboard-event-monitor").firstElementChild,
+    ).toHaveProperty("ariaHidden", "true");
   });
 
   it("shows every condition of every event with its result", async () => {
