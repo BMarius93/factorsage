@@ -123,6 +123,7 @@ describe("backtest job claiming", () => {
         maximumPositions: 10,
         strategyName: "Worker Suite Strategy",
         stockListName: "Worker Suite List",
+        benchmarkName: "Worker Suite Benchmark",
         securityCount: 1,
         snapshot: { snapshotVersion: 1, marker: suffix },
         snapshotHash: `hash-${randomUUID()}`,

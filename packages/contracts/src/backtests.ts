@@ -208,7 +208,8 @@ export type BacktestRunSummaryResponse = {
   status: BacktestRunStatus;
   /**
    * The strategy and stock list the run was submitted with, exactly as on the run's
-   * configuration: null once that entity has been deleted. Names always come from the snapshot.
+   * configuration: null once that entity has been deleted. Names are always the ones the run was
+   * submitted with, stored with the run when it was queued, never the entity's current name.
    */
   strategyId: string | null;
   strategyName: string;
@@ -234,6 +235,69 @@ export type BacktestRunSummaryResponse = {
    * periods are not comparable.
    */
   portfolioCagrPercent: number | null;
+};
+
+/** Runs per page of the backtest collection by default, and the most one page may hold. */
+export const BACKTEST_RUNS_PAGE_SIZE = 25;
+export const BACKTEST_RUNS_MAX_PAGE_SIZE = 100;
+
+/**
+ * The orders the backtest collection can be read in, newest first by default. Every order ends on
+ * the queue time and the run id, so a page boundary never splits or repeats equal keys.
+ *
+ * - `newest` / `oldest`: by queue time.
+ * - `cagr`: by the stored annualized return, best first; runs without one (in flight, failed, too
+ *   short to annualize) after every run that has one (BT-3).
+ * - `strategy`: by the strategy name the run was submitted with, A–Z, ignoring case.
+ */
+export const BACKTEST_RUN_SORTS = [
+  "newest",
+  "oldest",
+  "cagr",
+  "strategy",
+] as const;
+export type BacktestRunSort = (typeof BACKTEST_RUN_SORTS)[number];
+
+export const BACKTEST_RUN_DEFAULT_SORT: BacktestRunSort = "newest";
+
+/**
+ * The status filter of the backtest collection. `ACTIVE` is every run still queued or executing —
+ * the runs holding a concurrency slot; `COMPLETED` and `FAILED` are the two terminal statuses.
+ */
+export const BACKTEST_RUN_STATUS_FILTERS = [
+  "ACTIVE",
+  "COMPLETED",
+  "FAILED",
+] as const;
+export type BacktestRunStatusFilter =
+  (typeof BACKTEST_RUN_STATUS_FILTERS)[number];
+
+/** The longest search `GET /backtests` honours; a longer `q` is ignored. */
+export const BACKTEST_RUN_QUERY_MAX_LENGTH = 100;
+
+/**
+ * One page of the caller's backtest runs: `GET /backtests?page=…`.
+ *
+ * Searched, filtered, ordered and paged in the database, so every page and every count is correct
+ * across the whole history, not just the rows on screen, and no run's snapshot is read to build it.
+ * As on the trade log, a page past the end is clamped to the last real one and reported as served,
+ * and a filter or order the API did not recognise is reported as absent (and the default order).
+ */
+export type BacktestRunPageResponse = {
+  runs: BacktestRunSummaryResponse[];
+  /** 1-based, and the page actually served after clamping. */
+  page: number;
+  pageSize: number;
+  /** The runs matching the search and the filter. */
+  totalCount: number;
+  /** At least 1, even when nothing matched. */
+  pageCount: number;
+  /** Every run the caller owns, whatever the search and filter: "no runs yet" vs "none match". */
+  unfilteredCount: number;
+  /** The search, the filter and the order the API actually applied. */
+  q: string | null;
+  status: BacktestRunStatusFilter | null;
+  sort: BacktestRunSort;
 };
 
 // ---------------------------------------------------------------------------

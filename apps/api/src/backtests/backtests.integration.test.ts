@@ -655,7 +655,9 @@ describe("backtests", () => {
     };
     await prisma.backtestRun.update({
       where: { id: run.id },
-      data: { snapshot: legacy as never },
+      // The stored name too, as the migration backfilled it from such a snapshot: the collection
+      // reads the column and must reach the catalog's name exactly as the detail does.
+      data: { snapshot: legacy as never, benchmarkName: "S&P 500" },
     });
 
     const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
@@ -1185,6 +1187,289 @@ describe("backtests", () => {
 
     const foreign = await other.get("/backtests").expect(200);
     expect(foreign.body).toEqual([]);
+  });
+
+  /**
+   * The collection read a page at a time (`GET /backtests?page=`): searched, filtered, ordered,
+   * counted and paged in the database, and built without opening a single run's snapshot.
+   */
+  describe("the collection, a page at a time", () => {
+    type Seed = {
+      readonly strategyName: string;
+      readonly queuedAt: Date;
+      readonly status?: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+      readonly stockListName?: string;
+      readonly benchmarkName?: string;
+      readonly cagr?: number | null;
+    };
+
+    type Page = {
+      runs: BacktestRunSummaryResponse[];
+      page: number;
+      pageSize: number;
+      totalCount: number;
+      pageCount: number;
+      unfilteredCount: number;
+      q: string | null;
+      status: string | null;
+      sort: string;
+    };
+
+    async function readPage(query: string): Promise<Page> {
+      return (await owner.get(`/backtests?${query}`).expect(200)).body as Page;
+    }
+
+    /**
+     * Runs cloned from one real submission — its snapshot, its pinned series, its foreign keys —
+     * with the names, queue times, statuses and returns a case needs. Inserted directly, because
+     * no worker runs here and the API would refuse a sixtieth queued run as over capacity.
+     */
+    async function seedRuns(seeds: readonly Seed[]): Promise<string[]> {
+      const submitted = await submit();
+      const template = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: submitted.id },
+      });
+      await prisma.backtestRun.delete({ where: { id: submitted.id } });
+      const rows = seeds.map((seed) => ({ id: randomUUID(), seed }));
+      await prisma.backtestRun.createMany({
+        data: rows.map(({ id, seed }) => ({
+          id,
+          userId: template.userId,
+          strategyId: template.strategyId,
+          strategyVersionId: template.strategyVersionId,
+          stockListId: template.stockListId,
+          benchmarkId: template.benchmarkId,
+          benchmarkSeriesId: template.benchmarkSeriesId,
+          executionCalendarSeriesId: template.executionCalendarSeriesId,
+          status: seed.status ?? "QUEUED",
+          startDate: template.startDate,
+          endDate: template.endDate,
+          initialCapital: template.initialCapital,
+          monthlyContribution: template.monthlyContribution,
+          maximumPositions: template.maximumPositions,
+          strategyName: seed.strategyName,
+          stockListName: seed.stockListName ?? template.stockListName,
+          benchmarkName: seed.benchmarkName ?? template.benchmarkName,
+          securityCount: template.securityCount,
+          snapshot: template.snapshot as never,
+          snapshotHash: template.snapshotHash,
+          queuedAt: seed.queuedAt,
+        })),
+      });
+      const withReturns = rows.filter(
+        ({ seed }) => seed.cagr !== undefined && seed.cagr !== null,
+      );
+      if (withReturns.length > 0) {
+        await prisma.backtestRunSummary.createMany({
+          data: withReturns.map(({ id, seed }) => ({
+            runId: id,
+            firstSimulatedDate: template.startDate,
+            lastSimulatedDate: template.endDate,
+            tradingDays: 252,
+            investedCapital: 100_000,
+            finalCash: 0,
+            finalPositionsValue: 100_000,
+            finalValue: 100_000,
+            netProfit: 0,
+            portfolioReturnPercent: seed.cagr ?? 0,
+            portfolioCagrPercent: seed.cagr ?? null,
+            maxDrawdownPercent: 0,
+            realizedPnl: 0,
+            unrealizedPnl: 0,
+            totalTrades: 0,
+            buyTrades: 0,
+            sellTrades: 0,
+            finalExitTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            openPositions: 0,
+          })),
+        });
+      }
+      return rows.map(({ id }) => id);
+    }
+
+    const base = Date.parse("2026-09-01T12:00:00.000Z");
+    const minutesAgo = (minutes: number) => new Date(base - minutes * 60_000);
+
+    it("pages the whole history newest first, each run exactly once, ties broken by id", async () => {
+      // Sixty runs, two to a queue time, so every page boundary has equal keys to split.
+      const ids = await seedRuns(
+        Array.from({ length: 60 }, (_, index) => ({
+          strategyName: `Run ${index}`,
+          queuedAt: minutesAgo(Math.floor(index / 2)),
+        })),
+      );
+      const queued = new Map(
+        ids.map((id, index) => [id, minutesAgo(Math.floor(index / 2)).getTime()]),
+      );
+      const expected = [...ids].sort(
+        (a, b) =>
+          (queued.get(b) ?? 0) - (queued.get(a) ?? 0) ||
+          (a < b ? 1 : a > b ? -1 : 0),
+      );
+
+      const first = await readPage("page=1");
+      expect(first).toMatchObject({
+        page: 1,
+        pageSize: 25,
+        totalCount: 60,
+        pageCount: 3,
+        unfilteredCount: 60,
+        q: null,
+        status: null,
+        sort: "newest",
+      });
+      const walked: string[] = [];
+      for (let page = 1; page <= 3; page += 1) {
+        walked.push(...(await readPage(`page=${page}`)).runs.map((run) => run.id));
+      }
+      expect(walked).toEqual(expected);
+      expect(new Set(walked).size).toBe(60);
+
+      // Smaller pages walk the same order.
+      const tens: string[] = [];
+      for (let page = 1; page <= 6; page += 1) {
+        const read = await readPage(`page=${page}&pageSize=10`);
+        expect(read.pageCount).toBe(6);
+        tens.push(...read.runs.map((run) => run.id));
+      }
+      expect(tens).toEqual(expected);
+
+      // A page past the end is the last real page; an oversized page is capped; a malformed size
+      // is the default.
+      const past = await readPage("page=99");
+      expect(past.page).toBe(3);
+      expect(past.runs.map((run) => run.id)).toEqual(expected.slice(50));
+      expect((await readPage("page=1&pageSize=500")).pageSize).toBe(100);
+      expect((await readPage("pageSize=abc")).pageSize).toBe(25);
+    });
+
+    it("orders by annualized return with the runs that have none last, and by strategy ignoring case", async () => {
+      const [beta, alpha, alphaTwo, gamma] = await seedRuns([
+        { strategyName: "beta", queuedAt: minutesAgo(4), status: "COMPLETED", cagr: 5 },
+        { strategyName: "Alpha", queuedAt: minutesAgo(3), status: "FAILED", cagr: null },
+        { strategyName: "alpha 2", queuedAt: minutesAgo(2), status: "COMPLETED", cagr: 12.5 },
+        { strategyName: "Gamma", queuedAt: minutesAgo(1), status: "COMPLETED", cagr: -3 },
+      ]);
+      const order = async (sort: string) =>
+        (await readPage(`page=1&sort=${sort}`)).runs.map((run) => run.id);
+
+      expect(await order("cagr")).toEqual([alphaTwo, beta, gamma, alpha]);
+      expect(await order("strategy")).toEqual([alpha, alphaTwo, beta, gamma]);
+      expect(await order("oldest")).toEqual([beta, alpha, alphaTwo, gamma]);
+      expect(await order("newest")).toEqual([gamma, alphaTwo, alpha, beta]);
+      // An order it does not know is the default, and says so.
+      const unknown = await readPage("page=1&sort=fastest");
+      expect(unknown.sort).toBe("newest");
+      expect(unknown.runs.map((run) => run.id)).toEqual(await order("newest"));
+
+      const cagr = (await readPage("page=1&sort=cagr")).runs;
+      expect(cagr.map((run) => run.portfolioCagrPercent)).toEqual([12.5, 5, -3, null]);
+    });
+
+    it("searches strategy, list and benchmark names and filters by status, counting both", async () => {
+      const [growth, percent, wildcard, listMatch, benchmarkMatch, failed] =
+        await seedRuns([
+          { strategyName: "Quality Growth", queuedAt: minutesAgo(6), status: "RUNNING" },
+          { strategyName: "Top 50% momentum", queuedAt: minutesAgo(5), status: "COMPLETED", cagr: 1 },
+          { strategyName: "Top 500 momentum", queuedAt: minutesAgo(4), status: "COMPLETED", cagr: 2 },
+          { strategyName: "Plain", stockListName: "Growth leaders", queuedAt: minutesAgo(3) },
+          { strategyName: "Plain", benchmarkName: "Growth proxy", queuedAt: minutesAgo(2), status: "COMPLETED", cagr: 3 },
+          { strategyName: "Broken", queuedAt: minutesAgo(1), status: "FAILED" },
+        ]);
+      const ids = async (query: string) =>
+        (await readPage(`page=1&${query}`)).runs.map((run) => run.id);
+
+      // Case-insensitive, across the three names a row shows.
+      expect(await ids("q=GROWTH")).toEqual([benchmarkMatch, listMatch, growth]);
+      // `%` and `_` are text, never wildcards.
+      expect(await ids("q=50%25")).toEqual([percent]);
+      expect(await ids("q=50_")).toEqual([]);
+      expect(await ids("q=Top%20500")).toEqual([wildcard]);
+
+      const active = await readPage("page=1&status=ACTIVE");
+      expect(active.runs.map((run) => run.id)).toEqual([listMatch, growth]);
+      expect(active).toMatchObject({ totalCount: 2, unfilteredCount: 6, status: "ACTIVE" });
+      expect(await ids("status=failed")).toEqual([failed]);
+      expect(await ids("status=COMPLETED&q=top")).toEqual([wildcard, percent]);
+
+      const both = await readPage("page=1&status=COMPLETED&q=growth");
+      expect(both).toMatchObject({
+        totalCount: 1,
+        unfilteredCount: 6,
+        q: "growth",
+        status: "COMPLETED",
+      });
+      // A status it does not know is no filter, and is reported as none.
+      const unknown = await readPage("page=1&status=PAUSED");
+      expect(unknown.status).toBeNull();
+      expect(unknown.totalCount).toBe(6);
+      // Nothing matched is a page, not an error.
+      const none = await readPage("page=1&q=nothing-like-this");
+      expect(none).toMatchObject({ runs: [], totalCount: 0, pageCount: 1, page: 1, unfilteredCount: 6 });
+    });
+
+    it("keeps the whole-list answer for callers that read it, with the same filter", async () => {
+      const [, running] = await seedRuns([
+        { strategyName: "Done", queuedAt: minutesAgo(2), status: "COMPLETED", cagr: 1 },
+        { strategyName: "Busy", queuedAt: minutesAgo(1), status: "RUNNING" },
+      ]);
+      const all = (await owner.get("/backtests").expect(200)).body as BacktestRunSummaryResponse[];
+      expect(Array.isArray(all)).toBe(true);
+      expect(all).toHaveLength(2);
+      const active = (await owner.get("/backtests?status=ACTIVE").expect(200))
+        .body as BacktestRunSummaryResponse[];
+      expect(active.map((run) => run.id)).toEqual([running]);
+    });
+
+    it("pages only the caller's own runs", async () => {
+      await seedRuns([{ strategyName: "Mine", queuedAt: minutesAgo(1) }]);
+      const foreign = (await other.get("/backtests?page=1").expect(200)).body as Page;
+      expect(foreign).toMatchObject({ runs: [], totalCount: 0, unfilteredCount: 0, pageCount: 1 });
+    });
+
+    it("never opens a run's snapshot to list it", async () => {
+      const [unreadable] = await seedRuns([
+        { strategyName: "Stored name", stockListName: "Stored list", queuedAt: minutesAgo(1) },
+      ]);
+      // A document no snapshot reader could parse: the run's own page would refuse it, the
+      // collection does not need it.
+      await prisma.backtestRun.update({
+        where: { id: unreadable },
+        data: { snapshot: {} },
+      });
+      const page = await readPage("page=1");
+      expect(page.runs[0]).toMatchObject({
+        id: unreadable,
+        strategyName: "Stored name",
+        stockListName: "Stored list",
+        benchmarkCode: "SP500",
+        benchmarkName: "SPY",
+      });
+      const whole = (await owner.get("/backtests").expect(200)).body as BacktestRunSummaryResponse[];
+      expect(whole.map((run) => run.id)).toEqual([unreadable]);
+    });
+
+    it("answers each row exactly as the run's own snapshot-based configuration does", async () => {
+      const run = await submit({ initialCapital: 125_000, maximumPositions: 7 });
+      const row = (await readPage("page=1")).runs.find((item) => item.id === run.id);
+      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+        .body as BacktestRunDetailResponse;
+      const { configuration } = detail;
+      expect(row).toMatchObject({
+        strategyId: configuration.strategyId,
+        strategyName: configuration.strategyName,
+        stockListId: configuration.stockListId,
+        stockListName: configuration.stockListName,
+        benchmarkCode: configuration.benchmark.code,
+        benchmarkName: configuration.benchmark.name,
+        startDate: configuration.startDate,
+        endDate: configuration.endDate,
+        initialCapital: configuration.initialCapital,
+        maximumPositions: configuration.maximumPositions,
+      });
+    });
   });
 
   it("answers a foreign run exactly like one that does not exist", async () => {

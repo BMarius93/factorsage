@@ -60,6 +60,14 @@ a strategy must not delete a user's backtest history, and no read path consults 
 denormalized `strategyName`/`stockListName` columns and the snapshot render the run. `benchmarkId`
 is `Restrict`: benchmarks are system-owned and are never product-deleted.
 
+`benchmarkName` (migration `20261021140000_backtest_run_collection_page`) is denormalized the same
+way, from the snapshot's `benchmark.name`, so the collection (`GET /backtests`, paged) never opens a
+snapshot: a row is built from the stored names, the benchmark's stable code, the pinned series'
+source kind and methodology version, and the stored summary — the same inputs `benchmarkDisplayName`
+reads from the snapshot. The snapshot stays the authority for the run's own page and for execution.
+One difference is by design: the list reports `initialCapital` from its `Decimal(20, 2)` column,
+whose cents are what the product's form submits; the detail reports the snapshot's figure.
+
 Recording the two data revisions does not make a re-execution reproducible: the derived state is
 replaced, not versioned, when methodology changes. It makes a difference _explainable_ rather than
 mysterious, which is the achievable goal.

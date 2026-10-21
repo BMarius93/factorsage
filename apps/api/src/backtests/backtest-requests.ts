@@ -4,6 +4,11 @@ import {
   BACKTEST_TRADE_ACTIONS,
   BACKTEST_TRADE_DEFAULT_ORDER,
   BACKTEST_TRADE_ORDERS,
+  BACKTEST_RUN_QUERY_MAX_LENGTH,
+  BACKTEST_RUN_SORTS,
+  BACKTEST_RUN_STATUS_FILTERS,
+  type BacktestRunSort,
+  type BacktestRunStatusFilter,
   type BacktestTradeAction,
   type BacktestTradeOrder,
   BACKTEST_MAX_INITIAL_CAPITAL,
@@ -356,6 +361,63 @@ function singleText(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
+}
+
+/** What the backtest collection is narrowed to and how it is ordered. */
+export type BacktestRunListQuery = {
+  readonly q?: string;
+  readonly status?: BacktestRunStatusFilter;
+  readonly sort?: BacktestRunSort;
+};
+
+export type ParsedRunListRequest = BacktestRunListQuery & {
+  /**
+   * Whether the caller asked for a page (`page` or `pageSize` present, however malformed). Without
+   * one, `GET /backtests` answers the whole matching list as it always has.
+   */
+  readonly paged: boolean;
+  readonly page?: number;
+  readonly pageSize?: number;
+};
+
+/**
+ * `?page=`, `?pageSize=`, `?q=`, `?status=` and `?sort=` on `GET /backtests`.
+ *
+ * Lenient for the trade log's reasons: nothing here can change state, so a malformed or unknown
+ * value is ignored — no search, every status, newest first, page 1 — rather than answered with
+ * `400`, and the page response reports what was actually applied. A search longer than anything a
+ * name could hold is ignored rather than truncated, so it never silently means something shorter.
+ */
+export function parseRunListRequest(query: {
+  page?: unknown;
+  pageSize?: unknown;
+  q?: unknown;
+  status?: unknown;
+  sort?: unknown;
+}): ParsedRunListRequest {
+  const page = parsePositiveInteger(query.page);
+  const pageSize = parsePositiveInteger(query.pageSize);
+  const q = singleText(query.q);
+  const status = singleText(query.status)?.toUpperCase();
+  const sort = singleText(query.sort)?.toLowerCase();
+  return {
+    paged: query.page !== undefined || query.pageSize !== undefined,
+    ...(page === undefined ? {} : { page }),
+    ...(pageSize === undefined ? {} : { pageSize }),
+    ...(q !== undefined && q.length <= BACKTEST_RUN_QUERY_MAX_LENGTH
+      ? { q }
+      : {}),
+    ...(status !== undefined && isRunStatusFilter(status) ? { status } : {}),
+    ...(sort !== undefined && isRunSort(sort) ? { sort } : {}),
+  };
+}
+
+function isRunStatusFilter(value: string): value is BacktestRunStatusFilter {
+  return (BACKTEST_RUN_STATUS_FILTERS as readonly string[]).includes(value);
+}
+
+function isRunSort(value: string): value is BacktestRunSort {
+  return (BACKTEST_RUN_SORTS as readonly string[]).includes(value);
 }
 
 function isTradeLogAction(value: string): value is BacktestTradeAction {

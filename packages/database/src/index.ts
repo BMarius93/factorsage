@@ -35,6 +35,9 @@ export {
   MonitorTransitionReason,
   OAuthProvider,
   PriceBasisEventKind,
+  // A value as well as a type: `Prisma.sql`, `Prisma.join` and `Prisma.empty` compose raw SQL
+  // safely (every interpolation is a bound parameter).
+  Prisma,
   PrismaClient,
   SecurityType,
   StockDataset,
@@ -63,7 +66,6 @@ export type {
   MonitorStateTransition,
   OAuthAccount,
   PasswordResetToken,
-  Prisma,
   StockList,
   StockListBuyWindow,
   StockListItem,
