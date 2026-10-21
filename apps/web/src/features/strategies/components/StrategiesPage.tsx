@@ -10,10 +10,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
-import actionStyles from "../../../components/ui/actions.module.css";
 import {
   byName,
   byNewest,
+  reversed,
   type CollectionSort,
 } from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
@@ -81,8 +81,13 @@ type DialogState =
  */
 /**
  * The orders a customer's own strategies can be read in. "Newest" is creation order, the default
- * on every management page; "Recently updated" is the last change.
+ * on every management page; "Recently updated" is the last change. The Name and Updated headers sort
+ * too, each both ways, so a header and the Sort control are one order.
  */
+const byUpdated = byNewest<StrategySummaryResponse>(
+  (strategy) => strategy.updatedAt,
+);
+
 const STRATEGY_SORTS: readonly CollectionSort<StrategySummaryResponse>[] = [
   {
     id: "newest",
@@ -92,9 +97,31 @@ const STRATEGY_SORTS: readonly CollectionSort<StrategySummaryResponse>[] = [
   {
     id: "updated",
     label: "Recently updated",
-    compare: byNewest((strategy) => strategy.updatedAt),
+    column: "updated",
+    direction: "desc",
+    compare: byUpdated,
   },
-  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "updated-oldest",
+    label: "Least recently updated",
+    column: "updated",
+    direction: "asc",
+    compare: reversed(byUpdated),
+  },
+  {
+    id: "name",
+    label: "Name A–Z",
+    column: "name",
+    direction: "asc",
+    compare: byName,
+  },
+  {
+    id: "name-desc",
+    label: "Name Z–A",
+    column: "name",
+    direction: "desc",
+    compare: reversed(byName),
+  },
 ];
 
 export function StrategiesPage() {
@@ -134,6 +161,7 @@ export function StrategiesPage() {
               key={badge.kind}
               tone={LEVEL_KIND_TONES[badge.kind]}
               variant="outline"
+              size="small"
               dataAttributes={{ "data-level": badge.kind }}
             >
               {badge.label}
@@ -146,6 +174,8 @@ export function StrategiesPage() {
       key: "version",
       width: "6rem",
       header: "Version",
+      // On a phone the version and the last change share one line: "v3 … Oct 21, 2026".
+      cardRole: "summary",
       align: "right",
       numeric: true,
       nowrap: true,
@@ -155,61 +185,54 @@ export function StrategiesPage() {
       key: "updated",
       width: "9rem",
       header: "Updated",
+      cardRole: "summary",
       nowrap: true,
       render: (strategy) => formatStrategyDate(strategy.updatedAt),
     },
     {
+      // The row itself opens the strategy (its name is the link), so the cell holds only the menu.
       key: "actions",
-      width: "9rem",
+      width: "3.5rem",
       header: "Actions",
-      cardRole: "actions",
+      cardRole: "menu",
       align: "right",
       nowrap: true,
       render: (strategy) => (
-        <span className={actionStyles.group}>
-          <Link
-            className={actionStyles.action}
-            href={`/strategies/${strategy.id}`}
-            aria-label={`Open ${strategy.name}`}
-          >
-            Open
-          </Link>
-          <OverflowMenu
-            label={strategy.name}
-            testId="strategy-actions"
-            items={[
-              ...(strategy.canEdit
-                ? [
-                    {
-                      label: "Rename",
-                      onSelect: () => setDialog({ kind: "rename", strategy }),
-                    },
-                  ]
-                : []),
-              // Any strategy the viewer can read can be copied into one they own, a built-in
-              // included; a Guest is asked for an account first.
-              {
-                label: "Duplicate",
-                disabled: !gate.resolved,
-                onSelect: () =>
-                  gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
-                    setDialog({ kind: "duplicate", strategy }),
-                  ),
-              },
-              // Built-in strategies are never deleted, not even by an administrator.
-              ...(strategy.canEdit && strategy.ownership !== "SYSTEM"
-                ? [
-                    {
-                      label: "Delete",
-                      tone: "danger" as const,
-                      separated: true,
-                      onSelect: () => setDialog({ kind: "delete", strategy }),
-                    },
-                  ]
-                : []),
-            ]}
-          />
-        </span>
+        <OverflowMenu
+          label={strategy.name}
+          testId="strategy-actions"
+          items={[
+            ...(strategy.canEdit
+              ? [
+                  {
+                    label: "Rename",
+                    onSelect: () => setDialog({ kind: "rename", strategy }),
+                  },
+                ]
+              : []),
+            // Any strategy the viewer can read can be copied into one they own, a built-in
+            // included; a Guest is asked for an account first.
+            {
+              label: "Duplicate",
+              disabled: !gate.resolved,
+              onSelect: () =>
+                gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
+                  setDialog({ kind: "duplicate", strategy }),
+                ),
+            },
+            // Built-in strategies are never deleted, not even by an administrator.
+            ...(strategy.canEdit && strategy.ownership !== "SYSTEM"
+              ? [
+                  {
+                    label: "Delete",
+                    tone: "danger" as const,
+                    separated: true,
+                    onSelect: () => setDialog({ kind: "delete", strategy }),
+                  },
+                ]
+              : []),
+          ]}
+        />
       ),
     },
   ];
@@ -259,6 +282,7 @@ export function StrategiesPage() {
     <PageContainer>
       <div className={styles.page} data-testid="strategies-page">
         <PageHeader
+          variant="plain"
           title="Strategies"
           lead="Reusable buy, sell and final-exit logic for backtests and monitors."
           actions={headerAction}
@@ -289,6 +313,7 @@ export function StrategiesPage() {
 
         {status === "ready" && gate.signedIn ? (
           <CollectionSection
+            density="compact"
             title="Your strategies"
             label="Your strategies"
             noun="strategies"
@@ -322,6 +347,7 @@ export function StrategiesPage() {
 
         {status === "ready" && builtIn.length > 0 ? (
           <CollectionSection
+            density="compact"
             title="Built-in strategies"
             caption="FactorSage's own logic. Everyone can read and backtest it; only FactorSage changes it."
             label="Built-in strategies"

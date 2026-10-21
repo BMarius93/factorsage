@@ -57,7 +57,8 @@ PageContainer width="data"
 ```
 
 A **compact collection** is the Dashboard's density applied to a management index, and is opt-in
-per page (`density="compact"` on `CollectionSection`) until each page has been checked against it:
+per page (`density="compact"` on `CollectionSection`) until each page has been checked against it.
+Lists, Strategies and Monitors use it:
 
 ```text
 PageContainer width="data"
@@ -196,10 +197,13 @@ financial product; spending it on a permanently visible button in every row both
 rate and drains the meaning from the negative numbers beside it. `actions.module.css` therefore has
 no danger variant at all, and `forms.dangerButton` is reachable only from `ConfirmDialog`.
 
-Give each row one visible contextual action — `Open`, `View results` — beside the trigger. A record
-with no maintenance actions renders no trigger: `OverflowMenu` returns `null` for an empty list.
-Name the visible action after its record (`aria-label="Open {name}"`), as the trigger already is:
-"Open" read 158 times down a page tells a screen-reader user nothing (UI-050).
+Give each row one visible contextual action — `Open`, `View results` — beside the trigger, **except**
+where the row already opens through its name: a compact collection (Lists, Strategies, Monitors)
+makes the name the link and the whole row its click target, so a second "Open" would only repeat
+it, and the row keeps the trigger alone in a `menu` cell. A record with no maintenance actions
+renders no trigger: `OverflowMenu` returns `null` for an empty list, and a section where no row has
+one drops the column. Name a visible action after its record (`aria-label="Open {name}"`), as the
+trigger already is: "Open" read 158 times down a page tells a screen-reader user nothing (UI-050).
 
 **Placement is collision-aware** (UI-006). The popup right-aligns under its trigger; where that
 would cross the left edge it left-aligns, and where it would fall under the bottom edge or the phone

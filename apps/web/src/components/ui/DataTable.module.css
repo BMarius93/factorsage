@@ -100,8 +100,11 @@
      a relative time and a price — read across the card the way they would in a caption.
      The first takes the leading edge, anything after it the trailing one, so two of them
      land at the two ends of the card without either needing a label. */
+  /* The first summary cell starts a row of its own at the leading edge and the next takes the rest
+     of that row, so the line sits under the top row whether or not the card has a status beside its
+     identity (a card without one would otherwise fill the top row's empty columns with it). */
   .td[data-card="summary"] {
-    grid-column: auto;
+    grid-column: 1;
     order: 3;
     justify-content: flex-start;
     gap: 6px;
@@ -110,6 +113,7 @@
   }
 
   .td[data-card="summary"] ~ .td[data-card="summary"] {
+    grid-column: 2 / -1;
     justify-content: flex-end;
   }
 

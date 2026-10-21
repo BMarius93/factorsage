@@ -41,19 +41,15 @@
   color: var(--color-primary-ink);
 }
 
-.rowActions {
-  display: inline-grid;
-  justify-items: end;
-  gap: 6px;
-}
-
+/* A refused enable/disable, under the monitor's name. */
 .rowError {
-  max-width: 22rem;
+  display: block;
+  max-width: 36rem;
+  margin-top: 4px;
   color: var(--color-negative-ink);
   font-size: 12px;
   font-weight: var(--weight-emphasis);
   line-height: 1.45;
-  text-align: right;
   white-space: normal;
 }
 
@@ -65,14 +61,8 @@
 }
 
 @media (max-width: 879px) {
-  .rowActions {
-    justify-items: start;
-    width: 100%;
-  }
-
   .rowError {
     max-width: none;
-    text-align: left;
   }
 }
 

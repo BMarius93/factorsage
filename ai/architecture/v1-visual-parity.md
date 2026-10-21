@@ -228,6 +228,10 @@ around a stack of bordered row cards. The section title is already supplied by `
 standalone record cards with the page background visible between them. The single accessible DOM
 tree and explicit table roles from V2 must remain.
 
+A **compact** collection (Lists, Strategies, Monitors; see `ui-system.md`) resolves the same rule the
+other way: the section keeps its one surface on a phone and its records are stacked inside it,
+divided by hairlines, with no card of their own — still never a box around a stack of boxes.
+
 ## Application shell
 
 The shell should reproduce the V1 information architecture while using the V2 route registry.
@@ -486,6 +490,8 @@ consume the tokens:
   danger variant, because a destructive action is never a visible peer to the record it destroys.
 
 Every collection is now `PageHeader(surface)` → titled flush `SectionCard` per ownership group →
-`DataTable` → `CollectionFooter` (see the ownership rule above). The backtest result leads with `<SectionCard hero>`
+`DataTable` → `CollectionFooter` (see the ownership rule above). Lists, Strategies and Monitors have
+since moved to the compact collection — `PageHeader(plain)` → compact `CollectionSection` per
+ownership group — which is the Dashboard's density (`ui-system.md`). The backtest result leads with `<SectionCard hero>`
 holding identity, status, chart and KPIs, and its run configuration follows in a collapsed
 `<details>`.
