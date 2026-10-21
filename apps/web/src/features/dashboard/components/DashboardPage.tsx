@@ -20,6 +20,7 @@ import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useMediaQuery } from "../../../lib/use-media-query";
 import { useNow } from "../../../lib/use-now";
+import { useAutoLoad } from "../../../lib/use-auto-load";
 import { useScrollAnchor } from "../../../lib/use-scroll-anchor";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { signInHref } from "../../auth/utils/guest-routes";
@@ -30,6 +31,7 @@ import {
 } from "../../market/components/MarketWatch";
 import { DASHBOARD_REFRESH_MS, useDashboard } from "../hooks/use-dashboard";
 import {
+  ACTIVITY_AUTO_LOAD_PAGES,
   type ActivityArrivals,
   useMonitorActivity,
 } from "../hooks/use-monitor-activity";
@@ -76,7 +78,7 @@ function isActivityKind(value: string): value is MonitorActivityKind {
  * the session it happened on, newest first, each with every condition that decided it. History a
  * new Monitor replayed, edits, removals and a trigger day passing are not activity; they live on
  * each Monitor's own page. Two filters narrow it — one Monitor, one kind of event — and both are
- * applied by the API, so every page, the "new events" count and "Show older activity" are of the
+ * applied by the API, so every page, the "new events" count and every older page are of the
  * narrowed feed. A Guest sees the published built-in Monitors; a signed-in user sees those they
  * have not hidden, plus their own enabled ones. Nothing is described as live: every row is a
  * finalized end-of-day session.
@@ -117,6 +119,19 @@ export function DashboardPage() {
   useLayoutEffect(() => {
     anchor.restore();
   }, [activity.events, anchor]);
+
+  // Older pages load as the reader nears the end of the feed, a few pages per visit and filter;
+  // after that, a failure, or without the browser's support, it is **Show more activity**.
+  const autoLoadAllowed =
+    activity.olderPages < ACTIVITY_AUTO_LOAD_PAGES && !activity.loadMoreFailed;
+  const autoLoad = useAutoLoad(
+    activity.status === "ready" &&
+      activity.hasMore &&
+      autoLoadAllowed &&
+      !activity.loadingMore,
+    activity.loadMore,
+  );
+  const autoLoading = autoLoad.supported && autoLoadAllowed;
 
   // A Monitor shown or hidden since (here or in another tab) changes which events are activity at
   // all: the feed reads its newest page again. Not on the first answer, which only confirms it.
@@ -367,7 +382,20 @@ export function DashboardPage() {
                     ) : null}
                   </>
                 )}
-                {activity.hasMore ? (
+                {activity.hasMore && autoLoading ? (
+                  // Older pages load on their own as the reader nears the end (up to
+                  // `ACTIVITY_AUTO_LOAD_PAGES` per visit and filter); this is the marker that asks.
+                  <div
+                    ref={autoLoad.marker}
+                    className={styles.more}
+                    data-testid="dashboard-activity-autoload"
+                  >
+                    <p className={styles.moreLoading} role="status">
+                      {activity.loadingMore ? "Loading older activity…" : ""}
+                    </p>
+                  </div>
+                ) : null}
+                {activity.hasMore && !autoLoading ? (
                   <div className={styles.more}>
                     {activity.loadMoreFailed ? (
                       <p
@@ -389,7 +417,7 @@ export function DashboardPage() {
                         ? "Loading…"
                         : activity.loadMoreFailed
                           ? "Try again"
-                          : "Show older activity"}
+                          : "Show more activity"}
                     </button>
                   </div>
                 ) : null}

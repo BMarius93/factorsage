@@ -38,7 +38,9 @@ How the UI tells a Monitor's story (`docs/decisions/monitor-eod-v2.md` §6–§7
 **Monitor activity** feed lists observed activations and endings under one heading per market
 session, newest first — Stock, Signal (`Buy ● Activated`, `Sell ○ Ended`, the level shown without
 its step), every condition with the values that decided it, one per line, and the Monitor, linked —
-narrowed by a Monitor and an Event dropdown applied by the API and paged with "Show older activity";
+narrowed by a Monitor and an Event dropdown applied by the API, 25 events at a time, older pages
+loading on their own near the end of the feed (four per visit and filter) and then on **Show more
+activity**;
 the product is end of day, never "real-time". The Monitor page has a
 coverage line ("Evaluated through the Oct 13, 2026 close · 497 of 500 current members"), a one-line
 count of how the current members stand, and **one Signal table** — active first, then ended — with
@@ -544,7 +546,11 @@ changes of the Monitors shown — one row per event, the same security under two
 steps of one level, being two rows — grouped under their market session, newest first, with each
 Monitor's freshness from its real evaluation time. Its columns are Stock, Signal (level and state),
 Conditions and Monitor; there is no Price column, and Strategy and List are one click away from the
-Monitor. Fifteen events open the feed and "Show older activity" pages back. Waiting setups and
+Monitor. Twenty-five events open the feed; as the reader comes within 600px of its end the next
+page loads on its own — one request at a time, de-duplicated, in the API's order, so no event is
+shown twice or skipped — up to four older pages per visit and per filter, after which **Show more
+activity** asks for each further page (an endless feed would put the page's footer and its
+disclosure out of reach). A failed page stops the automatic loading and offers **Try again**. Waiting setups and
 history are on each Monitor's own page, not here.
 
 ## Open product decisions

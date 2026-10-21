@@ -272,13 +272,22 @@
   font-size: var(--text-small);
 }
 
-/* "Show older activity", centred under the feed, with what went wrong above it when it failed. */
+/* "Show more activity", centred under the feed, with what went wrong above it when it failed. */
 .more {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   padding: 16px var(--feed-inset-end) 0 var(--feed-inset-start);
+}
+
+/* "Loading older activity…" while the next page loads on its own; empty, and so silent, otherwise.
+   The marker it sits in keeps a little height, so it is in the page to be observed. */
+.moreLoading {
+  min-height: 1lh;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-secondary);
 }
 
 .moreFailed {
