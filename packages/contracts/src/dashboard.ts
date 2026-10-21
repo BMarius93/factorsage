@@ -144,6 +144,12 @@ export type MonitorActivityKind = (typeof MONITOR_ACTIVITY_KINDS)[number];
 export type DashboardActivityEventResponse = {
   /** Stable, opaque event identity. */
   id: string;
+  /**
+   * The event's place in insertion order, as a decimal string: a later write has a larger value.
+   * Within one session the feed is newest-written first, so this is what orders events that share
+   * a `sessionDate` — including an event written late for an older session.
+   */
+  sequence: string;
   kind: MonitorActivityKind;
   reason: MonitorTransitionReason;
   /** The exchange session the change was observed on. */
@@ -171,6 +177,19 @@ export type DashboardActivityResponse = {
   events: DashboardActivityEventResponse[];
   /** Opaque; pass back as `cursor` for older events. Absent on the last page. */
   nextCursor?: string;
+  /**
+   * On a first page and on a `since` read: a `sequence` every change at or below which had settled
+   * when this answered. Pass it back as `since` to read what was written after it — new events and
+   * events written late for older sessions alike. Changes written within the last few minutes are
+   * deliberately above it, so a later `since` read returns them again rather than ever missing one;
+   * a reader de-duplicates by `id`.
+   */
+  watermark?: string;
+  /**
+   * On a `since` read: more changes were written after `since` than one read returns. Read again
+   * from the new `watermark` for the rest.
+   */
+  truncated?: boolean;
 };
 
 /** `PUT /dashboard/monitors/:monitorId/visibility`. */

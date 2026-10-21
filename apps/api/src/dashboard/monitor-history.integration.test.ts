@@ -152,9 +152,11 @@ describe("Monitor history read models", () => {
     signalId?: string;
     versionId?: string | null;
     evidence?: unknown;
+    occurredAt?: Date;
   }) {
-    await prisma.monitorStateTransition.create({
+    return prisma.monitorStateTransition.create({
       data: {
+        ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
         monitorId: input.monitorId,
         securityId: input.securityId,
         levelId: "buy-1",
@@ -648,6 +650,137 @@ describe("Monitor history read models", () => {
         .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
         .send({ visible: true })
         .expect(200);
+    });
+
+    it("reads what was written after a watermark — late events for older sessions included — and never passes a change still settling", async () => {
+      const [s1] = securityIds as [string];
+      const scoped = `/dashboard/activity?monitorId=${ids.builtIn}`;
+      const read = async (path: string) =>
+        (await owner.get(path).expect(200)).body as DashboardActivityResponse;
+      const created: string[] = [];
+      try {
+        // Every event carries its place in insertion order.
+        const first = await read(scoped);
+        expect(
+          first.events.every((event) => /^\d+$/.test(event.sequence)),
+        ).toBe(true);
+        // Everything this Monitor recorded was written moments ago: nothing has settled, so the
+        // watermark stays below all of it and a `since` read returns all of it.
+        expect(first.watermark).toBe("0");
+        const fromStart = await read(`${scoped}&since=0`);
+        expect(
+          fromStart.events.map((event) => [event.sessionDate, event.kind]),
+        ).toEqual([
+          ["2026-10-14", "ACTIVATED"],
+          ["2026-10-13", "RESOLVED"],
+          ["2026-10-09", "ACTIVATED"],
+        ]);
+        expect(fromStart.watermark).toBe("0");
+        expect(fromStart.truncated).toBeUndefined();
+
+        // Once settled, the watermark reaches the newest change — whatever its kind.
+        const hourAgo = new Date(Date.now() - 60 * 60_000);
+        await prisma.monitorStateTransition.updateMany({
+          where: { monitorId: ids.builtIn },
+          data: { occurredAt: hourAgo },
+        });
+        const newest = await prisma.monitorStateTransition.findFirstOrThrow({
+          where: { monitorId: ids.builtIn },
+          orderBy: { sequence: "desc" },
+        });
+        const settled = await read(scoped);
+        expect(settled.watermark).toBe(newest.sequence.toString());
+        expect(
+          (await read(`${scoped}&since=${settled.watermark}`)).events,
+        ).toEqual([]);
+
+        // A change written now for an older session — an ETF that waited for its data — sorts
+        // inside history a reader may already hold. A page would never surface it; a `since` read
+        // does, and the watermark does not pass it while it settles.
+        const late = await transition({
+          monitorId: ids.builtIn,
+          securityId: s1,
+          from: "INACTIVE",
+          to: "ACTIVE",
+          reason: "CONDITIONS_MET",
+          origin: "OBSERVED",
+          on: "2026-10-10",
+          versionId: ids.builtInVersion,
+          evidence: evidence("TRUE", 103),
+        });
+        created.push(late.id);
+        const caughtUp = await read(`${scoped}&since=${settled.watermark}`);
+        expect(
+          caughtUp.events.map((event) => [event.id, event.sessionDate]),
+        ).toEqual([[late.id, "2026-10-10"]]);
+        expect(caughtUp.events[0]!.sequence).toBe(late.sequence.toString());
+        expect(caughtUp.watermark).toBe(settled.watermark);
+        // Read again, it comes back again: a reader de-duplicates by id rather than missing it.
+        expect(
+          (await read(`${scoped}&since=${caughtUp.watermark}`)).events.map(
+            (event) => event.id,
+          ),
+        ).toEqual([late.id]);
+        // The kind filter applies here too.
+        expect(
+          (await read(`${scoped}&kind=RESOLVED&since=${settled.watermark}`))
+            .events,
+        ).toEqual([]);
+
+        // A backlog larger than one read continues from where the read stopped.
+        const backlog = Array.from({ length: 101 }, () => ({
+          monitorId: ids.builtIn,
+          securityId: s1,
+          levelId: "buy-1",
+          levelKind: "BUY" as const,
+          signalFingerprint: "fingerprint",
+          fromState: "INACTIVE" as const,
+          toState: "ACTIVE" as const,
+          reason: "CONDITIONS_MET" as const,
+          origin: "OBSERVED" as const,
+          observationDate: date("2026-10-15"),
+          strategyVersionId: ids.builtInVersion,
+          occurredAt: hourAgo,
+        }));
+        await prisma.monitorStateTransition.createMany({ data: backlog });
+        await prisma.monitorStateTransition.updateMany({
+          where: { id: late.id },
+          data: { occurredAt: hourAgo },
+        });
+        const written = await prisma.monitorStateTransition.findMany({
+          where: { monitorId: ids.builtIn, sequence: { gt: newest.sequence } },
+          orderBy: { sequence: "asc" },
+          select: { id: true, sequence: true },
+        });
+        created.push(...written.map((row) => row.id));
+        const firstBatch = await read(`${scoped}&since=${settled.watermark}`);
+        expect(firstBatch.truncated).toBe(true);
+        expect(firstBatch.events).toHaveLength(100);
+        expect(firstBatch.watermark).toBe(written[99]!.sequence.toString());
+        const rest = await read(`${scoped}&since=${firstBatch.watermark}`);
+        expect(rest.truncated).toBeUndefined();
+        const seen = new Set([
+          ...firstBatch.events.map((event) => event.id),
+          ...rest.events.map((event) => event.id),
+        ]);
+        expect(written.every((row) => seen.has(row.id))).toBe(true);
+        expect(rest.watermark).toBe(written.at(-1)!.sequence.toString());
+        // Each read is in the feed's own order: newest session first, then newest written.
+        expect(rest.events.map((event) => event.sessionDate)).toEqual(
+          [...rest.events.map((event) => event.sessionDate)].sort().reverse(),
+        );
+
+        // `since` is a watermark this API issued, and never travels with a cursor.
+        await owner.get(`${scoped}&since=-1`).expect(400);
+        await owner.get(`${scoped}&since=12a`).expect(400);
+        await owner
+          .get(`${scoped}&since=1&cursor=${first.nextCursor ?? "x"}`)
+          .expect(400);
+      } finally {
+        await prisma.monitorStateTransition.deleteMany({
+          where: { id: { in: created } },
+        });
+      }
     });
   });
 

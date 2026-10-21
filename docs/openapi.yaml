@@ -2044,6 +2044,14 @@ paths:
         narrows the feed to one of those monitors; any other id yields no events. `kind` narrows
         it to one kind of event, in the database, so every page and its cursor are of that kind
         alone; both filters combine.
+
+        A first page also answers with a `watermark`. Passing it back as `since` (instead of
+        `cursor`) reads every change written after it, in the feed's order — new events, and events
+        written late for an older session that a page would place inside history the caller already
+        holds. Changes written in the last ten minutes stay above the watermark, so they come back
+        on the next `since` read rather than ever being skipped; callers de-duplicate by `id`. One
+        `since` read returns at most 100 changes and sets `truncated` when more remain; read again
+        from its `watermark` for the rest.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: monitorId
@@ -2062,11 +2070,18 @@ paths:
         - name: cursor
           in: query
           required: false
-          description: The `nextCursor` of the previous page.
+          description: The `nextCursor` of the previous page. Never combined with `since`.
           schema: { type: string }
+        - name: since
+          in: query
+          required: false
+          description: >-
+            A `watermark` from an earlier answer: read the changes written after it instead of a
+            page. Never combined with `cursor`.
+          schema: { type: string, pattern: "^[0-9]{1,19}$" }
       responses:
         "200":
-          description: One page of activity.
+          description: One page of activity, or the changes written after `since`.
           headers: *rateLimitHeaders
           content:
             application/json:
@@ -6688,6 +6703,7 @@ components:
       required:
         [
           id,
+          sequence,
           kind,
           reason,
           sessionDate,
@@ -6699,6 +6715,12 @@ components:
         ]
       properties:
         id: { type: string, description: Stable and opaque. }
+        sequence:
+          type: string
+          pattern: "^[0-9]+$"
+          description: >-
+            The event's place in insertion order: a later write has a larger value. Within one
+            session the feed is newest-written first.
         kind: { type: string, enum: [ACTIVATED, RESOLVED] }
         reason: { $ref: "#/components/schemas/MonitorTransitionReason" }
         sessionDate: { type: string, format: date }
@@ -6731,6 +6753,16 @@ components:
           type: array
           items: { $ref: "#/components/schemas/DashboardActivityEvent" }
         nextCursor: { type: string }
+        watermark:
+          type: string
+          pattern: "^[0-9]+$"
+          description: >-
+            On a first page and a `since` read: pass it back as `since` to read the changes written
+            after it.
+        truncated:
+          type: boolean
+          description: >-
+            On a `since` read: more changes remain; read again from `watermark`.
 
     UpdateBuiltInMonitorVisibilityRequest:
       type: object

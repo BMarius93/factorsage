@@ -15,6 +15,7 @@ import {
   type StrategyScopeNames,
   type StrategySignal,
 } from "@intrinsic/contracts";
+import type { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   monitorStrategyLevels,
@@ -56,6 +57,112 @@ export class BuiltInMonitorNotFoundError extends Error {
     super("Built-in monitor was not found");
     this.name = "BuiltInMonitorNotFoundError";
   }
+}
+
+/**
+ * How old a change must be before an Activity watermark may pass it: far longer than any one write
+ * transaction the worker runs, so nothing below the watermark can still be about to commit.
+ */
+export const ACTIVITY_WATERMARK_SETTLE_SECONDS = 600;
+
+/** The most changes one `since` read returns; a larger backlog continues from its watermark. */
+export const ACTIVITY_SINCE_LIMIT = 100;
+
+/** What the feed shows of each Monitor an event belongs to. */
+const ACTIVITY_MONITOR_SELECT = {
+  id: true,
+  name: true,
+  ownership: true,
+  enabled: true,
+  strategy: { select: { id: true, name: true } },
+  stockList: { select: { id: true, name: true } },
+} satisfies Prisma.MonitorSelect;
+
+type ActivityMonitor = Prisma.MonitorGetPayload<{
+  select: typeof ACTIVITY_MONITOR_SELECT;
+}>;
+
+/** What one stored change contributes to an event. */
+const ACTIVITY_EVENT_SELECT = {
+  id: true,
+  sequence: true,
+  monitorId: true,
+  levelId: true,
+  levelKind: true,
+  toState: true,
+  reason: true,
+  observationDate: true,
+  strategyVersionId: true,
+  evidence: true,
+  security: {
+    select: {
+      id: true,
+      symbol: true,
+      name: true,
+      exchangeCode: true,
+      exchangeName: true,
+      profile: { select: { logoUrl: true } },
+    },
+  },
+  signal: {
+    select: {
+      id: true,
+      observationPrice: true,
+      observationBasis: true,
+      strategyVersionId: true,
+    },
+  },
+} satisfies Prisma.MonitorStateTransitionSelect;
+
+type ActivityEventRow = Prisma.MonitorStateTransitionGetPayload<{
+  select: typeof ACTIVITY_EVENT_SELECT;
+}>;
+
+/**
+ * What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
+ * classification the response applies, so a filtered read holds the same events as the unfiltered
+ * feed minus the other kind, and the keyset cursor and `since` reads page it unchanged.
+ */
+function activityKindWhere(
+  kind: ActivityQuery["kind"],
+): Prisma.MonitorStateTransitionWhereInput {
+  if (kind === "ACTIVATED") {
+    return { toState: "ACTIVE" };
+  }
+  if (kind === "RESOLVED") {
+    return {
+      fromState: "ACTIVE",
+      toState: { not: "ACTIVE" },
+      reason: "CONDITIONS_ENDED",
+    };
+  }
+  return {
+    OR: [
+      { toState: "ACTIVE" },
+      { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
+    ],
+  };
+}
+
+/** The feed's order: newest session first, then newest written first within a session. */
+function byFeedOrder(
+  a: DashboardActivityEventResponse,
+  b: DashboardActivityEventResponse,
+): number {
+  if (a.sessionDate !== b.sessionDate) {
+    return a.sessionDate < b.sessionDate ? 1 : -1;
+  }
+  const left = BigInt(a.sequence);
+  const right = BigInt(b.sequence);
+  return left === right ? 0 : left < right ? 1 : -1;
+}
+
+function minBigInt(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
+
+function maxBigInt(a: bigint, b: bigint): bigint {
+  return a > b ? a : b;
 }
 
 const LEVEL_ORDER = { BUY: 0, SELL: 1, FINAL_EXIT: 2 } as const;
@@ -376,14 +483,7 @@ export class DashboardService {
               ],
             }
           : { ownership: "SYSTEM", isPublished: true },
-        select: {
-          id: true,
-          name: true,
-          ownership: true,
-          enabled: true,
-          strategy: { select: { id: true, name: true } },
-          stockList: { select: { id: true, name: true } },
-        },
+        select: ACTIVITY_MONITOR_SELECT,
       }),
       viewer
         ? this.prisma.userBuiltInMonitorPreference.findMany({
@@ -408,13 +508,72 @@ export class DashboardService {
         : visible.has(query.monitorId)
           ? [query.monitorId]
           : [];
+    return this.readActivity(viewer, visible, monitorIds, query, now);
+  }
+
+  /**
+   * One read of the Activity feed over the given Monitors: a page (the first, or the one after
+   * `cursor`), or — with `since` — every change written after a watermark.
+   *
+   * A page is keyset-ordered on `(observationDate, sequence)`, both descending, so it is stable while
+   * new sessions arrive. A `since` read exists for what a page cannot show: an event written for a
+   * session older than the newest — an ETF waiting for its data, a late bar — lands *inside* a range
+   * a reader has already loaded, and only a read by insertion order finds it. Both answer with a
+   * `watermark` a later `since` read continues from.
+   */
+  private async readActivity(
+    viewer: ContentViewer,
+    monitors: ReadonlyMap<string, ActivityMonitor>,
+    monitorIds: readonly string[],
+    query: ActivityQuery,
+    now: Date,
+  ): Promise<DashboardActivityResponse> {
     const empty: DashboardActivityResponse = {
       viewer: viewer ? "AUTHENTICATED" : "GUEST",
       generatedAt: now.toISOString(),
       events: [],
     };
     if (monitorIds.length === 0) {
-      return empty;
+      // Nothing to read now; a watermark still lets a `since` read carry on from the same place.
+      return query.cursor
+        ? empty
+        : { ...empty, watermark: (query.since ?? 0n).toString() };
+    }
+    const scope = {
+      monitorId: { in: [...monitorIds] },
+      origin: "OBSERVED" as const,
+      observationDate: { not: null },
+    };
+
+    if (query.since !== undefined) {
+      const since = query.since;
+      const [rows, settled] = await Promise.all([
+        this.prisma.monitorStateTransition.findMany({
+          where: {
+            ...scope,
+            AND: [activityKindWhere(query.kind), { sequence: { gt: since } }],
+          },
+          orderBy: [{ sequence: "asc" }],
+          take: ACTIVITY_SINCE_LIMIT + 1,
+          select: ACTIVITY_EVENT_SELECT,
+        }),
+        this.settledWatermark(monitorIds),
+      ]);
+      const truncated = rows.length > ACTIVITY_SINCE_LIMIT;
+      const read = rows.slice(0, ACTIVITY_SINCE_LIMIT);
+      // Everything up to the settled watermark has been returned — unless the read stopped early,
+      // when only what it reached may be passed. Never behind where the reader already was.
+      const reached = read[read.length - 1]?.sequence ?? since;
+      const next = truncated ? minBigInt(settled, reached) : settled;
+      const events = (await this.activityEvents(read, monitors)).sort(
+        byFeedOrder,
+      );
+      return {
+        ...empty,
+        events,
+        watermark: maxBigInt(since, next).toString(),
+        ...(truncated ? { truncated: true } : {}),
+      };
     }
 
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
@@ -434,79 +593,87 @@ export class DashboardService {
           sequence: BigInt(cursor.s as string),
         }
       : null;
-    const rows = await this.prisma.monitorStateTransition.findMany({
-      where: {
-        monitorId: { in: monitorIds },
-        origin: "OBSERVED",
-        observationDate: { not: null },
-        AND: [
-          // What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
-          // classification the response applies below, so a filtered page holds the same events
-          // as the unfiltered feed minus the other kind, and the keyset cursor pages it unchanged.
-          query.kind === "ACTIVATED"
-            ? { toState: "ACTIVE" }
-            : query.kind === "RESOLVED"
-              ? {
-                  fromState: "ACTIVE",
-                  toState: { not: "ACTIVE" },
-                  reason: "CONDITIONS_ENDED",
-                }
-              : {
-                  OR: [
-                    { toState: "ACTIVE" },
-                    { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
-                  ],
-                },
-          ...(after
-            ? [
-                {
-                  OR: [
-                    { observationDate: { lt: after.date } },
-                    {
-                      observationDate: after.date,
-                      sequence: { lt: after.sequence },
-                    },
-                  ],
-                },
-              ]
-            : []),
-        ],
-      },
-      orderBy: [{ observationDate: "desc" }, { sequence: "desc" }],
-      take: query.limit + 1,
-      select: {
-        id: true,
-        sequence: true,
-        monitorId: true,
-        levelId: true,
-        levelKind: true,
-        toState: true,
-        reason: true,
-        observationDate: true,
-        strategyVersionId: true,
-        evidence: true,
-        security: {
-          select: {
-            id: true,
-            symbol: true,
-            name: true,
-            exchangeCode: true,
-            exchangeName: true,
-            profile: { select: { logoUrl: true } },
-          },
+    const [rows, settled] = await Promise.all([
+      this.prisma.monitorStateTransition.findMany({
+        where: {
+          ...scope,
+          AND: [
+            activityKindWhere(query.kind),
+            ...(after
+              ? [
+                  {
+                    OR: [
+                      { observationDate: { lt: after.date } },
+                      {
+                        observationDate: after.date,
+                        sequence: { lt: after.sequence },
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
         },
-        signal: {
-          select: {
-            id: true,
-            observationPrice: true,
-            observationBasis: true,
-            strategyVersionId: true,
-          },
-        },
-      },
-    });
+        orderBy: [{ observationDate: "desc" }, { sequence: "desc" }],
+        take: query.limit + 1,
+        select: ACTIVITY_EVENT_SELECT,
+      }),
+      // A first page starts a reader's place in insertion order too.
+      after ? Promise.resolve(null) : this.settledWatermark(monitorIds),
+    ]);
     const page = rows.slice(0, query.limit);
-    const versionOf = (row: (typeof page)[number]) =>
+    const events = await this.activityEvents(page, monitors);
+    const last = page[page.length - 1];
+    return {
+      ...empty,
+      events,
+      ...(rows.length > query.limit && last
+        ? {
+            nextCursor: encodeCursor({
+              d: last.observationDate!.toISOString().slice(0, 10),
+              s: last.sequence.toString(),
+            }),
+          }
+        : {}),
+      ...(settled === null ? {} : { watermark: settled.toString() }),
+    };
+  }
+
+  /**
+   * The newest `sequence` of these Monitors' changes that is old enough to have settled.
+   *
+   * `sequence` is handed out when a row is written, but a transaction that took a smaller value can
+   * commit after one that took a larger, so the newest *visible* value is not yet a safe place to
+   * continue from. A change written more than {@link ACTIVITY_WATERMARK_SETTLE_SECONDS} seconds ago
+   * belongs to a transaction long finished — the worker writes each member's changes in one short
+   * transaction — so the watermark stops at the newest of those, and a later `since` read returns
+   * the last few minutes again rather than ever skipping one. One index probe per Monitor, on
+   * `(monitorId, sequence)`, measured by the database's own clock.
+   */
+  private async settledWatermark(
+    monitorIds: readonly string[],
+  ): Promise<bigint> {
+    const rows = await this.prisma.$queryRaw<{ watermark: bigint | null }[]>`
+      SELECT MAX(latest."sequence") AS "watermark"
+      FROM unnest(${[...monitorIds]}::text[]) AS monitor("id")
+      CROSS JOIN LATERAL (
+        SELECT "sequence"
+        FROM "MonitorStateTransition"
+        WHERE "monitorId" = monitor."id"
+          AND "occurredAt" <= now() - make_interval(secs => ${ACTIVITY_WATERMARK_SETTLE_SECONDS})
+        ORDER BY "sequence" DESC
+        LIMIT 1
+      ) AS latest
+    `;
+    return rows[0]?.watermark ?? 0n;
+  }
+
+  /** The response for each stored change, explained by the version and evidence recorded with it. */
+  private async activityEvents(
+    page: readonly ActivityEventRow[],
+    monitors: ReadonlyMap<string, ActivityMonitor>,
+  ): Promise<DashboardActivityEventResponse[]> {
+    const versionOf = (row: ActivityEventRow) =>
       row.strategyVersionId ?? row.signal?.strategyVersionId ?? null;
     const levelsByVersion = await loadStoredLevels(
       this.prisma,
@@ -530,8 +697,8 @@ export class DashboardService {
       ),
     );
 
-    const events: DashboardActivityEventResponse[] = page.map((row) => {
-      const monitor = visible.get(row.monitorId)!;
+    return page.map((row) => {
+      const monitor = monitors.get(row.monitorId)!;
       const version = versionOf(row);
       const level = version
         ? levelsByVersion.get(version)?.get(row.levelId)
@@ -539,6 +706,7 @@ export class DashboardService {
       const sessionDate = row.observationDate!.toISOString().slice(0, 10);
       return {
         id: row.id,
+        sequence: row.sequence.toString(),
         kind: row.toState === "ACTIVE" ? "ACTIVATED" : "RESOLVED",
         reason: row.reason,
         sessionDate,
@@ -585,19 +753,6 @@ export class DashboardService {
           : {}),
       };
     });
-    const last = page[page.length - 1];
-    return {
-      ...empty,
-      events,
-      ...(rows.length > query.limit && last
-        ? {
-            nextCursor: encodeCursor({
-              d: last.observationDate!.toISOString().slice(0, 10),
-              s: last.sequence.toString(),
-            }),
-          }
-        : {}),
-    };
   }
 
   /**
