@@ -124,6 +124,30 @@ describe("DataTable", () => {
     expect(screen.getAllByTestId("thing-row")).toHaveLength(2);
   });
 
+  it("names a menu-only column for assistive technology without showing the caption", () => {
+    renderTable({
+      columns: [
+        ...COLUMNS,
+        {
+          key: "menu",
+          header: "Actions",
+          cardRole: "menu",
+          render: () => <button type="button">More</button>,
+        },
+      ],
+    });
+
+    const header = screen.getByRole("columnheader", { name: "Actions" });
+    expect(header.getAttribute("data-card")).toBe("menu");
+    expect(header.firstElementChild?.className).toMatch(/srOnly/);
+    expect(
+      screen
+        .getAllByRole("button", { name: "More" })[0]
+        ?.closest("td")
+        ?.getAttribute("data-card"),
+    ).toBe("menu");
+  });
+
   it("tags each cell with the region of the mobile card it belongs to", () => {
     const { container } = renderTable();
     const row = screen.getAllByTestId("thing-row")[0]!;

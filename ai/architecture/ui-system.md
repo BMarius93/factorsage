@@ -276,7 +276,11 @@ Each column declares a `cardRole` that says where its cell goes on a phone:
 | `fact`     | cell    | a full-width `LABEL … value` row (the default)             |
 | `links`    | cell    | a labelled relationship row in the card's "linked" block   |
 | `actions`  | cell    | a full-width action row under a divider                    |
+| `menu`     | cell    | the menu trigger at the card's top-right; no row           |
 | `hidden`   | cell    | omitted                                                    |
+
+A `menu` column holds only the row's `OverflowMenu`; its header names it for assistive technology
+but is not shown.
 
 **A card is not the desktop row with the columns turned sideways.** Every `fact` costs a label, a
 value and a row, and a record with seven of them becomes a screenful: the Dashboard's match card

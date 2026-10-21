@@ -24,6 +24,13 @@ export type DataTableCardRole =
   | "fact"
   | "links"
   | "actions"
+  /**
+   * A cell holding only the row's `OverflowMenu`. On a phone it is the trigger at the card's
+   * top-right, taking no row of its own (an `actions` row with nothing else in it would be an empty
+   * band under a divider); on a desktop it is a narrow trailing cell whose header is read by
+   * assistive technology but not shown, since a column of "⋯" needs no caption.
+   */
+  | "menu"
   /** Desktop-only detail that would only clutter a phone card. */
   | "hidden";
 
@@ -239,7 +246,9 @@ export function DataTable<TRow>({
                     : {})}
                   style={columnStyle(column)}
                 >
-                  {column.sortable && onSortChange ? (
+                  {column.cardRole === "menu" ? (
+                    <span className={styles.srOnly}>{column.header}</span>
+                  ) : column.sortable && onSortChange ? (
                     <button
                       type="button"
                       className={styles.sortButton}

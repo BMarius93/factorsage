@@ -180,6 +180,22 @@
     right: 14px;
   }
 
+  /* A menu-only cell is the trigger itself, at the card's top-right, with no row of its own. */
+  .td[data-card="menu"] {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    /* Placed against the card's own edge: an explicit grid area would become its containing
+       block and inset it by the card's padding. */
+    grid-column: auto;
+    display: block;
+    padding: 0;
+  }
+
+  .td[data-card="menu"] .cardValue {
+    display: block;
+  }
+
   /* Long prose reads left-aligned under its label, across the whole card (UI-011). */
   .td[data-stacked="true"] {
     flex-direction: column;
@@ -398,6 +414,16 @@
   color: var(--color-border-strong);
 }
 
+/* A header that names its column for assistive technology only (`cardRole: "menu"`). */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Pointer affordance only: the identity cell's link is what keyboard users follow. */
 .row[data-clickable="true"] {
   cursor: pointer;
@@ -421,7 +447,8 @@
     background: none;
   }
 
-  .table[data-density="compact"] .td[data-card="actions"] [data-overflow-menu] {
+  .table[data-density="compact"] .td[data-card="actions"] [data-overflow-menu],
+  .table[data-density="compact"] .td[data-card="menu"] {
     top: 12px;
     right: var(--surface-inset, 12px);
   }
