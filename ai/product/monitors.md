@@ -479,12 +479,10 @@ a wrong Signal.
 - **Evaluation reads PostgreSQL, not the Redis projection.** The Monitor frame is read from stored
   bars and materialized derived rows, so a monitored universe larger than the resident-stock bound
   costs no re-hydration. Do not add a Monitor-specific cache.
-- **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
-  100 Signals and nothing pages further back; older rows are durable but not yet addressable
-  through the API. Pagination is a contract addition for the web slice, not a redesign.
-- **Signal history on the web is the newest 100 and is labelled as such.** The Monitor page lists
-  what `GET /monitors/:id` returns and says so when it is at the cap, rather than implying a
-  lifetime history. Paging further back is the contract addition the previous point describes.
+- **The whole Signal history is addressable, one consistent table at a time.** The Monitor page's
+  Signal table reads `GET /monitors/:id/signals`, keyset-paged 25 at a time with "Show more
+  signals" (`docs/decisions/monitor-eod-v2.md` §6.2). An evaluation between two pages restarts the
+  table from its first page with a note, rather than mixing two states of it.
 - **"Not evaluable" and "not checked" are inferred where the state table cannot distinguish them.**
   A cycle that cannot decide a level it has never decided before deliberately persists no row, so
   the two look identical in `MonitorSignalState`. The detail response separates them using the two
@@ -566,7 +564,8 @@ is traced in `ai/architecture/deep-discovery.md`.
    changes nothing.
 3. **Monitored-universe size.** No total cap on a List exists (investigation 10 quantifies the
    cost beyond the resident-stock bound). A cap is a product rule, not an engine limit.
-4. **Signal history beyond the newest 100.** The contract has no paging; the web slice needs it.
+4. **Signal history beyond the newest 100** — decided: the Signal table pages the whole history
+   (§6.2 of the decision record).
 5. **A backtest ending today** is decided: it ends at the newest finalized session
    (`docs/decisions/eod-finality-v1.md`).
 
