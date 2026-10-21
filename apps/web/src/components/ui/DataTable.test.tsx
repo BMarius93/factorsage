@@ -110,6 +110,20 @@ describe("DataTable", () => {
     expect(screen.getAllByText("Alpha")).toHaveLength(1);
   });
 
+  it("marks a compact table, and only a compact one, for the Dashboard's density", () => {
+    const { unmount } = renderTable();
+    expect(
+      screen.getByRole("table", { name: "Things" }).getAttribute("data-density"),
+    ).toBeNull();
+    unmount();
+
+    renderTable({ density: "compact" });
+    const table = screen.getByRole("table", { name: "Things" });
+    expect(table.getAttribute("data-density")).toBe("compact");
+    // Still one DOM: the phone's stacked rows are the same rows, never a second copy.
+    expect(screen.getAllByTestId("thing-row")).toHaveLength(2);
+  });
+
   it("tags each cell with the region of the mobile card it belongs to", () => {
     const { container } = renderTable();
     const row = screen.getAllByTestId("thing-row")[0]!;

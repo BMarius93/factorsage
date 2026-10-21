@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { COLLECTION_PAGE_SIZES } from "./CollectionFooter";
+import { COLLECTION_DEFAULT_PAGE_SIZE } from "./CollectionFooter";
 
 /**
  * Client-side paging for a collection the page already holds in memory.
@@ -24,7 +24,9 @@ export function usePagination<TRow>(
     setPageKey(resetKey);
     setPage(1);
   }
-  const [pageSize, setPageSize] = useState<number>(COLLECTION_PAGE_SIZES[0]);
+  const [pageSize, setPageSize] = useState<number>(
+    COLLECTION_DEFAULT_PAGE_SIZE,
+  );
 
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
 

@@ -38,3 +38,20 @@
     padding: 12px 0 0;
   }
 }
+
+/* The footer of a compact section: the Dashboard's quieter rhythm, and it never dissolves, because a
+   compact section keeps its surface on a phone. */
+.footer[data-density="compact"] {
+  padding: 8px var(--surface-inset);
+  font-size: var(--text-small);
+}
+
+@media (max-width: 879px) {
+  .footer[data-density="compact"] {
+    padding: 10px var(--surface-inset);
+  }
+}
+
+.footer[aria-busy="true"] .range {
+  opacity: 0.6;
+}

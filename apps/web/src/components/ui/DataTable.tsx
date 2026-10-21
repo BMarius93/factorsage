@@ -97,6 +97,12 @@ type DataTableProps<TRow> = {
   readonly clickableRows?: boolean;
   /** Rendered instead of the table when there are no rows. */
   readonly emptyState?: ReactNode;
+  /**
+   * `compact` is the Dashboard's table density, for a table inside a compact `SectionCard`: 13px
+   * cells and tighter padding on a desktop, and on a phone the rows stacked inside the section,
+   * divided by hairlines, rather than one bordered card per record.
+   */
+  readonly density?: "comfortable" | "compact";
 };
 
 /**
@@ -175,6 +181,7 @@ export function DataTable<TRow>({
   testId,
   clickableRows,
   emptyState,
+  density = "comfortable",
 }: DataTableProps<TRow>) {
   if (rows.length === 0 && emptyState) {
     return <>{emptyState}</>;
@@ -204,6 +211,7 @@ export function DataTable<TRow>({
         className={styles.table}
         role="table"
         aria-label={label}
+        data-density={density === "compact" ? "compact" : undefined}
         {...(testId ? { "data-testid": testId } : {})}
       >
         <thead className={styles.head} role="rowgroup">

@@ -37,6 +37,11 @@ type StatusBadgeProps = {
    */
   readonly variant?: "solid" | "outline" | "text";
   /**
+   * `small` is the restrained pill of a compact table: the same label and tone in a tighter pill, so
+   * a row of 13px text is not set by its badges' height. Meaningless for `text`, which has no pill.
+   */
+  readonly size?: "default" | "small";
+  /**
    * Marks the status as *live work*, with a small pulsing dot before the label.
    *
    * For a job that is genuinely still processing — queued or running — and nothing else. It says
@@ -63,6 +68,7 @@ export function StatusBadge({
   children,
   title,
   variant = "solid",
+  size = "default",
   pulse,
   testId,
   dataAttributes,
@@ -72,6 +78,7 @@ export function StatusBadge({
       className={styles.badge}
       data-tone={tone}
       data-variant={variant}
+      data-size={size === "small" ? "small" : undefined}
       // A stable hook for "this job is alive", so a test asserts on state rather than on a CSS
       // animation frame.
       data-activity={pulse ? "pulse" : undefined}

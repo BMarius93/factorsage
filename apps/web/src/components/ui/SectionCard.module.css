@@ -122,9 +122,10 @@
 
 /* Below the table/card switch a flush surface dissolves: `DataTable` renders each record
    as its own bordered card there, and keeping the wrapper would draw a box around a stack
-   of boxes. The heading stays — it is the section's name, not the card's. */
+   of boxes. The heading stays — it is the section's name, not the card's. A compact surface
+   stays: its table stacks its rows inside it instead of drawing a card per record. */
 @media (max-width: 879px) {
-  .card[data-flush="true"] {
+  .card[data-flush="true"]:not([data-density="compact"]) {
     border: 0;
     border-radius: 0;
     background: none;
@@ -132,13 +133,89 @@
     overflow: visible;
   }
 
-  .card[data-flush="true"] > .head,
-  .card[data-flush="true"] > .toolbar {
+  .card[data-flush="true"]:not([data-density="compact"]) > .head,
+  .card[data-flush="true"]:not([data-density="compact"]) > .toolbar {
     padding-left: 0;
     padding-right: 0;
   }
 
-  .card[data-flush="true"] > .body[data-flush="true"] {
+  .card[data-flush="true"]:not([data-density="compact"])
+    > .body[data-flush="true"] {
     padding-top: 12px;
+  }
+}
+
+/* ── Compact density ─────────────────────────────────────────────────────────
+   The Dashboard's section heading, for a management collection: the title, its count and the
+   section's controls on one row of 60px, the table's column headings directly under it, and quiet
+   chrome throughout. It clips with `overflow: clip` rather than `hidden`, so it rounds what reaches
+   its edge without becoming a scroll container. */
+
+/* The title and the count beside it, on the title's baseline. */
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+/* `12`, or `3 of 12` while searching: what a reader checks, not what they read first. */
+.count {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.card[data-density="compact"] {
+  overflow: clip;
+}
+
+.card[data-density="compact"] > .head {
+  align-items: center;
+  gap: 8px 16px;
+  min-height: 60px;
+  padding: 10px var(--card-pad);
+}
+
+.card[data-density="compact"] .heading {
+  gap: 2px;
+}
+
+.card[data-density="compact"] .title {
+  line-height: var(--line-height-tight);
+}
+
+.card[data-density="compact"] .caption {
+  font-size: var(--text-small);
+}
+
+/* The section's search and sort, at the heading row's trailing end. */
+.card[data-density="compact"] > .head > .toolbar {
+  flex: 1 1 18rem;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 0;
+}
+
+/* The table's column headings sit directly under the heading row. */
+.card[data-density="compact"] > .head + .body[data-flush="true"] {
+  padding-top: 0;
+}
+
+/* Anything that is not a table — an empty or a filtered-empty state — sits under a hairline, as the
+   Dashboard's states do. */
+.card[data-density="compact"] > .head + .body:not([data-flush="true"]) {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+@media (max-width: 879px) {
+  /* The controls take the row under the title, full width. */
+  .card[data-density="compact"] > .head > .toolbar {
+    flex-basis: 100%;
+    justify-content: flex-start;
   }
 }

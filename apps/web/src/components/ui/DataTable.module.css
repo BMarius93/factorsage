@@ -402,3 +402,52 @@
 .row[data-clickable="true"] {
   cursor: pointer;
 }
+
+/* ── Compact density ─────────────────────────────────────────────────────────
+   The Dashboard's table, for a collection inside a compact `SectionCard`. On a desktop: 13px cells,
+   the feed's column-heading and row padding, the same hairlines. On a phone the section stays a
+   surface, so the rows are stacked inside it — each one the same card layout without a card of its
+   own, divided from the next by a hairline — rather than a grid of bordered cards. */
+@media (max-width: 879px) {
+  .table[data-density="compact"] .body {
+    display: block;
+  }
+
+  .table[data-density="compact"] .row {
+    padding: 12px var(--surface-inset, 12px);
+    border: 0;
+    border-top: 1px solid var(--color-border-subtle);
+    border-radius: 0;
+    background: none;
+  }
+
+  .table[data-density="compact"] .td[data-card="actions"] [data-overflow-menu] {
+    top: 12px;
+    right: var(--surface-inset, 12px);
+  }
+}
+
+@media (min-width: 880px) {
+  .table[data-density="compact"] {
+    font-size: var(--text-secondary);
+  }
+
+  .table[data-density="compact"] .th {
+    padding: 8px 12px 6px;
+    line-height: var(--line-height-tight);
+  }
+
+  .table[data-density="compact"] .td {
+    padding: 10px 12px;
+  }
+
+  .table[data-density="compact"] .th:first-child,
+  .table[data-density="compact"] .td:first-child {
+    padding-left: var(--surface-inset, 16px);
+  }
+
+  .table[data-density="compact"] .th:last-child,
+  .table[data-density="compact"] .td:last-child {
+    padding-right: var(--surface-inset, 16px);
+  }
+}
