@@ -285,6 +285,64 @@ describe("strategies", () => {
     await owner.delete(`/strategies/${mine.id}`).expect(204);
   });
 
+  it("counts each version's levels once and lists without reading a definition again", async () => {
+    const created = await createStrategy(owner, {
+      name: `Counted ${suffix}`,
+      definition: definition(),
+    });
+    const summaryOf = async () =>
+      (
+        (await owner.get("/strategies").expect(200))
+          .body as StrategySummaryResponse[]
+      ).find((row) => row.id === created.id);
+    expect(await summaryOf()).toMatchObject({
+      buyLevelCount: 1,
+      sellLevelCount: 0,
+      hasFinalExit: false,
+      versionNumber: 1,
+    });
+
+    // A stored version is never changed — an edit writes the next one — so its counts are fixed.
+    // Make its definition unreadable: the collection, which has counted it, never reads it again.
+    const version = await prisma.strategyVersion.findFirstOrThrow({
+      where: { strategyId: created.id },
+    });
+    await prisma.strategyVersion.update({
+      where: { id: version.id },
+      data: { definition: { unreadable: true } },
+    });
+    expect(await summaryOf()).toMatchObject({
+      buyLevelCount: 1,
+      versionNumber: 1,
+    });
+    await prisma.strategyVersion.update({
+      where: { id: version.id },
+      data: { definition: version.definition as object },
+    });
+
+    // A new version is counted when it first appears.
+    const two = definition({
+      buyLevels: [
+        ...definition().buyLevels,
+        {
+          id: nextId("buy"),
+          percentage: 25,
+          signal: { conditions: [priceAbove("EMA_200D")] },
+        },
+      ],
+    });
+    await owner
+      .put(`/strategies/${created.id}/definition`)
+      .send({ definition: two })
+      .expect(200);
+    expect(await summaryOf()).toMatchObject({
+      buyLevelCount: 2,
+      versionNumber: 2,
+    });
+
+    await owner.delete(`/strategies/${created.id}`).expect(204);
+  });
+
   it("allows two strategies with the same name", async () => {
     const first = await createStrategy(owner, {
       name: "Value Strategy",
