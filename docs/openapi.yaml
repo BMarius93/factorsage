@@ -1994,6 +1994,14 @@ paths:
         that put it there, under the Strategy version recorded with it: `why.basis` is `EVIDENCE`
         with the values that decision compared, or `RULE_ONLY` for an older row recorded without
         them. Readable without a session for a published built-in monitor, like the monitor itself.
+
+        Keyset-paged: `nextCursor` continues from the last row's sort keys, never from an offset.
+        Each page is read in one consistent snapshot beside a count of the monitor's state
+        transitions, and the cursor carries that count and the filters it was issued for. When a
+        session has been evaluated or the monitor rebound since the first page, the next page is
+        refused with 409 rather than mixed with the table the caller saw; the caller starts over
+        from the first page. A cursor used with other filters is a 400. The first page also returns
+        `counts` for each group under the level filter.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: state
@@ -2023,6 +2031,13 @@ paths:
               schema: { $ref: "#/components/schemas/MonitorSignalPage" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "409":
+          description: >-
+            The signal table changed since the cursor's first page was read. Start over without a
+            cursor.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -6478,6 +6493,14 @@ components:
           type: array
           items: { $ref: "#/components/schemas/MonitorSignalRow" }
         nextCursor: { type: string }
+        counts:
+          type: object
+          description: On a first page, how many rows each group holds under the level filter.
+          required: [active, ended, waiting]
+          properties:
+            active: { type: integer, minimum: 0 }
+            ended: { type: integer, minimum: 0 }
+            waiting: { type: integer, minimum: 0 }
 
     MonitorSummary:
       type: object

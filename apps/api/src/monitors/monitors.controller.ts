@@ -6,6 +6,7 @@ import type {
 } from "@intrinsic/contracts";
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -30,7 +31,10 @@ import {
   parseSignalTableQuery,
   parseUpdateMonitorRequest,
 } from "./monitor-requests";
-import { InvalidSignalCursorError } from "./monitor-signal-table";
+import {
+  InvalidSignalCursorError,
+  SignalTableChangedError,
+} from "./monitor-signal-table";
 import {
   MonitorNotFoundError,
   MonitorReferenceNotFoundError,
@@ -156,6 +160,9 @@ export class MonitorsController {
         error instanceof InvalidSignalCursorError
       ) {
         throw new BadRequestException(error.message);
+      }
+      if (error instanceof SignalTableChangedError) {
+        throw new ConflictException(error.message);
       }
       throw error;
     }
