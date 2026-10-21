@@ -316,7 +316,10 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
               </p>
             )}
             {/* Said once, here, where a strategy is chosen — never per security, Signal or level. */}
-            <p className={forms.hint} data-testid="monitor-position-metric-note">
+            <p
+              className={forms.hint}
+              data-testid="monitor-position-metric-note"
+            >
               Rules using Gain or Loss are not evaluated by monitors, because
               those need position and cost-basis data. They still work in
               backtests.
@@ -355,37 +358,38 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
           </div>
 
           {builtIn ? null : (
-          <div className={styles.checkRow}>
-            <input
-              id="monitor-enabled"
-              className={styles.checkbox}
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
-            <label className={styles.checkLabel} htmlFor="monitor-enabled">
-              {props.mode === "create" ? "Start monitoring now" : "Enabled"}
-              <span className={styles.checkHint}>
-                {props.mode === "create"
-                  ? "Leave this off to save the monitor without evaluating it yet. You can enable it at any time."
-                  : "A disabled monitor keeps its signals and resumes from where it left off when you enable it again."}
-              </span>
-              {atCapacity ? (
-                <span
-                  className={styles.capacityHint}
-                  data-testid="monitor-capacity-hint"
-                >
-                  {plan.status === "ready" && plan.plan
-                    ? PLAN_LABEL[plan.plan]
-                    : "Your plan"}{" "}
-                  allows {maxActive} active monitor{maxActive === 1 ? "" : "s"}{" "}
-                  and {props.activeCount} {props.activeCount === 1 ? "is" : "are"}{" "}
-                  switched on, so this one is saved switched off. Switch another
-                  monitor off to start it.
+            <div className={styles.checkRow}>
+              <input
+                id="monitor-enabled"
+                className={styles.checkbox}
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+              />
+              <label className={styles.checkLabel} htmlFor="monitor-enabled">
+                {props.mode === "create" ? "Start monitoring now" : "Enabled"}
+                <span className={styles.checkHint}>
+                  {props.mode === "create"
+                    ? "Leave this off to save the monitor without evaluating it yet. You can enable it at any time."
+                    : "A disabled monitor keeps its signals and resumes from where it left off when you enable it again."}
                 </span>
-              ) : null}
-            </label>
-          </div>
+                {atCapacity ? (
+                  <span
+                    className={styles.capacityHint}
+                    data-testid="monitor-capacity-hint"
+                  >
+                    {plan.status === "ready" && plan.plan
+                      ? PLAN_LABEL[plan.plan]
+                      : "Your plan"}{" "}
+                    allows {maxActive} active monitor
+                    {maxActive === 1 ? "" : "s"} and {props.activeCount}{" "}
+                    {props.activeCount === 1 ? "is" : "are"} switched on, so
+                    this one is saved switched off. Switch another monitor off
+                    to start it.
+                  </span>
+                ) : null}
+              </label>
+            </div>
           )}
 
           {rebinding ? (

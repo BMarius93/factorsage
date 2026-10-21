@@ -667,6 +667,16 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               match&rdquo;, and it is decided again on the next session.
             </p>
           ) : null}
+          {signalTable.restarted && signalTable.status === "ready" ? (
+            <p
+              className={styles.sectionNote}
+              role="status"
+              data-testid="monitor-signals-restarted"
+            >
+              Signals were updated while you were reading, so the table was read
+              again from the top.
+            </p>
+          ) : null}
           {signalTable.status === "loading" ? (
             <SkeletonList rows={4} />
           ) : signalTable.status === "error" ? (
@@ -723,8 +733,17 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               }
             />
           )}
-          {signalTable.hasMore ? (
+          {signalTable.status === "ready" && signalTable.hasMore ? (
             <div className={styles.more}>
+              {signalTable.loadMoreFailed ? (
+                <p
+                  className={styles.moreFailed}
+                  role="alert"
+                  data-testid="monitor-signals-more-failed"
+                >
+                  More signals could not be loaded.
+                </p>
+              ) : null}
               <button
                 type="button"
                 className={forms.secondaryButton}
@@ -732,7 +751,11 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                 disabled={signalTable.loadingMore}
                 data-testid="monitor-signals-more"
               >
-                {signalTable.loadingMore ? "Loading…" : "Show more signals"}
+                {signalTable.loadingMore
+                  ? "Loading…"
+                  : signalTable.loadMoreFailed
+                    ? "Try again"
+                    : "Show more signals"}
               </button>
             </div>
           ) : null}

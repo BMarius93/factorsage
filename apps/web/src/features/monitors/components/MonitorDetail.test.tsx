@@ -469,8 +469,18 @@ describe("MonitorDetail", () => {
           },
         ],
         stockSectors: [
-          { symbol: "AAPL", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
-          { symbol: "MSFT", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          {
+            symbol: "AAPL",
+            sector: "Technology",
+            code: "ETF_XLK",
+            ticker: "XLK",
+          },
+          {
+            symbol: "MSFT",
+            sector: "Technology",
+            code: "ETF_XLK",
+            ticker: "XLK",
+          },
           { symbol: "NOSEC", sector: null, code: null, ticker: null },
         ],
       }),
@@ -485,13 +495,17 @@ describe("MonitorDetail", () => {
       " Stock's Sector: AAPL and MSFT read XLK; no sector ETF for NOSEC (no FMP sector), so its Stock's Sector rules cannot be evaluated.",
     );
     // Inside the one ETF note, after the funds' own states.
-    expect(screen.getByTestId("monitor-etf-sources").contains(sectors)).toBe(true);
+    expect(screen.getByTestId("monitor-etf-sources").contains(sectors)).toBe(
+      true,
+    );
   });
 
   it("says so when no watched stock has a sector ETF at all", async () => {
     fetchMonitorMock.mockResolvedValue(
       detail({
-        stockSectors: [{ symbol: "NOSEC", sector: null, code: null, ticker: null }],
+        stockSectors: [
+          { symbol: "NOSEC", sector: null, code: null, ticker: null },
+        ],
       }),
     );
     render(<MonitorDetail monitorId="monitor-1" />);
@@ -615,7 +629,9 @@ describe("MonitorDetail", () => {
     expect(within(rows[1]!).getByTestId("monitor-why").textContent).toContain(
       "did not hold",
     );
-    expect(within(rows[2]!).getByTestId("monitor-signal-history")).toBeDefined();
+    expect(
+      within(rows[2]!).getByTestId("monitor-signal-history"),
+    ).toBeDefined();
     expect(rows[2]!.textContent).toContain("Intraday quote");
     expect(rows[2]!.textContent).not.toContain("2026-09-10");
     expect(fetchMonitorSignalsMock).toHaveBeenCalledWith(
@@ -662,7 +678,9 @@ describe("MonitorDetail", () => {
     await screen.findByTestId("monitor-signals-empty");
 
     const states = screen.getByTestId("monitor-signal-state-filter");
-    await userEvent.click(within(states).getByRole("button", { name: "Ended" }));
+    await userEvent.click(
+      within(states).getByRole("button", { name: "Ended" }),
+    );
     await waitFor(() =>
       expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
         "monitor-1",
@@ -670,7 +688,9 @@ describe("MonitorDetail", () => {
         expect.anything(),
       ),
     );
-    await userEvent.click(within(states).getByRole("button", { name: "Waiting" }));
+    await userEvent.click(
+      within(states).getByRole("button", { name: "Waiting" }),
+    );
     await waitFor(() =>
       expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
         "monitor-1",
@@ -710,11 +730,67 @@ describe("MonitorDetail", () => {
     await waitFor(() =>
       expect(screen.getAllByTestId("monitor-signal-row")).toHaveLength(2),
     );
-    expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith("monitor-1", {
-      limit: 25,
-      cursor: "cursor-1",
-    });
+    expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
+      "monitor-1",
+      { limit: 25, cursor: "cursor-1" },
+      expect.anything(),
+    );
     expect(screen.queryByTestId("monitor-signals-more")).toBeNull();
+  });
+
+  it("reads the table again from the top, with a note, when an evaluation changed it between pages", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorSignalsMock
+      .mockResolvedValueOnce({
+        rows: [signalRow({ id: "signal-a" })],
+        nextCursor: "cursor-1",
+      })
+      .mockRejectedValueOnce(new ApiError(409, "The Signal table changed"))
+      .mockResolvedValueOnce({
+        rows: [
+          signalRow({ id: "signal-c" }),
+          signalRow({ id: "signal-a", state: "RESOLVED" }),
+        ],
+      });
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    await screen.findAllByTestId("monitor-signal-row");
+
+    await userEvent.click(screen.getByTestId("monitor-signals-more"));
+    const note = await screen.findByTestId("monitor-signals-restarted");
+    expect(note.textContent).toContain("read again from the top");
+    // The table as it now is — each occurrence once — and no error left over.
+    expect(screen.getAllByTestId("monitor-signal-row")).toHaveLength(2);
+    expect(fetchMonitorSignalsMock).toHaveBeenLastCalledWith(
+      "monitor-1",
+      { limit: 25 },
+      expect.anything(),
+    );
+    expect(screen.queryByTestId("monitor-signals-more-failed")).toBeNull();
+  });
+
+  it("says when more signals could not be loaded, and loads them on retry", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorSignalsMock
+      .mockResolvedValueOnce({
+        rows: [signalRow({ id: "signal-a" })],
+        nextCursor: "cursor-1",
+      })
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ rows: [signalRow({ id: "signal-b" })] });
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    await screen.findAllByTestId("monitor-signal-row");
+
+    await userEvent.click(screen.getByTestId("monitor-signals-more"));
+    expect(
+      (await screen.findByTestId("monitor-signals-more-failed")).textContent,
+    ).toBe("More signals could not be loaded.");
+    await userEvent.click(screen.getByTestId("monitor-signals-more"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("monitor-signal-row")).toHaveLength(2),
+    );
+    expect(screen.queryByTestId("monitor-signals-restarted")).toBeNull();
   });
 
   it("shows empty sections rather than pretending there is data", async () => {

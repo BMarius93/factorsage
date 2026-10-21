@@ -228,7 +228,9 @@ describe("MonitorsPage", () => {
       within(builtIns).queryByRole("button", { name: /S&P Value & Trend/ }),
     ).toBeNull();
     expect(
-      within(builtIns).getByRole("link", { name: /^Open / }).getAttribute("href"),
+      within(builtIns)
+        .getByRole("link", { name: /^Open / })
+        .getAttribute("href"),
     ).toBe("/monitors/builtin-1");
   });
 
@@ -254,7 +256,9 @@ describe("MonitorsPage", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByTestId("built-in-monitor-toggle").getAttribute("aria-checked"),
+        screen
+          .getByTestId("built-in-monitor-toggle")
+          .getAttribute("aria-checked"),
       ).toBe("false"),
     );
     // It is a preference, never the shared monitor: nothing patched the monitor itself.
@@ -269,11 +273,11 @@ describe("MonitorsPage", () => {
     render(<MonitorsPage />);
     await user.click(await screen.findByTestId("built-in-monitor-toggle"));
 
+    expect(await screen.findByTestId("monitor-visibility-error")).toBeDefined();
     expect(
-      await screen.findByTestId("monitor-visibility-error"),
-    ).toBeDefined();
-    expect(
-      screen.getByTestId("built-in-monitor-toggle").getAttribute("aria-checked"),
+      screen
+        .getByTestId("built-in-monitor-toggle")
+        .getAttribute("aria-checked"),
     ).toBe("true");
   });
 
@@ -297,7 +301,9 @@ describe("MonitorsPage", () => {
     await screen.findByTestId("built-in-monitors");
 
     await chooseFromOverflowMenu(userEvent, "S&P Value & Trend", "Edit");
-    await waitFor(() => expect(screen.getByTestId("monitor-form")).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByTestId("monitor-form")).toBeDefined(),
+    );
     // Deleting a built-in is offered to nobody.
     expect(screen.queryByText("Delete")).toBeNull();
   });
@@ -317,10 +323,14 @@ describe("MonitorsPage", () => {
     await user.click(screen.getByTestId("built-in-monitor-toggle"));
     let prompt = await screen.findByTestId("sign-in-prompt");
     expect(
-      within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
+      within(prompt)
+        .getByRole("link", { name: "Sign in" })
+        .getAttribute("href"),
     ).toBe("/login?next=%2Fmonitors");
     expect(setVisibilityMock).not.toHaveBeenCalled();
-    await user.click(within(prompt).getByRole("button", { name: "Close dialog" }));
+    await user.click(
+      within(prompt).getByRole("button", { name: "Close dialog" }),
+    );
 
     await user.click(screen.getByTestId("new-monitor-button"));
     prompt = await screen.findByTestId("sign-in-prompt");
@@ -369,7 +379,9 @@ describe("MonitorsPage", () => {
 
     // The strategy and the list a monitor references stay reachable from the row.
     expect(
-      screen.getAllByRole("link", { name: "Deep value" })[0]!.getAttribute("href"),
+      screen
+        .getAllByRole("link", { name: "Deep value" })[0]!
+        .getAttribute("href"),
     ).toBe("/strategies/strategy-1");
     expect(
       screen
@@ -403,13 +415,13 @@ describe("MonitorsPage", () => {
       "Paused — plan limit",
       "Enabled",
     ]);
-    expect(pills.map((pill) => pill.getAttribute("data-blocked-reason"))).toEqual([
-      "MONITOR_CAPACITY",
-      "LIST_OVER_LIMIT",
-      null,
-    ]);
     expect(
-      screen.getAllByTestId("monitor-state-reason").map((reason) => reason.textContent),
+      pills.map((pill) => pill.getAttribute("data-blocked-reason")),
+    ).toEqual(["MONITOR_CAPACITY", "LIST_OVER_LIMIT", null]);
+    expect(
+      screen
+        .getAllByTestId("monitor-state-reason")
+        .map((reason) => reason.textContent),
     ).toEqual([
       blockedShortReason("MONITOR_CAPACITY"),
       blockedShortReason("LIST_OVER_LIMIT"),
