@@ -1,6 +1,7 @@
 import type {
   AuthUser,
   MonitorDetailResponse,
+  MonitorDetailSummaryResponse,
   MonitorSignalPageResponse,
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
@@ -89,8 +90,13 @@ export class MonitorsController {
   async getOne(
     @Viewer() viewer: AuthUser | null,
     @Param("monitorId") monitorId: string,
-  ): Promise<MonitorDetailResponse> {
-    return this.execute(() => this.monitors.getMonitor(viewer, monitorId));
+    @Query("view") view?: unknown,
+  ): Promise<MonitorDetailResponse | MonitorDetailSummaryResponse> {
+    // `?view=summary` is the page as it renders: no per-member rows, no newest Signals, the
+    // members counted. Without it, the full detail, unchanged.
+    return view === "summary"
+      ? this.execute(() => this.monitors.getMonitorSummary(viewer, monitorId))
+      : this.execute(() => this.monitors.getMonitor(viewer, monitorId));
   }
 
   /**

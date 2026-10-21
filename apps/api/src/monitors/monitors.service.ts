@@ -2,6 +2,7 @@ import type {
   AuthUser,
   MonitorEligibility,
   MonitorDetailResponse,
+  MonitorDetailSummaryResponse,
   MonitorMatchedLevelResponse,
   MonitorSecurityEvaluationResponse,
   MonitorCoverageResponse,
@@ -14,6 +15,7 @@ import type {
 import {
   collectStrategyEtfSources,
   findStrategyEtfSource,
+  MONITOR_SECURITY_STATUSES,
   normalizeStrategyDefinition,
   STRATEGY_ETF_SOURCES,
   stockSectorAssignment,
@@ -60,6 +62,7 @@ import {
   BUILT_IN_MONITOR_KEYS,
   type ParsedUpdateMonitorRequest,
 } from "./monitor-requests";
+import { visibleMonitorWhere } from "./monitor-visibility";
 
 /**
  * Raised for a monitor that does not exist *or* belongs to another customer (or is an unpublished
@@ -93,16 +96,8 @@ export class MonitorRequestError extends Error {
   }
 }
 
-/**
- * The Monitors a viewer can see: their own, published built-ins, and — for an administrator —
- * every built-in.
- */
-export function visibleMonitorWhere(viewer: ContentViewer) {
-  const builtIns = isAdministrator(viewer)
-    ? { ownership: "SYSTEM" as const }
-    : { ownership: "SYSTEM" as const, isPublished: true };
-  return viewer ? { OR: [{ userId: viewer.id }, builtIns] } : builtIns;
-}
+// Re-exported for the modules that read it from here.
+export { visibleMonitorWhere };
 
 /** How many Signals a detail response carries. Newest first; the collection page pages later. */
 const SIGNAL_PAGE_SIZE = 100;
@@ -352,33 +347,51 @@ export class MonitorsService {
     viewer: ContentViewer,
     monitorId: string,
   ): Promise<MonitorDetailResponse> {
-    const row = await this.prisma.monitor.findFirst({
-      where: { id: monitorId, ...visibleMonitorWhere(viewer) },
-      include: MONITOR_INCLUDE,
-    });
-    if (!row) {
-      throw new MonitorNotFoundError();
-    }
-    // Three independent reads, issued together: the levels this Monitor actually evaluates, the
-    // monitored universe with its current status, and the newest Signals. None is per security or
-    // per Signal.
-    const [monitoredLevelIds, signals, eligibility, etfSources] =
-      await Promise.all([
-        this.monitoredLevelIds(row.strategyId),
-        this.listSignals(monitorId),
-        row.userId === null
-          ? Promise.resolve(new Map<string, MonitorEligibility>())
-          : this.entitlements.getMonitorExecutionEligibility(row.userId),
-        this.etfSourceStatuses(row.strategyId, row.stockListId),
-      ]);
-    const securities = await this.listSecurityEvaluations(
-      row,
-      monitoredLevelIds,
-    );
+    const { row, eligibility, etfSources, securities } =
+      await this.readMonitorDetail(viewer, monitorId);
+    const [signals, coverage] = await Promise.all([
+      this.listSignals(monitorId),
+      this.coverageOf(
+        row.id,
+        securities.map((entry) => entry.security.id),
+        row.stockList._count.items,
+      ),
+    ]);
     return {
       ...summaryOf(row, eligibility.get(row.id), viewer),
       securities,
       signals,
+      coverage,
+      ...(etfSources.statuses.length > 0
+        ? { etfSources: etfSources.statuses }
+        : {}),
+      ...(etfSources.stockSectors
+        ? { stockSectors: etfSources.stockSectors }
+        : {}),
+    };
+  }
+
+  /**
+   * The Monitor's page as it renders (`?view=summary`): the full detail without every member's row
+   * and without the newest Signals, which the page never shows, and with the members counted. The
+   * members are still evaluated here, exactly as for the full detail — the counts and the coverage
+   * are of the same rows — they are only not sent.
+   */
+  async getMonitorSummary(
+    viewer: ContentViewer,
+    monitorId: string,
+  ): Promise<MonitorDetailSummaryResponse> {
+    const { row, eligibility, etfSources, securities } =
+      await this.readMonitorDetail(viewer, monitorId);
+    const byStatus = Object.fromEntries(
+      MONITOR_SECURITY_STATUSES.map((status) => [status, 0]),
+    ) as Record<MonitorSecurityStatus, number>;
+    for (const entry of securities) {
+      byStatus[entry.status] += 1;
+    }
+    return {
+      ...summaryOf(row, eligibility.get(row.id), viewer),
+      memberCounts: { total: securities.length, byStatus },
       coverage: await this.coverageOf(
         row.id,
         securities.map((entry) => entry.security.id),
@@ -391,6 +404,31 @@ export class MonitorsService {
         ? { stockSectors: etfSources.stockSectors }
         : {}),
     };
+  }
+
+  /** What both views of the detail read: the row, its eligibility, ETF sources and members. */
+  private async readMonitorDetail(viewer: ContentViewer, monitorId: string) {
+    const row = await this.prisma.monitor.findFirst({
+      where: { id: monitorId, ...visibleMonitorWhere(viewer) },
+      include: MONITOR_INCLUDE,
+    });
+    if (!row) {
+      throw new MonitorNotFoundError();
+    }
+    // Independent reads, issued together: the levels this Monitor actually evaluates, its owner's
+    // eligibility and its ETF sources. None is per security.
+    const [monitoredLevelIds, eligibility, etfSources] = await Promise.all([
+      this.monitoredLevelIds(row.strategyId),
+      row.userId === null
+        ? Promise.resolve(new Map<string, MonitorEligibility>())
+        : this.entitlements.getMonitorExecutionEligibility(row.userId),
+      this.etfSourceStatuses(row.strategyId, row.stockListId),
+    ]);
+    const securities = await this.listSecurityEvaluations(
+      row,
+      monitoredLevelIds,
+    );
+    return { row, eligibility, etfSources, securities };
   }
 
   /**

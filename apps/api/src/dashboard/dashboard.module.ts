@@ -7,6 +7,7 @@ import { DatabaseModule } from "../database/database.module";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { DashboardController } from "./dashboard.controller";
 import { DashboardService, type DashboardOptions } from "./dashboard.service";
+import { MonitorActivityController } from "./monitor-activity.controller";
 import { DASHBOARD_LOGGER, DASHBOARD_OPTIONS } from "./dashboard.tokens";
 
 /**
@@ -22,7 +23,7 @@ const STALE_AFTER_SCAN_INTERVALS = 3;
     AuthModule,
     EntitlementsModule,
   ],
-  controllers: [DashboardController],
+  controllers: [DashboardController, MonitorActivityController],
   providers: [
     {
       provide: DASHBOARD_LOGGER,
