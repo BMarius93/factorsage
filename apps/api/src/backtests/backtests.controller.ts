@@ -4,6 +4,7 @@ import type {
   AuthUser,
   BacktestProgressResponse,
   BacktestRunDetailResponse,
+  BacktestRunPageResponse,
   BacktestRunStrategyResponse,
   BacktestRunSummaryResponse,
   BacktestTradePageResponse,
@@ -30,6 +31,7 @@ import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   backtestInvalid,
   parseCreateBacktestRunRequest,
+  parseRunListRequest,
   parseTradeLogQuery,
   parseTradePageRequest,
 } from "./backtest-requests";
@@ -67,12 +69,33 @@ export class BacktestsController {
     return this.execute(() => this.backtests.submitRun(user, input));
   }
 
+  /**
+   * The caller's runs. With `page` or `pageSize`, one page of them with its counts (the
+   * collection's read); without, every matching run as a plain array, as this route has always
+   * answered — what the New backtest form reads, with `status=ACTIVE`, to show the runs holding a
+   * concurrency slot. Either way searched, filtered and ordered in the database, without opening a
+   * single run's snapshot.
+   */
   @RateLimit("standard-read")
   @Get()
   async listOwn(
     @CurrentUser() user: AuthUser,
-  ): Promise<BacktestRunSummaryResponse[]> {
-    return this.backtests.listForUser(user.id);
+    @Query("page") page?: unknown,
+    @Query("pageSize") pageSize?: unknown,
+    @Query("q") q?: unknown,
+    @Query("status") status?: unknown,
+    @Query("sort") sort?: unknown,
+  ): Promise<BacktestRunSummaryResponse[] | BacktestRunPageResponse> {
+    const { paged, ...request } = parseRunListRequest({
+      page,
+      pageSize,
+      q,
+      status,
+      sort,
+    });
+    return paged
+      ? this.backtests.pageForUser(user.id, request)
+      : this.backtests.listForUser(user.id, request);
   }
 
   @RateLimit("standard-read")

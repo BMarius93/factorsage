@@ -1493,18 +1493,71 @@ paths:
     get:
       tags: [Backtests]
       operationId: listBacktestRuns
-      summary: The caller's backtest runs.
+      summary: The caller's backtest runs, whole or a page at a time.
+      description: |
+        With `page` or `pageSize` (present at all, however malformed), one page of the caller's runs
+        and its counts — the collection's read. Without either, every matching run as a plain array,
+        as this route has always answered; the New backtest form reads `?status=ACTIVE` this way to
+        show the runs holding a concurrency slot.
+
+        Either way the search, the status filter and the order are applied in the database, and no
+        run's snapshot is opened: a row reads the names stored with the run when it was queued, the
+        benchmark's code and the pinned series, and its stored result. Every order ends on the queue
+        time and the run id, so a page boundary never splits or repeats runs with equal keys.
+
+        Lenient like the trade log: a malformed or unknown value is ignored (no search, every
+        status, newest first, the default page size), a page past the end is the last real page,
+        and the page response reports what was applied.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: 1-based. Asks for the paged answer.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          required: false
+          description: Asks for the paged answer.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: q
+          in: query
+          required: false
+          description: |
+            Case-insensitive text matched against the strategy, stock list and benchmark names the
+            runs were submitted with. `%` and `_` are literal. Ignored above 100 characters.
+          schema: { type: string, maxLength: 100 }
+        - name: status
+          in: query
+          required: false
+          description: |
+            `ACTIVE` is every run still queued or executing; `COMPLETED` and `FAILED` are the two
+            terminal statuses. Case-insensitive.
+          schema: { type: string, enum: [ACTIVE, COMPLETED, FAILED] }
+        - name: sort
+          in: query
+          required: false
+          description: |
+            `newest` / `oldest` by queue time; `cagr` by the stored annualized return, best first,
+            runs without one last; `strategy` by strategy name A–Z, ignoring case.
+          schema:
+            type: string
+            enum: [newest, oldest, cagr, strategy]
+            default: newest
       responses:
         "200":
-          description: Run summaries, newest first.
+          description: |
+            A `BacktestRunPage` when a page was asked for; otherwise every matching run, in the
+            requested order (newest first by default).
           headers: *rateLimitHeaders
           content:
             application/json:
               schema:
-                type: array
-                items: { $ref: "#/components/schemas/BacktestRunSummary" }
+                oneOf:
+                  - type: array
+                    items: { $ref: "#/components/schemas/BacktestRunSummary" }
+                  - { $ref: "#/components/schemas/BacktestRunPage" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
@@ -5796,6 +5849,43 @@ components:
             True when only part of the calendar year was simulated — the run's first year when it
             starts after 1 January, its last when it ends before 31 December.
 
+    BacktestRunPage:
+      type: object
+      description: |
+        One page of the caller's backtest runs: searched, filtered, ordered and counted in the
+        database, so every count and page describes the whole history.
+      required:
+        [runs, page, pageSize, totalCount, pageCount, unfilteredCount, q, status, sort]
+      properties:
+        runs:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/BacktestRunSummary" }
+        page:
+          type: integer
+          minimum: 1
+          description: The page actually served, after clamping a page past the end.
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        totalCount:
+          type: integer
+          minimum: 0
+          description: The runs matching the search and the status filter.
+        pageCount: { type: integer, minimum: 1 }
+        unfilteredCount:
+          type: integer
+          minimum: 0
+          description: Every run the caller owns, whatever the search and filter.
+        q:
+          description: The search actually applied, or null.
+          oneOf: [{ type: string }, { type: "null" }]
+        status:
+          description: The status filter actually applied, or null for every status.
+          oneOf:
+            - { type: string, enum: [ACTIVE, COMPLETED, FAILED] }
+            - { type: "null" }
+        sort:
+          type: string
+          enum: [newest, oldest, cagr, strategy]
     BacktestTradePage:
       type: object
       description: |
