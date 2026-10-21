@@ -6,7 +6,7 @@ import type {
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import actionStyles from "../../../components/ui/actions.module.css";
 import {
@@ -15,12 +15,18 @@ import {
 } from "../../../components/ui/DataTable";
 import {
   useCollection,
+  VisuallyHidden,
   type CollectionSort,
 } from "../../../components/ui/Collection";
+import {
+  CollectionFooter,
+  formatCount,
+} from "../../../components/ui/CollectionFooter";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { SelectControl } from "../../../components/ui/SelectControl";
 import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
@@ -135,6 +141,38 @@ type DialogState =
  */
 const NO_ITEMS: readonly StockListItemResponse[] = [];
 
+/**
+ * Which members a list shows, by membership today. `current` is every stock a strategy may buy
+ * today — a stock eligible on every date, or one inside a membership period now; `former` is a
+ * stock whose every period has ended. A stock whose first period has not started yet is in neither,
+ * only in `all`.
+ */
+type MembershipFilter = "all" | "current" | "former";
+
+const MEMBERSHIP_FILTER_OPTIONS = [
+  { value: "all", label: "All members" },
+  { value: "current", label: "Current members" },
+  { value: "former", label: "Former members" },
+] as const;
+
+function matchesMembership(
+  item: StockListItemResponse,
+  filter: MembershipFilter,
+): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  const { mode, state } = membershipSummary(item);
+  return filter === "current"
+    ? mode === "FULL" || state === "CURRENT"
+    : state === "ENDED";
+}
+
+/** How long a stock just added stays tinted. */
+const ADDED_HIGHLIGHT_MS = 2_400;
+
+const NO_KEYS: ReadonlySet<string> = new Set();
+
 /** How a list's members can be read: the list's own order first, then alphabetically. */
 const MEMBER_SORTS: readonly CollectionSort<StockListItemResponse>[] = [
   { id: "list", label: "List order" },
@@ -171,19 +209,108 @@ export function ListDetail({ listId }: ListDetailProps) {
   const [addError, setAddError] = useState<string | null>(null);
   const [addRefusedByPlan, setAddRefusedByPlan] = useState(false);
 
+  const [membership, setMembership] = useState<MembershipFilter>("all");
+  // Stocks just added: shown on whatever page holds them, then tinted for a moment.
+  const [addedFocus, setAddedFocus] = useState<readonly string[] | null>(null);
+  const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(NO_KEYS);
+  const [announcement, setAnnouncement] = useState("");
+
+  const items = detail?.items ?? NO_ITEMS;
   const memberIds = useMemo(
-    () => new Set(detail?.items.map((item) => item.security.id) ?? []),
-    [detail],
+    () => new Set(items.map((item) => item.security.id)),
+    [items],
+  );
+  // Membership has a "former" only where it is dated: a point-in-time universe, or a list whose
+  // members carry their own periods. A list of always-eligible stocks offers no such filter.
+  const dated = useMemo(
+    () => items.some((item) => item.buyWindowMode !== "FULL"),
+    [items],
+  );
+  const filter: MembershipFilter = dated ? membership : "all";
+  const shownItems = useMemo(
+    () => items.filter((item) => matchesMembership(item, filter)),
+    [items, filter],
   );
 
-  // A 100-stock list is searchable by ticker or company and sortable. It stays one scroll rather than
-  // pages: membership is edited in place, and a stock just added must not land on a later page.
-  const members = useCollection(detail?.items ?? NO_ITEMS, {
+  // Searchable by ticker or company, sortable, and paged — a point-in-time universe holds hundreds
+  // of stocks. A stock just added is brought onto the page that holds it (below).
+  const members = useCollection(shownItems, {
     noun: "stocks",
     testId: "list-items",
     searchText: (item) => `${item.security.symbol} ${item.security.name}`,
     sorts: MEMBER_SORTS,
+    density: "compact",
+    resetKey: filter,
+    ...(dated
+      ? {
+          filters: (
+            <SelectControl
+              id="list-membership-filter"
+              label="Show"
+              value={filter}
+              onChange={(value) => setMembership(value as MembershipFilter)}
+              options={MEMBERSHIP_FILTER_OPTIONS}
+              testId="list-membership-filter"
+            />
+          ),
+        }
+      : {}),
   });
+
+  // After stocks are added, take the reader to them: a filter or a search that hides them gives way,
+  // the page that holds the first of them in the current order opens, and they are tinted for a
+  // moment. One step per render, because each step changes what the next one reads.
+  useEffect(() => {
+    if (addedFocus === null) {
+      return;
+    }
+    const added = new Set(
+      items
+        .filter((item) => addedFocus.includes(item.security.id))
+        .map((item) => item.id),
+    );
+    if (added.size === 0) {
+      return;
+    }
+    if (filter !== "all" && !shownItems.some((item) => added.has(item.id))) {
+      setMembership("all");
+      return;
+    }
+    if (members.filtering && !members.rows.some((item) => added.has(item.id))) {
+      members.clear();
+      return;
+    }
+    const index = members.rows.findIndex((item) => added.has(item.id));
+    if (index < 0) {
+      return;
+    }
+    const page = Math.floor(index / members.paging.pageSize) + 1;
+    if (members.paging.page !== page) {
+      members.paging.setPage(page);
+      return;
+    }
+    setHighlighted(added);
+    setAddedFocus(null);
+  }, [addedFocus, items, filter, shownItems, members]);
+
+  // The tinted rows are scrolled into view once, then the tint is let go.
+  useEffect(() => {
+    if (highlighted.size === 0) {
+      return;
+    }
+    const row = document.querySelector<HTMLElement>(
+      '[data-testid="list-items"] [data-highlight="true"]',
+    );
+    const still = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    row?.scrollIntoView?.({
+      block: "center",
+      behavior: still ? "auto" : "smooth",
+    });
+    const timer = setTimeout(() => setHighlighted(NO_KEYS), ADDED_HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
@@ -260,6 +387,12 @@ export function ListDetail({ listId }: ListDetailProps) {
         securityIds: pendingAdd.map((entry) => entry.id),
       });
       applyDetail(updated);
+      setAddedFocus(pendingAdd.map((entry) => entry.id));
+      setAnnouncement(
+        pendingAdd.length === 1
+          ? `${pendingAdd[0]?.symbol ?? "The stock"} added to the list.`
+          : `${pendingAdd.length} stocks added to the list.`,
+      );
       setPendingAdd([]);
     } catch (error) {
       setAddRefusedByPlan(isEntitlementError(error));
@@ -525,36 +658,89 @@ export function ListDetail({ listId }: ListDetailProps) {
 
         <SectionCard
           id="list-members"
+          density="compact"
           title="Stocks"
           caption={
             builtIn
               ? "A built-in list maintained by FactorSage. Each stock's membership decides the dates a strategy may open a new position in it; selling is never restricted."
               : "Each stock's membership decides the dates a strategy may open a new position in it. Selling is never restricted."
           }
-          flush={detail.items.length > 0 && members.filteredEmpty === null}
-          {...(detail.items.length > 0 ? { toolbar: members.toolbar } : {})}
+          {...(detail.items.length > 0
+            ? {
+                count: (
+                  <span data-testid="list-items-count">
+                    {members.rows.length === detail.items.length
+                      ? formatCount(detail.items.length)
+                      : `${formatCount(members.rows.length)} of ${formatCount(detail.items.length)}`}
+                    <VisuallyHidden> stocks</VisuallyHidden>
+                  </span>
+                ),
+                toolbar: members.toolbar,
+              }
+            : {})}
+          flush={
+            detail.items.length > 0 &&
+            shownItems.length > 0 &&
+            members.filteredEmpty === null
+          }
         >
-          {members.filteredEmpty ?? (
-            <>
-              <DataTable
-                label={`Stocks in ${detail.name}`}
-                testId="list-items"
-                rowTestId="list-item"
-                columns={columns}
-                rows={members.rows}
-                getRowKey={(item) => item.id}
-                emptyState={
-                  <EmptyState
-                    variant="compact"
-                    testId="list-items-empty"
-                    title="No stocks yet"
-                    body={
-                      <p>Search above to add supported stocks to this list.</p>
-                    }
-                  />
-                }
-              />
-            </>
+          {/* What was just added, said once for assistive technology. */}
+          <VisuallyHidden role="status">{announcement}</VisuallyHidden>
+          {detail.items.length > 0 && shownItems.length === 0 ? (
+            // Filtered to nothing by membership: the stocks exist, and the way back is one press.
+            <EmptyState
+              variant="compact"
+              testId="list-items-membership-empty"
+              title={
+                filter === "former" ? "No former members" : "No current members"
+              }
+              actions={
+                <button
+                  type="button"
+                  className={forms.secondaryButton}
+                  onClick={() => setMembership("all")}
+                >
+                  Show all members
+                </button>
+              }
+            />
+          ) : (
+            (members.filteredEmpty ?? (
+              <>
+                <DataTable
+                  density="compact"
+                  label={`Stocks in ${detail.name}`}
+                  testId="list-items"
+                  rowTestId="list-item"
+                  columns={columns}
+                  rows={members.paging.visibleRows}
+                  getRowKey={(item) => item.id}
+                  highlightedRowKeys={highlighted}
+                  emptyState={
+                    <EmptyState
+                      variant="compact"
+                      testId="list-items-empty"
+                      title="No stocks yet"
+                      body={
+                        <p>
+                          Search above to add supported stocks to this list.
+                        </p>
+                      }
+                    />
+                  }
+                />
+                <CollectionFooter
+                  density="compact"
+                  testId="list-items-footer"
+                  noun="stocks"
+                  total={members.paging.total}
+                  page={members.paging.page}
+                  pageSize={members.paging.pageSize}
+                  onPageChange={members.paging.setPage}
+                  onPageSizeChange={members.paging.setPageSize}
+                />
+              </>
+            ))
           )}
         </SectionCard>
       </div>

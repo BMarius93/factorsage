@@ -41,6 +41,16 @@ type CollectionConfig<TRow> = {
   readonly testId?: string;
   /** `compact` sets the controls at the trailing end of a compact section's heading row. */
   readonly density?: "comfortable" | "compact";
+  /**
+   * Filters the feature applies to the rows before handing them over (a membership filter), shown
+   * between the search field and the Sort control.
+   */
+  readonly filters?: ReactNode;
+  /**
+   * Changes whenever those filters do, returning the collection to its first page as a new search
+   * or order does: page 3 of one filter means nothing for the next.
+   */
+  readonly resetKey?: string;
 };
 
 /** Case- and accent-insensitive, so "nestle" finds "Nestlé". */
@@ -71,6 +81,8 @@ export function useCollection<TRow>(
     sorts = [],
     testId = noun,
     density = "comfortable",
+    filters,
+    resetKey = "",
   }: CollectionConfig<TRow>,
 ) {
   const baseId = useId();
@@ -89,7 +101,7 @@ export function useCollection<TRow>(
 
   const paging = usePagination(
     viewRows,
-    JSON.stringify([term, sort?.id ?? ""]),
+    JSON.stringify([term, sort?.id ?? "", resetKey]),
   );
   const filtering = term !== "";
   const searchable =
@@ -118,7 +130,7 @@ export function useCollection<TRow>(
   };
 
   const toolbar: ReactNode =
-    searchable || sortable ? (
+    searchable || sortable || filters ? (
       <CollectionToolbar density={density} testId={`${testId}-toolbar`}>
         {searchable ? (
           <CollectionSearchField
@@ -128,6 +140,7 @@ export function useCollection<TRow>(
             testId={`${testId}-search`}
           />
         ) : null}
+        {filters ?? null}
         {sortable ? (
           <SelectControl
             id={`${baseId}-sort`}
