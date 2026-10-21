@@ -118,9 +118,29 @@ function readDefinition(row: StrategyRow): StrategyDefinition {
     : emptyStrategyDefinition();
 }
 
+/** What the collection shows of a definition: how many levels of each kind it has. */
+type LevelCounts = {
+  readonly buyLevelCount: number;
+  readonly sellLevelCount: number;
+  readonly hasFinalExit: boolean;
+};
+
+function levelCountsOf(definition: StrategyDefinition): LevelCounts {
+  return {
+    buyLevelCount: definition.buyLevels.length,
+    sellLevelCount: definition.sellLevels.length,
+    hasFinalExit: definition.finalExit !== undefined,
+  };
+}
+
+/** A strategy row as the summary reads it: its identity and its current version's number. */
+type SummaryRow = Omit<StrategyRow, "versions"> & {
+  readonly versions: readonly { readonly versionNumber: number }[];
+};
+
 function summaryOf(
-  row: StrategyRow,
-  definition: StrategyDefinition,
+  row: SummaryRow,
+  counts: LevelCounts,
   viewer: ContentViewer,
 ): StrategySummaryResponse {
   return {
@@ -128,9 +148,7 @@ function summaryOf(
     id: row.id,
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
-    buyLevelCount: definition.buyLevels.length,
-    sellLevelCount: definition.sellLevels.length,
-    hasFinalExit: definition.finalExit !== undefined,
+    ...counts,
     versionNumber: row.versions[0]?.versionNumber ?? 0,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -142,8 +160,19 @@ function detailOf(
   viewer: ContentViewer,
 ): StrategyDetailResponse {
   const definition = readDefinition(row);
-  return { ...summaryOf(row, definition, viewer), definition };
+  return { ...summaryOf(row, levelCountsOf(definition), viewer), definition };
 }
+
+/**
+ * What the collection reads of each strategy: the row and its current version's id and number —
+ * never the definition, which it counts once per version (`StrategiesService.levelCounts`).
+ */
+const SUMMARY_INCLUDE = {
+  versions: { ...CURRENT_VERSION, select: { id: true, versionNumber: true } },
+} satisfies Prisma.StrategyInclude;
+
+/** How many versions' level counts the API keeps; far more than any page of strategies holds. */
+const LEVEL_COUNT_CACHE_SIZE = 10_000;
 
 @Injectable()
 export class StrategiesService {
@@ -154,14 +183,62 @@ export class StrategiesService {
     @Inject(STRATEGIES_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
-  /** Built-ins first, in operator order, then the caller's own. A Guest sees built-ins only. */
+  /**
+   * Each version's level counts, by version id.
+   *
+   * A version is never changed once written — an edit writes the next one — so its counts are
+   * fixed the moment it exists. The collection reads them from here and loads a definition only
+   * for a version it has not counted yet, so listing strategies does not read and normalize every
+   * strategy's definition on every request. Bounded; the oldest entries go first.
+   */
+  private readonly levelCounts = new Map<string, LevelCounts>();
+
+  /**
+   * Built-ins first, in operator order, then the caller's own. A Guest sees built-ins only.
+   *
+   * The definitions are not read: each current version's level counts come from `levelCounts`, and
+   * only the versions not counted yet are loaded — through the same normalization a detail read
+   * uses, so a count is exactly the one the definition would give.
+   */
   async listForUser(viewer: ContentViewer): Promise<StrategySummaryResponse[]> {
     const rows = await this.prisma.strategy.findMany({
       where: readableWhere(viewer),
       orderBy: [...SYSTEM_FIRST_ORDER, ...STRATEGY_ORDER],
-      include: STRATEGY_INCLUDE,
+      include: SUMMARY_INCLUDE,
     });
-    return rows.map((row) => summaryOf(row, readDefinition(row), viewer));
+    const uncounted = rows.flatMap((row) => {
+      const version = row.versions[0];
+      return version && !this.levelCounts.has(version.id) ? [version.id] : [];
+    });
+    if (uncounted.length > 0) {
+      const versions = await this.prisma.strategyVersion.findMany({
+        where: { id: { in: uncounted } },
+        select: { id: true, definition: true },
+      });
+      for (const version of versions) {
+        this.rememberLevelCounts(
+          version.id,
+          levelCountsOf(normalizeStrategyDefinition(version.definition)),
+        );
+      }
+    }
+    return rows.map((row) => {
+      const version = row.versions[0];
+      const counts =
+        (version && this.levelCounts.get(version.id)) ??
+        levelCountsOf(emptyStrategyDefinition());
+      return summaryOf(row, counts, viewer);
+    });
+  }
+
+  private rememberLevelCounts(versionId: string, counts: LevelCounts): void {
+    this.levelCounts.set(versionId, counts);
+    if (this.levelCounts.size > LEVEL_COUNT_CACHE_SIZE) {
+      const oldest = this.levelCounts.keys().next().value;
+      if (oldest !== undefined) {
+        this.levelCounts.delete(oldest);
+      }
+    }
   }
 
   /**
@@ -495,7 +572,7 @@ export class StrategiesService {
       strategyId,
       ownership: row.ownership,
     });
-    return summaryOf(row, readDefinition(row), user);
+    return summaryOf(row, levelCountsOf(readDefinition(row)), user);
   }
 
   /**
