@@ -673,7 +673,7 @@ describe("BacktestRunView", () => {
     );
     expect(screen.getAllByTestId("backtest-trade-row")).toHaveLength(2);
     expect(screen.getByTestId("backtest-trades-footer").textContent).toContain(
-      "Showing 51–100 of 18348 trades",
+      "Showing 51–100 of 18,348 trades",
     );
 
     // Each trade says why it happened, in the canonical Strategy language — and the terminal

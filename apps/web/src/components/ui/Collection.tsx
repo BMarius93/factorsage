@@ -140,15 +140,27 @@ export function useCollection<TRow>(
 }
 
 /** Orders shared by every named, dated collection. */
-export function byName<TRow extends { readonly name: string }>(
-  a: TRow,
-  b: TRow,
-): number {
-  return a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+/** Ids, in the API's own tie-break order (`id desc`), so equal keys always land the same way. */
+function byIdDescending(
+  a: { readonly id: string },
+  b: { readonly id: string },
+) {
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 
-export function byNewest<TRow>(
+export function byName<
+  TRow extends { readonly name: string; readonly id: string },
+>(a: TRow, b: TRow): number {
+  return (
+    a.name.localeCompare(b.name, "en", { sensitivity: "base" }) ||
+    byIdDescending(a, b)
+  );
+}
+
+/** Newest first by the given date — `createdAt` for "Newest", `updatedAt` for "Recently updated". */
+export function byNewest<TRow extends { readonly id: string }>(
   date: (row: TRow) => string,
 ): (a: TRow, b: TRow) => number {
-  return (a, b) => Date.parse(date(b)) - Date.parse(date(a));
+  return (a, b) =>
+    Date.parse(date(b)) - Date.parse(date(a)) || byIdDescending(a, b);
 }

@@ -180,6 +180,7 @@ describe("StrategiesPage", () => {
         description: "Buy the discount",
         sellLevelCount: 2,
         hasFinalExit: true,
+        createdAt: "2026-08-02T10:00:00.000Z",
       }),
       summary("s2", "Trend"),
     ]);
@@ -201,6 +202,50 @@ describe("StrategiesPage", () => {
     expect(screen.getByText("Buy the discount")).toBeDefined();
     // The collection never loads a definition.
     expect(fetchStrategiesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("orders Newest by creation and Recently updated by the last change, ids breaking ties", async () => {
+    const user = userEvent.setup();
+    fetchStrategiesMock.mockResolvedValue([
+      // The API's order: most recently updated first.
+      summary("s-edited", "Edited last", {
+        createdAt: "2026-08-01T10:00:00.000Z",
+        updatedAt: "2026-08-20T10:00:00.000Z",
+      }),
+      summary("s-new", "Created last", {
+        createdAt: "2026-08-10T10:00:00.000Z",
+        updatedAt: "2026-08-10T10:00:00.000Z",
+      }),
+      summary("s-a", "Twin A", {
+        createdAt: "2026-08-05T10:00:00.000Z",
+        updatedAt: "2026-08-05T10:00:00.000Z",
+      }),
+      summary("s-b", "Twin B", {
+        createdAt: "2026-08-05T10:00:00.000Z",
+        updatedAt: "2026-08-05T10:00:00.000Z",
+      }),
+    ]);
+    render(<StrategiesPage />);
+    const names = async () =>
+      (await screen.findAllByTestId("strategy-row")).map(
+        (row) => row.querySelector("a span")?.textContent,
+      );
+    expect(await names()).toEqual([
+      "Created last",
+      "Twin B",
+      "Twin A",
+      "Edited last",
+    ]);
+    await user.selectOptions(
+      screen.getByTestId("your-strategies-sort"),
+      "updated",
+    );
+    expect(await names()).toEqual([
+      "Edited last",
+      "Created last",
+      "Twin B",
+      "Twin A",
+    ]);
   });
 
   it("links each card to its builder", async () => {

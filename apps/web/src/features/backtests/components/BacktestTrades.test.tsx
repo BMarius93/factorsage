@@ -202,7 +202,7 @@ describe("BacktestTrades — a completed run's log", () => {
       "1,234 of 14,268 trades match",
     );
     expect(screen.getByTestId("backtest-trades-footer").textContent).toContain(
-      "of 1234 trades",
+      "of 1,234 trades",
     );
     fireEvent.click(screen.getByTestId("backtest-trades-clear-filters"));
     expect(log.clearFilters).toHaveBeenCalledTimes(1);

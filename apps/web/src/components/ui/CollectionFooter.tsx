@@ -6,6 +6,9 @@ import { SelectControl, type SelectControlOption } from "./SelectControl";
 
 export const COLLECTION_PAGE_SIZES = [25, 50, 100] as const;
 
+/** Counts read like counts: "18,234", never "18234". */
+const COUNT_FORMAT = new Intl.NumberFormat("en-US");
+
 const PAGE_SIZE_OPTIONS: readonly SelectControlOption[] =
   COLLECTION_PAGE_SIZES.map((size) => ({
     value: String(size),
@@ -45,6 +48,7 @@ export function CollectionFooter({
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, total);
+  const count = (value: number) => COUNT_FORMAT.format(value);
 
   return (
     <div
@@ -60,7 +64,7 @@ export function CollectionFooter({
           options={PAGE_SIZE_OPTIONS}
         />
         <span className={styles.range}>
-          Showing {first}–{last} of {total} {noun}
+          Showing {count(first)}–{count(last)} of {count(total)} {noun}
         </span>
       </div>
       {pageCount > 1 ? (
@@ -74,7 +78,7 @@ export function CollectionFooter({
             Previous
           </button>
           <span className={styles.page}>
-            Page {page} of {pageCount}
+            Page {count(page)} of {count(pageCount)}
           </span>
           <button
             type="button"

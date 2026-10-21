@@ -82,6 +82,27 @@ describe("useBacktestTrades — the filter and order live in the URL", () => {
     });
   });
 
+  it("reads a page size only when the footer offers it, so the control never claims another", async () => {
+    for (const [asked, sent] of [
+      ["100", 100],
+      ["25", 25],
+      ["200", 50],
+      ["7", 50],
+    ] as const) {
+      fetchTradesMock.mockClear();
+      searchParams = new URLSearchParams(`tradesPageSize=${asked}`);
+      const { result, unmount } = renderHook(() =>
+        useBacktestTrades("run-1", true),
+      );
+      await waitFor(() => expect(result.current.page).not.toBeNull());
+      expect(fetchTradesMock.mock.calls[0]?.[1]).toEqual({
+        page: 1,
+        pageSize: sent,
+      });
+      unmount();
+    }
+  });
+
   it("returns to the first page whenever the filter or the order changes", async () => {
     searchParams = new URLSearchParams("tradesPage=4&tradesPageSize=100");
     const { result } = renderHook(() => useBacktestTrades("run-1", true));
