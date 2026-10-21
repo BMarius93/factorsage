@@ -31,6 +31,15 @@ is replaced by **six period-specific lines**, `sparklines` (sections 2 and 3). T
 arithmetic, the data path and the cache are unchanged; the lines are built from the same bounded
 read, so a computation costs no additional database or Redis read.
 
+**Amended 2026-10-21 — Dashboard V2 layout and UX (owner).** Section 6 is rewritten again. The two
+cards become one page in two panes: Market watch is a fixed-width pane (330–360px) flush against the
+right edge from just under the topbar to the bottom of the screen, divided from the feed by one
+hairline, with every fund on one 26px line. Rotation is every **eight** seconds, staged as a fade of
+the returns and lines with one soft highlight of the new period; there is **no Auto control** —
+choosing any period stops rotation for the rest of the page's life, and pointing at or working in
+the sidebar only pauses it. A reader who prefers reduced motion gets no rotation. The contract, the
+arithmetic, the data path and the cache are unchanged.
+
 ## Context
 
 The Dashboard opened with five cards: Run Backtest, three index levels and the current match count.
@@ -216,51 +225,59 @@ allow. `Cache-Control: private, max-age=60` — the body is everybody's, but the
 caller's own rate-limit headers, which a shared cache must not hand to someone else. The route moved
 from `stock-read` to `standard-read`: it no longer hydrates anything.
 
-### 6. The Dashboard — Market watch (2026-10-20)
+### 6. The Dashboard — Market watch (2026-10-20, redesigned 2026-10-21)
 
 Monitor activity is the page; the funds are a compact sidebar beside it. (The 2026-10-12 composition
-— two columns of eight-column tables above the feed on a desktop, category cards on a phone — is
-retired whole; it is in this file's history.)
+— two columns of eight-column tables above the feed on a desktop, category cards on a phone — and the
+2026-10-20 card composition with its Auto toggle are retired; they are in this file's history.)
 
-- **≥ 1,280px — two columns.** Monitor activity on the left (about 72%), **Market watch** on the
-  right (`clamp(20rem, 28%, 26rem)`: 336px at 1,280px, 416px from about 1,600px). The sidebar is
-  sticky under the topbar and never taller than the screen below it; its list scrolls inside the
-  surface (a named, focusable region), and at either end the wheel passes back to the page. At the
-  foot of the page it travels up with the grid, never over the footer.
+- **≥ 1,280px — two panes, no cards.** Monitor activity takes the width that is left; **Market
+  watch** is a fixed-width pane (`clamp(330px, 24vw, 360px)`: 330px at 1,280px, 345px at 1,440px,
+  360px from 1,500px) flush against the right edge, sticky directly under the topbar and exactly the
+  screen's remaining height. No border, radius, shadow or margin of its own: one hairline on its left
+  divides it from the feed. Its header — title, the close the numbers are measured to, the period
+  selector — stays put while its list scrolls on its own (a named, focusable region, with default
+  overscroll chaining so the wheel passes to the page at either end). The feed scrolls with the page.
+  At the foot of the page the sidebar travels up with the grid, never over the footer.
 - **< 1,280px — no Market watch at all.** Not rendered, not hidden: the component is **not mounted**
   (`useMediaQuery("(min-width: 1280px)")`, whose server snapshot is `false`, so server and hydrating
   client agree and Market watch mounts right after hydration on a wide desktop). Below the
   breakpoint it therefore makes no request and starts no timer, and nothing replaces it — no card,
   no selector, no placeholder. The grid reserves the sidebar's track in CSS at the same query, so
   the feed does not move when Market watch appears. Crossing the breakpoint mounts or unmounts it,
-  aborting a read still in flight and clearing its timer.
-- **The feed adapts to its own column.** Beside the sidebar a 1,280–1,440px screen gives the feed
-  about 840–955px — less than the intermediate band. Its table therefore follows a **container**
-  query on its own column (`dashboard-main`, below 62rem), not the viewport: the Session column
-  folds under the signal, the Monitor column under the reason (with its label), the badges stack and
-  the cells close up. Every fact stays, shown once, with no sideways scroll. The same fold also
-  removes the scroll the six-column table had from 880px to about 1,030px.
-- **Market watch.** One `SectionCard`: title and Auto control, the period selector
-  (`SegmentedControl`, compact, `1W | 1M | 3M | 6M | YTD | 1Y`), a caption naming the period and the
-  close it is measured to (`1-month return · At close · Oct 9, 2026`), then the three groups in the
-  API's order with their twenty rows. Each row is one grid line: a small local line icon for what the
-  fund tracks (decorative, hidden from assistive technology), the ticker over the market's name, the
-  period's return (right-aligned, tabular, signed, ink tokens), and the period's line (plain SVG,
-  fixed width, coloured by the same return). Group names stay sticky while their rows scroll. A
-  period change changes numbers and lines, never order.
-- **One period, one timer.** The period is one piece of state for the whole list; Auto advances it
-  every ten seconds, `1W → 1M → 3M → 6M → YTD → 1Y → 1W`, with one `setTimeout` re-armed on each
-  change. Choosing a period pauses Auto (`Paused` beside the control); the Auto toggle resumes it
-  with a full interval. Rotation stops while the tab is hidden and while keyboard focus is inside
-  the sidebar, and starts **paused** for a reader who prefers reduced motion. Nothing is a live
-  region, so nothing is announced as it rotates. Changing the period — by hand or by Auto — makes
-  no request.
+  aborting a read still in flight and clearing its timers.
+- **The rows.** The three groups in the API's order under compact sticky labels, each fund one grid
+  line about 26px tall: a small local line icon for what it tracks (decorative, hidden from assistive
+  technology), the ticker, the market's name (truncated with an ellipsis, whole in its `title`), the
+  period's return (right-aligned, tabular, signed, ink tokens) and the period's line (plain SVG,
+  52 × 16px, coloured by the same return). All twenty and their groups fit a 768px-tall screen; a
+  shorter one scrolls the list rather than shrinking the type. A period change changes numbers and
+  lines, never order, row height or scroll position.
+- **One period, one rotation.** The period is one piece of state for the whole list
+  (`usePeriodRotation`). It advances every **eight seconds**, `1W → 1M → 3M → 6M → YTD → 1Y → 1W`:
+  one interval timer, re-armed on each change, starts a staged change — the returns and lines fade
+  to 60% over 250ms, the period swaps while they are dim, and they return to full strength over
+  420ms (670ms in all); tickers, names, icons and group labels never fade, and only opacity moves.
+  The newly selected period takes one soft blue ring that swells and fades once
+  (`data-highlight` on the `SegmentedControl` option). Stage timers are scheduled by the step before
+  them and never overlap; a change already under way always finishes, so nothing stays dimmed.
+- **The reader's control.** There is no Auto button, toggle or badge. Choosing a period — any, the
+  one on screen included — shows it at once (cancelling a change under way) and stops rotation for
+  the rest of the page's life; a new page load rotates again. Pointing at the sidebar, or keyboard
+  focus inside it, **pauses** the timer without stopping rotation, and leaving gives the period on
+  screen a full interval again; a click's leftover focus is not a keyboard hold. A hidden tab pauses
+  it the same way. A reader who prefers reduced motion gets no automatic rotation and no fade or
+  highlight; every period stays one click away. Nothing is a live region, so nothing is announced
+  as it rotates. Changing the period — by hand or by rotation — makes no request; each series'
+  sparkline geometry is computed once and kept for as long as the response.
 - **Isolation.** Market watch has its own request (`useMarketOverview`), its own failure states and
-  an error boundary; it is memoised, so the feed's refreshes do not re-render it, and its rotation
-  does not re-render the feed. A Market watch failure never blanks the Dashboard.
+  an error boundary; it is memoised and holds its rotation state itself, so its rotation never
+  re-renders the feed and the feed's refreshes never re-render it. A Market watch failure never
+  blanks the Dashboard.
 - **States** — a skeleton of the final geometry, an error panel with retry, a clean unavailable
-  panel, a `STALE` pill with the fund's own date, a `No data` pill, `—` for an unavailable return
-  (announced "not available") with a dashed rule where its line would be.
+  panel, `As of 2 Jan` beside a stale fund's name with the fund's own date, `No data` for an empty
+  one, `—` for an unavailable return (announced "not available") with a dashed rule where its line
+  would be.
 - Guests see exactly what a signed-in customer sees in Market watch, and on a phone go straight to
   the published built-in Monitor activity with the sign-in notice above it.
 
@@ -270,6 +287,9 @@ retired whole; it is in this file's history.)
   six answers the overview existed to compare; **adopted** for Market watch (2026-10-20), where a
   sidebar a third of the width cannot hold six columns and the owner chose one rotating period over
   six cramped ones.
+- **An Auto control to restart rotation** (2026-10-20, retired 2026-10-21) — a toggle and a
+  `Paused` badge spent the sidebar's header on a mode. A chosen period is now a decision that holds
+  for the page's life, and pausing on hover covers the reader who only wants to look.
 - **Relabelling the one-year line for every period.** A 53-point weekly series cannot draw a week,
   and a line that does not span its return's window can point the other way from the number beside
   it.

@@ -154,16 +154,18 @@ Real-time Matches`) is retired whole, and so is the full-width overview of eight
 followed it: a backtest starts from the Backtests area or from the List, Strategy or Monitor it is
 about, and what monitors observe is the page's subject.
 
-- **flat, not elevated.** V1 gives each card a soft drop shadow. V2 surfaces use `--shadow-surface`
-  (`none`); Market watch is one ordinary `SectionCard`, never a stack of fund cards.
-- **a watchlist, not a dashboard of charts.** Twenty compact grid rows in three groups — a small
-  local icon, ticker over the market's name, one period's return, one 64px line — one period for the
-  whole list at a time, from a compact `1W | 1M | 3M | 6M | YTD | 1Y` selector that Auto rotates
-  every ten seconds. Its numbers are end-of-day price returns; nothing on the Dashboard says `24h` or
-  live.
-- **subordinate.** About a quarter of the content width, sticky and bounded to the screen, its list
-  scrolling inside it. The feed's table adapts to the column it is left (a container query), folding
-  Session and Monitor into the cells they belong to rather than scrolling sideways.
+- **flat, not elevated — and since Dashboard V2, not carded at all.** V1 gives each card a soft drop
+  shadow. The Dashboard is one page in two panes: no outer border, radius or shadow on either, one
+  hairline between them, subtle rules inside. Market watch is never a stack of fund cards.
+- **a watchlist, not a dashboard of charts.** Twenty one-line rows of about 26px in three groups — a
+  small local icon, the ticker, the market's name, one period's return, one 52px line — one period
+  for the whole list at a time, from a compact `1W | 1M | 3M | 6M | YTD | 1Y` selector that rotates
+  every eight seconds until the reader picks one. Its numbers are end-of-day price returns; nothing
+  on the Dashboard says `24h` or live.
+- **subordinate.** A 330–360px pane flush against the right edge, sticky under the topbar and the
+  screen's remaining height, its list scrolling inside it. The feed is a borderless table of events
+  grouped by market session that adapts to the column it is left (a container query), stacking each
+  event rather than scrolling sideways.
 
 Do not put a summary card, a `Run Backtest` card or a market section back above the feed, and do not
 show Market watch, or anything in its place, below 1,280px.
