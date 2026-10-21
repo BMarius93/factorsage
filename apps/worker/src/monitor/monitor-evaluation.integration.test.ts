@@ -310,7 +310,15 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
   async function signals(monitorId: string) {
     return prisma.monitorSignal.findMany({
       where: { monitorId },
-      orderBy: [{ observationDate: "asc" }, { detectedAt: "asc" }],
+      // Passes share one fixed clock, so occurrences of one session can tie on `detectedAt`; an
+      // occurrence resolved before another opened comes first, and `id` settles the rest — never
+      // the rows' physical order, which an index or trigger on the table can change.
+      orderBy: [
+        { observationDate: "asc" },
+        { detectedAt: "asc" },
+        { resolvedAt: { sort: "asc", nulls: "last" } },
+        { id: "asc" },
+      ],
     });
   }
 
