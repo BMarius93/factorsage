@@ -136,7 +136,10 @@ Client-side search and sort over the same in-memory rows, feeding `usePagination
 active; the **Sort control** appears where the feature offers more than one order and there is more
 than one record — built-in sections pass no orders, so a two-row section carries no chrome. The
 Sort control is also the phone's only ordering control, since card layouts hide table headers. The
-API's order is always the first ("Newest"), so the default never re-sorts what the server decided.
+first order is the default, and on every management page it is **Newest** — creation order
+(`byNewest(createdAt)`); **Recently updated** is the last change (`byNewest(updatedAt)`). Every
+order breaks ties by id, as the API does, so equal keys always land the same way. Counts in the
+footer carry thousands separators ("18,234").
 A query announces "N of M {noun} match “q”." through a `role="status"` region; filtered to nothing,
 the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. No
 server pagination is introduced: endpoints still return the whole owned collection. A list's

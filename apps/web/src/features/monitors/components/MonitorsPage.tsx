@@ -235,11 +235,16 @@ function MonitorComplianceNotice({
 }
 
 /**
- * The orders a customer's own monitors can be read in; the API's newest-first comes first. Search
- * also matches the strategy and list a monitor watches, since that is how people tell them apart.
+ * The orders a customer's own monitors can be read in. "Newest" is creation order, the default on
+ * every management page; "Recently updated" is the last change. Search also matches the strategy and
+ * list a monitor watches, since that is how people tell them apart.
  */
 const MONITOR_SORTS: readonly CollectionSort<MonitorSummaryResponse>[] = [
-  { id: "newest", label: "Newest" },
+  {
+    id: "newest",
+    label: "Newest",
+    compare: byNewest((monitor) => monitor.createdAt),
+  },
   { id: "name", label: "Name A–Z", compare: byName },
   {
     id: "signals",

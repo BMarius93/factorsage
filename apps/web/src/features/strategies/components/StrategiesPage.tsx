@@ -79,9 +79,16 @@ type DialogState =
  * it has at least one BUY level — there is no name-only strategy to create here. Rendering needs
  * only the summary counts, never a definition.
  */
-/** The orders a customer's own strategies can be read in; the API's newest-first comes first. */
+/**
+ * The orders a customer's own strategies can be read in. "Newest" is creation order, the default
+ * on every management page; "Recently updated" is the last change.
+ */
 const STRATEGY_SORTS: readonly CollectionSort<StrategySummaryResponse>[] = [
-  { id: "newest", label: "Newest" },
+  {
+    id: "newest",
+    label: "Newest",
+    compare: byNewest((strategy) => strategy.createdAt),
+  },
   {
     id: "updated",
     label: "Recently updated",
