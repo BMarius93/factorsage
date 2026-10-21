@@ -12,14 +12,7 @@ import { BenchmarksModule } from "../benchmarks/benchmarks.module";
 import { MONITORS_LOGGER, MONITOR_ETF_STATUS_OPTIONS } from "./monitors.tokens";
 
 @Module({
-  imports: [
-    ConfigurationModule,
-    DatabaseModule,
-    AuthModule,
-    EntitlementsModule,
-    SystemContentModule,
-    BenchmarksModule,
-  ],
+  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule, SystemContentModule, BenchmarksModule],
   controllers: [MonitorsController],
   providers: [
     {

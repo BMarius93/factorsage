@@ -172,10 +172,7 @@ describe("MonitorFormDialog — create", () => {
       screen.getByLabelText("Strategy"),
       "strategy-1",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-1",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     await userEvent.click(screen.getByTestId("submit-monitor"));
 
     await waitFor(() => {
@@ -199,10 +196,7 @@ describe("MonitorFormDialog — create", () => {
       screen.getByLabelText("Strategy"),
       "strategy-1",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-1",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     await userEvent.click(screen.getByLabelText(/Start monitoring now/));
     await userEvent.click(screen.getByTestId("submit-monitor"));
 
@@ -234,10 +228,7 @@ describe("MonitorFormDialog — create", () => {
       screen.getByLabelText("Strategy"),
       "strategy-1",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-1",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     await userEvent.click(screen.getByTestId("submit-monitor"));
 
     expect(screen.getByText("A monitor needs a name.")).toBeDefined();
@@ -269,10 +260,7 @@ describe("MonitorFormDialog — create", () => {
       screen.getByLabelText("Strategy"),
       "strategy-1",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-1",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     const submit = screen.getByTestId("submit-monitor");
     await userEvent.click(submit);
     await userEvent.click(submit);
@@ -295,10 +283,7 @@ describe("MonitorFormDialog — create", () => {
       screen.getByLabelText("Strategy"),
       "strategy-1",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-1",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     await userEvent.click(screen.getByTestId("submit-monitor"));
 
     await waitFor(() => {
@@ -392,9 +377,9 @@ describe("MonitorFormDialog — edit", () => {
     renderEdit();
     await formReady();
 
-    expect(screen.getAllByTestId("monitor-position-metric-note")).toHaveLength(
-      1,
-    );
+    expect(
+      screen.getAllByTestId("monitor-position-metric-note"),
+    ).toHaveLength(1);
   });
 
   it("prepopulates everything the monitor already is", async () => {
@@ -476,10 +461,7 @@ describe("MonitorFormDialog — edit", () => {
     renderEdit();
     await formReady();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-2",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-2");
     expect(screen.getByTestId("monitor-rebind-note")).toBeDefined();
     await userEvent.click(screen.getByText("Save changes"));
 
@@ -500,10 +482,7 @@ describe("MonitorFormDialog — edit", () => {
       screen.getByLabelText("Strategy"),
       "strategy-2",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stock list"),
-      "list-2",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-2");
     await userEvent.click(screen.getByLabelText(/Enabled/));
     await userEvent.click(screen.getByText("Save changes"));
 
