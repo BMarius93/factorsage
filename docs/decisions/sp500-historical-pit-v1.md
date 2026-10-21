@@ -157,6 +157,12 @@ The universe is the **only** List measured this way; the 100-symbol limit still 
 List, including a customer's copy of this one. The web form and the OpenAPI document
 (`StockListUniverse`, `maxIndexUniverseConstituents`) show the same rule.
 
+The collection (`GET /lists`, read by every Lists page and every picker) reports the measure without
+reading the members each time: it is measured once per version of the membership — the List's
+`updatedAt`, which the projection stamps in the same transaction as the windows it writes, its member
+count and the day — and kept in the API process; `syncedAt` is read fresh on every request. A List's
+own page measures from the members it loads anyway.
+
 ## §6 Ingestion
 
 `pnpm data:index-universe -- ingest` loads every universe security's full history through the
