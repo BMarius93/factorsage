@@ -1,4 +1,5 @@
 import type { FundamentalMetricId } from "./fundamental-metrics.js";
+import type { SelectableSeriesId } from "./selectable-series.js";
 import type { ValuationRatioId } from "./valuation-ratios.js";
 
 /**
@@ -283,6 +284,122 @@ export type StockDetailsResponse = {
   technicals: DailyTechnicalResponse[];
   intrinsicValues: IntrinsicValueResponse[];
   intrinsicValueBlends: IntrinsicValueBlendResponse[];
+};
+
+/**
+ * The technical series the Stock Details summary reports, by their selectable-series identity:
+ * EMA 50D, EMA 200D and RSI 14D, in this order.
+ *
+ * Only the summary is narrowed to these three. Every other moving average and oscillator stays in the
+ * catalog and in the chart's `Indicators` control; labels, units and the field each one is read from
+ * are the catalog's, never a second map.
+ */
+export const STOCK_SUMMARY_TECHNICAL_IDS = [
+  "EMA_50D",
+  "EMA_200D",
+  "RSI_14D",
+] as const satisfies readonly SelectableSeriesId[];
+
+export type StockSummaryTechnicalId = (typeof STOCK_SUMMARY_TECHNICAL_IDS)[number];
+
+/**
+ * One series' latest reading on the Stock Details summary.
+ *
+ * `date` is the newest session of the summary window on which the series has a value, and `value`
+ * is that session's value exactly as the canonical read gives it — the persisted derived state for a
+ * technical or a Fundamental Metric, the one valuation-ratio calculation for a ratio. When the
+ * newest session has no value, the reading is the newest earlier session that does, with its own
+ * `date`: a client must say so rather than present it as the newest session's. Both fields are
+ * **omitted** when no session of the window has a value — never zero, never `null`, and never a
+ * value from before the window.
+ */
+export type StockSummaryReadingResponse<TId extends string> = {
+  id: TId;
+  date?: string;
+  value?: number;
+};
+
+/**
+ * The newest finalized end-of-day bar on the summary, and what the page states about it.
+ *
+ * `previousDate`/`previousClose` are the session before it, when the window holds one.
+ * `rangeHigh`/`rangeLow` are the highest high and the lowest low over the summary window — the
+ * 52-week range. Nothing is a live quote.
+ */
+export type StockSummaryQuoteResponse = {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  previousDate?: string;
+  previousClose?: number;
+  rangeHigh: number;
+  rangeLow: number;
+};
+
+/**
+ * The newest quarterly statement public by the summary's newest session: the latest reporting
+ * period the Fundamental Metrics and valuation ratios can be reading.
+ *
+ * `fiscalDate` is the period end. `availableFrom` is the first session the period's statements could
+ * be read on — the provider's filing date plus one day, or the statutory deadline when the provider
+ * has none (`statementPublicAvailabilityDate`).
+ */
+export type StockSummaryQuarterResponse = {
+  fiscalYear: number;
+  period: "Q1" | "Q2" | "Q3" | "Q4";
+  fiscalDate: string;
+  availableFrom: string;
+};
+
+/**
+ * The valuation-ratio section of the summary. `AVAILABLE` carries all five ratios in
+ * `VALUATION_RATIO_CATALOG` order. `FAILED` means the inputs the calculation requires could not be
+ * prepared for this request — the provider's split list could not be refreshed — so no ratio was
+ * computed; it is a failure to retry, never a statement that the company has no ratios.
+ */
+export type StockSummaryValuationRatiosResponse =
+  | {
+      status: "AVAILABLE";
+      readings: StockSummaryReadingResponse<ValuationRatioId>[];
+    }
+  | { status: "FAILED" };
+
+/**
+ * `GET /stocks/:symbol/summary` — the latest state of one security, for every Stock Details section
+ * except the chart.
+ *
+ * It answers after the same canonical readiness every Stock Details read waits for (hydration,
+ * end-of-day freshness and the deduplicating load lock, `canonical-history-anchoring.md`), and then
+ * reads only the trailing `window`: one year ending at the newest finalized session. Concurrent
+ * summary and chart requests for a cold security share one hydration.
+ *
+ * Every figure is the canonical one: intrinsic values and blends are the newest materialized point of
+ * each model and blend in the window, with its own valuation date and provenance (the same selection
+ * the page made from the composite window before); valuation ratios come from the one calculation a
+ * Strategy, a backtest and a Monitor read; Fundamental Metrics and technicals are the persisted
+ * derived state. Nothing is recalculated for this read, and no history is returned.
+ */
+export type StockSummaryResponse = {
+  security: SecurityResponse;
+  profile?: SecurityProfileResponse;
+  /** The window the latest readings were selected from. */
+  window: Required<StockDateRangeQuery>;
+  /** Absent when the window holds no stored bar. */
+  quote?: StockSummaryQuoteResponse;
+  /** The newest point of each intrinsic-value model in the window, in catalog order. */
+  intrinsicValues: IntrinsicValueResponse[];
+  /** The newest point of each intrinsic-value blend in the window, in catalog order. */
+  intrinsicValueBlends: IntrinsicValueBlendResponse[];
+  valuationRatios: StockSummaryValuationRatiosResponse;
+  /** All fifteen Fundamental Metrics, in `FUNDAMENTAL_METRIC_CATALOG` order. */
+  fundamentals: StockSummaryReadingResponse<FundamentalMetricId>[];
+  /** `STOCK_SUMMARY_TECHNICAL_IDS`, in that order. */
+  technicals: StockSummaryReadingResponse<StockSummaryTechnicalId>[];
+  /** Absent when no quarterly statement was public by the newest session. */
+  latestQuarter?: StockSummaryQuarterResponse;
 };
 
 /** `asOf` restricts results to information that was historically eligible by that date. */

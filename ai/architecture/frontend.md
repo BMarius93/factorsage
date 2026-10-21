@@ -343,11 +343,18 @@ When it is introduced in V2:
   arriving load move a window the user chose. See
   `../../docs/decisions/viewport-driven-stock-details-history.md`.
 - Verify desktop resize and mobile touch interaction.
+- Stock Details loads in two independent requests started together — the latest-state summary
+  (`GET /stocks/:symbol/summary`, header and research cards) and the chart's opening window
+  (`GET /stocks/:symbol`). Each section owns its placeholder, error and retry; the visual order
+  (header, chart, cards) never follows the network order. Keep a new card on the summary rather
+  than adding a request per card, and do not prefetch series history for the cards: a card row
+  selects its series in the chart, which loads it lazily (`../product/stock-details.md`).
 - Stock Details chart overlays and Strategy condition operands consume the canonical catalog in
   `../../docs/decisions/selectable-series-catalog.md`; feature components must not duplicate its
   option identities, grouping, or ordering.
-- Stock Details exposes that catalog through one grouped multi-select `Indicators` control. Price
-  remains the always-visible base series. The same control ends with two single-select sections,
+- Stock Details exposes that catalog through one grouped `Indicators` control: checkboxes for the
+  overlays. Price remains the always-visible base series. The same control ends with two native
+  radio groups,
   each read from its own contracts catalog and drawn in its own pane
   (`../product/stock-details.md`): Valuation offers one Valuation Ratio at a time from
   `VALUATION_RATIO_CATALOG`, drawn as an ordinary line from the backend's projection of the

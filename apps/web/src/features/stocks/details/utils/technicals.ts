@@ -1,58 +1,60 @@
 import {
-  MOVING_AVERAGE_SERIES,
-  type DailyTechnicalResponse,
-  type MovingAverageFieldResponse,
+  findSelectableSeries,
+  STOCK_SUMMARY_TECHNICAL_IDS,
+  type StockSummaryReadingResponse,
+  type StockSummaryTechnicalId,
 } from "@intrinsic/contracts";
 
 /**
- * Latest-row projection over the daily technical series for the summary panel.
+ * The compact Technicals card's rows: EMA 50D, EMA 200D and RSI 14D — and only those.
  *
- * Indicators the backend has not warmed up yet are simply absent — they are never rendered as
- * zero. Values are taken from the newest technical row as-is; the only derivation is the
- * display-level position of the close relative to each average.
+ * The identities are the contract's one list (`STOCK_SUMMARY_TECHNICAL_IDS`); each row's label and
+ * kind come from the canonical selectable-series catalog, so the card, the `Indicators` control and
+ * the chart legend cannot drift apart. Every other moving average and oscillator stays in the
+ * catalog and in the chart. Values are the API's readings as-is: the only derivation is the
+ * display-level position of the close against a moving average, which is never computed for an
+ * oscillator — RSI is a unitless reading, not a price level.
  */
-export type TechnicalIndicatorKey = MovingAverageFieldResponse;
-
-export type TechnicalReading = {
-  key: TechnicalIndicatorKey;
-  label: string;
-  value: number;
+export type TechnicalRow = {
+  readonly id: StockSummaryTechnicalId;
+  readonly label: string;
+  /** `average` is drawn as a price and compared with the close; `oscillator` is unitless. */
+  readonly kind: "average" | "oscillator";
+  /** The session of the reading; absent when the window holds none. */
+  readonly date?: string;
+  readonly value?: number;
 };
 
-export type TechnicalSnapshot = {
-  date: string;
-  readings: TechnicalReading[];
-};
-
-/**
- * Indicator rows of the summary panel, taken from the canonical selectable-series catalog.
- *
- * The order and the labels are the catalog's, so the summary, the `Indicators` picker and the
- * chart legend cannot drift apart, and this file keeps no second option list.
- */
-export const TECHNICAL_INDICATORS: ReadonlyArray<{
-  key: TechnicalIndicatorKey;
-  label: string;
-}> = MOVING_AVERAGE_SERIES.map((series) => {
-  if (series.source.kind !== "MOVING_AVERAGE") {
-    throw new Error("MOVING_AVERAGE_SERIES must only contain moving averages");
+export const TECHNICAL_SUMMARY_SERIES: ReadonlyArray<{
+  readonly id: StockSummaryTechnicalId;
+  readonly label: string;
+  readonly kind: TechnicalRow["kind"];
+}> = STOCK_SUMMARY_TECHNICAL_IDS.map((id) => {
+  const entry = findSelectableSeries(id);
+  if (
+    !entry ||
+    (entry.source.kind !== "MOVING_AVERAGE" &&
+      entry.source.kind !== "OSCILLATOR")
+  ) {
+    throw new Error(`${id} must be a technical series of the catalog`);
   }
-  return { key: series.source.field, label: series.label };
+  return {
+    id,
+    label: entry.label,
+    kind: entry.source.kind === "OSCILLATOR" ? "oscillator" : "average",
+  };
 });
 
-/** Expects ascending rows; `undefined` when there are no rows or the last row has no values. */
-export function selectLatestTechnicals(
-  technicals: readonly DailyTechnicalResponse[],
-): TechnicalSnapshot | undefined {
-  const latest = technicals.at(-1);
-  if (!latest) {
-    return undefined;
-  }
-  const readings = TECHNICAL_INDICATORS.flatMap(({ key, label }) => {
-    const value = latest[key];
-    return value === undefined ? [] : [{ key, label, value }];
+/** The card's three rows in the contract's order, each with whatever reading the API gave it. */
+export function technicalRows(
+  readings: readonly StockSummaryReadingResponse<StockSummaryTechnicalId>[],
+): TechnicalRow[] {
+  return TECHNICAL_SUMMARY_SERIES.map((series) => {
+    const reading = readings.find((candidate) => candidate.id === series.id);
+    return reading?.date !== undefined && reading.value !== undefined
+      ? { ...series, date: reading.date, value: reading.value }
+      : { ...series };
   });
-  return readings.length > 0 ? { date: latest.date, readings } : undefined;
 }
 
 /**

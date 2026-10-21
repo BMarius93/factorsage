@@ -60,12 +60,21 @@ function panel(page: Page): Locator {
   return page.getByTestId("indicators-panel");
 }
 
-function valuationSelect(page: Page): Locator {
-  return panel(page).getByRole("combobox", { name: "Valuation ratio" });
+/** The Valuation radio group: None and the five ratios. */
+function valuationSection(page: Page): Locator {
+  return panel(page).getByTestId("valuation-section");
 }
 
-function fundamentalSelect(page: Page): Locator {
-  return panel(page).getByRole("combobox", { name: "Fundamental metric" });
+/** The radio for one ratio identity, or None for an empty one. */
+function valuationRadio(page: Page, id: string): Locator {
+  return valuationSection(page).locator(`input[type="radio"][value="${id}"]`);
+}
+
+/** The radio for one Fundamental Metric identity, or None for an empty one. */
+function fundamentalRadio(page: Page, id: string): Locator {
+  return panel(page)
+    .getByTestId("fundamentals-section")
+    .locator(`input[type="radio"][value="${id}"]`);
 }
 
 async function openStock(
@@ -101,7 +110,7 @@ async function chooseValuation(
   id: ValuationRatioId,
 ): Promise<void> {
   await openIndicators(page);
-  await valuationSelect(page).selectOption(id);
+  await valuationRadio(page, id).check();
   await expect(chartWrapper(page)).toHaveAttribute("data-valuation", id);
 }
 
@@ -308,7 +317,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     await openIndicators(page);
 
     // One Valuation section, right before Fundamentals, after every overlay group.
-    const legends = panel(page).locator("legend");
+    const legends = panel(page).locator(":scope > div > fieldset > legend");
     await expect(
       legends.filter({ hasText: VALUATION_RATIOS_LABEL }),
     ).toHaveCount(1);
@@ -318,7 +327,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     ]);
     // Written out by hand, so a sixth catalog ratio is a deliberate change here too; the values are
     // the catalog's identities and never labels.
-    const options = valuationSelect(page).locator("option");
+    const options = valuationSection(page).locator("label");
     await expect(options).toHaveText([
       "None",
       "P/E",
@@ -328,11 +337,13 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
       "EV/EBITDA",
     ]);
     expect(
-      await options.evaluateAll((elements) =>
-        elements.map((element) => (element as HTMLOptionElement).value),
-      ),
+      await valuationSection(page)
+        .getByRole("radio")
+        .evaluateAll((elements) =>
+          elements.map((element) => (element as HTMLInputElement).value),
+        ),
     ).toEqual(["", ...VALUATION_RATIO_CATALOG.map((entry) => entry.id)]);
-    await expect(valuationSelect(page)).toHaveValue("");
+    await expect(valuationRadio(page, "")).toBeChecked();
     await expect(page.getByTestId("valuation-help")).toHaveCount(0);
 
     expect(requests).toEqual([]);
@@ -545,10 +556,10 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
       },
     );
     await openIndicators(page);
-    await valuationSelect(page).selectOption("PRICE_TO_EARNINGS_TTM");
+    await valuationRadio(page, "PRICE_TO_EARNINGS_TTM").check();
     // P/E is in flight, held, when P/B is chosen.
     await peHeld;
-    await valuationSelect(page).selectOption("PRICE_TO_BOOK");
+    await valuationRadio(page, "PRICE_TO_BOOK").check();
     await expect(wrapper).toHaveAttribute("data-valuation", "PRICE_TO_BOOK");
     await expect(wrapper).toHaveAttribute(
       "data-valuation-stretches",
@@ -574,7 +585,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     await page.unrouteAll({ behavior: "ignoreErrors" });
 
     // None removes the pane and restores the chart without it.
-    await valuationSelect(page).selectOption("");
+    await valuationRadio(page, "").check();
     await expect(wrapper).not.toHaveAttribute("data-valuation");
     await expect.poll(() => chartCanvasCount(page)).toBe(baseline);
     await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
@@ -676,7 +687,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
       },
     );
     await openIndicators(page);
-    await valuationSelect(page).selectOption("PRICE_TO_EARNINGS_TTM");
+    await valuationRadio(page, "PRICE_TO_EARNINGS_TTM").check();
     await expect(page.getByTestId("valuation-status")).toHaveText(
       "Loading P/E…",
     );
@@ -736,7 +747,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     // Fundamental first, then the RSI, then the ratio: each new pane arrives at the bottom and is
     // swapped into its place.
     await openIndicators(page);
-    await fundamentalSelect(page).selectOption("ROIC_TTM");
+    await fundamentalRadio(page, "ROIC_TTM").check();
     await expect(wrapper).toHaveAttribute("data-fundamental-pane", "true");
     await rsi.check();
     await expect(wrapper).toHaveAttribute(
@@ -759,17 +770,17 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
 
     // None on the ratio removes its pane and nothing else.
     await openIndicators(page);
-    await valuationSelect(page).selectOption("");
+    await valuationRadio(page, "").check();
     await expect(wrapper).toHaveAttribute(
       "data-pane-order",
       "price,volume,oscillator,fundamental",
     );
     await expect(wrapper).toHaveAttribute("data-fundamental", "ROIC_TTM");
-    await expect(fundamentalSelect(page)).toHaveValue("ROIC_TTM");
+    await expect(fundamentalRadio(page, "ROIC_TTM")).toBeChecked();
     await expect(rsi).toBeChecked();
 
     // And the other way round: the ratio first, then the RSI, then the fundamental.
-    await fundamentalSelect(page).selectOption("");
+    await fundamentalRadio(page, "").check();
     await rsi.uncheck();
     await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
     await chooseValuation(page, "EV_TO_EBITDA_TTM");
@@ -779,12 +790,12 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
       "data-pane-order",
       "price,volume,oscillator,valuation",
     );
-    await fundamentalSelect(page).selectOption("DEBT_TO_EQUITY");
+    await fundamentalRadio(page, "DEBT_TO_EQUITY").check();
     await expect(wrapper).toHaveAttribute("data-fundamental-pane", "true");
     await expect(wrapper).toHaveAttribute("data-pane-order", FULL);
 
     // None on the fundamental removes only the fundamental's pane.
-    await fundamentalSelect(page).selectOption("");
+    await fundamentalRadio(page, "").check();
     await expect(wrapper).toHaveAttribute(
       "data-pane-order",
       "price,volume,oscillator,valuation",
@@ -795,19 +806,19 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     // before the library has rendered either. The swap that orders them must not depend on panes
     // the library has not drawn yet.
     await rsi.uncheck();
-    await valuationSelect(page).selectOption("");
+    await valuationRadio(page, "").check();
     await expect(wrapper).toHaveAttribute("data-pane-order", "price,volume");
     await settle(page);
     const requests = watchValuationRequests(page);
     const orderBetween = await page.evaluate(async () => {
-      const select = document.querySelector<HTMLSelectElement>(
-        '[data-testid="valuation-select"]',
+      const radio = document.querySelector<HTMLInputElement>(
+        '[data-testid="valuation-section"] input[type="radio"][value="EV_TO_EBITDA_TTM"]',
       )!;
       const wrapperElement = document.querySelector<HTMLElement>(
         '[role="img"][aria-label*="daily closing price chart"]',
       )!.parentElement!;
-      select.value = "EV_TO_EBITDA_TTM";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      // A click is a discrete event: the radio is checked and React's change fires in this task.
+      radio.click();
       // Microtasks only — no timer, so no frame can be rendered in between.
       for (
         let hop = 0;
@@ -912,13 +923,13 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     await openStock(page, MOBILE);
     await openIndicators(page);
 
-    // The popover, the select and the chosen ratio's explanation stay inside the screen.
+    // The popover, the radio group and the chosen ratio's explanation stay inside the screen.
     const panelBox = await panel(page).boundingBox();
     expect(panelBox!.x).toBeGreaterThanOrEqual(0);
     expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(MOBILE.width);
     await chooseValuation(page, "EV_TO_EBITDA_TTM");
-    await valuationSelect(page).scrollIntoViewIfNeeded();
-    const selectBox = await valuationSelect(page).boundingBox();
+    await valuationSection(page).scrollIntoViewIfNeeded();
+    const selectBox = await valuationSection(page).boundingBox();
     expect(selectBox!.x + selectBox!.width).toBeLessThanOrEqual(MOBILE.width);
     const help = page.getByTestId("valuation-help");
     await help.scrollIntoViewIfNeeded();
@@ -931,7 +942,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
       ),
     ).toBe(true);
 
-    await fundamentalSelect(page).selectOption("NET_DEBT_TO_EBITDA_TTM");
+    await fundamentalRadio(page, "NET_DEBT_TO_EBITDA_TTM").check();
     await closeIndicators(page);
     const wrapper = chartWrapper(page);
     await expect(wrapper).toHaveAttribute("data-valuation-pane", "true");
@@ -978,7 +989,7 @@ test.describe("PRO_USER Stock Details valuation ratios", () => {
     await expect(chartWrapper(page)).toHaveAttribute("data-loading", "false");
     await expect(chartWrapper(page)).not.toHaveAttribute("data-valuation");
     await openIndicators(page);
-    await expect(valuationSelect(page)).toHaveValue("");
+    await expect(valuationRadio(page, "")).toBeChecked();
     // Nothing about a ratio is asked for by the reloaded page.
     expect(requests).toHaveLength(1);
   });

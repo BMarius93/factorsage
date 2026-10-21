@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   isValuationRatioId,
+  VALUATION_RATIO_IDS,
   type ValuationRatioId,
 } from "@intrinsic/contracts";
 import {
@@ -118,6 +119,7 @@ import {
   SECURITY_SEARCH_CANDIDATE_FACTOR,
 } from "./security-search.js";
 import { monitorWindowCalendarDays } from "./evaluation-window.js";
+import { summarizeStockWindow, type StockSummary } from "./stock-summary.js";
 import {
   aggregateCompletedWeeks,
   resolveWeekSessionEnds,
@@ -624,6 +626,11 @@ export interface StockDetailsDataService extends StockDataService {
     ratioId: ValuationRatioId,
     range: DateRange,
   ): Promise<DailyValuationRatioPoint[]>;
+  /**
+   * The latest state of one security for every Stock Details section except the chart, selected
+   * from the trailing default window after the same canonical readiness as every other read.
+   */
+  getStockSummary(symbol: string): Promise<StockSummary>;
 }
 
 /**
@@ -1560,6 +1567,17 @@ export class CanonicalStockDataService implements StockDetailsDataService {
   private async readValuationTimeline(
     security: Security,
   ): Promise<ValuationTimeline> {
+    return (await this.readValuationInputs(security)).timeline;
+  }
+
+  /**
+   * The valuation timeline together with the quarterly statements it was built from — the stored
+   * revisions after the listing-evidence rule, which every statement-derived calculation reads.
+   */
+  private async readValuationInputs(
+    security: Security,
+    options: { statesFrom?: string } = {},
+  ): Promise<{ timeline: ValuationTimeline; statements: FinancialStatement[] }> {
     const retention = this.fundamentalsTarget(security);
     const [revisions, basis, events, splits, ipoDate, earliestPriceDate] =
       await Promise.all([
@@ -1582,14 +1600,20 @@ export class CanonicalStockDataService implements StockDetailsDataService {
       revisions,
       listingFloor({ ipoDate, earliestPriceDate }),
     );
-    return buildValuationTimeline({
-      securityId: security.id,
-      currency: security.currency,
+    return {
+      timeline: buildValuationTimeline(
+        {
+          securityId: security.id,
+          currency: security.currency,
+          statements,
+          verifiedAt: basis?.verifiedAt ?? null,
+          events,
+          splits,
+        },
+        options,
+      ),
       statements,
-      verifiedAt: basis?.verifiedAt ?? null,
-      events,
-      splits,
-    });
+    };
   }
 
   async getDailyPrices(symbol: string, range: DateRange) {
@@ -1961,6 +1985,83 @@ export class CanonicalStockDataService implements StockDetailsDataService {
         ? { date: price.date, value }
         : { date: price.date };
     });
+  }
+
+  /**
+   * The Stock Details summary: the latest state of one security for every section of the page
+   * except the chart (`GET /stocks/:symbol/summary`).
+   *
+   * Readiness is exactly every other Stock Details read's — the canonical hydration of the whole
+   * retained history (CONC-01) and the end-of-day freshness check, behind the deduplicating load
+   * lock — so a summary and a chart request arriving together for a cold security share one
+   * hydration, and the summary never answers from a stock the canonical path has not made current.
+   * What differs is only the read that follows: the trailing default window, from which the newest
+   * reading of each series is selected (`stock-summary.ts`), and no history is returned.
+   *
+   * The five valuation ratios are computed by the one calculation, for every session of the window,
+   * from the inputs `getDailyValuationRatio` prepares — the split list refreshed when it is a day
+   * old, and the closes and the timeline read between two reads of the price-basis generation, so a
+   * re-base committed in between is refused rather than answered from two bases. A split list that
+   * cannot be refreshed leaves the ratios FAILED, with the cause for the caller's log, and the rest of
+   * the summary is still answered: no ratio is computed from a list the rules do not trust.
+   */
+  async getStockSummary(symbol: string): Promise<StockSummary> {
+    const window = this.defaultRange();
+    const preHydration = await this.getSecurity(symbol);
+    const load = this.loadTarget(preHydration, window);
+    await this.ensureStockHydrated(preHydration, load);
+    await this.ensureStockFresh(preHydration, load);
+    // Re-resolved after hydration, as every Stock Details read does: the first hydration's profile
+    // sync enriches the catalog row.
+    const security = await this.getSecurity(symbol);
+    let splitListFailure: { failure: unknown } | undefined;
+    try {
+      await this.ensureStockSplitListFresh(security);
+    } catch (error) {
+      splitListFailure = { failure: error };
+    }
+    const expected = await this.priceBasisGeneration(security.id);
+    const [profile, prices, derived, valuation] = await Promise.all([
+      this.store.getProfile(security.id),
+      this.readDailyPriceProjection(security, window),
+      this.readDailyDerivedStateProjection(security, window),
+      // The same inputs as every ratio read, from every stored revision; only the states no session
+      // of the window can read are not built (`statesFrom`), which leaves every reading unchanged.
+      this.readValuationInputs(security, { statesFrom: window.from }),
+    ]);
+    const current = await this.priceBasisGeneration(security.id);
+    if (current !== expected) {
+      throw new PriceBasisChangedError(
+        security.id,
+        security.symbol,
+        expected,
+        current,
+      );
+    }
+    const intrinsicQuery = { ...window, asOf: window.to };
+    return {
+      security,
+      ...(profile ? { profile } : {}),
+      window,
+      ...summarizeStockWindow({
+        prices,
+        derived,
+        intrinsicValues: toIntrinsicValuePoints(derived, intrinsicQuery),
+        intrinsicValueBlends: toIntrinsicValueBlendPoints(
+          derived,
+          intrinsicQuery,
+        ),
+        ratioColumns:
+          splitListFailure ??
+          valuationRatioColumns({
+            timeline: valuation.timeline,
+            dates: prices.map((price) => price.date),
+            closes: prices.map((price) => price.close),
+            ratios: VALUATION_RATIO_IDS,
+          }),
+        statements: valuation.statements,
+      }),
+    };
   }
 
   async getFinancialStatements(

@@ -131,9 +131,9 @@ test.describe("valuation ratios in the browser, against the audit oracle", () =>
         );
         await page.getByTestId("indicators-trigger").click();
         await page
-          .getByTestId("indicators-panel")
-          .getByRole("combobox", { name: "Valuation ratio" })
-          .selectOption(id);
+          .getByTestId("valuation-section")
+          .locator(`input[type="radio"][value="${id}"]`)
+          .check();
         await expect(wrapper).toHaveAttribute("data-valuation", id);
         const rows = (await (await answer).json()) as {
           date: string;

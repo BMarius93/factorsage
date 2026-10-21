@@ -29,11 +29,13 @@ const QA_SYMBOL = "QATEST1";
 const GROUPS = [
   ...SELECTABLE_SERIES_GROUPED.map((group) => group.label),
   // The valuation ratios and then the Fundamental Metrics follow the overlay groups, one
-  // single-select section each.
+  // single-choice radio group each.
   VALUATION_RATIOS_LABEL,
   FUNDAMENTAL_METRICS_LABEL,
 ];
 const CATALOG_SIZE = SELECTABLE_SERIES_CATALOG.length;
+/** The family legends; the Fundamentals category headings are sub-legends inside one radio group. */
+const TOP_LEGENDS = ":scope > div > fieldset > legend";
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
@@ -76,7 +78,7 @@ test.describe("PRO_USER Stock Details indicators", () => {
     await openIndicators(page);
 
     // 1. Every group, in canonical order, with every catalog entry discoverable.
-    await expect(panel(page).locator("legend")).toHaveText(GROUPS);
+    await expect(panel(page).locator(TOP_LEGENDS)).toHaveText(GROUPS);
     await expect(panel(page).getByRole("checkbox")).toHaveCount(CATALOG_SIZE);
 
     // 2. Balanced is the only overlay enabled by default.
@@ -142,7 +144,7 @@ test.describe("PRO_USER Stock Details indicators", () => {
     await openStock(page);
     await openIndicators(page);
 
-    await expect(panel(page).locator("legend")).toHaveText(GROUPS);
+    await expect(panel(page).locator(TOP_LEGENDS)).toHaveText(GROUPS);
     await expect(panel(page).getByRole("checkbox")).toHaveCount(CATALOG_SIZE);
     // The popover must stay inside the viewport rather than overflowing the page horizontally.
     const box = await panel(page).boundingBox();

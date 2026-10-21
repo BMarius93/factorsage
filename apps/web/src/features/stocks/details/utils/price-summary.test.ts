@@ -1,6 +1,6 @@
 import type { DailyPriceResponse } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
-import { summarizePrices } from "./price-summary";
+import { summarizePrices, summarizeQuote } from "./price-summary";
 
 function bar(
   date: string,
@@ -60,5 +60,41 @@ describe("summarizePrices", () => {
 
   it("returns undefined for an empty window", () => {
     expect(summarizePrices([])).toBeUndefined();
+  });
+});
+
+describe("summarizeQuote", () => {
+  it("states the summary's quote exactly as the window's rows would", () => {
+    const rows = [bar("2026-08-27", 100), bar("2026-08-28", 102)];
+    const fromRows = summarizePrices(rows);
+    expect(
+      summarizeQuote({
+        date: "2026-08-28",
+        open: rows[1]!.open,
+        high: rows[1]!.high,
+        low: rows[1]!.low,
+        close: 102,
+        volume: rows[1]!.volume,
+        previousDate: "2026-08-27",
+        previousClose: 100,
+        rangeHigh: fromRows!.windowHigh,
+        rangeLow: fromRows!.windowLow,
+      }),
+    ).toEqual(fromRows);
+  });
+
+  it("omits the change when the window holds no previous session", () => {
+    expect(
+      summarizeQuote({
+        date: "2026-08-28",
+        open: 1,
+        high: 1,
+        low: 1,
+        close: 1,
+        volume: 1,
+        rangeHigh: 1,
+        rangeLow: 1,
+      }).change,
+    ).toBeUndefined();
   });
 });

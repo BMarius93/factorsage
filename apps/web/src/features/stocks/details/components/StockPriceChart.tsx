@@ -40,6 +40,7 @@ import {
   formatLocalDate,
   formatMoney,
   formatMultiple,
+  formatOscillator,
 } from "../utils/format";
 import { fundamentalSteps } from "../utils/fundamental-series";
 import { HISTORY_EDGE_TRIGGER_BARS } from "../utils/history-window";
@@ -172,10 +173,11 @@ function overlayLineData(points: readonly ChartLinePoint[]) {
   });
 }
 
-/** An oscillator is unitless: legend and hover values never read as money. */
-function formatOscillatorValue(value: number): string {
-  return value.toFixed(1);
-}
+/**
+ * An oscillator is unitless: legend and hover values never read as money. One formatter for every
+ * oscillator reading, shared with the Technicals card.
+ */
+const formatOscillatorValue = formatOscillator;
 
 /** What a pane holds, by the name the DOM contract and the pane titles use. */
 type PaneName = keyof ChartPanes;

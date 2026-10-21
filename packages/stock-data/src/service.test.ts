@@ -4503,6 +4503,37 @@ describe("range-scoped materialization", () => {
     });
   });
 
+  it("shares one hydration between a summary and a chart read of a cold stock (CONC-01)", async () => {
+    class SplitServingProvider extends FakeProvider {
+      splitReads = 0;
+      async getStockSplits(): Promise<StockSplit[]> {
+        this.splitReads += 1;
+        return [];
+      }
+    }
+    const provider = new SplitServingProvider();
+    const expected = loadRange(DEFAULT_DETAILS_FROM);
+    provider.rowsByRange.set(`${expected.from}:${expected.to}`, [
+      price("2026-08-20"),
+    ]);
+    const { cache, loader } = coldService(provider);
+
+    // The page asks for both at once, as it now does; neither waits for the other to start.
+    const [summary, details] = await Promise.all([
+      loader.getStockSummary("AAPL"),
+      loader.getStockDetails("AAPL"),
+    ]);
+
+    // One provider read of the whole retention window and one publication, whoever won the lock.
+    expect(provider.ranges).toEqual([RETENTION_RANGE]);
+    expect(cache.priceYearWrites).toEqual([
+      yearSpan(expected.from, expected.to),
+    ]);
+    // Both answer from the one canonical history.
+    expect(summary.quote?.date).toBe("2026-08-20");
+    expect(details.prices.at(-1)?.date).toBe("2026-08-20");
+  });
+
   it("warms up every catalog series on the first visible day of that window", async () => {
     // `SMA(200, 1W)` needs two hundred completed weekly bars, so this fails first if the load ever
     // stops carrying enough history behind a window for the slowest series.
@@ -6138,7 +6169,11 @@ describe("a valuation ratio's daily history for Stock Details", () => {
 
   const WINDOW = { from: "2026-08-10", to: "2026-08-21" };
 
-  async function residentFresh(provider: FakeProvider = new SplitProvider()) {
+  async function residentFresh(
+    provider: FakeProvider = new SplitProvider(),
+    derivedOn: (date: string, index: number) => Partial<DailyDerivedState> = () =>
+      ({}),
+  ) {
     const store = new FakeStore();
     const cache = new MemoryCache();
     store.prices = tradingDays("2026-08-03", "2026-08-21").map((row) =>
@@ -6150,7 +6185,8 @@ describe("a valuation ratio's daily history for Stock Details", () => {
           : row,
     );
     store.financialStatements = statements();
-    store.dailyState = store.prices.map((row) => ({
+    store.dailyState = store.prices.map((row, index) => ({
+      ...derivedOn(row.date, index),
       securityId: security.id,
       date: row.date,
     }));
@@ -6569,5 +6605,213 @@ describe("a valuation ratio's daily history for Stock Details", () => {
     await expect(
       loader.getDailyValuationRatio("AAPL", "PRICE_TO_EARNINGS_TTM", WINDOW),
     ).rejects.toBeInstanceOf(PriceBasisChangedError);
+  });
+
+  describe("the Stock Details summary", () => {
+    /**
+     * A derived state with every summary series in it: EMA 50D, EMA 200D and RSI 14D on every
+     * session; ROIC on every session, a negative Net Debt / EBITDA, a Revenue Growth a revision
+     * invalidated from 2026-08-20, an Interest Coverage that is never available, and DCF with its
+     * own provenance — each value distinct per session, so a read of the wrong session cannot match.
+     */
+    const derivedOn = (
+      date: string,
+      index: number,
+    ): Partial<DailyDerivedState> => ({
+      ema50d: 110 + index,
+      ema200d: 90 + index,
+      rsi14d: 40 + index,
+      roicTtm: 15 + index / 100,
+      netDebtToEbitdaTtm: -0.4,
+      ...(date < "2026-08-20" ? { revenueGrowthTtmYoy: 7 + index } : {}),
+      intrinsicValues: { DCF_FCFF: 150 + index },
+      dcfFcffSourceAsOf: "2026-02-10T00:00:00.000Z",
+      intrinsicCurrency: "USD",
+    });
+
+    it("selects each series' newest reading through the read that series' history comes from", async () => {
+      const { loader } = await residentFresh(new SplitProvider(), derivedOn);
+      const summary = await loader.getStockSummary("AAPL");
+      const window = summary.window;
+      expect(window.to >= "2026-08-21").toBe(true);
+
+      // The newest finalized bar, the one before it and the window's range.
+      expect(summary.quote).toMatchObject({
+        date: "2026-08-21",
+        previous: { date: "2026-08-20" },
+      });
+      expect(summary.quote?.rangeHigh).toBe(320);
+
+      // Every ratio is the newest valued session of its own canonical history read.
+      if (summary.valuationRatios.status !== "AVAILABLE") {
+        throw new Error("Expected the ratios to be available");
+      }
+      expect(summary.valuationRatios.readings.map((r) => r.id)).toEqual([
+        ...VALUATION_RATIO_IDS,
+      ]);
+      for (const reading of summary.valuationRatios.readings) {
+        const history = await loader.getDailyValuationRatio(
+          "AAPL",
+          reading.id,
+          window,
+        );
+        const newest = history.filter((p) => p.value !== undefined).at(-1);
+        expect(reading, reading.id).toEqual(
+          newest ? { id: reading.id, ...newest } : { id: reading.id },
+        );
+      }
+
+      // Every Fundamental Metric is the newest valued session of its own history read.
+      expect(summary.fundamentals.map((r) => r.id)).toEqual([
+        ...FUNDAMENTAL_METRIC_IDS,
+      ]);
+      for (const reading of summary.fundamentals) {
+        const history = await loader.getDailyFundamentalMetric(
+          "AAPL",
+          reading.id,
+          window,
+        );
+        const newest = history.filter((p) => p.value !== undefined).at(-1);
+        expect(reading, reading.id).toEqual(
+          newest ? { id: reading.id, ...newest } : { id: reading.id },
+        );
+      }
+
+      // The three summary technicals, and only those, from the technical history read.
+      const technicals = await loader.getDailyTechnicals("AAPL", window);
+      const newestRow = technicals.at(-1)!;
+      expect(summary.technicals).toEqual([
+        { id: "EMA_50D", date: newestRow.date, value: newestRow.ema50d },
+        { id: "EMA_200D", date: newestRow.date, value: newestRow.ema200d },
+        { id: "RSI_14D", date: newestRow.date, value: newestRow.rsi14d },
+      ]);
+
+      // The newest point of each model, exactly as the intrinsic read projects it.
+      const models = await loader.getIntrinsicValues("AAPL", {
+        ...window,
+        asOf: window.to,
+      });
+      expect(summary.intrinsicValues).toEqual([models.at(-1)]);
+      expect(summary.intrinsicValueBlends).toEqual([]);
+    });
+
+    it("keeps an earlier reading's own date and never invents one for the newest session", async () => {
+      const { loader } = await residentFresh(new SplitProvider(), derivedOn);
+      const summary = await loader.getStockSummary("AAPL");
+      if (summary.valuationRatios.status !== "AVAILABLE") {
+        throw new Error("Expected the ratios to be available");
+      }
+      const ratio = (id: ValuationRatioId) =>
+        summary.valuationRatios.status === "AVAILABLE"
+          ? summary.valuationRatios.readings.find((r) => r.id === id)
+          : undefined;
+      // The loss quarter makes P/E unavailable from 2026-08-20: the reading is 2026-08-19's.
+      expect(ratio("PRICE_TO_EARNINGS_TTM")?.date).toBe("2026-08-19");
+      expect(ratio("PRICE_TO_EARNINGS_TTM")?.value).toBeGreaterThan(0);
+      // P/B is available on the newest session, at that session's close and statements.
+      expect(ratio("PRICE_TO_BOOK")?.date).toBe("2026-08-21");
+
+      const metric = (id: string) =>
+        summary.fundamentals.find((reading) => reading.id === id);
+      // Invalidated from 2026-08-20: 2026-08-19's reading, with its own date.
+      expect(metric("REVENUE_GROWTH_TTM_YOY")).toEqual({
+        id: "REVENUE_GROWTH_TTM_YOY",
+        date: "2026-08-19",
+        value: 7 + 12,
+      });
+      // A negative reading is a reading.
+      expect(metric("NET_DEBT_TO_EBITDA_TTM")?.value).toBe(-0.4);
+      // Never available in the window: no date and no value — not zero.
+      expect(metric("INTEREST_COVERAGE_TTM")).toEqual({
+        id: "INTEREST_COVERAGE_TTM",
+      });
+      // The newest quarter public by 2026-08-21 is fiscal 2026 Q1, public from 2026-08-20.
+      expect(summary.latestQuarter).toEqual({
+        fiscalYear: 2026,
+        period: "Q1",
+        fiscalDate: "2026-03-31",
+        availableFromDate: "2026-08-20",
+      });
+    });
+
+    it("still answers when the split list cannot be refreshed, with the ratios FAILED and nothing computed", async () => {
+      class FailingSplits extends SplitProvider {
+        override async getStockSplits(): Promise<StockSplit[]> {
+          this.splitReads += 1;
+          throw new Error("The provider is unavailable");
+        }
+      }
+      const provider = new FailingSplits();
+      const { loader } = await residentFresh(provider, derivedOn);
+      const columns = vi.mocked(valuationRatioColumns);
+      columns.mockClear();
+
+      const summary = await loader.getStockSummary("AAPL");
+
+      expect(provider.splitReads).toBe(1);
+      expect(summary.valuationRatios.status).toBe("FAILED");
+      expect(
+        summary.valuationRatios.status === "FAILED" &&
+          (summary.valuationRatios.cause as Error).message,
+      ).toBe("The provider is unavailable");
+      // No ratio was computed from a list the rules no longer trust.
+      expect(columns).not.toHaveBeenCalled();
+      // Everything else is answered.
+      expect(summary.quote?.date).toBe("2026-08-21");
+      expect(
+        summary.fundamentals.find((r) => r.id === "ROIC_TTM")?.date,
+      ).toBe("2026-08-21");
+    });
+
+    it("computes the five ratios once, in one call, and reads the split list at most once a day", async () => {
+      const provider = new SplitProvider();
+      const { loader } = await residentFresh(provider, derivedOn);
+      const columns = vi.mocked(valuationRatioColumns);
+      columns.mockClear();
+      await loader.getStockSummary("AAPL");
+      await loader.getStockSummary("AAPL");
+      expect(columns).toHaveBeenCalledTimes(2);
+      expect(columns.mock.calls[0]?.[0].ratios).toEqual([
+        ...VALUATION_RATIO_IDS,
+      ]);
+      // Resident and current: no provider read but the day's split list.
+      expect(provider.splitReads).toBe(1);
+      expect(provider.ranges).toEqual([]);
+      expect(provider.financialRequests).toEqual([]);
+    });
+
+    it("refuses a summary whose price history was re-based between its reads", async () => {
+      class ReplacedDuringRead extends FakeStore {
+        reads = 0;
+        override async getPriceBasis(): Promise<SecurityPriceBasisState | null> {
+          this.reads += 1;
+          return {
+            securityId: security.id,
+            generation: this.reads === 1 ? 1 : 2,
+            verifiedAt: "2026-01-01T00:00:00.000Z",
+          };
+        }
+      }
+      const { store, cache } = await residentFresh(
+        new SplitProvider(),
+        derivedOn,
+      );
+      const replaced = Object.assign(new ReplacedDuringRead(), {
+        prices: store.prices,
+        financialStatements: store.financialStatements,
+        dailyState: store.dailyState,
+        states: store.states,
+        coverage: store.coverage,
+      });
+      const loader = createService(
+        replaced,
+        new SplitProvider(),
+        cache,
+        new InMemoryLoadCoordinator(),
+      );
+      await expect(loader.getStockSummary("AAPL")).rejects.toBeInstanceOf(
+        PriceBasisChangedError,
+      );
+    });
   });
 });

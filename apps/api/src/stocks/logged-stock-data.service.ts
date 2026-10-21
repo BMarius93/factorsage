@@ -24,6 +24,7 @@ import {
   StockDataValidationError,
   type DailyValuationRatioPoint,
   type StockDetailsDataService,
+  type StockSummary,
 } from "@intrinsic/stock-data";
 
 export class LoggedStockDataService implements StockDetailsDataService {
@@ -115,6 +116,23 @@ export class LoggedStockDataService implements StockDetailsDataService {
       // input.
       { ratioId },
     );
+  }
+
+  async getStockSummary(symbol: string): Promise<StockSummary> {
+    const summary = await this.execute("getStockSummary", symbol, () =>
+      this.delegate.getStockSummary(symbol),
+    );
+    if (summary.valuationRatios.status === "FAILED") {
+      // The rest of the summary is answered; the ratios' inputs could not be prepared. Logged with
+      // the original error so the provider failure behind it keeps its name, message and stack.
+      this.logger.warn({
+        event: "stock.summary.valuation-ratios.failed",
+        operation: "getStockSummary",
+        symbol: summary.security.symbol,
+        err: summary.valuationRatios.cause,
+      });
+    }
+    return summary;
   }
 
   getFinancialStatements(

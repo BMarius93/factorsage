@@ -17,6 +17,7 @@ import {
   type StockDetailsResponse,
   type StockHistoryBoundsResponse,
   type StockSearchResultResponse,
+  type StockSummaryResponse,
   type ValuationRatioId,
 } from "@intrinsic/contracts";
 import { getEodFinalityConfig } from "@intrinsic/config";
@@ -40,6 +41,7 @@ import {
   StockDataValidationError,
   type DailyValuationRatioPoint,
   type StockDetailsDataService,
+  type StockSummary,
 } from "@intrinsic/stock-data";
 import {
   BadRequestException,
@@ -335,6 +337,71 @@ function blendResponse(
   };
 }
 
+/**
+ * The summary onto the wire. Projection only: every reading is the canonical read's, selected by the
+ * stock-data service, and an absent reading stays absent. A ratio section whose inputs could not be
+ * prepared says so as `FAILED` — its cause is logged by the service's decorator, never sent.
+ */
+function summaryResponse(summary: StockSummary): StockSummaryResponse {
+  const { quote, latestQuarter } = summary;
+  return {
+    security: securityResponse(summary.security),
+    ...(summary.profile ? { profile: profileResponse(summary.profile) } : {}),
+    window: { from: summary.window.from, to: summary.window.to },
+    ...(quote
+      ? {
+          quote: {
+            date: quote.date,
+            open: quote.open,
+            high: quote.high,
+            low: quote.low,
+            close: quote.close,
+            volume: quote.volume,
+            ...(quote.previous
+              ? {
+                  previousDate: quote.previous.date,
+                  previousClose: quote.previous.close,
+                }
+              : {}),
+            rangeHigh: quote.rangeHigh,
+            rangeLow: quote.rangeLow,
+          },
+        }
+      : {}),
+    intrinsicValues: summary.intrinsicValues.map(intrinsicResponse),
+    intrinsicValueBlends: summary.intrinsicValueBlends.map(blendResponse),
+    valuationRatios:
+      summary.valuationRatios.status === "AVAILABLE"
+        ? {
+            status: "AVAILABLE",
+            readings: summary.valuationRatios.readings.map(readingResponse),
+          }
+        : { status: "FAILED" },
+    fundamentals: summary.fundamentals.map(readingResponse),
+    technicals: summary.technicals.map(readingResponse),
+    ...(latestQuarter
+      ? {
+          latestQuarter: {
+            fiscalYear: latestQuarter.fiscalYear,
+            period: latestQuarter.period,
+            fiscalDate: latestQuarter.fiscalDate,
+            availableFrom: latestQuarter.availableFromDate,
+          },
+        }
+      : {}),
+  };
+}
+
+function readingResponse<TId extends string>(reading: {
+  id: TId;
+  date?: string;
+  value?: number;
+}): { id: TId; date?: string; value?: number } {
+  return reading.date === undefined || reading.value === undefined
+    ? { id: reading.id }
+    : { id: reading.id, date: reading.date, value: reading.value };
+}
+
 @Controller("stocks")
 export class StocksController {
   constructor(
@@ -413,6 +480,23 @@ export class StocksController {
         intrinsicValueBlends: details.intrinsicValueBlends.map(blendResponse),
       };
     });
+  }
+
+  /**
+   * The latest state of one security for every Stock Details section except the chart: identity,
+   * the newest finalized bar, intrinsic values, the five valuation ratios, the fifteen Fundamental
+   * Metrics and the three summary technicals. Waits on the same canonical readiness as every read
+   * here, and returns no history, so the chart's own request (`GET /stocks/:symbol`) is never what
+   * the rest of the page waits for.
+   */
+  @RateLimit("stock-read")
+  @Get(":symbol/summary")
+  async getStockSummary(
+    @Param("symbol") symbol: string,
+  ): Promise<StockSummaryResponse> {
+    return this.execute(async () =>
+      summaryResponse(await this.stocks.getStockSummary(symbol)),
+    );
   }
 
   @RateLimit("stock-read")

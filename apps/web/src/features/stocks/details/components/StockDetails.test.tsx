@@ -1,8 +1,13 @@
 import {
+  findFundamentalMetric,
+  findValuationRatio,
+  FUNDAMENTAL_METRIC_IDS as FUNDAMENTAL_IDS,
   SELECTABLE_SERIES_CATALOG,
+  VALUATION_RATIO_IDS as VALUATION_IDS,
   type DailyPriceResponse,
   type SecurityResponse,
   type StockDetailsResponse,
+  type StockSummaryResponse,
 } from "@intrinsic/contracts";
 import {
   act,
@@ -23,6 +28,7 @@ import {
   fetchIntrinsicValueBlendHistory,
   fetchIntrinsicValueHistory,
   fetchStockDetails,
+  fetchStockSummary,
 } from "../api/stock-details-api";
 import type { AuthState } from "../../../auth/hooks/use-auth-session";
 import { RecentSecuritiesProvider } from "../../recent/hooks/use-recent-securities";
@@ -37,6 +43,7 @@ vi.mock("../../../auth/hooks/use-auth-session", () => ({
 
 vi.mock("../api/stock-details-api", () => ({
   fetchStockDetails: vi.fn(),
+  fetchStockSummary: vi.fn(),
   fetchDailyPriceHistory: vi.fn(),
   fetchDailyTechnicalHistory: vi.fn(),
   fetchIntrinsicValueBlendHistory: vi.fn(),
@@ -130,6 +137,7 @@ vi.mock("./StockPriceChart", () => ({
 }));
 
 const fetchStockDetailsMock = vi.mocked(fetchStockDetails);
+const fetchStockSummaryMock = vi.mocked(fetchStockSummary);
 const fetchDailyPriceHistoryMock = vi.mocked(fetchDailyPriceHistory);
 const fetchDailyTechnicalHistoryMock = vi.mocked(fetchDailyTechnicalHistory);
 const fetchIntrinsicValueBlendHistoryMock = vi.mocked(
@@ -244,8 +252,105 @@ function detailsFixture(): StockDetailsResponse {
   };
 }
 
+/**
+ * The summary the API answers for the same security and session as `detailsFixture`: the newest bar
+ * (close 232 against 200 the session before), the trailing year's range, the newest point of each
+ * intrinsic series, and the financial cards' readings — including a ratio read on an earlier session,
+ * one with no reading at all, a negative reading and a metric with no reading.
+ */
+function summaryFixture(): StockSummaryResponse {
+  const details = detailsFixture();
+  return {
+    security: { ...SECURITY },
+    ...(details.profile ? { profile: { ...details.profile } } : {}),
+    window: { from: "2025-08-28", to: "2026-08-28" },
+    quote: {
+      date: "2026-08-28",
+      open: 232,
+      high: 234,
+      low: 230,
+      close: 232,
+      volume: 41_237_500,
+      previousDate: "2026-08-27",
+      previousClose: 200,
+      rangeHigh: 234,
+      rangeLow: 148,
+    },
+    intrinsicValues: [
+      {
+        valuationDate: "2026-08-28",
+        sourceDataAsOf: "2026-08-27T22:00:00.000Z",
+        model: "DCF_FCFF",
+        valuePerShare: 260,
+        currency: "USD",
+      },
+    ],
+    intrinsicValueBlends: [
+      {
+        valuationDate: "2026-08-28",
+        sourceDataAsOf: "2026-08-27T22:00:00.000Z",
+        blendId: "BALANCED",
+        valuePerShare: 290,
+        currency: "USD",
+      },
+    ],
+    valuationRatios: {
+      status: "AVAILABLE",
+      readings: [
+        { id: "PRICE_TO_EARNINGS_TTM", date: "2026-08-28", value: 28.4 },
+        { id: "PRICE_TO_SALES_TTM", date: "2026-08-28", value: 7.25 },
+        { id: "PRICE_TO_BOOK", date: "2026-08-28", value: 0.75 },
+        { id: "PRICE_TO_FCF_TTM" },
+        { id: "EV_TO_EBITDA_TTM", date: "2026-08-20", value: -1.25 },
+      ],
+    },
+    fundamentals: [
+      { id: "REVENUE_GROWTH_TTM_YOY", date: "2026-08-01", value: 8.1 },
+      { id: "EPS_GROWTH_TTM_YOY" },
+      { id: "FCF_GROWTH_TTM_YOY" },
+      { id: "GROSS_MARGIN_TTM", date: "2026-08-28", value: 46.21 },
+      { id: "OPERATING_MARGIN_TTM" },
+      { id: "NET_MARGIN_TTM" },
+      { id: "FCF_MARGIN_TTM" },
+      { id: "ROIC_TTM", date: "2026-08-28", value: 15.42 },
+      { id: "ROE_TTM", date: "2026-08-28", value: -5 },
+      { id: "ROA_TTM" },
+      { id: "DEBT_TO_EQUITY", date: "2026-08-28", value: 0.75 },
+      { id: "CURRENT_RATIO", date: "2026-08-28", value: 1 },
+      { id: "NET_DEBT_TO_EBITDA_TTM", date: "2026-08-28", value: -0.4 },
+      { id: "INTEREST_COVERAGE_TTM" },
+      { id: "ASSET_TURNOVER_TTM" },
+    ],
+    technicals: [
+      { id: "EMA_50D", date: "2026-08-28", value: 220 },
+      { id: "EMA_200D", date: "2026-08-28", value: 210 },
+      { id: "RSI_14D", date: "2026-08-28", value: 58.4 },
+    ],
+    latestQuarter: {
+      fiscalYear: 2026,
+      period: "Q3",
+      fiscalDate: "2026-06-27",
+      availableFrom: "2026-08-01",
+    },
+  };
+}
+
 function chart(): HTMLElement {
   return screen.getByTestId("price-chart");
+}
+
+/** The Indicators control's radio for one catalog ratio, or `None` for an empty identity. */
+function ratioRadio(id: string): HTMLInputElement {
+  return within(screen.getByTestId("valuation-section")).getByRole("radio", {
+    name: id === "" ? "None" : findValuationRatio(id)!.label,
+  }) as HTMLInputElement;
+}
+
+/** The Indicators control's radio for one catalog metric, or `None` for an empty identity. */
+function metricRadio(id: string): HTMLInputElement {
+  return within(screen.getByTestId("fundamentals-section")).getByRole("radio", {
+    name: id === "" ? "None" : findFundamentalMetric(id)!.label,
+  }) as HTMLInputElement;
 }
 
 function setupUser() {
@@ -256,6 +361,8 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(new Date("2026-08-28T12:00:00.000Z"));
   fetchStockDetailsMock.mockReset();
+  fetchStockSummaryMock.mockReset();
+  fetchStockSummaryMock.mockResolvedValue(summaryFixture());
   fetchDailyPriceHistoryMock.mockReset();
   fetchDailyTechnicalHistoryMock.mockReset();
   fetchIntrinsicValueBlendHistoryMock.mockReset();
@@ -279,7 +386,7 @@ describe("StockDetails", () => {
 
     const heading = await screen.findByRole("heading", {
       level: 1,
-      name: /AAPL/,
+      name: /Apple Inc\./,
     });
     expect(heading.textContent).toContain("Apple Inc.");
     // Research leads somewhere (UI-018): the header offers adding the stock to a list.
@@ -297,7 +404,11 @@ describe("StockDetails", () => {
 
     expect(screen.getByText("$232.00")).toBeDefined();
     expect(screen.getByText(/\+\$32\.00 \(\+16\.00%\)/)).toBeDefined();
-    expect(screen.getByText(/At close · Aug 28, 2026/)).toBeDefined();
+    expect(
+      within(heading.closest("[data-density]") as HTMLElement).getByText(
+        /At close · Aug 28, 2026/,
+      ),
+    ).toBeDefined();
     // The exchange shows in the header badges and again under key facts.
     expect(screen.getAllByText("NASDAQ Global Select").length).toBeGreaterThan(
       0,
@@ -309,7 +420,7 @@ describe("StockDetails", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
 
     render(<StockDetails symbol="AAPL" />);
-    await screen.findByRole("heading", { level: 1, name: /AAPL/ });
+    await screen.findByTestId("price-chart");
 
     // One volume bar per session, on the price series' own axis and in the same order.
     expect(chart().dataset.volume).toBe(
@@ -337,7 +448,7 @@ describe("StockDetails", () => {
 
     const heading = await screen.findByRole("heading", {
       level: 1,
-      name: /AAPL/,
+      name: /Apple Inc\./,
     });
     const header = heading.closest("[data-density]");
 
@@ -354,16 +465,18 @@ describe("StockDetails", () => {
     const price = screen.getByText("$232.00");
     const change = screen.getByText(/\+\$32\.00 \(\+16\.00%\)/);
     expect(price.parentElement).toBe(change.parentElement);
-    expect(price.parentElement?.contains(screen.getByText(/At close/))).toBe(
-      false,
-    );
+    expect(
+      price.parentElement?.contains(
+        within(header as HTMLElement).getByText(/At close/),
+      ),
+    ).toBe(false);
   });
 
   it("presents the latest valuation, technicals, and key facts from the payload", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
 
     render(<StockDetails symbol="AAPL" />);
-    await screen.findByRole("heading", { name: "Intrinsic value" });
+    await screen.findByTestId("stock-research");
 
     // Scoped to the valuation card: the catalog labels also appear inside the Indicators picker.
     const valuation = screen
@@ -397,22 +510,30 @@ describe("StockDetails", () => {
     const technicals = screen
       .getByRole("heading", { name: "Technicals" })
       .closest("section")!;
-    // Daily and weekly rows both use the canonical catalog labels.
-    expect(within(technicals).getByText("SMA 200D")).toBeDefined();
-    expect(within(technicals).getByText("SMA 20W")).toBeDefined();
-    // Close 232 vs SMA 50D of 220 → price sits 5.45% above. The comparison is named once, over
-    // its column (SD-6); each row shows only the signed figure, and keeps the words for a screen
-    // reader.
+    // Exactly EMA 50D, EMA 200D and RSI 14D, in that order, with the catalog's labels; every
+    // other moving average stays in the chart's Indicators control only.
+    expect(
+      [...technicals.querySelectorAll("dt")].map((term) => term.textContent),
+    ).toEqual(["EMA 50D", "EMA 200D", "RSI 14D"]);
+    expect(within(technicals).queryByText("SMA 200D")).toBeNull();
+    expect(
+      within(technicals).getByText(/As of Aug 28, 2026 close/),
+    ).toBeDefined();
+    // Close 232 vs EMA 50D of 220 → price sits 5.45% above; 210 → +10.48%. The comparison is
+    // named once, over its column (SD-6); each row shows only the signed figure, and keeps the
+    // words for a screen reader.
     expect(within(technicals).getAllByText("Price vs avg.")).toHaveLength(1);
-    const sma50 = within(technicals).getByText("+5.45%");
-    expect(sma50.textContent).toBe("Price vs average: +5.45%");
-    expect(sma50.firstElementChild?.textContent).toBe("Price vs average: ");
-    // Every row carries its figure: 210 → +10.48%, 225 → +3.11%, 216 → +7.41%, 208 → +11.54%.
+    const ema50 = within(technicals).getByText("+5.45%");
+    expect(ema50.textContent).toBe("Price vs average: +5.45%");
     expect(
       [...technicals.querySelectorAll("dd > span:last-child")].map(
         (chip) => chip.lastChild?.textContent,
       ),
-    ).toEqual(["+5.45%", "+10.48%", "+3.11%", "+7.41%", "+11.54%"]);
+    ).toEqual(["+5.45%", "+10.48%", "58.4"]);
+    // RSI is a unitless reading: never money, never compared with the price.
+    const rsi = within(technicals).getByTestId("technical-RSI_14D");
+    expect(rsi.textContent).toBe("RSI 14D58.4");
+    expect(within(rsi).queryByText(/Price vs/)).toBeNull();
 
     expect(screen.getByText("Sector")).toBeDefined();
     expect(screen.getByText("Technology")).toBeDefined();
@@ -899,9 +1020,9 @@ describe("StockDetails", () => {
     const panel = await openIndicators(user);
 
     expect(
-      Array.from(panel.querySelectorAll("legend")).map(
-        (legend) => legend.textContent,
-      ),
+      Array.from(
+        panel.querySelectorAll(":scope > div > fieldset > legend"),
+      ).map((legend) => legend.textContent),
     ).toEqual([
       "Moving averages — Daily",
       "Moving averages — Weekly",
@@ -909,7 +1030,7 @@ describe("StockDetails", () => {
       "Intrinsic Value — Blends",
       "Intrinsic Value — Models",
       // The valuation ratios and then the Fundamental Metrics follow the overlays, one
-      // single-select section each.
+      // single-choice radio group each.
       "Valuation",
       "Fundamentals",
     ]);
@@ -1110,14 +1231,44 @@ describe("StockDetails", () => {
     expect(chart().dataset.overlayPanes).toBe("OSCILLATOR_PANE");
   });
 
-  it("shows a layout-shaped loading state while the request is in flight", () => {
+  it("opens on the route's ticker with every section in its final place while both requests are in flight", () => {
     fetchStockDetailsMock.mockReturnValue(new Promise(() => {}));
+    fetchStockSummaryMock.mockReturnValue(new Promise(() => {}));
 
     render(<StockDetails symbol="AAPL" />);
 
+    // The ticker the route already names is the page's one heading from the first frame.
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toContain("AAPL");
+    expect(heading.textContent).toContain("Loading company details");
+    expect(screen.getByTestId("stock-header-loading")).toBeDefined();
+    // Header, chart, cards: in that order, each a placeholder of its own.
+    const chartLoading = screen.getByRole("status", {
+      name: "Loading the price chart",
+    });
+    const research = screen.getByTestId("stock-research-loading");
     expect(
-      screen.getByRole("status", { name: "Loading stock details" }),
-    ).toBeDefined();
+      chartLoading.compareDocumentPosition(research) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    for (const title of [
+      "Price history",
+      "Intrinsic value",
+      "Valuation ratios",
+      "Technicals",
+      "Fundamentals",
+      "Key facts",
+    ]) {
+      expect(screen.getByRole("heading", { name: title })).toBeDefined();
+    }
+    expect(screen.queryByTestId("price-chart")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add to list" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    // Both requests started at once: neither waits for the other.
+    expect(fetchStockSummaryMock).toHaveBeenCalledTimes(1);
+    expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
   });
 
   it("treats a 404 as an unsupported stock, not an error", async () => {
@@ -1139,10 +1290,25 @@ describe("StockDetails", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
-  it("offers a retry for transient failures and recovers on success", async () => {
+  it("treats a 404 from the summary alone as an unsupported stock too", async () => {
+    fetchStockDetailsMock.mockReturnValue(new Promise(() => {}));
+    fetchStockSummaryMock.mockRejectedValue(new ApiError(404, "not found"));
+
+    render(<StockDetails symbol="GHOST" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Stock not found" }),
+    ).toBeDefined();
+  });
+
+  it("offers one retry when nothing on the page could be loaded, and recovers both", async () => {
     fetchStockDetailsMock
       .mockRejectedValueOnce(new ApiError(503, "unavailable"))
       .mockResolvedValueOnce(detailsFixture());
+    fetchStockSummaryMock
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError(503, "unavailable"))
+      .mockResolvedValueOnce(summaryFixture());
     const user = setupUser();
 
     render(<StockDetails symbol="AAPL" />);
@@ -1159,9 +1325,10 @@ describe("StockDetails", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: /AAPL/ }),
+      await screen.findByRole("heading", { level: 1, name: /Apple Inc\./ }),
     ).toBeDefined();
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(2);
+    expect(fetchStockSummaryMock).toHaveBeenCalledTimes(2);
   });
 
   it("survives a security with minimal catalog data and no derived series", async () => {
@@ -1182,9 +1349,41 @@ describe("StockDetails", () => {
       intrinsicValues: [],
       intrinsicValueBlends: [],
     });
+    fetchStockSummaryMock.mockResolvedValue({
+      security: {
+        id: "sec-2",
+        symbol: "NEWCO",
+        name: "New Company",
+        exchangeCode: "NYSE",
+        currency: "USD",
+        type: "STOCK",
+        isAdr: false,
+        isActivelyTrading: false,
+      },
+      window: { from: "2025-08-28", to: "2026-08-28" },
+      quote: {
+        date: "2026-08-28",
+        open: 10,
+        high: 12,
+        low: 8,
+        close: 10,
+        volume: 1_000,
+        rangeHigh: 12,
+        rangeLow: 8,
+      },
+      intrinsicValues: [],
+      intrinsicValueBlends: [],
+      valuationRatios: {
+        status: "AVAILABLE",
+        readings: VALUATION_IDS.map((id) => ({ id })),
+      },
+      fundamentals: FUNDAMENTAL_IDS.map((id) => ({ id })),
+      technicals: [{ id: "EMA_50D" }, { id: "EMA_200D" }, { id: "RSI_14D" }],
+    });
 
     render(<StockDetails symbol="NEWCO" />);
-    await screen.findByRole("heading", { level: 1, name: /NEWCO/ });
+    await screen.findByTestId("price-chart");
+    await screen.findByTestId("stock-research");
 
     // One trading day: a price but no derivable change.
     expect(screen.getByText("$10.00")).toBeDefined();
@@ -1195,7 +1394,20 @@ describe("StockDetails", () => {
         "No intrinsic-value estimates are available for this stock yet.",
       ),
     ).toBeDefined();
-    expect(screen.queryByRole("heading", { name: "Technicals" })).toBeNull();
+    // Nothing warmed up yet: every card still stands, and says so row by row — never a zero.
+    const technicals = screen
+      .getByRole("heading", { name: "Technicals" })
+      .closest("section")!;
+    expect(within(technicals).getAllByText("Unavailable")).toHaveLength(3);
+    const ratios = screen
+      .getByRole("heading", { name: "Valuation ratios" })
+      .closest("section")!;
+    expect(within(ratios).getAllByText("Unavailable")).toHaveLength(5);
+    const fundamentals = screen
+      .getByRole("heading", { name: "Fundamentals" })
+      .closest("section")!;
+    expect(within(fundamentals).getAllByText("Unavailable")).toHaveLength(15);
+    expect(within(fundamentals).queryByText(/Latest quarter/)).toBeNull();
     // The catalog stays discoverable even with no derived data: every entry is disabled and
     // marked unavailable rather than the control disappearing.
     expect(chart().dataset.overlays).toBe("");
@@ -1246,7 +1458,7 @@ describe("StockDetails recording a recently viewed security", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     renderInShell("AAPL");
-    await screen.findByRole("heading", { level: 1, name: /AAPL/ });
+    await screen.findByTestId("price-chart");
 
     await waitFor(() => {
       const posts = recentCalls(fetchMock).filter(
@@ -1261,6 +1473,7 @@ describe("StockDetails recording a recently viewed security", () => {
 
   it("records nothing for a symbol that is not in the catalog", async () => {
     fetchStockDetailsMock.mockRejectedValue(new ApiError(404, "Not found"));
+    fetchStockSummaryMock.mockRejectedValue(new ApiError(404, "Not found"));
     const fetchMock = vi
       .fn()
       .mockResolvedValue({ ok: true, status: 204, json: async () => [] });
@@ -1286,7 +1499,7 @@ describe("StockDetails recording a recently viewed security", () => {
 
     const heading = await screen.findByRole("heading", {
       level: 1,
-      name: /AAPL/,
+      name: /Apple Inc\./,
     });
     expect(heading.textContent).toContain("Apple Inc.");
     expect(screen.getByText("$232.00")).toBeDefined();
@@ -1322,7 +1535,6 @@ describe("StockDetails fundamentals", () => {
     render(<StockDetails symbol="AAPL" />);
     await screen.findByTestId("price-chart");
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
-    return screen.getByRole("combobox", { name: "Fundamental metric" });
   }
 
   function fundamentalRequests() {
@@ -1345,9 +1557,9 @@ describe("StockDetails fundamentals", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "ROIC_TTM");
+    await user.click(metricRadio("ROIC_TTM"));
 
     await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
     expect(fundamentalRequests()).toEqual([
@@ -1375,9 +1587,9 @@ describe("StockDetails fundamentals", () => {
     fetchStockDetailsMock.mockResolvedValue(details);
     fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "ROIC_TTM");
+    await user.click(metricRadio("ROIC_TTM"));
 
     await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
     expect(fundamentalRequests()).toEqual([
@@ -1392,13 +1604,13 @@ describe("StockDetails fundamentals", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyFundamentalHistoryMock.mockResolvedValueOnce(ROIC_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "ROIC_TTM");
+    await openPage(user);
+    await user.click(metricRadio("ROIC_TTM"));
     await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
 
     const debt = deferred<{ date: string; value?: number }[]>();
     fetchDailyFundamentalHistoryMock.mockReturnValueOnce(debt.promise);
-    await user.selectOptions(select, "DEBT_TO_EQUITY");
+    await user.click(metricRadio("DEBT_TO_EQUITY"));
 
     // Waiting: ROIC is gone from the chart and the key, and the wait is said as a wait. The
     // chart keeps the pane's room meanwhile, so the page does not shrink and regrow.
@@ -1430,7 +1642,7 @@ describe("StockDetails fundamentals", () => {
     ]);
 
     // None clears the chart and asks for nothing.
-    await user.selectOptions(select, "");
+    await user.click(metricRadio(""));
     expect(chart().dataset.fundamental).toBe("");
     expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(2);
   });
@@ -1443,10 +1655,10 @@ describe("StockDetails fundamentals", () => {
       .mockReturnValueOnce(roic.promise)
       .mockReturnValueOnce(growth.promise);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "ROIC_TTM");
-    await user.selectOptions(select, "REVENUE_GROWTH_TTM_YOY");
+    await user.click(metricRadio("ROIC_TTM"));
+    await user.click(metricRadio("REVENUE_GROWTH_TTM_YOY"));
     await act(async () => growth.resolve([{ date: "2026-08-28", value: 8.5 }]));
     await act(async () => roic.resolve(ROIC_ROWS));
 
@@ -1459,9 +1671,9 @@ describe("StockDetails fundamentals", () => {
     const rows = deferred<{ date: string; value?: number }[]>();
     fetchDailyFundamentalHistoryMock.mockReturnValueOnce(rows.promise);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "EPS_GROWTH_TTM_YOY");
+    await user.click(metricRadio("EPS_GROWTH_TTM_YOY"));
     const status = screen.getByTestId("fundamental-status");
     expect(status.getAttribute("role")).toBe("status");
     expect(status.textContent).toBe("Loading EPS Growth TTM YoY…");
@@ -1484,9 +1696,9 @@ describe("StockDetails fundamentals", () => {
       new ApiError(503, "Stock data is temporarily unavailable"),
     );
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "ROIC_TTM");
+    await user.click(metricRadio("ROIC_TTM"));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("ROIC TTM could not be loaded.");
     // A failure is not the metric being unavailable.
@@ -1508,8 +1720,8 @@ describe("StockDetails fundamentals", () => {
       .mockResolvedValueOnce(ROIC_ROWS)
       .mockResolvedValueOnce([{ date: "2024-09-03", value: 9.5 }]);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "ROIC_TTM");
+    await openPage(user);
+    await user.click(metricRadio("ROIC_TTM"));
     await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
     await user.keyboard("{Escape}");
 
@@ -1535,8 +1747,8 @@ describe("StockDetails fundamentals", () => {
       .mockResolvedValueOnce([{ date: "2026-08-27" }, { date: "2026-08-28" }])
       .mockReturnValueOnce(gap.promise);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "EPS_GROWTH_TTM_YOY");
+    await openPage(user);
+    await user.click(metricRadio("EPS_GROWTH_TTM_YOY"));
     await waitFor(() =>
       expect(screen.getByTestId("fundamental-status").textContent).toContain(
         "is unavailable for every session",
@@ -1558,8 +1770,8 @@ describe("StockDetails fundamentals", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "ROIC_TTM");
+    await openPage(user);
+    await user.click(metricRadio("ROIC_TTM"));
     await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
 
     // An overlay toggled on and off, and a range inside the loaded year.
@@ -1580,8 +1792,8 @@ describe("StockDetails fundamentals", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyFundamentalHistoryMock.mockResolvedValue(ROIC_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "ROIC_TTM");
+    await openPage(user);
+    await user.click(metricRadio("ROIC_TTM"));
     await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
     cleanup();
 
@@ -1621,7 +1833,6 @@ describe("StockDetails valuation ratios", () => {
     render(<StockDetails symbol="AAPL" />);
     await screen.findByTestId("price-chart");
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
-    return screen.getByRole("combobox", { name: "Valuation ratio" });
   }
 
   function valuationRequests() {
@@ -1649,9 +1860,9 @@ describe("StockDetails valuation ratios", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
     await waitFor(() =>
       expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
     );
@@ -1669,9 +1880,9 @@ describe("StockDetails valuation ratios", () => {
     fetchStockDetailsMock.mockResolvedValue(details);
     fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
     await waitFor(() =>
       expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
     );
@@ -1687,15 +1898,15 @@ describe("StockDetails valuation ratios", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyValuationHistoryMock.mockResolvedValueOnce(PE_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await openPage(user);
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
     await waitFor(() =>
       expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
     );
 
     const pb = deferred<{ date: string; value?: number }[]>();
     fetchDailyValuationHistoryMock.mockReturnValueOnce(pb.promise);
-    await user.selectOptions(select, "PRICE_TO_BOOK");
+    await user.click(ratioRadio("PRICE_TO_BOOK"));
     expect(chart().dataset.valuation).toBe("");
     expect(chart().dataset.valuationPoints).toBe("");
     expect(chart().dataset.valuationPending).toBe("true");
@@ -1715,9 +1926,9 @@ describe("StockDetails valuation ratios", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
 
     await waitFor(() => expect(chartKey()).toContain("P/E"));
     // One request, for the one-year window loaded, never the reported thirty-year boundary.
@@ -1738,10 +1949,10 @@ describe("StockDetails valuation ratios", () => {
       .mockReturnValueOnce(pe.promise)
       .mockReturnValueOnce(pb.promise);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
-    await user.selectOptions(select, "PRICE_TO_BOOK");
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
+    await user.click(ratioRadio("PRICE_TO_BOOK"));
     await act(async () => pb.resolve(PB_ROWS));
     await act(async () => pe.resolve(PE_ROWS));
 
@@ -1758,9 +1969,9 @@ describe("StockDetails valuation ratios", () => {
     const rows = deferred<{ date: string; value?: number }[]>();
     fetchDailyValuationHistoryMock.mockReturnValueOnce(rows.promise);
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "PRICE_TO_FCF_TTM");
+    await user.click(ratioRadio("PRICE_TO_FCF_TTM"));
     const status = screen.getByTestId("valuation-status");
     expect(status.getAttribute("role")).toBe("status");
     expect(status.textContent).toBe("Loading P/FCF…");
@@ -1780,9 +1991,9 @@ describe("StockDetails valuation ratios", () => {
       new ApiError(503, "Stock data is temporarily unavailable"),
     );
     const user = setupUser();
-    const select = await openPage(user);
+    await openPage(user);
 
-    await user.selectOptions(select, "EV_TO_EBITDA_TTM");
+    await user.click(ratioRadio("EV_TO_EBITDA_TTM"));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("EV/EBITDA could not be loaded.");
     expect(screen.queryByText(/is unavailable for every session/)).toBeNull();
@@ -1805,8 +2016,8 @@ describe("StockDetails valuation ratios", () => {
       .mockResolvedValueOnce(PE_ROWS)
       .mockResolvedValueOnce([{ date: "2024-09-03", value: 15.2 }]);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await openPage(user);
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
     await waitFor(() => expect(chartKey()).toContain("P/E"));
     await user.keyboard("{Escape}");
 
@@ -1831,27 +2042,24 @@ describe("StockDetails valuation ratios", () => {
       { date: "2026-08-28", value: 15.42 },
     ]);
     const user = setupUser();
-    const valuation = await openPage(user);
-    const fundamental = screen.getByRole("combobox", {
-      name: "Fundamental metric",
-    });
+    await openPage(user);
 
-    await user.selectOptions(valuation, "PRICE_TO_EARNINGS_TTM");
-    await user.selectOptions(fundamental, "ROIC_TTM");
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
+    await user.click(metricRadio("ROIC_TTM"));
     await waitFor(() => expect(chartKey()).toContain("ROIC TTM"));
     expect(chartKey()).toContain("P/E");
 
     // Changing the ratio asks for the ratio alone and leaves the metric as it was.
-    await user.selectOptions(valuation, "PRICE_TO_BOOK");
+    await user.click(ratioRadio("PRICE_TO_BOOK"));
     await waitFor(() => expect(chartKey()).toContain("P/B"));
     expect(chartKey()).toContain("ROIC TTM");
     expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(1);
 
     // None on the ratio removes the ratio only.
-    await user.selectOptions(valuation, "");
+    await user.click(ratioRadio(""));
     expect(chartKey()).not.toContain("P/B");
     expect(chartKey()).toContain("ROIC TTM");
-    expect(fundamental).toHaveProperty("value", "ROIC_TTM");
+    expect(metricRadio("ROIC_TTM").checked).toBe(true);
     expect(fetchDailyValuationHistoryMock).toHaveBeenCalledTimes(2);
   });
 
@@ -1859,8 +2067,8 @@ describe("StockDetails valuation ratios", () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     fetchDailyValuationHistoryMock.mockResolvedValue(PE_ROWS);
     const user = setupUser();
-    const select = await openPage(user);
-    await user.selectOptions(select, "PRICE_TO_EARNINGS_TTM");
+    await openPage(user);
+    await user.click(ratioRadio("PRICE_TO_EARNINGS_TTM"));
     await waitFor(() => expect(chartKey()).toContain("P/E"));
     cleanup();
 
@@ -1868,5 +2076,316 @@ describe("StockDetails valuation ratios", () => {
     await screen.findByTestId("price-chart");
     expect(chartKey()).not.toContain("P/E");
     expect(fetchDailyValuationHistoryMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The page's two requests are independent: the summary every card reads and the chart's opening
+ * window. Each renders the moment it lands, each fails and retries on its own, and the layout keeps
+ * header, chart and cards in that order whichever arrives first.
+ */
+describe("StockDetails progressive loading", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function card(title: string): HTMLElement {
+    return screen.getByRole("heading", { name: title }).closest("section")!;
+  }
+
+  it("renders every financial card as soon as the summary lands, while the chart is still loading", async () => {
+    fetchStockDetailsMock.mockReturnValue(new Promise(() => {}));
+
+    render(<StockDetails symbol="AAPL" />);
+
+    await screen.findByTestId("stock-research");
+    // The header reads the summary's identity and close.
+    expect(
+      screen.getByRole("heading", { level: 1, name: /Apple Inc\./ }),
+    ).toBeDefined();
+    expect(screen.getByText("$232.00")).toBeDefined();
+    // Every card, in its final place below the still-loading chart.
+    expect(within(card("Valuation ratios")).getByText("28.4x")).toBeDefined();
+    expect(within(card("Fundamentals")).getByText("15.42%")).toBeDefined();
+    expect(within(card("Intrinsic value")).getByText("$290.00")).toBeDefined();
+    expect(within(card("Technicals")).getByText("$220.00")).toBeDefined();
+    expect(within(card("Key facts")).getByText("Technology")).toBeDefined();
+    const loadingChart = screen.getByTestId("price-history-loading");
+    expect(
+      loadingChart.compareDocumentPosition(
+        screen.getByTestId("stock-research"),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByTestId("price-chart")).toBeNull();
+  });
+
+  it("renders the chart as soon as its window lands, with the header from it, while the summary is still loading", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchStockSummaryMock.mockReturnValue(new Promise(() => {}));
+
+    render(<StockDetails symbol="AAPL" />);
+
+    await screen.findByTestId("price-chart");
+    expect(chart().dataset.pointCount).toBe("6");
+    // Both carry the canonical identity and the same newest bar: the header does not wait.
+    expect(
+      screen.getByRole("heading", { level: 1, name: /Apple Inc\./ }),
+    ).toBeDefined();
+    expect(screen.getByText("$232.00")).toBeDefined();
+    expect(screen.getByTestId("stock-research-loading")).toBeDefined();
+    expect(screen.queryByTestId("stock-research")).toBeNull();
+  });
+
+  it("keeps the cards when the chart fails, and retries the chart alone", async () => {
+    fetchStockDetailsMock
+      .mockRejectedValueOnce(new ApiError(503, "unavailable"))
+      .mockResolvedValueOnce(detailsFixture());
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+
+    await screen.findByTestId("price-history-error");
+    expect(
+      screen.getByText("The price chart could not be loaded."),
+    ).toBeDefined();
+    expect(screen.getByTestId("stock-research")).toBeDefined();
+    expect(within(card("Valuation ratios")).getByText("28.4x")).toBeDefined();
+
+    await user.click(
+      within(screen.getByTestId("price-history-error")).getByRole("button", {
+        name: "Try again",
+      }),
+    );
+
+    await screen.findByTestId("price-chart");
+    expect(fetchStockDetailsMock).toHaveBeenCalledTimes(2);
+    // The cards were never reloaded or blanked.
+    expect(fetchStockSummaryMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("stock-research")).toBeDefined();
+  });
+
+  it("keeps the chart when the summary fails, and retries the summary alone", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchStockSummaryMock
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError(503, "unavailable"))
+      .mockResolvedValueOnce(summaryFixture());
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+
+    const failure = await screen.findByTestId("stock-summary-error");
+    expect(screen.getByTestId("price-chart")).toBeDefined();
+    // Not the whole page: the header still names the stock, from the chart's own answer.
+    expect(
+      screen.getByRole("heading", { level: 1, name: /Apple Inc\./ }),
+    ).toBeDefined();
+    expect(screen.queryByTestId("stock-load-error")).toBeNull();
+
+    await user.click(
+      within(failure).getByRole("button", { name: "Try again" }),
+    );
+
+    await screen.findByTestId("stock-research");
+    expect(fetchStockSummaryMock).toHaveBeenCalledTimes(2);
+    expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the ratios could not be calculated, not that they are unavailable, and retries the summary", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchStockSummaryMock.mockResolvedValue({
+      ...summaryFixture(),
+      valuationRatios: { status: "FAILED" },
+    });
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("stock-research");
+
+    const ratios = card("Valuation ratios");
+    expect(
+      within(ratios).getByText(
+        /Valuation ratios could not be calculated right now/,
+      ),
+    ).toBeDefined();
+    expect(within(ratios).queryByText("Unavailable")).toBeNull();
+    expect(within(ratios).getAllByText("Not loaded")).toHaveLength(5);
+    // The rest of the summary is unaffected.
+    expect(within(card("Fundamentals")).getByText("15.42%")).toBeDefined();
+
+    await user.click(within(ratios).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(fetchStockSummaryMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("never shows the previous stock's values while another loads, and ignores its late answers", async () => {
+    const aaplSummary = deferred<StockSummaryResponse>();
+    const aaplChart = deferred<StockDetailsResponse>();
+    fetchStockSummaryMock.mockImplementation((symbol) =>
+      symbol === "AAPL" ? aaplSummary.promise : new Promise(() => {}),
+    );
+    fetchStockDetailsMock.mockImplementation((symbol) =>
+      symbol === "AAPL" ? aaplChart.promise : new Promise(() => {}),
+    );
+
+    const { rerender } = render(<StockDetails symbol="AAPL" />);
+    rerender(<StockDetails symbol="MSFT" />);
+
+    // AAPL's answers arrive after the user moved on: they land nowhere.
+    await act(async () => {
+      aaplSummary.resolve(summaryFixture());
+      aaplChart.resolve(detailsFixture());
+    });
+
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toContain("MSFT");
+    expect(heading.textContent).not.toContain("Apple");
+    expect(screen.queryByText("$232.00")).toBeNull();
+    expect(screen.queryByText("28.4x")).toBeNull();
+    expect(screen.queryByTestId("price-chart")).toBeNull();
+    expect(screen.getByTestId("stock-research-loading")).toBeDefined();
+  });
+
+  it("reads each ratio and metric with its unit, its own earlier date, a negative sign and absence as such", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("stock-research");
+
+    const ratios = card("Valuation ratios");
+    expect(within(ratios).getByText(/At close · Aug 28, 2026/)).toBeDefined();
+    const row = (testId: string) => screen.getByTestId(testId);
+    expect(row("valuation-ratio-PRICE_TO_BOOK").textContent).toContain("0.75x");
+    // No reading anywhere in the year: said in words, never zero.
+    expect(row("valuation-ratio-PRICE_TO_FCF_TTM").textContent).toContain(
+      "Unavailable",
+    );
+    // A reading from an earlier session keeps that session's date and its sign.
+    expect(row("valuation-ratio-EV_TO_EBITDA_TTM").textContent).toContain(
+      "-1.25x",
+    );
+    expect(row("valuation-ratio-EV_TO_EBITDA_TTM").textContent).toContain(
+      "as of Aug 20, 2026",
+    );
+    expect(
+      row("valuation-ratio-PRICE_TO_EARNINGS_TTM").textContent,
+    ).not.toContain("as of");
+
+    const fundamentals = card("Fundamentals");
+    // The seven canonical groups, in order, and all fifteen metrics once each.
+    expect(
+      within(fundamentals)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual([
+      "Growth",
+      "Profitability",
+      "Quality",
+      "Leverage",
+      "Liquidity",
+      "Solvency",
+      "Efficiency",
+    ]);
+    expect(
+      within(fundamentals).getAllByRole("button", { name: /./ }),
+    ).toHaveLength(16);
+    expect(row("fundamental-ROIC_TTM").textContent).toContain("15.42%");
+    expect(row("fundamental-ROE_TTM").textContent).toContain("-5%");
+    expect(row("fundamental-DEBT_TO_EQUITY").textContent).toContain("0.75x");
+    expect(row("fundamental-CURRENT_RATIO").textContent).toContain("1.0x");
+    expect(row("fundamental-NET_DEBT_TO_EBITDA_TTM").textContent).toContain(
+      "-0.4x",
+    );
+    expect(row("fundamental-EPS_GROWTH_TTM_YOY").textContent).toContain(
+      "Unavailable",
+    );
+    expect(row("fundamental-REVENUE_GROWTH_TTM_YOY").textContent).toContain(
+      "as of Aug 1, 2026",
+    );
+    // The session, the reporting period and when it became public are three different dates.
+    expect(
+      within(fundamentals).getByText(/As of Aug 28, 2026 close/),
+    ).toBeDefined();
+    expect(screen.getByTestId("fundamentals-period").textContent).toBe(
+      "Latest quarter: Q3 FY2026, ended Jun 27, 2026 · public from Aug 1, 2026",
+    );
+  });
+
+  it("puts a ratio from its card on the chart, scrolls to it and asks for that ratio once", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyValuationHistoryMock.mockResolvedValue([
+      { date: "2026-08-27", value: 27 },
+      { date: "2026-08-28", value: 28.4 },
+    ]);
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    await screen.findByTestId("stock-research");
+
+    const pe = screen.getByTestId("valuation-ratio-PRICE_TO_EARNINGS_TTM");
+    await user.click(pe);
+
+    await waitFor(() =>
+      expect(chart().dataset.valuation).toBe("PRICE_TO_EARNINGS_TTM"),
+    );
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText("P/E history shown in the price chart."),
+    ).toBeDefined();
+    expect(pe.getAttribute("aria-current")).toBe("true");
+    expect(pe.textContent).toContain("On chart");
+
+    // Pressing it again only brings the chart back: no second request.
+    await user.click(pe);
+    expect(fetchDailyValuationHistoryMock).toHaveBeenCalledTimes(1);
+
+    // Another ratio replaces it; a fundamental joins it in its own pane.
+    fetchDailyFundamentalHistoryMock.mockResolvedValue([
+      { date: "2026-08-28", value: 15.42 },
+    ]);
+    await user.click(screen.getByTestId("valuation-ratio-PRICE_TO_BOOK"));
+    await user.click(screen.getByTestId("fundamental-ROIC_TTM"));
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    expect(chart().dataset.valuation).toBe("PRICE_TO_BOOK");
+    expect(pe.getAttribute("aria-current")).toBeNull();
+    expect(
+      fetchDailyFundamentalHistoryMock.mock.calls.map((call) => call[2]),
+    ).toEqual(["ROIC_TTM"]);
+    // The Indicators control reads the same choice.
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    expect(ratioRadio("PRICE_TO_BOOK").checked).toBe(true);
+    expect(metricRadio("ROIC_TTM").checked).toBe(true);
+  });
+
+  it("keeps a card's choice while the chart is loading and applies it when the chart arrives", async () => {
+    const window = deferred<StockDetailsResponse>();
+    fetchStockDetailsMock.mockReturnValue(window.promise);
+    fetchDailyFundamentalHistoryMock.mockResolvedValue([
+      { date: "2026-08-28", value: 15.42 },
+    ]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("stock-research");
+    await user.click(screen.getByTestId("fundamental-ROIC_TTM"));
+    // Nothing can be asked for before the chart knows its window.
+    expect(fetchDailyFundamentalHistoryMock).not.toHaveBeenCalled();
+
+    await act(async () => window.resolve(detailsFixture()));
+
+    await waitFor(() => expect(chart().dataset.fundamental).toBe("ROIC_TTM"));
+    expect(fetchDailyFundamentalHistoryMock).toHaveBeenCalledTimes(1);
+    expect(fetchDailyFundamentalHistoryMock.mock.calls[0]?.[1]).toEqual({
+      from: "2025-08-28",
+      to: "2026-08-28",
+    });
   });
 });

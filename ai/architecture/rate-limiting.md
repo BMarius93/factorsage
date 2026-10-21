@@ -161,7 +161,7 @@ number; changing a limit is one edit there.
 | `auth-sensitive`     | 20 / 5 min | —                    | IP      | **deny**         | login, register, verify, resend, forgot/reset password, both Google routes                                |
 | `session-probe`      | 120 / min  | —                    | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`                               |
 | `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                                              |
-| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the seven `/stocks/{symbol}*` reads                                                                       |
+| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the eight `/stocks/{symbol}*` reads                                                                       |
 | `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health`, `GET /market-overview`, `GET /dashboard/activity`, `GET /monitors/:monitorId/signals` |
 | `data-export`        | 20 / 5 min | —                    | user→IP | allow            | `GET /backtests/{runId}/trades/export`                                                                    |
 | `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                                         |
@@ -183,6 +183,8 @@ reaches one:
   for the chosen valuation ratio's once they land; the hook never has two loads outstanding and
   each is a full round trip. Three per second is ~45 window extensions a minute (~36 with one of the
   two chosen, ~30 with both), which no sequential loader reaches.
+  Opening the page costs two: the summary behind the research cards and the chart's opening
+  window, each retried only on its own failure.
 - **`data-export`** — split from `standard-read` because the two cost different amounts: a page of
   the trade log reads fifty rows, while the CSV export reads every trade of a run (about twenty
   thousand for the longest) and streams a file of several megabytes. An export is one click, and a

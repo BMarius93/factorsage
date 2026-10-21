@@ -383,6 +383,7 @@ storage decision's "Redis chunk layout" section.
 | Route                                        | Projection                                                            |
 | -------------------------------------------- | --------------------------------------------------------------------- |
 | `GET /stocks/:symbol`                        | composite Stock Details for a bounded window                          |
+| `GET /stocks/:symbol/summary`                | `StockSummaryResponse`: the newest reading of each card's series      |
 | `GET /stocks/:symbol/prices`                 | `DailyPriceResponse[]`                                                |
 | `GET /stocks/:symbol/technicals/daily`       | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows     |
 | `GET /stocks/:symbol/fundamentals/daily`     | `DailyFundamentalMetricResponse[]`, one Fundamental Metric; `metric=` |
@@ -390,6 +391,18 @@ storage decision's "Redis chunk layout" section.
 | `GET /stocks/:symbol/intrinsic-values`       | long-form points; `models=`, `asOf=`                                  |
 | `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=`                                |
 
+- `/summary` is the Stock Details research cards' one read (`../product/stock-details.md`). It goes
+  through `CanonicalStockDataService.getStockSummary`: the same coordinated hydration and freshness
+  check as every other read (CONC-01), then one trailing year — the chart's default window — of
+  the resident price and derived-state projections, the intrinsic-value points, and the valuation
+  ratio columns from the one calculation (`valuationRatioColumns`), bracketed by the price-basis
+  generation like the ratio endpoint. `summarizeStockWindow` (`packages/stock-data/src/stock-summary.ts`)
+  only **selects**: the newest session each series has a finite value on, with that session's date;
+  a series with no value in the window has no reading. The ratio timeline is built with
+  `buildValuationTimeline(..., { statesFrom })`, which skips the states no session of the window can
+  read and is tested to give identical readings. A split list that cannot be refreshed answers
+  `valuationRatios: { status: "FAILED" }` (logged as `stock.summary.valuation-ratios.failed`) instead
+  of failing the whole summary.
 - `technicalResponse` projects `DAILY_TECHNICAL_PROJECTION_FIELDS` — every moving average, every
   daily oscillator and every Relative Volume period — so a registered series cannot go missing from
   the API. `TECHNICAL_SERIES_FIELDS` remains the catalog-backed subset `series=` addresses;
@@ -431,8 +444,8 @@ storage decision's "Redis chunk layout" section.
   not disable a series whose later points are evaluable — and `buildOverlays` emits overlays in
   canonical catalog order, each carrying its placement (`PRICE_OVERLAY` or `OSCILLATOR_PANE`) and,
   for oscillators, the catalog's fixed scale.
-- `components/IndicatorsMenu.tsx` — grouped multi-select built entirely from
-  `SELECTABLE_SERIES_GROUPED`. Every catalog entry stays discoverable; one the security has no data
+- `components/IndicatorsMenu.tsx` — grouped checkboxes built entirely from
+  `SELECTABLE_SERIES_GROUPED`, then the Valuation and Fundamentals radio groups (below). Every catalog entry stays discoverable; one the security has no data
   for is rendered **disabled and marked "Unavailable"**, never hidden and never substituted.
 - `hooks/use-indicator-selection.ts` — presentation state only; an unavailable entry can never
   enter the selection.
@@ -475,8 +488,9 @@ storage decision's "Redis chunk layout" section.
   `INTRINSIC_VALUE_BLEND_OPTIONS` / `INTRINSIC_VALUE_MODEL_OPTIONS`.
 - **Fundamental Metrics are one more section of the same control, drawn in their own pane.**
   `IndicatorsMenu` renders `FUNDAMENTAL_METRIC_GROUPED` (the contracts catalog grouped by its own
-  groups) as one select; selection is `useIndicatorSelection`'s `fundamental`, presentation state
-  like the overlays. `hooks/use-fundamental-history.ts` asks for nothing until a metric is chosen,
+  groups) as one native radio group — each group a labelled sub-fieldset sharing the one radio
+  name, so a choice in any group replaces the previous one; selection is `usePaneSelection`'s
+  `fundamental`, presentation state like the overlays, shared with the Fundamentals card's rows. `hooks/use-fundamental-history.ts` asks for nothing until a metric is chosen,
   then for that metric from the page's loaded-from watermark to the newest price bar on the chart,
   and for the gap alone when older history arrives; held rows answer for one security, one metric
   and one window end, every change aborts the request in flight, and only the newest may land. That
@@ -497,9 +511,10 @@ storage decision's "Redis chunk layout" section.
   so the per-point transparent colour the overlays use would still join the values either side of a
   gap with a vertical edge.
 - **Valuation ratios are the section before Fundamentals, drawn in a pane of their own.**
-  `IndicatorsMenu` renders `VALUATION_RATIO_CATALOG` flat, in catalog order, as one select with the
-  chosen ratio's catalog summary and formula under it; selection is `useIndicatorSelection`'s
-  `valuation`, independent of `fundamental`. `hooks/use-valuation-history.ts` is the same
+  `IndicatorsMenu` renders `VALUATION_RATIO_CATALOG` flat, in catalog order, as one native radio
+  group with the chosen ratio's catalog summary and formula under it; selection is
+  `usePaneSelection`'s `valuation`, independent of `fundamental` and shared with the Valuation
+  Ratios card's rows. `hooks/use-valuation-history.ts` is the same
   `useSeriesHistory` lifecycle over `GET /stocks/:symbol/valuation-ratios/daily`: nothing until a
   ratio is chosen, then that ratio alone for the history the chart holds, the gap alone when older
   history arrives, and only the newest answer applied. `utils/valuation-series.ts` builds the line

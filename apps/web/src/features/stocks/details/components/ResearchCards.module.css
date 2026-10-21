@@ -1,0 +1,80 @@
+/* What the financial research cards share: a list of reading rows, the one-line hint under it, a
+   section-level failure with its retry, and the caption's leading InfoTip. */
+.readings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+/* The tip leads the caption: its bubble opens from the button across the card, which clips what
+   overflows it, so only a button at the card's inner edge leaves the bubble room on a phone. */
+.captionTip {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.sectionError {
+  margin: 0 0 10px;
+  color: var(--color-negative-ink);
+  font-size: var(--text-secondary);
+}
+
+.inlineRetry {
+  padding: 0;
+  border: 0;
+  color: var(--color-primary-ink);
+  background: transparent;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+
+.inlineRetry:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* Fundamentals: seven small groups. They stay one column while the card is narrow and flow into two
+   balanced columns once it is wide enough for two label-and-figure rows side by side, so fifteen
+   metrics never make one card a long scroll beside a short one. */
+.groups {
+  container-type: inline-size;
+}
+
+.groupColumns {
+  display: block;
+}
+
+@container (min-width: 600px) {
+  .groupColumns {
+    columns: 2;
+    column-gap: 24px;
+  }
+}
+
+.group {
+  break-inside: avoid;
+  margin: 0 0 12px;
+}
+
+.groupTitle {
+  margin: 0 0 2px;
+  padding: 0 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+.period {
+  margin: 0 0 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+}
