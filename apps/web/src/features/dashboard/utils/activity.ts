@@ -48,6 +48,71 @@ export function groupBySession(
 }
 
 /**
+ * The feed's own order: newest session first, then newest written first within a session — the
+ * order the API pages in. Negative when `a` comes first.
+ */
+export function compareFeedOrder(
+  a: DashboardActivityEventResponse,
+  b: DashboardActivityEventResponse,
+): number {
+  if (a.sessionDate !== b.sessionDate) {
+    return a.sessionDate < b.sessionDate ? 1 : -1;
+  }
+  const left = BigInt(a.sequence);
+  const right = BigInt(b.sequence);
+  return left === right ? 0 : left < right ? 1 : -1;
+}
+
+/** What a merge of arrivals did to the feed a reader holds. */
+export type ActivityMerge = {
+  readonly events: readonly DashboardActivityEventResponse[];
+  /** Arrivals placed above everything that was shown: new activity. */
+  readonly above: number;
+  /** Arrivals placed among what was shown: events written late for an older session. */
+  readonly within: number;
+};
+
+/**
+ * Places events written since the reader's watermark into the feed they hold.
+ *
+ * Each arrival goes where the feed's order puts it: above the newest shown event when it is new,
+ * among the loaded sessions when it was written late for an older one. One that sorts after the
+ * oldest loaded event is left out while older pages remain — paging reaches it in its place, and
+ * adding it now would leave a gap above it. Arrivals already shown are not counted again.
+ */
+export function mergeArrivals(
+  shown: readonly DashboardActivityEventResponse[],
+  arrivals: readonly DashboardActivityEventResponse[],
+  { complete }: { readonly complete: boolean },
+): ActivityMerge {
+  const known = new Set(shown.map((event) => event.id));
+  const newest = shown[0];
+  const oldest = shown[shown.length - 1];
+  let above = 0;
+  let within = 0;
+  const placed: DashboardActivityEventResponse[] = [];
+  for (const event of arrivals) {
+    if (known.has(event.id)) continue;
+    if (!complete && oldest && compareFeedOrder(event, oldest) > 0) continue;
+    known.add(event.id);
+    placed.push(event);
+    if (!newest || compareFeedOrder(event, newest) < 0) {
+      above += 1;
+    } else {
+      within += 1;
+    }
+  }
+  if (placed.length === 0) {
+    return { events: shown, above: 0, within: 0 };
+  }
+  return {
+    events: [...shown, ...placed].sort(compareFeedOrder),
+    above,
+    within,
+  };
+}
+
+/**
  * How two recorded operands stand to each other, as arithmetic: `>`, `<`, `=`.
  *
  * It is a statement about the two numbers the decision compared, not the rule's operator — a

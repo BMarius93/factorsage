@@ -16,7 +16,8 @@ import { marketOverviewFixture } from "../../market/__testing__/market-overview"
 import { fetchMarketOverview } from "../../market/api/market-api";
 import { MARKET_WATCH_ROTATION_MS } from "../../market/hooks/use-period-rotation";
 import { fetchDashboard, fetchMonitorActivity } from "../api/dashboard-api";
-import { DashboardPage, newActivityLabel } from "./DashboardPage";
+import { DASHBOARD_REFRESH_MS } from "../hooks/use-dashboard";
+import { DashboardPage, arrivalsLabel } from "./DashboardPage";
 
 vi.mock("../api/dashboard-api", () => ({
   fetchDashboard: vi.fn(),
@@ -77,6 +78,7 @@ function event(
 ): DashboardActivityEventResponse {
   return {
     id: "event-1",
+    sequence: "1",
     kind: "ACTIVATED",
     reason: "CONDITIONS_MET",
     sessionDate: "2026-10-13",
@@ -170,13 +172,28 @@ const EVENTS: DashboardActivityEventResponse[] = [event(), ENDED_SELL];
 function page(
   events: DashboardActivityEventResponse[],
   nextCursor?: string,
+  watermark?: string,
 ): DashboardActivityResponse {
   return {
     viewer: "GUEST",
     generatedAt: new Date().toISOString(),
     events,
     ...(nextCursor ? { nextCursor } : {}),
+    ...(watermark ? { watermark } : {}),
   };
+}
+
+/** Runs the Dashboard's slow refresh timers now, as a minute passing would. */
+async function minutePasses(spy: {
+  readonly mock: { readonly calls: readonly (readonly unknown[])[] };
+}) {
+  const timers = spy.mock.calls
+    .filter((call) => call[1] === DASHBOARD_REFRESH_MS)
+    .map((call) => call[0] as () => void);
+  await act(async () => {
+    for (const timer of timers) timer();
+    await Promise.resolve();
+  });
 }
 
 function dashboard(
@@ -553,11 +570,14 @@ describe("DashboardPage — filters and pages", () => {
     );
     await user.click(screen.getByTestId("dashboard-activity-more"));
     await waitFor(async () => expect(await rows()).toHaveLength(2));
-    expect(fetchActivityMock).toHaveBeenLastCalledWith({
-      kind: "RESOLVED",
-      limit: 15,
-      cursor: "cursor-r1",
-    });
+    expect(fetchActivityMock).toHaveBeenLastCalledWith(
+      {
+        kind: "RESOLVED",
+        limit: 15,
+        cursor: "cursor-r1",
+      },
+      expect.anything(),
+    );
   });
 
   it("explains a filter that matches nothing and offers to clear both", async () => {
@@ -618,41 +638,101 @@ describe("DashboardPage — filters and pages", () => {
       { date: "October 12, 2026", ids: ["e2", "e1"] },
       { date: "October 9, 2026", ids: ["e0"] },
     ]);
-    expect(fetchActivityMock).toHaveBeenLastCalledWith({
-      limit: 15,
-      cursor: "cursor-1",
-    });
+    expect(fetchActivityMock).toHaveBeenLastCalledWith(
+      {
+        limit: 15,
+        cursor: "cursor-1",
+      },
+      expect.anything(),
+    );
     expect(screen.queryByTestId("dashboard-activity-more")).toBeNull();
   });
 
-  it("pauses on older activity and returns to the newest events on request (DB-2)", async () => {
+  it("places arrivals without replacing the older pages the reader opened, and goes to the newest on request (DB-2)", async () => {
     const user = userEvent.setup();
+    const intervals = vi.spyOn(window, "setInterval");
     fetchActivityMock
-      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1"))
+      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1", "5"))
       .mockResolvedValueOnce(page([EVENTS[1]!]));
     render(<DashboardPage />);
     await screen.findByTestId("dashboard-activity");
-    expect(screen.queryByTestId("dashboard-activity-paused")).toBeNull();
-
     await user.click(screen.getByTestId("dashboard-activity-more"));
     await waitFor(async () => expect(await rows()).toHaveLength(2));
-    const paused = screen.getByTestId("dashboard-activity-paused");
-    expect(within(paused).getByRole("status").textContent).toBe(
-      "Updates are paused while you read older activity.",
-    );
+    expect(screen.queryByTestId("dashboard-activity-arrivals")).toBeNull();
 
-    fetchActivityMock.mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1"));
-    await user.click(screen.getByTestId("dashboard-activity-show-newest"));
-    await waitFor(async () => expect(await rows()).toHaveLength(1));
-    expect(screen.queryByTestId("dashboard-activity-paused")).toBeNull();
-    expect(fetchActivityMock).toHaveBeenLastCalledWith(
-      { limit: 15 },
-      expect.anything(),
+    // A minute later one event is new and one was written late for October 12.
+    fetchActivityMock.mockResolvedValueOnce(
+      page(
+        [
+          event({ id: "event-new", sequence: "9", sessionDate: "2026-10-14" }),
+          event({ id: "event-late", sequence: "8", sessionDate: "2026-10-12" }),
+        ],
+        undefined,
+        "7",
+      ),
     );
+    const reads = fetchActivityMock.mock.calls.length;
+    await minutePasses(intervals);
+    const arrivals = await screen.findByTestId("dashboard-activity-arrivals");
+    expect(within(arrivals).getByRole("status").textContent).toBe(
+      "1 new event · 1 event added to an earlier session",
+    );
+    expect(fetchActivityMock).toHaveBeenLastCalledWith({ since: "5" });
+    expect(fetchActivityMock.mock.calls.length).toBe(reads + 1);
+    expect(sessions()).toEqual([
+      { date: "October 14, 2026", ids: ["event-new"] },
+      { date: "October 13, 2026", ids: ["event-1"] },
+      { date: "October 12, 2026", ids: ["event-late", "event-2"] },
+    ]);
+
+    // Going to the newest reads nothing again: everything is already in place.
+    await user.click(screen.getByTestId("dashboard-activity-show-newest"));
+    expect(screen.queryByTestId("dashboard-activity-arrivals")).toBeNull();
+    expect(fetchActivityMock.mock.calls.length).toBe(reads + 1);
     // The button that asked is gone; focus lands on the newest event instead of on <body>.
     await waitFor(() =>
       expect(document.activeElement?.closest("tbody")).not.toBeNull(),
     );
+    intervals.mockRestore();
+  });
+
+  it("says when older activity could not be loaded, and tries it again on request", async () => {
+    const user = userEvent.setup();
+    fetchActivityMock
+      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1", "5"))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(page([EVENTS[1]!]));
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-activity");
+    await user.click(screen.getByTestId("dashboard-activity-more"));
+    const failed = await screen.findByTestId("dashboard-activity-more-failed");
+    expect(failed.textContent).toBe("Older activity could not be loaded.");
+    expect(screen.getByTestId("dashboard-activity-more").textContent).toBe(
+      "Try again",
+    );
+    await user.click(screen.getByTestId("dashboard-activity-more"));
+    await waitFor(async () => expect(await rows()).toHaveLength(2));
+    expect(screen.queryByTestId("dashboard-activity-more-failed")).toBeNull();
+  });
+
+  it("reads the newest page again when the Monitors shown change, not on the first answer", async () => {
+    const intervals = vi.spyOn(window, "setInterval");
+    render(<DashboardPage />);
+    await rows();
+    const reads = fetchActivityMock.mock.calls.length;
+    expect(reads).toBe(1);
+    // Monitor B was hidden in another tab.
+    fetchDashboardMock.mockResolvedValueOnce(
+      dashboard({ monitors: [monitor()] }),
+    );
+    fetchActivityMock.mockResolvedValueOnce(page([EVENTS[0]!]));
+    await minutePasses(intervals);
+    await waitFor(async () => expect(await rows()).toHaveLength(1));
+    expect(fetchActivityMock).toHaveBeenLastCalledWith(
+      { limit: 15 },
+      expect.anything(),
+    );
+    intervals.mockRestore();
   });
 });
 
@@ -925,13 +1005,22 @@ describe("DashboardPage — layout and Market watch", () => {
   });
 });
 
-describe("newActivityLabel (DB-2)", () => {
-  it("states an exact count, says only that something arrived when the count is unknown, and otherwise that updates are paused", () => {
-    expect(newActivityLabel({ count: 1 })).toBe("1 new event");
-    expect(newActivityLabel({ count: 4 })).toBe("4 new events");
-    expect(newActivityLabel({ count: null })).toBe("New events are available.");
-    expect(newActivityLabel(null)).toBe(
-      "Updates are paused while you read older activity.",
+describe("arrivalsLabel (DB-2)", () => {
+  it("counts what was placed exactly, and says only that more is available after a backlog", () => {
+    expect(arrivalsLabel({ above: 1, within: 0, backlog: false })).toBe(
+      "1 new event",
+    );
+    expect(arrivalsLabel({ above: 4, within: 0, backlog: false })).toBe(
+      "4 new events",
+    );
+    expect(arrivalsLabel({ above: 0, within: 1, backlog: false })).toBe(
+      "1 event added to an earlier session",
+    );
+    expect(arrivalsLabel({ above: 2, within: 3, backlog: false })).toBe(
+      "2 new events · 3 events added to earlier sessions",
+    );
+    expect(arrivalsLabel({ above: 2, within: 0, backlog: true })).toBe(
+      "More new activity is available.",
     );
   });
 });

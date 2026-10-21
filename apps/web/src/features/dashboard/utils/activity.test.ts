@@ -4,7 +4,9 @@ import type {
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  compareFeedOrder,
   groupBySession,
+  mergeArrivals,
   operandRelation,
   predicateComparison,
 } from "./activity";
@@ -70,6 +72,68 @@ describe("groupBySession", () => {
       "2026-10-19",
     ]);
     expect(groupBySession([])).toEqual([]);
+  });
+});
+
+describe("mergeArrivals", () => {
+  const at = (id: string, sequence: number, sessionDate: string) =>
+    ({
+      id,
+      sequence: String(sequence),
+      sessionDate,
+    }) as DashboardActivityEventResponse;
+  const shown = [
+    at("a", 30, "2026-10-14"),
+    at("b", 20, "2026-10-13"),
+    at("c", 10, "2026-10-12"),
+  ];
+
+  it("orders newest session first, then newest written, comparing sequences as numbers", () => {
+    expect(
+      compareFeedOrder(at("x", 9, "2026-10-14"), at("y", 10, "2026-10-14")),
+    ).toBe(1);
+    expect(
+      compareFeedOrder(at("x", 100, "2026-10-13"), at("y", 9, "2026-10-14")),
+    ).toBe(1);
+    expect(
+      compareFeedOrder(at("x", 5, "2026-10-14"), at("x", 5, "2026-10-14")),
+    ).toBe(0);
+  });
+
+  it("puts new events above and late events inside their session, counting each kind", () => {
+    const merged = mergeArrivals(
+      shown,
+      [at("new", 40, "2026-10-15"), at("late", 41, "2026-10-13")],
+      { complete: false },
+    );
+    expect(merged.events.map((event) => event.id)).toEqual([
+      "new",
+      "a",
+      "late",
+      "b",
+      "c",
+    ]);
+    expect(merged).toMatchObject({ above: 1, within: 1 });
+  });
+
+  it("leaves what sorts after the oldest loaded event to paging, unless the history is complete", () => {
+    const older = at("old", 50, "2026-10-01");
+    expect(mergeArrivals(shown, [older], { complete: false })).toEqual({
+      events: shown,
+      above: 0,
+      within: 0,
+    });
+    expect(
+      mergeArrivals(shown, [older], { complete: true }).events.at(-1)?.id,
+    ).toBe("old");
+  });
+
+  it("ignores events already shown and returns the same list when nothing is placed", () => {
+    const merged = mergeArrivals(shown, [shown[0]!, shown[2]!], {
+      complete: true,
+    });
+    expect(merged.events).toBe(shown);
+    expect(merged).toMatchObject({ above: 0, within: 0 });
   });
 });
 
