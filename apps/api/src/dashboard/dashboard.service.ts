@@ -34,7 +34,10 @@ import {
   scopeNamesFor,
   whyOf,
 } from "../monitors/signal-why";
-import type { ActivityQuery } from "./dashboard-requests";
+import {
+  ACTIVITY_THROUGH_LIMIT,
+  type ActivityQuery,
+} from "./dashboard-requests";
 import { DASHBOARD_LOGGER, DASHBOARD_OPTIONS } from "./dashboard.tokens";
 
 export type DashboardOptions = {
@@ -58,15 +61,6 @@ export class BuiltInMonitorNotFoundError extends Error {
     this.name = "BuiltInMonitorNotFoundError";
   }
 }
-
-/**
- * How old a change must be before an Activity watermark may pass it: far longer than any one write
- * transaction the worker runs, so nothing below the watermark can still be about to commit.
- */
-export const ACTIVITY_WATERMARK_SETTLE_SECONDS = 600;
-
-/** The most changes one `since` read returns; a larger backlog continues from its watermark. */
-export const ACTIVITY_SINCE_LIMIT = 100;
 
 /** What the feed shows of each Monitor an event belongs to. */
 const ACTIVITY_MONITOR_SELECT = {
@@ -121,7 +115,7 @@ type ActivityEventRow = Prisma.MonitorStateTransitionGetPayload<{
 /**
  * What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
  * classification the response applies, so a filtered read holds the same events as the unfiltered
- * feed minus the other kind, and the keyset cursor and `since` reads page it unchanged.
+ * feed minus the other kind, and the keyset cursor and `through` ranges page it unchanged.
  */
 function activityKindWhere(
   kind: ActivityQuery["kind"],
@@ -142,27 +136,6 @@ function activityKindWhere(
       { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
     ],
   };
-}
-
-/** The feed's order: newest session first, then newest written first within a session. */
-function byFeedOrder(
-  a: DashboardActivityEventResponse,
-  b: DashboardActivityEventResponse,
-): number {
-  if (a.sessionDate !== b.sessionDate) {
-    return a.sessionDate < b.sessionDate ? 1 : -1;
-  }
-  const left = BigInt(a.sequence);
-  const right = BigInt(b.sequence);
-  return left === right ? 0 : left < right ? 1 : -1;
-}
-
-function minBigInt(a: bigint, b: bigint): bigint {
-  return a < b ? a : b;
-}
-
-function maxBigInt(a: bigint, b: bigint): bigint {
-  return a > b ? a : b;
 }
 
 const LEVEL_ORDER = { BUY: 0, SELL: 1, FINAL_EXIT: 2 } as const;
@@ -513,13 +486,14 @@ export class DashboardService {
 
   /**
    * One read of the Activity feed over the given Monitors: a page (the first, or the one after
-   * `cursor`), or — with `since` — every change written after a watermark.
+   * `cursor`), or — with `through` — the range from the newest event down to and including a given
+   * one, which is how a reader refreshes everything they already hold.
    *
-   * A page is keyset-ordered on `(observationDate, sequence)`, both descending, so it is stable while
-   * new sessions arrive. A `since` read exists for what a page cannot show: an event written for a
-   * session older than the newest — an ETF waiting for its data, a late bar — lands *inside* a range
-   * a reader has already loaded, and only a read by insertion order finds it. Both answer with a
-   * `watermark` a later `since` read continues from.
+   * Keyset-ordered on `(observationDate, sequence)`, both descending, so a page is stable while new
+   * sessions arrive. A `through` read exists for what new pages cannot show: an event written for a
+   * session older than the newest — an ETF waiting for its data, a late bar — lands *inside* the range
+   * a reader has loaded. Re-reading that range by key finds it whenever it was committed; no clock or
+   * commit order is assumed.
    */
   private async readActivity(
     viewer: ContentViewer,
@@ -534,47 +508,13 @@ export class DashboardService {
       events: [],
     };
     if (monitorIds.length === 0) {
-      // Nothing to read now; a watermark still lets a `since` read carry on from the same place.
-      return query.cursor
-        ? empty
-        : { ...empty, watermark: (query.since ?? 0n).toString() };
+      return empty;
     }
     const scope = {
       monitorId: { in: [...monitorIds] },
       origin: "OBSERVED" as const,
       observationDate: { not: null },
     };
-
-    if (query.since !== undefined) {
-      const since = query.since;
-      const [rows, settled] = await Promise.all([
-        this.prisma.monitorStateTransition.findMany({
-          where: {
-            ...scope,
-            AND: [activityKindWhere(query.kind), { sequence: { gt: since } }],
-          },
-          orderBy: [{ sequence: "asc" }],
-          take: ACTIVITY_SINCE_LIMIT + 1,
-          select: ACTIVITY_EVENT_SELECT,
-        }),
-        this.settledWatermark(monitorIds),
-      ]);
-      const truncated = rows.length > ACTIVITY_SINCE_LIMIT;
-      const read = rows.slice(0, ACTIVITY_SINCE_LIMIT);
-      // Everything up to the settled watermark has been returned — unless the read stopped early,
-      // when only what it reached may be passed. Never behind where the reader already was.
-      const reached = read[read.length - 1]?.sequence ?? since;
-      const next = truncated ? minBigInt(settled, reached) : settled;
-      const events = (await this.activityEvents(read, monitors)).sort(
-        byFeedOrder,
-      );
-      return {
-        ...empty,
-        events,
-        watermark: maxBigInt(since, next).toString(),
-        ...(truncated ? { truncated: true } : {}),
-      };
-    }
 
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
     if (
@@ -593,41 +533,71 @@ export class DashboardService {
           sequence: BigInt(cursor.s as string),
         }
       : null;
-    const [rows, settled] = await Promise.all([
-      this.prisma.monitorStateTransition.findMany({
+
+    // The bottom of a `through` range: an event of this feed. One the viewer can no longer see (its
+    // Monitor hidden or gone) ends the range at once, and the reader starts over from the top.
+    let floor: { date: Date; sequence: bigint } | null = null;
+    if (query.through !== undefined) {
+      const bottom = await this.prisma.monitorStateTransition.findFirst({
         where: {
           ...scope,
-          AND: [
-            activityKindWhere(query.kind),
-            ...(after
-              ? [
-                  {
-                    OR: [
-                      { observationDate: { lt: after.date } },
-                      {
-                        observationDate: after.date,
-                        sequence: { lt: after.sequence },
-                      },
-                    ],
-                  },
-                ]
-              : []),
-          ],
+          id: query.through,
+          AND: [activityKindWhere(query.kind)],
         },
-        orderBy: [{ observationDate: "desc" }, { sequence: "desc" }],
-        take: query.limit + 1,
-        select: ACTIVITY_EVENT_SELECT,
-      }),
-      // A first page starts a reader's place in insertion order too.
-      after ? Promise.resolve(null) : this.settledWatermark(monitorIds),
-    ]);
-    const page = rows.slice(0, query.limit);
+        select: { observationDate: true, sequence: true },
+      });
+      if (!bottom) {
+        return empty;
+      }
+      floor = { date: bottom.observationDate!, sequence: bottom.sequence };
+    }
+    const limit =
+      query.through === undefined ? query.limit : ACTIVITY_THROUGH_LIMIT;
+
+    const rows = await this.prisma.monitorStateTransition.findMany({
+      where: {
+        ...scope,
+        AND: [
+          activityKindWhere(query.kind),
+          ...(after
+            ? [
+                {
+                  OR: [
+                    { observationDate: { lt: after.date } },
+                    {
+                      observationDate: after.date,
+                      sequence: { lt: after.sequence },
+                    },
+                  ],
+                },
+              ]
+            : []),
+          ...(floor
+            ? [
+                {
+                  OR: [
+                    { observationDate: { gt: floor.date } },
+                    {
+                      observationDate: floor.date,
+                      sequence: { gte: floor.sequence },
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      orderBy: [{ observationDate: "desc" }, { sequence: "desc" }],
+      take: limit + 1,
+      select: ACTIVITY_EVENT_SELECT,
+    });
+    const page = rows.slice(0, limit);
     const events = await this.activityEvents(page, monitors);
     const last = page[page.length - 1];
     return {
       ...empty,
       events,
-      ...(rows.length > query.limit && last
+      ...(rows.length > limit && last
         ? {
             nextCursor: encodeCursor({
               d: last.observationDate!.toISOString().slice(0, 10),
@@ -635,37 +605,7 @@ export class DashboardService {
             }),
           }
         : {}),
-      ...(settled === null ? {} : { watermark: settled.toString() }),
     };
-  }
-
-  /**
-   * The newest `sequence` of these Monitors' changes that is old enough to have settled.
-   *
-   * `sequence` is handed out when a row is written, but a transaction that took a smaller value can
-   * commit after one that took a larger, so the newest *visible* value is not yet a safe place to
-   * continue from. A change written more than {@link ACTIVITY_WATERMARK_SETTLE_SECONDS} seconds ago
-   * belongs to a transaction long finished — the worker writes each member's changes in one short
-   * transaction — so the watermark stops at the newest of those, and a later `since` read returns
-   * the last few minutes again rather than ever skipping one. One index probe per Monitor, on
-   * `(monitorId, sequence)`, measured by the database's own clock.
-   */
-  private async settledWatermark(
-    monitorIds: readonly string[],
-  ): Promise<bigint> {
-    const rows = await this.prisma.$queryRaw<{ watermark: bigint | null }[]>`
-      SELECT MAX(latest."sequence") AS "watermark"
-      FROM unnest(${[...monitorIds]}::text[]) AS monitor("id")
-      CROSS JOIN LATERAL (
-        SELECT "sequence"
-        FROM "MonitorStateTransition"
-        WHERE "monitorId" = monitor."id"
-          AND "occurredAt" <= now() - make_interval(secs => ${ACTIVITY_WATERMARK_SETTLE_SECONDS})
-        ORDER BY "sequence" DESC
-        LIMIT 1
-      ) AS latest
-    `;
-    return rows[0]?.watermark ?? 0n;
   }
 
   /** The response for each stored change, explained by the version and evidence recorded with it. */
@@ -706,7 +646,6 @@ export class DashboardService {
       const sessionDate = row.observationDate!.toISOString().slice(0, 10);
       return {
         id: row.id,
-        sequence: row.sequence.toString(),
         kind: row.toState === "ACTIVE" ? "ACTIVATED" : "RESOLVED",
         reason: row.reason,
         sessionDate,

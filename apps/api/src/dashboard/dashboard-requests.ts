@@ -31,6 +31,8 @@ export function parseVisibilityRequest(
 /** The Activity feed's page size when none is asked for, and the most one page may hold. */
 export const ACTIVITY_DEFAULT_LIMIT = 15;
 export const ACTIVITY_MAX_LIMIT = 50;
+/** One read of a `through` range: what a reader re-reads to refresh everything they hold. */
+export const ACTIVITY_THROUGH_LIMIT = 200;
 
 export type ActivityQuery = {
   monitorId?: string;
@@ -39,20 +41,20 @@ export type ActivityQuery = {
   limit: number;
   cursor?: string;
   /**
-   * A `watermark` from an earlier answer: read the changes written after it instead of a page.
-   * Never combined with `cursor`.
+   * An event id: read every event from the newest down to and including it — the range a reader
+   * already holds — in pages of {@link ACTIVITY_THROUGH_LIMIT}, continued with `cursor`.
    */
-  since?: bigint;
+  through?: string;
 };
 
-/** `?monitorId=&kind=&limit=&cursor=&since=` and nothing else. */
+/** `?monitorId=&kind=&limit=&cursor=&through=` and nothing else. */
 export function parseActivityQuery(query: unknown): ActivityQuery {
   const record =
     typeof query === "object" && query !== null
       ? (query as Record<string, unknown>)
       : {};
   for (const key of Object.keys(record)) {
-    if (!["monitorId", "kind", "limit", "cursor", "since"].includes(key)) {
+    if (!["monitorId", "kind", "limit", "cursor", "through"].includes(key)) {
       throw new BadRequestException(
         `Invalid request: \`${key}\` is not accepted`,
       );
@@ -90,15 +92,15 @@ export function parseActivityQuery(query: unknown): ActivityQuery {
   }
   const kind = kindText as MonitorActivityKind | undefined;
   const cursor = text("cursor");
-  const sinceText = text("since");
-  if (sinceText !== undefined && !/^\d{1,19}$/.test(sinceText)) {
+  const through = text("through");
+  if (
+    through !== undefined &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      through,
+    )
+  ) {
     throw new BadRequestException(
-      "Invalid request: since must be a watermark this API returned",
-    );
-  }
-  if (sinceText !== undefined && cursor !== undefined) {
-    throw new BadRequestException(
-      "Invalid request: since and cursor cannot be combined",
+      "Invalid request: through must be an event id",
     );
   }
   return {
@@ -106,6 +108,6 @@ export function parseActivityQuery(query: unknown): ActivityQuery {
     ...(monitorId ? { monitorId } : {}),
     ...(kind ? { kind } : {}),
     ...(cursor ? { cursor } : {}),
-    ...(sinceText === undefined ? {} : { since: BigInt(sinceText) }),
+    ...(through ? { through } : {}),
   };
 }
