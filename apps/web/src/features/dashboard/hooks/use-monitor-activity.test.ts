@@ -1,6 +1,7 @@
 import type {
   DashboardActivityEventResponse,
   DashboardActivityResponse,
+  MonitorActivityKind,
 } from "@intrinsic/contracts";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -137,5 +138,74 @@ describe("useMonitorActivity — refresh while browsing history (DB-2)", () => {
     await waitFor(() =>
       expect(hook.result.current.events[0]?.id).toBe("event-104"),
     );
+  });
+});
+
+describe("useMonitorActivity — the Monitor and Event filters", () => {
+  it("sends both filters on every read, so the API pages and counts the filtered history", async () => {
+    fetchMock.mockResolvedValueOnce(newestPage(100));
+    const hook = renderHook(() => useMonitorActivity("monitor-a", "RESOLVED"));
+    await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      { monitorId: "monitor-a", kind: "RESOLVED", limit: ACTIVITY_PAGE_SIZE },
+      expect.anything(),
+    );
+
+    // The next older page continues the same filtered feed.
+    fetchMock.mockResolvedValueOnce(olderPage(100 - ACTIVITY_PAGE_SIZE));
+    act(() => hook.result.current.loadMore());
+    await waitFor(() =>
+      expect(hook.result.current.events).toHaveLength(ACTIVITY_PAGE_SIZE * 2),
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith({
+      monitorId: "monitor-a",
+      kind: "RESOLVED",
+      limit: ACTIVITY_PAGE_SIZE,
+      cursor: `before-${100 - ACTIVITY_PAGE_SIZE + 1}`,
+    });
+
+    // While paused, the check for new events asks about the filtered feed too.
+    fetchMock.mockResolvedValueOnce(newestPage(102));
+    act(() => hook.result.current.refresh());
+    await waitFor(() =>
+      expect(hook.result.current.newActivity).toEqual({ count: 2 }),
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith({
+      monitorId: "monitor-a",
+      kind: "RESOLVED",
+      limit: ACTIVITY_PAGE_SIZE,
+    });
+  });
+
+  it("starts over from the newest page when a filter changes, and ignores an answer for the old one", async () => {
+    let resolveStale: (page: DashboardActivityResponse) => void = () =>
+      undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const hook = renderHook(
+      ({ kind }: { kind: MonitorActivityKind | null }) =>
+        useMonitorActivity(null, kind),
+      { initialProps: { kind: null as MonitorActivityKind | null } },
+    );
+
+    fetchMock.mockResolvedValueOnce(newestPage(50));
+    hook.rerender({ kind: "ACTIVATED" });
+    await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+    expect(hook.result.current.events[0]?.id).toBe("event-50");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      { kind: "ACTIVATED", limit: ACTIVITY_PAGE_SIZE },
+      expect.anything(),
+    );
+
+    // The unfiltered read answers late: it is not this feed any more.
+    await act(async () => {
+      resolveStale(newestPage(100));
+      await Promise.resolve();
+    });
+    expect(hook.result.current.events[0]?.id).toBe("event-50");
   });
 });

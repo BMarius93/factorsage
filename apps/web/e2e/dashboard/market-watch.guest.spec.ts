@@ -10,9 +10,10 @@ import { watchForIssues } from "../utils/page-issues";
 /**
  * The Dashboard's Market watch sidebar, as a first-time visitor meets it
  * (`docs/decisions/etf-market-overview-v1.md`, the Dashboard V2 amendment): Monitor activity is the
- * page, and from 1,280px a compact watchlist of the twenty market-overview ETFs sits beside it —
- * one period at a time, every row's return **and** line for that period, rotating every ten
- * seconds. Below 1,280px it does not exist: not rendered, not fetched.
+ * page, and from 1,280px an ultra-compact sidebar of the twenty market-overview ETFs sits flush
+ * against the right edge beside it — one period at a time, every row's return **and** line for
+ * that period, rotating every eight seconds until the reader picks one. Below 1,280px it does not
+ * exist: not rendered, not fetched.
  *
  * Needs `pnpm test:personas:seed` (`test:securities:seed` writes the deterministic ETF fixtures).
  * The returns depend on where today falls in the fixture's calendar, so assertions compare the page
@@ -26,7 +27,7 @@ import { watchForIssues } from "../utils/page-issues";
 
 const PERIODS = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 const GROUPS = ["BENCHMARKS", "US_SECTORS", "MACRO_ALTERNATIVES"] as const;
-const ROTATION_MS = 10_000;
+const ROTATION_MS = 8_000;
 
 async function readOverview(page: Page): Promise<MarketOverviewResponse> {
   const response = await page.request.get(`${apiBaseUrl()}/market-overview`);
@@ -126,7 +127,7 @@ function periodButton(page: Page, value: Period) {
     .getByRole("button", { name: value, exact: true });
 }
 
-/** Takes over the page's timers, so a ten-second rotation is a call rather than a wait. */
+/** Takes over the page's timers, so an eight-second rotation is a call rather than a wait. */
 async function controlTime(page: Page) {
   await page.clock.install();
 }
@@ -231,28 +232,61 @@ test.describe("market overview API", () => {
 });
 
 test.describe("Market watch on a wide desktop", () => {
-  for (const width of [1280, 1366, 1440, 1920]) {
-    test(`sits beside Monitor activity at ${width}px, all twenty ETFs, after one read`, async ({
+  for (const [width, height] of [
+    [1280, 900],
+    [1366, 900],
+    [1440, 900],
+    [1920, 1080],
+  ] as const) {
+    test(`is a flush sidebar beside Monitor activity at ${width}px, all twenty ETFs on one line each, after one read`, async ({
       page,
     }) => {
       const issues = watchForIssues(page);
       const reads = countMarketReads(page);
       const overview = await readOverview(page);
-      await openDashboard(page, width);
+      await openDashboard(page, width, height);
       await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
 
       const main = await page.getByTestId("dashboard-main").boundingBox();
       const sidebar = await page.getByTestId("dashboard-sidebar").boundingBox();
-      // Two columns, the feed first and widest; the sidebar about a quarter of the content.
-      expect(main && sidebar).toBeTruthy();
-      expect((main?.x ?? 0) + (main?.width ?? 0)).toBeLessThan(sidebar?.x ?? 0);
+      const topbar = await page.locator("header").first().boundingBox();
+      expect(main && sidebar && topbar).toBeTruthy();
+      // The feed takes the rest; the sidebar is 330–360px, flush against the right edge, from just
+      // under the topbar to the bottom of the screen.
+      expect((main?.x ?? 0) + (main?.width ?? 0)).toBeLessThanOrEqual(
+        (sidebar?.x ?? 0) + 1,
+      );
+      expect(sidebar?.width ?? 0).toBeGreaterThanOrEqual(330);
+      expect(sidebar?.width ?? 0).toBeLessThanOrEqual(360);
       expect(
-        Math.abs((main?.y ?? 0) - (sidebar?.y ?? -99)),
+        Math.abs((sidebar?.x ?? 0) + (sidebar?.width ?? 0) - width),
       ).toBeLessThanOrEqual(1);
-      const share =
-        (sidebar?.width ?? 0) / ((main?.width ?? 0) + (sidebar?.width ?? 0));
-      expect(share).toBeGreaterThan(0.22);
-      expect(share).toBeLessThan(0.32);
+      expect(
+        Math.abs(
+          (sidebar?.y ?? 0) - ((topbar?.y ?? 0) + (topbar?.height ?? 0)),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs((sidebar?.y ?? 0) + (sidebar?.height ?? 0) - height),
+      ).toBeLessThanOrEqual(1);
+      // A pane, not a card: no radius, no shadow, one hairline on the feed's side.
+      const chrome = await page
+        .getByTestId("dashboard-sidebar")
+        .evaluate((element) => {
+          const style = getComputedStyle(element);
+          return {
+            radius: style.borderTopLeftRadius,
+            shadow: style.boxShadow,
+            left: style.borderLeftWidth,
+            right: style.borderRightWidth,
+          };
+        });
+      expect(chrome).toEqual({
+        radius: "0px",
+        shadow: "none",
+        left: "1px",
+        right: "0px",
+      });
 
       // The groups and their rows, in the API's order.
       const watch = page.getByTestId("market-watch");
@@ -294,11 +328,9 @@ test.describe("Market watch on a wide desktop", () => {
           String(instrument.sparklines["1W"]?.values.length),
         );
       }
-      await expect(page.getByTestId("market-watch-row-SPY")).toContainText(
-        "S&P 500",
-      );
 
-      // Every line has the same width; no row's ticker or value is cut.
+      // One line per fund, 24–28px; every line the same width; no ticker or value cut; names give
+      // way with an ellipsis rather than wrapping; the returns right-aligned in tabular figures.
       const geometry = await page
         .locator('[data-testid^="market-watch-row-"]')
         .evaluateAll((rows) =>
@@ -312,20 +344,40 @@ test.describe("Market watch on a wide desktop", () => {
             const value = row.querySelector<HTMLElement>(
               '[data-testid^="market-watch-return-"]',
             )!;
+            const name = row.querySelector<HTMLElement>(
+              '[data-testid="market-watch-name"]',
+            )!;
+            const valueStyle = getComputedStyle(value);
             return {
               lineWidth: Math.round(line.width),
               height: row.getBoundingClientRect().height,
               clipped:
                 ticker.scrollWidth > ticker.clientWidth + 1 ||
                 value.scrollWidth > value.clientWidth + 1,
+              nameWraps: getComputedStyle(name).whiteSpace !== "nowrap",
+              align: valueStyle.textAlign,
+              numerals: valueStyle.fontVariantNumeric,
             };
           }),
         );
+      expect(geometry).toHaveLength(20);
       expect(new Set(geometry.map((row) => row.lineWidth)).size).toBe(1);
       for (const row of geometry) {
         expect(row.clipped).toBe(false);
-        expect(row.height).toBeLessThanOrEqual(44);
+        expect(row.height).toBeGreaterThanOrEqual(24);
+        expect(row.height).toBeLessThanOrEqual(28);
+        expect(row.nameWraps).toBe(false);
+        expect(row.align).toBe("right");
+        expect(row.numerals).toContain("tabular-nums");
       }
+      // On a screen this tall, all twenty and their groups are on screen at once.
+      const region = page.getByRole("region", { name: "Market watch ETFs" });
+      const sizes = await region.evaluate((element) => ({
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+      }));
+      expect(sizes.scrollHeight).toBeLessThanOrEqual(sizes.clientHeight + 1);
+      await expect(page.getByTestId("market-watch-row-HYG")).toBeInViewport();
 
       expect(reads.completed).toBe(1);
       await expectNoHorizontalScroll(page, `${width}px`);
@@ -337,7 +389,7 @@ test.describe("Market watch on a wide desktop", () => {
     });
   }
 
-  test("rotates 1W → 1M → 3M → 6M → YTD → 1Y → 1W every ten seconds, all rows together, with no further read", async ({
+  test("rotates 1W → 1M → 3M → 6M → YTD → 1Y → 1W every eight seconds, all rows together, with no further read", async ({
     page,
   }) => {
     const reads = countMarketReads(page);
@@ -345,15 +397,15 @@ test.describe("Market watch on a wide desktop", () => {
     await controlTime(page);
     await openDashboard(page, 1440);
     await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await page.mouse.move(5, 5);
     await freezeTime(page);
     const startedAfterLoad = reads.started;
     const instruments = overview.groups.flatMap((group) => group.instruments);
 
     await expect(period(page)).toHaveAttribute("data-auto", "on");
-    await expect(page.getByTestId("market-watch-auto")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    // No Auto control of any kind: the periods are the only buttons.
+    await expect(page.getByTestId("market-watch-auto")).toHaveCount(0);
+    await expect(period(page).getByRole("button")).toHaveCount(6);
     // It opens on 1W; time is frozen once the page has loaded, wherever the rotation has reached.
     const first = await shown(page);
     const seen: Period[] = [];
@@ -398,26 +450,71 @@ test.describe("Market watch on a wide desktop", () => {
     expect(reads.completed).toBe(1);
   });
 
-  test("draws each period from its own series: six different lines for one fund", async ({
+  test("dims the returns and lines, swaps while they are dim, brings them back and marks the new period once — never moving a row", async ({
     page,
   }) => {
+    await controlTime(page);
     await openDashboard(page, 1440);
-    const line = page.getByTestId("market-watch-XLK-sparkline");
-    await expect(line).toBeVisible();
-    const shapes = new Set<string>();
-    for (const value of PERIODS) {
-      await periodButton(page, value).click();
-      await expect(period(page)).toHaveAttribute("data-period", value);
-      shapes.add((await line.locator("polyline").getAttribute("points")) ?? "");
-      await expect(line).toHaveAttribute(
-        "aria-label",
-        new RegExp(`^XLK .+ trend, closes from`),
-      );
-    }
-    expect(shapes.size).toBe(6);
+    await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await page.mouse.move(5, 5);
+    await freezeTime(page);
+    // Pointing at the sidebar and leaving it re-arms a full interval from the frozen instant, so
+    // the steps below land exactly on the fade, the swap and the rest.
+    const area = await page.getByTestId("dashboard-sidebar").boundingBox();
+    await page.mouse.move((area?.x ?? 0) + 100, (area?.y ?? 0) + 300);
+    await expect(period(page)).not.toHaveAttribute("data-rotating", "true");
+    await page.mouse.move(5, 5);
+    await expect(period(page)).toHaveAttribute("data-rotating", "true");
+    const watch = period(page);
+    const before = await shown(page);
+    const sidebarHeight = async () =>
+      (await page.getByTestId("dashboard-sidebar").boundingBox())?.height;
+    const rowTop = async () =>
+      (await page.getByTestId("market-watch-row-HYG").boundingBox())?.y;
+    const height = await sidebarHeight();
+    const top = await rowTop();
+
+    // Up to the fade.
+    await page.clock.runFor(ROTATION_MS - 250);
+    await expect(watch).toHaveAttribute("data-phase", "out");
+    await expect(watch).toHaveAttribute("data-period", before);
+    // The numbers and lines dim; the tickers, names and group titles do not.
+    await expect
+      .poll(() =>
+        page
+          .getByTestId("market-watch-return-SPY")
+          .evaluate((element) => Number(getComputedStyle(element).opacity)),
+      )
+      .toBeLessThan(0.7);
+    const still = await page
+      .getByTestId("market-watch-row-SPY")
+      .getByTestId("market-watch-ticker")
+      .evaluate((element) => getComputedStyle(element).opacity);
+    expect(still).toBe("1");
+
+    // The swap, while dim; the new period carries its one highlight.
+    await page.clock.runFor(250);
+    await expect(watch).toHaveAttribute("data-phase", "in");
+    await expect(watch).toHaveAttribute("data-period", following(before));
+    await expect(periodButton(page, following(before))).toHaveAttribute(
+      "data-highlight",
+      "true",
+    );
+    await page.clock.runFor(450);
+    await expect(watch).toHaveAttribute("data-phase", "idle");
+    await expect
+      .poll(() =>
+        page
+          .getByTestId("market-watch-return-SPY")
+          .evaluate((element) => Number(getComputedStyle(element).opacity)),
+      )
+      .toBe(1);
+    // Nothing moved: the sidebar kept its height and every row its place.
+    expect(await sidebarHeight()).toBe(height);
+    expect(await rowTop()).toBe(top);
   });
 
-  test("pauses on a chosen period, says so, and resumes from Auto", async ({
+  test("stops for good on a chosen period — the one on screen included — with nothing that restarts it", async ({
     page,
   }) => {
     const reads = countMarketReads(page);
@@ -426,32 +523,43 @@ test.describe("Market watch on a wide desktop", () => {
     await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
     await freezeTime(page);
 
-    await periodButton(page, "6M").click();
-    await expect(period(page)).toHaveAttribute("data-period", "6M");
-    await expect(period(page)).toHaveAttribute("data-auto", "paused");
-    await expect(page.getByTestId("market-watch-paused")).toHaveText("Paused");
-    await expect(page.getByTestId("market-watch-auto")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    await expect(page.getByTestId("market-watch-caption")).toContainText(
-      "6-month return",
-    );
+    const current = await shown(page);
+    await periodButton(page, current).click();
+    await page.mouse.move(5, 5);
+    await expect(period(page)).toHaveAttribute("data-auto", "off");
+    await page.clock.runFor(ROTATION_MS * 4);
+    await expect(period(page)).toHaveAttribute("data-period", current);
 
+    await periodButton(page, "6M").click();
+    await page.mouse.move(5, 5);
+    await expect(period(page)).toHaveAttribute("data-period", "6M");
     await page.clock.runFor(ROTATION_MS * 4);
     await expect(period(page)).toHaveAttribute("data-period", "6M");
-
-    await page.getByTestId("market-watch-auto").click();
-    await expect(page.getByTestId("market-watch-auto")).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    await expect(page.getByTestId("market-watch")).not.toContainText(
+      /auto|paused/i,
     );
-    await expect(page.getByTestId("market-watch-paused")).toHaveCount(0);
-    // Move the pointer off the sidebar; a resumed rotation then counts a full interval.
+    expect(reads.completed).toBe(1);
+  });
+
+  test("waits while the pointer is over it, and carries on when the pointer leaves", async ({
+    page,
+  }) => {
+    await controlTime(page);
+    await openDashboard(page, 1440);
+    await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await freezeTime(page);
+
+    const box = await page.getByTestId("dashboard-sidebar").boundingBox();
+    await page.mouse.move((box?.x ?? 0) + 100, (box?.y ?? 0) + 300);
+    const held = await shown(page);
+    await expect(period(page)).not.toHaveAttribute("data-rotating", "true");
+    await page.clock.runFor(ROTATION_MS * 3);
+    await expect(period(page)).toHaveAttribute("data-period", held);
+    await expect(period(page)).toHaveAttribute("data-auto", "on");
+
     await page.mouse.move(5, 5);
     await page.clock.runFor(ROTATION_MS);
-    await expect(period(page)).toHaveAttribute("data-period", "YTD");
-    expect(reads.completed).toBe(1);
+    await expect(period(page)).toHaveAttribute("data-period", following(held));
   });
 
   test("holds while keyboard focus is inside, and selects a period from the keyboard", async ({
@@ -460,11 +568,10 @@ test.describe("Market watch on a wide desktop", () => {
     await controlTime(page);
     await openDashboard(page, 1440);
     await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await page.mouse.move(5, 5);
     await freezeTime(page);
 
-    await page.getByTestId("market-watch-auto").focus();
-    await page.keyboard.press("Tab");
-    await expect(periodButton(page, "1W")).toBeFocused();
+    await periodButton(page, "1W").focus();
     await expect(period(page)).not.toHaveAttribute("data-rotating", "true");
     const held = await shown(page);
     await page.clock.runFor(ROTATION_MS * 3);
@@ -475,7 +582,7 @@ test.describe("Market watch on a wide desktop", () => {
     await expect(periodButton(page, "3M")).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(period(page)).toHaveAttribute("data-period", "3M");
-    await expect(period(page)).toHaveAttribute("data-auto", "paused");
+    await expect(period(page)).toHaveAttribute("data-auto", "off");
     // A visible focus ring on the chosen control.
     const ring = await periodButton(page, "3M").evaluate(
       (button) => getComputedStyle(button).boxShadow,
@@ -492,6 +599,7 @@ test.describe("Market watch on a wide desktop", () => {
     await controlTime(page);
     await openDashboard(page, 1440);
     await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await page.mouse.move(5, 5);
     await freezeTime(page);
 
     await setHidden(page, true);
@@ -507,53 +615,64 @@ test.describe("Market watch on a wide desktop", () => {
     );
   });
 
-  test("starts paused for a reader who prefers reduced motion", async ({
+  test("does not rotate or animate for a reader who prefers reduced motion", async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await controlTime(page);
     await openDashboard(page, 1440);
     await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await page.mouse.move(5, 5);
     await freezeTime(page);
 
-    await expect(period(page)).toHaveAttribute("data-auto", "paused");
-    await expect(page.getByTestId("market-watch-paused")).toBeVisible();
+    await expect(period(page)).toHaveAttribute("data-auto", "off");
     await page.clock.runFor(ROTATION_MS * 3);
     await expect(period(page)).toHaveAttribute("data-period", "1W");
+    await expect(period(page)).toHaveAttribute("data-phase", "idle");
 
-    // Still the reader's to turn on.
-    await page.getByTestId("market-watch-auto").click();
-    await page.mouse.move(5, 5);
-    await page.clock.runFor(ROTATION_MS);
+    // Every period is still a click away, and a click changes it at once.
+    await periodButton(page, "1M").click();
     await expect(period(page)).toHaveAttribute("data-period", "1M");
   });
 
-  test("bounds the sidebar to the screen, scrolls it on its own, and never traps the wheel", async ({
+  test("keeps its header and scrolls its own list on a short screen, never trapping the wheel", async ({
     page,
   }) => {
-    await openDashboard(page, 1280, 800);
+    await openDashboard(page, 1280, 768);
     const region = page.getByRole("region", { name: "Market watch ETFs" });
     await expect(page.getByTestId("market-watch-row-HYG")).toBeAttached();
 
+    // Exactly the screen under the topbar.
     const box = await page.getByTestId("dashboard-sidebar").boundingBox();
-    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(800);
+    expect(
+      Math.abs((box?.y ?? 0) + (box?.height ?? 0) - 768),
+    ).toBeLessThanOrEqual(1);
+    // The text stays readable: rows keep their height rather than shrinking to fit.
+    const rowHeight = (
+      await page.getByTestId("market-watch-row-SPY").boundingBox()
+    )?.height;
+    expect(rowHeight).toBeGreaterThanOrEqual(24);
+
     const sizes = await region.evaluate((element) => ({
       scrollHeight: element.scrollHeight,
       clientHeight: element.clientHeight,
     }));
-    expect(sizes.scrollHeight).toBeGreaterThan(sizes.clientHeight);
-
-    // The wheel over the list scrolls the list first…
-    const area = await region.boundingBox();
-    await page.mouse.move((area?.x ?? 0) + 40, (area?.y ?? 0) + 60);
-    await page.mouse.wheel(0, 200);
-    await expect
-      .poll(() => region.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(0);
-    // …and at its end hands the wheel back to the page.
+    if (sizes.scrollHeight > sizes.clientHeight + 1) {
+      // The wheel over the list scrolls the list, with the period selector still in view …
+      const area = await region.boundingBox();
+      await page.mouse.move((area?.x ?? 0) + 40, (area?.y ?? 0) + 60);
+      await page.mouse.wheel(0, 200);
+      await expect
+        .poll(() => region.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+    }
+    await expect(page.getByTestId("market-watch-period")).toBeInViewport();
+    // … and at its end hands the wheel back to the page.
     await region.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
+    const area = await region.boundingBox();
+    await page.mouse.move((area?.x ?? 0) + 40, (area?.y ?? 0) + 60);
     await page.mouse.wheel(0, 400);
     await expect
       .poll(() => page.evaluate(() => window.scrollY))
@@ -571,39 +690,99 @@ test.describe("Market watch on a wide desktop", () => {
     );
   });
 
-  for (const width of [1280, 1366]) {
+  test("scrolls the feed with the page while the sidebar stays put, and holds the feed's heading and session under the topbar", async ({
+    page,
+  }) => {
+    // Enough events to scroll: every QA event, each repeated over many sessions.
+    await page.route(/\/dashboard\/activity(\?.*)?$/, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as DashboardActivityResponse;
+      const events = Array.from({ length: 6 }, (_, copy) =>
+        body.events.map((event) => ({
+          ...event,
+          id: `${event.id}-${copy}`,
+          sessionDate: `2026-08-${String(28 - copy * 3).padStart(2, "0")}`,
+        })),
+      ).flat();
+      await route.fulfill({ response, json: { ...body, events } });
+    });
+    await openDashboard(page, 1440, 800);
+    await expect(
+      page.getByTestId("dashboard-activity-row").nth(10),
+    ).toBeAttached();
+    const sidebarBefore = await page
+      .getByTestId("dashboard-sidebar")
+      .boundingBox();
+    await page.mouse.move(400, 400);
+    await page.mouse.wheel(0, 700);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(300);
+    // The sidebar has not moved, and its list has not scrolled.
+    const sidebarAfter = await page
+      .getByTestId("dashboard-sidebar")
+      .boundingBox();
+    expect(sidebarAfter?.y).toBe(sidebarBefore?.y);
+    expect(
+      await page
+        .getByRole("region", { name: "Market watch ETFs" })
+        .evaluate((element) => element.scrollTop),
+    ).toBe(0);
+    // The card's heading with its filters sticks under the topbar (its 60px), a session heading
+    // under it.
+    const heading = await page
+      .getByRole("heading", { level: 2, name: "Monitor activity" })
+      .boundingBox();
+    expect(heading?.y ?? 0).toBeGreaterThanOrEqual(64);
+    expect(heading?.y ?? 999).toBeLessThan(64 + 60);
+    await expect(page.getByTestId("dashboard-event-filter")).toBeInViewport();
+    const stuck = await page
+      .getByTestId("dashboard-session")
+      .evaluateAll((all) =>
+        all
+          .map((element) => element.getBoundingClientRect().top)
+          .filter((top) => top >= 64 + 60 - 1 && top < 64 + 60 + 24),
+      );
+    expect(stuck.length).toBeGreaterThan(0);
+    await expectNoHorizontalScroll(page, "scrolled");
+  });
+
+  for (const width of [1280, 1366, 1920]) {
     test(`keeps every activity fact readable and reachable beside the sidebar at ${width}px`, async ({
       page,
     }) => {
       await openDashboard(page, width);
       const table = page.getByTestId("dashboard-activity");
-      // The narrow table: Session under the signal, Monitor under the reason.
       await expect(table.getByRole("columnheader")).toHaveText([
         "Stock",
         "Signal",
-        "Why",
-        "Price",
+        "Conditions",
+        "Monitor",
       ]);
       const rows = page.getByTestId("dashboard-activity-row");
       expect(await rows.count()).toBeGreaterThan(0);
       for (const row of await rows.all()) {
-        await expect(row.getByTestId("dashboard-folded-session")).toBeVisible();
-        await expect(row.getByTestId("dashboard-folded-monitor")).toBeVisible();
-        await expect(row.getByTestId("dashboard-why")).toBeVisible();
+        await expect(row.getByTestId("dashboard-event-level")).toBeVisible();
+        await expect(row.getByTestId("dashboard-event-state")).toBeVisible();
+        await expect(row.getByTestId("dashboard-event-monitor")).toBeVisible();
+        for (const line of await row.getByTestId("dashboard-condition").all()) {
+          await expect(line).toBeVisible();
+        }
       }
       const fit = await table.evaluate((element) => {
-        const scroll = element.parentElement!;
-        const frame = scroll.getBoundingClientRect();
+        const frame = element.getBoundingClientRect();
         const outside = [
-          ...element.querySelectorAll<HTMLElement>("tbody a[href]"),
+          ...element.querySelectorAll<HTMLElement>(
+            "a[href], [data-testid='dashboard-condition-values']",
+          ),
         ]
-          .filter((link) => link.getClientRects().length > 0)
-          .filter((link) => {
-            const box = link.getBoundingClientRect();
+          .filter((node) => node.getClientRects().length > 0)
+          .filter((node) => {
+            const box = node.getBoundingClientRect();
             return box.left < frame.left - 1 || box.right > frame.right + 1;
           })
-          .map((link) => link.textContent);
-        return { overflow: scroll.scrollWidth - scroll.clientWidth, outside };
+          .map((node) => node.textContent);
+        return { overflow: element.scrollWidth - element.clientWidth, outside };
       });
       expect(fit.overflow).toBeLessThanOrEqual(1);
       expect(fit.outside).toEqual([]);
@@ -611,26 +790,7 @@ test.describe("Market watch on a wide desktop", () => {
     });
   }
 
-  test("shows the full six-column table where the feed's column has room for it, at 1920px", async ({
-    page,
-  }) => {
-    await openDashboard(page, 1920, 1080);
-    const table = page.getByTestId("dashboard-activity");
-    await expect(table.getByRole("columnheader")).toHaveText([
-      "Stock",
-      "Signal",
-      "Session",
-      "Why",
-      "Price",
-      "Monitor",
-    ]);
-    await expect(
-      page.getByTestId("dashboard-folded-monitor").first(),
-    ).toBeHidden();
-    await expect(page.getByTestId("market-watch")).toBeVisible();
-  });
-
-  test("survives long names, long tickers and long reasons beside the sidebar", async ({
+  test("grows a row with its conditions and never clips one, with long names and many conditions", async ({
     page,
   }) => {
     await page.route(/\/dashboard\/activity(\?.*)?$/, async (route) => {
@@ -647,30 +807,91 @@ test.describe("Market watch on a wide desktop", () => {
           ...event.monitor,
           name: "Quality Value and Momentum Confirmation Across Large Caps",
         },
-        // Twice the reasons: the longest Why the fixture can produce.
-        why: event.why
-          ? { ...event.why, rules: [...event.why.rules, ...event.why.rules] }
-          : event.why,
+        // The first event carries its predicates four times over: twelve lines, the first of them
+        // a long expression.
+        why:
+          index === 0 && event.why
+            ? {
+                ...event.why,
+                rules: [
+                  {
+                    predicates: Array.from(
+                      { length: 4 },
+                      () => event.why!.rules[0]!.predicates,
+                    )
+                      .flat()
+                      .map((predicate, line) =>
+                        line === 0
+                          ? {
+                              ...predicate,
+                              description:
+                                "Price is above the highest SMA 200D close of the trailing fifty-two weeks across the whole universe",
+                            }
+                          : predicate,
+                      ),
+                  },
+                ],
+              }
+            : event.why,
       }));
       await route.fulfill({ response, json: { ...body, events } });
     });
-    for (const width of [1280, 1366]) {
+    for (const width of [1280, 1366, 1440, 1920]) {
       await openDashboard(page, width);
       const first = page.getByTestId("dashboard-activity-row").first();
-      await expect(first.getByTestId("dashboard-folded-monitor")).toContainText(
+      const second = page.getByTestId("dashboard-activity-row").nth(1);
+      await expect(first.getByTestId("dashboard-condition")).toHaveCount(12);
+      // Every line is drawn inside its row: nothing hidden, nothing cut.
+      const clipped = await first.evaluate((row) => {
+        const box = row.getBoundingClientRect();
+        return [
+          ...row.querySelectorAll<HTMLElement>(
+            "[data-testid='dashboard-condition']",
+          ),
+        ]
+          .map((line) => line.getBoundingClientRect())
+          .some((line) => line.bottom > box.bottom + 1 || line.height === 0);
+      });
+      expect(clipped, `${width}px`).toBe(false);
+      // A row with twelve conditions is taller than one with three.
+      const tall = (await first.boundingBox())?.height ?? 0;
+      const short = (await second.boundingBox())?.height ?? 0;
+      expect(tall, `${width}px`).toBeGreaterThan(short * 2);
+      await expect(first.getByTestId("dashboard-event-monitor")).toContainText(
         "Quality Value",
       );
-      const chip = await first
-        .getByTestId("dashboard-folded-monitor")
-        .locator("[data-kind]")
-        .evaluate((node) => {
-          const label = node.firstElementChild as HTMLElement;
-          return Math.round(
-            label.getBoundingClientRect().height /
-              parseFloat(getComputedStyle(label).lineHeight),
-          );
+      // The long Monitor name wraps inside its own column, which starts under its heading, and the
+      // long expression wraps inside the Conditions column.
+      const contained = await page
+        .getByTestId("dashboard-activity")
+        .evaluate((table) => {
+          const header = [
+            ...table.querySelectorAll('[role="columnheader"]'),
+          ].map((element) => element.getBoundingClientRect());
+          return [
+            ...table.querySelectorAll('[data-testid="dashboard-activity-row"]'),
+          ].every((row) => {
+            const cell = (name: string) =>
+              row
+                .querySelector(`[data-column="${name}"]`)!
+                .getBoundingClientRect();
+            const monitor = cell("monitor");
+            const conditions = cell("conditions");
+            const link = row
+              .querySelector('[data-column="monitor"] a')!
+              .getBoundingClientRect();
+            const lines = [
+              ...row.querySelectorAll('[data-testid="dashboard-condition"]'),
+            ].map((line) => line.getBoundingClientRect());
+            return (
+              Math.abs(monitor.left - header[3]!.left) <= 1 &&
+              link.left >= monitor.left - 1 &&
+              link.right <= monitor.right + 1 &&
+              lines.every((line) => line.right <= conditions.right + 1)
+            );
+          });
         });
-      expect(chip).toBeLessThanOrEqual(2);
+      expect(contained, `${width}px`).toBe(true);
       const tickerClipped = await first
         .getByTestId("dashboard-stock")
         .evaluate((identity) =>
@@ -679,13 +900,6 @@ test.describe("Market watch on a wide desktop", () => {
           ),
         );
       expect(tickerClipped).toBe(false);
-      const overflow = await page
-        .getByTestId("dashboard-activity")
-        .evaluate((table) => {
-          const scroll = table.parentElement!;
-          return scroll.scrollWidth - scroll.clientWidth;
-        });
-      expect(overflow, `${width}px`).toBeLessThanOrEqual(1);
       await expectNoHorizontalScroll(page, `${width}px`);
     }
   });

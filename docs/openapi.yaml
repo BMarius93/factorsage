@@ -2041,13 +2041,20 @@ paths:
 
         Readable without a session: a Guest sees the published built-ins. A signed-in caller also
         sees their own enabled monitors, and built-ins they have hidden are left out. `monitorId`
-        narrows the feed to one of those monitors; any other id yields no events.
+        narrows the feed to one of those monitors; any other id yields no events. `kind` narrows
+        it to one kind of event, in the database, so every page and its cursor are of that kind
+        alone; both filters combine.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: monitorId
           in: query
           required: false
           schema: { type: string, format: uuid }
+        - name: kind
+          in: query
+          required: false
+          description: Only events of this kind — activations, or market resolutions.
+          schema: { type: string, enum: [ACTIVATED, RESOLVED] }
         - name: limit
           in: query
           required: false

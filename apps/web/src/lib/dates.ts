@@ -24,6 +24,13 @@ const dayFormat = new Intl.DateTimeFormat(LOCALE, {
   timeZone: "UTC",
 });
 
+const longDayFormat = new Intl.DateTimeFormat(LOCALE, {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
 const dateFormat = new Intl.DateTimeFormat(LOCALE, {
   year: "numeric",
   month: "short",
@@ -42,6 +49,16 @@ const dateTimeFormat = new Intl.DateTimeFormat(LOCALE, {
 export function formatDay(day: string): string {
   const parsed = new Date(`${day.slice(0, 10)}T00:00:00.000Z`);
   return Number.isNaN(parsed.valueOf()) ? day : dayFormat.format(parsed);
+}
+
+/**
+ * A calendar day with its month written out: `"2026-10-20"` → `"October 20, 2026"`. For a heading
+ * that names a day once for everything under it — the Dashboard's market sessions. In UTC like
+ * {@link formatDay}, so the exchange's session is never moved to the viewer's local calendar.
+ */
+export function formatDayLong(day: string): string {
+  const parsed = new Date(`${day.slice(0, 10)}T00:00:00.000Z`);
+  return Number.isNaN(parsed.valueOf()) ? day : longDayFormat.format(parsed);
 }
 
 /** An instant's date, in the viewer's timezone: `"Aug 28, 2026"`. The raw value when unparsable. */

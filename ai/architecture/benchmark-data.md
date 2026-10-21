@@ -286,9 +286,9 @@ a database, a cache or a clock:
   it is `STALE` with its own `sessionDate`. The exchange calendar is not consulted: it is fetched
   from the provider.
 - **`basis: END_OF_DAY` and `returnBasis: PRICE_RETURN` are values, not conventions.** Split-adjusted
-  closes, distributions excluded. Market watch's caption names the period and the close it is
-  measured to (`1-month return · At close · Oct 9, 2026`) and nothing more, so the contract is where
-  the basis is stated, and no surface may call the numbers live.
+  closes, distributions excluded. Market watch names the close it is measured to
+  (`Close · Oct 9, 2026`) beside its title and the period by its selector, and nothing more, so the
+  contract is where the basis is stated, and no surface may call the numbers live.
 - **One unreadable series costs one row** (`status: UNAVAILABLE`, logged as
   `market.overview.instrument.failed` with the original error), or keeps that fund's last
   successful answer while *the read it came from* is younger than 15 minutes — never refreshed by
