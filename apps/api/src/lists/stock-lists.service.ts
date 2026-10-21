@@ -241,6 +241,21 @@ function isForeignKeyViolation(error: unknown): boolean {
 
 @Injectable()
 export class StockListsService {
+  /**
+   * Each maintained universe's measured size, by List, with the version it was measured at.
+   *
+   * Measuring reads every member's windows — a thousand-odd members for the S&P 500 universe — and
+   * `GET /lists` is what every collection page and every picker reads. The measure changes only
+   * when the universe's projection rewrites its members, and that projection is the List's only
+   * writer and always stamps `StockList.updatedAt` in the same transaction; so the List's
+   * `updatedAt`, its member count and the day (the peak is measured up to today) identify a
+   * measure exactly. `syncedAt` is not part of it: it is read fresh on every request.
+   */
+  private readonly universeMeasures = new Map<
+    string,
+    { readonly version: string; readonly measure: StockListUniverseResponse }
+  >();
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EntitlementsService)
@@ -266,10 +281,52 @@ export class StockListsService {
     for (const list of lists) {
       const universe = maintainedUniverse(list);
       if (universe) {
-        universes.set(list.id, await this.measureUniverse(list.id, universe));
+        universes.set(
+          list.id,
+          await this.measureUniverseOnce(list, universe),
+        );
       }
     }
     return lists.map((list) => this.summaryOf(list, viewer, universes.get(list.id)));
+  }
+
+  /**
+   * A maintained universe's measured size for the collection: measured once per version of its
+   * membership (see `universeMeasures`), with its last synchronization read fresh.
+   */
+  private async measureUniverseOnce(
+    list: {
+      readonly id: string;
+      readonly updatedAt: Date;
+      readonly _count: { readonly items: number };
+    },
+    universe: PointInTimeIndexUniverse,
+  ): Promise<StockListUniverseResponse> {
+    const version = [
+      list.updatedAt.toISOString(),
+      list._count.items,
+      new Date().toISOString().slice(0, 10),
+    ].join("|");
+    const cached = this.universeMeasures.get(list.id);
+    if (cached?.version === version) {
+      const sync = await this.latestSync(universe);
+      return { ...cached.measure, syncedAt: sync?.toISOString() ?? null };
+    }
+    const measure = await this.measureUniverse(list.id, universe);
+    this.universeMeasures.set(list.id, { version, measure });
+    return measure;
+  }
+
+  /** When the universe's membership was last synchronized, if ever. */
+  private async latestSync(
+    universe: PointInTimeIndexUniverse,
+  ): Promise<Date | null> {
+    const sync = await this.prisma.indexMembershipSync.findFirst({
+      where: { indexKey: universe.indexKey, status: "COMPLETED" },
+      orderBy: { completedAt: "desc" },
+      select: { completedAt: true },
+    });
+    return sync?.completedAt ?? null;
   }
 
   /** A maintained universe's measured size, read from its members' windows. */
@@ -287,11 +344,6 @@ export class StockListsService {
           buyWindows: { select: { startDate: true, endDate: true } },
         },
       }));
-    const sync = await this.prisma.indexMembershipSync.findFirst({
-      where: { indexKey: universe.indexKey, status: "COMPLETED" },
-      orderBy: { completedAt: "desc" },
-      select: { completedAt: true },
-    });
     return universeResponse(
       universe,
       items.map((item) => ({
@@ -302,7 +354,7 @@ export class StockListsService {
         })),
       })),
       new Date().toISOString().slice(0, 10),
-      sync?.completedAt ?? null,
+      await this.latestSync(universe),
     );
   }
 

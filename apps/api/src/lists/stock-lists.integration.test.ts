@@ -317,6 +317,68 @@ describe("stock lists", () => {
       expect(after.name).toBe("S&P 500 — Historical PIT");
       expect(after.items).toHaveLength(3);
     });
+
+    it("measures the universe once per version of its membership, and reads its last sync fresh", async () => {
+      const summaryOf = async () =>
+        (
+          (await owner.get("/lists").expect(200))
+            .body as StockListSummaryResponse[]
+        ).find((list) => list.id === universeId)?.universe;
+      const first = await summaryOf();
+      expect(first?.currentMembers).toBe(2);
+      const item = await prisma.stockListItem.findFirstOrThrow({
+        where: { stockListId: universeId, securityId: securityIds[0] as string },
+      });
+      const reopen = () =>
+        prisma.$transaction([
+          prisma.stockListBuyWindow.deleteMany({
+            where: { stockListItemId: item.id },
+          }),
+          prisma.stockListBuyWindow.create({
+            data: {
+              stockListItemId: item.id,
+              startDate: new Date("1996-01-02T00:00:00.000Z"),
+              endDate: null,
+            },
+          }),
+        ]);
+
+      // Windows changed behind the List's back — no writer of a maintained universe does this — are
+      // not measured: the measure belongs to the version the List carries.
+      await reopen();
+      expect(await summaryOf()).toEqual(first);
+
+      // A completed synchronization is reported at once, from the measure already taken.
+      const completedAt = new Date("2026-10-20T22:00:00.000Z");
+      const sync = await prisma.indexMembershipSync.create({
+        data: {
+          indexKey: "SP500",
+          status: "COMPLETED",
+          algorithmVersion: 1,
+          completedAt,
+        },
+      });
+      try {
+        expect(await summaryOf()).toEqual({
+          ...first,
+          syncedAt: completedAt.toISOString(),
+        });
+
+        // The projection stamps the List in the same transaction as the windows it writes
+        // (`writeIndexUniverseList`): the next read measures the new membership.
+        await prisma.stockList.update({
+          where: { id: universeId },
+          data: { updatedAt: new Date() },
+        });
+        expect(await summaryOf()).toMatchObject({
+          distinctSecurities: 3,
+          currentMembers: 3,
+          syncedAt: completedAt.toISOString(),
+        });
+      } finally {
+        await prisma.indexMembershipSync.delete({ where: { id: sync.id } });
+      }
+    });
   });
 
   it("creates an empty list and lists it with a zero item count", async () => {
