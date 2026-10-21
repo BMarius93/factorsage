@@ -59,12 +59,15 @@ export async function openFixtureList(page: Page, name: string): Promise<void> {
   const link = page.getByRole("link", { name: fixtureName(name) }).first();
   // The collection pages at 25 rows, and a persona carrying entitlement fixtures can hold
   // more than that. Widening the page is what a user would do to find one by name, so the
-  // helper does the same rather than reaching past the UI.
-  if ((await link.count()) === 0) {
-    await page
-      .getByTestId("lists-footer")
-      .getByLabel("Rows")
-      .selectOption("100");
+  // helper does the same rather than reaching past the UI. It looks only once the section has
+  // its rows, and widens only where there is a footer: a section that fits on its smallest
+  // page has none, because every row is already on screen.
+  await expect(
+    page.getByTestId("your-lists").getByTestId("list-row").first(),
+  ).toBeVisible({ timeout: 20_000 });
+  const footer = page.getByTestId("lists-footer");
+  if ((await link.count()) === 0 && (await footer.count()) > 0) {
+    await footer.getByLabel("Rows").selectOption("100");
   }
   await expect(
     link,
