@@ -25,6 +25,12 @@
   overflow-anchor: none;
 }
 
+/* On a Monitor's own page there is no Monitor column: the conditions take its width. */
+.feed[data-monitor-column="off"] {
+  --feed-columns: clamp(11rem, 17%, 18rem) clamp(9.5rem, 11%, 12rem)
+    minmax(0, 1fr);
+}
+
 .head,
 .session {
   display: block;

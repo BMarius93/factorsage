@@ -61,9 +61,18 @@ export function activityStateLabel(
 export const ActivityFeed = memo(function ActivityFeed({
   events,
   testId = "dashboard-activity",
+  label = "Monitor activity",
+  showMonitor = true,
 }: {
   readonly events: readonly DashboardActivityEventResponse[];
   readonly testId?: string;
+  /** The table's accessible name. */
+  readonly label?: string;
+  /**
+   * The Monitor column. Off on a Monitor's own page, where every event is that Monitor's and a
+   * column repeating its name on every row would only take width from the conditions.
+   */
+  readonly showMonitor?: boolean;
 }) {
   const sessions = useMemo(() => groupBySession(events), [events]);
 
@@ -71,8 +80,9 @@ export const ActivityFeed = memo(function ActivityFeed({
     <table
       className={styles.feed}
       role="table"
-      aria-label="Monitor activity"
+      aria-label={label}
       data-testid={testId}
+      data-monitor-column={showMonitor ? undefined : "off"}
     >
       <thead className={styles.head} role="rowgroup">
         <tr className={styles.headRow} role="row">
@@ -85,9 +95,11 @@ export const ActivityFeed = memo(function ActivityFeed({
           <th role="columnheader" scope="col" className={styles.th}>
             Conditions
           </th>
-          <th role="columnheader" scope="col" className={styles.th}>
-            Monitor
-          </th>
+          {showMonitor ? (
+            <th role="columnheader" scope="col" className={styles.th}>
+              Monitor
+            </th>
+          ) : null}
         </tr>
       </thead>
       {sessions.map((session) => (
@@ -102,7 +114,7 @@ export const ActivityFeed = memo(function ActivityFeed({
             <th
               role="rowheader"
               scope="rowgroup"
-              colSpan={4}
+              colSpan={showMonitor ? 4 : 3}
               className={styles.sessionHeader}
             >
               <time
@@ -114,7 +126,11 @@ export const ActivityFeed = memo(function ActivityFeed({
             </th>
           </tr>
           {session.events.map((event) => (
-            <ActivityRow key={event.id} event={event} />
+            <ActivityRow
+              key={event.id}
+              event={event}
+              showMonitor={showMonitor}
+            />
           ))}
         </tbody>
       ))}
@@ -142,8 +158,10 @@ function openStockFromRow(event: MouseEvent<HTMLTableRowElement>) {
 
 const ActivityRow = memo(function ActivityRow({
   event,
+  showMonitor,
 }: {
   readonly event: DashboardActivityEventResponse;
+  readonly showMonitor: boolean;
 }) {
   return (
     <tr
@@ -202,20 +220,25 @@ const ActivityRow = memo(function ActivityRow({
       >
         <ActivityConditions why={event.why} />
       </td>
-      <td className={styles.monitorCell} role="cell" data-column="monitor">
-        <span className={styles.monitor} data-testid="dashboard-event-monitor">
-          {/* The column heading names it in the table; a stacked event names it here instead. */}
-          <span className={styles.monitorLabel} aria-hidden="true">
-            Monitor
-          </span>
-          <Link
-            className={styles.monitorLink}
-            href={`/monitors/${event.monitor.id}`}
+      {showMonitor ? (
+        <td className={styles.monitorCell} role="cell" data-column="monitor">
+          <span
+            className={styles.monitor}
+            data-testid="dashboard-event-monitor"
           >
-            {event.monitor.name}
-          </Link>
-        </span>
-      </td>
+            {/* The column heading names it in the table; a stacked event names it here instead. */}
+            <span className={styles.monitorLabel} aria-hidden="true">
+              Monitor
+            </span>
+            <Link
+              className={styles.monitorLink}
+              href={`/monitors/${event.monitor.id}`}
+            >
+              {event.monitor.name}
+            </Link>
+          </span>
+        </td>
+      ) : null}
     </tr>
   );
 });

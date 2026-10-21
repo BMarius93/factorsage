@@ -17,16 +17,21 @@ export function fetchDashboard(options: { signal?: AbortSignal } = {}) {
  * from the newest event down to and including that one instead — how a reader refreshes what they
  * hold — continued with `cursor`.
  */
-export function fetchMonitorActivity(
-  query: {
-    monitorId?: string;
-    kind?: MonitorActivityKind;
-    limit?: number;
-    cursor?: string;
-    through?: string;
-  } = {},
-  options: { signal?: AbortSignal } = {},
-) {
+export type ActivityReadQuery = {
+  monitorId?: string;
+  kind?: MonitorActivityKind;
+  limit?: number;
+  cursor?: string;
+  through?: string;
+};
+
+/** One read of an activity feed: the Dashboard's, or one Monitor's own history. */
+export type ActivityReader = (
+  query: ActivityReadQuery,
+  options?: { signal?: AbortSignal },
+) => Promise<DashboardActivityResponse>;
+
+function activitySearch(query: ActivityReadQuery): string {
   const params = new URLSearchParams();
   if (query.monitorId) params.set("monitorId", query.monitorId);
   if (query.kind) params.set("kind", query.kind);
@@ -34,8 +39,33 @@ export function fetchMonitorActivity(
   if (query.cursor) params.set("cursor", query.cursor);
   if (query.through) params.set("through", query.through);
   const search = params.toString();
+  return search ? `?${search}` : "";
+}
+
+export function fetchMonitorActivity(
+  query: ActivityReadQuery = {},
+  options: { signal?: AbortSignal } = {},
+) {
   return apiGet<DashboardActivityResponse>(
-    `/dashboard/activity${search ? `?${search}` : ""}`,
+    `/dashboard/activity${activitySearch(query)}`,
+    options,
+  );
+}
+
+/**
+ * One Monitor's own Activity history (`GET /monitors/:monitorId/activity`): the Dashboard's feed over
+ * that Monitor alone, whatever the viewer's Dashboard shows. The Monitor is the path's, so a
+ * `monitorId` in the query is never sent.
+ */
+export function fetchMonitorHistory(
+  monitorId: string,
+  query: ActivityReadQuery = {},
+  options: { signal?: AbortSignal } = {},
+) {
+  const { monitorId: _ignored, ...rest } = query;
+  void _ignored;
+  return apiGet<DashboardActivityResponse>(
+    `/monitors/${encodeURIComponent(monitorId)}/activity${activitySearch(rest)}`,
     options,
   );
 }

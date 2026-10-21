@@ -9,7 +9,10 @@ import {
   useCursorFeed,
   type CursorFeedStatus,
 } from "../../../lib/use-cursor-feed";
-import { fetchMonitorActivity } from "../api/dashboard-api";
+import {
+  fetchMonitorActivity,
+  type ActivityReader,
+} from "../api/dashboard-api";
 import { rangeArrivals, rangeChanged, replaceRange } from "../utils/activity";
 
 export type ActivityStatus = CursorFeedStatus;
@@ -69,6 +72,13 @@ type Options = {
    * old list: where a scroll anchor is captured.
    */
   readonly onBeforeMerge?: () => void;
+  /**
+   * Where the events are read from: the Dashboard's feed by default, or one Monitor's own history
+   * (`fetchMonitorHistory`). The same pages, cursors and `through` re-reads either way.
+   */
+  readonly read?: ActivityReader;
+  /** Names the source when `read` is given, so another source starts the feed over. */
+  readonly source?: string;
 };
 
 /**
@@ -89,17 +99,17 @@ type Options = {
 export function useMonitorActivity(
   monitorId: string | null,
   kind: MonitorActivityKind | null = null,
-  { onBeforeMerge }: Options = {},
+  { onBeforeMerge, read = fetchMonitorActivity, source }: Options = {},
 ): MonitorActivityState {
   const filters = {
     ...(monitorId ? { monitorId } : {}),
     ...(kind ? { kind } : {}),
   };
-  const key = JSON.stringify([monitorId, kind]);
+  const key = JSON.stringify([source ?? null, monitorId, kind]);
   const feed = useCursorFeed<DashboardActivityEventResponse>({
     key,
     fetchPage: (cursor, signal) =>
-      fetchMonitorActivity(
+      read(
         {
           ...filters,
           limit: ACTIVITY_PAGE_SIZE,
@@ -118,9 +128,9 @@ export function useMonitorActivity(
   // Bumped whenever the feed starts over, so a look that began before it changes nothing after.
   const epoch = useRef(0);
   const looking = useRef(false);
-  const latest = useRef({ feed, filters, onBeforeMerge });
+  const latest = useRef({ feed, filters, onBeforeMerge, read });
   useEffect(() => {
-    latest.current = { feed, filters, onBeforeMerge };
+    latest.current = { feed, filters, onBeforeMerge, read };
   });
 
   // The newest page again — after a reload or another filter — is the reader's new starting point:
@@ -132,7 +142,7 @@ export function useMonitorActivity(
   }, [feed.restarts, key]);
 
   const refresh = useCallback(() => {
-    const { feed: shown, filters: asked } = latest.current;
+    const { feed: shown, filters: asked, read: reader } = latest.current;
     if (looking.current || shown.status !== "ready") return;
     const bottom = shown.items[shown.items.length - 1];
     if (!bottom) {
@@ -147,7 +157,7 @@ export function useMonitorActivity(
         const range: DashboardActivityEventResponse[] = [];
         let cursor: string | undefined;
         for (let read = 0; read < ACTIVITY_REFRESH_READS; read += 1) {
-          const page = await fetchMonitorActivity({
+          const page = await reader({
             ...asked,
             through: bottom.id,
             ...(cursor ? { cursor } : {}),

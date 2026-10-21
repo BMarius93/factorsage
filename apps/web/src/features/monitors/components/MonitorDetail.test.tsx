@@ -1,10 +1,13 @@
-import type {
-  MonitorDetailResponse,
-  MonitorSecurityEvaluationResponse,
-  MonitorSignalRowResponse,
-  MonitorSummaryResponse,
-  StockListSummaryResponse,
-  StrategySummaryResponse,
+import {
+  MONITOR_SECURITY_STATUSES,
+  type DashboardActivityEventResponse,
+  type MonitorDetailResponse,
+  type MonitorDetailSummaryResponse,
+  type MonitorSecurityEvaluationResponse,
+  type MonitorSignalRowResponse,
+  type MonitorSummaryResponse,
+  type StockListSummaryResponse,
+  type StrategySummaryResponse,
 } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -31,6 +34,7 @@ import {
 } from "../../auth/__testing__/auth-session";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
+import { fetchMonitorHistory } from "../../dashboard/api/dashboard-api";
 import { MonitorDetail } from "./MonitorDetail";
 import { blockedExplanation } from "../utils/blocked-status";
 
@@ -59,11 +63,16 @@ vi.mock("../../strategies/api/strategies-api", () => ({
   fetchStrategies: vi.fn(),
 }));
 
+vi.mock("../../dashboard/api/dashboard-api", () => ({
+  fetchMonitorHistory: vi.fn(),
+}));
+
 vi.mock("../../lists/api/stock-lists-api", () => ({
   fetchStockLists: vi.fn(),
 }));
 
 const fetchMonitorMock = vi.mocked(fetchMonitor);
+const fetchMonitorHistoryMock = vi.mocked(fetchMonitorHistory);
 const fetchMonitorSignalsMock = vi.mocked(fetchMonitorSignals);
 const updateMonitorMock = vi.mocked(updateMonitor);
 const deleteMonitorMock = vi.mocked(deleteMonitor);
@@ -175,9 +184,13 @@ function signalRow(
   };
 }
 
+/**
+ * The Monitor's detail as the page reads it (`?view=summary`): written as the full detail a test
+ * reasons in — its members — and answered as the API answers the page, with those members counted.
+ */
 function detail(
   overrides: Partial<MonitorDetailResponse> = {},
-): MonitorDetailResponse {
+): MonitorDetailSummaryResponse {
   const base: MonitorSummaryResponse = {
     ownership: "USER",
     canEdit: true,
@@ -195,7 +208,19 @@ function detail(
     createdAt: "2026-09-01T10:00:00.000Z",
     updatedAt: "2026-09-02T10:00:00.000Z",
   };
-  return { ...base, securities: [], signals: [], ...overrides };
+  const {
+    securities = [],
+    signals: _signals,
+    ...rest
+  } = { ...base, ...overrides } as MonitorDetailResponse;
+  void _signals;
+  const byStatus = Object.fromEntries(
+    MONITOR_SECURITY_STATUSES.map((status) => [
+      status,
+      securities.filter((entry) => entry.status === status).length,
+    ]),
+  ) as MonitorDetailSummaryResponse["memberCounts"]["byStatus"];
+  return { ...rest, memberCounts: { total: securities.length, byStatus } };
 }
 
 async function detailReady() {
@@ -210,6 +235,11 @@ beforeEach(() => {
   useAuthSessionMock.mockReturnValue(signedInSession());
   fetchMonitorMock.mockReset();
   fetchMonitorSignalsMock.mockReset().mockResolvedValue({ rows: [] });
+  fetchMonitorHistoryMock.mockReset().mockResolvedValue({
+    viewer: "AUTHENTICATED",
+    generatedAt: "2026-10-14T21:00:00.000Z",
+    events: [],
+  });
   updateMonitorMock.mockReset();
   deleteMonitorMock.mockReset();
   fetchStrategiesMock.mockReset().mockResolvedValue(STRATEGIES);
@@ -1056,5 +1086,168 @@ describe("MonitorDetail", () => {
       expect(deleteMonitorMock).toHaveBeenCalledWith("monitor-1");
     });
     expect(push).toHaveBeenCalledWith("/monitors");
+  });
+});
+
+describe("MonitorDetail — Activity history", () => {
+  function historyEvent(
+    id: string,
+    kind: DashboardActivityEventResponse["kind"],
+    sessionDate: string,
+  ): DashboardActivityEventResponse {
+    return {
+      id,
+      kind,
+      sessionDate,
+      reason: kind === "ACTIVATED" ? "CONDITIONS_MET" : "CONDITIONS_ENDED",
+      levelKind: "BUY",
+      levelIndex: 1,
+      levelPercentage: 100,
+      signalId: `signal-${id}`,
+      observationBasis: "EOD_CLOSE",
+      security: {
+        id: `sec-${id}`,
+        symbol: `S${id.toUpperCase()}`,
+        name: `Stock ${id}`,
+        exchangeCode: "NASDAQ",
+      },
+      monitor: { id: "monitor-1", name: "Value entries" },
+      why: { basis: "RULE_ONLY", sessionDate, rules: [] },
+    } as unknown as DashboardActivityEventResponse;
+  }
+
+  it("reads this Monitor's own history, apart from the Signal table and without a Monitor column", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorHistoryMock.mockResolvedValue({
+      viewer: "AUTHENTICATED",
+      generatedAt: "2026-10-14T21:00:00.000Z",
+      events: [
+        historyEvent("b", "RESOLVED", "2026-10-13"),
+        historyEvent("a", "ACTIVATED", "2026-10-09"),
+      ],
+    });
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const section = await screen.findByTestId("monitor-history-section");
+    expect(fetchMonitorHistoryMock).toHaveBeenCalledWith(
+      "monitor-1",
+      { limit: 25 },
+      expect.anything(),
+    );
+    const feed = within(section).getByTestId("monitor-history");
+    expect(within(feed).getAllByTestId("dashboard-activity-row")).toHaveLength(
+      2,
+    );
+    expect(
+      within(feed).getAllByTestId("dashboard-session")[0]?.textContent,
+    ).toBe("October 13, 2026");
+    // Every event is this Monitor's: no column repeats its name.
+    expect(
+      within(feed).queryByRole("columnheader", { name: "Monitor" }),
+    ).toBeNull();
+    expect(within(feed).queryByTestId("dashboard-event-monitor")).toBeNull();
+    // A section of its own, not part of the Signal table.
+    expect(section.contains(screen.getByTestId("monitor-signals-empty"))).toBe(
+      false,
+    );
+    expect(
+      within(section).getByRole("heading", { name: "Activity history" }),
+    ).toBeDefined();
+  });
+
+  it("narrows the history to one kind of event in the API", async () => {
+    const user = userEvent.setup();
+    fetchMonitorMock.mockResolvedValue(detail());
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    await screen.findByTestId("monitor-history-empty");
+
+    await user.selectOptions(
+      screen.getByTestId("monitor-history-kind"),
+      "RESOLVED",
+    );
+    await waitFor(() =>
+      expect(fetchMonitorHistoryMock).toHaveBeenLastCalledWith(
+        "monitor-1",
+        { kind: "RESOLVED", limit: 25 },
+        expect.anything(),
+      ),
+    );
+    expect(
+      (await screen.findByTestId("monitor-history-empty")).textContent,
+    ).toContain("No activity of this kind");
+  });
+
+  it("offers older history on request where pages do not load on their own", async () => {
+    const user = userEvent.setup();
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorHistoryMock
+      .mockResolvedValueOnce({
+        viewer: "AUTHENTICATED",
+        generatedAt: "2026-10-14T21:00:00.000Z",
+        events: [historyEvent("b", "RESOLVED", "2026-10-13")],
+        nextCursor: "cursor-1",
+      })
+      .mockResolvedValueOnce({
+        viewer: "AUTHENTICATED",
+        generatedAt: "2026-10-14T21:00:00.000Z",
+        events: [historyEvent("a", "ACTIVATED", "2026-10-09")],
+      });
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    await user.click(await screen.findByTestId("monitor-history-more"));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("monitor-history")).getAllByTestId(
+          "dashboard-activity-row",
+        ),
+      ).toHaveLength(2),
+    );
+    expect(fetchMonitorHistoryMock).toHaveBeenLastCalledWith(
+      "monitor-1",
+      { limit: 25, cursor: "cursor-1" },
+      expect.anything(),
+    );
+    expect(screen.queryByTestId("monitor-history-more")).toBeNull();
+  });
+
+  it("says when the history could not be loaded, and reads it again on request", async () => {
+    const user = userEvent.setup();
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorHistoryMock
+      .mockReset()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce({
+        viewer: "AUTHENTICATED",
+        generatedAt: "2026-10-14T21:00:00.000Z",
+        events: [historyEvent("a", "ACTIVATED", "2026-10-09")],
+      });
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const failed = await screen.findByTestId("monitor-history-error");
+    await user.click(within(failed).getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("monitor-history")).getAllByTestId(
+          "dashboard-activity-row",
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("counts the Signal table's two groups in its heading", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    fetchMonitorSignalsMock.mockResolvedValue({
+      rows: [],
+      counts: { active: 3, ended: 1_204, waiting: 0 },
+    });
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+    expect(
+      (await screen.findByTestId("monitor-signals-count")).textContent,
+    ).toBe("3 active · 1,204 ended");
   });
 });

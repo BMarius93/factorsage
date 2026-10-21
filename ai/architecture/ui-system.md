@@ -392,6 +392,11 @@ its last event), and a `dashboard-feed` **container** on its column. From 40rem 
 four columns — Stock, Signal, Conditions, Monitor — whose widths scale with the column; below it each
 event stacks (stock and signal on one line, every condition under them, the Monitor last under its
 own small label) with the column headings visually hidden. Nothing in it folds away and nothing scrolls sideways; a row grows with its conditions.
+The same `ActivityFeed` is a Monitor's **Activity history** on its own page, inside a compact
+`SectionCard` that publishes the feed's insets, its sticky offset and a `dashboard-feed` container,
+with `showMonitor={false}` — every event is that Monitor's, so the Monitor column is dropped and the
+conditions take its width. It is a section of its own, never rows inside the Signal table: the table
+says where each occurrence stands now, the history says what happened.
 
 **One row of pills on a phone card.** Each `links` cell is a full-width row of the phone card with
 a label beside its chip. Where the chips say enough on their own, and three labelled rows would cost

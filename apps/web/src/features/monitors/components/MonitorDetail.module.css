@@ -69,7 +69,7 @@
 
 /* The signals disclosure, inside the flush signals surface, which supplies no body padding. */
 .disclosure {
-  padding: 12px var(--surface-inset) 0;
+  padding: 12px var(--surface-inset);
 }
 
 /* The state filter on the left, the action refinement on the right; they stack on a phone. */
@@ -86,7 +86,8 @@
 .coverage {
   display: grid;
   gap: 2px;
-  margin: 0 var(--surface-inset) 14px;
+  /* The compact section's heading row ends with no padding of its own. */
+  margin: 12px var(--surface-inset) 14px;
 }
 
 .coverageLine {
@@ -124,6 +125,32 @@
   align-items: center;
   gap: 8px;
   padding: 12px var(--surface-inset) 0;
+}
+
+/* "Loading older activity…" while the history's next page loads on its own. */
+.moreLoading {
+  min-height: 1lh;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-secondary);
+}
+
+/* The Activity history: the Dashboard's feed, edge to edge in its section, adapting to the
+   section's own width (a stacked block per event below 40rem) and holding each session's heading
+   under the topbar while its events scroll. */
+.history {
+  --feed-inset-start: var(--surface-inset);
+  --feed-inset-end: var(--surface-inset);
+  --feed-sticky-top: var(--topbar-height);
+
+  container: dashboard-feed / inline-size;
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .history {
+    --feed-sticky-top: var(--topbar-height-wide);
+  }
 }
 
 .moreFailed {

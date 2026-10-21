@@ -1,6 +1,6 @@
 "use client";
 
-import type { MonitorDetailResponse } from "@intrinsic/contracts";
+import type { MonitorDetailSummaryResponse } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../lib/api/client";
 import { fetchMonitor } from "../api/monitors-api";
@@ -9,13 +9,14 @@ export type MonitorStatus = "loading" | "ready" | "missing" | "error";
 
 export type MonitorState = {
   readonly status: MonitorStatus;
-  readonly monitor: MonitorDetailResponse | null;
+  readonly monitor: MonitorDetailSummaryResponse | null;
   /** Re-reads the monitor from the API. */
   readonly reload: () => void;
 };
 
 /**
- * Loads one monitor with its evaluation table and Signals.
+ * Loads one monitor as its page renders: its detail with the current members counted (the Signal
+ * table and the Activity history are read separately, a page at a time).
  *
  * A monitor that is not the caller's answers exactly like one that does not exist, so `missing` is
  * reported for a 404 rather than a generic failure — the page can then say the monitor is gone
@@ -27,7 +28,9 @@ export type MonitorState = {
  */
 export function useMonitor(monitorId: string): MonitorState {
   const [status, setStatus] = useState<MonitorStatus>("loading");
-  const [monitor, setMonitor] = useState<MonitorDetailResponse | null>(null);
+  const [monitor, setMonitor] = useState<MonitorDetailSummaryResponse | null>(
+    null,
+  );
   const [attempt, setAttempt] = useState(0);
   const latestRequestRef = useRef(0);
   const reload = useCallback(() => setAttempt((current) => current + 1), []);

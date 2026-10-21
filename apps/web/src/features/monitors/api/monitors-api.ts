@@ -1,6 +1,7 @@
 import type {
   CreateMonitorRequest,
   MonitorDetailResponse,
+  MonitorDetailSummaryResponse,
   MonitorLevelKind,
   MonitorSignalPageResponse,
   MonitorSignalRowState,
@@ -21,16 +22,17 @@ export function fetchMonitors(options: { signal?: AbortSignal } = {}) {
 }
 
 /**
- * One monitor with its current evaluation table and its newest Signals.
- *
- * The whole detail page is this single request: the evaluation status of every monitored security
- * comes back with it, so nothing is fetched per security or per Signal.
+ * The Monitor's page as it renders (`?view=summary`): its detail with the current members counted
+ * rather than listed, and without the newest Signals, which the page reads a page at a time.
  */
 export function fetchMonitor(
   monitorId: string,
   options: { signal?: AbortSignal } = {},
 ) {
-  return apiGet<MonitorDetailResponse>(`/monitors/${monitorId}`, options);
+  return apiGet<MonitorDetailSummaryResponse>(
+    `/monitors/${monitorId}?view=summary`,
+    options,
+  );
 }
 
 export async function createMonitor(
