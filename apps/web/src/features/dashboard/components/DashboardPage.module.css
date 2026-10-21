@@ -1,48 +1,186 @@
-/* Page rhythm, the filter pills and the cells that carry dashboard-specific meaning. Surfaces,
-   tables, badges, chips and empty states come from `components/ui`. */
+/* The Dashboard: one page in two panes — Monitor activity, and from 1,280px Market watch flush
+ * against the right edge. Neither pane is a card: no outer border, radius or shadow; one hairline
+ * divides them, and subtle rules divide what is inside them.
+ *
+ * The feed's column publishes the geometry its contents line up to:
+ * - `--feed-inset-start` / `--feed-inset-end`: the gutter its heading, session headings and table
+ *   cells keep from the column's edges, so a row's hover tint can still run edge to edge;
+ * - `--feed-sticky-top`: where a session heading sticks — under the topbar, and on a desktop under
+ *   the panel heading too, which sticks there itself;
+ * - `dashboard-feed`, a container its table adapts to (a stacked block per event below 40rem). */
+
 .page {
-  composes: stack from "../../../components/ui/page.module.css";
+  /* The panel heading's fixed height on a desktop, so a session heading knows where to stick. */
+  --activity-header-height: 52px;
+
+  min-width: 0;
+  background: var(--color-surface);
 }
 
-/* One column below 1,280px; from it, the feed and the Market watch sidebar. The sidebar's track
-   is reserved here at the same query `MARKET_WATCH_MEDIA_QUERY` mounts it at, so the feed is already
+/* One column below 1,280px; from it, the feed and the Market watch sidebar. The sidebar's track is
+   reserved here at the same query `MARKET_WATCH_MEDIA_QUERY` mounts it at, so the feed is already
    its final width when Market watch appears after hydration. */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: var(--section-gap);
 }
 
-/* The feed's column, and the container its table adapts to (see the narrow-table rules below). */
 .main {
-  container: dashboard-main / inline-size;
+  --feed-inset-start: var(--page-pad-mobile);
+  --feed-inset-end: var(--page-pad-mobile);
+  --feed-sticky-top: var(--topbar-height);
+
+  container: dashboard-feed / inline-size;
   display: grid;
-  gap: var(--section-gap);
+  align-content: start;
   min-width: 0;
+  padding-bottom: 32px;
+}
+
+@media (min-width: 600px) {
+  .main {
+    --feed-inset-start: var(--page-pad-tablet);
+    --feed-inset-end: var(--page-pad-tablet);
+  }
+}
+
+@media (min-width: 880px) {
+  .main {
+    --feed-sticky-top: calc(
+      var(--topbar-height-wide) + var(--activity-header-height)
+    );
+  }
 }
 
 @media (min-width: 1280px) {
   .layout {
-    grid-template-columns: minmax(0, 1fr) clamp(20rem, 28%, 26rem);
-    column-gap: 24px;
+    /* About 330–360px: the sidebar keeps its one-line rows at every desktop width, and never takes
+       more than a quarter of a 1,280px screen. */
+    grid-template-columns: minmax(0, 1fr) clamp(330px, 24vw, 360px);
+    /* The panes reach the bottom of the screen even when the feed is short, so the divider and the
+       sidebar never stop halfway down. */
+    min-height: calc(100dvh - var(--topbar-height-wide));
   }
 
-  /* Sticky under the topbar, and never taller than the screen below it: its list scrolls inside
-     the surface instead, and at the foot of the page it travels up with the grid, never over the
-     footer. */
+  .main {
+    /* The feed's text starts where the topbar's brand does. */
+    --feed-inset-start: var(--page-pad-wide);
+    --feed-inset-end: 24px;
+  }
+
+  /* Flush under the topbar and against the right edge, exactly the screen's remaining height, and
+     held there while the feed scrolls; its list scrolls inside it. At the foot of the page it
+     travels up with the grid, never over the footer. */
   .sidebar {
     position: sticky;
-    top: calc(var(--topbar-height-wide) + 16px);
+    top: var(--topbar-height-wide);
     grid-row: 1;
     grid-column: 2;
     display: flex;
     flex-direction: column;
+    height: calc(100dvh - var(--topbar-height-wide));
     min-height: 0;
-    max-height: calc(
-      100dvh - var(--topbar-height-wide) - var(--page-pad-wide) - 16px
-    );
+    border-left: 1px solid var(--color-border);
   }
+}
+
+.activity {
+  min-width: 0;
+}
+
+/* ── The panel heading ───────────────────────────────────────────────── */
+/* `Monitor activity · Updated 3 min ago`, and the two filters beside it. On a desktop it sticks
+   under the topbar, so the filters are within reach however far the feed has been read. */
+.activityHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 14px var(--feed-inset-end) 10px var(--feed-inset-start);
+  background: var(--color-surface);
+}
+
+@media (min-width: 880px) {
+  .activityHeader {
+    position: sticky;
+    top: var(--topbar-height-wide);
+    z-index: 2;
+    flex-wrap: nowrap;
+    height: var(--activity-header-height);
+    padding-top: 0;
+    padding-bottom: 0;
+    /* A hairline under it once rows pass beneath. */
+    box-shadow: 0 1px 0 var(--color-border-subtle);
+  }
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* The same heading Market watch wears, so the two panes read as one page. */
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+/* `Updated 4 min ago`: what a reader checks, not what they read first. The warning treatments
+   (stale, never scanned) keep the `StatusBadge` they have always had. */
+.freshness {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Monitor and Event: two compact dropdowns, independent, side by side. A long Monitor name is cut
+   by the control itself, never by the row. */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.filters select {
+  max-width: 14rem;
+}
+
+@media (max-width: 879px) {
+  .filters {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+  }
+
+  .filters > * {
+    min-width: 0;
+  }
+
+  .filters select {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* ── States and the feed's surroundings ──────────────────────────────── */
+.state {
+  padding: 12px var(--feed-inset-end) 16px var(--feed-inset-start);
+  border-top: 1px solid var(--color-border);
 }
 
 .guestNotice {
@@ -50,18 +188,19 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 8px 12px;
+  margin: 12px var(--feed-inset-end) 0 var(--feed-inset-start);
+  padding: 8px 12px;
   border: 1px solid var(--color-primary-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-primary-soft);
   color: var(--color-text-body);
-  font-size: 14px;
+  font-size: var(--text-secondary);
 }
 
 .guestNotice p {
-  margin: 0;
   flex: 1 1 20rem;
+  margin: 0;
 }
 
 .guestNotice a {
@@ -74,230 +213,6 @@
   font-weight: var(--weight-emphasis);
 }
 
-/* The primary state filter on the left, the action refinement on the right — two different
-   control shapes so they never read as two competing tab bars. They stack on a phone. */
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-}
-
-.badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-/* The dominant column: the sentence that says why the row is here, given a floor so the other
-   seven cannot squeeze it into a column of two-word lines, and a ceiling so it cannot run to a
-   1,000px measure on a wide screen. The floor is 13rem rather than 14 because at 1,280px those
-   last 16px are the difference between Strategy, List and Monitor wrapping inside their columns
-   and the whole table scrolling sideways; `Why` is still half again the width of any other
-   column at every desktop size. */
-.reasons {
-  display: grid;
-  gap: 2px;
-  min-width: 13rem;
-  max-width: 26rem;
-}
-
-.reason {
-  margin: 0;
-  color: var(--color-text-body);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.reasonRule {
-  color: var(--color-text-secondary);
-  font-weight: var(--weight-emphasis);
-}
-
-.reasonTrigger {
-  color: var(--color-text-secondary);
-}
-
-.placeholder {
-  color: var(--color-text-muted);
-}
-
-@media (max-width: 879px) {
-  .reasons {
-    min-width: 0;
-    max-width: none;
-  }
-
-  /* The card's prose, not a fact beside a label: it reads at the body colour, across the
-     whole card, because it is the one sentence on the card that says why the row exists. */
-  .reason {
-    color: var(--color-text-body);
-    font-size: 12.5px;
-    line-height: 1.4;
-  }
-
-  /* The filters keep their touch height and only lose the air between them. */
-  .toolbar {
-    gap: 8px 12px;
-  }
-}
-
-/* The identity floor for the Stock column comes from `DataTable` (`minWidth: 8.5rem`, UX-007) and
-   relationship chips contain themselves, so the table needs no local sizing rules. */
-.stockCell {
-  display: block;
-  min-width: 0;
-}
-
-.entityCell {
-  display: block;
-  min-width: 0;
-}
-
-/* Strategy, List and Monitor on a phone card (`CardRelationships`): each pill under a small label,
-   in the same quiet uppercase the product's card labels use, one size down. Monitor's label is one
-   step darker, because the signal belongs to it. */
-.origin {
-  display: flex;
-  flex: 1 1 100%;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px 14px;
-  min-width: 0;
-}
-
-.originItem {
-  display: grid;
-  justify-items: start;
-  gap: 3px;
-  min-width: 0;
-}
-
-.originLabel {
-  color: var(--color-text-muted);
-  font-size: 10px;
-  font-weight: var(--weight-emphasis);
-  line-height: 1.2;
-  letter-spacing: var(--text-label-tracking);
-  text-transform: uppercase;
-}
-
-.originItem[data-primary="true"] .originLabel {
-  color: var(--color-text-secondary);
-}
-
-/* How long a match's state has held (UI-025). */
-.since {
-  display: inline-grid;
-  color: var(--color-text-body);
-  font-variant-numeric: tabular-nums;
-}
-
-/* `Updated 4 min ago`, beside the Current matches heading. Quiet on purpose: it is what a
-   reader checks, not what they read first, and the warning treatments (stale, never scanned)
-   keep the `StatusBadge` they have always had. */
-.freshness {
-  color: var(--color-text-muted);
-  font-size: var(--text-secondary);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-/* The signals disclosure sits under the table inside the same surface. A flush section removes
-   the body padding so the table can run edge to edge, so the note supplies its own. */
-.disclosure {
-  padding: 12px var(--surface-inset) 0;
-}
-
-/* `· intraday quote`: an occurrence the earlier live-quote Monitor decided, said quietly. */
-.basis {
-  color: var(--color-text-muted);
-  font-size: var(--text-secondary);
-}
-
-/* The session under the signal and the Monitor under the reason, displayed only by the narrow
-   table below. */
-.foldedSession,
-.foldedMonitor {
-  display: none;
-}
-
-/* The narrow table (DB-V2). The six-column feed needs about 62rem of its own column; beside Market
-   watch a 1,280–1,440px screen gives it 52–60rem, and the intermediate band can be narrower still.
-   A viewport query cannot know that, so the feed's own column decides. Below 62rem the table folds
-   to four columns, as the phone card arranges the same facts: the session moves under the signal,
-   the Monitor's chip under the reason, the badges stack (the long "Ended · …" one may wrap) and the
-   cells close up — so the reason keeps a readable measure and nothing scrolls sideways. Every fact
-   stays, displayed once. Scoped to the table layout (from 880px); the phone card is untouched. */
-@media (min-width: 880px) {
-  @container dashboard-main (max-width: 61.99rem) {
-    .activity [data-column="session"],
-    .activity [data-column="monitor"] {
-      display: none;
-    }
-
-    .activity th:not(:first-child),
-    .activity td:not(:first-child) {
-      padding-left: 10px;
-    }
-
-    .activity th,
-    .activity td {
-      padding-right: 10px;
-    }
-
-    /* Price is the last column displayed, so it takes the surface's inset as the last one would. */
-    .activity [data-column="price"] {
-      padding-right: var(--surface-inset);
-    }
-
-    .activity .badges {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
-    .activity .badges > * {
-      white-space: normal;
-    }
-
-    .activity .foldedSession {
-      display: block;
-      margin-top: 2px;
-      white-space: nowrap;
-    }
-
-    .activity .foldedMonitor {
-      display: flex;
-      margin-top: 6px;
-    }
-
-    /* Label beside the chip rather than over it: one line, not two, under the reason. */
-    .activity .foldedMonitor .originItem {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-  }
-}
-
-/* "Show older activity", centred under the feed inside the same surface. */
-.more {
-  display: flex;
-  justify-content: center;
-  padding: 12px var(--surface-inset) 0;
-}
-
 /* DB-2 — the feed while older activity is open: automatic refresh is paused, and this line says
    what has arrived since and offers the way back to the newest events. */
 .pausedBar {
@@ -306,10 +221,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin: 0 var(--surface-inset) 12px;
-  padding: 8px 12px;
+  margin: 0 var(--feed-inset-end) 8px var(--feed-inset-start);
+  padding: 6px 12px;
   border: 1px solid var(--color-primary-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-selected);
 }
 
@@ -319,43 +234,23 @@
   font-size: var(--text-secondary);
 }
 
-/* DB-1 — the activity card below 880px. The shared card puts identity and status on one line, and
-   the two badges of an event that ended ("Buy 1", "Ended · conditions no longer hold") then claimed
-   the width the stock needed: tickers truncated to "MP…" and the session date wrapped over four
-   lines. Here the stock shares its line with the price, and the signal shares the next one with the
-   session it was decided on. The card's second column is sized by the short price and date, so the
-   ticker is never what gives way, the badges wrap inside the first column when they must, and the
-   card keeps its number of lines. */
-@media (max-width: 879px) {
-  .activity td[data-column="stock"] {
-    grid-row: 1;
-    grid-column: 1;
-  }
+/* "Show older activity", centred under the feed. */
+.more {
+  display: flex;
+  justify-content: center;
+  padding: 16px var(--feed-inset-end) 0 var(--feed-inset-start);
+}
 
-  .activity td[data-column="price"] {
-    grid-row: 1;
-    grid-column: 2;
-    justify-content: flex-end;
-    color: var(--color-text-primary);
-    font-size: var(--text-body);
-    font-weight: var(--weight-emphasis);
-  }
+/* The signals disclosure closes the feed, in the feed's own gutter. */
+.disclosure {
+  padding: 16px var(--feed-inset-end) 0 var(--feed-inset-start);
+}
 
-  .activity td[data-column="signal"] {
-    grid-row: 2;
-    grid-column: 1;
-    justify-content: flex-start;
-  }
-
-  .activity td[data-column="session"] {
-    grid-row: 2;
-    grid-column: 2;
-    justify-content: flex-end;
-    text-align: right;
-  }
-
-  .activity td[data-column="why"] {
-    grid-row: 3;
-    grid-column: 1 / -1;
-  }
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

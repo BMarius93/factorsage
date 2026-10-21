@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatDay, formatRelative } from "./dates";
+import {
+  formatDate,
+  formatDateTime,
+  formatDay,
+  formatDayLong,
+  formatRelative,
+} from "./dates";
 
 describe("dates (UI-049)", () => {
   it("writes a calendar day in UTC, so no timezone can move it", () => {
@@ -28,5 +34,15 @@ describe("dates (UI-049)", () => {
     expect(formatRelative("2026-09-18T00:00:00.000Z", now)).toBe("36 h ago");
     expect(formatRelative("2026-09-16T12:00:00.000Z", now)).toBe("3 days ago");
     expect(formatRelative("2026-09-17T12:00:00.000Z", now)).toBe("2 days ago");
+  });
+});
+
+describe("formatDayLong", () => {
+  it("writes the month out, on the day's own calendar date whatever the viewer's zone", () => {
+    expect(formatDayLong("2026-10-20")).toBe("October 20, 2026");
+    expect(formatDayLong("2026-09-01")).toBe("September 1, 2026");
+    // UTC midnight: a western zone must not turn the first of the year into the last of the one before.
+    expect(formatDayLong("2027-01-01")).toBe("January 1, 2027");
+    expect(formatDayLong("n/a")).toBe("n/a");
   });
 });

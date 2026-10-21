@@ -30,8 +30,12 @@ type StatusBadgeProps = {
   readonly children: ReactNode;
   /** Longer explanation surfaced as a native tooltip. */
   readonly title?: string;
-  /** `outline` reads as a quieter label inside dense tables. */
-  readonly variant?: "solid" | "outline";
+  /**
+   * `outline` reads as a quieter label inside dense tables. `text` is the quietest: the tone's ink
+   * alone, with no fill, border or padding, for a feed where every row carries the label and a
+   * column of pills would outshout the data beside it.
+   */
+  readonly variant?: "solid" | "outline" | "text";
   /**
    * Marks the status as *live work*, with a small pulsing dot before the label.
    *

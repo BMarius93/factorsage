@@ -11,11 +11,11 @@ import {
   Component,
   memo,
   useRef,
+  useState,
   type FocusEvent,
   type ReactNode,
 } from "react";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { SectionCard } from "../../../components/ui/SectionCard";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import forms from "../../../components/ui/forms.module.css";
@@ -26,7 +26,6 @@ import {
   describeSparkline,
   formatReturn,
   formatSessionDate,
-  PERIOD_RETURN_LABELS,
   returnDirection,
 } from "../utils/format";
 import { MarketIcon } from "./market-icons";
@@ -51,46 +50,54 @@ const PERIOD_OPTIONS = MARKET_OVERVIEW_PERIODS.map((period) => ({
 }));
 
 /**
- * The Dashboard's Market watch: the twenty market-overview ETFs as a compact watchlist beside
- * Monitor activity, on a wide desktop only (`docs/decisions/etf-market-overview-v1.md`, the
- * Dashboard V2 amendment).
+ * The Dashboard's Market watch: the twenty market-overview ETFs as an ultra-compact sidebar beside
+ * Monitor activity, on a wide desktop only (`docs/decisions/etf-market-overview-v1.md`, Dashboard
+ * V2).
+ *
+ * It is a pane, not a card: no border, radius or margin of its own — the Dashboard places it flush
+ * against the page's right edge, under the topbar, with one hairline between it and the feed. The
+ * title and the period selector stay put; the three groups scroll beneath them in their own region.
  *
  * One period at a time for the whole list — `1W | 1M | 3M | 6M | YTD | 1Y` — and every row shows
  * that period's return **and** that period's trend line, both from one response
  * (`instrument.returns[period]`, `instrument.sparklines[period]`), so switching the period changes
- * twenty rows at once and makes no request. Auto moves to the next period every ten seconds
- * (`usePeriodRotation`); choosing a period pauses it, and the Auto control resumes it.
+ * twenty rows at once and makes no request. The period rotates by itself (`usePeriodRotation`):
+ * every eight seconds the returns and lines dim, change and come back, and the newly selected period
+ * takes one soft highlight. Pointing at or working inside the sidebar pauses it; choosing a period
+ * — any, the one on screen included — stops it for the rest of the page's life.
  *
  * The groups and rows are the API's, in the API's order, and never reorder: a period change
- * changes numbers and lines, not positions. Each row is the fund's mark, its ticker over the market
- * it tracks, the return and the line. Nothing here calculates: the API measured every return and
- * prepared every line from stored end-of-day closes.
+ * changes numbers and lines, not positions, and never the scroll position. Each row is one line:
+ * the fund's mark, its ticker, the market it tracks, the return and the line. Nothing here
+ * calculates: the API measured every return and prepared every line from stored end-of-day closes.
  *
  * Nothing is announced as it rotates: the rows are not a live region, so a screen reader is not read
- * twenty new numbers every ten seconds. The period on screen is the selector's pressed option and
- * the caption under it.
+ * twenty new numbers every few seconds. The period on screen is the selector's pressed option.
  */
 export const MarketWatch = memo(function MarketWatch() {
   const { status, overview, reload } = useMarketOverview();
   const ready = status === "ready" && overview !== null;
   const empty = ready && overview.status === "UNAVAILABLE";
   const showRows = ready && !empty;
-  // Rotates only while there are rows to rotate: never behind a skeleton or an error panel.
-  const rotation = usePeriodRotation(showRows);
+  const [pointerInside, setPointerInside] = useState(false);
+  const [keyboardInside, setKeyboardInside] = useState(false);
+  // Rotates only while there are rows to rotate — never behind a skeleton or an error panel — and
+  // waits while the reader points at the sidebar or moves through it from the keyboard.
+  const rotation = usePeriodRotation({
+    active: showRows,
+    held: pointerInside || keyboardInside,
+  });
   const { period } = rotation;
-  // True between a pointer press inside and its release, so the focus a press gives a button is
-  // not taken for keyboard focus.
+  // True between a pointer press inside and its release, so the focus a click gives a control is
+  // not taken for keyboard focus: a click is already covered by the pointer being inside.
   const pointerFocus = useRef(false);
 
-  // Keyboard focus inside holds the rotation; focus a pointer gave releases it.
-  const onFocus = (event: FocusEvent<HTMLElement>) => {
-    if (event.target !== event.currentTarget) {
-      rotation.setHeld(!pointerFocus.current);
-    }
+  const onFocus = () => {
+    setKeyboardInside(!pointerFocus.current);
   };
   const onBlur = (event: FocusEvent<HTMLElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      rotation.setHeld(false);
+      setKeyboardInside(false);
     }
   };
 
@@ -100,9 +107,12 @@ export const MarketWatch = memo(function MarketWatch() {
       data-testid="market-watch"
       data-status={ready ? overview.status : status.toUpperCase()}
       data-period={period}
-      data-auto={rotation.auto ? "on" : "paused"}
+      data-auto={rotation.auto ? "on" : "off"}
       data-rotating={rotation.rotating ? "true" : undefined}
+      data-phase={rotation.phase}
       aria-busy={status === "loading"}
+      onPointerEnter={() => setPointerInside(true)}
+      onPointerLeave={() => setPointerInside(false)}
       onPointerDown={() => {
         pointerFocus.current = true;
       }}
@@ -115,42 +125,41 @@ export const MarketWatch = memo(function MarketWatch() {
       onFocus={onFocus}
       onBlur={onBlur}
     >
-      <SectionCard
-        id="market-watch"
-        title="Market watch"
-        aside={
-          showRows ? (
-            <AutoControl
-              auto={rotation.auto}
-              onToggle={() => rotation.setAuto(!rotation.auto)}
+      <header className={styles.header}>
+        <div className={styles.titleRow}>
+          <h2 id="market-watch-title" className={styles.title}>
+            Market watch
+          </h2>
+          {/* The close every number is measured to. Fixed while the period rotates. */}
+          {showRows && overview.asOf ? (
+            <span className={styles.asOf} data-testid="market-watch-as-of">
+              Close ·{" "}
+              <time dateTime={overview.asOf}>{formatDay(overview.asOf)}</time>
+            </span>
+          ) : null}
+        </div>
+        {showRows ? (
+          <div className={styles.periods}>
+            <SegmentedControl
+              label="Return period"
+              testId="market-watch-period"
+              value={period}
+              onChange={rotation.select}
+              options={PERIOD_OPTIONS}
+              highlight={rotation.arrived}
+              fill
+              compact
             />
-          ) : null
-        }
-        toolbar={
-          showRows ? (
-            <div className={styles.periods}>
-              <SegmentedControl
-                label="Return period"
-                testId="market-watch-period"
-                value={period}
-                onChange={rotation.select}
-                options={PERIOD_OPTIONS}
-                fill
-                compact
-              />
-              {/* What the numbers are, in words: the period on screen and the close they are
-                  measured to. Not a live region — it changes with every rotation. */}
-              <p className={styles.caption} data-testid="market-watch-caption">
-                {PERIOD_RETURN_LABELS[period]}
-                {overview.asOf ? (
-                  <> · At close · {formatDay(overview.asOf)}</>
-                ) : null}
-              </p>
-            </div>
-          ) : null
-        }
-        flush
-        scrollLabel="Market watch ETFs"
+          </div>
+        ) : null}
+      </header>
+
+      <div
+        className={styles.scroll}
+        role="region"
+        aria-label="Market watch ETFs"
+        // A keyboard can reach and scroll the list; it holds no other tab stop.
+        tabIndex={0}
       >
         {status === "loading" ? <WatchSkeleton /> : null}
 
@@ -227,65 +236,15 @@ export const MarketWatch = memo(function MarketWatch() {
             ))}
           </div>
         ) : null}
-      </SectionCard>
+      </div>
     </div>
   );
 });
 
 /**
- * Auto on or off, as a toggle button whose pressed state is the mode. Paused also says so in
- * words beside it, so the state never depends on reading a tint.
- */
-function AutoControl({
-  auto,
-  onToggle,
-}: {
-  readonly auto: boolean;
-  readonly onToggle: () => void;
-}) {
-  return (
-    <span className={styles.auto}>
-      {auto ? null : (
-        <span className={styles.autoState} data-testid="market-watch-paused">
-          Paused
-        </span>
-      )}
-      <button
-        type="button"
-        className={styles.autoButton}
-        aria-pressed={auto}
-        // The visible word first, so speech input can say what it sees (WCAG 2.5.3).
-        aria-label="Auto rotate periods"
-        data-active={auto ? "true" : undefined}
-        onClick={onToggle}
-        data-testid="market-watch-auto"
-      >
-        <svg
-          className={styles.autoIcon}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
-          <path d="M4 3.5V8h4.5" />
-          <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
-          <path d="M20 20.5V16h-4.5" />
-        </svg>
-        Auto
-      </button>
-    </span>
-  );
-}
-
-/**
- * One fund: its mark, its ticker over the market it tracks, the period's return and the period's
- * line. Memoised on the instrument and the period, so nothing but a period change or new data
- * redraws a row.
+ * One fund on one line: its mark, its ticker, the market it tracks, the period's return and the
+ * period's line. Memoised on the instrument and the period, so a rotation's dimming — an attribute
+ * on the sidebar, styled in CSS — never redraws a row; only the swap itself does.
  */
 const WatchRow = memo(function WatchRow({
   instrument,
@@ -308,29 +267,10 @@ const WatchRow = memo(function WatchRow({
       <span className={styles.mark}>
         <MarketIcon ticker={ticker} className={styles.icon} />
       </span>
-      <span className={styles.identity}>
-        <span className={styles.tickerLine}>
-          <span className={styles.ticker} data-testid="market-watch-ticker">
-            {ticker}
-          </span>
-          {instrument.status === "STALE" && instrument.sessionDate ? (
-            <span
-              className={styles.flag}
-              data-tone="warning"
-              data-testid={`market-watch-stale-${ticker}`}
-            >
-              As of {formatSessionDate(instrument.sessionDate)}
-            </span>
-          ) : null}
-          {instrument.status === "UNAVAILABLE" ? (
-            <span
-              className={styles.flag}
-              data-testid={`market-watch-unavailable-${ticker}`}
-            >
-              No data
-            </span>
-          ) : null}
-        </span>
+      <span className={styles.ticker} data-testid="market-watch-ticker">
+        {ticker}
+      </span>
+      <span className={styles.nameCell}>
         <span
           className={styles.name}
           title={instrument.name}
@@ -338,6 +278,23 @@ const WatchRow = memo(function WatchRow({
         >
           {instrument.name}
         </span>
+        {instrument.status === "STALE" && instrument.sessionDate ? (
+          <span
+            className={styles.flag}
+            data-tone="warning"
+            data-testid={`market-watch-stale-${ticker}`}
+          >
+            As of {formatSessionDate(instrument.sessionDate)}
+          </span>
+        ) : null}
+        {instrument.status === "UNAVAILABLE" ? (
+          <span
+            className={styles.flag}
+            data-testid={`market-watch-unavailable-${ticker}`}
+          >
+            No data
+          </span>
+        ) : null}
       </span>
       <span
         className={styles.value}
@@ -398,16 +355,14 @@ function WatchSkeleton() {
                   <span className={styles.mark}>
                     <Skeleton height="100%" width="100%" radius="control" />
                   </span>
-                  <span className={styles.identity}>
-                    <span className={styles.tickerLine}>
-                      <Skeleton height="1em" width="2.6rem" />
-                    </span>
-                    <span className={styles.name}>
-                      <Skeleton height="1em" width="6rem" />
-                    </span>
+                  <span className={styles.ticker}>
+                    <Skeleton height="1em" width="2.2rem" />
+                  </span>
+                  <span className={styles.nameCell}>
+                    <Skeleton height="1em" width="5.5rem" />
                   </span>
                   <span className={styles.value}>
-                    <Skeleton height="1em" width="2.8rem" />
+                    <Skeleton height="1em" width="2.6rem" />
                   </span>
                   <span className={styles.trend}>
                     <Skeleton height="100%" width="100%" />
@@ -445,7 +400,14 @@ export class MarketWatchBoundary extends Component<
           data-testid="market-watch"
           data-status="ERROR"
         >
-          <SectionCard id="market-watch" title="Market watch">
+          <header className={styles.header}>
+            <div className={styles.titleRow}>
+              <h2 id="market-watch-title" className={styles.title}>
+                Market watch
+              </h2>
+            </div>
+          </header>
+          <div className={styles.state}>
             <EmptyState
               variant="error"
               testId="market-watch-error"
@@ -466,7 +428,7 @@ export class MarketWatchBoundary extends Component<
                 </button>
               }
             />
-          </SectionCard>
+          </div>
         </div>
       );
     }

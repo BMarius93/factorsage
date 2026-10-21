@@ -59,16 +59,6 @@ export const PERIOD_NAMES: Record<MarketOverviewPeriod, string> = {
   "1Y": "1 year",
 };
 
-/** What a return over each period is called where one period is shown at a time. */
-export const PERIOD_RETURN_LABELS: Record<MarketOverviewPeriod, string> = {
-  "1W": "1-week return",
-  "1M": "1-month return",
-  "3M": "3-month return",
-  "6M": "6-month return",
-  YTD: "Year-to-date return",
-  "1Y": "1-year return",
-};
-
 /** A return in words, at two decimals: `1 month: up 4.32%`. */
 export function describeReturn(
   period: MarketOverviewPeriod,

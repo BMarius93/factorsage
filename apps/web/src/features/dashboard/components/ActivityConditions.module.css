@@ -1,0 +1,129 @@
+/* An event's conditions: one column, one predicate per line.
+ *
+ * The lines share one grid — connector gutter · mark · expression · values — through `subgrid`, so
+ * within an event every mark, every expression and every set of values starts at the same x however
+ * long its neighbours are. The expression column is as wide as the longest expression up to the
+ * room there is, and wraps beyond it; the values never wrap and never clip. Where the column is too
+ * narrow for both on one line, the values move under their expression instead. */
+
+.conditions {
+  container: conditions / inline-size;
+  min-width: 0;
+}
+
+.lines {
+  display: grid;
+  grid-template-columns: 1.75rem 0.875rem minmax(0, max-content) max-content;
+  column-gap: 6px;
+  row-gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.line,
+.ruleLine {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/* `and` between the predicates of one signal, `or` between Exit Rules: the product's connectors,
+   in the reserved gutter the Strategy Builder gives them, quiet enough to read past. */
+.connector {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.mark {
+  font-weight: var(--weight-emphasis);
+  text-align: center;
+}
+
+.line[data-result="TRUE"] .mark {
+  color: var(--color-positive-ink);
+}
+
+.line[data-result="FALSE"] .mark {
+  color: var(--color-negative-ink);
+}
+
+/* Could not be decided: its own mark and ink, never the failure's. */
+.line[data-result="NOT_EVALUABLE"] .mark {
+  color: var(--color-warning-ink);
+}
+
+.expression {
+  min-width: 0;
+  color: var(--color-text-body);
+  overflow-wrap: anywhere;
+}
+
+.role {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+.values {
+  padding-left: 12px;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.line[data-result="NOT_EVALUABLE"] .values {
+  color: var(--color-text-muted);
+}
+
+.ruleLabel {
+  grid-column: 2 / -1;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+}
+
+.note,
+.unavailable {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.unavailable {
+  margin: 0;
+}
+
+/* A narrow column: the values take their own line, under the expression they belong to. */
+@container conditions (max-width: 26rem) {
+  .lines {
+    grid-template-columns: 1.75rem 0.875rem minmax(0, 1fr);
+  }
+
+  .values {
+    grid-column: 3;
+    padding-left: 0;
+    text-align: left;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
