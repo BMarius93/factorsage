@@ -38,6 +38,8 @@ export type CursorFeed<TItem, TMeta> = {
   readonly loadMoreFailed: boolean;
   /** Older pages appended since the feed last started from its first page. */
   readonly olderPages: number;
+  /** Counts first pages applied: changes whenever the feed starts over from its newest items. */
+  readonly restarts: number;
   /** Appends the next page. Ignored while one is already on its way. */
   readonly loadMore: () => void;
   /** Reads the first page again; what is shown stays until it answers. */
@@ -75,6 +77,7 @@ export function useCursorFeed<TItem, TMeta = undefined>({
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [olderPages, setOlderPages] = useState(0);
+  const [restarts, setRestarts] = useState(0);
   const [attempt, setAttempt] = useState(0);
 
   const generation = useRef(0);
@@ -127,6 +130,7 @@ export function useCursorFeed<TItem, TMeta = undefined>({
         setCursor(page.nextCursor);
         cursorRef.current = page.nextCursor;
         setOlderPages(0);
+        setRestarts((count) => count + 1);
         setStatus("ready");
       })
       .catch(() => {
@@ -196,6 +200,7 @@ export function useCursorFeed<TItem, TMeta = undefined>({
     loadingMore,
     loadMoreFailed,
     olderPages,
+    restarts,
     loadMore,
     reload,
     update,

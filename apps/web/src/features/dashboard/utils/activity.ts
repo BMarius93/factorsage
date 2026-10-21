@@ -47,69 +47,66 @@ export function groupBySession(
   }));
 }
 
-/**
- * The feed's own order: newest session first, then newest written first within a session — the
- * order the API pages in. Negative when `a` comes first.
- */
-export function compareFeedOrder(
-  a: DashboardActivityEventResponse,
-  b: DashboardActivityEventResponse,
-): number {
-  if (a.sessionDate !== b.sessionDate) {
-    return a.sessionDate < b.sessionDate ? 1 : -1;
-  }
-  const left = BigInt(a.sequence);
-  const right = BigInt(b.sequence);
-  return left === right ? 0 : left < right ? 1 : -1;
-}
-
-/** What a merge of arrivals did to the feed a reader holds. */
-export type ActivityMerge = {
-  readonly events: readonly DashboardActivityEventResponse[];
-  /** Arrivals placed above everything that was shown: new activity. */
+/** What a fresh read of the range a reader holds added to it. */
+export type RangeArrivals = {
+  /** Events above the newest one that was shown: new activity. */
   readonly above: number;
-  /** Arrivals placed among what was shown: events written late for an older session. */
+  /** Events among what was shown: written late for a session already on screen. */
   readonly within: number;
 };
 
 /**
- * Places events written since the reader's watermark into the feed they hold.
- *
- * Each arrival goes where the feed's order puts it: above the newest shown event when it is new,
- * among the loaded sessions when it was written late for an older one. One that sorts after the
- * oldest loaded event is left out while older pages remain — paging reaches it in its place, and
- * adding it now would leave a gap above it. Arrivals already shown are not counted again.
+ * Counts what a re-read of the held range brought that was not shown before: above the newest shown
+ * event, or among the shown ones. When the newest shown event is no longer in the range, everything
+ * new counts as above.
  */
-export function mergeArrivals(
+export function rangeArrivals(
   shown: readonly DashboardActivityEventResponse[],
-  arrivals: readonly DashboardActivityEventResponse[],
-  { complete }: { readonly complete: boolean },
-): ActivityMerge {
+  range: readonly DashboardActivityEventResponse[],
+): RangeArrivals {
   const known = new Set(shown.map((event) => event.id));
-  const newest = shown[0];
-  const oldest = shown[shown.length - 1];
+  const newest = shown[0]?.id;
+  const newestAt =
+    newest === undefined ? -1 : range.findIndex((event) => event.id === newest);
   let above = 0;
   let within = 0;
-  const placed: DashboardActivityEventResponse[] = [];
-  for (const event of arrivals) {
-    if (known.has(event.id)) continue;
-    if (!complete && oldest && compareFeedOrder(event, oldest) > 0) continue;
-    known.add(event.id);
-    placed.push(event);
-    if (!newest || compareFeedOrder(event, newest) < 0) {
+  range.forEach((event, index) => {
+    if (known.has(event.id)) return;
+    if (newestAt === -1 || index < newestAt) {
       above += 1;
     } else {
       within += 1;
     }
-  }
-  if (placed.length === 0) {
-    return { events: shown, above: 0, within: 0 };
-  }
-  return {
-    events: [...shown, ...placed].sort(compareFeedOrder),
-    above,
-    within,
-  };
+  });
+  return { above, within };
+}
+
+/**
+ * The held list with its range — from the newest event down to `bottomId` — replaced by a fresh read
+ * of it. Anything loaded below `bottomId` since the read began (an older page that arrived meanwhile)
+ * is kept, in place.
+ */
+export function replaceRange(
+  shown: readonly DashboardActivityEventResponse[],
+  range: readonly DashboardActivityEventResponse[],
+  bottomId: string,
+): DashboardActivityEventResponse[] {
+  const at = shown.findIndex((event) => event.id === bottomId);
+  return [...range, ...(at >= 0 ? shown.slice(at + 1) : [])];
+}
+
+/** Whether a fresh read of the range differs from what is shown of it, by identity and order. */
+export function rangeChanged(
+  shown: readonly DashboardActivityEventResponse[],
+  range: readonly DashboardActivityEventResponse[],
+  bottomId: string,
+): boolean {
+  const at = shown.findIndex((event) => event.id === bottomId);
+  const held = at >= 0 ? shown.slice(0, at + 1) : shown;
+  return (
+    held.length !== range.length ||
+    held.some((event, index) => event.id !== range[index]?.id)
+  );
 }
 
 /**

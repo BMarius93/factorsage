@@ -7,9 +7,9 @@ import { expect, test, type Page } from "../fixtures";
 
 /**
  * The Monitor activity feed's reading guarantees (`docs/decisions/monitor-eod-v2.md` §7, DB-2):
- * arrivals are merged where they belong without moving the row the reader is on, an event written
- * late for an older session still appears, one trigger starts one request, and an answer for a filter
- * the reader has left is never shown.
+ * a refresh re-reads the range the reader holds and shows new and late events where they belong
+ * without moving the row the reader is on, one trigger starts one request, and an answer for a
+ * filter the reader has left is never shown.
  *
  * The feed's shape is injected over the hermetic API's real answer (its events are the template), so
  * the cases stay deterministic; every read still goes through the real client and the real hook.
@@ -31,17 +31,16 @@ const SESSIONS = [
 function copy(
   template: DashboardActivityEventResponse,
   id: string,
-  sequence: number,
   sessionDate: string,
 ): DashboardActivityEventResponse {
-  return { ...template, id, sequence: String(sequence), sessionDate };
+  return { ...template, id, sessionDate };
 }
 
 /** The hermetic API's own first page for this request's filters: the template for injected events. */
 async function realAnswer(route: Route): Promise<DashboardActivityResponse> {
   const url = new URL(route.request().url());
   url.searchParams.delete("cursor");
-  url.searchParams.delete("since");
+  url.searchParams.delete("through");
   const response = await route.fetch({ url: url.toString() });
   return (await response.json()) as DashboardActivityResponse;
 }
@@ -54,46 +53,43 @@ async function dismissConsent(page: Page) {
 }
 
 test.describe("Monitor activity feed", () => {
-  test("keeps the reader's row in place while a new event and a late one are merged in", async ({
+  test("keeps the reader's row in place while a new event and a late one appear on refresh", async ({
     page,
   }) => {
-    let template: DashboardActivityEventResponse | undefined;
-    const sinceReads: string[] = [];
+    const throughReads: string[] = [];
     await page.route(ACTIVITY, async (route) => {
       const url = new URL(route.request().url());
       const body = await realAnswer(route);
-      template ??= body.events[0];
+      const template = body.events[0];
       if (!template) throw new Error("the hermetic feed has no events");
-      const since = url.searchParams.get("since");
-      if (since !== null) {
-        sinceReads.push(since);
+      // Six events in each of seven sessions: a feed long enough to read down.
+      const held = SESSIONS.flatMap((session, day) =>
+        Array.from({ length: 6 }, (_, index) =>
+          copy(template, `shown-${day}-${index}`, session),
+        ),
+      );
+      const through = url.searchParams.get("through");
+      if (through !== null) {
+        throughReads.push(through);
+        // The held range, read again: one event is new, one was written late for the third
+        // session and sorts first within it.
+        const lateAt = held.findIndex(
+          (item) => item.sessionDate === SESSIONS[2],
+        );
         await route.fulfill({
           json: {
             ...body,
             events: [
-              copy(template, "arrival-new", 2_000, "2026-10-19"),
-              // Written after everything shown, for the third session on screen.
-              copy(template, "arrival-late", 2_001, SESSIONS[2]!),
+              copy(template, "arrival-new", "2026-10-19"),
+              ...held.slice(0, lateAt),
+              copy(template, "arrival-late", SESSIONS[2]!),
+              ...held.slice(lateAt),
             ],
-            watermark: "1000",
           } satisfies DashboardActivityResponse,
         });
         return;
       }
-      // Six events in each of seven sessions: a feed long enough to read down.
-      const events = SESSIONS.flatMap((session, day) =>
-        Array.from({ length: 6 }, (_, index) =>
-          copy(
-            template!,
-            `shown-${day}-${index}`,
-            900 - day * 10 - index,
-            session,
-          ),
-        ),
-      );
-      await route.fulfill({
-        json: { ...body, events, watermark: "1000" },
-      });
+      await route.fulfill({ json: { ...body, events: held } });
     });
     await page.clock.install();
     await page.setViewportSize({ width: 1024, height: 800 });
@@ -114,25 +110,26 @@ test.describe("Monitor activity feed", () => {
     await expect(arrivals.getByRole("status")).toHaveText(
       "1 new event · 1 event added to an earlier session",
     );
-    expect(sinceReads).toEqual(["1000"]);
+    // The whole range it holds, down to its oldest loaded event, was read again.
+    expect(throughReads).toEqual(["shown-6-5"]);
     await expect(rows).toHaveCount(44);
 
     // Two rows were added above it; the row being read has not moved.
     const after = await reading.boundingBox();
     expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThanOrEqual(2);
 
-    // The late event sits in its own session, newest-written first; the new one tops the feed.
-    const sessionOf = (id: string) =>
+    // The late event sits first in its own session; the new one tops the feed.
+    const groupOf = (id: string) =>
       page
         .locator(`[data-event-id="${id}"]`)
-        .locator("xpath=ancestor::*[@data-testid='dashboard-session-group'][1]")
-        .getByTestId("dashboard-session");
-    await expect(sessionOf("arrival-late")).toHaveText("October 14, 2026");
-    const lateGroup = page
-      .locator('[data-event-id="arrival-late"]')
-      .locator("xpath=ancestor::*[@data-testid='dashboard-session-group'][1]");
+        .locator(
+          "xpath=ancestor::*[@data-testid='dashboard-session-group'][1]",
+        );
     await expect(
-      lateGroup.getByTestId("dashboard-activity-row").first(),
+      groupOf("arrival-late").getByTestId("dashboard-session"),
+    ).toHaveText("October 14, 2026");
+    await expect(
+      groupOf("arrival-late").getByTestId("dashboard-activity-row").first(),
     ).toHaveAttribute("data-event-id", "arrival-late");
     await expect(rows.first()).toHaveAttribute("data-event-id", "arrival-new");
 
@@ -140,7 +137,7 @@ test.describe("Monitor activity feed", () => {
     await arrivals.getByTestId("dashboard-activity-show-newest").click();
     await expect(arrivals).toHaveCount(0);
     await expect(rows.first()).toBeInViewport();
-    expect(sinceReads).toEqual(["1000"]);
+    expect(throughReads).toHaveLength(1);
   });
 
   test("starts one request for a double click, and never shows an older page of a filter the reader left", async ({
@@ -163,7 +160,7 @@ test.describe("Monitor activity feed", () => {
           .fulfill({
             json: {
               ...body,
-              events: [copy(template, "stale-older", 10, "2026-09-01")],
+              events: [copy(template, "stale-older", "2026-09-01")],
             },
           })
           .catch(() => undefined);
@@ -221,7 +218,7 @@ test.describe("Monitor activity feed", () => {
         await route.fulfill({
           json: {
             ...body,
-            events: [copy(body.events[0]!, "older-1", 5, "2026-09-01")],
+            events: [copy(body.events[0]!, "older-1", "2026-09-01")],
           },
         });
         return;

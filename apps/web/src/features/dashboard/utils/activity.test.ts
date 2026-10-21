@@ -4,9 +4,10 @@ import type {
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import {
-  compareFeedOrder,
   groupBySession,
-  mergeArrivals,
+  rangeArrivals,
+  rangeChanged,
+  replaceRange,
   operandRelation,
   predicateComparison,
 } from "./activity";
@@ -75,65 +76,46 @@ describe("groupBySession", () => {
   });
 });
 
-describe("mergeArrivals", () => {
-  const at = (id: string, sequence: number, sessionDate: string) =>
-    ({
-      id,
-      sequence: String(sequence),
-      sessionDate,
-    }) as DashboardActivityEventResponse;
+describe("re-reading the range a reader holds", () => {
+  const at = (id: string, sessionDate: string) =>
+    ({ id, sessionDate }) as DashboardActivityEventResponse;
   const shown = [
-    at("a", 30, "2026-10-14"),
-    at("b", 20, "2026-10-13"),
-    at("c", 10, "2026-10-12"),
+    at("a", "2026-10-14"),
+    at("b", "2026-10-13"),
+    at("c", "2026-10-12"),
   ];
 
-  it("orders newest session first, then newest written, comparing sequences as numbers", () => {
+  it("counts arrivals above the newest shown event, and late ones among what was shown", () => {
+    const range = [
+      at("new", "2026-10-15"),
+      at("a", "2026-10-14"),
+      at("late", "2026-10-13"),
+      at("b", "2026-10-13"),
+      at("c", "2026-10-12"),
+    ];
+    expect(rangeArrivals(shown, range)).toEqual({ above: 1, within: 1 });
+    expect(rangeChanged(shown, range, "c")).toBe(true);
+    // Everything new counts as above when the newest shown event left the range.
     expect(
-      compareFeedOrder(at("x", 9, "2026-10-14"), at("y", 10, "2026-10-14")),
-    ).toBe(1);
-    expect(
-      compareFeedOrder(at("x", 100, "2026-10-13"), at("y", 9, "2026-10-14")),
-    ).toBe(1);
-    expect(
-      compareFeedOrder(at("x", 5, "2026-10-14"), at("x", 5, "2026-10-14")),
-    ).toBe(0);
-  });
-
-  it("puts new events above and late events inside their session, counting each kind", () => {
-    const merged = mergeArrivals(
-      shown,
-      [at("new", 40, "2026-10-15"), at("late", 41, "2026-10-13")],
-      { complete: false },
-    );
-    expect(merged.events.map((event) => event.id)).toEqual([
-      "new",
-      "a",
-      "late",
-      "b",
-      "c",
-    ]);
-    expect(merged).toMatchObject({ above: 1, within: 1 });
-  });
-
-  it("leaves what sorts after the oldest loaded event to paging, unless the history is complete", () => {
-    const older = at("old", 50, "2026-10-01");
-    expect(mergeArrivals(shown, [older], { complete: false })).toEqual({
-      events: shown,
-      above: 0,
+      rangeArrivals(shown, [at("new", "2026-10-15"), at("c", "2026-10-12")]),
+    ).toEqual({
+      above: 1,
       within: 0,
     });
-    expect(
-      mergeArrivals(shown, [older], { complete: true }).events.at(-1)?.id,
-    ).toBe("old");
   });
 
-  it("ignores events already shown and returns the same list when nothing is placed", () => {
-    const merged = mergeArrivals(shown, [shown[0]!, shown[2]!], {
-      complete: true,
-    });
-    expect(merged.events).toBe(shown);
-    expect(merged).toMatchObject({ above: 0, within: 0 });
+  it("replaces the range and keeps what was loaded below its bottom since", () => {
+    const later = [...shown, at("d", "2026-10-09")];
+    expect(
+      replaceRange(later, [at("new", "2026-10-15"), ...shown], "c").map(
+        (event) => event.id,
+      ),
+    ).toEqual(["new", "a", "b", "c", "d"]);
+  });
+
+  it("sees no change when the range reads exactly as shown", () => {
+    expect(rangeChanged(shown, [...shown], "c")).toBe(false);
+    expect(rangeChanged(shown, [shown[0]!, shown[2]!], "c")).toBe(true);
   });
 });
 

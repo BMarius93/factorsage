@@ -78,7 +78,6 @@ function event(
 ): DashboardActivityEventResponse {
   return {
     id: "event-1",
-    sequence: "1",
     kind: "ACTIVATED",
     reason: "CONDITIONS_MET",
     sessionDate: "2026-10-13",
@@ -172,14 +171,12 @@ const EVENTS: DashboardActivityEventResponse[] = [event(), ENDED_SELL];
 function page(
   events: DashboardActivityEventResponse[],
   nextCursor?: string,
-  watermark?: string,
 ): DashboardActivityResponse {
   return {
     viewer: "GUEST",
     generatedAt: new Date().toISOString(),
     events,
     ...(nextCursor ? { nextCursor } : {}),
-    ...(watermark ? { watermark } : {}),
   };
 }
 
@@ -652,7 +649,7 @@ describe("DashboardPage — filters and pages", () => {
     const user = userEvent.setup();
     const intervals = vi.spyOn(window, "setInterval");
     fetchActivityMock
-      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1", "5"))
+      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1"))
       .mockResolvedValueOnce(page([EVENTS[1]!]));
     render(<DashboardPage />);
     await screen.findByTestId("dashboard-activity");
@@ -660,16 +657,14 @@ describe("DashboardPage — filters and pages", () => {
     await waitFor(async () => expect(await rows()).toHaveLength(2));
     expect(screen.queryByTestId("dashboard-activity-arrivals")).toBeNull();
 
-    // A minute later one event is new and one was written late for October 12.
+    // A minute later the held range reads with one new event and one written late for October 12.
     fetchActivityMock.mockResolvedValueOnce(
-      page(
-        [
-          event({ id: "event-new", sequence: "9", sessionDate: "2026-10-14" }),
-          event({ id: "event-late", sequence: "8", sessionDate: "2026-10-12" }),
-        ],
-        undefined,
-        "7",
-      ),
+      page([
+        event({ id: "event-new", sessionDate: "2026-10-14" }),
+        EVENTS[0]!,
+        event({ id: "event-late", sessionDate: "2026-10-12" }),
+        EVENTS[1]!,
+      ]),
     );
     const reads = fetchActivityMock.mock.calls.length;
     await minutePasses(intervals);
@@ -677,7 +672,7 @@ describe("DashboardPage — filters and pages", () => {
     expect(within(arrivals).getByRole("status").textContent).toBe(
       "1 new event · 1 event added to an earlier session",
     );
-    expect(fetchActivityMock).toHaveBeenLastCalledWith({ since: "5" });
+    expect(fetchActivityMock).toHaveBeenLastCalledWith({ through: "event-2" });
     expect(fetchActivityMock.mock.calls.length).toBe(reads + 1);
     expect(sessions()).toEqual([
       { date: "October 14, 2026", ids: ["event-new"] },
@@ -699,7 +694,7 @@ describe("DashboardPage — filters and pages", () => {
   it("says when older activity could not be loaded, and tries it again on request", async () => {
     const user = userEvent.setup();
     fetchActivityMock
-      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1", "5"))
+      .mockResolvedValueOnce(page([EVENTS[0]!], "cursor-1"))
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(page([EVENTS[1]!]));
     render(<DashboardPage />);
@@ -725,7 +720,8 @@ describe("DashboardPage — filters and pages", () => {
     fetchDashboardMock.mockResolvedValueOnce(
       dashboard({ monitors: [monitor()] }),
     );
-    fetchActivityMock.mockResolvedValueOnce(page([EVENTS[0]!]));
+    // The feed without Monitor B's events: what its newest page and any re-read now answer.
+    fetchActivityMock.mockImplementation(async () => page([EVENTS[0]!]));
     await minutePasses(intervals);
     await waitFor(async () => expect(await rows()).toHaveLength(1));
     expect(fetchActivityMock).toHaveBeenLastCalledWith(
