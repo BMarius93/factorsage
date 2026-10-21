@@ -3,33 +3,46 @@
 import {
   BACKTEST_RUN_STATUS_LABELS,
   isTerminalBacktestStatus,
+  type BacktestRunSort,
   type BacktestRunStatus,
+  type BacktestRunStatusFilter,
   type BacktestRunSummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   DataTable,
   IntermediateOnly,
   type DataTableColumn,
+  type DataTableSort,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { CollectionFooter } from "../../../components/ui/CollectionFooter";
 import {
-  useCollection,
-  type CollectionSort,
+  CollectionFooter,
+  formatCount,
+} from "../../../components/ui/CollectionFooter";
+import {
+  COLLECTION_SEARCH_THRESHOLD,
+  CollectionSearchField,
+  CollectionToolbar,
+  VisuallyHidden,
 } from "../../../components/ui/Collection";
 import actionStyles from "../../../components/ui/actions.module.css";
+import {
+  SelectControl,
+  type SelectControlOption,
+} from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import {
   StatusBadge,
   type StatusTone,
 } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
-import { useBacktestRuns } from "../hooks/use-backtest-runs";
+import { useBacktestRunPage } from "../hooks/use-backtest-run-page";
 import {
   formatPeriod,
   formatSignedPercent,
@@ -78,13 +91,6 @@ function ReturnValue({
 }
 
 /**
- * The signed-in user's backtest runs.
- *
- * A run's own page owns live progress; this collection reports the state each run was in when the
- * list was fetched, so opening the app does not start a poll per row.
- */
-/** The benchmark and what it returned over the same period: one fact, in one place. */
-/**
  * The run's stock list, linked while the list still exists; a list deleted since the run keeps its
  * snapshotted name as a static chip rather than a link that would 404 (UI-034).
  */
@@ -102,6 +108,7 @@ function StockListReference({
   );
 }
 
+/** The benchmark and what it returned over the same period: one fact, in one place. */
 function BenchmarkFact({ run }: { readonly run: BacktestRunSummaryResponse }) {
   return (
     <span className={styles.benchmarkCell}>
@@ -117,43 +124,99 @@ function BenchmarkFact({ run }: { readonly run: BacktestRunSummaryResponse }) {
   );
 }
 
-/** The orders a run history can be read in; the API's newest-first comes first. */
-const RUN_SORTS: readonly CollectionSort<BacktestRunSummaryResponse>[] = [
-  { id: "newest", label: "Newest" },
-  {
-    id: "oldest",
-    label: "Oldest",
-    compare: (a, b) => Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
-  },
-  {
-    // By the stored annualized return, never the cumulative one (BT-3): a thirty-year run's total
-    // return dwarfs a five-year run's whatever their quality, so "best return" ranked by length.
-    id: "cagr",
-    label: "Best CAGR",
-    // Runs without a CAGR yet (in flight, failed, too short to annualize) sort after every run
-    // that has one, in their existing order.
-    compare: (a, b) =>
-      (b.portfolioCagrPercent ?? -Infinity) -
-        (a.portfolioCagrPercent ?? -Infinity) || 0,
-  },
-  {
-    id: "strategy",
-    label: "Strategy A–Z",
-    compare: (a, b) =>
-      a.strategyName.localeCompare(b.strategyName, "en", {
-        sensitivity: "base",
-      }),
-  },
+/** The orders the history can be read in, as the Sort control offers them. */
+const RUN_SORT_OPTIONS: readonly SelectControlOption[] = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  // By the stored annualized return, never the cumulative one (BT-3): a thirty-year run's total
+  // return dwarfs a five-year run's whatever their quality, so "best return" ranked by length.
+  { value: "cagr", label: "Best CAGR" },
+  { value: "strategy", label: "Strategy A–Z" },
 ];
 
+const ALL_STATUSES = "all";
+
+const RUN_STATUS_OPTIONS: readonly SelectControlOption[] = [
+  { value: ALL_STATUSES, label: "All statuses" },
+  { value: "ACTIVE", label: "In progress" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "FAILED", label: "Failed" },
+];
+
+/** The column a sort is the order of, for the header that shows it. */
+const SORT_COLUMNS: Readonly<Record<BacktestRunSort, DataTableSort>> = {
+  newest: { key: "queued", direction: "desc" },
+  oldest: { key: "queued", direction: "asc" },
+  cagr: { key: "cagr", direction: "desc" },
+  strategy: { key: "run", direction: "asc" },
+};
+
+/** The sort a pressed header asks for; Queued toggles between its two directions. */
+function sortForColumn(
+  column: string,
+  current: BacktestRunSort,
+): BacktestRunSort | null {
+  switch (column) {
+    case "run":
+      return "strategy";
+    case "cagr":
+      return "cagr";
+    case "queued":
+      return current === "newest" ? "oldest" : "newest";
+    default:
+      return null;
+  }
+}
+
+/** How long typing pauses before the search is sent. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * The search field's own text, sent once typing pauses. The address bar holds what was sent; a
+ * Back or Forward that changes it brings the field along.
+ */
+function useSearchDraft(
+  committed: string | null,
+  commit: (q: string | null) => void,
+) {
+  const [draft, setDraft] = useState(committed ?? "");
+  const lastCommitted = useRef(committed ?? "");
+  useEffect(() => {
+    lastCommitted.current = committed ?? "";
+    setDraft(committed ?? "");
+  }, [committed]);
+  useEffect(() => {
+    if (draft.trim() === lastCommitted.current) {
+      return;
+    }
+    const timer = setTimeout(() => commit(draft), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [draft, commit]);
+  return [draft, setDraft] as const;
+}
+
+/**
+ * The signed-in user's backtest runs, a page at a time.
+ *
+ * Paged, searched, filtered and ordered by the API (`GET /backtests?page=`), with the whole view in
+ * the URL — so every count and every page describe the whole history, the browser never holds more
+ * than the page on screen, and no run's snapshot is read to list it. A run's own page owns live
+ * progress; this page re-reads only itself, and only while it shows a run still in flight.
+ *
+ * Compact, like Lists, Strategies and Monitors: the title, the count and the controls on one row;
+ * the row opens through the run's name, so there is no second "View results" link in it.
+ */
 export function BacktestsPage() {
-  const { status, runs, retry } = useBacktestRuns();
+  const runs = useBacktestRunPage();
+  const { result, view } = runs;
+  const [draft, setDraft] = useSearchDraft(view.q, runs.setQuery);
 
   const columns: readonly DataTableColumn<BacktestRunSummaryResponse>[] = [
     {
       key: "run",
       header: "Strategy",
       cardRole: "identity",
+      sortable: true,
       render: (run) => (
         <>
           <Link className={styles.nameLink} href={`/backtests/${run.id}`}>
@@ -182,6 +245,7 @@ export function BacktestsPage() {
           <span className={styles.statusCell}>
             <StatusBadge
               tone={statusTone(run.status)}
+              size="small"
               // A small pulse on a job that is still processing, and nothing more: this is a
               // collection, so "alive" is all a row needs to say. The row itself never animates.
               pulse={!finished}
@@ -241,6 +305,7 @@ export function BacktestsPage() {
       align: "right",
       numeric: true,
       nowrap: true,
+      sortable: true,
       render: (run) => <ReturnValue value={run.portfolioCagrPercent} />,
     },
     {
@@ -285,46 +350,74 @@ export function BacktestsPage() {
       // copy — the run's own page carries its timestamps.
       foldIntermediate: true,
       nowrap: true,
+      sortable: true,
       render: (run) => formatTimestamp(run.queuedAt),
     },
-    {
-      key: "actions",
-      header: "Actions",
-      cardRole: "actions",
-      align: "right",
-      nowrap: true,
-      // A run has no maintenance actions — there is no rename and no delete in the
-      // contract — so the column carries only the contextual one. A run still executing
-      // opens the same page, where its progress is live (UI-034).
-      render: (run) => {
-        const label = isTerminalBacktestStatus(run.status)
-          ? "View results"
-          : "View progress";
-        return (
-          <Link
-            className={actionStyles.action}
-            href={`/backtests/${run.id}`}
-            aria-label={`${label} for ${run.strategyName}`}
-          >
-            {label}
-          </Link>
-        );
-      },
-    },
   ];
-  const collection = useCollection(runs, {
-    noun: "runs",
-    testId: "backtests",
-    searchText: (run) =>
-      `${run.strategyName} ${run.stockListName} ${run.benchmarkName}`,
-    sorts: RUN_SORTS,
-  });
-  const { paging } = collection;
+
+  const total = result?.unfilteredCount ?? 0;
+  const filtered = view.q !== null || view.status !== null;
+  const searchable = total >= COLLECTION_SEARCH_THRESHOLD || view.q !== null;
+  const controls = total > 1 || filtered;
+  const showTable = result !== null && result.totalCount > 0;
+
+  const toolbar =
+    result !== null && controls ? (
+      <CollectionToolbar density="compact" testId="backtests-toolbar">
+        {searchable ? (
+          <CollectionSearchField
+            noun="runs"
+            value={draft}
+            onChange={setDraft}
+            testId="backtests-search"
+          />
+        ) : null}
+        <SelectControl
+          id="backtests-status"
+          label="Status"
+          value={view.status ?? ALL_STATUSES}
+          onChange={(value) =>
+            runs.setStatus(
+              value === ALL_STATUSES
+                ? null
+                : (value as BacktestRunStatusFilter),
+            )
+          }
+          options={RUN_STATUS_OPTIONS}
+          testId="backtests-status"
+        />
+        <SelectControl
+          id="backtests-sort"
+          label="Sort"
+          value={view.sort}
+          onChange={(value) => runs.setSort(value as BacktestRunSort)}
+          options={RUN_SORT_OPTIONS}
+          testId="backtests-sort"
+        />
+        {/* What a search or a filter left, said once for assistive technology. */}
+        <VisuallyHidden role="status">
+          {filtered
+            ? `${formatCount(result.totalCount)} of ${formatCount(total)} runs match.`
+            : ""}
+        </VisuallyHidden>
+      </CollectionToolbar>
+    ) : null;
+
+  const count =
+    result !== null && total > 0 ? (
+      <span data-testid="backtests-count">
+        {filtered
+          ? `${formatCount(result.totalCount)} of ${formatCount(total)}`
+          : formatCount(total)}
+        <VisuallyHidden> runs</VisuallyHidden>
+      </span>
+    ) : undefined;
 
   return (
     <PageContainer>
       <div className={styles.page} data-testid="backtests-page">
         <PageHeader
+          variant="plain"
           title="Backtests"
           lead="Run a strategy over a stock list and a historical period, and compare it against a benchmark."
           // In the header in every state, never swapped for an empty state's own button (UI-030).
@@ -339,13 +432,17 @@ export function BacktestsPage() {
           }
         />
 
-        {status === "loading" ? (
-          <SectionCard ariaLabel="Loading backtests">
+        {runs.status === "loading" ? (
+          <SectionCard
+            density="compact"
+            title="Your backtests"
+            ariaLabel="Loading backtests"
+          >
             <SkeletonList rows={4} />
           </SectionCard>
         ) : null}
 
-        {status === "error" ? (
+        {runs.status === "error" ? (
           <EmptyState
             variant="error"
             title="Your backtests could not be loaded"
@@ -354,7 +451,7 @@ export function BacktestsPage() {
               <button
                 type="button"
                 className={forms.secondaryButton}
-                onClick={retry}
+                onClick={runs.retry}
               >
                 Try again
               </button>
@@ -362,16 +459,35 @@ export function BacktestsPage() {
           />
         ) : null}
 
-        {status === "ready" ? (
+        {runs.status === "ready" && result !== null ? (
           // One composition for every collection (UI-012): a titled section whose empty state is
           // the compact one, exactly like Lists, Strategies and Monitors.
           <SectionCard
+            density="compact"
             title="Your backtests"
             ariaLabel="Backtest runs"
-            flush={runs.length > 0 && collection.filteredEmpty === null}
-            {...(runs.length > 0 ? { toolbar: collection.toolbar } : {})}
+            testId="your-backtests"
+            flush={showTable}
+            {...(count === undefined ? {} : { count })}
+            {...(toolbar === null ? {} : { toolbar })}
           >
-            {runs.length === 0 ? (
+            {runs.failed ? (
+              <p
+                className={styles.readFailed}
+                role="alert"
+                data-testid="backtests-read-failed"
+              >
+                These runs could not be loaded.{" "}
+                <button
+                  type="button"
+                  className={actionStyles.action}
+                  onClick={runs.retry}
+                >
+                  Try again
+                </button>
+              </p>
+            ) : null}
+            {total === 0 ? (
               <EmptyState
                 variant="compact"
                 testId="backtests-empty"
@@ -385,30 +501,63 @@ export function BacktestsPage() {
                   </p>
                 }
               />
-            ) : (
-              (collection.filteredEmpty ?? (
-                <>
-                  <DataTable
-                    label="Backtest runs"
-                    testId="backtests-grid"
-                    rowTestId="backtest-card"
-                    columns={columns}
-                    rows={paging.visibleRows}
-                    getRowKey={(run) => run.id}
-                    clickableRows
-                  />
-                  <CollectionFooter
-                    testId="backtests-footer"
-                    noun="runs"
-                    total={paging.total}
-                    page={paging.page}
-                    pageSize={paging.pageSize}
-                    onPageChange={paging.setPage}
-                    onPageSizeChange={paging.setPageSize}
-                  />
-                </>
-              ))
-            )}
+            ) : null}
+            {total > 0 && result.totalCount === 0 ? (
+              // Filtered to nothing is not "empty": the runs exist, and the way back is one press.
+              <EmptyState
+                variant="compact"
+                testId="backtests-filtered-empty"
+                title={
+                  view.q === null
+                    ? "No runs match this filter"
+                    : `No runs match “${view.q}”`
+                }
+                actions={
+                  <button
+                    type="button"
+                    className={forms.secondaryButton}
+                    onClick={() => {
+                      setDraft("");
+                      runs.clearFilters();
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                }
+              />
+            ) : null}
+            {showTable ? (
+              <>
+                <DataTable
+                  density="compact"
+                  label="Backtest runs"
+                  testId="backtests-grid"
+                  rowTestId="backtest-card"
+                  columns={columns}
+                  rows={result.runs}
+                  getRowKey={(run) => run.id}
+                  sort={SORT_COLUMNS[view.sort]}
+                  onSortChange={(column) => {
+                    const next = sortForColumn(column, view.sort);
+                    if (next !== null) {
+                      runs.setSort(next);
+                    }
+                  }}
+                  clickableRows
+                />
+                <CollectionFooter
+                  density="compact"
+                  testId="backtests-footer"
+                  noun="runs"
+                  total={result.totalCount}
+                  page={result.page}
+                  pageSize={result.pageSize}
+                  busy={runs.loading}
+                  onPageChange={runs.setPage}
+                  onPageSizeChange={runs.setPageSize}
+                />
+              </>
+            ) : null}
           </SectionCard>
         ) : null}
       </div>

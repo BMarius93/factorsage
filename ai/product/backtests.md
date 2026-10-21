@@ -359,6 +359,16 @@ logs; they never cross the HTTP boundary.
 
 V1 has no cancellation; the reasoning is recorded in `../architecture/backtest-execution.md`.
 
+## The run history
+
+`/backtests` lists the customer's runs a page at a time — 25 by default, 10, 25, 50 or 100 on
+request — searched (strategy, stock list and benchmark names), filtered (in progress, completed,
+failed) and ordered (newest, oldest, best CAGR, strategy A–Z) by the API across the whole history,
+with the view in the URL. A row is built from what was stored with the run when it was queued,
+never from its snapshot. The page re-reads itself every few seconds only while it shows a run still
+in flight; a run's own page owns live progress. The New backtest form reads only the runs holding a
+concurrency slot (`GET /backtests?status=ACTIVE`) to show the plan's limit before submission.
+
 ## Process boundary
 
 The API validates and creates durable work. The worker claims and executes durable work. API and

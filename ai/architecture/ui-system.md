@@ -147,8 +147,18 @@ the rows come from is the caller's business. Most collections slice rows the pag
 `usePagination`, because their endpoint returns the caller's own records in one response; a new
 `resetKey` (a new query or order) returns such a collection to the first page. A collection that
 outgrows one response pages in the database instead and hands the footer the server's own `page`,
-`pageSize` and `totalCount` — the backtest trade log does, at 18,348 rows. Both read identically,
-which is the point.
+`pageSize` and `totalCount` — the backtest trade log does, at 18,348 rows, and so does the
+Backtests history (`GET /backtests?page=`, `useBacktestRunPage`). Both read identically, which is
+the point.
+
+**A server-paged collection keeps its whole view in the URL** — page, page size, search, filter and
+order — so a link opens exactly that view, a reload keeps it and Back and Forward move between the
+views a reader looked at: a push for a page, a filter or an order, a replace for a search being typed
+(sent once typing pauses), and anything but the page itself returns to the first page. One read wins:
+an answer for a view the reader has left is dropped; the rows of the last view stay on screen while
+the next is read (`busy` on the footer) and stay, with a notice and **Try again**, when it fails. Its
+controls are `CollectionToolbar`, `CollectionSearchField` and `SelectControl` — the same ones
+`useCollection` renders, so a server-paged section looks exactly like one paged in the browser.
 
 Every footer offers **10, 25, 50 and 100** rows (`COLLECTION_PAGE_SIZES`) and a collection opens at
 **25** (`COLLECTION_DEFAULT_PAGE_SIZE`); the trade log keeps its own default of 50. `busy` holds the
@@ -160,7 +170,9 @@ count; the default footer is unchanged.
 ### `useCollection` — search and sort (UI-010, UI-011)
 
 Client-side search and sort over the same in-memory rows, feeding `usePagination`, used by
-`CollectionSection` (Lists, Strategies, Monitors), the Backtests history and a list's members. The
+`CollectionSection` (Lists, Strategies, Monitors) and a list's members. The Backtests history is
+searched, filtered and ordered by the API instead (see `CollectionFooter`), with the same controls,
+the same thresholds and the same counts. The
 **search field appears from 10 records** (`COLLECTION_SEARCH_THRESHOLD`) and stays while a query is
 active; the **Sort control** appears where the feature offers more than one order and there is more
 than one record — built-in sections pass no orders, so a two-row section carries no chrome. The
@@ -175,8 +187,9 @@ orders that name the column in turn, so a column offering "Name A–Z" and "Name
 the Sort control and the headers always agree. Headers no order names stay plain text, and the
 Sort control remains the phone's only order control.
 A query announces "N of M {noun} match “q”." through a `role="status"` region; filtered to nothing,
-the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. No
-server pagination is introduced: endpoints still return the whole owned collection. A list's
+the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. Lists,
+Strategies and Monitors still return the whole owned collection — what pickers, entitlement meters
+and the built-in sections read anyway; only the Backtests history pages in the database. A list's
 members are searchable and sortable but stay one scroll, so a stock just added never lands on a
 later page.
 

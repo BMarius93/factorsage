@@ -119,20 +119,13 @@ export function useCollection<TRow>(
 
   const toolbar: ReactNode =
     searchable || sortable ? (
-      <div
-        className={styles.toolbar}
-        data-density={density === "compact" ? "compact" : undefined}
-        data-testid={`${testId}-toolbar`}
-      >
+      <CollectionToolbar density={density} testId={`${testId}-toolbar`}>
         {searchable ? (
-          <input
-            type="search"
-            className={`${forms.input} ${styles.search}`}
-            aria-label={`Search ${noun}`}
-            placeholder={`Search ${noun}…`}
+          <CollectionSearchField
+            noun={noun}
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            data-testid={`${testId}-search`}
+            onChange={setQuery}
+            testId={`${testId}-search`}
           />
         ) : null}
         {sortable ? (
@@ -154,7 +147,7 @@ export function useCollection<TRow>(
             ? `${viewRows.length} of ${rows.length} ${noun} match “${query.trim()}”.`
             : ""}
         </span>
-      </div>
+      </CollectionToolbar>
     ) : null;
 
   // Filtered to nothing is not "empty": the records exist, and the way back is one press away.
@@ -190,6 +183,71 @@ export function useCollection<TRow>(
     /** A header was pressed: `DataTable`'s `onSortChange`. */
     sortByColumn,
   };
+}
+
+/**
+ * The row of controls above a collection — search, filters, sort — for a collection whose rows the
+ * page does not hold (paged by the API) as much as for one it does (`useCollection`), so both look
+ * and wrap identically. `compact` sets it at the trailing end of a compact section's heading row.
+ */
+export function CollectionToolbar({
+  children,
+  density = "comfortable",
+  testId,
+}: {
+  readonly children: ReactNode;
+  readonly density?: "comfortable" | "compact";
+  readonly testId?: string;
+}) {
+  return (
+    <div
+      className={styles.toolbar}
+      data-density={density === "compact" ? "compact" : undefined}
+      {...(testId ? { "data-testid": testId } : {})}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** The collection's search field: "Search {noun}…", named for assistive technology the same way. */
+export function CollectionSearchField({
+  noun,
+  value,
+  onChange,
+  testId,
+}: {
+  readonly noun: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly testId?: string;
+}) {
+  return (
+    <input
+      type="search"
+      className={`${forms.input} ${styles.search}`}
+      aria-label={`Search ${noun}`}
+      placeholder={`Search ${noun}…`}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      {...(testId ? { "data-testid": testId } : {})}
+    />
+  );
+}
+
+/** Visually hidden text, read by assistive technology: a live count, a column's name. */
+export function VisuallyHidden({
+  children,
+  role,
+}: {
+  readonly children: ReactNode;
+  readonly role?: "status";
+}) {
+  return (
+    <span className={styles.srOnly} {...(role ? { role } : {})}>
+      {children}
+    </span>
+  );
 }
 
 /** Orders shared by every named, dated collection. */
