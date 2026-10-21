@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("../api/backtests-api", () => ({
   fetchBenchmarks: vi.fn(),
   createBacktestRun: vi.fn(),
-  fetchBacktestRuns: vi.fn().mockResolvedValue([]),
+  fetchActiveBacktestRuns: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../strategies/api/strategies-api", () => ({
   fetchStrategies: vi.fn(),

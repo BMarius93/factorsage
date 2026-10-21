@@ -5,29 +5,33 @@ import {
   type BacktestRunSummaryResponse,
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchBacktestRuns } from "../api/backtests-api";
+import { fetchActiveBacktestRuns } from "../api/backtests-api";
 
 export type BacktestRunsStatus = "loading" | "ready" | "error";
 
 export type BacktestRunsState = {
   readonly status: BacktestRunsStatus;
+  /** The runs still queued or executing, newest first. */
   readonly runs: readonly BacktestRunSummaryResponse[];
   readonly retry: () => void;
 };
 
 /**
- * How often the collection re-reads while a run is still queued or executing (UI-048). Coarser than
- * a run's own page, which polls its progress about once a second: a collection row only needs to
- * move from "Running 42%" to its result without a reload.
+ * How often a view re-reads runs while one of them is still queued or executing (UI-048). Coarser
+ * than a run's own page, which polls its progress about once a second: a row only needs to move
+ * from "Running 42%" to its result without a reload.
  */
 export const BACKTEST_COLLECTION_POLL_INTERVAL_MS = 5_000;
 
 /**
- * Loads the signed-in user's backtest runs, and keeps re-reading them **only while** one of them is
- * still queued or running. Once every run is terminal the polling stops, and it is cleaned up on
- * unmount; a run's own page owns fine-grained live progress.
+ * The signed-in user's runs that hold a concurrency slot — queued or executing — for the New
+ * backtest form, which shows the plan's limit before anything is submitted (UI-020).
+ *
+ * It reads only those runs (`GET /backtests?status=ACTIVE`), never the history, and re-reads them
+ * **only while** there are some, so a slot that frees while the form is open is noticed. Once none
+ * is in flight the polling stops; it is cleaned up on unmount.
  */
-export function useBacktestRuns(): BacktestRunsState {
+export function useActiveBacktestRuns(): BacktestRunsState {
   const [status, setStatus] = useState<BacktestRunsStatus>("loading");
   const [runs, setRuns] = useState<readonly BacktestRunSummaryResponse[]>([]);
   const [attempt, setAttempt] = useState(0);
@@ -39,7 +43,7 @@ export function useBacktestRuns(): BacktestRunsState {
     setStatus("loading");
     const controller = new AbortController();
 
-    fetchBacktestRuns({ signal: controller.signal })
+    fetchActiveBacktestRuns({ signal: controller.signal })
       .then((result) => {
         if (requestId !== latestRequestRef.current) {
           return;
@@ -69,9 +73,9 @@ export function useBacktestRuns(): BacktestRunsState {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const requestId = ++latestRequestRef.current;
-      // A background refresh: the rows already on screen stay until the new ones arrive, and a
-      // failed refresh keeps them rather than replacing the page with an error.
-      fetchBacktestRuns({ signal: controller.signal })
+      // A background refresh: what is shown stays until the new answer arrives, and a failed
+      // refresh keeps it rather than replacing the form's notice with an error.
+      fetchActiveBacktestRuns({ signal: controller.signal })
         .then((result) => {
           if (requestId === latestRequestRef.current) {
             setRuns(result);

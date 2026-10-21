@@ -1,19 +1,21 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { BacktestRunSummaryResponse } from "@intrinsic/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchBacktestRuns } from "../api/backtests-api";
+import { fetchActiveBacktestRuns } from "../api/backtests-api";
 import {
   BACKTEST_COLLECTION_POLL_INTERVAL_MS,
-  useBacktestRuns,
+  useActiveBacktestRuns,
 } from "./use-backtest-runs";
 
-vi.mock("../api/backtests-api", () => ({ fetchBacktestRuns: vi.fn() }));
-const fetchMock = vi.mocked(fetchBacktestRuns);
+vi.mock("../api/backtests-api", () => ({
+  fetchActiveBacktestRuns: vi.fn(),
+}));
+const fetchMock = vi.mocked(fetchActiveBacktestRuns);
 
 const run = (status: BacktestRunSummaryResponse["status"]) =>
   ({ id: "run-1", status }) as BacktestRunSummaryResponse;
 
-describe("useBacktestRuns polling (UI-048)", () => {
+describe("useActiveBacktestRuns polling (UI-048)", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fetchMock.mockReset();
@@ -24,7 +26,7 @@ describe("useBacktestRuns polling (UI-048)", () => {
     fetchMock
       .mockResolvedValueOnce([run("RUNNING")])
       .mockResolvedValueOnce([run("COMPLETED")]);
-    const { result } = renderHook(() => useBacktestRuns());
+    const { result } = renderHook(() => useActiveBacktestRuns());
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -47,7 +49,7 @@ describe("useBacktestRuns polling (UI-048)", () => {
 
   it("never polls a collection with nothing in flight, and cleans up on unmount", async () => {
     fetchMock.mockResolvedValue([run("RUNNING")]);
-    const { result, unmount } = renderHook(() => useBacktestRuns());
+    const { result, unmount } = renderHook(() => useActiveBacktestRuns());
     await waitFor(() => expect(result.current.status).toBe("ready"));
     unmount();
     await act(async () => {

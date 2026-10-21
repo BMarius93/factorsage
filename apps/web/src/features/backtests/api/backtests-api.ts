@@ -1,7 +1,11 @@
 import {
+  BACKTEST_RUN_DEFAULT_SORT,
   BACKTEST_TRADE_DEFAULT_ORDER,
   type BacktestProgressResponse,
   type BacktestRunDetailResponse,
+  type BacktestRunPageResponse,
+  type BacktestRunSort,
+  type BacktestRunStatusFilter,
   type BacktestRunSummaryResponse,
   type BacktestTradeLogQuery,
   type BacktestTradePageResponse,
@@ -15,8 +19,52 @@ export function fetchBenchmarks(options: { signal?: AbortSignal } = {}) {
   return apiGet<BenchmarkResponse[]>("/benchmarks", options);
 }
 
-export function fetchBacktestRuns(options: { signal?: AbortSignal } = {}) {
-  return apiGet<BacktestRunSummaryResponse[]>("/backtests", options);
+/**
+ * The runs still queued or executing — the ones holding a concurrency slot — as a plain list. What
+ * the New backtest form reads to show the limit before anything is submitted; never the history.
+ */
+export function fetchActiveBacktestRuns(
+  options: { signal?: AbortSignal } = {},
+) {
+  return apiGet<BacktestRunSummaryResponse[]>(
+    "/backtests?status=ACTIVE",
+    options,
+  );
+}
+
+export type BacktestRunPageQuery = {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly q?: string;
+  readonly status?: BacktestRunStatusFilter;
+  readonly sort?: BacktestRunSort;
+};
+
+/**
+ * One page of the run history, searched, filtered and ordered by the API — so every page and every
+ * count describe the whole history, and the browser never holds more than the page on screen.
+ */
+export function fetchBacktestRunPage(
+  query: BacktestRunPageQuery,
+  options: { signal?: AbortSignal } = {},
+) {
+  const params = new URLSearchParams({
+    page: String(query.page),
+    pageSize: String(query.pageSize),
+  });
+  if (query.q !== undefined) {
+    params.set("q", query.q);
+  }
+  if (query.status !== undefined) {
+    params.set("status", query.status);
+  }
+  if (query.sort !== undefined && query.sort !== BACKTEST_RUN_DEFAULT_SORT) {
+    params.set("sort", query.sort);
+  }
+  return apiGet<BacktestRunPageResponse>(
+    `/backtests?${params.toString()}`,
+    options,
+  );
 }
 
 export async function createBacktestRun(

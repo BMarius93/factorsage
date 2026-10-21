@@ -25,7 +25,7 @@ vi.mock("../api/backtests-api", () => ({
   fetchBenchmarks: vi.fn(),
   createBacktestRun: vi.fn(),
   // The form reads the caller's runs to show a concurrency limit before submit (UI-020).
-  fetchBacktestRuns: vi.fn().mockResolvedValue([]),
+  fetchActiveBacktestRuns: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../strategies/api/strategies-api", () => ({
