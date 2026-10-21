@@ -366,7 +366,15 @@ Each trade carries a **reason**: the canonical Strategy description of the rule 
 built from the run's own immutable snapshot and never from the strategy as it stands today. The
 strings come from `describeCondition` / `describeTrigger`, the same primitives the Strategy logic
 preview and the Dashboard's "Why" column use, so a metric is never named two ways. The index is
-prepared once per request, not per row.
+prepared once per run and kept by the API process (bounded, oldest first out), so the snapshot — the
+run's largest document — is read on the first page or export and not again. A run recorded before
+snapshots named their alternative-data actors borrows the actors' current names; its index is
+described afresh on every read, so a rename still shows.
+
+What every page repeats is fixed once a run is terminal: its distinct symbols and its unfiltered
+trade count are read once per run and completion (`status` + `completedAt`, so a retried run reads
+again) and reused by every later page. A queued or executing run's log can still grow, so each page
+reads both afresh. Ownership and the page itself are read on every request.
 
 FINAL EXIT needs one extra identity to be explainable. It is one action reached through one or more
 alternatives, so the level id alone cannot say which alternative was true, and reciting every OR

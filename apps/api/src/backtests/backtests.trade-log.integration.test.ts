@@ -834,6 +834,126 @@ describe("the filtered, sortable and exportable trade log", () => {
     });
   });
 
+  /**
+   * A finished run's log never changes, so what every page repeats is read once. Each case changes
+   * the stored rows behind the API's back — something no finished run ever sees — so only a fresh
+   * read could notice, then restores them.
+   */
+  describe("repeated reads", () => {
+    const extraSequence = TRADE_COUNT + 1;
+    const extraSymbol = `ZZ${shortSuffix}`;
+
+    async function addTrade(): Promise<void> {
+      const trade = await prisma.backtestTrade.findFirstOrThrow({
+        where: { runId },
+        orderBy: { sequence: "asc" },
+      });
+      await prisma.backtestTrade.create({
+        data: {
+          ...trade,
+          id: undefined,
+          sequence: extraSequence,
+          symbol: extraSymbol,
+        },
+      });
+    }
+
+    async function removeTrade(): Promise<void> {
+      await prisma.backtestTrade.deleteMany({
+        where: { runId, sequence: extraSequence },
+      });
+    }
+
+    it("reads a finished run's symbols and trade count once, until it finishes again", async () => {
+      const { completedAt } = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { completedAt: true },
+      });
+      await page("");
+      await addTrade();
+      try {
+        const cached = await page("");
+        expect(cached.totalCount).toBe(TRADE_COUNT);
+        expect(cached.symbols).not.toContain(extraSymbol);
+        const filtered = await page(`?symbol=${symbolOf("A")}`);
+        expect(filtered.unfilteredCount).toBe(TRADE_COUNT);
+
+        // A retried run completes again, and its log is read again.
+        await prisma.backtestRun.update({
+          where: { id: runId },
+          data: { completedAt: new Date() },
+        });
+        const reread = await page("");
+        expect(reread.totalCount).toBe(TRADE_COUNT + 1);
+        expect(reread.symbols).toContain(extraSymbol);
+      } finally {
+        await removeTrade();
+        await prisma.backtestRun.update({
+          where: { id: runId },
+          data: { completedAt },
+        });
+      }
+      const restored = await page("");
+      expect(restored.totalCount).toBe(TRADE_COUNT);
+      expect(restored.symbols).not.toContain(extraSymbol);
+    });
+
+    it("reads a run's log afresh on every page while it can still grow", async () => {
+      const { completedAt } = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { completedAt: true },
+      });
+      await prisma.backtestRun.update({
+        where: { id: runId },
+        data: { status: "RUNNING", completedAt: null },
+      });
+      try {
+        expect((await page("")).totalCount).toBe(TRADE_COUNT);
+        await addTrade();
+        const grown = await page("");
+        expect(grown.totalCount).toBe(TRADE_COUNT + 1);
+        expect(grown.symbols).toContain(extraSymbol);
+        expect((await page(`?symbol=${symbolOf("A")}`)).unfilteredCount).toBe(
+          TRADE_COUNT + 1,
+        );
+      } finally {
+        await removeTrade();
+        await prisma.backtestRun.update({
+          where: { id: runId },
+          data: { status: "COMPLETED", completedAt },
+        });
+      }
+      expect((await page("")).totalCount).toBe(TRADE_COUNT);
+    });
+
+    it("describes the run's trade reasons from its snapshot once, for pages and exports alike", async () => {
+      const before = await page("?order=asc&pageSize=10");
+      const { snapshot } = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { snapshot: true },
+      });
+      // A snapshot no read could describe: only reasons already described can answer now.
+      await prisma.backtestRun.update({
+        where: { id: runId },
+        data: { snapshot: {} },
+      });
+      try {
+        const after = await page("?order=asc&pageSize=10");
+        expect(after.items.map((trade) => trade.reason)).toEqual(
+          before.items.map((trade) => trade.reason),
+        );
+        expect(after.items.some((trade) => trade.reason !== null)).toBe(true);
+        const { rows } = await exportCsv();
+        expect(rows).toHaveLength(TRADE_COUNT);
+      } finally {
+        await prisma.backtestRun.update({
+          where: { id: runId },
+          data: { snapshot: snapshot ?? {} },
+        });
+      }
+    });
+  });
+
   describe("ownership", () => {
     it("answers another user's run exactly like a missing one, on both routes", async () => {
       await other.get(`/backtests/${runId}/trades`).expect(404);

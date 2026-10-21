@@ -875,8 +875,43 @@ function progressOf(row: RunProgressRow): BacktestProgressResponse {
   };
 }
 
+/** How many runs' trade-log aggregates the API keeps; the oldest go first. */
+const TRADE_LOG_CACHE_SIZE = 500;
+
+/** A finished run's trade log, as every page of it reports it: fixed once the run is terminal. */
+type FinishedTradeLog = {
+  /** The run's status and completion time it was read at: a retried run reads again. */
+  readonly version: string;
+  readonly symbols: string[];
+  readonly tradeCount: number;
+};
+
+function remember<T>(cache: Map<string, T>, key: string, value: T): void {
+  cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > TRADE_LOG_CACHE_SIZE) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) {
+      cache.delete(oldest);
+    }
+  }
+}
+
 @Injectable()
 export class BacktestsService {
+  /**
+   * Each run's trade reasons, by run id: described from its immutable snapshot, so the snapshot —
+   * the run's largest document — is read once per run rather than on every page and every export.
+   * Only reasons the snapshot names on its own are kept (see `tradeReasonsOf`).
+   */
+  private readonly tradeReasons = new Map<string, BacktestTradeReasonIndex>();
+
+  /**
+   * Each finished run's traded symbols and trade count. A terminal run's trades are never written
+   * again, so every page reports the same two; they are read once per run and completion.
+   */
+  private readonly finishedTradeLogs = new Map<string, FinishedTradeLog>();
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EntitlementsService)
@@ -1357,12 +1392,17 @@ export class BacktestsService {
       Math.max(Math.trunc(request.pageSize ?? BACKTEST_TRADES_PAGE_SIZE), 1),
       BACKTEST_TRADES_MAX_PAGE_SIZE,
     );
+    // A finished run's symbols and trade count are fixed: read once, then reused by every page.
+    const finished = await this.finishedTradeLog(run);
     const [totalCount, unfilteredCount, symbols] = await Promise.all([
-      this.prisma.backtestTrade.count({ where }),
+      finished && !filtered
+        ? finished.tradeCount
+        : this.prisma.backtestTrade.count({ where }),
       filtered
-        ? this.prisma.backtestTrade.count({ where: { runId: run.id } })
+        ? (finished?.tradeCount ??
+          this.prisma.backtestTrade.count({ where: { runId: run.id } }))
         : null,
-      this.tradedSymbols(run.id),
+      finished?.symbols ?? this.tradedSymbols(run.id),
     ]);
     const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
     const page = Math.min(
@@ -1378,7 +1418,7 @@ export class BacktestsService {
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
-    const reasons = await this.tradeReasonIndexOf(run.snapshot);
+    const reasons = await this.tradeReasonsOf(run.id);
     return {
       items: rows.map((row) => tradeOf(row, reasons)),
       page,
@@ -1413,7 +1453,7 @@ export class BacktestsService {
     const startedAt = Date.now();
     const run = await this.ownedTradeLogRun(userId, runId);
     const order = query.order ?? BACKTEST_TRADE_DEFAULT_ORDER;
-    const reasons = await this.tradeReasonIndexOf(run.snapshot);
+    const reasons = await this.tradeReasonsOf(run.id);
     const fields: TradeExportLogFields = {
       actorUserId: userId,
       runId: run.id,
@@ -1514,15 +1554,66 @@ export class BacktestsService {
   private async ownedTradeLogRun(
     userId: string,
     runId: string,
-  ): Promise<{ id: string; snapshot: Prisma.JsonValue }> {
+  ): Promise<{
+    id: string;
+    status: BacktestRunStatus;
+    completedAt: Date | null;
+  }> {
+    // Ownership on every read; the snapshot only when the run's reasons are not described yet.
     const run = await this.prisma.backtestRun.findFirst({
       where: { id: runId, userId },
-      select: { id: true, snapshot: true },
+      select: { id: true, status: true, completedAt: true },
     });
     if (!run) {
       throw new BacktestRunNotFoundError();
     }
     return run;
+  }
+
+  /** The run's trade reasons, described from its snapshot the first time they are asked for. */
+  private async tradeReasonsOf(
+    runId: string,
+  ): Promise<BacktestTradeReasonIndex> {
+    const cached = this.tradeReasons.get(runId);
+    if (cached) {
+      return cached;
+    }
+    const { snapshot } = await this.prisma.backtestRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { snapshot: true },
+    });
+    const { reasons, fromSnapshot } = await this.tradeReasonIndexOf(snapshot);
+    // Reasons that borrowed an actor's current name are described afresh, so a rename shows.
+    if (fromSnapshot) {
+      remember(this.tradeReasons, runId, reasons);
+    }
+    return reasons;
+  }
+
+  /**
+   * A finished run's traded symbols and trade count, read once per completion; `null` while the
+   * run is still queued or executing, when its log may still grow and every page reads it afresh.
+   */
+  private async finishedTradeLog(run: {
+    id: string;
+    status: BacktestRunStatus;
+    completedAt: Date | null;
+  }): Promise<FinishedTradeLog | null> {
+    if (!isTerminalBacktestStatus(run.status)) {
+      return null;
+    }
+    const version = `${run.status}|${run.completedAt?.toISOString() ?? ""}`;
+    const cached = this.finishedTradeLogs.get(run.id);
+    if (cached?.version === version) {
+      return cached;
+    }
+    const [symbols, tradeCount] = await Promise.all([
+      this.tradedSymbols(run.id),
+      this.prisma.backtestTrade.count({ where: { runId: run.id } }),
+    ]);
+    const entry = { version, symbols, tradeCount };
+    remember(this.finishedTradeLogs, run.id, entry);
+    return entry;
   }
 
   /**
@@ -1531,14 +1622,15 @@ export class BacktestsService {
    */
   private async tradeReasonIndexOf(
     snapshotDocument: Prisma.JsonValue,
-  ): Promise<BacktestTradeReasonIndex> {
+  ): Promise<{ reasons: BacktestTradeReasonIndex; fromSnapshot: boolean }> {
     const snapshot = withCanonicalStrategyDefinition(
       readSnapshot(snapshotDocument),
     );
-    return backtestTradeReasonIndex(
-      snapshot.strategy.definition,
-      await this.snapshotScopeNames(snapshot),
-    );
+    const { names, fromSnapshot } = await this.snapshotScopeNames(snapshot);
+    return {
+      reasons: backtestTradeReasonIndex(snapshot.strategy.definition, names),
+      fromSnapshot,
+    };
   }
 
   /**
@@ -1602,28 +1694,35 @@ export class BacktestsService {
    * stable external identity and never deletes a member, and a name is presentation — it is never
    * matched on and nothing about the run's result is read from it.
    */
+  /**
+   * The names the run's reasons are described with, and whether they came from the snapshot alone:
+   * a run recorded before snapshots named their actors falls back to the actors' current names.
+   */
   private async snapshotScopeNames(
     snapshot: BacktestRunSnapshot,
-  ): Promise<StrategyScopeNames> {
+  ): Promise<{ names: StrategyScopeNames; fromSnapshot: boolean }> {
     const names = backtestSnapshotScopeNames(snapshot);
     const unnamed = collectActorIds(
       collectAlternativeDataMetrics(snapshot.strategy.definition),
     ).filter((actorId) => names.actors?.[actorId] === undefined);
     if (unnamed.length === 0) {
-      return names;
+      return { names, fromSnapshot: true };
     }
     const actors = await this.prisma.alternativeDataActor.findMany({
       where: { id: { in: unnamed } },
       select: { id: true, displayName: true },
     });
     return {
-      ...names,
-      actors: {
-        ...Object.fromEntries(
-          actors.map((actor) => [actor.id, actor.displayName]),
-        ),
-        ...names.actors,
+      names: {
+        ...names,
+        actors: {
+          ...Object.fromEntries(
+            actors.map((actor) => [actor.id, actor.displayName]),
+          ),
+          ...names.actors,
+        },
       },
+      fromSnapshot: false,
     };
   }
 
