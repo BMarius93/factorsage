@@ -262,6 +262,13 @@ describe("CollectionSection, compact density", () => {
     expect(header("Name").getAttribute("aria-sort")).toBeNull();
   });
 
+  it("sorts by header only where the Sort control is offered, never for one record", () => {
+    renderCompact(dated(1));
+
+    expect(screen.queryByLabelText("Sort")).toBeNull();
+    expect(within(screen.getByTestId("your-things-table")).queryAllByRole("button")).toHaveLength(0);
+  });
+
   it("leaves a header that no order names as plain text", () => {
     renderCompact(dated(3), [
       { id: "newest", label: "Newest" },
