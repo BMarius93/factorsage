@@ -77,6 +77,19 @@ export async function openFixtureList(page: Page, name: string): Promise<void> {
   await expect(page.getByTestId("list-detail")).toBeVisible({
     timeout: 20_000,
   });
+  // The members table pages at 25 too, and these specs reason about a list's whole size through
+  // its rows. Widening it is what a reader would do to see every stock; a list that fits on the
+  // smallest page has no footer to widen.
+  await expect(
+    page
+      .getByTestId("list-item")
+      .or(page.getByTestId("list-items-empty"))
+      .first(),
+  ).toBeVisible({ timeout: 20_000 });
+  const members = page.getByTestId("list-items-footer");
+  if ((await members.count()) > 0) {
+    await members.getByLabel("Rows").selectOption("100");
+  }
 }
 
 export function listItems(page: Page): Locator {

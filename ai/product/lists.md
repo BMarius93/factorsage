@@ -192,8 +192,13 @@ see `ai/architecture/ui-system.md`) that also drives the topbar search — one s
 catalog-only, recently viewed stocks on a blank field, the same throttling copy, and Enter can only
 select a real result, never free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
 list page through a per-stock editor dialog. From ten members the list page offers a search by ticker
-or company and a Sort (list order, ticker, company); the members stay one scroll (see `useCollection`
-in `ai/architecture/ui-system.md`).
+or company and a Sort (list order, ticker, company). The members page 25 at a time (10, 25, 50 or
+100), and a list whose membership is dated — the point-in-time universe, or members with their own
+periods — offers **Current members** (a strategy may buy them today), **Former members** (every
+period has ended) and **All members** (the default; a member whose first period has not begun is
+only here). After stocks are added, the page shows them: a filter or search that would hide them
+gives way, the page that holds them opens, and their rows are tinted for a moment (see
+`useCollection` in `ai/architecture/ui-system.md`).
 
 ### The V1 membership editor exposes one period
 

@@ -431,3 +431,175 @@ describe("ListDetail", () => {
     expect(screen.queryByTestId("membership-editor")).toBeNull();
   });
 });
+
+describe("ListDetail members, paged and filtered", () => {
+  const symbolOf = (index: number) => `S${String(index).padStart(3, "0")}`;
+  const many = (count: number) =>
+    Array.from({ length: count }, (_, index) =>
+      item(`item-${index}`, symbolOf(index)),
+    );
+  const rowSymbols = () =>
+    within(screen.getByTestId("list-items"))
+      .getAllByTestId("list-item")
+      .map((row) => row.querySelector('[data-column="stock"]')?.textContent);
+
+  it("pages the members 25 at a time, with the count in the heading", async () => {
+    fetchStockListMock.mockResolvedValue(detail(many(60)));
+    render(<ListDetail listId="list-1" />);
+    await screen.findByTestId("list-items");
+
+    expect(screen.getAllByTestId("list-item")).toHaveLength(25);
+    expect(screen.getByTestId("list-items-count").textContent).toBe(
+      "60 stocks",
+    );
+    const footer = screen.getByTestId("list-items-footer");
+    expect(footer.textContent).toContain("Showing 1–25 of 60 stocks");
+    const size = within(footer).getByLabelText("Rows") as HTMLSelectElement;
+    expect([...size.options].map((option) => option.value)).toEqual([
+      "10",
+      "25",
+      "50",
+      "100",
+    ]);
+    await userEvent.click(within(footer).getByRole("button", { name: "Next" }));
+    expect(screen.getAllByTestId("list-item")).toHaveLength(25);
+    expect(rowSymbols()[0]).toContain("S025");
+  });
+
+  it("offers no membership filter, and no footer, for a short list of always-eligible stocks", async () => {
+    fetchStockListMock.mockResolvedValue(detail(many(8)));
+    render(<ListDetail listId="list-1" />);
+    await screen.findByTestId("list-items");
+
+    expect(screen.queryByTestId("list-membership-filter")).toBeNull();
+    expect(screen.queryByTestId("list-items-footer")).toBeNull();
+    expect(screen.getAllByTestId("list-item")).toHaveLength(8);
+  });
+
+  it("shows current, former or all members of a dated list", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail([
+        item("always", "FULL1"),
+        item("now", "NOW1", {
+          buyWindowMode: "CUSTOM",
+          buyWindows: [{ startDate: "2020-01-01", endDate: null }],
+        }),
+        item("left", "LEFT1", {
+          buyWindowMode: "CUSTOM",
+          buyWindows: [{ startDate: "2019-01-01", endDate: "2020-12-31" }],
+        }),
+        item("later", "LATER1", {
+          buyWindowMode: "CUSTOM",
+          buyWindows: [{ startDate: "2999-01-01", endDate: null }],
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<ListDetail listId="list-1" />);
+    await screen.findByTestId("list-items");
+
+    const filter = screen.getByTestId("list-membership-filter");
+    expect(rowSymbols()).toHaveLength(4);
+
+    await user.selectOptions(filter, "current");
+    expect(rowSymbols().map((text) => text?.slice(0, 4))).toEqual([
+      "FULL",
+      "NOW1",
+    ]);
+    expect(screen.getByTestId("list-items-count").textContent).toBe(
+      "2 of 4 stocks",
+    );
+
+    await user.selectOptions(filter, "former");
+    expect(rowSymbols().map((text) => text?.slice(0, 5))).toEqual(["LEFT1"]);
+
+    await user.selectOptions(filter, "all");
+    expect(rowSymbols()).toHaveLength(4);
+  });
+
+  it("says when a membership filter leaves nothing, and shows everything again", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail([
+        item("now", "NOW1", {
+          buyWindowMode: "CUSTOM",
+          buyWindows: [{ startDate: "2020-01-01", endDate: null }],
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<ListDetail listId="list-1" />);
+    await screen.findByTestId("list-items");
+
+    await user.selectOptions(
+      screen.getByTestId("list-membership-filter"),
+      "former",
+    );
+    const empty = screen.getByTestId("list-items-membership-empty");
+    expect(empty.textContent).toContain("No former members");
+    await user.click(
+      within(empty).getByRole("button", { name: "Show all members" }),
+    );
+    expect(rowSymbols()).toHaveLength(1);
+  });
+
+  it("takes the reader to a stock just added, on whatever page and behind whatever filter", async () => {
+    const dated = [
+      item("left", "LEFT1", {
+        buyWindowMode: "CUSTOM",
+        buyWindows: [{ startDate: "2019-01-01", endDate: "2020-12-31" }],
+      }),
+      ...many(59),
+    ];
+    fetchStockListMock.mockResolvedValue(detail(dated));
+    // The API answers in list order, the new stock last: the third page of 25.
+    addStockListItemsMock.mockResolvedValue(
+      detail([
+        ...dated,
+        item("item-new", "NEW1", {
+          security: {
+            id: "sec-new-1",
+            symbol: "NEW1",
+            name: "Newly Picked Corp",
+            exchangeCode: "NYSE",
+          },
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<ListDetail listId="list-1" />);
+    await screen.findByTestId("list-items");
+
+    // The reader is looking at former members only, which the new stock is not.
+    await user.selectOptions(
+      screen.getByTestId("list-membership-filter"),
+      "former",
+    );
+    await user.click(screen.getByTestId("pick-security"));
+    await user.click(screen.getByTestId("add-stocks-button"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("list-items-footer").textContent).toContain(
+        "Page 3 of 3",
+      ),
+    );
+    expect(
+      (screen.getByTestId("list-membership-filter") as HTMLSelectElement).value,
+    ).toBe("all");
+    const newRow = () =>
+      within(screen.getByTestId("list-items"))
+        .getAllByTestId("list-item")
+        .find((row) => row.textContent?.includes("NEW1"));
+    await waitFor(() =>
+      expect(newRow()?.getAttribute("data-highlight")).toBe("true"),
+    );
+    expect(
+      screen.getByText("NEW1 added to the list.").getAttribute("role"),
+    ).toBe("status");
+
+    // The tint is a moment, not a state.
+    await waitFor(
+      () => expect(newRow()?.getAttribute("data-highlight")).toBeNull(),
+      { timeout: 4_000 },
+    );
+  });
+});

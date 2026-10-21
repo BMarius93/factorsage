@@ -190,8 +190,11 @@ A query announces "N of M {noun} match “q”." through a `role="status"` regio
 the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. Lists,
 Strategies and Monitors still return the whole owned collection — what pickers, entitlement meters
 and the built-in sections read anyway; only the Backtests history pages in the database. A list's
-members are searchable and sortable but stay one scroll, so a stock just added never lands on a
-later page.
+members page too (25 by default; a point-in-time universe holds hundreds), and where membership is
+dated they can be narrowed to **Current**, **Former** or **All** members (`resetKey` and `filters`
+on `useCollection`). A stock just added is never lost on a later page: the filter or search that
+would hide it gives way, the page that holds it opens, and its row is tinted for a moment
+(`DataTable`'s `highlightedRowKeys`; still under reduced motion) and announced.
 
 **One empty-collection composition (UI-012):** a titled `SectionCard` ("Your lists", "Your
 backtests") holding a compact `EmptyState`; the page's create action stays in the `PageHeader`.
