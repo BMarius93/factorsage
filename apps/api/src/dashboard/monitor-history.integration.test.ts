@@ -862,6 +862,171 @@ describe("Monitor history read models", () => {
         .expect(400);
     });
 
+    it("pages one table by keyset, counting each group, and refuses a cursor from other filters", async () => {
+      const url = `/monitors/${ids.builtIn}/signals`;
+      const read = async (path: string) =>
+        (await guest.get(path).expect(200)).body as MonitorSignalPageResponse;
+      const first = await read(`${url}?limit=1`);
+      expect(first.counts).toEqual({ active: 2, ended: 2, waiting: 1 });
+      const seen = first.rows.map((row) => row.id);
+      let cursor = first.nextCursor;
+      while (cursor) {
+        const page = await read(`${url}?limit=1&cursor=${cursor}`);
+        expect(page.counts).toBeUndefined();
+        seen.push(...page.rows.map((row) => row.id));
+        cursor = page.nextCursor;
+      }
+      // One row at a time, across both groups: every occurrence exactly once, in order.
+      expect(seen).toEqual([signal.b, signal.c, signal.a, signal.d]);
+
+      // Waiting setups page by keyset too.
+      const waiting = await read(`${url}?state=PENDING_TRIGGER&limit=1`);
+      expect(waiting.rows).toHaveLength(1);
+      expect(waiting.nextCursor).toBeUndefined();
+
+      // A cursor continues only the filters it was issued for.
+      const activeOnly = await read(`${url}?state=ACTIVE&limit=1`);
+      await guest
+        .get(`${url}?limit=1&cursor=${activeOnly.nextCursor}`)
+        .expect(400);
+      await guest
+        .get(`${url}?state=RESOLVED&limit=1&cursor=${activeOnly.nextCursor}`)
+        .expect(400);
+    });
+
+    it("restarts rather than mix two states when an evaluation lands between pages", async () => {
+      const [s1] = securityIds as [string];
+      const url = `/monitors/${ids.builtIn}/signals`;
+      const read = async (path: string) =>
+        (await guest.get(path).expect(200)).body as MonitorSignalPageResponse;
+      const page1 = await read(`${url}?limit=1`);
+      expect(page1.rows.map((row) => [row.id, row.state])).toEqual([
+        [signal.b, "ACTIVE"],
+      ]);
+      let ending = "";
+      try {
+        // The next session's evaluation ends the occurrence the reader just saw as active — in one
+        // transaction, as the worker writes it.
+        const [, written] = await prisma.$transaction([
+          prisma.monitorSignal.update({
+            where: { id: signal.b },
+            data: {
+              resolvedAt: new Date("2026-10-15T22:00:00.000Z"),
+              resolvedObservationDate: date("2026-10-15"),
+              resolutionReason: "CONDITIONS_ENDED",
+            },
+          }),
+          prisma.monitorStateTransition.create({
+            data: {
+              monitorId: ids.builtIn,
+              securityId: s1,
+              levelId: "buy-1",
+              levelKind: "BUY",
+              signalFingerprint: "fingerprint",
+              fromState: "ACTIVE",
+              toState: "RESOLVED",
+              reason: "CONDITIONS_ENDED",
+              origin: "OBSERVED",
+              observationDate: date("2026-10-15"),
+              signalId: signal.b,
+            },
+          }),
+        ]);
+        ending = written.id;
+        // Continuing would show it again among the ended ones: the page is refused.
+        await guest
+          .get(`${url}?limit=1&cursor=${page1.nextCursor}`)
+          .expect(409);
+
+        // Starting over reads the table as it now is, each occurrence once.
+        const restarted = await read(`${url}?limit=2`);
+        expect(restarted.counts).toEqual({ active: 1, ended: 3, waiting: 1 });
+        const rest = await read(
+          `${url}?limit=2&cursor=${restarted.nextCursor}`,
+        );
+        expect(
+          [...restarted.rows, ...rest.rows].map((row) => [row.id, row.state]),
+        ).toEqual([
+          [signal.c, "ACTIVE"],
+          [signal.b, "RESOLVED"],
+          [signal.a, "RESOLVED"],
+          [signal.d, "RESOLVED"],
+        ]);
+      } finally {
+        await prisma.monitorSignal.update({
+          where: { id: signal.b },
+          data: {
+            resolvedAt: null,
+            resolvedObservationDate: null,
+            resolutionReason: null,
+          },
+        });
+        if (ending) {
+          await prisma.monitorStateTransition.delete({ where: { id: ending } });
+        }
+      }
+      expect(
+        (
+          await prisma.monitorSignal.findUniqueOrThrow({
+            where: { id: signal.b },
+          })
+        ).resolvedSession,
+      ).toBeNull();
+    });
+
+    it("orders an ending no observation made by the New York day it was recorded", async () => {
+      const [s1] = securityIds as [string];
+      const created: string[] = [];
+      try {
+        // Observed ending on October 14 at 01:00 UTC; an administrative ending at 03:00 UTC the same
+        // night — still October 13 in New York.
+        created.push(
+          await createSignal({
+            monitorId: ids.builtIn,
+            securityId: s1,
+            versionId: ids.builtInVersion,
+            on: "2026-10-02",
+            price: 100,
+            resolvedOn: "2026-10-14",
+            resolvedAt: new Date("2026-10-14T01:00:00.000Z"),
+            reason: "CONDITIONS_ENDED",
+          }),
+          await createSignal({
+            monitorId: ids.builtIn,
+            securityId: s1,
+            versionId: ids.builtInVersion,
+            on: "2026-10-03",
+            price: 100,
+            resolvedOn: null,
+            resolvedAt: new Date("2026-10-14T03:00:00.000Z"),
+            reason: "LEVEL_REMOVED",
+          }),
+        );
+        const [observed, administrative] = created as [string, string];
+        const stored = await prisma.monitorSignal.findUniqueOrThrow({
+          where: { id: administrative },
+        });
+        expect(stored.resolvedSession?.toISOString().slice(0, 10)).toBe(
+          "2026-10-13",
+        );
+        const resolved = (
+          await guest
+            .get(`/monitors/${ids.builtIn}/signals?state=RESOLVED`)
+            .expect(200)
+        ).body as MonitorSignalPageResponse;
+        expect(resolved.rows.map((row) => row.id)).toEqual([
+          observed,
+          administrative,
+          signal.a,
+          signal.d,
+        ]);
+      } finally {
+        await prisma.monitorSignal.deleteMany({
+          where: { id: { in: created } },
+        });
+      }
+    });
+
     it("is visible exactly where the Monitor is", async () => {
       await guest.get(`/monitors/${ids.own}/signals`).expect(404);
       await other.get(`/monitors/${ids.own}/signals`).expect(404);

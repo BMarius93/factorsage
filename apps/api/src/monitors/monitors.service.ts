@@ -49,10 +49,7 @@ import {
   reboundMonitorFields,
 } from "./monitor-configuration-boundary";
 import { BENCHMARK_DATA_SERVICE } from "../benchmarks/benchmarks.tokens";
-import {
-  MONITOR_ETF_STATUS_OPTIONS,
-  MONITORS_LOGGER,
-} from "./monitors.tokens";
+import { MONITOR_ETF_STATUS_OPTIONS, MONITORS_LOGGER } from "./monitors.tokens";
 import { monitorStateSince } from "./signal-since";
 import { readSignalTable } from "./monitor-signal-table";
 import type { SignalTableQuery } from "./monitor-requests";
@@ -109,7 +106,9 @@ const SIGNAL_PAGE_SIZE = 100;
 
 const MONITOR_INCLUDE = {
   strategy: { select: { id: true, name: true } },
-  stockList: { select: { id: true, name: true, _count: { select: { items: true } } } },
+  stockList: {
+    select: { id: true, name: true, _count: { select: { items: true } } },
+  },
   _count: { select: { signals: { where: { resolvedAt: null } } } },
 } satisfies Prisma.MonitorInclude;
 
@@ -164,7 +163,9 @@ function summaryOf(
       ? {
           isPublished: row.isPublished,
           isGloballyEnabled: row.isGloballyEnabled,
-          ...(row.displayOrder === null ? {} : { displayOrder: row.displayOrder }),
+          ...(row.displayOrder === null
+            ? {}
+            : { displayOrder: row.displayOrder }),
           // The viewer's own preference, never the shared Monitor's state. Absence of a row is
           // the built-in default, so a Guest — who can have no row — reads `true`.
           dashboardVisible: !hiddenBuiltIns.has(row.id),
@@ -266,7 +267,10 @@ export class MonitorsService {
       return new Set<string>();
     }
     const preferences = await this.prisma.userBuiltInMonitorPreference.findMany(
-      { where: { userId: viewer.id, enabled: false }, select: { monitorId: true } },
+      {
+        where: { userId: viewer.id, enabled: false },
+        select: { monitorId: true },
+      },
     );
     return new Set(preferences.map((entry) => entry.monitorId));
   }
@@ -335,9 +339,8 @@ export class MonitorsService {
     });
     // A new Monitor has produced nothing yet, but its universe is already known: every member
     // reports `NOT_CHECKED` until a cycle reaches it.
-    const eligibility = await this.entitlements.getMonitorExecutionEligibility(
-      userId,
-    );
+    const eligibility =
+      await this.entitlements.getMonitorExecutionEligibility(userId);
     return {
       ...summaryOf(row, eligibility.get(row.id), user),
       securities: await this.listSecurityEvaluations(
@@ -520,7 +523,10 @@ export class MonitorsService {
           statuses.push({ code, ticker, status: "NOT_BOOTSTRAPPED" });
           continue;
         }
-        if (state.lastTailSyncAt === undefined || state.latestBar === undefined) {
+        if (
+          state.lastTailSyncAt === undefined ||
+          state.latestBar === undefined
+        ) {
           statuses.push({ code, ticker, status: "NOT_SYNCHRONIZED" });
           continue;
         }
@@ -582,7 +588,9 @@ export class MonitorsService {
     }
     try {
       const definition = normalizeStrategyDefinition(version.definition);
-      return new Set(monitorStrategyLevels(definition).map((level) => level.id));
+      return new Set(
+        monitorStrategyLevels(definition).map((level) => level.id),
+      );
     } catch (err) {
       this.logger.error({
         event: "monitor.strategy.definition.unreadable",
@@ -701,7 +709,9 @@ export class MonitorsService {
           return {
             levelId: row.levelId,
             levelKind: row.levelKind,
-            kind: signal.hasTrigger ? ("TRIGGER" as const) : ("CONDITION" as const),
+            kind: signal.hasTrigger
+              ? ("TRIGGER" as const)
+              : ("CONDITION" as const),
             signalId: signal.id,
             observationPrice: Number(signal.observationPrice),
             detectedAt: signal.detectedAt.toISOString(),
@@ -778,7 +788,9 @@ export class MonitorsService {
   ): Promise<MonitorSummaryResponse> {
     const userId = user.id;
     const target = await this.findMutable(user, monitorId);
-    const builtInKeys = BUILT_IN_MONITOR_KEYS.filter((key) => patch[key] !== undefined);
+    const builtInKeys = BUILT_IN_MONITOR_KEYS.filter(
+      (key) => patch[key] !== undefined,
+    );
     if (target.ownership === "USER" && builtInKeys.length > 0) {
       throw new MonitorRequestError(
         `\`${builtInKeys[0]}\` applies to built-in monitors only`,
@@ -870,7 +882,10 @@ export class MonitorsService {
         id: monitorId,
         OR: [
           { userId: user.id },
-          { ownership: "SYSTEM", ...(isAdministrator(user) ? {} : { isPublished: true }) },
+          {
+            ownership: "SYSTEM",
+            ...(isAdministrator(user) ? {} : { isPublished: true }),
+          },
         ],
       },
       select: { id: true, ownership: true, userId: true, systemKey: true },

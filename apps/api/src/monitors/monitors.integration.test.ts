@@ -201,7 +201,10 @@ describe("monitors", () => {
     ).id;
 
     strategyId = await createStrategyRow(ownerId, "Monitor Strategy");
-    otherStrategyId = await createStrategyRow(otherId, "Someone Else's Strategy");
+    otherStrategyId = await createStrategyRow(
+      otherId,
+      "Someone Else's Strategy",
+    );
     stockListId = (
       await prisma.stockList.create({
         data: { userId: ownerId, name: "Monitor List" },
@@ -260,7 +263,10 @@ describe("monitors", () => {
   it("requires authentication on every route but the built-in reads", async () => {
     const anonymous = request(app.getHttpServer());
     await anonymous.post("/monitors").send({ name: "x" }).expect(401);
-    await anonymous.patch("/monitors/any-id").send({ enabled: false }).expect(401);
+    await anonymous
+      .patch("/monitors/any-id")
+      .send({ enabled: false })
+      .expect(401);
     await anonymous.delete("/monitors/any-id").expect(401);
     // Built-in monitors are public product content, so the collection is readable without a
     // session. It holds only built-ins for a Guest — this suite creates none, so it is empty —
@@ -457,7 +463,12 @@ describe("monitors", () => {
     // Nothing was created for either owner.
     expect(
       await prisma.monitor.count({
-        where: { OR: [{ stockListId: otherStockListId }, { strategyId: otherStrategyId }] },
+        where: {
+          OR: [
+            { stockListId: otherStockListId },
+            { strategyId: otherStrategyId },
+          ],
+        },
       }),
     ).toBe(0);
   });
@@ -489,7 +500,10 @@ describe("monitors", () => {
     });
 
     await other.get(`/monitors/${monitor.id}`).expect(404);
-    await other.patch(`/monitors/${monitor.id}`).send({ enabled: false }).expect(404);
+    await other
+      .patch(`/monitors/${monitor.id}`)
+      .send({ enabled: false })
+      .expect(404);
     await other.delete(`/monitors/${monitor.id}`).expect(404);
     await other.get(`/monitors/${randomUUID()}`).expect(404);
 
@@ -766,9 +780,11 @@ describe("monitors", () => {
       expect(state.activeSignalId).toBe(signal.id);
       expect(state.lastEvaluableResult).toBe("MATCHED");
       expect(
-        (await prisma.monitorSignal.findUniqueOrThrow({
-          where: { id: signal.id },
-        })).resolvedAt,
+        (
+          await prisma.monitorSignal.findUniqueOrThrow({
+            where: { id: signal.id },
+          })
+        ).resolvedAt,
       ).toBeNull();
       const binding = await bindingOf(monitor.id);
       expect(binding.configVersion).toBe(0);
@@ -1037,7 +1053,9 @@ describe("monitors", () => {
       await prisma.monitor.delete({ where: { id: monitor.id } });
       await prisma.stockList.delete({ where: { id: listId } });
       await prisma.security.deleteMany({
-        where: { id: { in: [matched.id, missed.id, undecidable.id, fresh.id] } },
+        where: {
+          id: { in: [matched.id, missed.id, undecidable.id, fresh.id] },
+        },
       });
     });
 
@@ -1224,9 +1242,8 @@ describe("monitors", () => {
         },
       });
 
-      const body = (
-        await owner.get(`/monitors/${monitor.id}`).expect(200)
-      ).body as MonitorDetailResponse;
+      const body = (await owner.get(`/monitors/${monitor.id}`).expect(200))
+        .body as MonitorDetailResponse;
 
       expect(body.securities[0]?.security.logoUrl).toBe(logoUrl);
       expect(body.signals[0]?.security.logoUrl).toBe(logoUrl);
@@ -1540,23 +1557,40 @@ describe("monitors", () => {
         const detail = (await owner.get(`/monitors/${monitor.id}`).expect(200))
           .body as MonitorDetailResponse;
         expect(detail.stockSectors).toEqual([
-          { symbol: `SCA${tag}`, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          {
+            symbol: `SCA${tag}`,
+            sector: "Technology",
+            code: "ETF_XLK",
+            ticker: "XLK",
+          },
           {
             symbol: `SCB${tag}`,
             sector: "Financial Services",
             code: "ETF_XLF",
             ticker: "XLF",
           },
-          { symbol: `SCC${tag}`, sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+          {
+            symbol: `SCC${tag}`,
+            sector: "Technology",
+            code: "ETF_XLK",
+            ticker: "XLK",
+          },
           { symbol: `SCD${tag}`, sector: null, code: null, ticker: null },
-          { symbol: `SCE${tag}`, sector: "Conglomerates", code: null, ticker: null },
+          {
+            symbol: `SCE${tag}`,
+            sector: "Conglomerates",
+            code: null,
+            ticker: null,
+          },
         ]);
         // The funds those stocks read get an availability row each, once, in catalog order — and
         // no fund stands in for the two stocks without one.
-        expect(detail.etfSources?.map((row) => [row.code, row.ticker])).toEqual([
-          ["ETF_XLK", "XLK"],
-          ["ETF_XLF", "XLF"],
-        ]);
+        expect(detail.etfSources?.map((row) => [row.code, row.ticker])).toEqual(
+          [
+            ["ETF_XLK", "XLK"],
+            ["ETF_XLF", "XLF"],
+          ],
+        );
 
         // Reclassified in the catalog: a Monitor reads the current sector, so the detail follows
         // at once, as the next scan will.
@@ -1572,7 +1606,10 @@ describe("monitors", () => {
           code: "ETF_XLE",
           ticker: "XLE",
         });
-        expect(after.etfSources?.map((row) => row.ticker)).toEqual(["XLK", "XLE"]);
+        expect(after.etfSources?.map((row) => row.ticker)).toEqual([
+          "XLK",
+          "XLE",
+        ]);
 
         // A Monitor whose Strategy reads no Stock's Sector rule says nothing about sectors.
         const plain = await createMonitor(owner, {
@@ -1580,8 +1617,9 @@ describe("monitors", () => {
           strategyId,
           stockListId: listId,
         });
-        const plainDetail = (await owner.get(`/monitors/${plain.id}`).expect(200))
-          .body as MonitorDetailResponse;
+        const plainDetail = (
+          await owner.get(`/monitors/${plain.id}`).expect(200)
+        ).body as MonitorDetailResponse;
         expect(plainDetail).not.toHaveProperty("stockSectors");
         expect(plainDetail).not.toHaveProperty("etfSources");
       } finally {

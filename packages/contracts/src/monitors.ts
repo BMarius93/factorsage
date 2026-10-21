@@ -325,7 +325,8 @@ export type MonitorSecurityEvaluationResponse = {
 export type MonitorEtfSourceStatusResponse = {
   code: string;
   ticker: string;
-  status: "READY" | "AWAITING_SESSION" | "NOT_SYNCHRONIZED" | "NOT_BOOTSTRAPPED";
+  status:
+    "READY" | "AWAITING_SESSION" | "NOT_SYNCHRONIZED" | "NOT_BOOTSTRAPPED";
   /** The newest finalized, synchronized session, when one exists. */
   latestSession?: string;
 };
@@ -372,8 +373,20 @@ export type MonitorSignalRowResponse = {
 
 export type MonitorSignalPageResponse = {
   rows: MonitorSignalRowResponse[];
-  /** Opaque; pass back as `cursor` for the next page. Absent on the last page. */
+  /**
+   * Opaque; pass back as `cursor` for the next page. Absent on the last page. It continues only the
+   * table its first page read: once a session is evaluated or the Monitor rebinds, the next page is
+   * refused with 409 and the reader starts over.
+   */
   nextCursor?: string;
+  /** On a first page: how many rows each group holds under the level filter. */
+  counts?: MonitorSignalTableCounts;
+};
+
+export type MonitorSignalTableCounts = {
+  active: number;
+  ended: number;
+  waiting: number;
 };
 
 export type MonitorDetailResponse = MonitorSummaryResponse & {
