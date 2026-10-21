@@ -440,12 +440,23 @@ export class DashboardService {
         origin: "OBSERVED",
         observationDate: { not: null },
         AND: [
-          {
-            OR: [
-              { toState: "ACTIVE" },
-              { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
-            ],
-          },
+          // What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
+          // classification the response applies below, so a filtered page holds the same events
+          // as the unfiltered feed minus the other kind, and the keyset cursor pages it unchanged.
+          query.kind === "ACTIVATED"
+            ? { toState: "ACTIVE" }
+            : query.kind === "RESOLVED"
+              ? {
+                  fromState: "ACTIVE",
+                  toState: { not: "ACTIVE" },
+                  reason: "CONDITIONS_ENDED",
+                }
+              : {
+                  OR: [
+                    { toState: "ACTIVE" },
+                    { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
+                  ],
+                },
           ...(after
             ? [
                 {
