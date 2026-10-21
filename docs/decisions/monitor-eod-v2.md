@@ -405,7 +405,16 @@ The important changes the Monitors on the viewer's Dashboard **observed**, newes
   15 events by default, at most 50. A new index, `(monitorId, observationDate, sequence)`, serves it
   (migration `20261015150000_monitor_activity_index`).
 - **Each event** carries the level's position from the version that decided it, the occurrence's
-  activation price and `observationBasis`, and its Why.
+  activation price and `observationBasis`, its Why, and its `sequence` (2026-10-21), which orders
+  events within a session.
+- **Arrivals (2026-10-21).** A first page answers with a `watermark`; `since=<watermark>` (never with
+  `cursor`) returns every change written after it, in feed order, at most 100 per read with
+  `truncated` when more remain. It exists because a page cannot show an event written late for an
+  older session — an ETF waiting for its data, a late bar (§4) — which lands *inside* history a reader
+  already holds. The watermark stops at the newest change written more than ten minutes ago: a
+  transaction that took a smaller `sequence` can commit after one that took a larger, and the worker's
+  member transactions finish in far less, so nothing below the watermark is still to commit. The
+  last ten minutes come back again on the next read and are de-duplicated by `id`.
 
 ### 6.2 `GET /monitors/:monitorId/signals` — the one Signal table
 
@@ -483,9 +492,16 @@ the feed only where a condition compared it. Two dropdowns beside the card's hea
 **Monitor** (`All monitors` or one shown Monitor, by id) and **Event** (`All events`, `Activated`,
 `Ended`) — combine and are applied by the API, so every page, cursor and count is of the filtered
 history; a filter that matches nothing says so and offers **Clear filters**. 15 events open it,
-"Show older activity" appends the next keyset page, and the newest page is re-read on the
-Dashboard's 60-second timer unless older pages are open (DB-2). The freshness fact ("Updated 3 min
-ago") stays beside the heading. Below 40rem of its own column the feed stacks each event — stock and
+"Show older activity" appends the next keyset page — one request at a time, de-duplicated by id,
+and dropped if the reader has changed a filter since; a failed page says so and offers **Try
+again**. On the Dashboard's 60-second timer the feed reads what was written since its watermark and
+places it (DB-2, revised 2026-10-21): a new event above the newest shown, an event written late for
+a loaded session inside that session; one older than every loaded event is left for the cursor to
+reach. Nothing is replaced, so older pages stay open, and the row the reader is on does not move
+while rows are added above it. A bar that sticks to the bottom of the screen counts what was placed
+("2 new events · 1 event added to an earlier session") and **Show newest** goes to the top; a backlog
+larger than one refresh can place reads the newest page instead. Showing or hiding a Monitor reads
+the newest page again. The freshness fact ("Updated 3 min ago") stays beside the heading. Below 40rem of its own column the feed stacks each event — stock and
 signal on one line, every condition under them, the Monitor's link last under a small `Monitor`
 label — and Market watch is not mounted. Nothing is called live.
 
