@@ -65,3 +65,19 @@
   padding: 0 8px;
   white-space: nowrap;
 }
+
+/* Inside a dense desktop surface: the row-action height, a tighter gap, the secondary size. */
+.group[data-compact="true"] {
+  gap: 4px;
+}
+
+.group[data-compact="true"] .option {
+  min-height: var(--action-height);
+  padding: 0 8px;
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.group[data-compact="true"][data-fill="true"] .option {
+  padding: 0 4px;
+}

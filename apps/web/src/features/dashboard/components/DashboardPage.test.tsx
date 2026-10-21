@@ -3,9 +3,13 @@ import type {
   DashboardMonitorResponse,
   DashboardResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  installFakeViewport,
+  type FakeViewport,
+} from "../../../lib/__testing__/fake-viewport";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { marketOverviewFixture } from "../../market/__testing__/market-overview";
 import { fetchMarketOverview } from "../../market/api/market-api";
@@ -17,7 +21,7 @@ vi.mock("../api/dashboard-api", () => ({
   fetchMonitorActivity: vi.fn(),
 }));
 
-// The market overview reads its own endpoint. Mocked here so the page's tests stay about the page.
+// Market watch reads its own endpoint. Mocked here so the page's tests stay about the page.
 vi.mock("../../market/api/market-api", () => ({
   fetchMarketOverview: vi.fn(),
 }));
@@ -181,8 +185,12 @@ function signedIn() {
   });
 }
 
+let viewport: FakeViewport;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // A wide desktop unless a test says otherwise: Market watch beside the feed.
+  viewport = installFakeViewport({ width: 1440 });
   signedOut();
   fetchMarketOverviewMock.mockResolvedValue(marketOverviewFixture());
   fetchDashboardMock.mockResolvedValue(dashboard());
@@ -191,6 +199,10 @@ beforeEach(() => {
     generatedAt: new Date().toISOString(),
     events: EVENTS,
   });
+});
+
+afterEach(() => {
+  viewport.restore();
 });
 
 describe("DashboardPage", () => {
@@ -440,14 +452,18 @@ describe("DashboardPage", () => {
     ).toBe("/monitors");
   });
 
-  it("puts the market overview above the activity, with no summary card above either", async () => {
+  it("puts Market watch beside the activity on a wide desktop, with no summary card above either", async () => {
     render(<DashboardPage />);
-    const market = await screen.findByTestId("market-overview");
     const activity = await screen.findByTestId("dashboard-activity");
+    const watch = await screen.findByTestId("market-watch");
+    // The feed first in reading order, then the sidebar.
     expect(
-      market.compareDocumentPosition(activity) &
+      activity.compareDocumentPosition(watch) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(screen.getByTestId("dashboard-main").contains(activity)).toBe(true);
+    expect(screen.getByTestId("dashboard-sidebar").contains(watch)).toBe(true);
+    expect(screen.queryByTestId("market-overview")).toBeNull();
     expect(screen.queryByTestId("dashboard-overview")).toBeNull();
     expect(screen.queryByText("Current matches")).toBeNull();
     expect(screen.getAllByText("Monitor activity").length).toBeGreaterThan(0);
@@ -456,7 +472,7 @@ describe("DashboardPage", () => {
   it("never describes anything on the Dashboard as fear and greed, or as live", async () => {
     render(<DashboardPage />);
     await screen.findByTestId("dashboard-activity");
-    await screen.findByTestId("market-overview-row-SPY");
+    await screen.findByTestId("market-watch-row-SPY");
     const page = screen.getByTestId("dashboard-page");
     expect(page.textContent).not.toMatch(/fear|greed/i);
     expect(page.textContent).not.toMatch(/\blive\b|real-time/i);
@@ -471,7 +487,90 @@ describe("DashboardPage", () => {
     ]);
     const page = screen.getByTestId("dashboard-page");
     expect(page.firstElementChild?.tagName).toBe("H1");
-    expect(page.children[1]).toBe(screen.getByTestId("market-overview"));
+    expect(page.children[1]).toBe(screen.getByTestId("dashboard-layout"));
+    // The feed's column opens with the Guest's invitation, then the activity itself.
+    const main = screen.getByTestId("dashboard-main");
+    expect(main.children[0]).toBe(screen.getByTestId("dashboard-guest-notice"));
+    expect(main.children[1]?.querySelector("#activity-title")).not.toBeNull();
+  });
+
+  it("neither mounts Market watch nor asks for market data below 1,280px", async () => {
+    for (const width of [360, 390, 768, 1024, 1199, 1279]) {
+      viewport.resize(width);
+      const { unmount } = render(<DashboardPage />);
+      await screen.findByTestId("dashboard-activity");
+      expect(
+        screen.queryByTestId("dashboard-sidebar"),
+        `${width}px`,
+      ).toBeNull();
+      expect(screen.queryByTestId("market-watch"), `${width}px`).toBeNull();
+      unmount();
+    }
+    expect(fetchMarketOverviewMock).not.toHaveBeenCalled();
+  });
+
+  it("mounts Market watch when the window widens to 1,280px and removes it, timer and all, below", async () => {
+    viewport.resize(1279);
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-activity");
+    expect(fetchMarketOverviewMock).not.toHaveBeenCalled();
+
+    viewport.resize(1280);
+    await screen.findByTestId("market-watch-row-SPY");
+    expect(fetchMarketOverviewMock).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    try {
+      viewport.resize(1279);
+      expect(screen.queryByTestId("market-watch")).toBeNull();
+      // The feed is untouched by the sidebar leaving.
+      expect(
+        within(screen.getByTestId("dashboard-activity")).getAllByTestId(
+          "dashboard-activity-row",
+        ),
+      ).toHaveLength(EVENTS.length);
+      // Only the page's own timers remain: the clock and the feed's refresh, never the rotation.
+      const timers = vi.getTimerCount();
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      expect(vi.getTimerCount()).toBe(timers);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the feed when Market watch cannot load", async () => {
+    fetchMarketOverviewMock.mockRejectedValue(new Error("market down"));
+    render(<DashboardPage />);
+
+    expect(await screen.findByTestId("market-watch-error")).toBeTruthy();
+    expect(
+      within(await screen.findByTestId("dashboard-activity")).getAllByTestId(
+        "dashboard-activity-row",
+      ),
+    ).toHaveLength(EVENTS.length);
+  });
+
+  it("does not re-render Market watch when the feed refreshes", async () => {
+    render(<DashboardPage />);
+    await screen.findByTestId("market-watch-row-SPY");
+    const row = screen.getByTestId("market-watch-row-SPY");
+    fetchActivityMock.mockResolvedValue({
+      viewer: "GUEST",
+      generatedAt: new Date().toISOString(),
+      events: [event({ id: "event-9" }), ...EVENTS],
+    });
+    await userEvent
+      .setup()
+      .selectOptions(
+        screen.getByTestId("dashboard-monitor-filter"),
+        "monitor-b",
+      );
+    await waitFor(() => expect(fetchActivityMock).toHaveBeenCalledTimes(2));
+    // The same node: the sidebar's rows were not rebuilt by the feed's change.
+    expect(screen.getByTestId("market-watch-row-SPY")).toBe(row);
+    expect(fetchMarketOverviewMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the freshness fact beside the activity it describes", async () => {
@@ -498,6 +597,18 @@ describe("DashboardPage", () => {
     expect(why.textContent).toMatch(/Price is above SMA 200D/);
     const origin = within(why).getByTestId("dashboard-card-monitor");
     expect(origin.textContent).toBe("MonitorS&P Value & Trend");
+    // The narrow table's folds carry the same facts; CSS shows exactly one copy of each.
+    expect(
+      within(why).getByTestId("dashboard-folded-monitor").textContent,
+    ).toBe("MonitorS&P Value & Trend");
+    const signal = row.querySelector<HTMLElement>('td[data-column="signal"]')!;
+    expect(
+      within(signal).getByTestId("dashboard-folded-session").textContent,
+    ).toBe(
+      within(
+        row.querySelector<HTMLElement>('td[data-column="session"]')!,
+      ).getByTestId("dashboard-session").textContent,
+    );
   });
 });
 

@@ -134,8 +134,9 @@ which benchmarks a user may select, read `architecture/benchmark-data.md`: it ow
 `isActive` / `isBacktestSelectable` split, the `ETF_PROXY` / `INDEX` series semantics, why `SP500`
 stays `SPY` for backtests, the `GET /market-overview` contract and its end-of-day honesty rules, and
 the `pnpm benchmarks:prewarm` runbook for deeper history. The overview itself — the six return
-periods and their anchors, the completed-session rule, the provider-free read, the shared summary
-cache and the responsive Dashboard composition — is `../docs/decisions/etf-market-overview-v1.md`. For the twenty market-overview ETFs —
+periods and their anchors, the period-specific trend lines, the completed-session rule, the
+provider-free read, the shared summary cache and the Dashboard's Market watch sidebar (desktop-only,
+never mounted below 1,280px) — is `../docs/decisions/etf-market-overview-v1.md`. For the twenty market-overview ETFs —
 their catalog, full Redis residency and its eviction-policy requirement, re-base protection, the
 bootstrap, the `market-data` refresh child and the provider-free worker read interface — read
 `../docs/decisions/etf-market-data-v1.md` as well.

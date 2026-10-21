@@ -215,8 +215,23 @@ describe("MarketService", () => {
       expect(
         Object.values(one.returns).every((value) => typeof value === "number"),
       ).toBe(true);
-      expect(one.sparkline?.values).toHaveLength(53);
-      expect(one.sparkline?.endDate).toBe("2026-10-09");
+      // Six lines, one per period, each ending on the session its return is measured to.
+      expect(Object.keys(one.sparklines)).toEqual([
+        "1W",
+        "1M",
+        "3M",
+        "6M",
+        "YTD",
+        "1Y",
+      ]);
+      for (const line of Object.values(one.sparklines)) {
+        expect(line?.endDate).toBe("2026-10-09");
+        expect(line?.values[0]).toBe(100);
+      }
+      // A week and a month are every daily close; longer windows are thinned to the bound.
+      expect(one.sparklines["1W"]?.values).toHaveLength(6);
+      expect(one.sparklines["1M"]?.values).toHaveLength(23);
+      expect(one.sparklines["1Y"]?.values).toHaveLength(48);
     }
     expect(instrument(body, "USO").note).toMatch(/futures/i);
     expect(instrument(body, "SPY").name).toBe("S&P 500");
@@ -258,11 +273,11 @@ describe("MarketService", () => {
     }
   });
 
-  it("stays well under the 60 KB payload budget", async () => {
+  it("stays under the 60 KB payload budget with six lines per fund", async () => {
     const { service } = harness();
     const serialized = JSON.stringify(await service.getMarketOverview());
 
-    expect(serialized.length).toBeLessThan(20_000);
+    expect(serialized.length).toBeLessThan(48_000);
   });
 
   it("marks an ETF behind the reference session stale, with its own data date", async () => {
@@ -277,7 +292,9 @@ describe("MarketService", () => {
       status: "STALE",
       sessionDate: "2026-10-07",
     });
-    expect(instrument(body, "XLE").sparkline?.endDate).toBe("2026-10-07");
+    expect(instrument(body, "XLE").sparklines["1M"]?.endDate).toBe(
+      "2026-10-07",
+    );
     expect(instrument(body, "XLK").status).toBe("AVAILABLE");
   });
 
@@ -292,7 +309,11 @@ describe("MarketService", () => {
     expect(xlc.returns["6M"]).toBeNull();
     expect(xlc.returns.YTD).toBeNull();
     expect(xlc.returns["1Y"]).toBeNull();
-    expect(xlc.sparkline?.startDate).toBe("2026-05-01");
+    // A line exists exactly where its return does: no shorter window drawn as a longer period.
+    expect(xlc.sparklines["3M"]?.startDate).toBe("2026-07-09");
+    expect(xlc.sparklines["6M"]).toBeNull();
+    expect(xlc.sparklines.YTD).toBeNull();
+    expect(xlc.sparklines["1Y"]).toBeNull();
   });
 
   it("isolates an unreadable series to its own row, and logs the original error", async () => {
@@ -311,7 +332,14 @@ describe("MarketService", () => {
         YTD: null,
         "1Y": null,
       },
-      sparkline: null,
+      sparklines: {
+        "1W": null,
+        "1M": null,
+        "3M": null,
+        "6M": null,
+        YTD: null,
+        "1Y": null,
+      },
     });
     expect(
       instruments(body).filter((one) => one.status === "AVAILABLE"),
@@ -342,7 +370,11 @@ describe("MarketService", () => {
     expect(instruments(body).every((one) => one.status === "UNAVAILABLE")).toBe(
       true,
     );
-    expect(instruments(body).every((one) => one.sparkline === null)).toBe(true);
+    expect(
+      instruments(body).every((one) =>
+        Object.values(one.sparklines).every((line) => line === null),
+      ),
+    ).toBe(true);
   });
 
   it("does not count a close read before its session finalized", async () => {

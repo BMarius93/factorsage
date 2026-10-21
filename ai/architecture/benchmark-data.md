@@ -254,10 +254,11 @@ executed under, an already-completed run stays interpretable.
 
 ## The market overview
 
-`GET /market-overview` is the read behind the Dashboard's ETF market overview
+`GET /market-overview` is the read behind the Dashboard's Market watch sidebar
 (`docs/decisions/etf-market-overview-v1.md`): the twenty funds of `MARKET_OVERVIEW_ETF_GROUPS` in
-their three groups, each with six trailing price returns (1W, 1M, 3M, 6M, YTD, 1Y) and a 53-point
-one-year trend line rebased to 100. It is deliberately not part of `GET /dashboard`: the Dashboard
+their three groups, each with six trailing price returns (1W, 1M, 3M, 6M, YTD, 1Y) and, for each
+period, a trend line rebased to 100 over exactly that period's window (`sparklines`, at most 48
+points). It is deliberately not part of `GET /dashboard`: the Dashboard
 read model is entirely about which monitors *this viewer* can see, and a fund closed where it
 closed. The endpoint carries no session at all — no guard, no cookie, no viewer argument on the
 service — so a Guest and a signed-in customer are served identical bodies.
@@ -266,8 +267,13 @@ The rules, decided in one pure module (`apps/api/src/market/market-overview.ts`)
 a database, a cache or a clock:
 
 - **No price crosses the contract.** A fund's share price is not an index level; the contract
-  carries returns and a rebased line, and the ticker as a display field. The benchmark code, series
+  carries returns and rebased lines, and the ticker as a display field. The benchmark code, series
   id and provider symbol never cross it.
+- **A period's line spans its return's window.** It runs from the period's anchor session to the
+  latest one, every daily close for a week or a month and 48 Largest-Triangle-Three-Buckets-selected
+  closes beyond, so its first-to-last change is the return. It is `null` with its return, and across
+  a coverage gap inside its window; nothing is interpolated. The lines come from the same bounded
+  read as the returns — no additional database or Redis read.
 - **Calendar anchors, real sessions.** Each period is measured from the fund's latest completed
   session to its most recent stored session on or before the period's anchor date — 7 days, 1/3/6
   months clamped to month end, the previous year's last day, one year with 29 February clamped —
@@ -280,9 +286,9 @@ a database, a cache or a clock:
   it is `STALE` with its own `sessionDate`. The exchange calendar is not consulted: it is fetched
   from the provider.
 - **`basis: END_OF_DAY` and `returnBasis: PRICE_RETURN` are values, not conventions.** Split-adjusted
-  closes, distributions excluded. The Dashboard prints neither — its compact overview carries no
-  subtitle or footnote — so the contract is where that is stated, and no surface may call the
-  numbers live.
+  closes, distributions excluded. Market watch's caption names the period and the close it is
+  measured to (`1-month return · At close · Oct 9, 2026`) and nothing more, so the contract is where
+  the basis is stated, and no surface may call the numbers live.
 - **One unreadable series costs one row** (`status: UNAVAILABLE`, logged as
   `market.overview.instrument.failed` with the original error), or keeps that fund's last
   successful answer while *the read it came from* is younger than 15 minutes — never refreshed by

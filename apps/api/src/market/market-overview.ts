@@ -1,5 +1,6 @@
 import {
   MARKET_OVERVIEW_PERIODS,
+  MARKET_OVERVIEW_SPARKLINE_MAX_POINTS,
   subtractMonths,
   subtractYears,
   type MarketOverviewInstrumentResponse,
@@ -7,6 +8,7 @@ import {
   type MarketOverviewPeriod,
   type MarketOverviewReturns,
   type MarketOverviewSparkline,
+  type MarketOverviewSparklines,
   type MarketOverviewStatus,
 } from "@intrinsic/contracts";
 import {
@@ -21,7 +23,7 @@ import { addDays } from "@intrinsic/stock-data";
  *
  * Every rule worth getting wrong lives here and is tested without a database, a cache or a clock:
  * which session is complete, where each period is anchored, what a missing boundary means, and how
- * a year of closes becomes a fifty-three-point line. The service only reads and assembles.
+ * each period's window of closes becomes a bounded trend line. The service only reads and assembles.
  */
 
 /**
@@ -34,9 +36,6 @@ import { addDays } from "@intrinsic/stock-data";
  * unavailable rather than read a deeper history for one stale fund.
  */
 export const MARKET_OVERVIEW_LOOKBACK_MARGIN_DAYS = 45;
-
-/** Weekly samples on the trend line, before the `1Y` baseline is prepended: 52 + 1 = 53 points. */
-export const MARKET_OVERVIEW_SPARKLINE_WEEKS = 52;
 
 /** The range one overview read asks the history reader for, ending today. */
 export function marketOverviewReadRange(today: LocalDate): Required<DateRange> {
@@ -98,7 +97,8 @@ export type InstrumentPerformance = {
   returns: MarketOverviewReturns;
   /** The session each period was measured from; null where the return is unavailable. */
   anchors: Record<MarketOverviewPeriod, LocalDate | null>;
-  sparkline: MarketOverviewSparkline | null;
+  /** Each period's line over exactly the window its return measures; null with the return. */
+  sparklines: MarketOverviewSparklines;
 };
 
 /**
@@ -120,6 +120,9 @@ export type InstrumentPerformance = {
  *   that session and the anchor (`missing`), a later session might exist that was simply never
  *   stored, so the return is unavailable rather than measured from an older close.
  * - `returnPct = (latestClose / anchorClose - 1) × 100`, unrounded.
+ * - **Each period's line spans the same two sessions as its return** — from the anchor session to
+ *   the latest one — so a line can never point the other way from the number beside it
+ *   (`buildPeriodSparkline`).
  */
 export function computeInstrumentPerformance(input: {
   readonly bars: readonly OverviewBar[];
@@ -136,12 +139,13 @@ export function computeInstrumentPerformance(input: {
     return {
       returns: emptyReturns(),
       anchors: emptyAnchors(),
-      sparkline: null,
+      sparklines: emptySparklines(),
     };
   }
 
   const returns = emptyReturns();
   const anchors = emptyAnchors();
+  const sparklines = emptySparklines();
   for (const period of MARKET_OVERVIEW_PERIODS) {
     const anchor = anchorSession(
       sessions,
@@ -151,6 +155,11 @@ export function computeInstrumentPerformance(input: {
     if (anchor) {
       returns[period] = (latest.close / anchor.close - 1) * 100;
       anchors[period] = anchor.date;
+      sparklines[period] = buildPeriodSparkline(
+        sessions,
+        anchor.date,
+        input.missing,
+      );
     }
   }
 
@@ -158,7 +167,7 @@ export function computeInstrumentPerformance(input: {
     sessionDate: latest.date,
     returns,
     anchors,
-    sparkline: buildSparkline(sessions, anchors["1Y"]),
+    sparklines,
   };
 }
 
@@ -208,7 +217,7 @@ export function unavailableInstrument(
     ...(note ? { note } : {}),
     status: "UNAVAILABLE",
     returns: emptyReturns(),
-    sparkline: null,
+    sparklines: emptySparklines(),
   };
 }
 
@@ -293,60 +302,112 @@ function lastIndexOnOrBefore(
 }
 
 /**
- * About one point a week over the trailing year, oldest first, rebased to 100.
+ * One period's trend line: every completed session from the period's anchor session through the
+ * latest one, rebased to 100 at the anchor (`MarketOverviewSparkline`).
  *
- * Sampled backwards from the latest session — the session on or before each of the last 52 weekly
- * steps — so the newest point is always the latest completed close, and the `1Y` baseline is
- * prepended when there is one, so the line's first-to-last change is exactly the `1Y` return. A
- * history shorter than a year starts at its first session instead. Real sessions only, in their real
- * order; a weekend is never interpolated.
+ * - **The same window as the return.** The first point is the anchor session the return is
+ *   measured from and the last is the latest session, so the line's first-to-last change *is* the
+ *   return (to the rebased line's two decimals) and its direction cannot contradict it.
+ * - **Real sessions only.** Every point is a stored close, in session order; nothing is
+ *   interpolated, and a weekend or holiday is simply not a point.
+ * - **A gap voids the line.** When the stored coverage does not hold some day inside the window, a
+ *   session there may exist that was never stored, and a line drawn through the hole would show a
+ *   shape the market never made. The line is then null; the return, whose two endpoints are sound,
+ *   is unaffected.
+ * - **Bounded.** A window of at most {@link MARKET_OVERVIEW_SPARKLINE_MAX_POINTS} sessions (a week,
+ *   a month) is sent whole; a longer one is thinned to that many sessions by
+ *   {@link thinSessions}, which always keeps both endpoints.
  */
-function buildSparkline(
+export function buildPeriodSparkline(
   sessions: readonly OverviewBar[],
-  yearAnchor: LocalDate | null,
+  anchorDate: LocalDate,
+  missing: readonly Required<DateRange>[],
+  maxPoints: number = MARKET_OVERVIEW_SPARKLINE_MAX_POINTS,
 ): MarketOverviewSparkline | null {
-  const latest = sessions.at(-1) as OverviewBar;
-  const windowStart = subtractYears(latest.date, 1);
-  const firstInWindow =
-    yearAnchor ?? sessions.find((session) => session.date >= windowStart)?.date;
-  if (firstInWindow === undefined) {
+  const first = lastIndexOnOrBefore(sessions, anchorDate);
+  if (first < 0 || (sessions[first] as OverviewBar).date !== anchorDate) {
+    return null;
+  }
+  const window = sessions.slice(first);
+  const start = window[0] as OverviewBar;
+  const end = window.at(-1) as OverviewBar;
+  if (window.length < 2) {
+    return null;
+  }
+  // Coverage must hold every day after the anchor session through the latest one.
+  const gapFrom = addDays(start.date, 1);
+  if (missing.some((range) => range.from <= end.date && range.to >= gapFrom)) {
     return null;
   }
 
-  const picked = new Map<LocalDate, OverviewBar>();
-  const startIndex = lastIndexOnOrBefore(sessions, firstInWindow);
-  if (startIndex >= 0) {
-    const start = sessions[startIndex] as OverviewBar;
-    picked.set(start.date, start);
-  }
-  for (let week = 0; week < MARKET_OVERVIEW_SPARKLINE_WEEKS; week += 1) {
-    const index = lastIndexOnOrBefore(
-      sessions,
-      addDays(latest.date, -7 * week),
-    );
-    const session = sessions[index];
-    if (session && session.date >= firstInWindow) {
-      picked.set(session.date, session);
-    }
-  }
-
-  const points = [...picked.values()].sort((left, right) =>
-    left.date.localeCompare(right.date),
-  );
-  const first = points[0];
-  const last = points.at(-1);
-  if (!first || !last || points.length < 2) {
-    return null;
-  }
+  const points = thinSessions(window, maxPoints);
   return {
-    startDate: first.date,
-    endDate: last.date,
+    startDate: start.date,
+    endDate: end.date,
     // Two decimals of an index based at 100 is a hundredth of a percent: far finer than a 30px line
-    // can draw, and it keeps twenty lines to a few kilobytes.
+    // can draw, and it keeps six lines for twenty funds to a few dozen kilobytes.
     values: points.map(
-      (point) => Math.round((point.close / first.close) * 100 * 100) / 100,
+      (point) => Math.round((point.close / start.close) * 100 * 100) / 100,
     ),
   };
+}
+
+/**
+ * At most `maxPoints` of `sessions`, chosen by Largest-Triangle-Three-Buckets: the first and last
+ * session always, and from each of `maxPoints − 2` equal runs of sessions in between, the one that
+ * makes the largest triangle with the point chosen before it and the average of the next run.
+ *
+ * It keeps the peaks and troughs a fixed stride would step over, so a thinned line still turns
+ * where the market turned. Deterministic — the same sessions always yield the same points — and it
+ * only ever selects: every point it returns is one of the sessions it was given, in their order.
+ * Positions are session indices, as the sparkline draws them.
+ */
+export function thinSessions(
+  sessions: readonly OverviewBar[],
+  maxPoints: number,
+): OverviewBar[] {
+  if (sessions.length <= maxPoints || maxPoints < 3) {
+    return [...sessions];
+  }
+  const last = sessions.length - 1;
+  const picked: OverviewBar[] = [sessions[0] as OverviewBar];
+  const bucket = (sessions.length - 2) / (maxPoints - 2);
+  let previous = 0;
+  for (let index = 0; index < maxPoints - 2; index += 1) {
+    const from = Math.floor(index * bucket) + 1;
+    const to = Math.floor((index + 1) * bucket) + 1;
+    // The next run's centre of mass; the final run's "next" is the last session.
+    const nextFrom = to;
+    const nextTo = Math.min(Math.floor((index + 2) * bucket) + 1, last + 1);
+    let averageX = 0;
+    let averageY = 0;
+    for (let next = nextFrom; next < nextTo; next += 1) {
+      averageX += next;
+      averageY += (sessions[next] as OverviewBar).close;
+    }
+    const span = Math.max(nextTo - nextFrom, 1);
+    averageX /= span;
+    averageY /= span;
+
+    const anchor = sessions[previous] as OverviewBar;
+    let best = from;
+    let bestArea = -1;
+    for (let candidate = from; candidate < to; candidate += 1) {
+      const area = Math.abs(
+        (previous - averageX) *
+          ((sessions[candidate] as OverviewBar).close - anchor.close) -
+          (previous - candidate) * (averageY - anchor.close),
+      );
+      if (area > bestArea) {
+        bestArea = area;
+        best = candidate;
+      }
+    }
+    picked.push(sessions[best] as OverviewBar);
+    previous = best;
+  }
+  picked.push(sessions[last] as OverviewBar);
+  return picked;
 }
 
 function emptyReturns(): MarketOverviewReturns {
@@ -361,6 +422,17 @@ function emptyReturns(): MarketOverviewReturns {
 }
 
 function emptyAnchors(): Record<MarketOverviewPeriod, LocalDate | null> {
+  return {
+    "1W": null,
+    "1M": null,
+    "3M": null,
+    "6M": null,
+    YTD: null,
+    "1Y": null,
+  };
+}
+
+function emptySparklines(): MarketOverviewSparklines {
   return {
     "1W": null,
     "1M": null,

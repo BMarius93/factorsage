@@ -1,6 +1,6 @@
 import type {
-  MarketOverviewInstrumentResponse,
   MarketOverviewPeriod,
+  MarketOverviewSparkline,
 } from "@intrinsic/contracts";
 
 /**
@@ -28,8 +28,8 @@ const TWO_DECIMALS = new Intl.NumberFormat("en-US", {
 /**
  * A return as the grid shows it: one decimal, signed, with its tone.
  *
- * One decimal because six of these share a row in a third of a desktop screen, and a tenth of a
- * percent is the resolution an overview is read at. The tone is decided from the *displayed* value,
+ * One decimal because a watchlist row is read at a glance, and a tenth of a percent is the resolution
+ * an overview is read at. The tone is decided from the *displayed* value,
  * so `+0.0%` in green can never appear: anything that rounds to zero is `zero`.
  */
 export function formatReturn(value: number | null): {
@@ -59,6 +59,16 @@ export const PERIOD_NAMES: Record<MarketOverviewPeriod, string> = {
   "1Y": "1 year",
 };
 
+/** What a return over each period is called where one period is shown at a time. */
+export const PERIOD_RETURN_LABELS: Record<MarketOverviewPeriod, string> = {
+  "1W": "1-week return",
+  "1M": "1-month return",
+  "3M": "3-month return",
+  "6M": "6-month return",
+  YTD: "Year-to-date return",
+  "1Y": "1-year return",
+};
+
 /** A return in words, at two decimals: `1 month: up 4.32%`. */
 export function describeReturn(
   period: MarketOverviewPeriod,
@@ -75,11 +85,14 @@ export function describeReturn(
   return `${name}: ${rounded > 0 ? "up" : "down"} ${TWO_DECIMALS.format(Math.abs(rounded))}%`;
 }
 
-/** The trend line's colour follows the 1Y return; no 1Y return, no direction. */
-export function sparklineTone(
-  instrument: Pick<MarketOverviewInstrumentResponse, "returns">,
+/**
+ * A trend line's colour: the direction of the return it is drawn beside, read from the *displayed*
+ * return so a line is never green next to `0.0%`. No return, no direction.
+ */
+export function returnDirection(
+  value: number | null,
 ): "positive" | "negative" | "flat" {
-  const { tone } = formatReturn(instrument.returns["1Y"]);
+  const { tone } = formatReturn(value);
   return tone === "positive" || tone === "negative" ? tone : "flat";
 }
 
@@ -126,23 +139,20 @@ function formatSessionDateWithYear(date: string): string {
 }
 
 /**
- * What a screen reader is told about a trend line: what it covers and where it went. Built from the
- * response, never from the drawing.
+ * What a screen reader is told about one period's trend line: the fund, the period, the sessions it
+ * spans and where it went. Built from the response, never from the drawing.
  */
 export function describeSparkline(
-  instrument: Pick<
-    MarketOverviewInstrumentResponse,
-    "ticker" | "sparkline" | "returns"
-  >,
+  ticker: string,
+  period: MarketOverviewPeriod,
+  sparkline: MarketOverviewSparkline | null,
+  value: number | null,
 ): string {
-  const { sparkline } = instrument;
+  const name = PERIOD_NAMES[period].toLowerCase();
   if (!sparkline) {
-    return `${instrument.ticker}: no trend available`;
+    return `${ticker} ${name} trend: not available`;
   }
   const span = `${formatSessionDateWithYear(sparkline.startDate)} to ${formatSessionDateWithYear(sparkline.endDate)}`;
-  const yearReturn = instrument.returns["1Y"];
-  if (yearReturn === null) {
-    return `${instrument.ticker} trend, weekly closes from ${span}`;
-  }
-  return `${instrument.ticker} one-year trend, weekly closes from ${span}, ${describeReturn("1Y", yearReturn).replace(/^1 year: /, "")}`;
+  const direction = describeReturn(period, value).replace(/^[^:]+: /, "");
+  return `${ticker} ${name} trend, closes from ${span}, ${direction}`;
 }

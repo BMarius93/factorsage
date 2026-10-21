@@ -130,6 +130,18 @@ describe("DataTable", () => {
     expect(container.querySelectorAll('td[data-card="hidden"]')).toHaveLength(2);
   });
 
+  it("names every header and body cell with its column key, so a feature can step a column out", () => {
+    const { container } = renderTable();
+    const keys = COLUMNS.map((column) => column.key);
+    expect(
+      [...container.querySelectorAll("th")].map((th) => th.getAttribute("data-column")),
+    ).toEqual(keys);
+    const row = screen.getAllByTestId("thing-row")[0]!;
+    expect(
+      [...row.querySelectorAll("td")].map((td) => td.getAttribute("data-column")),
+    ).toEqual(keys);
+  });
+
   it("marks numeric columns so digits align", () => {
     renderTable();
     const row = screen.getAllByTestId("thing-row")[1]!;

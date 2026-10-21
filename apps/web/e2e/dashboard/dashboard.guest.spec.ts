@@ -1,8 +1,9 @@
 import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
- * The Dashboard as a first-time visitor meets it: the market overview, then the Monitor Activity
- * feed (`docs/decisions/monitor-eod-v2.md` §6).
+ * The Dashboard as a first-time visitor meets it: the Monitor Activity feed, with the Market watch
+ * sidebar beside it from 1,280px (`docs/decisions/monitor-eod-v2.md` §6). The sidebar itself is
+ * `market-watch.guest.spec.ts`.
  *
  * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`: the QA built-ins record four observed
  * changes — QATEST1 activated under Monitor A on Sep 1, ended on Sep 8 and activated again on Sep 10,
@@ -58,6 +59,8 @@ test.describe("guest dashboard", () => {
   test("reports one event per row with the agreed columns and no repeated call to action", async ({
     page,
   }) => {
+    // Where the feed's own column has room: all six columns.
+    await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto("/");
     const table = page.getByTestId("dashboard-activity");
     await expect(table).toBeVisible();
@@ -69,6 +72,21 @@ test.describe("guest dashboard", () => {
       "Price",
       "Monitor",
     ]);
+    // Beside Market watch at 1,280px: the same facts in four columns, Session under the signal
+    // and the Monitor under the reason.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(table.getByRole("columnheader")).toHaveText([
+      "Stock",
+      "Signal",
+      "Why",
+      "Price",
+    ]);
+    await expect(
+      qaRows(page).first().getByTestId("dashboard-folded-session"),
+    ).toHaveText("Sep 11, 2026");
+    await expect(
+      qaRows(page).first().getByTestId("dashboard-folded-monitor"),
+    ).toContainText(MONITOR_B);
     await expect(table.getByRole("link", { name: "Backtest" })).toHaveCount(0);
     await expect(page.getByTestId("dashboard-monitor")).toHaveCount(0);
     await expect(page.getByRole("switch")).toHaveCount(0);
@@ -136,12 +154,14 @@ test.describe("guest dashboard", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("market-overview")).toBeVisible();
-    const market = await page.getByTestId("market-overview").boundingBox();
+    await expect(page.getByTestId("dashboard-main")).toBeVisible();
+    // The feed's column starts where the page does, one gutter under the topbar — nothing above it.
+    const main = await page.getByTestId("dashboard-main").boundingBox();
     const topbar = await page.locator("header").first().boundingBox();
     expect(
-      (market?.y ?? 0) - ((topbar?.y ?? 0) + (topbar?.height ?? 0)),
+      (main?.y ?? 0) - ((topbar?.y ?? 0) + (topbar?.height ?? 0)),
     ).toBeLessThan(64);
+    await expect(page.getByTestId("market-overview")).toHaveCount(0);
 
     await expect(
       page.getByRole("heading", { level: 2, name: "Monitor activity" }),
@@ -159,13 +179,16 @@ test.describe("guest dashboard", () => {
   test("wraps a long Monitor name onto at most two centred lines, whole on hover", async ({
     page,
   }) => {
-    for (const width of [1440, 1280]) {
+    for (const width of [1920, 1440, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       await expect(qaRows(page)).toHaveCount(4);
+      // The Monitor column where it is shown, its fold under the reason where it is not.
       const chips = await qaRows(page)
         .first()
-        .locator('td[data-card="hidden"] [data-kind]')
+        .locator(
+          'td[data-card="hidden"] [data-kind]:visible, [data-testid="dashboard-folded-monitor"] [data-kind]:visible',
+        )
         .evaluateAll((nodes) =>
           nodes.map((node) => {
             const label = node.firstElementChild as HTMLElement;
@@ -245,5 +268,43 @@ test.describe("guest dashboard", () => {
     const box = await card.boundingBox();
     expect(box?.height ?? Infinity).toBeLessThan(340);
     await page.setViewportSize({ width: 1280, height: 800 });
+  });
+
+  test("offers no Run Backtest on the Dashboard, and leaves the Backtests area in the navigation", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
+
+    await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
+    await expect(
+      page.getByTestId("dashboard-page").getByText(/run backtest/i),
+    ).toHaveCount(0);
+    // Backtesting is where it always was: one entry in the main navigation.
+    await expect(
+      page
+        .getByRole("navigation", { name: "Primary", exact: true })
+        .getByRole("link", { name: "Backtests" }),
+    ).toHaveAttribute("href", "/backtests");
+  });
+
+  test("has no summary card above the activity, and names the activity once", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
+
+    await expect(page.getByTestId("dashboard-overview")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-matches-total")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-page")).not.toContainText(
+      "Current matches",
+    );
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Monitor activity" }),
+    ).toHaveCount(1);
+    expect(
+      await page.getByTestId("dashboard-activity-row").count(),
+    ).toBeGreaterThan(0);
   });
 });

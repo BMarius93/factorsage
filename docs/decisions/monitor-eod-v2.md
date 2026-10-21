@@ -443,8 +443,10 @@ describe both routes; both are `standard-read` and readable by a Guest where the
 ## 7. The web: Monitor activity and the one Signal table
 
 **Dashboard.** "Current matches" — the table of current `ACTIVE` and `PENDING_TRIGGER` states — is
-replaced by **Monitor activity**, read from `GET /dashboard/activity` (§6.1). The market overview
-still opens the page and nothing stands above it. Columns: Stock, Signal (`Buy 1` beside
+replaced by **Monitor activity**, read from `GET /dashboard/activity` (§6.1). Since the Dashboard V2
+amendment of `docs/decisions/etf-market-overview-v1.md` (2026-10-20) Monitor activity opens the page
+and the market is a Market watch sidebar beside it from 1,280px; where the feed's column is narrower
+than its six columns need, Session folds under the signal and the Monitor under the Why. Columns: Stock, Signal (`Buy 1` beside
 `Activated` or `Ended · conditions no longer hold`), Session (the exchange session, with a quiet
 `· intraday quote` on an occurrence the live-quote Monitor recorded), Why (`MonitorWhy`), Price (the
 activation price, on an activation only — an ending is explained by its Why) and Monitor. A phone

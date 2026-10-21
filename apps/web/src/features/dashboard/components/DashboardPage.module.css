@@ -4,6 +4,47 @@
   composes: stack from "../../../components/ui/page.module.css";
 }
 
+/* One column below 1,280px; from it, the feed and the Market watch sidebar. The sidebar's track
+   is reserved here at the same query `MARKET_WATCH_MEDIA_QUERY` mounts it at, so the feed is already
+   its final width when Market watch appears after hydration. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--section-gap);
+}
+
+/* The feed's column, and the container its table adapts to (see the narrow-table rules below). */
+.main {
+  container: dashboard-main / inline-size;
+  display: grid;
+  gap: var(--section-gap);
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) clamp(20rem, 28%, 26rem);
+    column-gap: 24px;
+  }
+
+  /* Sticky under the topbar, and never taller than the screen below it: its list scrolls inside
+     the surface instead, and at the foot of the page it travels up with the grid, never over the
+     footer. */
+  .sidebar {
+    position: sticky;
+    top: calc(var(--topbar-height-wide) + 16px);
+    grid-row: 1;
+    grid-column: 2;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(
+      100dvh - var(--topbar-height-wide) - var(--page-pad-wide) - 16px
+    );
+  }
+}
+
 .guestNotice {
   display: flex;
   flex-wrap: wrap;
@@ -183,6 +224,71 @@
 .basis {
   color: var(--color-text-muted);
   font-size: var(--text-secondary);
+}
+
+/* The session under the signal and the Monitor under the reason, displayed only by the narrow
+   table below. */
+.foldedSession,
+.foldedMonitor {
+  display: none;
+}
+
+/* The narrow table (DB-V2). The six-column feed needs about 62rem of its own column; beside Market
+   watch a 1,280–1,440px screen gives it 52–60rem, and the intermediate band can be narrower still.
+   A viewport query cannot know that, so the feed's own column decides. Below 62rem the table folds
+   to four columns, as the phone card arranges the same facts: the session moves under the signal,
+   the Monitor's chip under the reason, the badges stack (the long "Ended · …" one may wrap) and the
+   cells close up — so the reason keeps a readable measure and nothing scrolls sideways. Every fact
+   stays, displayed once. Scoped to the table layout (from 880px); the phone card is untouched. */
+@media (min-width: 880px) {
+  @container dashboard-main (max-width: 61.99rem) {
+    .activity [data-column="session"],
+    .activity [data-column="monitor"] {
+      display: none;
+    }
+
+    .activity th:not(:first-child),
+    .activity td:not(:first-child) {
+      padding-left: 10px;
+    }
+
+    .activity th,
+    .activity td {
+      padding-right: 10px;
+    }
+
+    /* Price is the last column displayed, so it takes the surface's inset as the last one would. */
+    .activity [data-column="price"] {
+      padding-right: var(--surface-inset);
+    }
+
+    .activity .badges {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .activity .badges > * {
+      white-space: normal;
+    }
+
+    .activity .foldedSession {
+      display: block;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .activity .foldedMonitor {
+      display: flex;
+      margin-top: 6px;
+    }
+
+    /* Label beside the chip rather than over it: one line, not two, under the reason. */
+    .activity .foldedMonitor .originItem {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+  }
 }
 
 /* "Show older activity", centred under the feed inside the same surface. */

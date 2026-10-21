@@ -120,6 +120,27 @@ describe("SectionCard", () => {
     );
   });
 
+  it("makes the body its own named, keyboard-scrollable region only when asked", () => {
+    render(
+      <SectionCard
+        id="watch"
+        title="Market watch"
+        scrollLabel="Market watch ETFs"
+      >
+        <p>rows</p>
+      </SectionCard>,
+    );
+
+    const region = screen.getByRole("region", { name: "Market watch ETFs" });
+    expect(region.getAttribute("tabindex")).toBe("0");
+    expect(region.getAttribute("data-scroll")).toBe("true");
+    expect(region.textContent).toBe("rows");
+    // The heading stays outside the scrolling body.
+    expect(
+      region.contains(screen.getByRole("heading", { name: "Market watch" })),
+    ).toBe(false);
+  });
+
   it("renders no heading when a collection's title already belongs to the page", () => {
     render(
       <SectionCard testId="untitled" ariaLabel="Stock lists">

@@ -4,12 +4,12 @@ import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
- * The Dashboard for a signed-in customer (PRO persona): the ETF market overview and the Monitor
- * Activity feed under it.
+ * The Dashboard for a signed-in customer (PRO persona): the Monitor Activity feed, with the Market
+ * watch sidebar beside it on a wide desktop.
  *
- * Needs `pnpm test:personas:seed`. The market overview is the same deterministic ETF fixture the
- * Guest suite reads — proving the point rather than assuming it: a fund closed where it closed, and
- * signing in changes nothing about it, while the matches stay this viewer's own.
+ * Needs `pnpm test:personas:seed`. Market watch reads the same deterministic ETF fixture the Guest
+ * suite reads — proving the point rather than assuming it: a fund closed where it closed, and
+ * signing in changes nothing about it, while the activity stays this viewer's own.
  */
 
 function qaRows(page: Page) {
@@ -24,7 +24,9 @@ async function dismissConsent(page: Page) {
 }
 
 test.describe("PRO_USER dashboard", () => {
-  test("shows a customer exactly the market overview a Guest sees", async ({ page }) => {
+  test("shows a customer exactly the market data a Guest sees", async ({
+    page,
+  }) => {
     // Signed in: the page's own request context carries the session cookie.
     const signedIn = await page.request.get(`${apiBaseUrl()}/market-overview`);
     expect(signedIn.status()).toBe(200);
@@ -42,15 +44,26 @@ test.describe("PRO_USER dashboard", () => {
     const serialized = JSON.stringify(asCustomer);
     expect(serialized).not.toMatch(/@|plan|PRO_USER|userId/);
 
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await expect(page.getByTestId("dashboard-guest-notice")).toHaveCount(0);
     const spy = asCustomer.groups[0]?.instruments[0];
     expect(spy?.ticker).toBe("SPY");
-    await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
-    await expect(page.getByTestId("market-overview-SPY-sparkline")).toBeVisible();
+    await expect(page.getByTestId("market-watch-row-SPY")).toBeVisible();
+    await expect(page.getByTestId("market-watch-SPY-sparkline")).toBeVisible();
     for (const group of ["BENCHMARKS", "US_SECTORS", "MACRO_ALTERNATIVES"]) {
-      await expect(page.getByTestId(`market-overview-group-${group}`)).toBeVisible();
+      await expect(
+        page.getByTestId(`market-watch-group-${group}`),
+      ).toBeVisible();
     }
+    await expect(
+      page.locator('[data-testid^="market-watch-row-"]'),
+    ).toHaveCount(20);
+    // The customer's own activity, beside it, in the narrow table.
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
+    await expect(
+      page.getByTestId("dashboard-activity").getByRole("columnheader"),
+    ).toHaveText(["Stock", "Signal", "Why", "Price"]);
   });
 
   test("starts a backtest from the Backtests area, not from a Dashboard button", async ({
@@ -60,7 +73,9 @@ test.describe("PRO_USER dashboard", () => {
     await expect(page.getByTestId("dashboard-activity")).toBeVisible();
     // The Dashboard's own call to action is gone…
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
-    await expect(page.getByTestId("dashboard-page").getByText(/run backtest/i)).toHaveCount(0);
+    await expect(
+      page.getByTestId("dashboard-page").getByText(/run backtest/i),
+    ).toHaveCount(0);
 
     // …and the way to a backtest is unchanged: the navigation, then the area's own action.
     await page
@@ -117,27 +132,31 @@ test.describe("PRO_USER dashboard", () => {
     await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
     expect(await qaRows(page).count()).toBeGreaterThan(0);
 
-    // A row goes to Stock Details, not to a backtest.
-    await qaRows(page).first().getByTestId("dashboard-session").click();
+    // A row goes to Stock Details, not to a backtest — from the session the narrow table folds
+    // under the signal, as from anywhere in the row that is not a control.
+    await qaRows(page).first().getByTestId("dashboard-folded-session").click();
     await expect(page).toHaveURL(/\/stocks\/QATEST\d$/);
   });
 
-  test("fits a 390px phone for a signed-in viewer, mobile navigation included", async ({
+  test("fits a 390px phone for a signed-in viewer, with no Market watch and no market read", async ({
     page,
   }) => {
+    const marketReads: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().endsWith("/market-overview")) {
+        marketReads.push(request.url());
+      }
+    });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await dismissConsent(page);
     await expect(page.getByTestId("dashboard-run-backtest")).toHaveCount(0);
     await expect(page.getByTestId("dashboard-matches-card")).toHaveCount(0);
-    await expect(page.getByTestId("market-overview-category")).toBeVisible();
-    await expect(page.getByTestId("market-overview-row-SPY")).toBeVisible();
-    for (const period of ["1W", "1M", "3M", "6M", "YTD", "1Y"]) {
-      await expect(page.getByTestId(`market-overview-return-SPY-${period}`)).toBeVisible();
-    }
-    // A phone card carries the six returns and no trend line.
-    await expect(page.getByTestId("market-overview-SPY-sparkline")).toBeHidden();
-    await expect(qaRows(page).first()).toBeAttached();
+    await expect(qaRows(page).first()).toBeVisible();
+    // Market watch is a wide-desktop sidebar: on a phone it is not there at all.
+    await expect(page.getByTestId("market-watch")).toHaveCount(0);
+    await expect(page.locator('[data-testid$="-sparkline"]')).toHaveCount(0);
+    expect(marketReads).toEqual([]);
 
     const overflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,

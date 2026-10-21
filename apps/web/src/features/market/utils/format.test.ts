@@ -4,7 +4,7 @@ import {
   describeSparkline,
   formatReturn,
   formatSessionDate,
-  sparklineTone,
+  returnDirection,
 } from "./format";
 
 describe("formatReturn", () => {
@@ -38,12 +38,14 @@ describe("describeReturn", () => {
   });
 });
 
-describe("sparklineTone", () => {
-  it("follows the 1Y return, and has no direction without one", () => {
-    expect(sparklineTone({ returns: returns(12) })).toBe("positive");
-    expect(sparklineTone({ returns: returns(-3) })).toBe("negative");
-    expect(sparklineTone({ returns: returns(null) })).toBe("flat");
-    expect(sparklineTone({ returns: returns(0.01) })).toBe("flat");
+describe("returnDirection", () => {
+  it("follows the displayed return, and has no direction without one", () => {
+    expect(returnDirection(12)).toBe("positive");
+    expect(returnDirection(-3)).toBe("negative");
+    expect(returnDirection(null)).toBe("flat");
+    // Rounds to 0.0%, so the line beside it is never green.
+    expect(returnDirection(0.01)).toBe("flat");
+    expect(returnDirection(-0.04)).toBe("flat");
   });
 });
 
@@ -56,30 +58,36 @@ describe("session dates", () => {
 });
 
 describe("describeSparkline", () => {
-  it("says what the line covers and where it went", () => {
+  it("says which period the line covers, the sessions it spans and where it went", () => {
     expect(
-      describeSparkline({
-        ticker: "SPY",
-        returns: returns(21.04),
-        sparkline: { startDate: "2025-10-09", endDate: "2026-10-09", values: [100, 121.04] },
-      }),
-    ).toBe("SPY one-year trend, weekly closes from 9 Oct 2025 to 9 Oct 2026, up 21.04%");
+      describeSparkline(
+        "SPY",
+        "1Y",
+        { startDate: "2025-10-09", endDate: "2026-10-09", values: [100, 121.04] },
+        21.04,
+      ),
+    ).toBe("SPY 1 year trend, closes from 9 Oct 2025 to 9 Oct 2026, up 21.04%");
+    expect(
+      describeSparkline(
+        "XLE",
+        "1W",
+        { startDate: "2026-10-02", endDate: "2026-10-09", values: [100, 98.8] },
+        -1.2,
+      ),
+    ).toBe("XLE 1 week trend, closes from 2 Oct 2026 to 9 Oct 2026, down 1.20%");
+    expect(
+      describeSparkline(
+        "GLD",
+        "YTD",
+        { startDate: "2025-12-31", endDate: "2026-10-09", values: [100, 100] },
+        0,
+      ),
+    ).toBe("GLD year to date trend, closes from 31 Dec 2025 to 9 Oct 2026, unchanged");
   });
 
-  it("does not call a short history a year", () => {
-    expect(
-      describeSparkline({
-        ticker: "XLC",
-        returns: returns(null),
-        sparkline: { startDate: "2026-05-01", endDate: "2026-10-09", values: [100, 104] },
-      }),
-    ).toBe("XLC trend, weekly closes from 1 May 2026 to 9 Oct 2026");
-    expect(describeSparkline({ ticker: "GLD", returns: returns(null), sparkline: null })).toBe(
-      "GLD: no trend available",
+  it("says when a period has no line", () => {
+    expect(describeSparkline("GLD", "6M", null, null)).toBe(
+      "GLD 6 months trend: not available",
     );
   });
 });
-
-function returns(year: number | null) {
-  return { "1W": 1, "1M": 1, "3M": 1, "6M": 1, YTD: 1, "1Y": year };
-}

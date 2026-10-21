@@ -75,7 +75,7 @@ type SuccessfulRead = { instrument: InstrumentAnswer; readAt: number };
  *
  * **It is computed once and served to everyone** (`SnapshotCache`): at most one read of twenty
  * series per `cacheTtlMs` per process, a bounded window per series (a year and a few weeks), and the
- * arithmetic in `market-overview.ts`. The browser receives returns and a fifty-three-point line,
+ * arithmetic in `market-overview.ts`. The browser receives returns and six short trend lines,
  * never a history.
  */
 @Injectable()
@@ -237,7 +237,7 @@ export class MarketService {
           ? { sessionDate: performance.sessionDate }
           : {}),
         returns: performance.returns,
-        sparkline: performance.sparkline,
+        sparklines: performance.sparklines,
       };
       this.lastSuccessful.set(etf.ticker, {
         instrument,

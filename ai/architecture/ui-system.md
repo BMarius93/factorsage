@@ -100,6 +100,14 @@ the inset. Below 880px a `flush` surface **dissolves** — border, background an
 `DataTable` already gives each record its own card there and the wrapper would draw a box around a
 stack of boxes. The heading stays: it is the section's name, not the card's.
 
+`scrollLabel` makes the body its own scroll region for a surface whose **parent bounds its height**
+— the Dashboard's sticky Market watch sidebar. The heading, `aside` and `toolbar` stay put while the
+body scrolls; the body is a `role="region"` named by the label, with a tab stop so a keyboard can
+scroll it, no top padding (so content scrolling up disappears at the region's edge rather than under
+a sticky heading inside it), and default overscroll chaining, so the wheel passes to the page at
+either end. The parent supplies the bound (a flex column with a `max-height`); nothing scrolls on
+its own otherwise.
+
 **Do not nest a `SectionCard` inside another**, and do not draw a bordered container around a group
 inside one either. One page-level surface per section is the whole point; card-inside-card is the
 noise this replaced, and a section's own box inside a surface is the same mistake wearing a
@@ -311,8 +319,18 @@ Monitors collection folds Strategy and Stock list under the monitor's name, Back
 Stock list under the strategy and the Benchmark beside the total return and drops the low-priority
 Queued column, and a completed backtest's Trade log folds its Date column back under the stock.
 Every collection then fits its surface at 880, 1,024, 1,280 and 1,440px with its actions visible,
-except two measured on 2026-10-20 that still scroll inside their card from 880px to about 1,030px:
-the Dashboard activity table and the Trade log.
+except the Trade log, measured on 2026-10-20 to still scroll inside its card from 880px to about
+1,030px.
+
+**Fold by the column, not the viewport, when the table does not own the page's width.** The
+Dashboard's activity table sits beside the Market watch sidebar from 1,280px, so a wide desktop
+gives it *less* room (about 840px at 1,280) than the intermediate band does. Its feed column is a
+`dashboard-main` **container**, and below 62rem of it the table folds to four columns — Session under
+the signal, Monitor (with its small label) under the reason, the two badges stacked and allowed to
+wrap, the cells closed up — so every fact stays, once, with nothing scrolling sideways. The same
+fold covers 880 to about 1,000px, where the six-column table used to scroll. The folded copies are
+rendered in the cells they belong to and displayed only by that query; the columns step out with
+their headers, which carry `data-column` like every body cell.
 
 **One row of pills on a phone card.** Each `links` cell is a full-width row of the phone card with
 a label beside its chip. Where the chips say enough on their own, and three labelled rows would cost
@@ -529,7 +547,10 @@ each showing the count it would reveal. The chosen option is tinted (`--color-su
 primary ink), never a solid slab: a page keeps one solid-blue commit action. The Dashboard's state
 filter and the Monitor page's status filter use it (UI-009 … UI-012 build on the same control).
 `fill` shares one row equally between the options instead of wrapping them — for a short, fixed set
-that must read as one control on a phone, like the market overview's three categories.
+that must read as one control in a narrow space, like Market watch's six periods. `compact` sets the
+row-action height, a 4px gap and the small type size, for a control inside a dense **desktop-only**
+surface (Market watch's period selector); it is below a comfortable touch target, so it is not for a
+layout a phone sees.
 
 The billing cadence (Monthly / Yearly) is a radio group with arrow-key movement rather than toggle
 buttons, so it composes this control's `group` and `option` styles instead of rendering the component
@@ -582,6 +603,17 @@ for an instant, `formatRelative` for "12 min ago". A relative label reads the pa
 in text a keyboard or screen-reader user can reach — never only a tooltip. Feature formatters
 (`formatListDate`, `formatDay`, `formatMonitorTimestamp`, …) delegate here; do not add another
 `Intl.DateTimeFormat`. Native date **inputs** keep the platform's own locale on purpose.
+
+### Responsive mounting — `lib/use-media-query.ts`
+
+`useMediaQuery(query)` answers a media query through `useSyncExternalStore` with a server snapshot of
+`false`, so the server and the hydrating client render the same "does not match" tree and the real
+answer arrives in the render right after hydration. Use it when a component must **not run** below a
+breakpoint — it would fetch, start a timer or subscribe — rather than run and be hidden with CSS
+(the Dashboard's Market watch). Reserve the space it will take in CSS at the same query, so it
+appears without moving anything. `useDocumentVisible()` is the same pattern over
+`visibilitychange`, for a timer that only changes what is on screen. Tests drive both with
+`lib/__testing__/fake-viewport.ts`.
 
 ### `Skeleton` / `SkeletonList`
 
@@ -762,6 +794,8 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | 1280–1359px | Backtests Benchmark cell (`BacktestsPage.module.css`) | all nine run columns return at 1,280px a few pixels short of room; the benchmark's return wraps under its chip until 1,360px rather than scrolling the actions out of the card |
 | 560px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it the Metric takes a line and Condition and Value share the next |
 | 440px **container** | Strategy Builder operand picker (`OperandPicker.module.css`, `@container operand-picker`) | the category tiles read four to a row only when the picker itself is this wide; it is as wide as the rule's fields above 600px and the whole screen below it, so its own width decides; below it they read three to a row |
+| 62rem **container** | Dashboard activity table (`DashboardPage.module.css`, `@container dashboard-main`, from 880px) | the six columns need about 62rem of the feed's own column; beside Market watch a 1,280–1,440px screen leaves 52–60rem and the intermediate band less, so the column decides; below it Session and Monitor fold into the cells they belong to |
+| 1280px **mount** | Dashboard Market watch (`DashboardPage.tsx`, `useMediaQuery`) | not a style switch: below it the sidebar is not mounted at all (no request, no timer); the grid reserves its track at the same query so nothing shifts when it mounts after hydration |
 
 Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's
 reserved `AND` column and control scale at 600px, and the plan cards three abreast at 880px. See

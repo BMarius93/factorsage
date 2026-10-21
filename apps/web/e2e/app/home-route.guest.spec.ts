@@ -22,7 +22,7 @@ test.describe("canonical Dashboard route", () => {
     expect(response?.request().redirectedFrom()).toBeNull();
     await expect(page).toHaveURL("/");
     await expect(page.getByTestId("dashboard-page")).toBeVisible();
-    await expect(page.getByTestId("market-overview")).toBeVisible();
+    await expect(page.getByTestId("dashboard-activity")).toBeVisible();
   });
 
   test("redirects the old /dashboard address to it, once", async ({ page }) => {
