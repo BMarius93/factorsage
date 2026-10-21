@@ -116,7 +116,8 @@ test.describe("long entity names", () => {
         `document overflow at ${width}px`,
       ).toBeLessThanOrEqual(0);
 
-      const open = row.getByRole("link", { name: `Open ${MONITOR_NAME}` });
+      // The row opens through its name; the menu is its one other control.
+      const open = row.getByRole("link", { name: MONITOR_NAME, exact: true });
       const trigger = row.getByRole("button", {
         name: `More actions for ${MONITOR_NAME}`,
       });

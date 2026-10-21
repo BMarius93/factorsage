@@ -227,9 +227,15 @@ describe("MonitorsPage", () => {
     expect(
       within(builtIns).queryByRole("button", { name: /S&P Value & Trend/ }),
     ).toBeNull();
+    // The row opens through its name: there is one link to the monitor, not a second "Open".
     expect(
-      within(builtIns).getByRole("link", { name: /^Open / }).getAttribute("href"),
+      within(builtIns)
+        .getByRole("link", { name: "S&P Value & Trend" })
+        .getAttribute("href"),
     ).toBe("/monitors/builtin-1");
+    expect(within(builtIns).queryByRole("link", { name: /^Open / })).toBeNull();
+    // Nothing a customer can do to a built-in from here, so no menu column either.
+    expect(within(builtIns).queryByRole("button", { name: /More actions/ })).toBeNull();
   });
 
   it("saves a built-in's dashboard visibility as this user's own preference", async () => {

@@ -53,17 +53,21 @@ export function MonitorStateBadge({
   monitor,
   builtIn = false,
   showReason = false,
+  size = "default",
 }: {
   readonly monitor: OperationalState & { readonly enabled: boolean };
   readonly builtIn?: boolean;
   /** Adds the short reason under a paused state — for a collection row, where there is room. */
   readonly showReason?: boolean;
+  /** `small` in a compact table, where the pill should not set the row's height. */
+  readonly size?: "default" | "small";
 }) {
   if (!builtIn && monitor.enabled && isBlockedByEntitlement(monitor)) {
     return (
       <span className={styles.state}>
         <StatusBadge
           tone="blocked"
+          size={size}
           testId="monitor-state-pill"
           dataAttributes={{
             "data-state": "BLOCKED",
@@ -92,6 +96,7 @@ export function MonitorStateBadge({
   return (
     <StatusBadge
       tone={monitor.enabled ? "positive" : "pending"}
+      size={size}
       testId="monitor-state-pill"
       dataAttributes={{
         "data-state": monitor.enabled ? "ENABLED" : "DISABLED",
