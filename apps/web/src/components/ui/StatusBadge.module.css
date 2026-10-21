@@ -82,6 +82,12 @@
   line-height: inherit;
 }
 
+/* The restrained pill of a compact table. */
+.badge[data-size="small"]:not([data-variant="text"]) {
+  padding: 1px 7px;
+  line-height: 1.4;
+}
+
 /* The "still processing" dot.
 
    Deliberately restrained: a slow opacity-and-scale breath in the badge's own colour, not a

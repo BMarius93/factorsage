@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useState, type ReactNode } from "react";
 import styles from "./Collection.module.css";
+import type { DataTableSort } from "./DataTable";
 import { EmptyState } from "./EmptyState";
 import forms from "./forms.module.css";
 import { SelectControl } from "./SelectControl";
@@ -18,6 +19,15 @@ export type CollectionSort<TRow> = {
   readonly id: string;
   readonly label: string;
   readonly compare?: (a: TRow, b: TRow) => number;
+  /**
+   * The table column this order sorts by. The column's header then sorts too, and shows which way:
+   * a header and the Sort control are two handles on the one order, never two orders. Pressing a
+   * header steps through the orders that name its column, in the order they are listed, so a column
+   * that offers both directions ("Name A–Z", "Name Z–A") toggles between them.
+   */
+  readonly column?: string;
+  /** Which way `column` reads in this order, for the header's indicator. Defaults to descending. */
+  readonly direction?: "asc" | "desc";
 };
 
 type CollectionConfig<TRow> = {
@@ -29,6 +39,8 @@ type CollectionConfig<TRow> = {
   readonly sorts?: readonly CollectionSort<TRow>[];
   /** Prefix for the controls' test ids; defaults to the noun. */
   readonly testId?: string;
+  /** `compact` sets the controls at the trailing end of a compact section's heading row. */
+  readonly density?: "comfortable" | "compact";
 };
 
 /** Case- and accent-insensitive, so "nestle" finds "Nestlé". */
@@ -53,7 +65,13 @@ function normalize(text: string): string {
  */
 export function useCollection<TRow>(
   rows: readonly TRow[],
-  { noun, searchText, sorts = [], testId = noun }: CollectionConfig<TRow>,
+  {
+    noun,
+    searchText,
+    sorts = [],
+    testId = noun,
+    density = "comfortable",
+  }: CollectionConfig<TRow>,
 ) {
   const baseId = useId();
   const [query, setQuery] = useState("");
@@ -81,9 +99,27 @@ export function useCollection<TRow>(
 
   const clear = () => setQuery("");
 
+  // The current order as the table's headers show it, when it is the order of one of its columns.
+  const tableSort: DataTableSort | undefined = sort?.column
+    ? { key: sort.column, direction: sort.direction ?? "desc" }
+    : undefined;
+  const sortColumns = new Set(
+    sorts.flatMap((option) => (option.column ? [option.column] : [])),
+  );
+  const sortByColumn = (column: string) => {
+    const options = sorts.filter((option) => option.column === column);
+    const at = sort ? options.indexOf(sort) : -1;
+    const next = options[(at + 1) % options.length];
+    if (next) setSortId(next.id);
+  };
+
   const toolbar: ReactNode =
     searchable || sortable ? (
-      <div className={styles.toolbar} data-testid={`${testId}-toolbar`}>
+      <div
+        className={styles.toolbar}
+        data-density={density === "compact" ? "compact" : undefined}
+        data-testid={`${testId}-toolbar`}
+      >
         {searchable ? (
           <input
             type="search"
@@ -136,7 +172,20 @@ export function useCollection<TRow>(
       />
     ) : null;
 
-  return { rows: viewRows, paging, toolbar, filteredEmpty, filtering, clear };
+  return {
+    rows: viewRows,
+    paging,
+    toolbar,
+    filteredEmpty,
+    filtering,
+    clear,
+    /** The order the headers show, for `DataTable`'s `sort`. */
+    tableSort,
+    /** Columns whose header sorts the collection. */
+    sortColumns,
+    /** A header was pressed: `DataTable`'s `onSortChange`. */
+    sortByColumn,
+  };
 }
 
 /** Orders shared by every named, dated collection. */

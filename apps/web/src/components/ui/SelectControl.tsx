@@ -16,6 +16,8 @@ type SelectControlProps = {
   readonly options: readonly SelectControlOption[];
   /** Must be unique on the page — it is what ties the label to the control. */
   readonly id: string;
+  /** Held while what it controls is still changing — a page of rows on its way. */
+  readonly disabled?: boolean;
   readonly testId?: string;
 };
 
@@ -33,6 +35,7 @@ export function SelectControl({
   onChange,
   options,
   id,
+  disabled,
   testId,
 }: SelectControlProps) {
   return (
@@ -46,6 +49,7 @@ export function SelectControl({
         value={value}
         onValueChange={onChange}
         options={options}
+        {...(disabled ? { disabled: true } : {})}
         {...(testId ? { testId } : {})}
       />
     </div>

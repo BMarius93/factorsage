@@ -3,7 +3,8 @@
 import type { ContentOwnership } from "@intrinsic/contracts";
 import type { ReactNode } from "react";
 import { useCollection, type CollectionSort } from "./Collection";
-import { CollectionFooter } from "./CollectionFooter";
+import styles from "./Collection.module.css";
+import { CollectionFooter, formatCount } from "./CollectionFooter";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { SectionCard } from "./SectionCard";
 
@@ -45,9 +46,16 @@ type CollectionSectionProps<TRow> = {
   readonly searchText?: (row: TRow) => string;
   /**
    * Orders offered in the Sort control, the API's own first. Leave out where order carries no
-   * meaning — a two-row built-in section needs no controls at all.
+   * meaning — a two-row built-in section needs no controls at all. An order that names its
+   * `column` makes that column's header sort too.
    */
   readonly sorts?: readonly CollectionSort<TRow>[];
+  /**
+   * `compact` is the Dashboard's density: the title, the count and the search and sort on one
+   * heading row, a 13px table, rows stacked inside the section on a phone, and no footer while every
+   * row fits on the smallest page. Opt-in per page, until each page that uses it has been checked.
+   */
+  readonly density?: "comfortable" | "compact";
   /**
    * Shown in place of the table when the section holds nothing. A section that is empty is one
    * empty section, never a full-page dead end that hides the sections under it.
@@ -88,22 +96,44 @@ export function CollectionSection<TRow>({
   sorts,
   emptyState,
   clickableRows,
+  density = "comfortable",
   id,
   testId,
   tableTestId,
   rowTestId,
   footerTestId,
 }: CollectionSectionProps<TRow>) {
+  const compact = density === "compact";
   const collection = useCollection(rows, {
     noun,
     ...(testId === undefined ? {} : { testId }),
     ...(searchText ? { searchText } : {}),
     ...(sorts ? { sorts } : {}),
+    ...(compact ? { density } : {}),
   });
   const { paging } = collection;
   const empty = rows.length === 0;
   // An empty section shows its own empty state; one filtered to nothing shows the way back.
   const showTable = !empty && collection.filteredEmpty === null;
+  // A header sorts where an order names its column; the rest of the columns are left as declared.
+  const tableColumns =
+    collection.sortColumns.size === 0
+      ? columns
+      : columns.map((column) =>
+          collection.sortColumns.has(column.key)
+            ? { ...column, sortable: true }
+            : column,
+        );
+  // The heading's count: every record, or the matches while a search narrows them.
+  const count =
+    compact && !empty ? (
+      <span data-testid={testId ? `${testId}-count` : undefined}>
+        {collection.filtering
+          ? `${formatCount(collection.rows.length)} of ${formatCount(rows.length)}`
+          : formatCount(rows.length)}
+        <span className={styles.srOnly}> {noun}</span>
+      </span>
+    ) : undefined;
 
   return (
     <SectionCard
@@ -112,6 +142,8 @@ export function CollectionSection<TRow>({
       {...(id === undefined ? {} : { id })}
       {...(testId === undefined ? {} : { testId })}
       {...(empty ? {} : { toolbar: collection.toolbar })}
+      {...(count === undefined ? {} : { count })}
+      {...(compact ? { density } : {})}
       flush={showTable}
     >
       {empty ? emptyState : null}
@@ -120,15 +152,21 @@ export function CollectionSection<TRow>({
         <>
           <DataTable
             label={label}
-            columns={columns}
+            columns={tableColumns}
             rows={paging.visibleRows}
             getRowKey={getRowKey}
+            {...(collection.tableSort ? { sort: collection.tableSort } : {})}
+            {...(collection.sortColumns.size > 0
+              ? { onSortChange: collection.sortByColumn }
+              : {})}
             {...(tableTestId === undefined ? {} : { testId: tableTestId })}
             {...(rowTestId === undefined ? {} : { rowTestId })}
             {...(clickableRows ? { clickableRows: true } : {})}
+            {...(compact ? { density } : {})}
           />
           <CollectionFooter
             {...(footerTestId === undefined ? {} : { testId: footerTestId })}
+            {...(compact ? { density } : {})}
             noun={noun}
             total={paging.total}
             page={paging.page}

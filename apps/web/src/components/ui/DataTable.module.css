@@ -180,6 +180,22 @@
     right: 14px;
   }
 
+  /* A menu-only cell is the trigger itself, at the card's top-right, with no row of its own. */
+  .td[data-card="menu"] {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    /* Placed against the card's own edge: an explicit grid area would become its containing
+       block and inset it by the card's padding. */
+    grid-column: auto;
+    display: block;
+    padding: 0;
+  }
+
+  .td[data-card="menu"] .cardValue {
+    display: block;
+  }
+
   /* Long prose reads left-aligned under its label, across the whole card (UI-011). */
   .td[data-stacked="true"] {
     flex-direction: column;
@@ -398,7 +414,67 @@
   color: var(--color-border-strong);
 }
 
+/* A header that names its column for assistive technology only (`cardRole: "menu"`). */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Pointer affordance only: the identity cell's link is what keyboard users follow. */
 .row[data-clickable="true"] {
   cursor: pointer;
+}
+
+/* ── Compact density ─────────────────────────────────────────────────────────
+   The Dashboard's table, for a collection inside a compact `SectionCard`. On a desktop: 13px cells,
+   the feed's column-heading and row padding, the same hairlines. On a phone the section stays a
+   surface, so the rows are stacked inside it — each one the same card layout without a card of its
+   own, divided from the next by a hairline — rather than a grid of bordered cards. */
+@media (max-width: 879px) {
+  .table[data-density="compact"] .body {
+    display: block;
+  }
+
+  .table[data-density="compact"] .row {
+    padding: 12px var(--surface-inset, 12px);
+    border: 0;
+    border-top: 1px solid var(--color-border-subtle);
+    border-radius: 0;
+    background: none;
+  }
+
+  .table[data-density="compact"] .td[data-card="actions"] [data-overflow-menu],
+  .table[data-density="compact"] .td[data-card="menu"] {
+    top: 12px;
+    right: var(--surface-inset, 12px);
+  }
+}
+
+@media (min-width: 880px) {
+  .table[data-density="compact"] {
+    font-size: var(--text-secondary);
+  }
+
+  .table[data-density="compact"] .th {
+    padding: 8px 12px 6px;
+    line-height: var(--line-height-tight);
+  }
+
+  .table[data-density="compact"] .td {
+    padding: 10px 12px;
+  }
+
+  .table[data-density="compact"] .th:first-child,
+  .table[data-density="compact"] .td:first-child {
+    padding-left: var(--surface-inset, 16px);
+  }
+
+  .table[data-density="compact"] .th:last-child,
+  .table[data-density="compact"] .td:last-child {
+    padding-right: var(--surface-inset, 16px);
+  }
 }

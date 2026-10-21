@@ -86,6 +86,7 @@ describe("useBacktestTrades — the filter and order live in the URL", () => {
     for (const [asked, sent] of [
       ["100", 100],
       ["25", 25],
+      ["10", 10],
       ["200", 50],
       ["7", 50],
     ] as const) {

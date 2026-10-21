@@ -56,6 +56,18 @@ PageContainer width="data"
     CollectionFooter
 ```
 
+A **compact collection** is the Dashboard's density applied to a management index, and is opt-in
+per page (`density="compact"` on `CollectionSection`) until each page has been checked against it:
+
+```text
+PageContainer width="data"
+  PageHeader variant="plain"       # title, lead, New … — no frame of its own
+  CollectionSection density="compact"   # "Your …": title · count · search · sort on one row
+    DataTable density="compact"         # 13px; stacked rows inside the section on a phone
+    CollectionFooter density="compact"  # absent while every row fits the smallest page
+  CollectionSection density="compact"   # "Built-in …", paged on its own
+```
+
 A route's own `.page` class composes `stack` from `components/ui/page.module.css`, which is the one
 definition of the vertical rhythm between sections. Do not set a page gap or a page top padding in a
 feature stylesheet.
@@ -109,6 +121,15 @@ a sticky heading inside it), and default overscroll chaining, so the wheel passe
 either end. The parent supplies the bound (a flex column with a `max-height`); nothing scrolls on
 its own otherwise.
 
+`density="compact"` is the Dashboard's section heading for a collection: the title, an optional
+`count` ("12", or "3 of 12" while searching — quiet, tabular, beside the title and not part of its
+name, with a visually hidden noun so it is not a bare number to a screen reader), the caption under
+them, and the `toolbar` at the same row's trailing end, 60 px tall on a desktop; on a phone the
+toolbar takes the row under the title. The table's column headings sit directly under that row, and
+a body that is not a table (an empty state) sits under a hairline, as the Dashboard's states do. A
+compact surface clips with `overflow: clip` and **does not dissolve** below 880 px: its table stacks
+its rows inside it instead (see `DataTable`), so a phone reads one section, not a stack of boxes.
+
 **Do not nest a `SectionCard` inside another**, and do not draw a bordered container around a group
 inside one either. One page-level surface per section is the whole point; card-inside-card is the
 noise this replaced, and a section's own box inside a surface is the same mistake wearing a
@@ -128,6 +149,13 @@ outgrows one response pages in the database instead and hands the footer the ser
 `pageSize` and `totalCount` — the backtest trade log does, at 18,348 rows. Both read identically,
 which is the point.
 
+Every footer offers **10, 25, 50 and 100** rows (`COLLECTION_PAGE_SIZES`) and a collection opens at
+**25** (`COLLECTION_DEFAULT_PAGE_SIZE`); the trade log keeps its own default of 50. `busy` holds the
+moves while a server page is on its way (`aria-busy`, controls disabled), so a second press never
+races the first. A `compact` footer is quieter and is **absent while every row fits on the smallest
+page** (`collectionNeedsFooter`: ten rows or fewer), because the compact heading already shows the
+count; the default footer is unchanged.
+
 ### `useCollection` — search and sort (UI-010, UI-011)
 
 Client-side search and sort over the same in-memory rows, feeding `usePagination`, used by
@@ -140,6 +168,11 @@ first order is the default, and on every management page it is **Newest** — cr
 (`byNewest(createdAt)`); **Recently updated** is the last change (`byNewest(updatedAt)`). Every
 order breaks ties by id, as the API does, so equal keys always land the same way. Counts in the
 footer carry thousands separators ("18,234").
+**Header sorting is the same order, not a second one.** An order that names its `column` (and its
+`direction`) makes that column's header a sort button with `aria-sort`; pressing it selects the
+orders that name the column in turn, so a column offering "Name A–Z" and "Name Z–A" toggles, and
+the Sort control and the headers always agree. Headers no order names stay plain text, and the
+Sort control remains the phone's only order control.
 A query announces "N of M {noun} match “q”." through a `role="status"` region; filtered to nothing,
 the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. No
 server pagination is introduced: endpoints still return the whole owned collection. A list's
@@ -243,7 +276,11 @@ Each column declares a `cardRole` that says where its cell goes on a phone:
 | `fact`     | cell    | a full-width `LABEL … value` row (the default)             |
 | `links`    | cell    | a labelled relationship row in the card's "linked" block   |
 | `actions`  | cell    | a full-width action row under a divider                    |
+| `menu`     | cell    | the menu trigger at the card's top-right; no row           |
 | `hidden`   | cell    | omitted                                                    |
+
+A `menu` column holds only the row's `OverflowMenu`; its header names it for assistive technology
+but is not shown.
 
 **A card is not the desktop row with the columns turned sideways.** Every `fact` costs a label, a
 value and a row, and a record with seven of them becomes a screenful: the Dashboard's match card
@@ -358,6 +395,13 @@ the Dashboard's activity card does (DB-1) — without restating the table.
 A flush table's first and last columns align with the section heading through `--surface-inset`,
 which `SectionCard` publishes and `DataTable` consumes. Do not re-pad a table to line it up.
 
+`density="compact"` is the Dashboard's table, for a table inside a compact `SectionCard`. On a
+desktop the cells are 13 px with the feed's padding (column headings `8px 12px 6px`, rows `10px
+12px`), the same hairlines and the surface inset at both ends. On a phone the rows keep their card
+layout — the same `cardRole` regions, the overflow trigger top-right — but without a card each:
+they are stacked inside the section, divided by hairlines. Names stay quiet links (the text's own
+ink, the primary ink on hover), and a whole-row click target replaces a redundant **Open** button.
+
 **Do not** use `DataTable` for the properties of a single entity; that is `FactGrid`.
 
 ### `FactGrid`
@@ -387,7 +431,8 @@ a second map.
 `variant` is `solid` (the default), `outline` (quieter inside dense tables) or `text` — the tone's
 ink alone, with no fill, border or padding, at the size of the text around it. `text` is for a feed
 where every row names its level and a column of pills would outshout the data beside it: the
-Dashboard's `Buy`, `Sell` and `Final exit`.
+Dashboard's `Buy`, `Sell` and `Final exit`. `size="small"` is the restrained pill of a compact
+table — the same label and tone, a tighter pill — so a row of 13 px text is not set by its badges.
 
 `pulse` adds a small breathing dot before the label, and it means exactly one thing: **this job is
 still alive**. It is for work genuinely in flight — a queued or running backtest, on its own page

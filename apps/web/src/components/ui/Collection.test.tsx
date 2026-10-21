@@ -165,6 +165,54 @@ describe("collection orders and counts", () => {
     ]);
   });
 
+  it("holds every move while a page is on its way", () => {
+    render(
+      <CollectionFooter
+        total={300}
+        page={2}
+        pageSize={25}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        noun="runs"
+        testId="runs-footer"
+        busy
+      />,
+    );
+    const footer = screen.getByTestId("runs-footer");
+    expect(footer.getAttribute("aria-busy")).toBe("true");
+    for (const name of ["Previous", "Next"]) {
+      expect(
+        (within(footer).getByRole("button", { name }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true);
+    }
+    expect(
+      (within(footer).getByLabelText("Rows") as HTMLSelectElement).disabled,
+    ).toBe(true);
+  });
+
+  it("leaves a compact collection that fits on the smallest page without a footer", () => {
+    const footer = (total: number) =>
+      render(
+        <CollectionFooter
+          total={total}
+          page={1}
+          pageSize={25}
+          onPageChange={() => undefined}
+          onPageSizeChange={() => undefined}
+          noun="runs"
+          testId={`runs-${total}`}
+          density="compact"
+        />,
+      );
+    footer(10);
+    footer(11);
+    expect(screen.queryByTestId("runs-10")).toBeNull();
+    expect(screen.getByTestId("runs-11").getAttribute("data-density")).toBe(
+      "compact",
+    );
+  });
+
   it("writes counts with thousands separators", () => {
     render(
       <CollectionFooter
