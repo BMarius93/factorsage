@@ -47,6 +47,68 @@ export function groupBySession(
   }));
 }
 
+/** What a fresh read of the range a reader holds added to it. */
+export type RangeArrivals = {
+  /** Events above the newest one that was shown: new activity. */
+  readonly above: number;
+  /** Events among what was shown: written late for a session already on screen. */
+  readonly within: number;
+};
+
+/**
+ * Counts what a re-read of the held range brought that was not shown before: above the newest shown
+ * event, or among the shown ones. When the newest shown event is no longer in the range, everything
+ * new counts as above.
+ */
+export function rangeArrivals(
+  shown: readonly DashboardActivityEventResponse[],
+  range: readonly DashboardActivityEventResponse[],
+): RangeArrivals {
+  const known = new Set(shown.map((event) => event.id));
+  const newest = shown[0]?.id;
+  const newestAt =
+    newest === undefined ? -1 : range.findIndex((event) => event.id === newest);
+  let above = 0;
+  let within = 0;
+  range.forEach((event, index) => {
+    if (known.has(event.id)) return;
+    if (newestAt === -1 || index < newestAt) {
+      above += 1;
+    } else {
+      within += 1;
+    }
+  });
+  return { above, within };
+}
+
+/**
+ * The held list with its range — from the newest event down to `bottomId` — replaced by a fresh read
+ * of it. Anything loaded below `bottomId` since the read began (an older page that arrived meanwhile)
+ * is kept, in place.
+ */
+export function replaceRange(
+  shown: readonly DashboardActivityEventResponse[],
+  range: readonly DashboardActivityEventResponse[],
+  bottomId: string,
+): DashboardActivityEventResponse[] {
+  const at = shown.findIndex((event) => event.id === bottomId);
+  return [...range, ...(at >= 0 ? shown.slice(at + 1) : [])];
+}
+
+/** Whether a fresh read of the range differs from what is shown of it, by identity and order. */
+export function rangeChanged(
+  shown: readonly DashboardActivityEventResponse[],
+  range: readonly DashboardActivityEventResponse[],
+  bottomId: string,
+): boolean {
+  const at = shown.findIndex((event) => event.id === bottomId);
+  const held = at >= 0 ? shown.slice(0, at + 1) : shown;
+  return (
+    held.length !== range.length ||
+    held.some((event, index) => event.id !== range[index]?.id)
+  );
+}
+
 /**
  * How two recorded operands stand to each other, as arithmetic: `>`, `<`, `=`.
  *

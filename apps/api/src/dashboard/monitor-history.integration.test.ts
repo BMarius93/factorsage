@@ -152,9 +152,11 @@ describe("Monitor history read models", () => {
     signalId?: string;
     versionId?: string | null;
     evidence?: unknown;
+    occurredAt?: Date;
   }) {
-    await prisma.monitorStateTransition.create({
+    return prisma.monitorStateTransition.create({
       data: {
+        ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
         monitorId: input.monitorId,
         securityId: input.securityId,
         levelId: "buy-1",
@@ -648,6 +650,120 @@ describe("Monitor history read models", () => {
         .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
         .send({ visible: true })
         .expect(200);
+    });
+
+    it("re-reads the range a reader holds, through a given event, so an event written late for an older session appears in place", async () => {
+      const [s1] = securityIds as [string];
+      const scoped = `/dashboard/activity?monitorId=${ids.builtIn}`;
+      const read = async (path: string) =>
+        (await owner.get(path).expect(200)).body as DashboardActivityResponse;
+      const created: string[] = [];
+      try {
+        // The reader holds the newest two events: their range ends at the October 13 ending.
+        const held = await read(`${scoped}&limit=2`);
+        expect(held.events.map((event) => event.sessionDate)).toEqual([
+          "2026-10-14",
+          "2026-10-13",
+        ]);
+        const bottom = held.events[1]!;
+
+        // An event written now for October 13, a session the reader already passed, and one for an
+        // older session, which lies outside what they hold.
+        const late = await transition({
+          monitorId: ids.builtIn,
+          securityId: s1,
+          from: "INACTIVE",
+          to: "ACTIVE",
+          reason: "CONDITIONS_MET",
+          origin: "OBSERVED",
+          on: "2026-10-13",
+          versionId: ids.builtInVersion,
+          evidence: evidence("TRUE", 103),
+        });
+        const older = await transition({
+          monitorId: ids.builtIn,
+          securityId: s1,
+          from: "INACTIVE",
+          to: "ACTIVE",
+          reason: "CONDITIONS_MET",
+          origin: "OBSERVED",
+          on: "2026-10-01",
+          versionId: ids.builtInVersion,
+        });
+        created.push(late.id, older.id);
+
+        // Re-reading through the bottom event returns the whole range again — the late event in its
+        // session, newest written first — and nothing below it.
+        const range = await read(`${scoped}&through=${bottom.id}`);
+        expect(
+          range.events.map((event) => [event.id, event.sessionDate]),
+        ).toEqual([
+          [held.events[0]!.id, "2026-10-14"],
+          [late.id, "2026-10-13"],
+          [bottom.id, "2026-10-13"],
+        ]);
+        expect(range.nextCursor).toBeUndefined();
+        // The older one is reached by paging, in its place.
+        const next = await read(`${scoped}&limit=2&cursor=${held.nextCursor}`);
+        expect(next.events.map((event) => event.id)).toContain(older.id);
+
+        // The kind filter narrows the range too; an event of another kind ends it at once.
+        expect(
+          (
+            await read(`${scoped}&kind=ACTIVATED&through=${late.id}`)
+          ).events.map((event) => event.id),
+        ).toEqual([held.events[0]!.id, late.id]);
+        expect(
+          (await read(`${scoped}&kind=ACTIVATED&through=${bottom.id}`)).events,
+        ).toEqual([]);
+        // So does an event the viewer cannot see in this feed.
+        expect(
+          (
+            await read(
+              `/dashboard/activity?monitorId=${ids.own}&through=${bottom.id}`,
+            )
+          ).events,
+        ).toEqual([]);
+
+        // A range longer than one read continues with the cursor, still bounded by `through`.
+        const backlog = Array.from({ length: 201 }, () => ({
+          monitorId: ids.builtIn,
+          securityId: s1,
+          levelId: "buy-1",
+          levelKind: "BUY" as const,
+          signalFingerprint: "fingerprint",
+          fromState: "INACTIVE" as const,
+          toState: "ACTIVE" as const,
+          reason: "CONDITIONS_MET" as const,
+          origin: "OBSERVED" as const,
+          observationDate: date("2026-10-15"),
+          strategyVersionId: ids.builtInVersion,
+        }));
+        await prisma.monitorStateTransition.createMany({ data: backlog });
+        const written = await prisma.monitorStateTransition.findMany({
+          where: {
+            monitorId: ids.builtIn,
+            observationDate: date("2026-10-15"),
+          },
+          select: { id: true },
+        });
+        created.push(...written.map((row) => row.id));
+        const first = await read(`${scoped}&through=${bottom.id}`);
+        expect(first.events).toHaveLength(200);
+        expect(first.nextCursor).toBeDefined();
+        const rest = await read(
+          `${scoped}&through=${bottom.id}&cursor=${first.nextCursor}`,
+        );
+        expect(rest.nextCursor).toBeUndefined();
+        expect(rest.events.at(-1)?.id).toBe(bottom.id);
+        expect(first.events.length + rest.events.length).toBe(201 + 3);
+
+        await owner.get(`${scoped}&through=not-an-id`).expect(400);
+      } finally {
+        await prisma.monitorStateTransition.deleteMany({
+          where: { id: { in: created } },
+        });
+      }
     });
   });
 

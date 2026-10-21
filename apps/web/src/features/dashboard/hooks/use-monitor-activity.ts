@@ -5,182 +5,202 @@ import type {
   MonitorActivityKind,
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCursorFeed,
+  type CursorFeedStatus,
+} from "../../../lib/use-cursor-feed";
 import { fetchMonitorActivity } from "../api/dashboard-api";
+import { rangeArrivals, rangeChanged, replaceRange } from "../utils/activity";
 
-export type ActivityStatus = "loading" | "ready" | "error";
+export type ActivityStatus = CursorFeedStatus;
 
 /** How many events the Dashboard opens with, and how many each "show older" adds. */
 export const ACTIVITY_PAGE_SIZE = 15;
 
 /**
- * Activity that arrived while the feed was paused.
- *
- * `count` is exact only when the newest event on screen still appears in the newest page: the
- * events above it are then precisely the new ones. When it does not (a full page or more arrived)
- * the number is unknown and is `null` — the feed says new activity exists without inventing how
- * much.
+ * The most reads one refresh makes to re-read the range a reader holds (200 events each). A reader
+ * holding more than that is offered the newest page instead.
  */
-export type NewActivity = { readonly count: number | null };
+export const ACTIVITY_REFRESH_READS = 10;
+
+/**
+ * What arrived since the reader last went to the newest activity: events placed above everything
+ * that was shown, events written late for a session already shown, and whether the range held was too
+ * long to re-read in one refresh (`backlog`), when only a fresh read of the newest page shows it.
+ */
+export type ActivityArrivals = {
+  readonly above: number;
+  readonly within: number;
+  readonly backlog: boolean;
+};
 
 export type MonitorActivityState = {
   readonly status: ActivityStatus;
   readonly events: readonly DashboardActivityEventResponse[];
   readonly hasMore: boolean;
   readonly loadingMore: boolean;
+  /** The last "show older" failed; `loadMore` tries it again. */
+  readonly loadMoreFailed: boolean;
+  /** Older pages loaded since the feed last started from its newest page. */
+  readonly olderPages: number;
   readonly loadMore: () => void;
-  /** Re-reads the newest page now, replacing whatever is loaded, and resumes automatic refresh. */
+  /** Re-reads the newest page now, replacing whatever is loaded. */
   readonly reload: () => void;
-  /**
-   * The Dashboard's timer calls this. It re-reads the newest page — unless older activity has been
-   * loaded, in which case the list is left exactly as it is and only `newActivity` is updated.
-   */
+  /** The Dashboard's timer calls this: it re-reads everything shown and places what is new. */
   readonly refresh: () => void;
-  /** True while older pages are loaded and automatic replacement is paused (DB-2). */
-  readonly paused: boolean;
-  readonly newActivity: NewActivity | null;
+  /** Arrivals not yet acknowledged; `null` when there are none. */
+  readonly arrivals: ActivityArrivals | null;
+  /** The reader has gone to the newest activity: the arrivals are no longer news. */
+  readonly acknowledge: () => void;
+  /** The last look for new activity failed; the next one tries again. */
+  readonly refreshFailed: boolean;
+};
+
+type Options = {
+  /**
+   * Called synchronously just before a refresh changes what is shown, while the page still shows the
+   * old list: where a scroll anchor is captured.
+   */
+  readonly onBeforeMerge?: () => void;
 };
 
 /**
  * The Dashboard's Monitor Activity feed (`docs/decisions/monitor-eod-v2.md` §6), one page at a time.
  *
- * `reload` re-reads the first page — the newest sessions — and keeps what is on screen until it
- * answers; `loadMore` appends the next older page. Choosing another Monitor or another kind of event
- * starts over.
+ * Pages come from `useCursorFeed`: one request at a time, de-duplicated by id, stale answers dropped
+ * and failures shown. Choosing another Monitor or another kind of event starts over. Both filters
+ * travel to the API on every read, so every page, cursor and refresh is of the filtered feed.
  *
- * Both filters travel to the API on every read — the first page, every older page and the paused
- * check for new events — so the server filters the whole history and every page, cursor and count
- * is of the filtered feed. Nothing is filtered in the browser, where only the loaded pages are.
- *
- * Reading older activity **pauses** the automatic refresh (DB-2). Replacing the list with its
- * newest page every minute used to throw away every older page the reader had opened, mid-read.
- * While paused, `refresh` only looks: it fetches the newest page and reports how many events are
- * new, and the list moves only when the reader asks for it with `reload`, which also resumes the
- * automatic refresh. New rows are never merged into the expanded list on their own.
+ * **A refresh re-reads what the reader holds (DB-2).** On the Dashboard's timer the feed re-reads
+ * the range from the newest event down to the oldest one loaded (`through`) and puts that read in
+ * its place: new events appear above, an event written late for a session the reader already passed
+ * appears inside that session, and older pages stay open — nothing is lost and nothing is paused.
+ * The range is read by key, so an event is found whenever it was committed; no clock or commit order
+ * is relied on. The page keeps the reader's place while rows are added above it (`onBeforeMerge`),
+ * and the arrivals are counted until the reader goes to the newest activity.
  */
 export function useMonitorActivity(
   monitorId: string | null,
   kind: MonitorActivityKind | null = null,
+  { onBeforeMerge }: Options = {},
 ): MonitorActivityState {
-  const [status, setStatus] = useState<ActivityStatus>("loading");
-  const [events, setEvents] = useState<DashboardActivityEventResponse[]>([]);
-  const [cursor, setCursor] = useState<string | undefined>(undefined);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const [newActivity, setNewActivity] = useState<NewActivity | null>(null);
-  const latest = useRef(0);
-  const hasContent = useRef(false);
-  // Read by the timer's check without re-creating `refresh` whenever a page of events arrives.
-  const newestShownRef = useRef<string | undefined>(undefined);
-  const pausedRef = useRef(false);
+  const filters = {
+    ...(monitorId ? { monitorId } : {}),
+    ...(kind ? { kind } : {}),
+  };
+  const key = JSON.stringify([monitorId, kind]);
+  const feed = useCursorFeed<DashboardActivityEventResponse>({
+    key,
+    fetchPage: (cursor, signal) =>
+      fetchMonitorActivity(
+        {
+          ...filters,
+          limit: ACTIVITY_PAGE_SIZE,
+          ...(cursor ? { cursor } : {}),
+        },
+        { signal },
+      ).then((page) => ({
+        items: page.events,
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      })),
+    getId: (event) => event.id,
+  });
 
+  const [arrivals, setArrivals] = useState<ActivityArrivals | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  // Bumped whenever the feed starts over, so a look that began before it changes nothing after.
+  const epoch = useRef(0);
+  const looking = useRef(false);
+  const latest = useRef({ feed, filters, onBeforeMerge });
   useEffect(() => {
-    newestShownRef.current = events[0]?.id;
-    pausedRef.current = paused;
-  }, [events, paused]);
+    latest.current = { feed, filters, onBeforeMerge };
+  });
 
-  const reload = useCallback(() => setAttempt((value) => value + 1), []);
-
+  // The newest page again — after a reload or another filter — is the reader's new starting point:
+  // nothing before it is news.
   useEffect(() => {
-    hasContent.current = false;
-  }, [monitorId, kind]);
-
-  useEffect(() => {
-    const request = ++latest.current;
-    const controller = new AbortController();
-    if (!hasContent.current) {
-      setStatus("loading");
-    }
-    fetchMonitorActivity(
-      {
-        ...(monitorId ? { monitorId } : {}),
-        ...(kind ? { kind } : {}),
-        limit: ACTIVITY_PAGE_SIZE,
-      },
-      { signal: controller.signal },
-    )
-      .then((page) => {
-        if (request !== latest.current) return;
-        hasContent.current = true;
-        setEvents(page.events);
-        setCursor(page.nextCursor);
-        setStatus("ready");
-        // A fresh newest page is the normal, auto-refreshing state again.
-        pausedRef.current = false;
-        setPaused(false);
-        setNewActivity(null);
-      })
-      .catch(() => {
-        if (request !== latest.current || controller.signal.aborted) return;
-        if (!hasContent.current) setStatus("error");
-      });
-    return () => controller.abort();
-  }, [monitorId, kind, attempt]);
-
-  const checkForNewActivity = useCallback(() => {
-    const request = latest.current;
-    fetchMonitorActivity({
-      ...(monitorId ? { monitorId } : {}),
-      ...(kind ? { kind } : {}),
-      limit: ACTIVITY_PAGE_SIZE,
-    })
-      .then((page) => {
-        // A reload or a different filter since the check started makes its answer stale.
-        if (request !== latest.current || !pausedRef.current) return;
-        const newest = newestShownRef.current;
-        const position =
-          newest === undefined
-            ? -1
-            : page.events.findIndex((event) => event.id === newest);
-        if (position === 0) {
-          setNewActivity(null);
-          return;
-        }
-        setNewActivity({ count: position > 0 ? position : null });
-      })
-      // A failed look changes nothing: the list on screen is still true.
-      .catch(() => undefined);
-  }, [monitorId, kind]);
+    epoch.current += 1;
+    setArrivals(null);
+    setRefreshFailed(false);
+  }, [feed.restarts, key]);
 
   const refresh = useCallback(() => {
-    if (pausedRef.current) {
-      checkForNewActivity();
-    } else {
-      reload();
+    const { feed: shown, filters: asked } = latest.current;
+    if (looking.current || shown.status !== "ready") return;
+    const bottom = shown.items[shown.items.length - 1];
+    if (!bottom) {
+      // Nothing held yet: the newest page is the whole range.
+      shown.reload();
+      return;
     }
-  }, [checkForNewActivity, reload]);
+    looking.current = true;
+    const started = epoch.current;
+    void (async () => {
+      try {
+        const range: DashboardActivityEventResponse[] = [];
+        let cursor: string | undefined;
+        for (let read = 0; read < ACTIVITY_REFRESH_READS; read += 1) {
+          const page = await fetchMonitorActivity({
+            ...asked,
+            through: bottom.id,
+            ...(cursor ? { cursor } : {}),
+          });
+          if (started !== epoch.current) return;
+          range.push(...page.events);
+          cursor = page.nextCursor;
+          if (!cursor) break;
+        }
+        setRefreshFailed(false);
+        if (cursor) {
+          // More than one refresh can re-read: the reader takes the newest page when they choose to.
+          setArrivals((current) => ({
+            above: current?.above ?? 0,
+            within: current?.within ?? 0,
+            backlog: true,
+          }));
+          return;
+        }
+        const current = latest.current;
+        if (!range.some((event) => event.id === bottom.id)) {
+          // What ended the range is no longer in this feed (its Monitor was hidden): start over.
+          current.feed.reload();
+          return;
+        }
+        if (!rangeChanged(current.feed.items, range, bottom.id)) return;
+        const counted = rangeArrivals(current.feed.items, range);
+        current.onBeforeMerge?.();
+        current.feed.update((items) => replaceRange(items, range, bottom.id));
+        if (counted.above + counted.within > 0) {
+          setArrivals((previous) => ({
+            above: (previous?.above ?? 0) + counted.above,
+            within: (previous?.within ?? 0) + counted.within,
+            backlog: previous?.backlog ?? false,
+          }));
+        }
+      } catch {
+        if (started === epoch.current) setRefreshFailed(true);
+      } finally {
+        looking.current = false;
+      }
+    })();
+  }, []);
 
-  const loadMore = useCallback(() => {
-    if (!cursor || loadingMore) return;
-    const request = latest.current;
-    setLoadingMore(true);
-    // From the first older page on, the reader is browsing history: stop replacing the list.
-    pausedRef.current = true;
-    setPaused(true);
-    fetchMonitorActivity({
-      ...(monitorId ? { monitorId } : {}),
-      ...(kind ? { kind } : {}),
-      limit: ACTIVITY_PAGE_SIZE,
-      cursor,
-    })
-      .then((page) => {
-        if (request !== latest.current) return;
-        setEvents((current) => [...current, ...page.events]);
-        setCursor(page.nextCursor);
-      })
-      .catch(() => undefined)
-      .finally(() => setLoadingMore(false));
-  }, [cursor, loadingMore, monitorId, kind]);
+  const acknowledge = useCallback(() => {
+    setArrivals((current) => (current?.backlog ? current : null));
+  }, []);
 
   return {
-    status,
-    events,
-    hasMore: cursor !== undefined,
-    loadingMore,
-    loadMore,
-    reload,
+    status: feed.status,
+    events: feed.items,
+    hasMore: feed.hasMore,
+    loadingMore: feed.loadingMore,
+    loadMoreFailed: feed.loadMoreFailed,
+    olderPages: feed.olderPages,
+    loadMore: feed.loadMore,
+    reload: feed.reload,
     refresh,
-    paused,
-    newActivity,
+    arrivals,
+    acknowledge,
+    refreshFailed,
   };
 }

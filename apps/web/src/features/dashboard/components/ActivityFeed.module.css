@@ -20,6 +20,9 @@
 
   display: block;
   width: 100%;
+  /* The page holds the reader's row itself when arrivals are added above it
+     (`useScrollAnchor`); the browser's own anchoring would correct the same change twice. */
+  overflow-anchor: none;
 }
 
 .head,

@@ -2044,6 +2044,13 @@ paths:
         narrows the feed to one of those monitors; any other id yields no events. `kind` narrows
         it to one kind of event, in the database, so every page and its cursor are of that kind
         alone; both filters combine.
+
+        `through=<event id>` reads the range a caller already holds instead of a page: every event
+        from the newest down to and including that one, 200 at a time, continued with `cursor` (the
+        range's own `nextCursor`). Re-reading it is how a reader refreshes: it returns new events
+        above, and events written late for a session inside the range, wherever they sort. An event
+        the caller cannot see in this feed — another kind, a hidden or unknown monitor — yields no
+        events, and the caller starts over from the first page.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: monitorId
@@ -2064,9 +2071,16 @@ paths:
           required: false
           description: The `nextCursor` of the previous page.
           schema: { type: string }
+        - name: through
+          in: query
+          required: false
+          description: >-
+            An event id: read every event from the newest down to and including it, 200 per read.
+            `limit` does not apply.
+          schema: { type: string, format: uuid }
       responses:
         "200":
-          description: One page of activity.
+          description: One page of activity, or one read of a `through` range.
           headers: *rateLimitHeaders
           content:
             application/json:
