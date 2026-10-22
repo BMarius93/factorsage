@@ -105,6 +105,11 @@ type DataTableProps<TRow> = {
   /** Rendered instead of the table when there are no rows. */
   readonly emptyState?: ReactNode;
   /**
+   * Rows to point the reader at for a moment — a stock just added to a list. Marked
+   * `data-highlight` and tinted briefly; the feature decides when to stop asking.
+   */
+  readonly highlightedRowKeys?: ReadonlySet<string>;
+  /**
    * `compact` is the Dashboard's table density, for a table inside a compact `SectionCard`: 13px
    * cells and tighter padding on a desktop, and on a phone the rows stacked inside the section,
    * divided by hairlines, rather than one bordered card per record.
@@ -189,6 +194,7 @@ export function DataTable<TRow>({
   clickableRows,
   emptyState,
   density = "comfortable",
+  highlightedRowKeys,
 }: DataTableProps<TRow>) {
   if (rows.length === 0 && emptyState) {
     return <>{emptyState}</>;
@@ -272,6 +278,9 @@ export function DataTable<TRow>({
               key={getRowKey(row)}
               role="row"
               className={styles.row}
+              data-highlight={
+                highlightedRowKeys?.has(getRowKey(row)) ? "true" : undefined
+              }
               {...(clickableRows
                 ? { "data-clickable": "true", onClick: handleRowClick }
                 : {})}

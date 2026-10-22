@@ -482,3 +482,27 @@
     padding-right: var(--surface-inset, 16px);
   }
 }
+
+/* A row the reader was just pointed at (`highlightedRowKeys`): the primary tint, fading out. With
+   reduced motion the tint holds without moving and goes when the feature stops asking. */
+.row[data-highlight="true"] {
+  animation: row-highlight 2.4s ease-out;
+}
+
+@keyframes row-highlight {
+  0%,
+  35% {
+    background-color: var(--color-primary-soft);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row[data-highlight="true"] {
+    animation: none;
+    background-color: var(--color-primary-soft);
+  }
+}
