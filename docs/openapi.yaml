@@ -5906,11 +5906,19 @@ components:
         What the portfolio returned in one calendar year — that year alone, never cumulative.
         Chained off the run's time-weighted return index, so a year that received monthly
         contributions does not report the deposits as performance.
-      required: [year, simulatedThrough, returnPercent, partial]
+      required:
+        [year, simulatedThrough, returnPercent, benchmarkReturnPercent, partial]
       properties:
         year: { type: string, pattern: "^\\d{4}$" }
         simulatedThrough: { type: string, format: date }
         returnPercent: { type: number }
+        benchmarkReturnPercent:
+          description: |
+            What the run's benchmark returned over the same window as `returnPercent` — from the
+            previous year's last simulated date (or the run's first simulated date) to
+            `simulatedThrough` — chained off the run's benchmark growth index. A price return. Null
+            when the benchmark has no value at one end of that window; never estimated.
+          $ref: "#/components/schemas/NullableNumber"
         partial:
           type: boolean
           description: |

@@ -863,19 +863,32 @@ type TradeExportLogFields = {
  * completed long before annual returns were reported still answers with the same arithmetic as one
  * completed today. The period comes from the run's own requested dates, which is what decides
  * whether its first or last year was only partly simulated.
+ *
+ * Each year's benchmark figure is chained the same way off the persisted `benchmarkIndex` of the
+ * same rows — the series the run's total benchmark return is read from — on the same anchor
+ * dates. The rows arrive in date order, so the first is the run's first simulated date; its
+ * benchmark reading is the base of the first year's figure, and is null when the benchmark had no
+ * value yet, which leaves that year's benchmark figure unavailable rather than measured over a
+ * shorter window.
  */
 function annualReturnsOf(
   equity: readonly EquityRow[],
   run: { startDate: Date; endDate: Date },
 ): BacktestAnnualReturnResponse[] {
+  const first = equity[0];
   return backtestAnnualReturns(
     equity.map((row) => ({
       date: fromDatabaseDate(row.date),
       returnIndex: toNumber(row.returnIndex),
+      benchmarkIndex: toNullableNumber(row.benchmarkIndex),
     })),
     {
       startDate: fromDatabaseDate(run.startDate),
       endDate: fromDatabaseDate(run.endDate),
+    },
+    {
+      indexAtFirstSimulatedDate:
+        first === undefined ? null : toNullableNumber(first.benchmarkIndex),
     },
   );
 }
