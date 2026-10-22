@@ -8,10 +8,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
-import actions from "../../../components/ui/actions.module.css";
 import {
   byName,
   byNewest,
+  reversed,
   type CollectionSort,
 } from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
@@ -86,19 +86,62 @@ function ListComplianceNotice({
   );
 }
 
-/** The orders a customer's own lists can be read in; the API's newest-first comes first. */
+/** Lists by their last change, the most recent first. */
+const byUpdated = byNewest<StockListSummaryResponse>((list) => list.updatedAt);
+
+/** Lists by size, the largest first; equal sizes keep the API's newest-first order. */
+function bySize(a: StockListSummaryResponse, b: StockListSummaryResponse) {
+  return b.itemCount - a.itemCount;
+}
+
+/**
+ * The orders a customer's own lists can be read in; the API's newest-first comes first. The Name,
+ * Stocks and Updated headers sort too, each both ways, so a header and the Sort control are one
+ * order.
+ */
 const LIST_SORTS: readonly CollectionSort<StockListSummaryResponse>[] = [
   { id: "newest", label: "Newest" },
   {
     id: "updated",
     label: "Recently updated",
-    compare: byNewest((list) => list.updatedAt),
+    column: "updated",
+    direction: "desc",
+    compare: byUpdated,
   },
-  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "updated-oldest",
+    label: "Least recently updated",
+    column: "updated",
+    direction: "asc",
+    compare: reversed(byUpdated),
+  },
+  {
+    id: "name",
+    label: "Name A–Z",
+    column: "name",
+    direction: "asc",
+    compare: byName,
+  },
+  {
+    id: "name-desc",
+    label: "Name Z–A",
+    column: "name",
+    direction: "desc",
+    compare: reversed(byName),
+  },
   {
     id: "size",
     label: "Most stocks",
-    compare: (a, b) => b.itemCount - a.itemCount,
+    column: "stocks",
+    direction: "desc",
+    compare: bySize,
+  },
+  {
+    id: "size-fewest",
+    label: "Fewest stocks",
+    column: "stocks",
+    direction: "asc",
+    compare: reversed(bySize),
   },
 ];
 
@@ -174,7 +217,11 @@ export function ListsPage() {
           list.compliance.compliant ? null : (
             // The reason is text beside the badge, readable on a phone, not a tooltip (UI-021).
             <span className={styles.overLimit}>
-              <StatusBadge tone="warning" testId="list-over-limit-badge">
+              <StatusBadge
+                tone="warning"
+                size="small"
+                testId="list-over-limit-badge"
+              >
                 Over plan limit
               </StatusBadge>
               {list.compliance.symbolLimit === null ? null : (
@@ -190,6 +237,8 @@ export function ListsPage() {
         key: "stocks",
         width: "8rem",
         header: "Stocks",
+        // On a phone the size and the last change share one line: "80 stocks … Oct 21, 2026".
+        cardRole: "summary",
         align: "right",
         numeric: true,
         nowrap: true,
@@ -199,61 +248,54 @@ export function ListsPage() {
         key: "updated",
         width: "9rem",
         header: "Updated",
+        cardRole: "summary",
         nowrap: true,
         render: (list) => formatListDate(list.updatedAt),
       },
       {
+        // The row itself opens the list (its name is the link), so the cell holds only the menu.
         key: "actions",
-        width: "9rem",
+        width: "3.5rem",
         header: "Actions",
-        cardRole: "actions",
+        cardRole: "menu",
         align: "right",
         nowrap: true,
         render: (list) => (
-          <span className={actions.group}>
-            <Link
-              className={actions.action}
-              href={`/lists/${list.id}`}
-              aria-label={`Open ${list.name}`}
-            >
-              Open
-            </Link>
-            <OverflowMenu
-              label={list.name}
-              testId="list-actions"
-              items={[
-                ...(list.canEdit
-                  ? [
-                      {
-                        label: "Rename",
-                        onSelect: () => setDialog({ kind: "rename", list }),
-                      },
-                    ]
-                  : []),
-                // Any list the viewer can read can be copied into one they own, a built-in
-                // included; a Guest is asked for an account first.
-                {
-                  label: "Duplicate",
-                  disabled: !gate.resolved,
-                  onSelect: () =>
-                    gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
-                      setDialog({ kind: "duplicate", list }),
-                    ),
-                },
-                // Built-in lists are never deleted, not even by an administrator.
-                ...(list.canEdit && list.ownership !== "SYSTEM"
-                  ? [
-                      {
-                        label: "Delete",
-                        tone: "danger" as const,
-                        separated: true,
-                        onSelect: () => setDialog({ kind: "delete", list }),
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-          </span>
+          <OverflowMenu
+            label={list.name}
+            testId="list-actions"
+            items={[
+              ...(list.canEdit
+                ? [
+                    {
+                      label: "Rename",
+                      onSelect: () => setDialog({ kind: "rename", list }),
+                    },
+                  ]
+                : []),
+              // Any list the viewer can read can be copied into one they own, a built-in
+              // included; a Guest is asked for an account first.
+              {
+                label: "Duplicate",
+                disabled: !gate.resolved,
+                onSelect: () =>
+                  gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
+                    setDialog({ kind: "duplicate", list }),
+                  ),
+              },
+              // Built-in lists are never deleted, not even by an administrator.
+              ...(list.canEdit && list.ownership !== "SYSTEM"
+                ? [
+                    {
+                      label: "Delete",
+                      tone: "danger" as const,
+                      separated: true,
+                      onSelect: () => setDialog({ kind: "delete", list }),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         ),
       },
     ];
@@ -283,6 +325,7 @@ export function ListsPage() {
     <PageContainer>
       <div className={styles.page} data-testid="lists-page">
         <PageHeader
+          variant="plain"
           title="Lists"
           lead="Reusable stock universes for strategies, backtests, and monitors."
           actions={headerAction}
@@ -317,6 +360,7 @@ export function ListsPage() {
 
         {status === "ready" && gate.signedIn ? (
           <CollectionSection
+            density="compact"
             title="Your lists"
             label="Your lists"
             noun="lists"
@@ -349,6 +393,7 @@ export function ListsPage() {
 
         {status === "ready" && builtIn.length > 0 ? (
           <CollectionSection
+            density="compact"
             title="Built-in lists"
             caption="FactorSage's own universes. Everyone can read and backtest them; only FactorSage changes them."
             label="Built-in lists"

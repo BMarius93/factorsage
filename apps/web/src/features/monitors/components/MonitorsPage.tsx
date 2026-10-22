@@ -2,13 +2,13 @@
 
 import type { MonitorSummaryResponse } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
-import actionStyles from "../../../components/ui/actions.module.css";
 import {
   byName,
   byNewest,
+  reversed,
   type CollectionSort,
 } from "../../../components/ui/Collection";
 import {
@@ -55,101 +55,71 @@ const SIGN_IN_TO_CREATE = {
   body: "Built-in monitors are free to read. Your own monitors run against your strategies and lists, so creating one needs an account to own it.",
 };
 
-/**
- * The enable/disable control for one of the viewer's own monitors.
- *
- * The request is owned here rather than by the page so a failure is reported on the monitor it
- * belongs to, and so one in-flight toggle cannot disable the buttons on every other row.
- */
-function MonitorRowActions({
-  monitor,
-  onToggled,
-  onEdit,
-  onDelete,
-}: {
-  readonly monitor: MonitorSummaryResponse;
-  readonly onToggled: (summary: MonitorSummaryResponse) => void;
-  readonly onEdit: () => void;
-  readonly onDelete: () => void;
-}) {
-  const [pending, setPending] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+type ToggleState = {
+  readonly pending: boolean;
+  readonly failure: string | null;
+};
 
-  const toggle = async () => {
-    if (pending) {
+const IDLE: ToggleState = { pending: false, failure: null };
+
+/**
+ * Enabling and disabling the viewer's own monitors, one monitor at a time.
+ *
+ * Each monitor's request is its own: a toggle in flight disables that monitor's action and no
+ * other, and a failure is reported on the monitor it belongs to. The row is replaced by the API's
+ * own answer, so a refused or partially applied change never leaves it claiming a state the server
+ * does not hold.
+ */
+function useMonitorToggles(
+  onToggled: (summary: MonitorSummaryResponse) => void,
+) {
+  const [states, setStates] = useState<Readonly<Record<string, ToggleState>>>(
+    {},
+  );
+  // The guard is a ref, not state: a second press before the re-render must not start a second
+  // request.
+  const inFlight = useRef(new Set<string>());
+
+  const set = (id: string, state: ToggleState) =>
+    setStates((current) => ({ ...current, [id]: state }));
+
+  const toggle = async (monitor: MonitorSummaryResponse) => {
+    if (inFlight.current.has(monitor.id)) {
       return;
     }
-    setPending(true);
-    setFailure(null);
+    inFlight.current.add(monitor.id);
+    set(monitor.id, { pending: true, failure: null });
     try {
-      // The row is replaced by the API's own answer, so a refused or partially applied change can
-      // never leave the row claiming a state the server does not hold.
       onToggled(await updateMonitor(monitor.id, { enabled: !monitor.enabled }));
+      set(monitor.id, IDLE);
     } catch (error) {
       // Enabling one monitor too many is a plan limit, not a failed save. Saying "that change did
       // not save" would be true but useless; the API's own message names the limit and the count.
-      setFailure(
-        requestFailureMessage(
+      set(monitor.id, {
+        pending: false,
+        failure: requestFailureMessage(
           error,
           `That change did not save. This monitor is still ${
             monitor.enabled ? "enabled" : "disabled"
           }.`,
         ),
-      );
+      });
     } finally {
-      setPending(false);
+      inFlight.current.delete(monitor.id);
     }
   };
 
-  const toggleLabel = monitor.enabled
-    ? pending
-      ? "Disabling…"
-      : "Disable"
-    : pending
-      ? "Enabling…"
-      : "Enable";
+  return {
+    stateOf: (id: string): ToggleState => states[id] ?? IDLE,
+    toggle,
+  };
+}
 
-  return (
-    <span className={styles.rowActions}>
-      <span className={actionStyles.group}>
-        <Link
-          className={actionStyles.action}
-          href={`/monitors/${monitor.id}`}
-          aria-label={`Open ${monitor.name}`}
-        >
-          Open
-        </Link>
-        <OverflowMenu
-          label={monitor.name}
-          testId="monitor-actions"
-          items={[
-            {
-              label: toggleLabel,
-              disabled: pending,
-              onSelect: toggle,
-              testId: "toggle-monitor",
-            },
-            { label: "Edit", onSelect: onEdit },
-            {
-              label: "Delete",
-              tone: "danger",
-              separated: true,
-              onSelect: onDelete,
-            },
-          ]}
-        />
-      </span>
-      {failure ? (
-        <span
-          className={styles.rowError}
-          role="alert"
-          data-testid="monitor-toggle-error"
-        >
-          {failure}
-        </span>
-      ) : null}
-    </span>
-  );
+function toggleLabel(monitor: MonitorSummaryResponse, pending: boolean) {
+  if (monitor.enabled) {
+    return pending ? "Disabling…" : "Disable";
+  }
+  return pending ? "Enabling…" : "Enable";
 }
 
 /**
@@ -236,20 +206,47 @@ function MonitorComplianceNotice({
 
 /**
  * The orders a customer's own monitors can be read in. "Newest" is creation order, the default on
- * every management page; "Recently updated" is the last change. Search also matches the strategy and
- * list a monitor watches, since that is how people tell them apart.
+ * every management page; "Recently updated" is the last change. The Monitor and Active signals
+ * headers sort too, each both ways. Search also matches the strategy and list a monitor watches,
+ * since that is how people tell them apart.
  */
+function bySignals(a: MonitorSummaryResponse, b: MonitorSummaryResponse) {
+  return b.activeSignalCount - a.activeSignalCount;
+}
+
 const MONITOR_SORTS: readonly CollectionSort<MonitorSummaryResponse>[] = [
   {
     id: "newest",
     label: "Newest",
     compare: byNewest((monitor) => monitor.createdAt),
   },
-  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "name",
+    label: "Name A–Z",
+    column: "monitor",
+    direction: "asc",
+    compare: byName,
+  },
+  {
+    id: "name-desc",
+    label: "Name Z–A",
+    column: "monitor",
+    direction: "desc",
+    compare: reversed(byName),
+  },
   {
     id: "signals",
     label: "Most active signals",
-    compare: (a, b) => b.activeSignalCount - a.activeSignalCount,
+    column: "signals",
+    direction: "desc",
+    compare: bySignals,
+  },
+  {
+    id: "signals-fewest",
+    label: "Fewest active signals",
+    column: "signals",
+    direction: "asc",
+    compare: reversed(bySignals),
   },
   {
     id: "updated",
@@ -272,23 +269,38 @@ export function MonitorsPage() {
   const create = () =>
     gate.attempt(SIGN_IN_TO_CREATE, () => setDialog({ kind: "create" }));
   const { own, builtIn } = partitionByOwnership(monitors);
+  const toggles = useMonitorToggles(applyUpdated);
 
   const identityColumn: DataTableColumn<MonitorSummaryResponse> = {
     key: "monitor",
     header: "Monitor",
     cardRole: "identity",
-    render: (monitor) => (
-      <>
-        <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
-          {monitor.name}
-        </Link>
-        {/* Between 880 and 1,279px the Strategy and Stock list columns fold in here, under the
-            name, rather than squeezing three columns of chips until the actions scroll away. */}
-        <IntermediateOnly testId="monitor-folded-relationships">
-          <MonitorReferences monitor={monitor} />
-        </IntermediateOnly>
-      </>
-    ),
+    render: (monitor) => {
+      const failure = toggles.stateOf(monitor.id).failure;
+      return (
+        <>
+          <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
+            {monitor.name}
+          </Link>
+          {/* Between 880 and 1,279px the Strategy and Stock list columns fold in here, under the
+              name, rather than squeezing three columns of chips until the actions scroll away. */}
+          <IntermediateOnly testId="monitor-folded-relationships">
+            <MonitorReferences monitor={monitor} />
+          </IntermediateOnly>
+          {/* A refused enable/disable, said on the monitor it belongs to, under its name, where a
+              sentence has room at every width. */}
+          {failure ? (
+            <span
+              className={styles.rowError}
+              role="alert"
+              data-testid="monitor-toggle-error"
+            >
+              {failure}
+            </span>
+          ) : null}
+        </>
+      );
+    },
   };
 
   const referenceColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
@@ -331,6 +343,9 @@ export function MonitorsPage() {
       key: "signals",
       width: "9rem",
       header: "Active signals",
+      // On a phone the signal count is the card's summary line; the last check keeps its label,
+      // because a bare timestamp would not say what it is.
+      cardRole: "summary",
       align: "right",
       numeric: true,
       nowrap: true,
@@ -362,26 +377,46 @@ export function MonitorsPage() {
       render: (monitor) => (
         <span className={styles.stateCell}>
           {/* One effective state, with its reason as text (UI-021). */}
-          <MonitorStateBadge monitor={monitor} showReason />
+          <MonitorStateBadge monitor={monitor} showReason size="small" />
         </span>
       ),
     },
     ...referenceColumns,
     {
+      // The row itself opens the monitor (its name is the link), so the cell holds only the menu.
       key: "actions",
-      width: "10rem",
+      width: "3.5rem",
       header: "Actions",
-      cardRole: "actions",
+      cardRole: "menu",
       align: "right",
       nowrap: true,
-      render: (monitor) => (
-        <MonitorRowActions
-          monitor={monitor}
-          onToggled={applyUpdated}
-          onEdit={() => setDialog({ kind: "edit", monitor })}
-          onDelete={() => setDialog({ kind: "delete", monitor })}
-        />
-      ),
+      render: (monitor) => {
+        const { pending } = toggles.stateOf(monitor.id);
+        return (
+          <OverflowMenu
+            label={monitor.name}
+            testId="monitor-actions"
+            items={[
+              {
+                label: toggleLabel(monitor, pending),
+                disabled: pending,
+                onSelect: () => void toggles.toggle(monitor),
+                testId: "toggle-monitor",
+              },
+              {
+                label: "Edit",
+                onSelect: () => setDialog({ kind: "edit", monitor }),
+              },
+              {
+                label: "Delete",
+                tone: "danger",
+                separated: true,
+                onSelect: () => setDialog({ kind: "delete", monitor }),
+              },
+            ]}
+          />
+        );
+      },
     },
   ];
 
@@ -403,39 +438,34 @@ export function MonitorsPage() {
       ),
     },
     ...referenceColumns,
-    {
-      key: "actions",
-      width: "10rem",
-      header: "Actions",
-      cardRole: "actions",
-      align: "right",
-      nowrap: true,
-      // A built-in is read-only for everybody but an administrator, who edits it through the very
-      // same editor rather than a parallel admin form. It is never deleted by anyone.
-      render: (monitor) => (
-        <span className={actionStyles.group}>
-          <Link
-            className={actionStyles.action}
-            href={`/monitors/${monitor.id}`}
-            aria-label={`Open ${monitor.name}`}
-          >
-            Open
-          </Link>
-          {monitor.canEdit ? (
-            <OverflowMenu
-              label={monitor.name}
-              testId="monitor-actions"
-              items={[
-                {
-                  label: "Edit",
-                  onSelect: () => setDialog({ kind: "edit", monitor }),
-                },
-              ]}
-            />
-          ) : null}
-        </span>
-      ),
-    },
+    // A built-in is read-only for everybody but an administrator, who edits it through the very
+    // same editor rather than a parallel admin form. It is never deleted by anyone. The row itself
+    // opens it, so the column exists only where there is a menu to hold.
+    ...(builtIn.some((monitor) => monitor.canEdit)
+      ? [
+          {
+            key: "actions",
+            width: "3.5rem",
+            header: "Actions",
+            cardRole: "menu" as const,
+            align: "right" as const,
+            nowrap: true,
+            render: (monitor: MonitorSummaryResponse) =>
+              monitor.canEdit ? (
+                <OverflowMenu
+                  label={monitor.name}
+                  testId="monitor-actions"
+                  items={[
+                    {
+                      label: "Edit",
+                      onSelect: () => setDialog({ kind: "edit", monitor }),
+                    },
+                  ]}
+                />
+              ) : null,
+          },
+        ]
+      : []),
   ];
 
   // How many of the viewer's own monitors are switched on, against the plan's allowance — shown
@@ -471,6 +501,7 @@ export function MonitorsPage() {
     <PageContainer>
       <div className={styles.page} data-testid="monitors-page">
         <PageHeader
+          variant="plain"
           title="Monitors"
           lead="Watch a strategy over a stock list at every market close and collect the signals it produces."
           {...(activeMeter ? { aside: activeMeter } : {})}
@@ -506,6 +537,7 @@ export function MonitorsPage() {
 
         {status === "ready" && gate.signedIn ? (
           <CollectionSection
+            density="compact"
             title="Your monitors"
             label="Your monitors"
             noun="monitors"
@@ -541,6 +573,7 @@ export function MonitorsPage() {
 
         {status === "ready" && builtIn.length > 0 ? (
           <CollectionSection
+            density="compact"
             title="Built-in monitors"
             caption="FactorSage's own monitors. Choose which of them appear on your dashboard; they keep running either way, and only FactorSage changes them."
             label="Built-in monitors"

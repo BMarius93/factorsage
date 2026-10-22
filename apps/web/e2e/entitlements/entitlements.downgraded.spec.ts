@@ -200,7 +200,10 @@ test.describe.serial("entitlements after a downgrade", () => {
         { timeout: 20_000 },
       );
 
-      await card.getByRole("link", { name: /^Open / }).click();
+      // The row opens through its name.
+      await card
+        .getByRole("link", { name: fixtureName(name), exact: true })
+        .click();
       const detail = page.getByTestId("monitor-detail");
       await expect(detail).toBeVisible();
       // The same single effective state as the card, the full reason spelled out on the page,

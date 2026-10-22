@@ -100,11 +100,15 @@ export function useCollection<TRow>(
   const clear = () => setQuery("");
 
   // The current order as the table's headers show it, when it is the order of one of its columns.
-  const tableSort: DataTableSort | undefined = sort?.column
-    ? { key: sort.column, direction: sort.direction ?? "desc" }
-    : undefined;
+  // Headers sort exactly where the Sort control is offered: one record has no order to choose.
+  const tableSort: DataTableSort | undefined =
+    sortable && sort?.column
+      ? { key: sort.column, direction: sort.direction ?? "desc" }
+      : undefined;
   const sortColumns = new Set(
-    sorts.flatMap((option) => (option.column ? [option.column] : [])),
+    sortable
+      ? sorts.flatMap((option) => (option.column ? [option.column] : []))
+      : [],
   );
   const sortByColumn = (column: string) => {
     const options = sorts.filter((option) => option.column === column);
@@ -212,4 +216,11 @@ export function byNewest<TRow extends { readonly id: string }>(
 ): (a: TRow, b: TRow) => number {
   return (a, b) =>
     Date.parse(date(b)) - Date.parse(date(a)) || byIdDescending(a, b);
+}
+
+/** The same order read the other way: "Name Z–A" from "Name A–Z", ties included. */
+export function reversed<TRow>(
+  compare: (a: TRow, b: TRow) => number,
+): (a: TRow, b: TRow) => number {
+  return (a, b) => compare(b, a);
 }
