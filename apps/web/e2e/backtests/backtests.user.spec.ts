@@ -1,4 +1,7 @@
-import type { BacktestRunDetailResponse } from "@intrinsic/contracts";
+import {
+  backtestRunLabel,
+  type BacktestRunDetailResponse,
+} from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "../fixtures";
 import { runIdFromUrl, waitForRunsToSettle } from "../utils/backtests";
 import { apiBaseUrl } from "../utils/entitlements";
@@ -76,6 +79,26 @@ async function expectNoHorizontalScroll(page: Page) {
     overflow.scrollWidth,
     `Document scrolls horizontally: ${overflow.scrollWidth}px content in ${overflow.clientWidth}px viewport`,
   ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+}
+
+/** The run as the API reports it, through the page's own signed-in session. */
+async function runDetail(
+  page: Page,
+  runUrl: string,
+): Promise<BacktestRunDetailResponse> {
+  const response = await page.request.get(
+    `${apiBaseUrl()}/backtests/${runIdFromUrl(runUrl)}`,
+  );
+  expect(response.ok()).toBe(true);
+  return (await response.json()) as BacktestRunDetailResponse;
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox();
+  expect(box, "element has no layout box").not.toBeNull();
+  return box as Box;
 }
 
 /**
@@ -535,10 +558,114 @@ test.describe("PRO_USER backtests", () => {
       "pulse",
     );
 
+    // The run's own identity heads the page, and what it executed is named under it.
+    const detail = await runDetail(page, runUrl);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      backtestRunLabel(detail.runNumber),
+    );
+    await expect(page.getByTestId("backtest-run-metadata")).toContainText(
+      `Strategy: ${STRATEGY_NAME}`,
+    );
+    await expect(page.getByTestId("backtest-run-metadata")).toContainText(
+      `List: ${LIST_NAME}`,
+    );
+    await expect(page.getByTestId("backtest-header-strategy")).toHaveAttribute(
+      "href",
+      `/strategies/${detail.configuration.strategyId}`,
+    );
+    await expect(page.getByTestId("backtest-header-list")).toHaveAttribute(
+      "href",
+      `/lists/${detail.configuration.stockListId}`,
+    );
+
+    // At 1,280px the chart and the eight numbers share one row: the chart about 70% of it, the
+    // numbers a 2 x 4 grid beside it, tops and bottoms aligned.
+    const overview = await boxOf(page.getByTestId("backtest-overview"));
+    const chartBox = await boxOf(chart);
+    const resultsBox = await boxOf(page.getByTestId("backtest-results"));
+    expect(resultsBox.x).toBeGreaterThanOrEqual(chartBox.x + chartBox.width);
+    expect(chartBox.width / overview.width).toBeGreaterThan(0.65);
+    expect(chartBox.width / overview.width).toBeLessThan(0.75);
+    expect(Math.abs(resultsBox.y - chartBox.y)).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(
+        resultsBox.y + resultsBox.height - (chartBox.y + chartBox.height),
+      ),
+    ).toBeLessThanOrEqual(2);
+    expect(
+      await page.getByTestId("backtest-metrics").evaluate((node) => ({
+        columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
+        rows: getComputedStyle(node).gridTemplateRows.split(" ").length,
+      })),
+      "Beside the chart the results are not a 2 x 4 grid",
+    ).toEqual({ columns: 2, rows: 4 });
+
+    // Annual returns: Strategy above the benchmark, one column per year the API reported, every
+    // figure under its own year.
+    const annualYears = detail.result?.annualReturns ?? [];
+    const yearHeaders = page.getByTestId("backtest-annual-year");
+    await expect(yearHeaders).toHaveCount(annualYears.length);
+    await expect(page.getByTestId("backtest-annual-return")).toHaveCount(
+      annualYears.length,
+    );
+    await expect(
+      page.getByTestId("backtest-annual-benchmark-return"),
+    ).toHaveCount(annualYears.length);
+    const columns = await page
+      .getByTestId("backtest-annual-heatmap")
+      .evaluate((table) => {
+        const read = (testId: string) =>
+          [
+            ...table.querySelectorAll<HTMLTableCellElement>(
+              `[data-testid="${testId}"]`,
+            ),
+          ].map((cell) => ({
+            year: cell.dataset.year,
+            column: cell.cellIndex,
+            text: cell.textContent,
+            partial: cell.dataset.partial === "true",
+          }));
+        return {
+          years: read("backtest-annual-year"),
+          strategy: read("backtest-annual-return"),
+          benchmark: read("backtest-annual-benchmark-return"),
+        };
+      });
+    expect(columns.years.map((year) => year.year)).toEqual(
+      annualYears.map((year) => year.year),
+    );
+    for (const [index, year] of columns.years.entries()) {
+      const served = annualYears[index];
+      for (const row of [columns.strategy, columns.benchmark]) {
+        expect(row[index]?.year).toBe(year.year);
+        expect(row[index]?.column).toBe(year.column);
+        expect(row[index]?.partial).toBe(served?.partial ?? false);
+      }
+      // A benchmark figure the API could not measure is a dash, never an invented number.
+      if (served?.benchmarkReturnPercent === null) {
+        expect(columns.benchmark[index]?.text).toContain("—");
+      } else {
+        expect(columns.benchmark[index]?.text).toMatch(/%$/);
+      }
+    }
+
     await expectNoHorizontalScroll(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(chart).toBeVisible();
     await expectNoHorizontalScroll(page);
+    // On a phone the overview stacks: the numbers come under the chart, across its full width.
+    const phoneChart = await boxOf(chart);
+    const phoneResults = await boxOf(page.getByTestId("backtest-results"));
+    expect(phoneResults.y).toBeGreaterThanOrEqual(
+      phoneChart.y + phoneChart.height,
+    );
+    expect(Math.abs(phoneResults.width - phoneChart.width)).toBeLessThanOrEqual(
+      2,
+    );
+    // A long history scrolls inside the heatmap's own region, never the page.
+    await expect(
+      page.getByTestId("backtest-annual-returns-scroll"),
+    ).toHaveAttribute("role", "region");
 
     // A phone keeps the same order and the same 2 x 4 result block, and the chart that now leads
     // the page stays compact enough to leave those numbers on the first screen.
@@ -572,16 +699,100 @@ test.describe("PRO_USER backtests", () => {
       "The chart legend overflows a 390px screen",
     ).toBe(true);
 
-    // The finished run is listed in the collection.
+    // The finished run is listed in the collection under its Run ID, with its strategy in a
+    // column of its own linking to the strategy.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await navLink(page, "Backtests").click();
     await expect(page).toHaveURL(/\/backtests$/);
+    const listed = page
+      .getByTestId("backtests-grid")
+      .locator("tbody tr")
+      .filter({ hasText: backtestRunLabel(detail.runNumber) })
+      .first();
+    await expect(listed).toBeVisible();
     await expect(
-      page
-        .getByTestId("backtests-grid")
-        .locator("tbody tr")
-        .filter({ hasText: STRATEGY_NAME })
-        .first(),
+      listed.locator('[data-column="run"] a').first(),
+    ).toHaveAttribute("href", `/backtests/${detail.id}`);
+    const strategyChip = listed.locator(
+      '[data-column="strategy"] [data-testid="backtest-strategy-reference"]',
+    );
+    await expect(strategyChip).toHaveText(STRATEGY_NAME);
+    await expect(strategyChip).toHaveAttribute(
+      "href",
+      `/strategies/${detail.configuration.strategyId}`,
+    );
+    await expect(
+      page.getByTestId("backtests-grid").getByRole("columnheader", {
+        name: "Created",
+      }),
     ).toBeVisible();
+    await expect(
+      page.getByTestId("backtests-grid").getByRole("columnheader", {
+        name: "Queued",
+      }),
+    ).toHaveCount(0);
+    // Following the strategy reference opens the strategy the run executed.
+    await strategyChip.click();
+    await expect(page).toHaveURL(
+      new RegExp(`/strategies/${detail.configuration.strategyId}$`),
+    );
+  });
+
+  test("keeps a run's strategy and list by their snapshot names after both are deleted", async ({
+    page,
+  }) => {
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+
+    const runUrl = await submitBacktest(page);
+    await waitForRunsToSettle(page, submittedRunIds, RUN_TIMEOUT_MS);
+    const before = await runDetail(page, runUrl);
+    test.skip(
+      before.status !== "COMPLETED",
+      `The run did not complete (${before.status}); this test needs a completed run.`,
+    );
+    const label = backtestRunLabel(before.runNumber);
+
+    // Delete both sources. The run is the reproducibility record and outlives them.
+    await deleteStrategyIfPresent(page, STRATEGY_NAME);
+    await deleteListIfPresent(page, LIST_NAME);
+    const after = await runDetail(page, runUrl);
+    expect(after.configuration.strategyId).toBeNull();
+    expect(after.configuration.stockListId).toBeNull();
+    // The Run ID did not move.
+    expect(after.runNumber).toBe(before.runNumber);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/backtests");
+    const row = page
+      .getByTestId("backtests-grid")
+      .locator("tbody tr")
+      .filter({ hasText: label })
+      .first();
+    await expect(row).toBeVisible();
+    for (const [column, name] of [
+      ["strategy", STRATEGY_NAME],
+      ["list", LIST_NAME],
+    ] as const) {
+      const cell = row.locator(`[data-column="${column}"]`);
+      // The historical name, as text, and no link that would lead to a missing page.
+      await expect(cell).toContainText(name);
+      await expect(cell.locator("a")).toHaveCount(0);
+      await expect(cell.locator('[data-static="true"]')).toHaveText(name);
+    }
+
+    await page.goto(runUrl);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(label);
+    for (const [testId, name] of [
+      ["backtest-header-strategy", STRATEGY_NAME],
+      ["backtest-header-list", LIST_NAME],
+    ] as const) {
+      const reference = page.getByTestId(testId);
+      await expect(reference).toHaveText(name);
+      await expect(reference).toHaveAttribute("data-static", "true");
+    }
+    await expect(
+      page.getByTestId("backtest-run-metadata").locator("a"),
+    ).toHaveCount(0);
   });
 
   test("frames the chart on the configured period from the first render", async ({

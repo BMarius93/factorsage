@@ -95,6 +95,10 @@ the display type). See `v1-visual-parity.md` for what each one means.
 It sits where actions sit but is something the page reports, not something the user can do; do not
 put a control in it.
 
+The lead is held to a prose measure (62ch). `leadWidth="full"` lifts that for a lead that is a line
+of metadata rather than a sentence — a backtest run's `Strategy · List · period · Benchmark` — so it
+reads on one line where it fits and wraps between its facts where it does not.
+
 Use it on every route that has a title. Do not write a local `header`/`title`/`lead` trio, and do not
 write a bespoke breadcrumb — `back` is the breadcrumb.
 
@@ -136,7 +140,8 @@ inside one either. One page-level surface per section is the whole point; card-i
 noise this replaced, and a section's own box inside a surface is the same mistake wearing a
 different class name. A section *within* a surface is a heading plus its content — the backtest
 result's `Results` and `Annual returns` are both exactly that, separated from each other and from
-the chart by the hero body's gap. Give the individual cells a border if they need one; do not give
+the chart by the hero body's gap (from 1,280px `Results` stands beside the chart in one unframed
+grid row instead of under it). Give the individual cells a border if they need one; do not give
 the group a second.
 
 ### `CollectionFooter` / `usePagination`
@@ -377,11 +382,12 @@ columns than room. A column marked `foldIntermediate` steps out there, and the f
 same facts inside a cell that stays, wrapped in `IntermediateOnly` (displayed only in that band, so
 a fact is never exposed twice): the Dashboard folds Strategy · List · Monitor under the stock, the
 Monitors collection folds Strategy and Stock list under the monitor's name, Backtests folds the
-Stock list under the strategy and the Benchmark beside the total return and drops the low-priority
-Queued column, and a completed backtest's Trade log folds its Date column back under the stock.
-Every collection then fits its surface at 880, 1,024, 1,280 and 1,440px with its actions visible,
-except the Trade log, measured on 2026-10-20 to still scroll inside its card from 880px to about
-1,030px.
+Strategy and Stock list under the Run ID and the Benchmark beside the total return and drops the
+low-priority Created column, and a completed backtest's Trade log folds its Date column back under
+the stock. Every collection then fits its surface at 880, 1,024, 1,280 and 1,440px with its actions
+visible, except the Trade log, measured on 2026-10-20 to still scroll inside its card from 880px to
+about 1,030px. (Backtests, with its own Strategy column since 2026-10-23, was measured to fit with
+no sideways scroll at 390, 880, 1,024, 1,279, 1,280, 1,360, 1,440 and 1,600px.)
 
 **Adapt to the column, not the viewport, when the table does not own the page's width.** The
 Dashboard's activity feed sits beside the Market watch sidebar from 1,280px, so a wide desktop gives
@@ -411,8 +417,8 @@ adding a column: the Monitors table carries the universe size beside the Stock L
 Backtests table carries the benchmark's return beside the Benchmark chip — and, where the Benchmark
 column folds (880–1,279px), beside the total return as "vs SPY +x%", never under the stock list it
 would read as part of (BT-3). That keeps the information and the association, and costs no width.
-From 1,280 to 1,359px, where all nine run columns are back a few pixels short of room, the
-benchmark's return wraps under its chip instead.
+From 1,280 to 1,359px, where every run column is back — the Strategy and Stock list chips among
+them — a few pixels short of room, the benchmark's return wraps under its chip instead.
 
 Every cell carries `data-column` (the column's key), so a feature can arrange its own phone card —
 the Dashboard's activity card does (DB-1) — without restating the table.
@@ -756,7 +762,8 @@ page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-e
 - **Tab titles** are `{Page} · FactorSage` on every route (Dashboard, collections, New …, Billing,
   Pricing, Admin, auth, not-found; the `|` separator is gone). Entity pages start from the route's
   generic title and switch to the entity's own name once it loads (`useDocumentTitle`): "Blue chips
-  · FactorSage", "Value ladder backtest · FactorSage".
+  · FactorSage", "Run #0084 · Value ladder · FactorSage" (a backtest run: its Run ID, then the
+  strategy it executed).
 - **Hydration.** The topbar search, a singleton, uses a fixed id base (`topbar-stock-search`) rather
   than `useId`, so its `aria-controls` can never hydrate differently. A Guest's `401` from
   `/auth/me` is the expected session probe, not an error.
@@ -872,7 +879,7 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | ----- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | 380px | Topbar search (`AppTopbar`, `StockSearch`)        | below it the field cannot sit beside the brand and account; it collapses to an icon             |
 | 960px | Strategy Builder side column (`ExplanationPanel`) | the editor rows need ~560px beside a 360px logic column; at 880 they would wrap every predicate |
-| 1280–1359px | Backtests Benchmark cell (`BacktestsPage.module.css`) | all nine run columns return at 1,280px a few pixels short of room; the benchmark's return wraps under its chip until 1,360px rather than scrolling the actions out of the card |
+| 1280–1359px | Backtests Benchmark cell (`BacktestsPage.module.css`) | every run column, Strategy and Stock list included, returns at 1,280px a few pixels short of room; the benchmark's return wraps under its chip until 1,360px rather than taking width from the names |
 | 560px **container** | Strategy Builder predicate fields (`StrategyBuilder.module.css`, `@container predicate-list`) | Metric, Condition and Value fit one line only when the rule list itself is this wide, and the list is full-width below 960px but two-thirds of the page above it — so the list's own width decides, not the viewport's; below it the Metric takes a line and Condition and Value share the next |
 | 440px **container** | Strategy Builder operand picker (`OperandPicker.module.css`, `@container operand-picker`) | the category tiles read four to a row only when the picker itself is this wide; it is as wide as the rule's fields above 600px and the whole screen below it, so its own width decides; below it they read three to a row |
 | 40rem **container** | Dashboard activity feed (`ActivityFeed.module.css`, `@container dashboard-feed`) | Stock, Signal, Conditions and Monitor stand side by side only when the feed's own column is this wide; beside Market watch a 1,280px screen leaves it about 57rem and a phone far less, so the column decides; below it each event stacks |

@@ -228,7 +228,8 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
         area,
         `annual ${year.year}`,
         signedPercentPoints(year.returnPercent),
-        (await cell.count()) > 0 ? await cell.locator("dd").innerText() : null,
+        // The Strategy row's cell for the year in the annual heatmap: its text is the figure.
+        (await cell.count()) > 0 ? await cell.innerText() : null,
       );
       record(
         area,

@@ -100,9 +100,14 @@ test.describe("FREE entitlements", () => {
   }) => {
     // A run is pinned mid-flight by the fixture, so "already running" is a state rather than a
     // race against a worker that might finish first.
+    // Found by its row: the strategy's name appears in the row's Strategy column and again in the
+    // copy folded under the Run ID for the intermediate band, and only one of the two is displayed.
     await page.goto("/backtests");
     await expect(
-      page.getByText(fixtureName("In Flight")).first(),
+      page
+        .getByTestId("backtest-card")
+        .filter({ hasText: fixtureName("In Flight") })
+        .first(),
       "The pinned in-flight run is missing. Seed it with: pnpm test:personas:seed",
     ).toBeVisible({ timeout: 20_000 });
 
