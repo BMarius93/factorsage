@@ -15,6 +15,7 @@ import {
   type StrategyScopeNames,
   type StrategySignal,
 } from "@intrinsic/contracts";
+import type { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   monitorStrategyLevels,
@@ -33,7 +34,10 @@ import {
   scopeNamesFor,
   whyOf,
 } from "../monitors/signal-why";
-import type { ActivityQuery } from "./dashboard-requests";
+import {
+  ACTIVITY_THROUGH_LIMIT,
+  type ActivityQuery,
+} from "./dashboard-requests";
 import { DASHBOARD_LOGGER, DASHBOARD_OPTIONS } from "./dashboard.tokens";
 
 export type DashboardOptions = {
@@ -56,6 +60,82 @@ export class BuiltInMonitorNotFoundError extends Error {
     super("Built-in monitor was not found");
     this.name = "BuiltInMonitorNotFoundError";
   }
+}
+
+/** What the feed shows of each Monitor an event belongs to. */
+const ACTIVITY_MONITOR_SELECT = {
+  id: true,
+  name: true,
+  ownership: true,
+  enabled: true,
+  strategy: { select: { id: true, name: true } },
+  stockList: { select: { id: true, name: true } },
+} satisfies Prisma.MonitorSelect;
+
+type ActivityMonitor = Prisma.MonitorGetPayload<{
+  select: typeof ACTIVITY_MONITOR_SELECT;
+}>;
+
+/** What one stored change contributes to an event. */
+const ACTIVITY_EVENT_SELECT = {
+  id: true,
+  sequence: true,
+  monitorId: true,
+  levelId: true,
+  levelKind: true,
+  toState: true,
+  reason: true,
+  observationDate: true,
+  strategyVersionId: true,
+  evidence: true,
+  security: {
+    select: {
+      id: true,
+      symbol: true,
+      name: true,
+      exchangeCode: true,
+      exchangeName: true,
+      profile: { select: { logoUrl: true } },
+    },
+  },
+  signal: {
+    select: {
+      id: true,
+      observationPrice: true,
+      observationBasis: true,
+      strategyVersionId: true,
+    },
+  },
+} satisfies Prisma.MonitorStateTransitionSelect;
+
+type ActivityEventRow = Prisma.MonitorStateTransitionGetPayload<{
+  select: typeof ACTIVITY_EVENT_SELECT;
+}>;
+
+/**
+ * What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
+ * classification the response applies, so a filtered read holds the same events as the unfiltered
+ * feed minus the other kind, and the keyset cursor and `through` ranges page it unchanged.
+ */
+function activityKindWhere(
+  kind: ActivityQuery["kind"],
+): Prisma.MonitorStateTransitionWhereInput {
+  if (kind === "ACTIVATED") {
+    return { toState: "ACTIVE" };
+  }
+  if (kind === "RESOLVED") {
+    return {
+      fromState: "ACTIVE",
+      toState: { not: "ACTIVE" },
+      reason: "CONDITIONS_ENDED",
+    };
+  }
+  return {
+    OR: [
+      { toState: "ACTIVE" },
+      { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
+    ],
+  };
 }
 
 const LEVEL_ORDER = { BUY: 0, SELL: 1, FINAL_EXIT: 2 } as const;
@@ -376,14 +456,7 @@ export class DashboardService {
               ],
             }
           : { ownership: "SYSTEM", isPublished: true },
-        select: {
-          id: true,
-          name: true,
-          ownership: true,
-          enabled: true,
-          strategy: { select: { id: true, name: true } },
-          stockList: { select: { id: true, name: true } },
-        },
+        select: ACTIVITY_MONITOR_SELECT,
       }),
       viewer
         ? this.prisma.userBuiltInMonitorPreference.findMany({
@@ -408,6 +481,27 @@ export class DashboardService {
         : visible.has(query.monitorId)
           ? [query.monitorId]
           : [];
+    return this.readActivity(viewer, visible, monitorIds, query, now);
+  }
+
+  /**
+   * One read of the Activity feed over the given Monitors: a page (the first, or the one after
+   * `cursor`), or — with `through` — the range from the newest event down to and including a given
+   * one, which is how a reader refreshes everything they already hold.
+   *
+   * Keyset-ordered on `(observationDate, sequence)`, both descending, so a page is stable while new
+   * sessions arrive. A `through` read exists for what new pages cannot show: an event written for a
+   * session older than the newest — an ETF waiting for its data, a late bar — lands *inside* the range
+   * a reader has loaded. Re-reading that range by key finds it whenever it was committed; no clock or
+   * commit order is assumed.
+   */
+  private async readActivity(
+    viewer: ContentViewer,
+    monitors: ReadonlyMap<string, ActivityMonitor>,
+    monitorIds: readonly string[],
+    query: ActivityQuery,
+    now: Date,
+  ): Promise<DashboardActivityResponse> {
     const empty: DashboardActivityResponse = {
       viewer: viewer ? "AUTHENTICATED" : "GUEST",
       generatedAt: now.toISOString(),
@@ -416,6 +510,11 @@ export class DashboardService {
     if (monitorIds.length === 0) {
       return empty;
     }
+    const scope = {
+      monitorId: { in: [...monitorIds] },
+      origin: "OBSERVED" as const,
+      observationDate: { not: null },
+    };
 
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
     if (
@@ -434,29 +533,32 @@ export class DashboardService {
           sequence: BigInt(cursor.s as string),
         }
       : null;
+
+    // The bottom of a `through` range: an event of this feed. One the viewer can no longer see (its
+    // Monitor hidden or gone) ends the range at once, and the reader starts over from the top.
+    let floor: { date: Date; sequence: bigint } | null = null;
+    if (query.through !== undefined) {
+      const bottom = await this.prisma.monitorStateTransition.findFirst({
+        where: {
+          ...scope,
+          id: query.through,
+          AND: [activityKindWhere(query.kind)],
+        },
+        select: { observationDate: true, sequence: true },
+      });
+      if (!bottom) {
+        return empty;
+      }
+      floor = { date: bottom.observationDate!, sequence: bottom.sequence };
+    }
+    const limit =
+      query.through === undefined ? query.limit : ACTIVITY_THROUGH_LIMIT;
+
     const rows = await this.prisma.monitorStateTransition.findMany({
       where: {
-        monitorId: { in: monitorIds },
-        origin: "OBSERVED",
-        observationDate: { not: null },
+        ...scope,
         AND: [
-          // What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
-          // classification the response applies below, so a filtered page holds the same events
-          // as the unfiltered feed minus the other kind, and the keyset cursor pages it unchanged.
-          query.kind === "ACTIVATED"
-            ? { toState: "ACTIVE" }
-            : query.kind === "RESOLVED"
-              ? {
-                  fromState: "ACTIVE",
-                  toState: { not: "ACTIVE" },
-                  reason: "CONDITIONS_ENDED",
-                }
-              : {
-                  OR: [
-                    { toState: "ACTIVE" },
-                    { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
-                  ],
-                },
+          activityKindWhere(query.kind),
           ...(after
             ? [
                 {
@@ -470,43 +572,48 @@ export class DashboardService {
                 },
               ]
             : []),
+          ...(floor
+            ? [
+                {
+                  OR: [
+                    { observationDate: { gt: floor.date } },
+                    {
+                      observationDate: floor.date,
+                      sequence: { gte: floor.sequence },
+                    },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       orderBy: [{ observationDate: "desc" }, { sequence: "desc" }],
-      take: query.limit + 1,
-      select: {
-        id: true,
-        sequence: true,
-        monitorId: true,
-        levelId: true,
-        levelKind: true,
-        toState: true,
-        reason: true,
-        observationDate: true,
-        strategyVersionId: true,
-        evidence: true,
-        security: {
-          select: {
-            id: true,
-            symbol: true,
-            name: true,
-            exchangeCode: true,
-            exchangeName: true,
-            profile: { select: { logoUrl: true } },
-          },
-        },
-        signal: {
-          select: {
-            id: true,
-            observationPrice: true,
-            observationBasis: true,
-            strategyVersionId: true,
-          },
-        },
-      },
+      take: limit + 1,
+      select: ACTIVITY_EVENT_SELECT,
     });
-    const page = rows.slice(0, query.limit);
-    const versionOf = (row: (typeof page)[number]) =>
+    const page = rows.slice(0, limit);
+    const events = await this.activityEvents(page, monitors);
+    const last = page[page.length - 1];
+    return {
+      ...empty,
+      events,
+      ...(rows.length > limit && last
+        ? {
+            nextCursor: encodeCursor({
+              d: last.observationDate!.toISOString().slice(0, 10),
+              s: last.sequence.toString(),
+            }),
+          }
+        : {}),
+    };
+  }
+
+  /** The response for each stored change, explained by the version and evidence recorded with it. */
+  private async activityEvents(
+    page: readonly ActivityEventRow[],
+    monitors: ReadonlyMap<string, ActivityMonitor>,
+  ): Promise<DashboardActivityEventResponse[]> {
+    const versionOf = (row: ActivityEventRow) =>
       row.strategyVersionId ?? row.signal?.strategyVersionId ?? null;
     const levelsByVersion = await loadStoredLevels(
       this.prisma,
@@ -530,8 +637,8 @@ export class DashboardService {
       ),
     );
 
-    const events: DashboardActivityEventResponse[] = page.map((row) => {
-      const monitor = visible.get(row.monitorId)!;
+    return page.map((row) => {
+      const monitor = monitors.get(row.monitorId)!;
       const version = versionOf(row);
       const level = version
         ? levelsByVersion.get(version)?.get(row.levelId)
@@ -585,19 +692,6 @@ export class DashboardService {
           : {}),
       };
     });
-    const last = page[page.length - 1];
-    return {
-      ...empty,
-      events,
-      ...(rows.length > query.limit && last
-        ? {
-            nextCursor: encodeCursor({
-              d: last.observationDate!.toISOString().slice(0, 10),
-              s: last.sequence.toString(),
-            }),
-          }
-        : {}),
-    };
   }
 
   /**

@@ -230,32 +230,61 @@
   font-weight: var(--weight-emphasis);
 }
 
-/* DB-2 — the feed while older activity is open: automatic refresh is paused, and this line says
-   what has arrived since and offers the way back to the newest events. */
-.pausedBar {
+/* DB-2 — what arrived since the reader last went to the newest activity. It follows the feed and
+   sticks to the bottom of the screen while the feed is in view, so it can be reached from anywhere
+   in a long read; above the phone's bottom navigation where there is one. */
+.arrivals {
+  position: sticky;
+  bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 12px);
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin: 0 var(--feed-inset-end) 8px var(--feed-inset-start);
-  padding: 6px 12px;
+  width: fit-content;
+  max-width: calc(100% - var(--feed-inset-start) - var(--feed-inset-end));
+  margin: 12px auto 0;
+  padding: 6px 6px 6px 14px;
   border: 1px solid var(--color-primary-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: var(--color-surface-selected);
+  box-shadow: var(--shadow-menu);
 }
 
-.pausedText {
+@media (min-width: 880px) {
+  .arrivals {
+    bottom: 16px;
+  }
+}
+
+.arrivalsText {
   margin: 0;
   color: var(--color-text-body);
   font-size: var(--text-secondary);
 }
 
-/* "Show older activity", centred under the feed. */
+/* A look for new activity failed: said quietly, since the next one is a minute away. */
+.refreshFailed {
+  margin: 0;
+  padding: 8px var(--feed-inset-end) 0 var(--feed-inset-start);
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+/* "Show older activity", centred under the feed, with what went wrong above it when it failed. */
 .more {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   padding: 16px var(--feed-inset-end) 0 var(--feed-inset-start);
+}
+
+.moreFailed {
+  margin: 0;
+  color: var(--color-negative-ink);
+  font-size: var(--text-secondary);
 }
 
 /* The signals disclosure closes the card, in the card's own padding. */

@@ -31,6 +31,8 @@ export function parseVisibilityRequest(
 /** The Activity feed's page size when none is asked for, and the most one page may hold. */
 export const ACTIVITY_DEFAULT_LIMIT = 15;
 export const ACTIVITY_MAX_LIMIT = 50;
+/** One read of a `through` range: what a reader re-reads to refresh everything they hold. */
+export const ACTIVITY_THROUGH_LIMIT = 200;
 
 export type ActivityQuery = {
   monitorId?: string;
@@ -38,16 +40,21 @@ export type ActivityQuery = {
   kind?: MonitorActivityKind;
   limit: number;
   cursor?: string;
+  /**
+   * An event id: read every event from the newest down to and including it — the range a reader
+   * already holds — in pages of {@link ACTIVITY_THROUGH_LIMIT}, continued with `cursor`.
+   */
+  through?: string;
 };
 
-/** `?monitorId=&kind=&limit=&cursor=` and nothing else. */
+/** `?monitorId=&kind=&limit=&cursor=&through=` and nothing else. */
 export function parseActivityQuery(query: unknown): ActivityQuery {
   const record =
     typeof query === "object" && query !== null
       ? (query as Record<string, unknown>)
       : {};
   for (const key of Object.keys(record)) {
-    if (!["monitorId", "kind", "limit", "cursor"].includes(key)) {
+    if (!["monitorId", "kind", "limit", "cursor", "through"].includes(key)) {
       throw new BadRequestException(
         `Invalid request: \`${key}\` is not accepted`,
       );
@@ -85,10 +92,22 @@ export function parseActivityQuery(query: unknown): ActivityQuery {
   }
   const kind = kindText as MonitorActivityKind | undefined;
   const cursor = text("cursor");
+  const through = text("through");
+  if (
+    through !== undefined &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      through,
+    )
+  ) {
+    throw new BadRequestException(
+      "Invalid request: through must be an event id",
+    );
+  }
   return {
     limit,
     ...(monitorId ? { monitorId } : {}),
     ...(kind ? { kind } : {}),
     ...(cursor ? { cursor } : {}),
+    ...(through ? { through } : {}),
   };
 }

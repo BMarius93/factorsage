@@ -13,7 +13,9 @@ export function fetchDashboard(options: { signal?: AbortSignal } = {}) {
 /**
  * One page of Monitor Activity: the changes the viewer's visible Monitors observed, newest session
  * first. `cursor` continues from the previous page's `nextCursor`; `monitorId` and `kind` narrow the
- * feed in the database, so the cursor pages the narrowed feed.
+ * feed in the database, so the cursor pages the narrowed feed. `through` (an event id) reads the range
+ * from the newest event down to and including that one instead — how a reader refreshes what they
+ * hold — continued with `cursor`.
  */
 export function fetchMonitorActivity(
   query: {
@@ -21,6 +23,7 @@ export function fetchMonitorActivity(
     kind?: MonitorActivityKind;
     limit?: number;
     cursor?: string;
+    through?: string;
   } = {},
   options: { signal?: AbortSignal } = {},
 ) {
@@ -29,6 +32,7 @@ export function fetchMonitorActivity(
   if (query.kind) params.set("kind", query.kind);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   if (query.cursor) params.set("cursor", query.cursor);
+  if (query.through) params.set("through", query.through);
   const search = params.toString();
   return apiGet<DashboardActivityResponse>(
     `/dashboard/activity${search ? `?${search}` : ""}`,

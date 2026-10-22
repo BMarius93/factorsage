@@ -6,7 +6,13 @@ import {
   type MonitorActivityKind,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
@@ -14,6 +20,7 @@ import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useMediaQuery } from "../../../lib/use-media-query";
 import { useNow } from "../../../lib/use-now";
+import { useScrollAnchor } from "../../../lib/use-scroll-anchor";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { signInHref } from "../../auth/utils/guest-routes";
 import { DisclosureNote } from "../../legal/components/DisclosureNote";
@@ -23,7 +30,7 @@ import {
 } from "../../market/components/MarketWatch";
 import { DASHBOARD_REFRESH_MS, useDashboard } from "../hooks/use-dashboard";
 import {
-  type NewActivity,
+  type ActivityArrivals,
   useMonitorActivity,
 } from "../hooks/use-monitor-activity";
 import { ACTIVITY_KIND_FILTER_LABELS } from "../utils/activity";
@@ -92,38 +99,74 @@ export function DashboardPage() {
   const kind = isActivityKind(eventFilter) ? eventFilter : null;
   const filtered = monitorId !== null || kind !== null;
 
-  const activity = useMonitorActivity(monitorId, kind);
+  // The reader's place in the feed is held while arrivals are added above it.
+  const sectionRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const stickyInset = useCallback(
+    () => headerRef.current?.getBoundingClientRect().bottom ?? 0,
+    [],
+  );
+  const anchor = useScrollAnchor(sectionRef, {
+    rowSelector: '[data-testid="dashboard-activity-row"]',
+    idAttribute: "data-event-id",
+    insetTop: stickyInset,
+  });
+  const activity = useMonitorActivity(monitorId, kind, {
+    onBeforeMerge: anchor.capture,
+  });
+  useLayoutEffect(() => {
+    anchor.restore();
+  }, [activity.events, anchor]);
+
+  // A Monitor shown or hidden since (here or in another tab) changes which events are activity at
+  // all: the feed reads its newest page again. Not on the first answer, which only confirms it.
+  const scope = dashboard
+    ? shownMonitors
+        .map((monitor) => monitor.id)
+        .sort()
+        .join(",")
+    : null;
+  const shownScope = useRef<string | null>(null);
+  const reloadActivity = activity.reload;
+  useEffect(() => {
+    if (scope === null) return;
+    if (shownScope.current !== null && shownScope.current !== scope) {
+      reloadActivity();
+    }
+    shownScope.current = scope;
+  }, [scope, reloadActivity]);
   // One clock for the page, ticking while it stays open, so "Updated 12 min ago" stays true.
   const now = useNow(30_000);
   // False on the server and through hydration, then the real answer: Market watch mounts after
   // hydration on a wide desktop and never below it.
   const wide = useMediaQuery(MARKET_WATCH_MEDIA_QUERY);
 
-  // The feed re-reads its newest page on the Dashboard's slow timer, so a session evaluated while
-  // the page is open shows up — unless the reader has opened older activity, in which case the
-  // timer only reports what is new and the list waits for them (DB-2).
+  // On the Dashboard's slow timer the feed asks what was written since its last look and places it
+  // — a session evaluated while the page is open, or an event written late for an older one —
+  // without replacing anything the reader has opened (DB-2).
   const refreshActivity = activity.refresh;
   useEffect(() => {
     const timer = setInterval(refreshActivity, DASHBOARD_REFRESH_MS);
     return () => clearInterval(timer);
   }, [refreshActivity]);
 
-  // Asking for the newest activity replaces the expanded list and removes the button that asked,
-  // so focus and the view move to the top of the refreshed feed rather than being lost.
+  // Going to the newest activity moves the view to the top of the feed and focus to its first row,
+  // since the button that asked disappears. After a backlog the newest page is read first.
   const returnToNewest = useRef(false);
-  useEffect(() => {
-    if (!returnToNewest.current || activity.paused) return;
-    returnToNewest.current = false;
-    const heading = document.getElementById("activity-title");
-    if (heading && heading.getBoundingClientRect().top < 0) {
-      heading.scrollIntoView({ block: "start" });
+  const goToNewest = () => {
+    if (activity.arrivals?.backlog) {
+      returnToNewest.current = true;
+      activity.reload();
+      return;
     }
-    document
-      .querySelector<HTMLElement>(
-        '[data-testid="dashboard-activity"] tbody a[href]',
-      )
-      ?.focus({ preventScroll: true });
-  }, [activity.paused, activity.events]);
+    focusNewest();
+    activity.acknowledge();
+  };
+  useEffect(() => {
+    if (!returnToNewest.current || activity.arrivals?.backlog) return;
+    returnToNewest.current = false;
+    focusNewest();
+  }, [activity.arrivals, activity.events]);
 
   const guest =
     dashboard?.viewer === "GUEST" || session.status === "unauthenticated";
@@ -159,12 +202,13 @@ export function DashboardPage() {
           ) : null}
 
           <section
+            ref={sectionRef}
             id="activity"
             className={styles.activity}
             aria-labelledby="activity-title"
             data-testid="dashboard-activity-section"
           >
-            <header className={styles.activityHeader}>
+            <header ref={headerRef} className={styles.activityHeader}>
               <div className={styles.heading}>
                 <h2 id="activity-title" className={styles.title}>
                   Monitor activity
@@ -292,32 +336,48 @@ export function DashboardPage() {
                   </div>
                 ) : (
                   <>
-                    {activity.paused ? (
-                      <div
-                        className={styles.pausedBar}
-                        data-testid="dashboard-activity-paused"
+                    {activity.refreshFailed ? (
+                      <p
+                        className={styles.refreshFailed}
+                        role="status"
+                        data-testid="dashboard-activity-refresh-failed"
                       >
-                        <p role="status" className={styles.pausedText}>
-                          {newActivityLabel(activity.newActivity)}
+                        New activity could not be checked. It will be tried
+                        again in a minute.
+                      </p>
+                    ) : null}
+                    <ActivityFeed events={events} />
+                    {activity.arrivals ? (
+                      <div
+                        className={styles.arrivals}
+                        data-testid="dashboard-activity-arrivals"
+                      >
+                        <p role="status" className={styles.arrivalsText}>
+                          {arrivalsLabel(activity.arrivals)}
                         </p>
                         <button
                           type="button"
                           className={forms.tintedButton}
                           data-testid="dashboard-activity-show-newest"
-                          onClick={() => {
-                            returnToNewest.current = true;
-                            activity.reload();
-                          }}
+                          onClick={goToNewest}
                         >
                           Show newest
                         </button>
                       </div>
                     ) : null}
-                    <ActivityFeed events={events} />
                   </>
                 )}
                 {activity.hasMore ? (
                   <div className={styles.more}>
+                    {activity.loadMoreFailed ? (
+                      <p
+                        className={styles.moreFailed}
+                        role="alert"
+                        data-testid="dashboard-activity-more-failed"
+                      >
+                        Older activity could not be loaded.
+                      </p>
+                    ) : null}
                     <button
                       type="button"
                       className={forms.secondaryButton}
@@ -327,7 +387,9 @@ export function DashboardPage() {
                     >
                       {activity.loadingMore
                         ? "Loading…"
-                        : "Show older activity"}
+                        : activity.loadMoreFailed
+                          ? "Try again"
+                          : "Show older activity"}
                     </button>
                   </div>
                 ) : null}
@@ -358,19 +420,41 @@ export function DashboardPage() {
 }
 
 /**
- * What the paused feed says about activity that arrived since the reader opened older pages. A count
- * only when it is exact; otherwise that there is new activity, and nothing at all is never claimed.
+ * What the feed says about events placed since the reader last went to the newest: new ones above,
+ * and ones written late for a session already shown. Exact counts — every one was placed — except
+ * after a backlog too large to place, when it says only that more is available.
  */
-export function newActivityLabel(newActivity: NewActivity | null): string {
-  if (newActivity === null) {
-    return "Updates are paused while you read older activity.";
+export function arrivalsLabel(arrivals: ActivityArrivals): string {
+  if (arrivals.backlog) {
+    return "More new activity is available.";
   }
-  if (newActivity.count === null) {
-    return "New events are available.";
+  const parts: string[] = [];
+  if (arrivals.above > 0) {
+    parts.push(
+      arrivals.above === 1 ? "1 new event" : `${arrivals.above} new events`,
+    );
   }
-  return newActivity.count === 1
-    ? "1 new event"
-    : `${newActivity.count} new events`;
+  if (arrivals.within > 0) {
+    parts.push(
+      arrivals.within === 1
+        ? "1 event added to an earlier session"
+        : `${arrivals.within} events added to earlier sessions`,
+    );
+  }
+  return parts.join(" · ");
+}
+
+/** The top of the feed in view, and focus on its first row's first link. */
+function focusNewest() {
+  const section = document.getElementById("activity");
+  if (section && section.getBoundingClientRect().top < 0) {
+    section.scrollIntoView({ block: "start" });
+  }
+  document
+    .querySelector<HTMLElement>(
+      '[data-testid="dashboard-activity"] tbody a[href]',
+    )
+    ?.focus({ preventScroll: true });
 }
 
 /**

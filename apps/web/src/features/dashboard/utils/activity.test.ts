@@ -5,6 +5,9 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   groupBySession,
+  rangeArrivals,
+  rangeChanged,
+  replaceRange,
   operandRelation,
   predicateComparison,
 } from "./activity";
@@ -70,6 +73,49 @@ describe("groupBySession", () => {
       "2026-10-19",
     ]);
     expect(groupBySession([])).toEqual([]);
+  });
+});
+
+describe("re-reading the range a reader holds", () => {
+  const at = (id: string, sessionDate: string) =>
+    ({ id, sessionDate }) as DashboardActivityEventResponse;
+  const shown = [
+    at("a", "2026-10-14"),
+    at("b", "2026-10-13"),
+    at("c", "2026-10-12"),
+  ];
+
+  it("counts arrivals above the newest shown event, and late ones among what was shown", () => {
+    const range = [
+      at("new", "2026-10-15"),
+      at("a", "2026-10-14"),
+      at("late", "2026-10-13"),
+      at("b", "2026-10-13"),
+      at("c", "2026-10-12"),
+    ];
+    expect(rangeArrivals(shown, range)).toEqual({ above: 1, within: 1 });
+    expect(rangeChanged(shown, range, "c")).toBe(true);
+    // Everything new counts as above when the newest shown event left the range.
+    expect(
+      rangeArrivals(shown, [at("new", "2026-10-15"), at("c", "2026-10-12")]),
+    ).toEqual({
+      above: 1,
+      within: 0,
+    });
+  });
+
+  it("replaces the range and keeps what was loaded below its bottom since", () => {
+    const later = [...shown, at("d", "2026-10-09")];
+    expect(
+      replaceRange(later, [at("new", "2026-10-15"), ...shown], "c").map(
+        (event) => event.id,
+      ),
+    ).toEqual(["new", "a", "b", "c", "d"]);
+  });
+
+  it("sees no change when the range reads exactly as shown", () => {
+    expect(rangeChanged(shown, [...shown], "c")).toBe(false);
+    expect(rangeChanged(shown, [shown[0]!, shown[2]!], "c")).toBe(true);
   });
 });
 
