@@ -1,0 +1,133 @@
+/* An event's conditions: one column, one predicate per line.
+ *
+ * Each line is its mark and its text. The text is the condition's expression — the line's primary
+ * text, dark and medium — followed by the operands the decision compared, smaller and in the muted
+ * ink, so the eye reads the rule first and the numbers second. The operands follow the expression
+ * on its line where they fit and move under it where they do not; they never wrap internally and
+ * never clip. There is no connector between the lines of one signal: they are all required. */
+
+.conditions {
+  min-width: 0;
+}
+
+.lines {
+  display: grid;
+  row-gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 0.875rem minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/* Alternatives: each Exit Rule's lines sit indented under its label, the labels joined by `or`. */
+.lines[data-structure="any-of-rules"] .line {
+  padding-left: 12px;
+}
+
+.ruleLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ruleLine + .ruleLine,
+.line + .ruleLine {
+  margin-top: 4px;
+}
+
+/* `or` between Exit Rules: the one connector the feed shows, because it changes the logic. */
+.connector {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+.ruleLabel {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+}
+
+/* ✓ held, ✕ did not hold, – could not be decided: subtle marks in the financial inks. */
+.mark {
+  text-align: center;
+}
+
+.line[data-result="TRUE"] .mark {
+  color: var(--color-positive-ink);
+}
+
+.line[data-result="FALSE"] .mark {
+  color: var(--color-negative-ink);
+}
+
+/* Could not be decided: its own mark and ink, never the failure's. */
+.line[data-result="NOT_EVALUABLE"] .mark {
+  color: var(--color-warning-ink);
+}
+
+.content {
+  min-width: 0;
+}
+
+/* The condition itself: what the line says, read first. */
+.expression {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* `TRIGGER`, where the line is the Trigger rather than a Condition: a small quiet tag that says
+   which, never louder than the condition it qualifies. */
+.role {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: 500;
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+/* `143.63 → 148.30 > 145.31`: the evaluation, readable but subdued — smaller, normal weight, muted,
+   with every operand, comparison and crossover arrow kept. Kept whole: it moves under the
+   expression as one piece rather than breaking across lines. */
+.values {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.note,
+.unavailable {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.unavailable {
+  margin: 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

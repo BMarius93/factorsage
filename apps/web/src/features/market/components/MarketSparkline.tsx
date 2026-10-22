@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import styles from "./MarketSparkline.module.css";
 
 const VIEWBOX_WIDTH = 120;
@@ -31,7 +31,7 @@ type MarketSparklineProps = {
  * glance whether the period ended above or below where it began, which is what the line's colour
  * also says, from the same period's return.
  *
- * The geometry is a pure function of the values, memoised on them, so the same series always draws
+ * The geometry is a pure function of the values, cached per series, so the same series always draws
  * the same path — which is what makes a seeded screenshot comparable across runs. Its size comes
  * from its container: the SVG stretches to the box its parent gives it. Points are spaced by
  * session, as a market chart is: a weekend is not a gap.
@@ -42,7 +42,7 @@ export const MarketSparkline = memo(function MarketSparkline({
   idPrefix,
   label,
 }: MarketSparklineProps) {
-  const geometry = useMemo(() => sparklineGeometry(values), [values]);
+  const geometry = cachedGeometry(values);
   if (!geometry) {
     return null;
   }
@@ -84,10 +84,28 @@ export const MarketSparkline = memo(function MarketSparkline({
   );
 });
 
+type SparklineGeometry = { coordinates: string; baseline: number };
+
+/**
+ * Each series' geometry, computed once per series and kept for as long as the series itself.
+ *
+ * A Market watch row draws six series in turn as the period rotates, all from one response; keyed
+ * by the series array, a period that comes round again is a lookup rather than a recomputation,
+ * and a new response — new arrays — simply misses and lets the old entries be collected.
+ */
+const GEOMETRY = new WeakMap<readonly number[], SparklineGeometry | null>();
+
+function cachedGeometry(values: readonly number[]): SparklineGeometry | null {
+  if (!GEOMETRY.has(values)) {
+    GEOMETRY.set(values, sparklineGeometry(values));
+  }
+  return GEOMETRY.get(values) ?? null;
+}
+
 /** The line's points and its baseline in viewBox units, or null for fewer than two values. */
 function sparklineGeometry(
   values: readonly number[],
-): { coordinates: string; baseline: number } | null {
+): SparklineGeometry | null {
   if (values.length < 2) {
     return null;
   }

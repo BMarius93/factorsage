@@ -1,6 +1,9 @@
 "use client";
 
-import type { DashboardActivityEventResponse } from "@intrinsic/contracts";
+import type {
+  DashboardActivityEventResponse,
+  MonitorActivityKind,
+} from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchMonitorActivity } from "../api/dashboard-api";
 
@@ -41,7 +44,12 @@ export type MonitorActivityState = {
  * The Dashboard's Monitor Activity feed (`docs/decisions/monitor-eod-v2.md` §6), one page at a time.
  *
  * `reload` re-reads the first page — the newest sessions — and keeps what is on screen until it
- * answers; `loadMore` appends the next older page. Choosing another Monitor starts over.
+ * answers; `loadMore` appends the next older page. Choosing another Monitor or another kind of event
+ * starts over.
+ *
+ * Both filters travel to the API on every read — the first page, every older page and the paused
+ * check for new events — so the server filters the whole history and every page, cursor and count
+ * is of the filtered feed. Nothing is filtered in the browser, where only the loaded pages are.
  *
  * Reading older activity **pauses** the automatic refresh (DB-2). Replacing the list with its
  * newest page every minute used to throw away every older page the reader had opened, mid-read.
@@ -51,6 +59,7 @@ export type MonitorActivityState = {
  */
 export function useMonitorActivity(
   monitorId: string | null,
+  kind: MonitorActivityKind | null = null,
 ): MonitorActivityState {
   const [status, setStatus] = useState<ActivityStatus>("loading");
   const [events, setEvents] = useState<DashboardActivityEventResponse[]>([]);
@@ -74,7 +83,7 @@ export function useMonitorActivity(
 
   useEffect(() => {
     hasContent.current = false;
-  }, [monitorId]);
+  }, [monitorId, kind]);
 
   useEffect(() => {
     const request = ++latest.current;
@@ -85,6 +94,7 @@ export function useMonitorActivity(
     fetchMonitorActivity(
       {
         ...(monitorId ? { monitorId } : {}),
+        ...(kind ? { kind } : {}),
         limit: ACTIVITY_PAGE_SIZE,
       },
       { signal: controller.signal },
@@ -105,16 +115,17 @@ export function useMonitorActivity(
         if (!hasContent.current) setStatus("error");
       });
     return () => controller.abort();
-  }, [monitorId, attempt]);
+  }, [monitorId, kind, attempt]);
 
   const checkForNewActivity = useCallback(() => {
     const request = latest.current;
     fetchMonitorActivity({
       ...(monitorId ? { monitorId } : {}),
+      ...(kind ? { kind } : {}),
       limit: ACTIVITY_PAGE_SIZE,
     })
       .then((page) => {
-        // A reload or a different Monitor since the check started makes its answer stale.
+        // A reload or a different filter since the check started makes its answer stale.
         if (request !== latest.current || !pausedRef.current) return;
         const newest = newestShownRef.current;
         const position =
@@ -129,7 +140,7 @@ export function useMonitorActivity(
       })
       // A failed look changes nothing: the list on screen is still true.
       .catch(() => undefined);
-  }, [monitorId]);
+  }, [monitorId, kind]);
 
   const refresh = useCallback(() => {
     if (pausedRef.current) {
@@ -148,6 +159,7 @@ export function useMonitorActivity(
     setPaused(true);
     fetchMonitorActivity({
       ...(monitorId ? { monitorId } : {}),
+      ...(kind ? { kind } : {}),
       limit: ACTIVITY_PAGE_SIZE,
       cursor,
     })
@@ -158,7 +170,7 @@ export function useMonitorActivity(
       })
       .catch(() => undefined)
       .finally(() => setLoadingMore(false));
-  }, [cursor, loadingMore, monitorId]);
+  }, [cursor, loadingMore, monitorId, kind]);
 
   return {
     status,

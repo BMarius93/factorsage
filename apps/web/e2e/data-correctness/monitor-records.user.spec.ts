@@ -24,6 +24,8 @@ import { apiBaseUrl } from "../utils/entitlements";
  *
  * - every stored Signal is shown exactly once, active ones first, dated by its own finalized
  *   session, with its activation price and the Why that decided it;
+ * - every feed event is shown under the heading of its own finalized session, with the values its
+ *   Why compared — and, since Dashboard V2, without a standalone price of its own;
  * - only **observed** changes are activity: a change history established, or one an administrative
  *   event made, is a Signal-table record and never a feed event;
  * - every feed event is a Signal-table record with the same stock, level, session and price;
@@ -55,9 +57,10 @@ const evidenceValue = (value: number): string =>
     maximumFractionDigits: 2,
   }).format(value);
 
-const sessionLabel = (date: string): string =>
+/** A session as the feed's session heading writes it: `September 11, 2026`. */
+const sessionHeading = (date: string): string =>
   new Intl.DateTimeFormat("en-US", {
-    month: "short",
+    month: "long",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",
@@ -294,12 +297,17 @@ test.describe("Monitor records, reconciled", () => {
       const shown = feedRows.nth(index);
       await expect(shown).toContainText(event.security.symbol);
       await expect(shown).toContainText(event.monitor.name);
-      await expect(shown.getByTestId("dashboard-session")).toHaveText(
-        sessionLabel(event.sessionDate),
-      );
-      if (event.kind === "ACTIVATED" && event.price !== undefined) {
-        await expect(shown).toContainText(money(event.price));
-      }
+      // Dated by the heading of the session group it sits in, written once for all its events.
+      await expect(
+        shown
+          .locator(
+            "xpath=ancestor::*[@data-testid='dashboard-session-group'][1]",
+          )
+          .getByTestId("dashboard-session"),
+      ).toHaveText(sessionHeading(event.sessionDate));
+      // The activation price is the Signal table's to show; the feed shows prices only where a
+      // condition compared them.
+      await expect(shown).not.toContainText("$");
       await expectWhyShown(shown, event.why);
     }
   });

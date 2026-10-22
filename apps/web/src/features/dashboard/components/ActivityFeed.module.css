@@ -1,0 +1,240 @@
+/* Monitor activity's feed: a table of events, inside the Monitor activity card, under one heading
+ * per market session.
+ *
+ * Laid out as a grid rather than with table layout, keeping the table's roles (written out in the
+ * markup): every row shares one column template, so the four columns align down the page as a
+ * table's would, while each session's group is a block of its own — which is what lets a session's
+ * sticky heading leave with its last event instead of piling up under the next one.
+ *
+ * It sits edge to edge in the Monitor activity card. The card publishes two insets
+ * (`--feed-inset-start`, `--feed-inset-end`) so the first and last cells line up with the card's
+ * heading while a row's hover tint still runs the card's full width. Rows grow with their
+ * conditions; nothing here caps a row's height. */
+
+.feed {
+  /* Stock fits a seven-character ticker beside its mark and keeps more of a company's name as the
+     feed widens; Signal fits `Final exit ● Activated`; Monitor fits a short name on one line and
+     wraps a long one; Conditions takes the rest. */
+  --feed-columns: clamp(11rem, 17%, 18rem) clamp(9.5rem, 11%, 12rem)
+    minmax(0, 1fr) clamp(8.5rem, 14%, 13rem);
+
+  display: block;
+  width: 100%;
+}
+
+.head,
+.session {
+  display: block;
+}
+
+.headRow,
+.row {
+  display: grid;
+  grid-template-columns: var(--feed-columns);
+  padding: 0 var(--feed-inset-end, 12px) 0 var(--feed-inset-start, 12px);
+}
+
+/* ── Column headings ─────────────────────────────────────────────────── */
+.headRow {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.th {
+  display: block;
+  padding: 8px 12px 6px 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  line-height: var(--line-height-tight);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+/* ── Market session ──────────────────────────────────────────────────── */
+/* `October 20, 2026`, held under the card's heading while that session's events scroll past, and
+   carried away by the session's last event. */
+.sessionRow {
+  position: sticky;
+  top: var(--feed-sticky-top, 0);
+  z-index: 1;
+  display: block;
+}
+
+.sessionHeader {
+  display: block;
+  padding: 6px var(--feed-inset-end, 12px) 6px var(--feed-inset-start, 12px);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-tight);
+  text-align: left;
+}
+
+/* ── An event ─────────────────────────────────────────────────────────── */
+.row {
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-row-hover);
+}
+
+.row > td {
+  display: block;
+  min-width: 0;
+  padding: 10px 12px 10px 0;
+}
+
+.row > td:last-child {
+  padding-right: 0;
+}
+
+/* `Buy ● Activated`: the level in its tone's ink, then the event's state. The state's dot is its
+   shape as well as its colour — filled when a match began, an empty ring when one ended — and the
+   word beside it is what carries the meaning. */
+.signalLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.state[data-kind="RESOLVED"] {
+  color: var(--color-text-secondary);
+}
+
+.stateDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+}
+
+.state[data-kind="RESOLVED"] .stateDot {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--color-text-muted);
+}
+
+/* The Monitor that observed it: a quiet link in its own column, in the secondary ink until it is
+   pointed at. A long name wraps inside the column rather than widening the row. */
+.monitor {
+  display: block;
+  min-width: 0;
+  font-size: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* The column heading names the cell in the table; only a stacked event shows its own label. */
+.monitorLabel {
+  display: none;
+}
+
+.monitorLink {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.monitorLink:hover {
+  color: var(--color-primary-ink);
+  text-decoration: underline;
+}
+
+.monitorLink:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--focus-ring);
+}
+
+.basis {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+}
+
+/* ── A narrow column: one stacked block per event ────────────────────── */
+/* Below 40rem of its own column (a phone, a narrow tablet) the four cells cannot stand side by
+   side. The stock and the signal share the first line, the conditions take the full width under
+   them — every one still shown, the values moving under their expressions where they must — and
+   the Monitor closes the event under its own small label. The column headings stay in the
+   accessibility tree, visually hidden. */
+@container dashboard-feed (max-width: 39.99rem) {
+  .head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* The stock keeps at least half the line, so the signal beside it never pushes the ticker
+     out. */
+  .row {
+    grid-template-columns: minmax(50%, 1fr) minmax(0, auto);
+    column-gap: 12px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .row > td {
+    padding: 0;
+  }
+
+  .row:hover {
+    background: none;
+  }
+
+  .signal {
+    text-align: right;
+  }
+
+  .signalLine {
+    justify-content: flex-end;
+  }
+
+  .conditionsCell {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+  }
+
+  .monitorCell {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+  }
+
+  .monitor {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .monitorLabel {
+    display: inline;
+    flex: none;
+    color: var(--color-text-muted);
+    font-size: var(--text-label-size);
+    font-weight: var(--weight-emphasis);
+    letter-spacing: var(--text-label-tracking);
+    text-transform: uppercase;
+  }
+}

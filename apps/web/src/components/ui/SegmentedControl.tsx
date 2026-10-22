@@ -27,6 +27,12 @@ type SegmentedControlProps<TValue extends string> = {
    * is below a comfortable touch target.
    */
   readonly compact?: boolean;
+  /**
+   * An option that has just become selected without the reader's hand — Market watch's rotation.
+   * It carries `data-highlight="true"` for the consumer to draw its own brief acknowledgement;
+   * this component draws nothing for it.
+   */
+  readonly highlight?: TValue | null;
 };
 
 /**
@@ -45,6 +51,7 @@ export function SegmentedControl<TValue extends string>({
   testId,
   fill,
   compact,
+  highlight,
 }: SegmentedControlProps<TValue>) {
   return (
     <div
@@ -63,6 +70,7 @@ export function SegmentedControl<TValue extends string>({
           data-active={value === option.value ? "true" : undefined}
           aria-pressed={value === option.value}
           data-value={option.value}
+          data-highlight={highlight === option.value ? "true" : undefined}
           onClick={() => onChange(option.value)}
         >
           {option.label}

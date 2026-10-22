@@ -585,6 +585,57 @@ describe("Monitor history read models", () => {
       await owner.get("/dashboard/activity?since=2026-01-01").expect(400);
     });
 
+    it("narrows to one kind of event in the query, so pages, cursors and the Monitor filter stay exact", async () => {
+      const activated = (
+        await owner.get("/dashboard/activity?kind=ACTIVATED").expect(200)
+      ).body as DashboardActivityResponse;
+      expect(
+        ours(activated).map((event) => [
+          event.monitor.id,
+          event.sessionDate,
+          event.kind,
+        ]),
+      ).toEqual([
+        [ids.own, "2026-10-14", "ACTIVATED"],
+        [ids.builtIn, "2026-10-14", "ACTIVATED"],
+        [ids.builtIn, "2026-10-09", "ACTIVATED"],
+      ]);
+      const resolved = (
+        await owner.get("/dashboard/activity?kind=RESOLVED").expect(200)
+      ).body as DashboardActivityResponse;
+      expect(
+        ours(resolved).map((event) => [event.sessionDate, event.kind]),
+      ).toEqual([["2026-10-13", "RESOLVED"]]);
+
+      // Both filters at once, one event per page: the cursor continues within the filter and
+      // never surfaces the other kind or the other Monitor.
+      const first = (
+        await owner
+          .get(
+            `/dashboard/activity?monitorId=${ids.builtIn}&kind=ACTIVATED&limit=1`,
+          )
+          .expect(200)
+      ).body as DashboardActivityResponse;
+      expect(first.events.map((event) => event.sessionDate)).toEqual([
+        "2026-10-14",
+      ]);
+      expect(first.nextCursor).toBeDefined();
+      const second = (
+        await owner
+          .get(
+            `/dashboard/activity?monitorId=${ids.builtIn}&kind=ACTIVATED&limit=1&cursor=${first.nextCursor}`,
+          )
+          .expect(200)
+      ).body as DashboardActivityResponse;
+      expect(
+        second.events.map((event) => [event.sessionDate, event.kind]),
+      ).toEqual([["2026-10-09", "ACTIVATED"]]);
+      expect(second.nextCursor).toBeUndefined();
+
+      await owner.get("/dashboard/activity?kind=ENDED").expect(400);
+      await owner.get("/dashboard/activity?kind=").expect(400);
+    });
+
     it("leaves out a built-in the viewer hid", async () => {
       await owner
         .put(`/dashboard/monitors/${ids.builtIn}/visibility`)

@@ -1,4 +1,8 @@
-import type { UpdateBuiltInMonitorVisibilityRequest } from "@intrinsic/contracts";
+import {
+  MONITOR_ACTIVITY_KINDS,
+  type MonitorActivityKind,
+  type UpdateBuiltInMonitorVisibilityRequest,
+} from "@intrinsic/contracts";
 import { BadRequestException } from "@nestjs/common";
 
 /** `{ "visible": boolean }` and nothing else. */
@@ -30,18 +34,20 @@ export const ACTIVITY_MAX_LIMIT = 50;
 
 export type ActivityQuery = {
   monitorId?: string;
+  /** Narrows the feed to one kind of event; absent for both. */
+  kind?: MonitorActivityKind;
   limit: number;
   cursor?: string;
 };
 
-/** `?monitorId=&limit=&cursor=` and nothing else. */
+/** `?monitorId=&kind=&limit=&cursor=` and nothing else. */
 export function parseActivityQuery(query: unknown): ActivityQuery {
   const record =
     typeof query === "object" && query !== null
       ? (query as Record<string, unknown>)
       : {};
   for (const key of Object.keys(record)) {
-    if (!["monitorId", "limit", "cursor"].includes(key)) {
+    if (!["monitorId", "kind", "limit", "cursor"].includes(key)) {
       throw new BadRequestException(
         `Invalid request: \`${key}\` is not accepted`,
       );
@@ -68,10 +74,21 @@ export function parseActivityQuery(query: unknown): ActivityQuery {
     );
   }
   const monitorId = text("monitorId");
+  const kindText = text("kind");
+  if (
+    kindText !== undefined &&
+    !(MONITOR_ACTIVITY_KINDS as readonly string[]).includes(kindText)
+  ) {
+    throw new BadRequestException(
+      `Invalid request: kind must be one of ${MONITOR_ACTIVITY_KINDS.join(", ")}`,
+    );
+  }
+  const kind = kindText as MonitorActivityKind | undefined;
   const cursor = text("cursor");
   return {
     limit,
     ...(monitorId ? { monitorId } : {}),
+    ...(kind ? { kind } : {}),
     ...(cursor ? { cursor } : {}),
   };
 }

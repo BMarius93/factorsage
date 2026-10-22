@@ -18,7 +18,11 @@ import {
   unavailableMarketOverview,
 } from "../__testing__/market-overview";
 import { fetchMarketOverview } from "../api/market-api";
-import { MARKET_WATCH_ROTATION_MS } from "../hooks/use-period-rotation";
+import {
+  MARKET_WATCH_FADE_IN_MS,
+  MARKET_WATCH_FADE_OUT_MS,
+  MARKET_WATCH_ROTATION_MS,
+} from "../hooks/use-period-rotation";
 import { describeSparkline } from "../utils/format";
 import {
   MARKET_WATCH_SKELETON_ROWS,
@@ -141,9 +145,13 @@ describe("MarketWatch", () => {
     for (const period of MARKET_OVERVIEW_PERIODS.slice(1)) {
       expect(periodButton(period).getAttribute("aria-pressed")).toBe("false");
     }
-    expect(screen.getByTestId("market-watch-caption").textContent).toBe(
-      "1-week return · At close · Oct 9, 2026",
+    // The close every number is measured to, once, beside the title.
+    expect(screen.getByTestId("market-watch-as-of").textContent).toBe(
+      "Close · Oct 9, 2026",
     );
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Market watch" }),
+    ).toBeTruthy();
   });
 
   it("switches every row's return and line together for each of the six periods", async () => {
@@ -203,7 +211,7 @@ describe("MarketWatch", () => {
     }
   });
 
-  it("rotates every ten seconds in order with one timer, and asks for nothing more", async () => {
+  it("rotates every eight seconds in order, and asks for nothing more", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
     fetchMock.mockResolvedValue(marketOverviewFixture());
     render(<MarketWatch />);
@@ -214,9 +222,6 @@ describe("MarketWatch", () => {
     expect(screen.getByTestId("market-watch").getAttribute("data-auto")).toBe(
       "on",
     );
-    expect(
-      screen.getByTestId("market-watch-auto").getAttribute("aria-pressed"),
-    ).toBe("true");
 
     const seen = [selectedPeriod()];
     for (let step = 0; step < 6; step += 1) {
@@ -230,7 +235,56 @@ describe("MarketWatch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("pauses on a manual choice, says so, and resumes from the Auto control", async () => {
+  it("dims only the returns and lines, swaps while they are dim, and marks the new period once", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const response = marketOverviewFixture();
+    fetchMock.mockResolvedValue(response);
+    render(<MarketWatch />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const watch = screen.getByTestId("market-watch");
+    const spy = response.groups[0]!.instruments[0]!;
+    const value = () =>
+      screen.getByTestId("market-watch-return-SPY").textContent;
+    const firstLine = screen.getByTestId("market-watch-SPY-sparkline");
+    const rowNode = screen.getByTestId("market-watch-row-SPY");
+    expect(watch.getAttribute("data-phase")).toBe("idle");
+
+    act(() => {
+      vi.advanceTimersByTime(
+        MARKET_WATCH_ROTATION_MS - MARKET_WATCH_FADE_OUT_MS,
+      );
+    });
+    // Dimming: the old period's numbers and line are still the ones on screen, the same nodes.
+    expect(watch.getAttribute("data-phase")).toBe("out");
+    expect(selectedPeriod()).toBe("1W");
+    expect(screen.getByTestId("market-watch-SPY-sparkline")).toBe(firstLine);
+    expect(screen.getByTestId("market-watch-row-SPY")).toBe(rowNode);
+    expect(periodButton("1W").getAttribute("aria-pressed")).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_FADE_OUT_MS);
+    });
+    // Swapped while dim: every row on the new period, and the new period acknowledged once.
+    expect(watch.getAttribute("data-phase")).toBe("in");
+    expect(selectedPeriod()).toBe("1M");
+    expect(value()).toBe(
+      `+${(Math.round((spy.returns["1M"] as number) * 10) / 10).toFixed(1)}%`,
+    );
+    expect(periodButton("1M").getAttribute("aria-pressed")).toBe("true");
+    expect(periodButton("1M").getAttribute("data-highlight")).toBe("true");
+    expect(periodButton("1W").getAttribute("data-highlight")).toBeNull();
+    // Rows keep their place; only their numbers and lines changed.
+    expect(screen.getByTestId("market-watch-row-SPY")).toBe(rowNode);
+
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_FADE_IN_MS);
+    });
+    expect(watch.getAttribute("data-phase")).toBe("idle");
+  });
+
+  it("stops for good on any period the reader picks — the one on screen included — with no control to restart it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
     fetchMock.mockResolvedValue(marketOverviewFixture());
     render(<MarketWatch />);
@@ -238,34 +292,52 @@ describe("MarketWatch", () => {
       await Promise.resolve();
     });
 
-    fireEvent.pointerDown(periodButton("3M"));
+    fireEvent.click(periodButton("1W"));
+    expect(selectedPeriod()).toBe("1W");
+    expect(screen.getByTestId("market-watch").getAttribute("data-auto")).toBe(
+      "off",
+    );
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS * 5);
+    });
+    expect(selectedPeriod()).toBe("1W");
+
     fireEvent.click(periodButton("3M"));
     expect(selectedPeriod()).toBe("3M");
-    expect(screen.getByTestId("market-watch").getAttribute("data-auto")).toBe(
-      "paused",
-    );
-    expect(
-      screen.getByTestId("market-watch-auto").getAttribute("aria-pressed"),
-    ).toBe("false");
-    expect(screen.getByTestId("market-watch-paused").textContent).toBe(
-      "Paused",
-    );
-
+    expect(periodButton("3M").getAttribute("data-highlight")).toBeNull();
     act(() => {
       vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS * 5);
     });
     expect(selectedPeriod()).toBe("3M");
+    expect(screen.queryByTestId("market-watch-auto")).toBeNull();
+    expect(screen.queryByRole("button", { name: /auto/i })).toBeNull();
+    expect(screen.queryByText(/paused/i)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 
-    fireEvent.click(screen.getByTestId("market-watch-auto"));
-    expect(
-      screen.getByTestId("market-watch-auto").getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(screen.queryByTestId("market-watch-paused")).toBeNull();
+  it("waits while the pointer is over the sidebar, and carries on when it leaves", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    fetchMock.mockResolvedValue(marketOverviewFixture());
+    render(<MarketWatch />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const watch = screen.getByTestId("market-watch");
+
+    fireEvent.pointerEnter(watch);
+    expect(watch.getAttribute("data-rotating")).toBeNull();
+    expect(watch.getAttribute("data-auto")).toBe("on");
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS * 4);
+    });
+    expect(selectedPeriod()).toBe("1W");
+
+    fireEvent.pointerLeave(watch);
+    expect(watch.getAttribute("data-rotating")).toBe("true");
     act(() => {
       vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS);
     });
-    expect(selectedPeriod()).toBe("6M");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(selectedPeriod()).toBe("1M");
   });
 
   it("holds the rotation while keyboard focus is inside, and selects with the keyboard", async () => {
@@ -273,20 +345,16 @@ describe("MarketWatch", () => {
     const user = userEvent.setup();
 
     await user.tab();
-    expect(document.activeElement).toBe(
-      screen.getByTestId("market-watch-auto"),
-    );
+    expect(document.activeElement).toBe(periodButton("1W"));
     expect(
       screen.getByTestId("market-watch").getAttribute("data-rotating"),
     ).toBeNull();
 
     await user.tab();
-    expect(document.activeElement).toBe(periodButton("1W"));
-    await user.tab();
     await user.keyboard("{Enter}");
     expect(selectedPeriod()).toBe("1M");
     expect(screen.getByTestId("market-watch").getAttribute("data-auto")).toBe(
-      "paused",
+      "off",
     );
 
     // The list is its own scroll region with a tab stop, so a keyboard can scroll it.
@@ -294,17 +362,21 @@ describe("MarketWatch", () => {
     expect(region.getAttribute("tabindex")).toBe("0");
   });
 
-  it("releases a keyboard hold when the pointer takes focus inside", async () => {
+  it("does not mistake the focus a click leaves behind for a keyboard hold", async () => {
     await renderReady();
     const user = userEvent.setup();
+    const watch = screen.getByTestId("market-watch");
 
     await user.tab();
-    expect(screen.getByTestId("market-watch").getAttribute("data-rotating")).toBeNull();
+    expect(watch.getAttribute("data-rotating")).toBeNull();
 
-    // A click on the list (focusable for scrolling) is not keyboard focus: Auto runs again.
+    // A click on the list (focusable for scrolling) is pointer focus: once the pointer leaves, the
+    // rotation runs again even though focus is still inside.
     await user.click(screen.getByRole("region", { name: "Market watch ETFs" }));
-    expect(screen.getByTestId("market-watch").getAttribute("data-auto")).toBe("on");
-    expect(screen.getByTestId("market-watch").getAttribute("data-rotating")).toBe("true");
+    expect(watch.getAttribute("data-rotating")).toBeNull();
+    fireEvent.pointerLeave(watch);
+    expect(watch.getAttribute("data-auto")).toBe("on");
+    expect(watch.getAttribute("data-rotating")).toBe("true");
   });
 
   it("does not rotate behind an error panel", async () => {
@@ -315,16 +387,65 @@ describe("MarketWatch", () => {
       await Promise.resolve();
     });
     expect(screen.getByTestId("market-watch-error")).toBeTruthy();
-    expect(screen.getByTestId("market-watch").getAttribute("data-rotating")).toBeNull();
+    expect(
+      screen.getByTestId("market-watch").getAttribute("data-rotating"),
+    ).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("names the Auto control for what it does", async () => {
+  it("offers the six periods as the only control: no Auto button, toggle or badge", async () => {
     await renderReady();
+    const group = screen.getByRole("group", { name: "Return period" });
     expect(
-      screen.getByRole("button", { name: "Auto rotate periods" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Return period" })).toBeTruthy();
+      within(group)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["1W", "1M", "3M", "6M", "YTD", "1Y"]);
+    expect(
+      within(screen.getByTestId("market-watch")).getAllByRole("button"),
+    ).toHaveLength(6);
+    expect(screen.queryByText(/^auto$/i)).toBeNull();
+  });
+
+  it("starts still for a reader who prefers reduced motion, with every period a click away", async () => {
+    viewport.setReducedMotion(true);
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    fetchMock.mockResolvedValue(marketOverviewFixture());
+    render(<MarketWatch />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const watch = screen.getByTestId("market-watch");
+    expect(watch.getAttribute("data-auto")).toBe("off");
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS * 3);
+    });
+    expect(selectedPeriod()).toBe("1W");
+    expect(watch.getAttribute("data-phase")).toBe("idle");
+    fireEvent.click(periodButton("6M"));
+    expect(selectedPeriod()).toBe("6M");
+  });
+
+  it("pauses while the tab is hidden", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    fetchMock.mockResolvedValue(marketOverviewFixture());
+    render(<MarketWatch />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    viewport.setHidden(true);
+    expect(
+      screen.getByTestId("market-watch").getAttribute("data-rotating"),
+    ).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS * 3);
+    });
+    expect(selectedPeriod()).toBe("1W");
+    viewport.setHidden(false);
+    act(() => {
+      vi.advanceTimersByTime(MARKET_WATCH_ROTATION_MS);
+    });
+    expect(selectedPeriod()).toBe("1M");
   });
 
   it("announces nothing as it rotates: no live region anywhere in it", async () => {
@@ -446,7 +567,6 @@ describe("MarketWatch", () => {
 
     expect(await screen.findByTestId("market-watch-unavailable")).toBeTruthy();
     expect(screen.queryByTestId("market-watch-period")).toBeNull();
-    expect(screen.queryByTestId("market-watch-auto")).toBeNull();
     expect(screen.queryAllByTestId(/^market-watch-row-/)).toHaveLength(0);
   });
 
