@@ -163,6 +163,7 @@ number; changing a limit is one edit there.
 | `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                                              |
 | `stock-read`         | 180 / min  | —                    | user→IP | allow            | the eight `/stocks/{symbol}*` reads                                                                       |
 | `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health`, `GET /market-overview`, `GET /dashboard/activity`, `GET /monitors/:monitorId/signals` |
+| `public-share-read`  | 600 / min  | —                    | IP      | allow            | `GET /shared-backtests/{token}`, `GET /shared-backtests/{token}/preview` — mostly the web tier's own address (below) |
 | `data-export`        | 20 / 5 min | —                    | user→IP | allow            | `GET /backtests/{runId}/trades/export`                                                                    |
 | `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                                         |
 | `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                                            |
@@ -191,6 +192,15 @@ reaches one:
   reader comparing stocks or actions downloads a handful of filtered files in a sitting; the
   allowance is several times that, sustained, and bounds how much of the database one caller can
   read through the endpoint. A capacity policy, so it fails open.
+- **`public-share-read`** — the public half of backtest sharing
+  (`docs/decisions/backtest-sharing-v1.md`). No session is read, so it is IP-keyed. The web server
+  renders the shared page and its link-preview image itself, so most of these requests come from
+  **the web tier's own address**: the one bucket bounds the whole tier's public report reads rather
+  than one visitor's. Ten a second sustained is far above what a shared link draws. The token is
+  256 random bits, so this allowance is not what stops guessing; it bounds a script hammering one
+  valid link. A known V1 consequence: such a script, sent through the web page, spends the tier's
+  allowance for every shared link until the window resets — a capacity failure confined to shared
+  pages, never a data exposure. A capacity policy, so it fails open.
 - **`progress-poll`** — `BACKTEST_RUNNING_POLL_INTERVAL_MS` is one second per open run. Five per
   second leaves room for several concurrent runs plus a reload. This is the one allowance set by a
   machine rather than by a person.

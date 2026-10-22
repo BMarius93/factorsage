@@ -105,6 +105,12 @@ info:
       points: 240
       durationSeconds: 60
       onRedisFailure: allow
+    public-share-read:
+      description: Unauthenticated reads of a shared backtest report.
+      actor: ip
+      points: 600
+      durationSeconds: 60
+      onRedisFailure: allow
     data-export:
       description: Downloads of a complete result set of the caller's own rows.
       actor: user
@@ -225,6 +231,12 @@ tags:
     description: |
       Asynchronous historical execution. Submission answers `202` with a queued run; a worker
       process executes it and the client polls `/backtests/{runId}/progress`.
+  - name: Shared backtests
+    description: |
+      The public, read-only report of a backtest its owner chose to share. No session is read and
+      no plan applies: the unguessable token in the link is the whole authorization, and a revoked
+      link stops answering immediately. Only an allowlisted projection crosses these routes — never
+      the strategy, the stock list, its securities, the trades or the owner.
   - name: Monitors
     description: |
       Live evaluation of a strategy against a stock list. Cadence is an application decision and is
@@ -1824,6 +1836,122 @@ paths:
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  /backtests/{runId}/share:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    get:
+      tags: [Backtests]
+      operationId: getBacktestShare
+      summary: Whether the caller's run is shared, and its public link.
+      description: |
+        Owner only. Another user's run answers exactly like one that does not exist.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The run's sharing state.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestShare" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    put:
+      tags: [Backtests]
+      operationId: enableBacktestShare
+      summary: Share a completed run publicly, or return the link it already has.
+      description: |
+        Idempotent. A run holds at most one active link: asking again returns the same URL. The
+        token is 256 random bits and never contains a database identifier. Only a `COMPLETED` run
+        with a stored result can be shared; any other state answers `409`. No entitlement applies.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "200":
+          description: The run's active link.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestShare" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "409":
+          description: The run is not completed, so it has no result to share.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    delete:
+      tags: [Backtests]
+      operationId: revokeBacktestShare
+      summary: Stop sharing the run.
+      description: |
+        The link stops working on the next request — the report, its preview data and the preview
+        image alike — and can never be revived: sharing again creates a new link. Idempotent.
+        Third-party services that already fetched a link preview may keep showing their own copy.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: The run is not shared.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Shared backtests
+  # ---------------------------------------------------------------------------------------------
+  /shared-backtests/{token}:
+    parameters:
+      - { $ref: "#/components/parameters/Token" }
+    get:
+      tags: [Shared backtests]
+      operationId: getSharedBacktestReport
+      summary: The public report of a shared backtest.
+      description: |
+        Readable by anyone holding the link, signed in or not, on any plan; nothing about the caller
+        changes the answer. Every figure is the owner's own stored result, projected by the same
+        code as the owner's page. A malformed, unknown or revoked token, and a run without a result,
+        all answer the same `404`. `Cache-Control: no-store`, so no shared cache outlives a
+        revocation.
+      x-rate-limit: { policy: public-share-read }
+      responses:
+        "200":
+          description: The allowlisted report.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharedBacktestReport" }
+        "404": { $ref: "#/components/responses/SharedBacktestNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /shared-backtests/{token}/preview:
+    parameters:
+      - { $ref: "#/components/parameters/Token" }
+    get:
+      tags: [Shared backtests]
+      operationId: getSharedBacktestPreview
+      summary: What a shared backtest's link-preview image is drawn from.
+      description: |
+        The headline figures of the stored result and the two absolute scenario lines — Strategy
+        and benchmark — thinned to at most 600 points for drawing, with every bucket's highest and
+        lowest value of each line kept so a drawdown is not smoothed away. No figure is computed
+        from the thinned series.
+      x-rate-limit: { policy: public-share-read }
+      responses:
+        "200":
+          description: The preview card's data.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharedBacktestPreview" }
+        "404": { $ref: "#/components/responses/SharedBacktestNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   # ---------------------------------------------------------------------------------------------
   # Benchmarks
   # ---------------------------------------------------------------------------------------------
@@ -3259,6 +3387,12 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    Token:
+      name: token
+      in: path
+      required: true
+      description: A shared backtest's link token — 32 random bytes in unpadded base64url.
+      schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
     TradeLogSymbol:
       name: symbol
       in: query
@@ -3370,6 +3504,13 @@ components:
         No such resource for this caller. A resource that exists but belongs to somebody else
         answers exactly like one that does not exist, so this response reveals nothing about another
         user's data.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SharedBacktestNotFound:
+      description: |
+        No shared report behind this token. A malformed, unknown or revoked token, and a run
+        without a result, are indistinguishable.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -3634,6 +3775,7 @@ components:
                 - stock-search
                 - stock-read
                 - standard-read
+                - public-share-read
                 - data-export
                 - progress-poll
                 - mutation
@@ -6407,6 +6549,164 @@ components:
             froze a version 1 definition, and the stored snapshot keeps it that way forever — it is
             the reproducibility authority. The response projects it to version 2, so an old run's
             FINAL EXIT is returned as exactly one exit rule carrying its original signal.
+
+    BacktestShare:
+      type: object
+      description: The owner's view of a run's public link.
+      required: [shared, url, sharedAt]
+      properties:
+        shared: { type: boolean }
+        url:
+          description: The absolute public address, on the web origin. Null while not shared.
+          oneOf: [{ type: string, format: uri }, { type: "null" }]
+        sharedAt:
+          description: When the current link was created. Null while not shared.
+          oneOf: [{ type: string, format: date-time }, { type: "null" }]
+
+    # -------------------------------------------------------------------------------------------
+    # Shared backtests
+    # -------------------------------------------------------------------------------------------
+    SharedBacktestBenchmark:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string }
+        name: { type: string }
+    SharedBacktestConfiguration:
+      type: object
+      description: |
+        The general simulation parameters the run froze. Deliberately absent: the strategy's name,
+        id, version and rules; the stock list's name, id and securities; the methodology record;
+        anything about the owner. Both counts come from the run's immutable snapshot.
+      required:
+        [
+          startDate,
+          endDate,
+          initialCapital,
+          monthlyContribution,
+          maximumPositions,
+          fullPositionPercent,
+          benchmark,
+          securityCount,
+          strategyRuleCount,
+        ]
+      properties:
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        initialCapital: { type: number }
+        monthlyContribution: { type: number }
+        maximumPositions: { type: integer, minimum: 1 }
+        fullPositionPercent: { type: number }
+        benchmark: { $ref: "#/components/schemas/SharedBacktestBenchmark" }
+        securityCount:
+          type: integer
+          minimum: 0
+          description: How many securities the run's frozen list resolved to.
+        strategyRuleCount:
+          type: integer
+          minimum: 0
+          description: |
+            Every Condition and Trigger of the frozen definition, across all BUY and SELL levels
+            and every FINAL EXIT Exit Rule.
+    SharedBacktestSummary:
+      type: object
+      description: |
+        An allowlist of the stored summary's run-level aggregates. None names a security, a trade
+        or a position.
+      required:
+        [
+          firstSimulatedDate,
+          lastSimulatedDate,
+          finalValue,
+          netProfit,
+          portfolioReturnPercent,
+          benchmarkReturnPercent,
+          alphaPercent,
+          portfolioCagrPercent,
+          benchmarkCagrPercent,
+          maxDrawdownPercent,
+          benchmarkMaxDrawdownPercent,
+          totalTrades,
+        ]
+      properties:
+        firstSimulatedDate: { type: string, format: date }
+        lastSimulatedDate: { type: string, format: date }
+        finalValue: { type: number }
+        netProfit: { type: number }
+        portfolioReturnPercent: { type: number }
+        benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+        portfolioCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+        benchmarkCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+        maxDrawdownPercent: { type: number }
+        benchmarkMaxDrawdownPercent:
+          { $ref: "#/components/schemas/NullableNumber" }
+        totalTrades: { type: integer, minimum: 0 }
+    SharedBacktestReport:
+      type: object
+      required: [runId, url, completedAt, configuration, result]
+      properties:
+        runId:
+          type: string
+          format: uuid
+          description: |
+            The run's own identifier — the "Run ID" its owner's page shows. It authorizes nothing:
+            every run route is owner-scoped, and the public link is the token, never this id.
+        url: { type: string, format: uri }
+        completedAt: { type: string, format: date-time }
+        configuration: { $ref: "#/components/schemas/SharedBacktestConfiguration" }
+        result:
+          type: object
+          required: [summary, annualReturns, curve]
+          properties:
+            summary: { $ref: "#/components/schemas/SharedBacktestSummary" }
+            annualReturns:
+              type: array
+              items: { $ref: "#/components/schemas/BacktestAnnualReturn" }
+            curve:
+              type: array
+              description: The owner's page's own chart curve, point for point.
+              items: { $ref: "#/components/schemas/BacktestCurvePoint" }
+    SharedBacktestPreviewPoint:
+      type: object
+      required: [date, strategyValue, benchmarkValue]
+      properties:
+        date: { type: string, format: date }
+        strategyValue: { type: number }
+        benchmarkValue: { $ref: "#/components/schemas/NullableNumber" }
+    SharedBacktestPreview:
+      type: object
+      required: [configuration, headline, series]
+      properties:
+        configuration:
+          type: object
+          required: [startDate, endDate, benchmark, securityCount, strategyRuleCount]
+          properties:
+            startDate: { type: string, format: date }
+            endDate: { type: string, format: date }
+            benchmark: { $ref: "#/components/schemas/SharedBacktestBenchmark" }
+            securityCount: { type: integer, minimum: 0 }
+            strategyRuleCount: { type: integer, minimum: 0 }
+        headline:
+          type: object
+          required:
+            [
+              portfolioCagrPercent,
+              benchmarkCagrPercent,
+              portfolioReturnPercent,
+              benchmarkReturnPercent,
+              maxDrawdownPercent,
+            ]
+          properties:
+            portfolioCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+            benchmarkCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+            portfolioReturnPercent: { type: number }
+            benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+            maxDrawdownPercent: { type: number }
+        series:
+          type: array
+          maxItems: 600
+          items: { $ref: "#/components/schemas/SharedBacktestPreviewPoint" }
 
     # -------------------------------------------------------------------------------------------
     # Monitors

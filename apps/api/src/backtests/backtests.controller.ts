@@ -7,11 +7,14 @@ import type {
   BacktestRunPageResponse,
   BacktestRunStrategyResponse,
   BacktestRunSummaryResponse,
+  BacktestShareResponse,
   BacktestTradePageResponse,
 } from "@intrinsic/contracts";
 import {
   Body,
+  ConflictException,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -21,6 +24,7 @@ import {
   ServiceUnavailableException,
   Param,
   Post,
+  Put,
   Query,
   StreamableFile,
   UseGuards,
@@ -35,6 +39,10 @@ import {
   parseTradeLogQuery,
   parseTradePageRequest,
 } from "./backtest-requests";
+import {
+  BacktestNotShareableError,
+  BacktestSharingService,
+} from "./backtest-sharing.service";
 import {
   BacktestConfigurationError,
   BacktestRunNotFoundError,
@@ -56,6 +64,8 @@ import {
 export class BacktestsController {
   constructor(
     @Inject(BacktestsService) private readonly backtests: BacktestsService,
+    @Inject(BacktestSharingService)
+    private readonly sharing: BacktestSharingService,
   ) {}
 
   @RateLimit("backtest-execution")
@@ -190,6 +200,47 @@ export class BacktestsController {
   }
 
   /**
+   * Whether the run is shared, and its public link when it is
+   * (`docs/decisions/backtest-sharing-v1.md`). Owner only, like every route here.
+   */
+  @RateLimit("standard-read")
+  @Get(":runId/share")
+  async getShare(
+    @CurrentUser() user: AuthUser,
+    @Param("runId") runId: string,
+  ): Promise<BacktestShareResponse> {
+    return this.execute(() => this.sharing.getShare(user.id, runId));
+  }
+
+  /**
+   * Shares a completed run: creates its public link, or returns the one it already has. `PUT`
+   * because it is idempotent — a run holds at most one active link. A run that is not completed
+   * answers `409`: its state, not the request, is what prevents it.
+   */
+  @RateLimit("mutation")
+  @Put(":runId/share")
+  async enableShare(
+    @CurrentUser() user: AuthUser,
+    @Param("runId") runId: string,
+  ): Promise<BacktestShareResponse> {
+    return this.execute(() => this.sharing.enableShare(user.id, runId));
+  }
+
+  /**
+   * Stops sharing. The link stops working at once and is never revived; sharing again creates a
+   * new one. Idempotent.
+   */
+  @RateLimit("mutation")
+  @Delete(":runId/share")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeShare(
+    @CurrentUser() user: AuthUser,
+    @Param("runId") runId: string,
+  ): Promise<void> {
+    await this.execute(() => this.sharing.revokeShare(user.id, runId));
+  }
+
+  /**
    * Maps the service's product errors onto HTTP. A rejected configuration answers 400 carrying the
    * stable `BACKTEST_INVALID` code, so the submission form can tell "you cannot run this" from an
    * infrastructure failure. Anything unrecognized stays an internal error: a database failure must
@@ -204,6 +255,9 @@ export class BacktestsController {
       }
       if (error instanceof BacktestConfigurationError) {
         throw backtestInvalid(error.message);
+      }
+      if (error instanceof BacktestNotShareableError) {
+        throw new ConflictException(error.message);
       }
       if (error instanceof BacktestUnavailableError) {
         // Not the caller's fault, so not a 400: the run cannot be created under the methodology it
