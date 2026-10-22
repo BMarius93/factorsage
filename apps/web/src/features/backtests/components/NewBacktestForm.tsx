@@ -16,7 +16,7 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { Notice } from "../../../components/ui/Notice";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import { useEntitlements } from "../../auth/hooks/use-entitlements";
-import { useBacktestRuns } from "../hooks/use-backtest-runs";
+import { useActiveBacktestRuns } from "../hooks/use-backtest-runs";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { WorkflowFooter } from "../../../components/ui/WorkflowFooter";
@@ -124,7 +124,7 @@ export function NewBacktestForm() {
   } | null>(null);
   const plan = useEntitlements();
   const limits = plan.status === "ready" ? plan.entitlements.backtests : null;
-  const runs = useBacktestRuns();
+  const runs = useActiveBacktestRuns();
   // Runs still holding a concurrency slot, so the limit can be seen before submitting (UI-020).
   const inFlight = runs.runs.filter(
     (run) => !isTerminalBacktestStatus(run.status),
