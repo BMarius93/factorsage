@@ -40,10 +40,17 @@ function recordReads(page: Page): string[] {
   return reads;
 }
 
+/**
+ * Each row's strategy, from its own Strategy column: the injected history differs only by strategy
+ * name. (The Run column leads with the Run ID, and the folded copy of the name under it is not
+ * displayed at these widths.)
+ */
 function strategyNames(page: Page) {
   return page
     .getByTestId("backtest-card")
-    .locator('[data-column="run"] a[href^="/backtests/"] > span:first-child');
+    .locator(
+      '[data-column="strategy"] [data-testid="backtest-strategy-reference"]',
+    );
 }
 
 test.describe("Backtests collection against the API", () => {

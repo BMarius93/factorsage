@@ -108,9 +108,17 @@
   }
 }
 
-/* The Stock list cell. Between 880 and 1,279px the column folds under the strategy instead. */
-.listCell {
+/* The Strategy and Stock list cells. Between 880 and 1,279px both columns fold under the Run ID
+   instead, as one wrapping row of chips. */
+.referenceCell {
   display: block;
+  min-width: 0;
+}
+
+.foldedReferences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -137,9 +145,9 @@
   min-width: 0;
 }
 
-/* Just above the intermediate band all nine columns are back and the table is a few pixels short
-   of room: the return wraps under the chip there rather than scrolling the actions away. Any
-   wider and it stays on one line. */
+/* Just above the intermediate band every column is back, the Strategy and Stock list chips among
+   them, and the table is a few pixels short of room: the return wraps under the benchmark's chip
+   there rather than taking width from the names. Any wider and it stays on one line. */
 @media (min-width: 1280px) and (max-width: 1359px) {
   .benchmarkCell {
     flex-wrap: wrap;
