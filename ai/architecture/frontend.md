@@ -225,7 +225,12 @@ cannot browse it cannot discover what the product does. The six legal pages — 
 `/privacy`, `/cookies`, `/risk-disclosure`, `/cancellation-and-refunds`, `/contact` — are public
 for a different reason: a policy behind a sign-in wall would fail the transparency requirement it
 exists to satisfy, and they are server components with no API call so an expired cookie cannot
-turn one into a sign-in prompt. `/strategies/new` and everything else goes through `RequireAuth`.
+turn one into a sign-in prompt. `/share/{token}`, a backtest report its owner shared, is public
+because its token is its whole authorization (`docs/decisions/backtest-sharing-v1.md`). It is also
+the one route that reads the API **on the server**: its report and Open Graph metadata must be in
+the HTML for crawlers that run no JavaScript, so the server component fetches the public endpoint —
+with no cookie — and hands the allowlisted data to the existing client chart. `/strategies/new` and
+everything else goes through `RequireAuth`.
 The list is `isGuestReadableRoute` in `features/auth/utils/guest-routes.ts`, with its own test.
 The API still
 authorizes every request — a page for another customer's object reads as not found.

@@ -207,6 +207,10 @@ product use: an account that was ever allocated a Run ID is not pruned, even onc
 The collection's search (`GET /backtests?q=`) also matches a search that names a Run ID —
 `backtestRunNumberFromSearch` reads `Run #0012`, `#12` or `12` — through the same unique index.
 
+`BacktestShare` (migration `20261023090000_backtest_share`, applied after the Run ID migration) is a run's one active public link,
+keyed by `runId` (cascade) with a unique `token`. It exists only while the owner shares the run —
+revoking deletes it — and copies nothing from the run. See `docs/decisions/backtest-sharing-v1.md`.
+
 Migration `20260911110000_add_monitors` adds the Monitor V1 slice: `Monitor`, `MonitorSignalState`,
 `MonitorSignal`, `MonitorScanSchedule` and the `MonitorEvaluationOutcome`, `MonitorEvaluableResult`
 and `MonitorLevelKind` enums. See `../product/monitors.md` for the product invariants and
