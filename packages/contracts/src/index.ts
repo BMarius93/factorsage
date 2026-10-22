@@ -195,6 +195,7 @@ export * from "./strategy-etf-sources.js";
 export * from "./stock-sector-etfs.js";
 export * from "./dates.js";
 export * from "./backtests.js";
+export * from "./backtest-sharing.js";
 export * from "./monitors.js";
 export * from "./builtins.js";
 export * from "./dashboard.js";
