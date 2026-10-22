@@ -235,6 +235,15 @@ independently addressable user-owned execution record — it names a level id in
 Strategy and means nothing without it. `securityId` is `onDelete: Restrict` for the same reason
 `StockListItem.securityId` is.
 
+Migration `20261021120000_monitor_signal_table_keyset` adds `resolvedSession`, the session a
+resolved occurrence is ordered by in the Signal table: `resolvedObservationDate`, or for an ending
+no observation made the New York day of `resolvedAt` (read as the UTC instant it is). It is
+maintained by the trigger `MonitorSignal_resolvedSession` on every insert and update — the worker
+resolves occurrences in three places and the API in one, and the trigger keeps them all and every
+seed in agreement — and backfilled for existing rows. Two indexes serve the table's keyset pages:
+`MonitorSignal_active_order_idx` and `MonitorSignal_resolved_order_idx`. It is the first trigger in
+the schema; Prisma neither models nor diffs triggers, so the drift check is unaffected.
+
 `MonitorScanSchedule` is the durable scan cadence: exactly one row, id `GLOBAL`. A worker claims it
 with `SELECT ... FOR UPDATE SKIP LOCKED` once `dueAt` has passed, holds a renewable lease while it
 runs the cycle, then sets the next `dueAt` and releases — so cadence survives a restart, two

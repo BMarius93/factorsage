@@ -421,8 +421,16 @@ Active occurrences first, most recent activation first, then resolved ones, most
 first — every occurrence its own row. A resolution is ordered by the session that ended it; an
 administrative ending observed no session and is placed by the New York day it was recorded.
 `state=ACTIVE|RESOLVED` narrows to one group, `state=PENDING_TRIGGER` lists the current waiting
-setups instead, and `levelKind` filters by level. Offset-paged across the groups (25 by default, at
-most 100). Each row carries its session, activation date and price, resolution date and reason,
+setups instead, and `levelKind` filters by level. Keyset-paged across the groups (25 by default, at
+most 100; 2026-10-21): a cursor continues from the last row's sort keys and carries the filters it
+was issued for. Every page is read in one `REPEATABLE READ` transaction beside a count of the
+Monitor's state transitions, which are append-only and written in the same transaction as every
+change to an occurrence or a setup; a later page whose count differs is refused with 409 and the
+reader starts over, so an evaluation between two pages never shows an occurrence twice (active,
+then ended) or skips one. Timestamps cannot define that snapshot: a cycle stamps `detectedAt` and
+`resolvedAt` with its start time. The resolved group is ordered by `resolvedSession`, kept by the
+database from the ending's session or the New York day it was recorded. The first page also counts
+each group. Each row carries its session, activation date and price, resolution date and reason,
 `observationBasis`, `fromHistory` and its Why. Visible exactly where the Monitor is.
 
 ### 6.3 The Why

@@ -1610,6 +1610,11 @@ model MonitorSignal {
   reconstructed           Boolean                  @default(false)
   /// How `observationPrice` was obtained. Rows written before the EOD evaluation are `LIVE_QUOTE`.
   observationBasis        MonitorObservationBasis  @default(EOD_CLOSE)
+  /// The session a resolved occurrence is ordered by in the Signal table: the session that ended
+  /// it, or — for an ending no observation made — the New York day it was recorded. Null while
+  /// active. Maintained by the database (trigger `MonitorSignal_resolvedSession`) from
+  /// `resolvedAt` and `resolvedObservationDate`, so every writer agrees; never written directly.
+  resolvedSession         DateTime?                @db.Date
 
   monitor     Monitor                  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
   security    Security                 @relation(fields: [securityId], references: [id], onDelete: Restrict)
@@ -1621,6 +1626,10 @@ model MonitorSignal {
   @@index([securityId])
   /// The "currently active Signals" read: unresolved rows, newest first.
   @@index([monitorId, resolvedAt, detectedAt])
+  /// The Signal table's active group, keyset-paged: `resolvedAt IS NULL`, newest activation first.
+  @@index([monitorId, resolvedAt, observationDate(sort: Desc), detectedAt(sort: Desc), id(sort: Desc)], map: "MonitorSignal_active_order_idx")
+  /// The Signal table's resolved group, keyset-paged: newest resolution session first.
+  @@index([monitorId, resolvedSession(sort: Desc), resolvedAt(sort: Desc), id(sort: Desc)], map: "MonitorSignal_resolved_order_idx")
 }
 
 /// One lifecycle state change of one `(Monitor, Security, Strategy level)`, for audit and history.
