@@ -48,13 +48,32 @@ export type ActivityQuery = {
 };
 
 /** `?monitorId=&kind=&limit=&cursor=&through=` and nothing else. */
-export function parseActivityQuery(query: unknown): ActivityQuery {
+/**
+ * The query of one Monitor's own Activity history (`GET /monitors/:monitorId/activity`): the
+ * Dashboard feed's, without `monitorId`, which the path already names.
+ */
+export function parseMonitorActivityQuery(
+  query: unknown,
+): Omit<ActivityQuery, "monitorId"> {
+  return parseActivityQuery(query, ["kind", "limit", "cursor", "through"]);
+}
+
+export function parseActivityQuery(
+  query: unknown,
+  accepted: readonly string[] = [
+    "monitorId",
+    "kind",
+    "limit",
+    "cursor",
+    "through",
+  ],
+): ActivityQuery {
   const record =
     typeof query === "object" && query !== null
       ? (query as Record<string, unknown>)
       : {};
   for (const key of Object.keys(record)) {
-    if (!["monitorId", "kind", "limit", "cursor", "through"].includes(key)) {
+    if (!accepted.includes(key)) {
       throw new BadRequestException(
         `Invalid request: \`${key}\` is not accepted`,
       );

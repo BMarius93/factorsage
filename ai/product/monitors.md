@@ -49,6 +49,15 @@ Waiting) and an action filter, explains "Not evaluable" in words, and says why a
 ended from its `resolutionReason` ("conditions no longer hold", "stock left the list", "no longer a
 current list member", "strategy logic changed", …). There is no per-stock status table.
 
+The Monitor page also has an **Activity history**: the Dashboard's activity feed over this Monitor
+alone (`GET /monitors/:monitorId/activity` — the same events, order, cursors and refresh, no second
+event model), shown in the Dashboard's layout under its own heading, apart from the Signal table it
+explains. The Signal table says what each occurrence *is* now; the history says what *happened*,
+session by session. It does not depend on the Dashboard's choices: a built-in hidden from the
+viewer's Dashboard, or the owner's Monitor switched off, keeps its history on its own page. The page
+reads its detail as `?view=summary` — the members counted rather than listed, no newest Signals —
+because it shows neither list.
+
 ## Signals
 
 `Signal` is the product term for a Monitor result. It is deliberately not the Monitor: a Monitor is

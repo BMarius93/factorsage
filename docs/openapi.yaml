@@ -1958,14 +1958,28 @@ paths:
       description: |
         Readable without a session for a published built-in monitor. A customer monitor needs its
         owner; an unpublished built-in is visible to administrators only.
+
+        `view=summary` answers the monitor's page as it renders: the same detail without
+        `securities` (one row per current member — hundreds for an index universe) and without
+        `signals` (the page reads `/monitors/{monitorId}/signals` a page at a time), and with
+        `memberCounts` instead. The members are evaluated exactly as for the full detail; they are
+        only counted rather than sent. Any other `view` is the full detail.
       x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: view
+          in: query
+          required: false
+          schema: { type: string, enum: [summary] }
       responses:
         "200":
-          description: The monitor.
+          description: The monitor; `MonitorDetailSummary` with `view=summary`.
           headers: *rateLimitHeaders
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/MonitorDetail" }
+              schema:
+                oneOf:
+                  - { $ref: "#/components/schemas/MonitorDetail" }
+                  - { $ref: "#/components/schemas/MonitorDetailSummary" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
@@ -2091,6 +2105,51 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /monitors/{monitorId}/activity:
+    parameters:
+      - { $ref: "#/components/parameters/MonitorId" }
+    get:
+      tags: [Monitors]
+      operationId: getMonitorActivity
+      summary: One monitor's observed activity history, newest session first.
+      description: |
+        The Dashboard's activity feed (`/dashboard/activity`) over this monitor alone: the same
+        events, order, pages, cursors, `kind` filter and `through` re-reads — no second event
+        model. Visible exactly where the monitor is: a published built-in without a session, a
+        customer monitor to its owner, an unpublished built-in to administrators. Unlike the
+        Dashboard it does not depend on what the viewer follows there: a built-in hidden from the
+        caller's Dashboard, or the caller's own monitor switched off, still has its history here.
+        `monitorId` is the path's and is refused as a query parameter.
+      x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, enum: [ACTIVATED, RESOLVED] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 15 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: through
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: One page of the monitor's activity, or one read of a `through` range.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardActivityResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -6674,6 +6733,35 @@ components:
                 Which sector ETF each monitored stock's Stock's Sector rules read now, from its
                 current FMP sector, by symbol; absent unless the strategy reads Stock's Sector.
                 Every sector ETF named here also has its row in `etfSources`.
+              items: { $ref: "#/components/schemas/StockSectorAssignment" }
+            coverage: { $ref: "#/components/schemas/MonitorCoverage" }
+
+    MonitorDetailSummary:
+      description: |
+        `GET /monitors/{monitorId}?view=summary`: `MonitorDetail` without `securities` and
+        `signals`, with `memberCounts`.
+      allOf:
+        - { $ref: "#/components/schemas/MonitorSummary" }
+        - type: object
+          required: [memberCounts]
+          properties:
+            memberCounts:
+              type: object
+              required: [total, byStatus]
+              properties:
+                total:
+                  type: integer
+                  minimum: 0
+                  description: Every current member of the monitor's stock list.
+                byStatus:
+                  type: object
+                  description: How many members are in each status; every status present.
+                  additionalProperties: { type: integer, minimum: 0 }
+            etfSources:
+              type: array
+              items: { $ref: "#/components/schemas/MonitorEtfSourceStatus" }
+            stockSectors:
+              type: array
               items: { $ref: "#/components/schemas/StockSectorAssignment" }
             coverage: { $ref: "#/components/schemas/MonitorCoverage" }
 
