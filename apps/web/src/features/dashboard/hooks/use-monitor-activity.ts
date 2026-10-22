@@ -14,8 +14,15 @@ import { rangeArrivals, rangeChanged, replaceRange } from "../utils/activity";
 
 export type ActivityStatus = CursorFeedStatus;
 
-/** How many events the Dashboard opens with, and how many each "show older" adds. */
-export const ACTIVITY_PAGE_SIZE = 15;
+/** How many events the Dashboard opens with, and how many each older page adds. */
+export const ACTIVITY_PAGE_SIZE = 25;
+
+/**
+ * How many older pages load on their own as the reader scrolls, per visit and per filter. After
+ * them the feed waits for **Show more activity**: an endless page would put the footer, and the
+ * disclosure in it, out of reach.
+ */
+export const ACTIVITY_AUTO_LOAD_PAGES = 4;
 
 /**
  * The most reads one refresh makes to re-read the range a reader holds (200 events each). A reader

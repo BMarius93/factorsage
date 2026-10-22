@@ -282,7 +282,7 @@ describe("DashboardPage — the Monitor activity feed", () => {
       screen.getAllByTestId("dashboard-session")[0]!.getAttribute("dateTime"),
     ).toBe("2026-10-13");
     expect(fetchActivityMock).toHaveBeenCalledWith(
-      { limit: 15 },
+      { limit: 25 },
       expect.anything(),
     );
   });
@@ -521,7 +521,7 @@ describe("DashboardPage — filters and pages", () => {
     );
     await waitFor(() =>
       expect(fetchActivityMock).toHaveBeenLastCalledWith(
-        { monitorId: "monitor-b", limit: 15 },
+        { monitorId: "monitor-b", limit: 25 },
         expect.anything(),
       ),
     );
@@ -532,7 +532,7 @@ describe("DashboardPage — filters and pages", () => {
     );
     await waitFor(() =>
       expect(fetchActivityMock).toHaveBeenLastCalledWith(
-        { monitorId: "monitor-b", kind: "ACTIVATED", limit: 15 },
+        { monitorId: "monitor-b", kind: "ACTIVATED", limit: 25 },
         expect.anything(),
       ),
     );
@@ -543,7 +543,7 @@ describe("DashboardPage — filters and pages", () => {
     );
     await waitFor(() =>
       expect(fetchActivityMock).toHaveBeenLastCalledWith(
-        { kind: "ACTIVATED", limit: 15 },
+        { kind: "ACTIVATED", limit: 25 },
         expect.anything(),
       ),
     );
@@ -570,7 +570,7 @@ describe("DashboardPage — filters and pages", () => {
     expect(fetchActivityMock).toHaveBeenLastCalledWith(
       {
         kind: "RESOLVED",
-        limit: 15,
+        limit: 25,
         cursor: "cursor-r1",
       },
       expect.anything(),
@@ -597,7 +597,7 @@ describe("DashboardPage — filters and pages", () => {
     await user.click(within(empty).getByTestId("dashboard-clear-filters"));
     await waitFor(() =>
       expect(fetchActivityMock).toHaveBeenLastCalledWith(
-        { limit: 15 },
+        { limit: 25 },
         expect.anything(),
       ),
     );
@@ -637,7 +637,7 @@ describe("DashboardPage — filters and pages", () => {
     ]);
     expect(fetchActivityMock).toHaveBeenLastCalledWith(
       {
-        limit: 15,
+        limit: 25,
         cursor: "cursor-1",
       },
       expect.anything(),
@@ -725,10 +725,134 @@ describe("DashboardPage — filters and pages", () => {
     await minutePasses(intervals);
     await waitFor(async () => expect(await rows()).toHaveLength(1));
     expect(fetchActivityMock).toHaveBeenLastCalledWith(
-      { limit: 15 },
+      { limit: 25 },
       expect.anything(),
     );
     intervals.mockRestore();
+  });
+});
+
+describe("DashboardPage — older activity as the reader scrolls", () => {
+  /**
+   * A stand-in for the browser's `IntersectionObserver`: the test says when the marker at the end
+   * of the feed comes within reach, as scrolling would.
+   */
+  class FakeObserver {
+    static live: FakeObserver[] = [];
+    constructor(
+      private readonly callback: (
+        entries: { isIntersecting: boolean }[],
+      ) => void,
+      readonly options: { rootMargin?: string },
+    ) {}
+    observe() {
+      FakeObserver.live.push(this);
+    }
+    disconnect() {
+      FakeObserver.live = FakeObserver.live.filter((item) => item !== this);
+    }
+    reach() {
+      this.callback([{ isIntersecting: true }]);
+    }
+  }
+
+  /** The reader scrolls near the end of the feed, once the marker is being watched again. */
+  async function nearTheEnd() {
+    await waitFor(() => expect(FakeObserver.live).toHaveLength(1));
+    act(() => FakeObserver.live[0]!.reach());
+  }
+
+  beforeEach(() => {
+    FakeObserver.live = [];
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Page `n` of an endless feed: one event, and a cursor to the next page. */
+  function pageOf(n: number) {
+    return page(
+      [event({ id: `e${n}`, sessionDate: "2026-10-13" })],
+      `cursor-${n}`,
+    );
+  }
+
+  it("loads older pages near the end, four of them, then asks with Show more activity", async () => {
+    const user = userEvent.setup();
+    fetchActivityMock.mockImplementation(async (query) =>
+      pageOf(query?.cursor ? Number(query.cursor.slice(7)) + 1 : 1),
+    );
+    render(<DashboardPage />);
+    await rows();
+    // Watched 600px below what is on screen, so the next page is there before the reader is.
+    await waitFor(() => expect(FakeObserver.live).toHaveLength(1));
+    expect(FakeObserver.live[0]!.options.rootMargin).toBe("0px 0px 600px 0px");
+    expect(screen.queryByTestId("dashboard-activity-more")).toBeNull();
+
+    for (let older = 1; older <= 4; older += 1) {
+      await nearTheEnd();
+      await waitFor(async () => expect(await rows()).toHaveLength(older + 1));
+    }
+    // Four pages on their own; the fifth waits for the reader.
+    await waitFor(() =>
+      expect(screen.getByTestId("dashboard-activity-more").textContent).toBe(
+        "Show more activity",
+      ),
+    );
+    expect(screen.queryByTestId("dashboard-activity-autoload")).toBeNull();
+    expect(FakeObserver.live).toHaveLength(0);
+    // Each page was asked for once, in order: no page skipped, none read twice.
+    expect(
+      fetchActivityMock.mock.calls.map(([query]) => query?.cursor ?? null),
+    ).toEqual([null, "cursor-1", "cursor-2", "cursor-3", "cursor-4"]);
+
+    await user.click(screen.getByTestId("dashboard-activity-more"));
+    await waitFor(async () => expect(await rows()).toHaveLength(6));
+    expect(new Set((await rows()).map((row) => row.dataset.eventId)).size).toBe(
+      6,
+    );
+  });
+
+  it("starts the allowance again for another filter", async () => {
+    const user = userEvent.setup();
+    fetchActivityMock.mockImplementation(async (query) =>
+      pageOf(query?.cursor ? Number(query.cursor.slice(7)) + 1 : 1),
+    );
+    render(<DashboardPage />);
+    await rows();
+    for (let older = 1; older <= 4; older += 1) {
+      await nearTheEnd();
+      await waitFor(async () => expect(await rows()).toHaveLength(older + 1));
+    }
+    await screen.findByTestId("dashboard-activity-more");
+
+    await user.selectOptions(
+      screen.getByTestId("dashboard-event-filter"),
+      "ACTIVATED",
+    );
+    await waitFor(async () => expect(await rows()).toHaveLength(1));
+    expect(screen.queryByTestId("dashboard-activity-more")).toBeNull();
+    await nearTheEnd();
+    await waitFor(async () => expect(await rows()).toHaveLength(2));
+  });
+
+  it("stops loading on its own after a failure, and offers to try again", async () => {
+    const user = userEvent.setup();
+    fetchActivityMock
+      .mockResolvedValueOnce(pageOf(1))
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce(pageOf(2));
+    render(<DashboardPage />);
+    await rows();
+    await nearTheEnd();
+
+    const failed = await screen.findByTestId("dashboard-activity-more-failed");
+    expect(failed.textContent).toBe("Older activity could not be loaded.");
+    expect(FakeObserver.live).toHaveLength(0);
+    await user.click(screen.getByTestId("dashboard-activity-more"));
+    await waitFor(async () => expect(await rows()).toHaveLength(2));
   });
 });
 

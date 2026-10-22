@@ -690,12 +690,18 @@ test("backtest results, stock details, Monitor signals and the activity feed sho
       .getByTestId("dashboard-activity")
       .or(page.getByTestId("dashboard-activity-empty")),
   ).toBeVisible();
+  // Older pages load on their own near the end of the feed, a few at a time, and then wait for
+  // "Show more activity": read the whole feed either way.
   for (;;) {
-    const older = page.getByRole("button", { name: "Show older activity" });
-    if ((await older.count()) === 0) {
+    const older = page.getByRole("button", { name: "Show more activity" });
+    const autoload = page.getByTestId("dashboard-activity-autoload");
+    if ((await older.count()) > 0) {
+      await older.click();
+    } else if ((await autoload.count()) > 0) {
+      await autoload.scrollIntoViewIfNeeded();
+    } else {
       break;
     }
-    await older.click();
     await page.waitForTimeout(300);
   }
   const feed = page
