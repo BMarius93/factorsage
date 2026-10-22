@@ -379,16 +379,19 @@ describe("MonitorsPage", () => {
   });
 
   it("shows the effective scanning state beside the configured one (UX-004)", async () => {
+    // Newest first, as the API and the default order both put them.
     fetchMonitorsMock.mockResolvedValue([
       summary({
         operationalStatus: "BLOCKED_BY_ENTITLEMENT",
         blockedReason: "MONITOR_CAPACITY",
+        createdAt: "2026-09-03T10:00:00.000Z",
       }),
       summary({
         id: "monitor-2",
         name: "Exit watch",
         operationalStatus: "BLOCKED_BY_ENTITLEMENT",
         blockedReason: "LIST_OVER_LIMIT",
+        createdAt: "2026-09-02T10:00:00.000Z",
       }),
       summary({ id: "monitor-3", name: "Scanning fine" }),
     ]);

@@ -12,6 +12,7 @@ import {
 } from "@intrinsic/contracts";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { COLLECTION_PAGE_SIZES } from "../../../components/ui/CollectionFooter";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import {
   fetchBacktestTrades,
@@ -75,6 +76,22 @@ function positiveIntegerParam(
   return Number.isSafeInteger(raw) && raw >= 1 ? raw : fallback;
 }
 
+/**
+ * The page size a URL names, when it is one the footer offers; otherwise the log's default. A size the
+ * footer cannot show (`200`, `10` before it is offered) would page the log while the control claimed
+ * another — the API's own larger maximum stays for the CSV export and direct API reads.
+ */
+function offeredPageSize(params: URLSearchParams): number {
+  const asked = positiveIntegerParam(
+    params,
+    TRADES_PAGE_SIZE_PARAM,
+    BACKTEST_TRADES_PAGE_SIZE,
+  );
+  return (COLLECTION_PAGE_SIZES as readonly number[]).includes(asked)
+    ? asked
+    : BACKTEST_TRADES_PAGE_SIZE;
+}
+
 /** The filter and order a URL names. A value the log does not offer is no filter at all. */
 function tradeLogQueryOf(params: URLSearchParams): {
   symbol: string | null;
@@ -130,11 +147,7 @@ export function useBacktestTrades(
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const page = positiveIntegerParam(searchParams, TRADES_PAGE_PARAM, 1);
-  const pageSize = positiveIntegerParam(
-    searchParams,
-    TRADES_PAGE_SIZE_PARAM,
-    BACKTEST_TRADES_PAGE_SIZE,
-  );
+  const pageSize = offeredPageSize(searchParams);
   const { symbol, action, order } = tradeLogQueryOf(searchParams);
   // Only what differs from the defaults is sent, so an unfiltered request is unchanged.
   const query = useMemo<BacktestTradeLogQuery>(

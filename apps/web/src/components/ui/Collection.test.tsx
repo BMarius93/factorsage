@@ -1,7 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { byName, type CollectionSort } from "./Collection";
+import { byName, byNewest, type CollectionSort } from "./Collection";
+import { CollectionFooter } from "./CollectionFooter";
 import type { DataTableColumn } from "./DataTable";
 import { CollectionSection } from "./OwnedCollection";
 
@@ -138,5 +139,46 @@ describe("collection search, sort and paging (UI-010, UI-011)", () => {
       "Universe 02",
       "Universe 01",
     ]);
+  });
+});
+
+describe("collection orders and counts", () => {
+  const row = (id: string, name: string, createdAt: string) => ({
+    id,
+    name,
+    createdAt,
+  });
+
+  it("breaks ties by id the way the API does, so equal keys always land the same way", () => {
+    const rows = [
+      row("a", "Same", "2026-08-01T00:00:00.000Z"),
+      row("c", "Same", "2026-08-01T00:00:00.000Z"),
+      row("b", "Older", "2026-07-01T00:00:00.000Z"),
+    ];
+    expect(
+      [...rows].sort(byNewest((item) => item.createdAt)).map((item) => item.id),
+    ).toEqual(["c", "a", "b"]);
+    expect([...rows].sort(byName).map((item) => item.id)).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
+  });
+
+  it("writes counts with thousands separators", () => {
+    render(
+      <CollectionFooter
+        total={18234}
+        page={2}
+        pageSize={50}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        noun="trades"
+        testId="trade-footer"
+      />,
+    );
+    const footer = screen.getByTestId("trade-footer");
+    expect(footer.textContent).toContain("Showing 51–100 of 18,234 trades");
+    expect(footer.textContent).toContain("Page 2 of 365");
   });
 });
