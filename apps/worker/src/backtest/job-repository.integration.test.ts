@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   BacktestJobStatus,
+  allocateBacktestRunNumber,
   BacktestRunStatus,
   type Prisma,
   BenchmarkSeriesType,
@@ -112,6 +113,7 @@ describe("backtest job claiming", () => {
     const run = await prisma.backtestRun.create({
       data: {
         userId,
+        runNumber: await allocateBacktestRunNumber(prisma, userId),
         benchmarkId,
         benchmarkSeriesId,
         executionCalendarSeriesId: benchmarkSeriesId,

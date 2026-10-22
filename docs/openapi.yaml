@@ -1526,7 +1526,8 @@ paths:
           required: false
           description: |
             Case-insensitive text matched against the strategy, stock list and benchmark names the
-            runs were submitted with. `%` and `_` are literal. Ignored above 100 characters.
+            runs were submitted with. `%` and `_` are literal. Ignored above 100 characters. A
+            search that names a Run ID (`Run #0012`, `run 12`, `#12`, `12`) also matches that run.
           schema: { type: string, maxLength: 100 }
         - name: status
           in: query
@@ -5751,6 +5752,7 @@ components:
       required:
         [
           id,
+          runNumber,
           status,
           strategyId,
           strategyName,
@@ -5774,6 +5776,13 @@ components:
         ]
       properties:
         id: { type: string, format: uuid }
+        runNumber:
+          type: integer
+          minimum: 1
+          description: |
+            The run's user-facing identity, displayed as `Run #0001`: sequential per user in
+            submission order, unique per user, allocated once and never changed. A deleted run's
+            number is never reused. `id` remains the technical identity used by every route.
         status: { $ref: "#/components/schemas/BacktestRunStatus" }
         strategyId:
           description: Null once the strategy has been deleted; the name comes from the run snapshot.
@@ -6325,6 +6334,7 @@ components:
       required:
         [
           id,
+          runNumber,
           status,
           configuration,
           queuedAt,
@@ -6338,6 +6348,10 @@ components:
         ]
       properties:
         id: { type: string, format: uuid }
+        runNumber:
+          type: integer
+          minimum: 1
+          description: The run's per-user Run ID number, as on `BacktestRunSummary`.
         status: { $ref: "#/components/schemas/BacktestRunStatus" }
         configuration: { $ref: "#/components/schemas/BacktestRunConfiguration" }
         queuedAt: { type: string, format: date-time }

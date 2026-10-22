@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@intrinsic/database";
+import { allocateBacktestRunNumber, PrismaClient } from "@intrinsic/database";
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -56,6 +56,7 @@ describe("matrix run retention", () => {
     const run = await prisma.backtestRun.create({
       data: {
         userId,
+        runNumber: await allocateBacktestRunNumber(prisma, userId),
         benchmarkId,
         benchmarkSeriesId: seriesId,
         executionCalendarSeriesId: seriesId,

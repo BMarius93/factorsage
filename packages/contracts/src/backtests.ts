@@ -202,9 +202,38 @@ export type BacktestRunConfigurationResponse = {
   methodology: BacktestMethodologyResponse;
 };
 
+/**
+ * A run's user-facing identity: `Run #0001`, `Run #0002`, … — four digits, zero-padded, and wider
+ * once an account passes 9,999 runs rather than wrapping.
+ *
+ * `runNumber` is sequential per user, allocated once at submission and never changed, so the label
+ * is stable for the life of the run. The UUID `id` stays the technical identity every link uses.
+ * The one place the label is spelled, so no surface formats it differently.
+ */
+export function backtestRunLabel(runNumber: number): string {
+  return `Run #${String(runNumber).padStart(4, "0")}`;
+}
+
+/**
+ * The Run ID a search names, if it names one: `Run #0012`, `run 12`, `#12`, `0012` and `12` all name
+ * run 12. Anything else — including a number with other words around it — names none, and is
+ * searched as text only. The inverse of {@link backtestRunLabel}, so a label copied from the page
+ * finds its run.
+ */
+export function backtestRunNumberFromSearch(search: string): number | null {
+  const match = /^\s*(?:run\s*)?#?\s*(\d{1,9})\s*$/i.exec(search);
+  if (!match) {
+    return null;
+  }
+  const runNumber = Number(match[1]);
+  return Number.isSafeInteger(runNumber) && runNumber >= 1 ? runNumber : null;
+}
+
 /** One row of `GET /backtests`. */
 export type BacktestRunSummaryResponse = {
   id: string;
+  /** Sequential per user and immutable; rendered by {@link backtestRunLabel}. */
+  runNumber: number;
   status: BacktestRunStatus;
   /**
    * The strategy and stock list the run was submitted with, exactly as on the run's
@@ -1048,6 +1077,8 @@ export function backtestTradesExportFilename(
 
 export type BacktestRunDetailResponse = {
   id: string;
+  /** Sequential per user and immutable; rendered by {@link backtestRunLabel}. */
+  runNumber: number;
   status: BacktestRunStatus;
   configuration: BacktestRunConfigurationResponse;
   queuedAt: string;

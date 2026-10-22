@@ -187,6 +187,26 @@ order), `BacktestPosition` (final open positions) and `BacktestRunSummary` (one 
 reason `StockListItem.securityId` is, and both denormalize `symbol`/`name` so a completed result
 renders without joining the mutable catalog.
 
+Migration `20261022120000_backtest_run_numbers` gives every run a per-user **Run ID**:
+`BacktestRun.runNumber`, shown as `Run #0001` (`backtestRunLabel` in `@intrinsic/contracts`),
+sequential per owner in submission order, `@@unique([userId, runNumber])`, written once and never
+again — `id` stays the technical identity every route, job and link uses. Numbers come from
+`BacktestRunNumberCounter` (one row per user, cascading from `User`), a **high-water mark** advanced
+by one atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` inside the submission transaction
+(`allocateBacktestRunNumber` in `@intrinsic/database`, the only allocator; fixtures and test helpers
+use it too). Concurrent submissions serialize on that row, a refused submission rolls its allocation
+back, and a deleted run's number is never handed out again. It is a table of its own rather than a
+column on `User` so that allocating a number never row-locks the account. The migration numbers
+existing runs per owner by `queuedAt`, then `createdAt`, then `id` (a deterministic tie-breaker)
+and seeds each counter with the highest number assigned; nothing in a run's snapshot or results is
+read or rewritten. Deploy it before the release that writes `runNumber`: once the column is
+`NOT NULL`, a process still running the previous release cannot create a run.
+`backtest-run-numbers.integration.test.ts` executes the committed `migration.sql` against a
+throwaway schema to prove the backfill. The E2E disposable-account cleanup treats a counter row as
+product use: an account that was ever allocated a Run ID is not pruned, even once its runs are gone.
+The collection's search (`GET /backtests?q=`) also matches a search that names a Run ID —
+`backtestRunNumberFromSearch` reads `Run #0012`, `#12` or `12` — through the same unique index.
+
 Migration `20260911110000_add_monitors` adds the Monitor V1 slice: `Monitor`, `MonitorSignalState`,
 `MonitorSignal`, `MonitorScanSchedule` and the `MonitorEvaluationOutcome`, `MonitorEvaluableResult`
 and `MonitorLevelKind` enums. See `../product/monitors.md` for the product invariants and

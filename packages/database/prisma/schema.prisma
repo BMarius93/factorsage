@@ -216,6 +216,7 @@ model User {
   stockLists                 StockList[]
   strategies                 Strategy[]
   backtestRuns               BacktestRun[]
+  backtestRunNumberCounter   BacktestRunNumberCounter?
   monitors                   Monitor[]
   billingSubscription        BillingSubscription?
   recentSecurityViews        RecentSecurityView[]
@@ -1027,6 +1028,11 @@ enum BacktestTradeSource {
 model BacktestRun {
   id                        String                 @id @default(uuid())
   userId                    String
+  /// The run's user-facing identity, shown as `Run #0001`: 1, 2, 3… per owner, in submission
+  /// order. Allocated once, from `BacktestRunNumberCounter` inside the transaction that creates the
+  /// run (`allocateBacktestRunNumber`), and never written again — `id` stays the technical identity
+  /// every reference and URL uses. Unique per user; a deleted run's number is never handed out again.
+  runNumber                 Int
   strategyId                String?
   strategyVersionId         String?
   stockListId               String?
@@ -1090,12 +1096,27 @@ model BacktestRun {
   equityPoints              BacktestDailyEquity[]
   positions                 BacktestPosition[]
 
+  @@unique([userId, runNumber])
   /// The collection's default order, newest first with the id breaking same-tick ties, read as one
   /// index range per page.
   @@index([userId, queuedAt(sort: Desc), id(sort: Desc)])
   @@index([userId, status])
   /// Restrict-on-delete has to check this column before any benchmark series can be removed.
   @@index([executionCalendarSeriesId])
+}
+
+/// The highest `BacktestRun.runNumber` ever allocated to one user — a high-water mark, never the
+/// count of runs that exist, so a run deleted later never lets its number be reused.
+///
+/// One row per user who has submitted a run, advanced by a single atomic
+/// `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` (`allocateBacktestRunNumber` in
+/// `@intrinsic/database`): concurrent submissions for one user serialize on this row and each
+/// receives the next number. A table of its own rather than a column on `User`, so allocating a
+/// number never row-locks the account against an unrelated write to it.
+model BacktestRunNumberCounter {
+  userId        String @id
+  lastRunNumber Int
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// The durable queue. One row per run, created in the same transaction as the run, so the queue

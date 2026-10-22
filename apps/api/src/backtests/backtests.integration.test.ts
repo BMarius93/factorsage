@@ -26,6 +26,7 @@ import {
   EXECUTION_CALENDAR_REFERENCE_CODE,
   MARKET_REFERENCE_SERIES,
 } from "@intrinsic/domain";
+import { allocateBacktestRunNumber } from "@intrinsic/database";
 import { PrismaBenchmarkDataStore } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY, cagrPercent } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -1230,11 +1231,20 @@ describe("backtests", () => {
         where: { id: submitted.id },
       });
       await prisma.backtestRun.delete({ where: { id: submitted.id } });
-      const rows = seeds.map((seed) => ({ id: randomUUID(), seed }));
+      const rows: { id: string; seed: Seed; runNumber: number }[] = [];
+      for (const seed of seeds) {
+        // Numbered like any submitted run, from the owner's counter.
+        rows.push({
+          id: randomUUID(),
+          seed,
+          runNumber: await allocateBacktestRunNumber(prisma, template.userId),
+        });
+      }
       await prisma.backtestRun.createMany({
-        data: rows.map(({ id, seed }) => ({
+        data: rows.map(({ id, seed, runNumber }) => ({
           id,
           userId: template.userId,
+          runNumber,
           strategyId: template.strategyId,
           strategyVersionId: template.strategyVersionId,
           stockListId: template.stockListId,

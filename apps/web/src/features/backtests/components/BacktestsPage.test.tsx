@@ -33,9 +33,11 @@ vi.mock("next/navigation", () => ({
 function summary(
   status: BacktestRunSummaryResponse["status"],
   id: string,
+  runNumber = 1,
 ): BacktestRunSummaryResponse {
   return {
     id,
+    runNumber,
     status,
     strategyId: "strategy-1",
     strategyName: `Strategy ${id}`,

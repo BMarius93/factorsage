@@ -4,7 +4,11 @@ import {
   subtractYears,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
-import type { Prisma, PrismaClient } from "@intrinsic/database";
+import {
+  allocateBacktestRunNumber,
+  type Prisma,
+  type PrismaClient,
+} from "@intrinsic/database";
 import { TEST_PERSONAS, type TestPersonaName } from "@intrinsic/testing";
 import { eodToday } from "../eod-today";
 
@@ -674,6 +678,9 @@ export async function seedEntitlementFixtures(
       await prisma.backtestRun.create({
         data: {
           userId,
+          // Numbered like any submitted run, from the owner's counter: a re-seed deletes the old
+          // fixture runs, and their numbers are not handed out again.
+          runNumber: await allocateBacktestRunNumber(prisma, userId),
           strategyId,
           strategyVersionId: version.id,
           stockListId: listId,
@@ -745,6 +752,9 @@ export async function seedEntitlementFixtures(
       await prisma.backtestRun.create({
         data: {
           userId,
+          // Numbered like any submitted run, from the owner's counter: a re-seed deletes the old
+          // fixture runs, and their numbers are not handed out again.
+          runNumber: await allocateBacktestRunNumber(prisma, userId),
           strategyId,
           strategyVersionId: version.id,
           stockListId: listId,

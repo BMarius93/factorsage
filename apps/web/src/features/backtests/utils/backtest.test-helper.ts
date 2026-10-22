@@ -245,6 +245,8 @@ export function testDetail(
 ): BacktestRunDetailResponse {
   return {
     id: "run-1",
+    // Not 1: a label that rendered the number unpadded, or the UUID, would still read "1".
+    runNumber: 84,
     status,
     configuration: testConfiguration(),
     queuedAt: "2026-09-01T10:00:00.000Z",

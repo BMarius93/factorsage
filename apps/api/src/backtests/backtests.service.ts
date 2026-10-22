@@ -33,6 +33,7 @@ import {
   backtestTradesExportFilename,
   BACKTEST_FAILURE_PHASES,
   backtestSnapshotVersionFor,
+  backtestRunNumberFromSearch,
   canonicalBacktestSnapshotDocument,
   isTerminalBacktestStatus,
   normalizeStrategyDefinition,
@@ -69,6 +70,7 @@ import {
   type BacktestTradeSource,
 } from "@intrinsic/contracts";
 import {
+  allocateBacktestRunNumber,
   BacktestTradeAction as TradeAction,
   BacktestTradeSource as TradeSource,
   ContentOwnership,
@@ -175,6 +177,7 @@ type RunDetailRow = Prisma.BacktestRunGetPayload<{
  */
 const RUN_INDEX_SELECT = {
   id: true,
+  runNumber: true,
   status: true,
   strategyId: true,
   strategyName: true,
@@ -227,8 +230,14 @@ function runListCondition(
   }
   if (q !== undefined) {
     const pattern = likePattern(q);
+    // A search that names a Run ID (`Run #0012`, `#12`, `12`) also finds that run.
+    const runNumber = backtestRunNumberFromSearch(q);
+    const byRunNumber =
+      runNumber === null
+        ? Prisma.empty
+        : Prisma.sql` OR run."runNumber" = ${runNumber}`;
     conditions.push(
-      Prisma.sql`(run."strategyName" ILIKE ${pattern} OR run."stockListName" ILIKE ${pattern} OR run."benchmarkName" ILIKE ${pattern})`,
+      Prisma.sql`(run."strategyName" ILIKE ${pattern} OR run."stockListName" ILIKE ${pattern} OR run."benchmarkName" ILIKE ${pattern}${byRunNumber})`,
     );
   }
   return Prisma.join(conditions, " AND ");
@@ -595,6 +604,7 @@ function configurationOf(
 function summaryRowOf(row: RunIndexRow): BacktestRunSummaryResponse {
   return {
     id: row.id,
+    runNumber: row.runNumber,
     status: row.status,
     // The nullable foreign keys, as `configurationOf` reads them: an id links while the entity
     // exists and becomes null after it is deleted, while the stored name keeps describing it.
@@ -877,6 +887,7 @@ function detailOf(
   const snapshot = readSnapshot(row.snapshot);
   return {
     id: row.id,
+    runNumber: row.runNumber,
     status: row.status,
     configuration: configurationOf(row, snapshot),
     queuedAt: row.queuedAt.toISOString(),
@@ -1306,11 +1317,16 @@ export class BacktestsService {
     // the same count, both pass, and a plan that allows one backtest runs two. The assertion takes
     // the caller's entitlement lock first, so those two submissions serialize and the second one
     // sees the first one's run.
+    //
+    // The Run ID is allocated in the same transaction, after the concurrency check: a refused or
+    // failed submission rolls the allocation back with it, so only committed runs consume a number.
     const run = await this.prisma.$transaction(async (tx) => {
       await this.entitlements.assertBacktestConcurrency(tx, userId);
+      const runNumber = await allocateBacktestRunNumber(tx, userId);
       return tx.backtestRun.create({
       data: {
         userId,
+        runNumber,
         strategyId: strategy.id,
         strategyVersionId: version.id,
         stockListId: stockList.id,
@@ -1349,6 +1365,7 @@ export class BacktestsService {
       event: "backtest.queued",
       actorUserId: userId,
       runId: run.id,
+      runNumber: run.runNumber,
       jobId: run.job?.id ?? null,
       strategyId: strategy.id,
       stockListId: stockList.id,
