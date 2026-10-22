@@ -97,19 +97,37 @@ function statusTone(status: BacktestRunStatus): StatusTone {
  * turns the same readings into per-year figures — `(1 + cumulative)` is exactly the return index
  * `backtestAnnualReturns` divides — so a running page and a finished one report one methodology
  * rather than two.
+ *
+ * The benchmark row is chained the same way from each milestone's cumulative benchmark return. Its
+ * first year is measured from the benchmark's reading on the run's first simulated date, which the
+ * live curve's first point carries (the curve is thinned for transport but always keeps its first
+ * day); without that reading the first year's benchmark figure stays unavailable rather than being
+ * measured from a later date.
  */
 function annualReturnsFromMilestones(
   milestones: readonly BacktestMilestoneResponse[],
   configuration: BacktestRunConfigurationResponse,
+  firstPoint: BacktestCurvePointResponse | undefined,
 ): BacktestAnnualReturnResponse[] {
   return backtestAnnualReturns(
     milestones.map((milestone) => ({
       date: milestone.simulatedThrough,
       returnIndex: 1 + milestone.portfolioReturnPercent / 100,
+      benchmarkIndex:
+        milestone.benchmarkReturnPercent === null
+          ? null
+          : 1 + milestone.benchmarkReturnPercent / 100,
     })),
     {
       startDate: configuration.startDate,
       endDate: configuration.endDate,
+    },
+    {
+      indexAtFirstSimulatedDate:
+        firstPoint?.benchmarkReturnPercent === null ||
+        firstPoint?.benchmarkReturnPercent === undefined
+          ? null
+          : 1 + firstPoint.benchmarkReturnPercent / 100,
     },
   );
 }
@@ -597,7 +615,11 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           curve: live.curve,
           // A run in flight has no durable result yet, so its years come from the milestones it
           // has already recorded — chained through the same canonical calculation.
-          annualReturns: annualReturnsFromMilestones(milestones, configuration),
+          annualReturns: annualReturnsFromMilestones(
+            milestones,
+            configuration,
+            live.curve[0],
+          ),
           trades: live.recentTrades,
           holdings: live.holdings,
           metrics: liveMetrics(live),
@@ -811,6 +833,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                   in the same flat grammar. */}
               <BacktestAnnualReturns
                 years={snapshot?.annualReturns ?? []}
+                benchmarkName={configuration.benchmark.name}
                 {...(terminal
                   ? {}
                   : {
