@@ -51,8 +51,8 @@
   white-space: nowrap;
 }
 
-/* Two tiles across on a phone, four on a tablet, all eight in one row once the content width can
-   carry them without shrinking a value. */
+/* Two tiles across on a phone, four on a tablet and a narrower desktop — and two again from
+   1,280px, where the numbers sit beside the chart as a 2 x 4 grid (`BacktestRunView`'s overview). */
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -119,13 +119,23 @@
   }
 }
 
-/* Eight across. The gap closes to 4px here purely to buy the labels their width back: a tile has
-   to be as wide inside as the borderless one it replaces, or "Portfolio return" starts wrapping on
-   a 1280px screen where it used to fit on one line. */
+/* Beside the chart: two across and four down, filling the overview row so the grid's bottom lines
+   up with the chart's. The row's height is the chart frame's, fixed from the first render; the
+   four rows share it equally, so a value or a benchmark figure arriving never changes its size.
+   At 1,280px the column is about 340px wide, which keeps every label on one line and a value plus
+   its benchmark figure readable, the figure wrapping under the value where it must. */
 @media (min-width: 1280px) {
+  .section {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   .grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    gap: 4px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+  }
+
+  .tile {
+    align-content: center;
   }
 
   .value {

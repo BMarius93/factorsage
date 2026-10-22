@@ -75,6 +75,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The chart and the eight result numbers, as one overview.
+
+   Stacked — chart, then the numbers — until the wide-desktop breakpoint, with the hero's own 18px
+   rhythm between them, exactly as when they were two sections. From 1,280px they share one row:
+   the chart takes about 70% of the width and the numbers a 2 x 4 grid in the remaining 30%. Below
+   that the 30% column would be under ~275px, too narrow for two tiles of "Portfolio value" beside
+   each other, so the split waits for the width that carries it comfortably. */
+.overview {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .overview {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+    gap: 24px;
+    /* Both columns take the row's height, which is the chart's: the numbers' grid fills it, so
+       the two bottoms line up. */
+    align-items: stretch;
+  }
+}
+
 /* One height for both states: the placeholder and the chart are interchangeable inside it.
 
    The chart leads the result now, so the phone's height is deliberately the shortest of the three:
@@ -133,6 +156,16 @@
   .columns {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
+  }
+}
+
+/* Beside the numbers the chart is a little taller than when it spans the page: the row's height
+   is this frame's, fixed from the first render, so the numbers arriving — or a benchmark figure
+   joining a tile once the run completes — never resizes the chart or moves anything below it. */
+@media (min-width: 1280px) {
+  .chartFrame {
+    --backtest-chart-height: 380px;
+    height: 380px;
   }
 }
 
@@ -266,4 +299,45 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* --- The header's metadata line: Strategy · List · period · Benchmark --- */
+
+/* Items wrap as whole units, so a narrow screen breaks the line between facts rather than inside
+   "Benchmark: SPY". A long strategy or list name may still wrap within its own item. */
+.meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.metaItem {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metaSeparator {
+  color: var(--color-text-muted);
+}
+
+.metaValue {
+  color: var(--color-text-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.metaLink {
+  color: var(--color-primary-ink);
+  font-weight: var(--weight-emphasis);
+  text-decoration: none;
+}
+
+.metaLink:hover {
+  text-decoration: underline;
+}
+
+.metaLink:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
 }

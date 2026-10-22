@@ -13,6 +13,7 @@ import {
   TEST_BENCHMARK_NAME,
   TEST_PERIOD_END,
   TEST_PERIOD_START,
+  testConfiguration,
   testCurve,
   testDetail,
   testLive,
@@ -145,6 +146,132 @@ describe("BacktestRunView", () => {
       "—",
     );
     expect(screen.getByTestId("metric-trades").textContent).toContain("—");
+  });
+
+  it("titles the page with the Run ID and names what the run executed under it", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        completedAt: "2026-09-01T10:20:00.000Z",
+        result: testResult(),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The run's own identity, not the strategy's name, is the page's one heading.
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("Run #0084");
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Completed");
+    // The metadata line: Strategy · List · period · Benchmark, from the run's snapshot.
+    const metadata = screen.getByTestId("backtest-run-metadata");
+    expect(metadata.textContent).toBe(
+      `Strategy: Deep value·List: Quality compounders·Jan 4, 2021 – Jan 2, 2026·Benchmark: ${TEST_BENCHMARK_NAME}`,
+    );
+    expect(
+      screen.getByTestId("backtest-header-strategy").getAttribute("href"),
+    ).toBe("/strategies/strategy-1");
+    expect(
+      screen.getByTestId("backtest-header-list").getAttribute("href"),
+    ).toBe("/lists/list-1");
+    // The tab names the run and the strategy it executed.
+    expect(document.title).toBe("Run #0084 · Deep value · FactorSage");
+    // The preserved actions and sections are all still there.
+    expect(screen.getByTestId("backtest-edit-and-rerun")).toBeTruthy();
+    // The configuration's submission time reads "Created", not "Queued".
+    const configuration = screen.getByTestId("backtest-configuration");
+    expect(configuration.textContent).toContain("Created");
+    expect(configuration.textContent).not.toContain("Queued");
+  });
+
+  it("keeps a deleted strategy's and list's snapshot names in the header, unlinked", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        configuration: testConfiguration({
+          strategyId: null,
+          strategyName: "Retired strategy",
+          stockListId: null,
+          stockListName: "Retired list",
+        }),
+        result: testResult(),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    for (const [testId, name] of [
+      ["backtest-header-strategy", "Retired strategy"],
+      ["backtest-header-list", "Retired list"],
+    ] as const) {
+      const reference = screen.getByTestId(testId);
+      expect(reference.textContent).toBe(name);
+      expect(reference.tagName).not.toBe("A");
+      expect(reference.getAttribute("data-static")).toBe("true");
+    }
+    expect(
+      screen.getByTestId("backtest-run-metadata").querySelectorAll("a"),
+    ).toHaveLength(0);
+  });
+
+  it("updates the chart and all eight numbers live, in place, inside the one overview", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
+    fetchProgressMock
+      .mockResolvedValueOnce(
+        testProgress("RUNNING", 1, {
+          percent: 30,
+          live: testLive({
+            curve: testCurve(4),
+            portfolioReturnPercent: 3,
+            totalValue: 10_300,
+            tradeCount: 2,
+          }),
+        }),
+      )
+      .mockResolvedValue(
+        testProgress("RUNNING", 2, {
+          percent: 60,
+          live: testLive({
+            curve: testCurve(9),
+            portfolioReturnPercent: 7.25,
+            totalValue: 10_725,
+            tradeCount: 5,
+          }),
+        }),
+      );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    const overview = screen.getByTestId("backtest-overview");
+    const chart = screen.getByTestId("backtest-chart");
+    const results = screen.getByTestId("backtest-results");
+    expect(overview.contains(chart)).toBe(true);
+    expect(overview.contains(results)).toBe(true);
+
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    expect(chart.dataset.strategyPoints).toBe("4");
+    expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
+      "+3.00%",
+    );
+    expect(screen.getByTestId("metric-trades").textContent).toContain("2");
+    expect(results.textContent).toContain("Updating as the run progresses");
+
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    // The same chart and the same tiles, fed the newer checkpoint: nothing was remounted or moved.
+    expect(screen.getByTestId("backtest-overview")).toBe(overview);
+    expect(screen.getByTestId("backtest-chart")).toBe(chart);
+    expect(screen.getByTestId("backtest-results")).toBe(results);
+    expect(chart.dataset.strategyPoints).toBe("9");
+    expect(chart.dataset.interaction).toBe("locked");
+    expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
+      "+7.25%",
+    );
+    expect(screen.getByTestId("metric-portfolio-value").textContent).toContain(
+      "$10,725",
+    );
+    expect(screen.getByTestId("metric-trades").textContent).toContain("5");
   });
 
   it("says a queued run's status once, names its progress bar, and announces only transitions (BT-5)", async () => {
@@ -615,10 +742,25 @@ describe("BacktestRunView", () => {
     const results = screen.getByTestId("backtest-results");
     const years = screen.getByTestId("backtest-annual-returns");
     const grid = screen.getByTestId("backtest-metrics");
+    const overview = screen.getByTestId("backtest-overview");
 
-    // Results and Annual returns are peers in the hero's one stack — Results does not sit inside
-    // a surface of its own that Annual returns does without.
-    expect(results.parentElement).toBe(years.parentElement);
+    // The chart and Results are the one overview — side by side on a wide desktop, stacked
+    // otherwise — and that overview and Annual returns are peers in the hero's one stack: Results
+    // does not sit inside a surface of its own that Annual returns does without.
+    expect(results.parentElement).toBe(overview);
+    expect(overview.contains(screen.getByTestId("backtest-chart"))).toBe(true);
+    expect(overview.contains(years)).toBe(false);
+    expect(overview.parentElement).toBe(years.parentElement);
+    // The chart comes first in it, then the numbers.
+    expect(
+      [...overview.children].map((child) =>
+        child.contains(screen.getByTestId("backtest-chart"))
+          ? "chart"
+          : child === results
+            ? "results"
+            : "other",
+      ),
+    ).toEqual(["chart", "results"]);
     // And the tiles hang straight off the section: heading, grid, tiles, with nothing wrapped
     // around the grid to draw a second box.
     expect(grid.parentElement).toBe(results);
@@ -825,6 +967,12 @@ describe("BacktestRunView", () => {
     expect(screen.queryByTestId("metric-portfolio-value")).toBeNull();
     expect(screen.queryByText("This run made no trades.")).toBeNull();
     expect(screen.queryByText(/No positions/)).toBeNull();
+    // Neither the overview nor the annual heatmap stays behind, and the run keeps its Run ID.
+    expect(screen.queryByTestId("backtest-overview")).toBeNull();
+    expect(screen.queryByTestId("backtest-annual-returns")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "Run #0084",
+    );
   });
 
   it("omits the phase row when the failure has no user-facing phase", async () => {

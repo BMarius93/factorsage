@@ -5,6 +5,7 @@ import {
   BACKTEST_RUN_STATUS_LABELS,
   BACKTEST_TRADES_PAGE_SIZE,
   backtestAnnualReturns,
+  backtestRunLabel,
   isTerminalBacktestStatus,
   type BacktestAnnualReturnResponse,
   type BacktestCurvePointResponse,
@@ -189,13 +190,103 @@ function RunProvenance({
             label: "Full position",
             value: `${formatDerivedPercent(configuration.fullPositionPercent)}%`,
           },
-          { label: "Queued", value: formatTimestamp(queuedAt) },
+          // When the run was submitted — not how long it then waited in the queue.
+          { label: "Created", value: formatTimestamp(queuedAt) },
           ...(completedAt
             ? [{ label: "Finished", value: formatTimestamp(completedAt) }]
             : []),
         ]}
       />
     </div>
+  );
+}
+
+/**
+ * One entity the run named, in the header's metadata line: a link while the entity still exists,
+ * plain text once it has been deleted — the name is the snapshot's either way, so the line always
+ * says what the run executed, never what the entity is called today.
+ */
+function HeaderReference({
+  label,
+  name,
+  href,
+  testId,
+}: {
+  readonly label: string;
+  readonly name: string;
+  readonly href: string | null;
+  readonly testId: string;
+}) {
+  return (
+    <span className={styles.metaItem}>
+      {label}:{" "}
+      {href ? (
+        <Link className={styles.metaLink} href={href} data-testid={testId}>
+          {name}
+        </Link>
+      ) : (
+        <span
+          className={styles.metaValue}
+          data-testid={testId}
+          data-static="true"
+        >
+          {name}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * What the run executed, in one compact line under its Run ID:
+ * `Strategy: Value & Trend · List: Quality compounders · Oct 20, 1996 – Oct 19, 2026 · Benchmark: SPY`.
+ *
+ * Read from the immutable snapshot like everything else on the page; Strategy and List link to
+ * their own pages while those still exist.
+ */
+function RunMetadata({
+  configuration,
+}: {
+  readonly configuration: BacktestRunConfigurationResponse;
+}) {
+  return (
+    <span className={styles.meta} data-testid="backtest-run-metadata">
+      <HeaderReference
+        label="Strategy"
+        name={configuration.strategyName}
+        href={
+          configuration.strategyId
+            ? `/strategies/${configuration.strategyId}`
+            : null
+        }
+        testId="backtest-header-strategy"
+      />
+      <span className={styles.metaSeparator} aria-hidden="true">
+        ·
+      </span>
+      <HeaderReference
+        label="List"
+        name={configuration.stockListName}
+        href={
+          configuration.stockListId
+            ? `/lists/${configuration.stockListId}`
+            : null
+        }
+        testId="backtest-header-list"
+      />
+      <span className={styles.metaSeparator} aria-hidden="true">
+        ·
+      </span>
+      <span className={styles.metaItem} data-testid="backtest-header-period">
+        {formatPeriod(configuration.startDate, configuration.endDate)}
+      </span>
+      <span className={styles.metaSeparator} aria-hidden="true">
+        ·
+      </span>
+      <span className={styles.metaItem} data-testid="backtest-header-benchmark">
+        Benchmark: {configuration.benchmark.name}
+      </span>
+    </span>
   );
 }
 
@@ -413,7 +504,11 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     setPageSize: setTradesPageSize,
     controls: tradeLogControls,
   } = useBacktestTrades(runId, status === "COMPLETED");
-  useDocumentTitle(run ? `${run.configuration.strategyName} backtest` : null);
+  useDocumentTitle(
+    run
+      ? `${backtestRunLabel(run.runNumber)} · ${run.configuration.strategyName}`
+      : null,
+  );
   // The terminal checkpoint arrives one request before the refetched detail that carries the
   // durable result. Retaining the last snapshot is what keeps the chart, KPIs, holdings and trade
   // log on screen across that gap instead of blinking back to their empty states.
@@ -545,11 +640,15 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           <PageHeader
             variant="hero"
             back={{ href: "/backtests", label: "Backtests" }}
-            title={configuration.strategyName}
-            lead={`${configuration.stockListName} · ${formatPeriod(
-              configuration.startDate,
-              configuration.endDate,
-            )} · vs ${configuration.benchmark.name}`}
+            // The run's own identity, not the strategy it executed: two runs of one strategy are
+            // two runs. The strategy is named, and linked, in the metadata line under it.
+            title={
+              <span data-testid="backtest-run-title">
+                {backtestRunLabel(run.runNumber)}
+              </span>
+            }
+            lead={<RunMetadata configuration={configuration} />}
+            leadWidth="full"
             badges={
               <StatusBadge
                 tone={statusTone(status)}
@@ -666,40 +765,47 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               One frame, one height. The chart is mounted as soon as the run exists, curve or not:
               its horizontal domain is the configured period, which is known before the first day
               is simulated, so the axis a user watches fill in is the axis the finished run will
-              have. Only a run that ended with nothing to draw falls back to a message. */}
-              <div className={styles.chartFrame}>
-                {terminal && curve.length === 0 ? (
-                  <p
-                    className={styles.chartPlaceholder}
-                    data-testid="backtest-chart-placeholder"
-                  >
-                    {/* A run that ended without a curve has nothing still to come, so promising
-                    progress would be false. */}
-                    This run produced no comparison curve.
-                  </p>
-                ) : (
-                  <BacktestComparisonChart
-                    points={curve}
-                    benchmarkName={configuration.benchmark.name}
-                    ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash. The same money invested three ways: each scenario receives the same initial capital and the same monthly contributions.`}
-                    periodStart={configuration.startDate}
-                    periodEnd={configuration.endDate}
-                    populating={populating}
-                    initialCapital={configuration.initialCapital}
-                    monthlyContribution={configuration.monthlyContribution}
-                  />
-                )}
-              </div>
+              have. Only a run that ended with nothing to draw falls back to a message.
 
-              {/* Then the eight numbers that summarise it. No surface of its own: a heading and a
-                  row of tiles, so the totals do not read as a card inside the hero card. */}
-              <BacktestMetricsRow
-                metrics={snapshot?.metrics ?? EMPTY_METRICS}
-                benchmarkName={configuration.benchmark.name}
-                caption={
-                  terminal ? undefined : "Updating as the run progresses"
-                }
-              />
+              The chart and the eight numbers are one overview: side by side on a wide desktop —
+              the chart about 70% of the width, the numbers a 2 x 4 grid beside it — and stacked,
+              chart first, wherever both would not fit comfortably. Only their placement changes
+              with the width; the same live data reaches the same two components either way. */}
+              <div className={styles.overview} data-testid="backtest-overview">
+                <div className={styles.chartFrame}>
+                  {terminal && curve.length === 0 ? (
+                    <p
+                      className={styles.chartPlaceholder}
+                      data-testid="backtest-chart-placeholder"
+                    >
+                      {/* A run that ended without a curve has nothing still to come, so promising
+                    progress would be false. */}
+                      This run produced no comparison curve.
+                    </p>
+                  ) : (
+                    <BacktestComparisonChart
+                      points={curve}
+                      benchmarkName={configuration.benchmark.name}
+                      ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash. The same money invested three ways: each scenario receives the same initial capital and the same monthly contributions.`}
+                      periodStart={configuration.startDate}
+                      periodEnd={configuration.endDate}
+                      populating={populating}
+                      initialCapital={configuration.initialCapital}
+                      monthlyContribution={configuration.monthlyContribution}
+                    />
+                  )}
+                </div>
+
+                {/* Then the eight numbers that summarise it. No surface of its own: a heading and a
+                  grid of tiles, so the totals do not read as a card inside the hero card. */}
+                <BacktestMetricsRow
+                  metrics={snapshot?.metrics ?? EMPTY_METRICS}
+                  benchmarkName={configuration.benchmark.name}
+                  caption={
+                    terminal ? undefined : "Updating as the run progresses"
+                  }
+                />
+              </div>
 
               {/* Then what each year did, on its own — directly under the totals it decomposes,
                   in the same flat grammar. */}
