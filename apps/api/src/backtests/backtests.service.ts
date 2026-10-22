@@ -53,6 +53,11 @@ import {
   type BacktestRunStatus,
   type BacktestRunStrategyResponse,
   type BacktestRunSummaryResponse,
+  type BacktestRunPageResponse,
+  type BacktestRunSort,
+  BACKTEST_RUN_DEFAULT_SORT,
+  BACKTEST_RUNS_MAX_PAGE_SIZE,
+  BACKTEST_RUNS_PAGE_SIZE,
   type BacktestSnapshotSecurity,
   type AuthUser,
   type BacktestTradeAction,
@@ -67,7 +72,7 @@ import {
   BacktestTradeAction as TradeAction,
   BacktestTradeSource as TradeSource,
   ContentOwnership,
-  type Prisma,
+  Prisma,
 } from "@intrinsic/database";
 import {
   benchmarkDisplayName,
@@ -88,7 +93,10 @@ import {
   BACKTESTS_LOGGER,
   EXECUTION_CALENDAR_REFERENCE,
 } from "./backtests.tokens";
-import type { ParsedCreateBacktestRunRequest } from "./backtest-requests";
+import type {
+  BacktestRunListQuery,
+  ParsedCreateBacktestRunRequest,
+} from "./backtest-requests";
 import {
   tradeLogCsvHeader,
   tradeLogCsvRecord,
@@ -160,7 +168,30 @@ type RunDetailRow = Prisma.BacktestRunGetPayload<{
 }>;
 
 /** The collection page renders no live snapshot, so the progress JSON stays on the server. */
-const RUN_LIST_INCLUDE = {
+/**
+ * What one row of the collection reads: stored columns and three one-row relations, never the
+ * snapshot. The names were stored with the run when it was queued, from the very values its snapshot
+ * recorded, so a row reads exactly what it would have read from the snapshot, without opening it.
+ */
+const RUN_INDEX_SELECT = {
+  id: true,
+  status: true,
+  strategyId: true,
+  strategyName: true,
+  stockListId: true,
+  stockListName: true,
+  benchmarkName: true,
+  startDate: true,
+  endDate: true,
+  initialCapital: true,
+  maximumPositions: true,
+  queuedAt: true,
+  startedAt: true,
+  completedAt: true,
+  // The code is the benchmark's stable product code; source and methodology belong to the immutable
+  // series the run pinned. With the stored name, they are the snapshot's own benchmark identity.
+  benchmark: { select: { code: true } },
+  benchmarkSeries: { select: { sourceKind: true, methodologyVersion: true } },
   progress: { select: { percent: true, message: true } },
   summary: {
     select: {
@@ -172,11 +203,49 @@ const RUN_LIST_INCLUDE = {
       portfolioCagrPercent: true,
     },
   },
-} satisfies Prisma.BacktestRunInclude;
+} satisfies Prisma.BacktestRunSelect;
 
-type RunListRow = Prisma.BacktestRunGetPayload<{
-  include: typeof RUN_LIST_INCLUDE;
+type RunIndexRow = Prisma.BacktestRunGetPayload<{
+  select: typeof RUN_INDEX_SELECT;
 }>;
+
+/** `%`, `_` and `\` in a search are text, not wildcards or escapes. */
+function likePattern(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
+
+/** The caller's runs matching the search and the filter, as one SQL condition. */
+function runListCondition(
+  userId: string,
+  { q, status }: BacktestRunListQuery,
+): Prisma.Sql {
+  const conditions: Prisma.Sql[] = [Prisma.sql`run."userId" = ${userId}`];
+  if (status === "ACTIVE") {
+    conditions.push(Prisma.sql`run."status" NOT IN ('COMPLETED', 'FAILED')`);
+  } else if (status !== undefined) {
+    conditions.push(Prisma.sql`run."status" = ${status}::"BacktestRunStatus"`);
+  }
+  if (q !== undefined) {
+    const pattern = likePattern(q);
+    conditions.push(
+      Prisma.sql`(run."strategyName" ILIKE ${pattern} OR run."stockListName" ILIKE ${pattern} OR run."benchmarkName" ILIKE ${pattern})`,
+    );
+  }
+  return Prisma.join(conditions, " AND ");
+}
+
+/**
+ * Each order, ending on the queue time and the id so equal keys always land the same way and a page
+ * boundary never splits or repeats them.
+ */
+const RUN_LIST_ORDER: Readonly<Record<BacktestRunSort, Prisma.Sql>> = {
+  newest: Prisma.sql`run."queuedAt" DESC, run."id" DESC`,
+  oldest: Prisma.sql`run."queuedAt" ASC, run."id" ASC`,
+  // Runs without an annualized return yet sort after every run that has one (BT-3).
+  cagr: Prisma.sql`summary."portfolioCagrPercent" DESC NULLS LAST, run."queuedAt" DESC, run."id" DESC`,
+  // Case-insensitive, as a reader expects "alpha" beside "Alpha", whatever the database collation.
+  strategy: Prisma.sql`lower(run."strategyName") ASC, run."queuedAt" DESC, run."id" DESC`,
+};
 
 const PROGRESS_INCLUDE = {
   progress: true,
@@ -196,9 +265,6 @@ const STOCK_LIST_ITEM_INCLUDE = {
   security: true,
   buyWindows: { orderBy: { startDate: "asc" as const } },
 } satisfies Prisma.StockListItemInclude;
-
-/** Runs render newest-queued first; ids break same-tick ties. */
-const RUN_ORDER = [{ queuedAt: "desc" as const }, { id: "desc" as const }];
 
 // ---------------------------------------------------------------------------
 // Value conversion at the boundary
@@ -526,23 +592,29 @@ function configurationOf(
   };
 }
 
-function summaryRowOf(row: RunListRow): BacktestRunSummaryResponse {
-  const snapshot = readSnapshot(row.snapshot);
+function summaryRowOf(row: RunIndexRow): BacktestRunSummaryResponse {
   return {
     id: row.id,
     status: row.status,
     // The nullable foreign keys, as `configurationOf` reads them: an id links while the entity
-    // exists and becomes null after it is deleted, while the snapshot's name keeps describing it.
+    // exists and becomes null after it is deleted, while the stored name keeps describing it.
     strategyId: row.strategyId,
-    strategyName: snapshot.strategy.name,
+    strategyName: row.strategyName,
     stockListId: row.stockListId,
-    stockListName: snapshot.stockList.name,
-    benchmarkCode: snapshot.benchmark.code,
-    benchmarkName: benchmarkDisplayName(snapshot.benchmark),
-    startDate: snapshot.period.startDate,
-    endDate: snapshot.period.endDate,
-    initialCapital: snapshot.capital.initialCapital,
-    maximumPositions: snapshot.allocation.maximumPositions,
+    stockListName: row.stockListName,
+    benchmarkCode: row.benchmark.code,
+    // The catalog's current words for the same series (BT-1), exactly as `configurationOf` derives
+    // them from the snapshot.
+    benchmarkName: benchmarkDisplayName({
+      code: row.benchmark.code,
+      name: row.benchmarkName,
+      sourceKind: row.benchmarkSeries.sourceKind,
+      methodologyVersion: row.benchmarkSeries.methodologyVersion,
+    }),
+    startDate: fromDatabaseDate(row.startDate),
+    endDate: fromDatabaseDate(row.endDate),
+    initialCapital: toNumber(row.initialCapital),
+    maximumPositions: row.maximumPositions,
     queuedAt: row.queuedAt.toISOString(),
     startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
     completedAt:
@@ -1218,6 +1290,8 @@ export class BacktestsService {
         maximumPositions: input.maximumPositions,
         strategyName: strategy.name,
         stockListName: stockList.name,
+        // The same value as the snapshot's `benchmark.name`, so the collection never opens it.
+        benchmarkName: benchmark.name,
         securityCount: securities.length,
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
         snapshotHash,
@@ -1253,13 +1327,118 @@ export class BacktestsService {
     return detailOf(run, null);
   }
 
-  async listForUser(userId: string): Promise<BacktestRunSummaryResponse[]> {
-    const rows = await this.prisma.backtestRun.findMany({
-      where: { userId },
-      orderBy: RUN_ORDER,
-      include: RUN_LIST_INCLUDE,
+  /**
+   * Every run of the caller matching the search and the filter, in the order asked for: the
+   * unpaged `GET /backtests`, kept for the callers that read the whole list (the New backtest form
+   * asks only for `ACTIVE` runs). The collection page reads `pageForUser` instead.
+   */
+  async listForUser(
+    userId: string,
+    query: BacktestRunListQuery = {},
+  ): Promise<BacktestRunSummaryResponse[]> {
+    const ids = await this.orderedRunIds(userId, query);
+    return this.runRows(ids);
+  }
+
+  /**
+   * One page of the caller's runs: searched, filtered, ordered and counted in the database, so the
+   * counts and every page describe the whole history, and no run's snapshot is read to build it.
+   *
+   * A page past the end is clamped rather than refused, as on the trade log: a stale link or a
+   * hand-edited page lands on the last real page.
+   */
+  async pageForUser(
+    userId: string,
+    request: BacktestRunListQuery & { page?: number; pageSize?: number } = {},
+  ): Promise<BacktestRunPageResponse> {
+    const sort = request.sort ?? BACKTEST_RUN_DEFAULT_SORT;
+    const query: BacktestRunListQuery = { ...request, sort };
+    const filtered = request.q !== undefined || request.status !== undefined;
+    const pageSize = Math.min(
+      Math.max(Math.trunc(request.pageSize ?? BACKTEST_RUNS_PAGE_SIZE), 1),
+      BACKTEST_RUNS_MAX_PAGE_SIZE,
+    );
+    const [totalCount, unfilteredCount] = await Promise.all([
+      this.countRuns(userId, query),
+      filtered ? this.countRuns(userId, {}) : null,
+    ]);
+    const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
+    const page = Math.min(
+      Math.max(Math.trunc(request.page ?? 1), 1),
+      pageCount,
+    );
+    const ids = await this.orderedRunIds(userId, query, {
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
-    return rows.map(summaryRowOf);
+    return {
+      runs: await this.runRows(ids),
+      page,
+      pageSize,
+      totalCount,
+      pageCount,
+      unfilteredCount: unfilteredCount ?? totalCount,
+      q: request.q ?? null,
+      status: request.status ?? null,
+      sort,
+    };
+  }
+
+  private async countRuns(
+    userId: string,
+    query: BacktestRunListQuery,
+  ): Promise<number> {
+    const [row] = await this.prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::int AS "count"
+      FROM "BacktestRun" AS run
+      WHERE ${runListCondition(userId, query)}`;
+    return row?.count ?? 0;
+  }
+
+  /**
+   * The ids of the matching runs, in order, one page of them when asked. The order is decided in
+   * SQL because two orders are not expressible as a Prisma `orderBy`: a strategy name read without
+   * regard to case, and the annualized return with the runs that have none last.
+   */
+  private async orderedRunIds(
+    userId: string,
+    query: BacktestRunListQuery,
+    window?: { readonly skip: number; readonly take: number },
+  ): Promise<string[]> {
+    const sort = query.sort ?? BACKTEST_RUN_DEFAULT_SORT;
+    const summaryJoin =
+      sort === "cagr"
+        ? Prisma.sql`LEFT JOIN "BacktestRunSummary" AS summary ON summary."runId" = run."id"`
+        : Prisma.empty;
+    const limit = window
+      ? Prisma.sql`LIMIT ${window.take} OFFSET ${window.skip}`
+      : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT run."id"
+      FROM "BacktestRun" AS run
+      ${summaryJoin}
+      WHERE ${runListCondition(userId, query)}
+      ORDER BY ${RUN_LIST_ORDER[sort]}
+      ${limit}`;
+    return rows.map((row) => row.id);
+  }
+
+  /** The rows for these ids, in the same order. */
+  private async runRows(
+    ids: readonly string[],
+  ): Promise<BacktestRunSummaryResponse[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.prisma.backtestRun.findMany({
+      where: { id: { in: [...ids] } },
+      select: RUN_INDEX_SELECT,
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [summaryRowOf(row)] : [];
+    });
   }
 
   async getRun(

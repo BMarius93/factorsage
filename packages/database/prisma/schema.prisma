@@ -1049,6 +1049,10 @@ model BacktestRun {
   maximumPositions          Int
   strategyName              String
   stockListName             String
+  /// The benchmark's name as the snapshot recorded it, so the collection can show and search it
+  /// without opening the snapshot. The display name is `benchmarkDisplayName` over this, the
+  /// benchmark's code and the pinned series' source and methodology — exactly as from the snapshot.
+  benchmarkName             String
   securityCount             Int
   snapshot                  Json
   /// SHA-256 of `canonicalBacktestSnapshotDocument(snapshot)` from `@intrinsic/contracts`: the
@@ -1086,7 +1090,9 @@ model BacktestRun {
   equityPoints              BacktestDailyEquity[]
   positions                 BacktestPosition[]
 
-  @@index([userId, queuedAt])
+  /// The collection's default order, newest first with the id breaking same-tick ties, read as one
+  /// index range per page.
+  @@index([userId, queuedAt(sort: Desc), id(sort: Desc)])
   @@index([userId, status])
   /// Restrict-on-delete has to check this column before any benchmark series can be removed.
   @@index([executionCalendarSeriesId])

@@ -65,6 +65,7 @@ describe("matrix run retention", () => {
         initialCapital: 100_000,
         monthlyContribution: 0,
         maximumPositions: 10,
+        benchmarkName: "Matrix Cleanup Benchmark",
         securityCount: 1,
         snapshot: {},
         snapshotHash: randomUUID(),

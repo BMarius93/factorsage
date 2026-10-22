@@ -67,6 +67,7 @@ describe("backtest claim entitlements", () => {
         maximumPositions: 10,
         strategyName: "Claim Entitlement Strategy",
         stockListName: "Claim Entitlement List",
+        benchmarkName: "Claim Entitlement Benchmark",
         securityCount: 1,
         snapshot: { snapshotVersion: 1, marker: suffix },
         snapshotHash: `hash-${randomUUID()}`,

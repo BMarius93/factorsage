@@ -688,6 +688,8 @@ export async function seedEntitlementFixtures(
           maximumPositions: 10,
           strategyName: `${ENTITLEMENT_FIXTURE_PREFIX}In Flight`,
           stockListName: listFixture.name,
+          // As the snapshot below records it.
+          benchmarkName: benchmark.name,
           securityCount: securities.length,
           startedAt: new Date(),
           snapshot: fixtureSnapshot({
@@ -757,6 +759,7 @@ export async function seedEntitlementFixtures(
           maximumPositions: 10,
           strategyName: `${ENTITLEMENT_FIXTURE_PREFIX}Historic Run`,
           stockListName: listFixture.name,
+          benchmarkName: benchmark.name,
           securityCount: securities.length,
           startedAt: new Date(`${startDate}T00:00:00.000Z`),
           completedAt: new Date(`${today}T00:00:00.000Z`),
