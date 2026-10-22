@@ -3,7 +3,8 @@
 import {
   MONITOR_SECURITY_STATUSES,
   type MonitorCoverageResponse,
-  type MonitorDetailResponse,
+  type MonitorActivityKind,
+  type MonitorDetailSummaryResponse,
   type MonitorLevelKind,
   type MonitorSecurityStatus,
   type MonitorSignalRowResponse,
@@ -12,7 +13,7 @@ import {
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import {
@@ -42,6 +43,17 @@ import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitor } from "../hooks/use-monitor";
+import { useAutoLoad } from "../../../lib/use-auto-load";
+import {
+  fetchMonitorHistory,
+  type ActivityReadQuery,
+} from "../../dashboard/api/dashboard-api";
+import { ActivityFeed } from "../../dashboard/components/ActivityFeed";
+import {
+  ACTIVITY_AUTO_LOAD_PAGES,
+  useMonitorActivity,
+} from "../../dashboard/hooks/use-monitor-activity";
+import { ACTIVITY_KIND_FILTER_LABELS } from "../../dashboard/utils/activity";
 import {
   useMonitorSignals,
   type SignalTableFilters,
@@ -155,12 +167,14 @@ const SIGNAL_COLUMNS: readonly DataTableColumn<MonitorSignalRowResponse>[] = [
         <StatusBadge
           tone={LEVEL_KIND_TONES[row.levelKind]}
           variant="outline"
+          size="small"
           dataAttributes={{ "data-kind": row.levelKind }}
         >
           {levelPositionLabel(row)}
         </StatusBadge>
         <StatusBadge
           tone={SIGNAL_ROW_STATE_TONES[row.state]}
+          size="small"
           testId="monitor-signal-status"
           dataAttributes={{ "data-state": row.state }}
         >
@@ -221,6 +235,24 @@ const SIGNAL_COLUMNS: readonly DataTableColumn<MonitorSignalRowResponse>[] = [
  * the worker's durable state — the browser never re-runs a Strategy, and a status the backend did
  * not record is not inferred.
  */
+/** The Event filter of the Activity history, as the Dashboard words it. */
+const HISTORY_KIND_OPTIONS = [
+  { value: "ALL", label: "All events" },
+  ...(["ACTIVATED", "RESOLVED"] as const).map((kind) => ({
+    value: kind,
+    label: ACTIVITY_KIND_FILTER_LABELS[kind],
+  })),
+];
+
+/** "3 active · 12 ended": the Signal table's two groups, counted over the whole table. */
+function signalCountLabel(counts: {
+  readonly active: number;
+  readonly ended: number;
+}): string {
+  const format = new Intl.NumberFormat("en-US");
+  return `${format.format(counts.active)} active · ${format.format(counts.ended)} ended`;
+}
+
 export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const router = useRouter();
   const { status, monitor, reload } = useMonitor(monitorId);
@@ -235,6 +267,30 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     ...(levelView === "ALL" ? {} : { levelKind: levelView }),
   };
   const signalTable = useMonitorSignals(monitorId, filters);
+  const [historyKind, setHistoryKind] = useState<MonitorActivityKind | null>(
+    null,
+  );
+  const readHistory = useCallback(
+    (query: ActivityReadQuery, options?: { signal?: AbortSignal }) =>
+      fetchMonitorHistory(monitorId, query, options),
+    [monitorId],
+  );
+  const history = useMonitorActivity(null, historyKind, {
+    read: readHistory,
+    source: `monitor:${monitorId}`,
+  });
+  // Older history loads as the reader nears its end, a few pages per visit and filter, as on the
+  // Dashboard; after that, a failure or without the browser's support, it is Show more activity.
+  const historyAutoAllowed =
+    history.olderPages < ACTIVITY_AUTO_LOAD_PAGES && !history.loadMoreFailed;
+  const historyAutoLoad = useAutoLoad(
+    history.status === "ready" &&
+      history.hasMore &&
+      historyAutoAllowed &&
+      !history.loadingMore,
+    history.loadMore,
+  );
+  const historyAutoLoading = historyAutoLoad.supported && historyAutoAllowed;
   const now = useNow(30_000);
   useDocumentTitle(local?.name ?? monitor?.name);
 
@@ -299,7 +355,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
 
   // A toggle answers with the fresh summary, which is authoritative for the header while the
   // evaluation table below it is unchanged by enabling or disabling.
-  const view: MonitorDetailResponse =
+  const view: MonitorDetailSummaryResponse =
     local === null ? monitor : { ...monitor, ...local };
 
   const builtIn = view.ownership === "SYSTEM";
@@ -340,12 +396,8 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     ? summarizeStockSectors(view.stockSectors)
     : null;
   // The status of the current members, as one compact line rather than a per-stock table.
-  const statusCounts = Object.fromEntries(
-    MONITOR_SECURITY_STATUSES.map((status) => [
-      status,
-      view.securities.filter((entry) => entry.status === status).length,
-    ]),
-  ) as Record<MonitorSecurityStatus, number>;
+  const statusCounts: Record<MonitorSecurityStatus, number> =
+    view.memberCounts.byStatus;
   const statusLine = MONITOR_SECURITY_STATUSES.filter(
     (status) => statusCounts[status] > 0,
   )
@@ -566,7 +618,18 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
 
         <SectionCard
           id="monitor-signals"
+          density="compact"
           title="Signals"
+          caption="Where each occurrence stands now: active first, then ended."
+          {...(signalTable.counts
+            ? {
+                count: (
+                  <span data-testid="monitor-signals-count">
+                    {signalCountLabel(signalTable.counts)}
+                  </span>
+                ),
+              }
+            : {})}
           flush={signalTable.status === "ready" && signalTable.rows.length > 0}
           toolbar={
             <div className={styles.toolbar}>
@@ -696,6 +759,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             />
           ) : (
             <DataTable
+              density="compact"
               label="Signals"
               testId="monitor-signals"
               rowTestId="monitor-signal-row"
@@ -713,7 +777,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   }
                   body={
                     <p>
-                      {view.securities.length === 0 ? (
+                      {view.memberCounts.total === 0 ? (
                         <>
                           This monitor has no current members. Add stocks to{" "}
                           <Link
@@ -760,6 +824,117 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             </div>
           ) : null}
           <DisclosureNote id="signals" className={styles.disclosure} />
+        </SectionCard>
+
+        {/* What happened, session by session — the Dashboard's feed over this Monitor alone.
+            Apart from the Signal table, which says where each occurrence stands now. */}
+        <SectionCard
+          id="monitor-history"
+          density="compact"
+          title="Activity history"
+          caption="Every activation and ending this monitor observed at a market close, newest session first."
+          testId="monitor-history-section"
+          toolbar={
+            <SelectControl
+              id="monitor-history-kind"
+              label="Event"
+              value={historyKind ?? "ALL"}
+              onChange={(value) =>
+                setHistoryKind(
+                  value === "ALL" ? null : (value as MonitorActivityKind),
+                )
+              }
+              options={HISTORY_KIND_OPTIONS}
+              testId="monitor-history-kind"
+            />
+          }
+          flush={history.status === "ready" && history.events.length > 0}
+        >
+          {history.status === "loading" ? (
+            <SkeletonList rows={4} />
+          ) : history.status === "error" ? (
+            <EmptyState
+              variant="compact"
+              testId="monitor-history-error"
+              title="Activity history could not be loaded"
+              body={<p>This is usually temporary — try again in a moment.</p>}
+              actions={
+                <button
+                  type="button"
+                  className={forms.secondaryButton}
+                  onClick={history.reload}
+                >
+                  Try again
+                </button>
+              }
+            />
+          ) : history.events.length === 0 ? (
+            <EmptyState
+              variant="compact"
+              testId="monitor-history-empty"
+              title={
+                historyKind === null
+                  ? "No activity yet"
+                  : "No activity of this kind"
+              }
+              body={
+                <p>
+                  When this monitor sees a stock start or stop matching at a
+                  market close, it appears here.
+                </p>
+              }
+            />
+          ) : (
+            <div className={styles.history}>
+              <ActivityFeed
+                events={history.events}
+                testId="monitor-history"
+                label="Activity history"
+                showMonitor={false}
+              />
+            </div>
+          )}
+          {history.status === "ready" &&
+          history.hasMore &&
+          historyAutoLoading ? (
+            <div
+              ref={historyAutoLoad.marker}
+              className={styles.more}
+              data-testid="monitor-history-autoload"
+            >
+              <p className={styles.moreLoading} role="status">
+                {history.loadingMore ? "Loading older activity…" : ""}
+              </p>
+            </div>
+          ) : null}
+          {history.status === "ready" &&
+          history.hasMore &&
+          !historyAutoLoading ? (
+            <div className={styles.more}>
+              {history.loadMoreFailed ? (
+                <p
+                  className={styles.moreFailed}
+                  role="alert"
+                  data-testid="monitor-history-more-failed"
+                >
+                  Older activity could not be loaded.
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={history.loadMore}
+                disabled={history.loadingMore}
+                data-testid="monitor-history-more"
+              >
+                {history.loadingMore
+                  ? "Loading…"
+                  : history.loadMoreFailed
+                    ? "Try again"
+                    : "Show more activity"}
+              </button>
+            </div>
+          ) : null}
         </SectionCard>
       </div>
 
