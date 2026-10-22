@@ -141,6 +141,58 @@ describe("SectionCard", () => {
     ).toBe(false);
   });
 
+  it("sets a compact section's controls and count on the heading row", () => {
+    render(
+      <SectionCard
+        density="compact"
+        title="Your lists"
+        count={
+          <>
+            12<span> lists</span>
+          </>
+        }
+        toolbar={<input aria-label="Search lists" />}
+        flush
+        testId="compact"
+      >
+        <p>table</p>
+      </SectionCard>,
+    );
+
+    const section = screen.getByTestId("compact");
+    expect(section.getAttribute("data-density")).toBe("compact");
+    const heading = screen.getByRole("heading", { name: "Your lists" });
+    const headRow = heading.closest("section > div");
+    // One row: the title, its count and the search share the heading's container.
+    expect(headRow?.textContent).toContain("12 lists");
+    expect(
+      headRow?.contains(screen.getByRole("textbox", { name: "Search lists" })),
+    ).toBe(true);
+    // The count is beside the heading, not part of its name.
+    expect(heading.textContent).toBe("Your lists");
+  });
+
+  it("keeps the toolbar on its own row under the heading by default", () => {
+    render(
+      <SectionCard
+        title="Your lists"
+        toolbar={<input aria-label="Search lists" />}
+        testId="comfortable"
+      >
+        <p>table</p>
+      </SectionCard>,
+    );
+
+    const section = screen.getByTestId("comfortable");
+    expect(section.getAttribute("data-density")).toBeNull();
+    const heading = screen.getByRole("heading", { name: "Your lists" });
+    expect(
+      heading
+        .closest("section > div")
+        ?.contains(screen.getByRole("textbox", { name: "Search lists" })),
+    ).toBe(false);
+  });
+
   it("renders no heading when a collection's title already belongs to the page", () => {
     render(
       <SectionCard testId="untitled" ariaLabel="Stock lists">

@@ -23,3 +23,24 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* In a compact section's heading row the controls sit at its trailing end, the search field no wider
+   than it needs to be; on a phone they take the row under the title, as the Dashboard's filters do. */
+.toolbar[data-density="compact"] {
+  justify-content: flex-end;
+}
+
+.toolbar[data-density="compact"] .search {
+  flex: 0 1 16rem;
+}
+
+@media (max-width: 879px) {
+  .toolbar[data-density="compact"] {
+    justify-content: flex-start;
+  }
+
+  .toolbar[data-density="compact"] .search {
+    flex: 1 1 14rem;
+    max-width: none;
+  }
+}

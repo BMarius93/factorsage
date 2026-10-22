@@ -78,8 +78,8 @@ function positiveIntegerParam(
 
 /**
  * The page size a URL names, when it is one the footer offers; otherwise the log's default. A size the
- * footer cannot show (`200`, `10` before it is offered) would page the log while the control claimed
- * another — the API's own larger maximum stays for the CSV export and direct API reads.
+ * footer cannot show (`200`, `7`) would page the log while the control claimed another — the API's
+ * own larger maximum stays for the CSV export and direct API reads.
  */
 function offeredPageSize(params: URLSearchParams): number {
   const asked = positiveIntegerParam(

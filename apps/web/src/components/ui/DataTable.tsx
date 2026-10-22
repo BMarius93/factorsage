@@ -24,6 +24,13 @@ export type DataTableCardRole =
   | "fact"
   | "links"
   | "actions"
+  /**
+   * A cell holding only the row's `OverflowMenu`. On a phone it is the trigger at the card's
+   * top-right, taking no row of its own (an `actions` row with nothing else in it would be an empty
+   * band under a divider); on a desktop it is a narrow trailing cell whose header is read by
+   * assistive technology but not shown, since a column of "⋯" needs no caption.
+   */
+  | "menu"
   /** Desktop-only detail that would only clutter a phone card. */
   | "hidden";
 
@@ -97,6 +104,12 @@ type DataTableProps<TRow> = {
   readonly clickableRows?: boolean;
   /** Rendered instead of the table when there are no rows. */
   readonly emptyState?: ReactNode;
+  /**
+   * `compact` is the Dashboard's table density, for a table inside a compact `SectionCard`: 13px
+   * cells and tighter padding on a desktop, and on a phone the rows stacked inside the section,
+   * divided by hairlines, rather than one bordered card per record.
+   */
+  readonly density?: "comfortable" | "compact";
 };
 
 /**
@@ -175,6 +188,7 @@ export function DataTable<TRow>({
   testId,
   clickableRows,
   emptyState,
+  density = "comfortable",
 }: DataTableProps<TRow>) {
   if (rows.length === 0 && emptyState) {
     return <>{emptyState}</>;
@@ -204,6 +218,7 @@ export function DataTable<TRow>({
         className={styles.table}
         role="table"
         aria-label={label}
+        data-density={density === "compact" ? "compact" : undefined}
         {...(testId ? { "data-testid": testId } : {})}
       >
         <thead className={styles.head} role="rowgroup">
@@ -231,7 +246,9 @@ export function DataTable<TRow>({
                     : {})}
                   style={columnStyle(column)}
                 >
-                  {column.sortable && onSortChange ? (
+                  {column.cardRole === "menu" ? (
+                    <span className={styles.srOnly}>{column.header}</span>
+                  ) : column.sortable && onSortChange ? (
                     <button
                       type="button"
                       className={styles.sortButton}
