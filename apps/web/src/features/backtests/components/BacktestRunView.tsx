@@ -55,6 +55,7 @@ import { BacktestAnnualReturns } from "./BacktestAnnualReturns";
 import { BacktestEtfConditions } from "./BacktestEtfConditions";
 import { BacktestComparisonChart } from "./BacktestComparisonChart";
 import { BacktestHoldings } from "./BacktestHoldings";
+import { BacktestShareControl } from "./BacktestShareControl";
 import { BacktestMetricsRow } from "./BacktestMetricsRow";
 import { BacktestTrades } from "./BacktestTrades";
 import { useDocumentTitle } from "../../../lib/use-document-title";
@@ -684,16 +685,20 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             }
             // A finished run's natural next step is a variation of it (UI-032). The failure panel
             // carries its own recovery, so the hero offers this only for a completed run.
+            // Sharing publishes the result, so it exists only once there is one.
             {...(completed
               ? {
                   actions: (
-                    <Link
-                      className={forms.secondaryButton}
-                      href={rerunHref(runId, configuration)}
-                      data-testid="backtest-edit-and-rerun"
-                    >
-                      Edit and run again
-                    </Link>
+                    <>
+                      <BacktestShareControl runId={runId} />
+                      <Link
+                        className={forms.secondaryButton}
+                        href={rerunHref(runId, configuration)}
+                        data-testid="backtest-edit-and-rerun"
+                      >
+                        Edit and run again
+                      </Link>
+                    </>
                   ),
                 }
               : {})}

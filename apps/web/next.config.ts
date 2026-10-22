@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { assertLegalReleaseReadiness } from "./src/lib/legal-release";
+import { BLOCKING_METADATA_USER_AGENTS } from "./src/lib/link-previews";
 import {
   assertReleaseBuildConfig,
   isReleaseBuild,
@@ -25,6 +26,9 @@ export default function nextConfig(phase: string): NextConfig {
     // links carry a one-time token there, so those two routes are kept out of the log; every
     // other request is logged as before. See `src/lib/request-logging.ts`.
     logging: webRequestLoggingConfig(),
+    // Page metadata always lands in `<head>`, so any link-preview crawler reads a shared
+    // backtest's Open Graph tags without running JavaScript. See `src/lib/link-previews.ts`.
+    htmlLimitedBots: BLOCKING_METADATA_USER_AGENTS,
     async headers() {
       return webHeaderRules({ hsts });
     },

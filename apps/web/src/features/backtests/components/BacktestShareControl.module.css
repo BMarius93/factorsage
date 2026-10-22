@@ -1,0 +1,68 @@
+/* The live-link marker on the header's button: the run is published right now. */
+.liveDot {
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-positive);
+}
+
+.explanation {
+  display: grid;
+  gap: 8px;
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+}
+
+.explanation p {
+  margin: 0;
+}
+
+.status {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+}
+
+.linkRow {
+  display: flex;
+  gap: 8px;
+}
+
+.linkRow input {
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: var(--text-secondary);
+}
+
+.revokeConfirm {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+
+.revokeConfirm p {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+/* Phones: the copy button drops under the link, which keeps the whole address readable. */
+@media (max-width: 599px) {
+  .linkRow {
+    flex-direction: column;
+  }
+
+  .revokeConfirm > div {
+    flex-wrap: wrap;
+  }
+}

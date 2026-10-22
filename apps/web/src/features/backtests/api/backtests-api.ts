@@ -7,12 +7,19 @@ import {
   type BacktestRunSort,
   type BacktestRunStatusFilter,
   type BacktestRunSummaryResponse,
+  type BacktestShareResponse,
   type BacktestTradeLogQuery,
   type BacktestTradePageResponse,
   type BenchmarkResponse,
   type CreateBacktestRunRequest,
 } from "@intrinsic/contracts";
-import { apiGet, apiGetBlob, apiPost } from "../../../lib/api/client";
+import {
+  apiDelete,
+  apiGet,
+  apiGetBlob,
+  apiPost,
+  apiPut,
+} from "../../../lib/api/client";
 
 /** The selectable benchmark catalog. The browser never names a provider symbol. */
 export function fetchBenchmarks(options: { signal?: AbortSignal } = {}) {
@@ -160,4 +167,27 @@ export function fetchBacktestTradesCsv(
     `/backtests/${runId}/trades/export${params ? `?${params}` : ""}`,
     options,
   );
+}
+
+/** Whether the caller's run is shared, and its public link (`docs/decisions/backtest-sharing-v1.md`). */
+export function fetchBacktestShare(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+) {
+  return apiGet<BacktestShareResponse>(`/backtests/${runId}/share`, options);
+}
+
+/** Shares a completed run, or returns the link it already has. Idempotent. */
+export async function enableBacktestShare(
+  runId: string,
+): Promise<BacktestShareResponse> {
+  return (await apiPut<BacktestShareResponse>(
+    `/backtests/${runId}/share`,
+    undefined,
+  )) as BacktestShareResponse;
+}
+
+/** Stops sharing: the link stops working at once and is never revived. */
+export async function revokeBacktestShare(runId: string): Promise<void> {
+  await apiDelete(`/backtests/${runId}/share`);
 }
