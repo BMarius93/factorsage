@@ -66,6 +66,15 @@ export function AccountMenu() {
     // before making one (PRICING-001).
     return (
       <div className={styles.guestLinks}>
+        {/* What backtesting produces, without an account: precomputed reports (entitlements-v2 §4). */}
+        <Link
+          className={styles.pricing}
+          href="/demo-backtests"
+          data-testid="demo-backtests-link"
+          onNavigate={guardNavigation}
+        >
+          Demos
+        </Link>
         <Link
           className={styles.pricing}
           href="/pricing"

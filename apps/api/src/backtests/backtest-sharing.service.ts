@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   BACKTEST_SHARE_TOKEN_BYTES,
   backtestSharePath,
+  DEMO_BACKTESTS_MAX,
   isBacktestShareToken,
   sampleSharedBacktestPreview,
   SHARED_BACKTEST_SUMMARY_FIELDS,
@@ -10,6 +11,8 @@ import {
   type BacktestResultSummaryResponse,
   type BacktestRunSnapshot,
   type BacktestShareResponse,
+  type DemoBacktestListResponse,
+  type DemoBacktestResponse,
   type SharedBacktestConfigurationResponse,
   type SharedBacktestPreviewResponse,
   type SharedBacktestReportResponse,
@@ -312,6 +315,104 @@ export class BacktestSharingService {
       durationMs: Date.now() - startedAt,
     });
     return preview;
+  }
+
+  /**
+   * The operator-featured demonstrations, in display order (`docs/decisions/entitlements-v2.md` §4).
+   *
+   * Public and precomputed: each is an active shared report of a completed run, projected through
+   * the same allowlist the report itself uses, so a demonstration can never publish more than its
+   * link already does. Nothing is executed — two indexed reads and the stored summaries. A demo whose
+   * run no longer has a result is left out rather than answered half-empty.
+   */
+  async listDemos(): Promise<DemoBacktestListResponse> {
+    const startedAt = Date.now();
+    const rows = await this.prisma.demoBacktest.findMany({
+      orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+      take: DEMO_BACKTESTS_MAX,
+      select: {
+        title: true,
+        description: true,
+        share: { select: { token: true, run: { select: SHARED_RUN_SELECT } } },
+      },
+    });
+    const demos: DemoBacktestResponse[] = [];
+    for (const row of rows) {
+      const run = row.share.run;
+      if (run.status !== "COMPLETED" || run.summary === null || run.completedAt === null) {
+        continue;
+      }
+      const configuration = sharedConfigurationOf(readSnapshot(run.snapshot));
+      const summary = resultSummaryOf(run.summary);
+      demos.push({
+        title: row.title,
+        description: row.description,
+        path: backtestSharePath(row.share.token),
+        url: this.publicUrl(row.share.token),
+        completedAt: run.completedAt.toISOString(),
+        configuration: {
+          startDate: configuration.startDate,
+          endDate: configuration.endDate,
+          benchmark: configuration.benchmark,
+          securityCount: configuration.securityCount,
+          strategyRuleCount: configuration.strategyRuleCount,
+        },
+        headline: {
+          portfolioCagrPercent: summary.portfolioCagrPercent,
+          benchmarkCagrPercent: summary.benchmarkCagrPercent,
+          portfolioReturnPercent: summary.portfolioReturnPercent,
+          benchmarkReturnPercent: summary.benchmarkReturnPercent,
+          maxDrawdownPercent: summary.maxDrawdownPercent,
+        },
+      });
+    }
+    this.logger.debug({
+      event: "backtest.demos.read",
+      demos: demos.length,
+      durationMs: Date.now() - startedAt,
+    });
+    return { demos };
+  }
+
+  /**
+   * Features one of a user's completed runs as a demonstration: shares it if it is not shared yet
+   * (the same idempotent path the owner's button takes), then records or updates the demo. An
+   * operator action, run from `pnpm --filter @intrinsic/api demo-backtests`.
+   */
+  async featureDemo(input: {
+    userId: string;
+    runId: string;
+    title: string;
+    description: string | null;
+    position: number;
+  }): Promise<DemoBacktestResponse | null> {
+    await this.enableShare(input.userId, input.runId);
+    await this.prisma.demoBacktest.upsert({
+      where: { runId: input.runId },
+      create: {
+        runId: input.runId,
+        title: input.title,
+        description: input.description,
+        position: input.position,
+      },
+      update: {
+        title: input.title,
+        description: input.description,
+        position: input.position,
+      },
+    });
+    const { demos } = await this.listDemos();
+    const share = await this.prisma.backtestShare.findUnique({
+      where: { runId: input.runId },
+      select: { token: true },
+    });
+    return demos.find((demo) => share && demo.path === backtestSharePath(share.token)) ?? null;
+  }
+
+  /** Stops featuring a run. Its share link, if any, is left exactly as it was. */
+  async unfeatureDemo(runId: string): Promise<boolean> {
+    const deleted = await this.prisma.demoBacktest.deleteMany({ where: { runId } });
+    return deleted.count > 0;
   }
 
   // -------------------------------------------------------------------------

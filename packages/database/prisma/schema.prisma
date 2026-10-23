@@ -1141,25 +1141,25 @@ model BacktestRunNumberCounter {
 /// `SELECT ... FOR UPDATE SKIP LOCKED` and holds the row through a renewable lease; an expired
 /// lease is reclaimable, which is what makes a crashed worker self-healing.
 model BacktestJob {
-  id             String            @id @default(uuid())
-  runId          String            @unique
-  status         BacktestJobStatus @default(QUEUED)
+  id                String            @id @default(uuid())
+  runId             String            @unique
+  status            BacktestJobStatus @default(QUEUED)
   /// Earliest instant this job may be claimed. Retries push it forward.
-  availableAt    DateTime          @default(now())
-  attempts       Int               @default(0)
-  maxAttempts    Int               @default(3)
-  claimedBy      String?
-  claimedAt      DateTime?
-  leaseExpiresAt DateTime?
-  heartbeatAt    DateTime?
-  lastError      String?
+  availableAt       DateTime          @default(now())
+  attempts          Int               @default(0)
+  maxAttempts       Int               @default(3)
+  claimedBy         String?
+  claimedAt         DateTime?
+  leaseExpiresAt    DateTime?
+  heartbeatAt       DateTime?
+  lastError         String?
   /// The owner asked to stop a claimed run. The job keeps `CLAIMED` — and its execution slot —
   /// until the worker that holds it stops at a checkpoint and records `CANCELLED`, or its lease
   /// expires and recovery does; capacity is released only once execution has actually stopped.
   cancelRequestedAt DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  run            BacktestRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  run               BacktestRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@index([status, availableAt])
   @@index([status, leaseExpiresAt])
@@ -1372,10 +1372,27 @@ model BacktestRunSummary {
 /// allowlisted public report its owner chose to publish, and the owner has to be able to copy the
 /// same link again later. 32 random bytes, base64url.
 model BacktestShare {
-  runId     String      @id
-  token     String      @unique
-  createdAt DateTime    @default(now())
-  run       BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId     String        @id
+  token     String        @unique
+  createdAt DateTime      @default(now())
+  run       BacktestRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  demo      DemoBacktest?
+}
+
+/// A shared backtest the operator features as a public demonstration (`docs/decisions/entitlements-v2.md`
+/// §4). Guests read demonstrations instead of running anything: a demo is an ordinary shared report,
+/// precomputed, so reading one executes nothing. Keyed by the share, so revoking the link removes
+/// the demonstration with it and a demo can never point at a report nobody can open.
+model DemoBacktest {
+  runId       String        @id
+  title       String
+  description String?
+  /// Ascending display order; ties fall back to when the demo was added.
+  position    Int           @default(0)
+  createdAt   DateTime      @default(now())
+  share       BacktestShare @relation(fields: [runId], references: [runId], onDelete: Cascade)
+
+  @@index([position, createdAt])
 }
 
 // ---------------------------------------------------------------------------

@@ -58,10 +58,13 @@ describe("AccountMenu", () => {
     state = authenticated("USER");
   });
 
-  it("offers a Guest pricing and sign-in, and nothing account-shaped", () => {
+  it("offers a Guest the demo backtests, pricing and sign-in, and nothing account-shaped", () => {
     state = { status: "unauthenticated" };
     render(<AccountMenu />);
 
+    expect(screen.getByTestId("demo-backtests-link").getAttribute("href")).toBe(
+      "/demo-backtests",
+    );
     expect(screen.getByTestId("pricing-link").getAttribute("href")).toBe(
       "/pricing",
     );

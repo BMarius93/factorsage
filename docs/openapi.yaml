@@ -1997,6 +1997,27 @@ paths:
         "404": { $ref: "#/components/responses/SharedBacktestNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  /demo-backtests:
+    get:
+      tags: [Shared backtests]
+      operationId: listDemoBacktests
+      summary: The operator-featured demonstration backtests.
+      description: |
+        A curated shelf of at most twelve shared reports, in display order, for anyone — Guests
+        included — to read instead of running a backtest. Each entry carries exactly what its shared
+        report publishes: the headline figures and the general parameters, never the strategy, the
+        list, the securities or the trades. Reading it executes nothing. Revoking a featured run's
+        link removes it at once, so the answer is never cached (`Cache-Control: no-store`).
+      x-rate-limit: { policy: public-share-read }
+      responses:
+        "200":
+          description: The demonstrations, in display order; empty when none is featured.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DemoBacktestList" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   # ---------------------------------------------------------------------------------------------
   # Benchmarks
   # ---------------------------------------------------------------------------------------------
@@ -2495,7 +2516,7 @@ paths:
       operationId: startCheckout
       summary: Start hosted checkout for one catalog price.
       description: |
-        Accepts one of four **logical** price keys and nothing else. No provider price, customer or
+        Accepts one of the catalog's **logical** price keys and nothing else. No provider price, customer or
         subscription identifier is accepted from a client, anywhere in this API.
 
         Returns the URL rather than redirecting, so the browser controls navigation and a refusal
@@ -6758,6 +6779,29 @@ components:
         date: { type: string, format: date }
         strategyValue: { type: number }
         benchmarkValue: { $ref: "#/components/schemas/NullableNumber" }
+    DemoBacktestList:
+      type: object
+      required: [demos]
+      properties:
+        demos:
+          type: array
+          maxItems: 12
+          items: { $ref: "#/components/schemas/DemoBacktest" }
+    DemoBacktest:
+      type: object
+      required: [title, description, path, url, completedAt, configuration, headline]
+      properties:
+        title: { type: string }
+        description: { type: [string, "null"] }
+        path:
+          type: string
+          description: The shared report on the web origin, `/share/{token}`.
+        url: { type: string, format: uri }
+        completedAt: { type: string, format: date-time }
+        configuration:
+          $ref: "#/components/schemas/SharedBacktestPreview/properties/configuration"
+        headline:
+          $ref: "#/components/schemas/SharedBacktestPreview/properties/headline"
     SharedBacktestPreview:
       type: object
       required: [configuration, headline, series]
