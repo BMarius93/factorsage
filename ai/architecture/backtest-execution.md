@@ -83,6 +83,13 @@ to hold. `read` then projects one calendar-year window at a time and deliberatel
 `ensureStockHydrated`/`ensureStockFresh`: those ran once, and asking the same freshness question
 thirty times is exactly the cost the windows exist to avoid.
 
+A window reads a security that is **neither resident nor protected** from PostgreSQL — that window's
+canonical rows, under the run's pinned generation — instead of rebuilding its whole history into the
+LRU (`BACKTEST_NON_RESIDENT_FRAME_READ=STORE`, the default). A run over more ordinary securities than
+the LRU holds otherwise rebuilds every one of them in every window, because it reads them in the same
+order each year (`docs/decisions/stock-cache-tiers-v1.md`, amendment of 2026-10-23). The frame is the
+same frame; only where its rows come from changes.
+
 ## Calendar-year execution windows
 
 A run's simulation consumes consecutive calendar-year windows:

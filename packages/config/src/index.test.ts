@@ -710,7 +710,7 @@ describe("backtest worker configuration", () => {
       checkpointEveryDays: 5,
       checkpointMinIntervalMs: 1_000,
       frameConcurrency: 4,
-      nonResidentFrameRead: "REBUILD",
+      nonResidentFrameRead: "STORE",
     });
   });
 

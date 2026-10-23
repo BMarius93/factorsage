@@ -241,8 +241,9 @@ type PreparedRun = {
 export type BacktestProcessorOptions = {
   frameConcurrency: number;
   /**
-   * How a window reads a security that is neither resident nor protected: rebuild it into the LRU
-   * (`REBUILD`, the default) or read the window from PostgreSQL without admitting it (`STORE`).
+   * How a window reads a security that is neither resident nor protected: read the window from
+   * PostgreSQL without admitting it (`STORE`, what `BACKTEST_NON_RESIDENT_FRAME_READ` defaults to)
+   * or rebuild it into the LRU (`REBUILD`, the default when a caller passes nothing).
    */
   nonResidentFrameRead?: "REBUILD" | "STORE";
   checkpointEveryDays: number;

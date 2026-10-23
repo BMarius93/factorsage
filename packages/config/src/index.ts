@@ -803,11 +803,14 @@ export function getBacktestWorkerConfig(env: Environment = process.env) {
 
 /**
  * How a backtest window reads a security that is neither resident nor protected
- * (`EvaluationFrameOptions.nonResidentRead` in `@intrinsic/stock-data`): `REBUILD` rebuilds it into
- * the LRU as every other read does; `STORE` reads the window from PostgreSQL without admitting it.
+ * (`EvaluationFrameOptions.nonResidentRead` in `@intrinsic/stock-data`): `STORE`, the default, reads
+ * the window's rows from PostgreSQL without admitting it; `REBUILD` rebuilds it into the LRU as any
+ * other read does. A run over more ordinary securities than the LRU holds otherwise rebuilds every
+ * one of them in every calendar-year window (`docs/decisions/stock-cache-tiers-v1.md`, amendment of
+ * 2026-10-23).
  */
 function nonResidentFrameRead(env: Environment): "REBUILD" | "STORE" {
-  const value = optional(env, "BACKTEST_NON_RESIDENT_FRAME_READ") ?? "REBUILD";
+  const value = optional(env, "BACKTEST_NON_RESIDENT_FRAME_READ") ?? "STORE";
   if (value !== "REBUILD" && value !== "STORE") {
     throw new Error(
       "Invalid application configuration: BACKTEST_NON_RESIDENT_FRAME_READ must be REBUILD or STORE",

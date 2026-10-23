@@ -173,10 +173,12 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     (`canonicalProtectedTierEligibility`); a process that writes the product's stock cache must
     pass it, and the Redis designation set `stock-data:v2:protected-stocks` is only its derived
     record (also reconciled by `pnpm data:index-universe -- protect` and added by every universe
-    backtest). A touch never adds an LRU member. Do not add a second key family, namespace, loader
-    or copy for either tier, do not let a user's List designate anything, and do not turn Redis
-    memory into an admission or eviction criterion. Financial statements are not projected into
-    Redis at all: statement reads go to PostgreSQL.
+    backtest). A touch never adds an LRU member, and a backtest window reads a security that is
+    neither resident nor protected from PostgreSQL rather than re-admitting it
+    (`BACKTEST_NON_RESIDENT_FRAME_READ`), as the Monitor's end-of-day frames do. Do not add a
+    second key family, namespace, loader or copy for either tier, do not let a user's List
+    designate anything, and do not turn Redis memory into an admission or eviction criterion.
+    Financial statements are not projected into Redis at all: statement reads go to PostgreSQL.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
     holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
     state — losing one grants allowance rather than destroying anything — so it is keyed by actor,

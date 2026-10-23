@@ -522,13 +522,14 @@ export type EvaluationFrameOptions = {
   /**
    * How a frame of a security that is **not resident and belongs to the LRU tier** is read.
    *
-   * - `REBUILD` (the default, and every caller but the backtest window loop): the read rebuilds the
-   *   security's whole maintained history into Redis and admits it to the LRU, as any read does.
-   * - `STORE`: this window's rows are read from PostgreSQL — the canonical rows the projection is
-   *   built from, under the same pinned generation — and nothing is admitted. A backtest over more
+   * - `REBUILD` (the default here): the read rebuilds the security's whole maintained history into
+   *   Redis and admits it to the LRU, as any read does.
+   * - `STORE` (what the backtest worker asks for unless `BACKTEST_NON_RESIDENT_FRAME_READ=REBUILD`):
+   *   this window's rows are read from PostgreSQL — the canonical rows the projection is built
+   *   from, under the same pinned generation — and nothing is admitted. A backtest over more
    *   ordinary securities than the LRU holds otherwise rebuilds each of them, whole, in every
    *   calendar-year window, and evicts the stocks people are reading meanwhile
-   *   (`docs/production/benchmarks.md`, "LRU"). Protected and resident securities are unaffected.
+   *   (`docs/decisions/stock-cache-tiers-v1.md`, amendment of 2026-10-23). Protected and resident securities are unaffected.
    */
   nonResidentRead?: "REBUILD" | "STORE";
   /** Called once for each frame `nonResidentRead: "STORE"` served from PostgreSQL. */

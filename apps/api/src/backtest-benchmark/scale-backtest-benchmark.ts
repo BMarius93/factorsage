@@ -19,7 +19,7 @@ import {
   type UserPlan,
   type ValuationRatioId,
 } from "@intrinsic/contracts";
-import { loadRootEnv } from "@intrinsic/config";
+import { getBacktestWorkerConfig, loadRootEnv } from "@intrinsic/config";
 import type { Prisma, PrismaClient } from "@intrinsic/database";
 import { createLogger } from "@intrinsic/observability";
 import { createStockDataRedisClient, subtractYears } from "@intrinsic/stock-data";
@@ -1397,7 +1397,8 @@ async function run(
         BACKTEST_GLOBAL_MAX_RUNNING: workerEnv.BACKTEST_GLOBAL_MAX_RUNNING,
         BACKTEST_FRAME_LOAD_CONCURRENCY: workerEnv.BACKTEST_FRAME_LOAD_CONCURRENCY ?? "4 (default)",
         BACKTEST_NON_RESIDENT_FRAME_READ:
-          workerEnv.BACKTEST_NON_RESIDENT_FRAME_READ ?? "REBUILD (default)",
+          getBacktestWorkerConfig(workerEnv).nonResidentFrameRead +
+          (args.workerEnv.BACKTEST_NON_RESIDENT_FRAME_READ ? "" : " (default)"),
         workerEnv: Object.fromEntries(
           Object.entries(args.workerEnv).map(([key, value]) => [
             key,

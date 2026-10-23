@@ -217,3 +217,40 @@ which is what the count is sized against (§2).
   one, keyed by row id: `ai/workflows/auth-testing.md`) can hold designations from the other
   database. `tiers` reports them as `designatedNotEligible`; `protect` returns them to the LRU.
   Production runs one database per Redis.
+
+## Amendment (2026-10-23): backtest windows over a full LRU
+
+A backtest reads every security once per calendar-year window, always in the run's own order. A read
+of a security that is not resident rebuilds its whole maintained history (~34 years) from PostgreSQL
+into Redis and admits it to the LRU, evicting the least recently used member. When a run's
+non-protected securities outnumber the LRU's capacity, that order is the worst case of an LRU: each
+admission evicts the security the next window reads first, so every window of the run rebuilds every
+one of them, and the run evicts everything people are reading meanwhile.
+
+**Decision.** A backtest window reads a security that is neither resident nor protected — the cache
+answers `isNonResidentLruSecurity` — from PostgreSQL: the canonical rows of that window's range,
+under the run's pinned price-basis generation, with nothing admitted
+(`EvaluationFrameOptions.nonResidentRead: "STORE"`; the worker's `BACKTEST_NON_RESIDENT_FRAME_READ`,
+default `STORE`, `REBUILD` restores the previous behaviour). It is the read the Monitor's end-of-day
+frames already make (`readFinalizedEvaluationFrame`), for the same reason. Resident and protected
+securities read the projection exactly as before; preparation still hydrates and admits every
+security of the run, so a run's most recently prepared securities stay warm for the next one.
+
+**Why it cannot change a result.** The projection is built from these rows, so a window gets the
+same frame, value for value (`daily-state-cache.integration.test.ts`, "reads a non-resident LRU
+security's windows from PostgreSQL on request"). Measured on the scale benchmark
+(`docs/production/benchmark-results.md`, "LRU contention"): a Pro+ run of 1,000 ordinary securities
+over one year produced the same result digest with this read (2 windows read in 18.7 s, 1,000 of the
+frames from PostgreSQL, no eviction during the windows) as with an LRU large enough that nothing is
+evicted (4.7 s, all from Redis).
+
+**Consequences.**
+
+- A window of a non-resident security costs two indexed range reads (prices, derived state) of about
+  one year instead of a 34-year rebuild and an eviction.
+- Redis stays required at runtime: the residency question is asked of Redis, and a Redis that is down
+  fails the read exactly as before (`AGENTS.md` invariant 16).
+- Preparation is unchanged and still rebuilds each non-resident security of the run once, which is
+  now most of such a run's time (1,000 ordinary securities: 22 minutes on the benchmark machine).
+  Skipping that publication for LRU-tier securities whose durable coverage is complete is the
+  follow-up that would remove it.
