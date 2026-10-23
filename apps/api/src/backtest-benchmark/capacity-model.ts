@@ -13,57 +13,52 @@ import { estimateQueue, mixtureMoments } from "./capacity-math";
  * pnpm --filter @intrinsic/api exec tsx src/backtest-benchmark/capacity-model.ts
  * ```
  *
- * Service times: a run of `n` securities is served for its measured execution time **under
- * four-way concurrency**. Sizes measured alone are scaled by the four-way slowdown measured on the
- * same sizes (`slowdown` below); that scaling is an assumption the output states.
+ * Service time of a run of `n` securities:
+ *
+ * - its measured **warm** execution time under four-way concurrency (sizes measured only alone are
+ *   scaled by the measured four-way slowdown), plus
+ * - for the share `c` of its non-protected members that are not resident in Redis, the measured
+ *   rebuild cost of a security under four-way concurrency (from the cold and warm four-way runs).
+ *
+ * Both are stated in the output beside the numbers they produce.
  */
 
 type Report = {
   label: string;
-  scenario: string;
-  cache: string;
-  mix: string;
-  overlap: string;
-  strategy: string;
-  timedOutRuns?: number;
+  distinctOrdinarySecurities: number;
+  submissions: { protectedMembers: number }[];
   perRun: {
     securityCount: number;
     status: string;
     executionMs: number | null;
-    queueWaitMs: number | null;
-    timedOut?: boolean;
+    preparationMs: number | null;
   }[];
 };
 
 type Assumptions = {
   servers: number;
-  /** Labels whose runs give the service time of each list size alone (`size` → labels). */
   alone: Record<string, string[]>;
-  /** Labels of the four-at-once measurements, and the sizes they contain. */
   fourWay: string[];
-  /** Runs per active user per day, by plan. */
+  /** The cold and warm four-way runs of the same lists, for the cost of a cold security. */
+  coldRebuild: { coldLabel: string; warmLabels: string[] };
+  /** Share of a run's members in the canonical universe (always resident, never cold). */
+  protectedShareOfMembers: number;
+  /** Shares of the other members that are not resident when the run is prepared. */
+  coldOrdinaryShares: number[];
   runsPerActiveUserPerDay: Record<string, number>;
-  /** The list sizes each plan's runs use, as shares. */
   sizeMix: Record<string, Record<string, number>>;
-  /** Workload mixes: the share of daily active users on each plan, and the peak-hour share. */
   mixes: Record<
     string,
     { plans: Record<string, number>; peakHourShare: number; note?: string }
   >;
-  /** Daily active users to evaluate. */
   dau: number[];
-  /** Product targets the capacity is read against. */
   targets: { maxUtilization: number; maxP95WaitMinutes: number };
+  /** The deployment-wide queue bound (`BACKTEST_QUEUE_MAX_QUEUED`). */
+  queueBound: number;
 };
 
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length === 0) return Number.NaN;
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? (sorted[middle] as number)
-    : ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
-}
+const round = (value: number, digits = 1) =>
+  Math.round(value * 10 ** digits) / 10 ** digits;
 
 function stats(values: readonly number[]) {
   const mean =
@@ -74,7 +69,6 @@ function stats(values: readonly number[]) {
   return {
     samples: values.length,
     mean,
-    median: median(values),
     cv: mean > 0 ? Math.sqrt(variance) / mean : 0,
   };
 }
@@ -94,7 +88,7 @@ function main(): void {
       "utf8",
     ),
   ) as Assumptions;
-  const completed = (labels: readonly string[], size?: number) =>
+  const runsOf = (labels: readonly string[], size?: number) =>
     reports
       .filter((report) => labels.includes(report.label))
       .flatMap((report) => report.perRun)
@@ -103,27 +97,31 @@ function main(): void {
           run.status === "COMPLETED" &&
           run.executionMs !== null &&
           (size === undefined || run.securityCount === size),
-      )
-      .map((run) => (run.executionMs as number) / 3_600_000);
+      );
+  const hours = (ms: number) => ms / 3_600_000;
 
-  // Execution time alone, and under four at once, by list size.
+  // Warm execution, alone and four at once, by list size.
   const alone = Object.fromEntries(
     Object.entries(assumptions.alone).map(([size, labels]) => [
       size,
-      stats(completed(labels, Number(size))),
+      stats(
+        runsOf(labels, Number(size)).map((run) =>
+          hours(run.executionMs as number),
+        ),
+      ),
     ]),
   );
   const fourWaySizes = [
-    ...new Set(
-      reports
-        .filter((r) => assumptions.fourWay.includes(r.label))
-        .flatMap((r) => r.perRun.map((run) => run.securityCount)),
-    ),
+    ...new Set(runsOf(assumptions.fourWay).map((run) => run.securityCount)),
   ];
   const fourWay = Object.fromEntries(
     fourWaySizes.map((size) => [
       String(size),
-      stats(completed(assumptions.fourWay, size)),
+      stats(
+        runsOf(assumptions.fourWay, size).map((run) =>
+          hours(run.executionMs as number),
+        ),
+      ),
     ]),
   );
   const slowdowns = fourWaySizes
@@ -134,16 +132,16 @@ function main(): void {
     )
     .filter((value) => Number.isFinite(value));
   const slowdown =
-    slowdowns.length > 0
-      ? slowdowns.reduce((a, b) => a + b, 0) / slowdowns.length
-      : Number.NaN;
-  const serviceOf = (size: string) => {
+    slowdowns.reduce((a, b) => a + b, 0) / Math.max(1, slowdowns.length);
+  const warmService = (size: string) => {
     const measured = fourWay[size];
-    if (measured && measured.samples > 0)
+    if (measured && measured.samples > 0) {
       return { meanHours: measured.mean, cv: measured.cv, source: "four-way" };
+    }
     const base = alone[size];
-    if (!base || base.samples === 0)
+    if (!base || base.samples === 0) {
       throw new Error(`No measurement for list size ${size}`);
+    }
     return {
       meanHours: base.mean * slowdown,
       cv: base.cv,
@@ -151,91 +149,142 @@ function main(): void {
     };
   };
 
+  // The slot time one cold security costs, four at once: the cold runs' extra preparation over the
+  // warm runs of the same lists, spread over the distinct securities the cold runs rebuilt.
+  const coldReport = reports.find(
+    (report) => report.label === assumptions.coldRebuild.coldLabel,
+  );
+  if (!coldReport) {
+    throw new Error(`No report labelled ${assumptions.coldRebuild.coldLabel}`);
+  }
+  const preparation = (labels: readonly string[]) =>
+    stats(runsOf(labels).map((run) => (run.preparationMs as number) / 1_000));
+  const coldPreparation = preparation([assumptions.coldRebuild.coldLabel]);
+  const warmPreparation = preparation(assumptions.coldRebuild.warmLabels);
+  const distinctRebuilt =
+    Math.max(...coldReport.submissions.map((entry) => entry.protectedMembers)) +
+    coldReport.distinctOrdinarySecurities;
+  const slotSecondsPerColdSecurity =
+    ((coldPreparation.mean - warmPreparation.mean) * coldReport.perRun.length) /
+    distinctRebuilt;
+
   const output: Record<string, unknown> = {
-    serviceHours: Object.fromEntries(
+    warmServiceMinutes: Object.fromEntries(
       Object.keys({ ...alone, ...fourWay }).map((size) => [
         size,
-        { alone: alone[size], fourWay: fourWay[size], used: serviceOf(size) },
+        {
+          aloneMean: round((alone[size]?.mean ?? Number.NaN) * 60, 2),
+          aloneSamples: alone[size]?.samples ?? 0,
+          fourWayMean: fourWay[size] ? round(fourWay[size].mean * 60, 2) : null,
+          fourWaySamples: fourWay[size]?.samples ?? 0,
+          used: round(warmService(size).meanHours * 60, 2),
+          source: warmService(size).source,
+        },
       ]),
     ),
-    fourWaySlowdown: slowdown,
+    fourWaySlowdown: round(slowdown, 3),
+    coldSecurity: {
+      slotSecondsEach: round(slotSecondsPerColdSecurity, 2),
+      from: `${assumptions.coldRebuild.coldLabel}: preparation ${round(coldPreparation.mean)} s vs ${round(warmPreparation.mean)} s warm, ${coldReport.perRun.length} runs, ${distinctRebuilt} distinct securities rebuilt`,
+    },
     mixes: {} as Record<string, unknown>,
   };
 
   for (const [name, mix] of Object.entries(assumptions.mixes)) {
-    // Runs per DAU per day, and the service-time mixture of one run.
-    const kinds: { share: number; meanHours: number; cv: number }[] = [];
-    let runsPerDau = 0;
-    for (const [plan, share] of Object.entries(mix.plans)) {
-      const runs = share * (assumptions.runsPerActiveUserPerDay[plan] ?? 0);
-      runsPerDau += runs;
-      for (const [size, sizeShare] of Object.entries(
-        assumptions.sizeMix[plan] ?? {},
-      )) {
-        const service = serviceOf(size);
-        kinds.push({
-          share: runs * sizeShare,
-          meanHours: service.meanHours,
-          cv: service.cv,
-        });
+    const byColdShare: Record<string, unknown> = {};
+    for (const coldShare of assumptions.coldOrdinaryShares) {
+      const kinds: { share: number; meanHours: number; cv: number }[] = [];
+      let runsPerDau = 0;
+      for (const [plan, share] of Object.entries(mix.plans)) {
+        const runs = share * (assumptions.runsPerActiveUserPerDay[plan] ?? 0);
+        runsPerDau += runs;
+        for (const [size, sizeShare] of Object.entries(
+          assumptions.sizeMix[plan] ?? {},
+        )) {
+          const warm = warmService(size);
+          const coldMembers =
+            Number(size) *
+            (1 - assumptions.protectedShareOfMembers) *
+            coldShare;
+          kinds.push({
+            share: runs * sizeShare,
+            meanHours:
+              warm.meanHours +
+              (coldMembers * slotSecondsPerColdSecurity) / 3_600,
+            cv: warm.cv,
+          });
+        }
       }
-    }
-    const moments = mixtureMoments(kinds);
-    const rows = assumptions.dau.map((dau) => {
-      const lambda = dau * runsPerDau * mix.peakHourShare;
-      const queue = estimateQueue({
-        lambda,
-        meanServiceHours: moments.meanHours,
-        serviceCv: moments.cv,
-        servers: assumptions.servers,
-      });
-      return {
-        dau,
-        peakArrivalsPerHour: Math.round(lambda * 10) / 10,
-        utilization: Math.round(queue.utilization * 1000) / 1000,
-        meanWaitMinutes: queue.saturated
-          ? "saturated"
-          : Math.round(queue.meanWaitHours * 600) / 10,
-        p95WaitMinutes: queue.saturated
-          ? "saturated"
-          : Math.round(queue.p95WaitHours * 600) / 10,
-        meanQueued: queue.saturated
-          ? "unbounded"
-          : Math.round(queue.meanQueued * 10) / 10,
-        completedPerHour: Math.round(queue.throughputPerHour * 10) / 10,
+      const moments = mixtureMoments(kinds);
+      const queueAt = (dau: number) =>
+        estimateQueue({
+          lambda: dau * runsPerDau * mix.peakHourShare,
+          meanServiceHours: moments.meanHours,
+          serviceCv: moments.cv,
+          servers: assumptions.servers,
+        });
+      const meets = (dau: number) => {
+        const queue = queueAt(dau);
+        return (
+          !queue.saturated &&
+          queue.utilization <= assumptions.targets.maxUtilization &&
+          queue.p95WaitHours * 60 <= assumptions.targets.maxP95WaitMinutes
+        );
       };
-    });
-    // The largest DAU that meets both targets, by bisection on the continuous model.
-    const meets = (dau: number) => {
-      const lambda = dau * runsPerDau * mix.peakHourShare;
-      const queue = estimateQueue({
-        lambda,
-        meanServiceHours: moments.meanHours,
-        serviceCv: moments.cv,
-        servers: assumptions.servers,
-      });
-      return (
-        !queue.saturated &&
-        queue.utilization <= assumptions.targets.maxUtilization &&
-        queue.p95WaitHours * 60 <= assumptions.targets.maxP95WaitMinutes
-      );
-    };
-    let low = 0;
-    let high = 1_000_000;
-    for (let step = 0; step < 60; step += 1) {
-      const middle = (low + high) / 2;
-      if (meets(middle)) low = middle;
-      else high = middle;
+      let low = 0;
+      let high = 10_000_000;
+      for (let step = 0; step < 80; step += 1) {
+        const middle = (low + high) / 2;
+        if (meets(middle)) low = middle;
+        else high = middle;
+      }
+      const capacityPerHour = assumptions.servers / moments.meanHours;
+      byColdShare[String(coldShare)] = {
+        meanServiceMinutes: round(moments.meanHours * 60, 2),
+        serviceCv: round(moments.cv, 2),
+        slotCapacityRunsPerHour: round(capacityPerHour),
+        maxDauWithinTargets: Math.floor(low),
+        // All four slots occupied for an extended period: arrivals above capacity fill the
+        // bounded queue, after which submissions are refused with 503 until it drains.
+        saturation: {
+          queueFillsAt125PercentLoadMinutes: round(
+            (assumptions.queueBound / (0.25 * capacityPerHour)) * 60,
+          ),
+          queueFillsAt150PercentLoadMinutes: round(
+            (assumptions.queueBound / (0.5 * capacityPerHour)) * 60,
+          ),
+          waitOfTheLastQueuedRunMinutes: round(
+            (assumptions.queueBound / capacityPerHour) * 60,
+          ),
+        },
+        rows: assumptions.dau.map((dau) => {
+          const queue = queueAt(dau);
+          return {
+            dau,
+            peakArrivalsPerHour: round(dau * runsPerDau * mix.peakHourShare),
+            utilization: round(queue.utilization, 3),
+            meanWaitMinutes: queue.saturated
+              ? "saturated"
+              : round(queue.meanWaitHours * 60),
+            p95WaitMinutes: queue.saturated
+              ? "saturated"
+              : round(queue.p95WaitHours * 60),
+            meanQueued: queue.saturated ? "unbounded" : round(queue.meanQueued),
+          };
+        }),
+      };
     }
     (output.mixes as Record<string, unknown>)[name] = {
       note: mix.note,
-      runsPerDauPerDay: Math.round(runsPerDau * 1000) / 1000,
-      meanServiceMinutes: Math.round(moments.meanHours * 600) / 10,
-      serviceCv: Math.round(moments.cv * 100) / 100,
-      slotCapacityRunsPerHour:
-        Math.round((assumptions.servers / moments.meanHours) * 10) / 10,
-      maxDauWithinTargets: Math.floor(low),
-      rows,
+      runsPerDauPerDay: round(
+        Object.entries(mix.plans).reduce(
+          (sum, [plan, share]) =>
+            sum + share * (assumptions.runsPerActiveUserPerDay[plan] ?? 0),
+          0,
+        ),
+        3,
+      ),
+      byColdOrdinaryShare: byColdShare,
     };
   }
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
