@@ -42,6 +42,7 @@ async function resetSchedule(dueAt: Date): Promise<void> {
       lastCompletedAt: null,
       consecutiveFailures: 0,
       lastError: null,
+      scanRequested: false,
     },
   });
 }
@@ -120,6 +121,39 @@ describe("monitor scan schedule", () => {
     expect(row.consecutiveFailures).toBe(0);
     // Released, and not claimable again until it is due.
     expect(await repository.claimDueScan(workerB, now, LEASE_MS)).toBeNull();
+  });
+
+  it("runs the next cycle at once when a Monitor asked for its catch-up while one was running", async () => {
+    expect(await repository.claimDueScan(workerA, now, LEASE_MS)).not.toBeNull();
+    // A Monitor is enabled mid-cycle: the API asks for an evaluation (§12 of monitor-eod-v2).
+    await prisma.monitorScanSchedule.update({
+      where: { id: MONITOR_SCAN_SCHEDULE_ID },
+      data: { scanRequested: true },
+    });
+    const completedAt = new Date(now.getTime() + 30_000);
+    expect(
+      await repository.completeScan({
+        workerId: workerA,
+        now: completedAt,
+        nextDueAt: new Date(completedAt.getTime() + 600_000),
+      }),
+    ).toBe(true);
+    expect((await readSchedule()).dueAt).toEqual(completedAt);
+
+    // The next claim consumes the request; its completion keeps the ordinary cadence.
+    expect(
+      await repository.claimDueScan(workerB, completedAt, LEASE_MS),
+    ).not.toBeNull();
+    expect((await readSchedule()).scanRequested).toBe(false);
+    const later = new Date(completedAt.getTime() + 30_000);
+    await repository.completeScan({
+      workerId: workerB,
+      now: later,
+      nextDueAt: new Date(later.getTime() + 600_000),
+    });
+    expect((await readSchedule()).dueAt).toEqual(
+      new Date(later.getTime() + 600_000),
+    );
   });
 
   it("hands back an unstarted claim without recording a completion", async () => {

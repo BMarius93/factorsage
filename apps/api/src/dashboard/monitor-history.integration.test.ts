@@ -19,6 +19,7 @@ import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
 import { MonitorsModule } from "../monitors/monitors.module";
 import { DashboardModule } from "./dashboard.module";
+import { DASHBOARD_OPTIONS } from "./dashboard.tokens";
 
 // Before PrismaService constructs its client during Nest module compilation.
 useTestDatabase();
@@ -29,8 +30,12 @@ useTestDatabase();
  * the worker recorded, with every Why rendered from the version and evidence stored beside it.
  *
  * Rows are seeded exactly as the EOD evaluation writes them, so what these cases pin is the read
- * side: which changes count as activity, the order, the paging, visibility, and the fallback to the
- * rule's wording when no evidence was recorded.
+ * side: which changes count as activity (§12: finalized sessions only, observed or found afterwards,
+ * always with recorded evidence, never an intraday occurrence, within the Dashboard's rolling 30-day
+ * window), the order, the paging, which Monitors are enabled for the viewer, and the Signal table's
+ * fallback to the rule's wording when no evidence was recorded.
+ *
+ * The Dashboard's clock is pinned to Thursday 2026-10-15, so its window is Sep 15 – Oct 14.
  */
 describe("Monitor history read models", () => {
   const suffix = randomUUID().slice(0, 8);
@@ -75,7 +80,18 @@ describe("Monitor history read models", () => {
     strategies: [] as string[],
     lists: [] as string[],
   };
-  const signal = { a: "", b: "", c: "", d: "" };
+  const signal = {
+    a: "",
+    b: "",
+    c: "",
+    d: "",
+    e: "",
+    live: "",
+    old: "",
+    ownEvidenced: "",
+  };
+  /** Events that must never reach the Dashboard feed, by why. */
+  const excluded = { live: "", oldWindow: "", ownRuleOnly: "" };
 
   const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
   const evidence = (result: "TRUE" | "FALSE", metric: number) => ({
@@ -185,6 +201,7 @@ describe("Monitor history read models", () => {
     resolvedAt?: Date;
     reason?: string;
     reconstructed?: boolean;
+    basis?: "LIVE_QUOTE" | "EOD_CLOSE";
   }): Promise<string> {
     const row = await prisma.monitorSignal.create({
       data: {
@@ -198,6 +215,7 @@ describe("Monitor history read models", () => {
         observationPrice: input.price,
         detectedAt: new Date("2026-10-14T22:00:00.000Z"),
         reconstructed: input.reconstructed ?? false,
+        observationBasis: input.basis ?? "EOD_CLOSE",
         ...(input.resolvedAt
           ? {
               resolvedAt: input.resolvedAt,
@@ -228,7 +246,13 @@ describe("Monitor history read models", () => {
         MonitorsModule,
         DashboardModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(DASHBOARD_OPTIONS)
+      .useValue({
+        staleAfterMs: 30 * 60_000,
+        now: () => new Date("2026-10-15T12:00:00.000Z"),
+      })
+      .compile();
     app = moduleRef.createNestApplication();
     await app.listen(0, "127.0.0.1");
     prisma = moduleRef.get(PrismaService);
@@ -387,6 +411,92 @@ describe("Monitor history read models", () => {
       versionId: ids.builtInVersion,
       evidence: evidence("TRUE", 102),
     });
+    // S2: activated Oct 6 while the Monitor was paused, found by its catch-up on Oct 12 — an event,
+    // From history, dated by its session.
+    signal.e = await createSignal({
+      monitorId: ids.builtIn,
+      securityId: s2,
+      versionId: ids.builtInVersion,
+      on: "2026-10-06",
+      price: 104,
+      reconstructed: true,
+    });
+    await transition({
+      monitorId: ids.builtIn,
+      securityId: s2,
+      from: "INACTIVE",
+      to: "ACTIVE",
+      reason: "CONDITIONS_MET",
+      origin: "HISTORY",
+      on: "2026-10-06",
+      signalId: signal.e,
+      versionId: ids.builtInVersion,
+      evidence: evidence("TRUE", 104),
+      occurredAt: new Date("2026-10-12T22:05:00.000Z"),
+    });
+    // An occurrence the live-quote Monitor decided on an intraday price, ended by an EOD session
+    // with evidence: neither change is activity.
+    signal.live = await createSignal({
+      monitorId: ids.builtIn,
+      securityId: s1,
+      versionId: ids.builtInVersion,
+      on: "2026-10-02",
+      price: 101.37,
+      basis: "LIVE_QUOTE",
+      resolvedOn: "2026-10-08",
+      resolvedAt: new Date("2026-10-08T22:00:00.000Z"),
+      reason: "CONDITIONS_ENDED",
+    });
+    await transition({
+      monitorId: ids.builtIn,
+      securityId: s1,
+      from: "INACTIVE",
+      to: "ACTIVE",
+      reason: "CONDITIONS_MET",
+      origin: "OBSERVED",
+      on: "2026-10-02",
+      signalId: signal.live,
+    });
+    excluded.live = (
+      await transition({
+        monitorId: ids.builtIn,
+        securityId: s1,
+        from: "ACTIVE",
+        to: "RESOLVED",
+        reason: "CONDITIONS_ENDED",
+        origin: "OBSERVED",
+        on: "2026-10-08",
+        signalId: signal.live,
+        versionId: ids.builtInVersion,
+        evidence: evidence("FALSE", 98),
+      })
+    ).id;
+    // Observed, with evidence — but on Sep 10, before the Dashboard's window: on the Monitor's own
+    // history only.
+    signal.old = await createSignal({
+      monitorId: ids.builtIn,
+      securityId: s1,
+      versionId: ids.builtInVersion,
+      on: "2026-09-10",
+      price: 102,
+      resolvedOn: "2026-09-11",
+      resolvedAt: new Date("2026-09-11T22:00:00.000Z"),
+      reason: "CONDITIONS_ENDED",
+    });
+    excluded.oldWindow = (
+      await transition({
+        monitorId: ids.builtIn,
+        securityId: s1,
+        from: "INACTIVE",
+        to: "ACTIVE",
+        reason: "CONDITIONS_MET",
+        origin: "OBSERVED",
+        on: "2026-09-10",
+        signalId: signal.old,
+        versionId: ids.builtInVersion,
+        evidence: evidence("TRUE", 102),
+      })
+    ).id;
     await prisma.monitorSignalState.create({
       data: {
         monitorId: ids.builtIn,
@@ -406,7 +516,8 @@ describe("Monitor history read models", () => {
         ruleStates: {},
       },
     });
-    // The owner's Monitor: a V1-era activation, recorded without evidence or version.
+    // The owner's Monitor: an activation recorded before evidence existed — never activity until
+    // its evidence is verified and recorded — and one recorded with its evidence.
     const ownSignal = await createSignal({
       monitorId: ids.own,
       securityId: s2,
@@ -414,15 +525,36 @@ describe("Monitor history read models", () => {
       on: "2026-10-14",
       price: 50,
     });
+    excluded.ownRuleOnly = (
+      await transition({
+        monitorId: ids.own,
+        securityId: s2,
+        from: "INACTIVE",
+        to: "ACTIVE",
+        reason: "CONDITIONS_MET",
+        origin: "OBSERVED",
+        on: "2026-10-14",
+        signalId: ownSignal,
+      })
+    ).id;
+    signal.ownEvidenced = await createSignal({
+      monitorId: ids.own,
+      securityId: s1,
+      versionId: ids.ownVersion,
+      on: "2026-10-12",
+      price: 51,
+    });
     await transition({
       monitorId: ids.own,
-      securityId: s2,
+      securityId: s1,
       from: "INACTIVE",
       to: "ACTIVE",
       reason: "CONDITIONS_MET",
       origin: "OBSERVED",
-      on: "2026-10-14",
-      signalId: ownSignal,
+      on: "2026-10-12",
+      signalId: signal.ownEvidenced,
+      versionId: ids.ownVersion,
+      evidence: evidence("TRUE", 101.5),
     });
     await prisma.monitorEvaluationCheckpoint.createMany({
       data: [
@@ -481,23 +613,48 @@ describe("Monitor history read models", () => {
     );
 
   describe("the Dashboard's Monitor Activity feed", () => {
-    it("shows only observed activations and market resolutions, newest session first", async () => {
+    it("shows the window's end-of-day activations and market resolutions, with evidence, newest session first", async () => {
       const body = (await guest.get("/dashboard/activity").expect(200))
         .body as DashboardActivityResponse;
       expect(body.viewer).toBe("GUEST");
-      // A Guest sees the published built-in only; history, administrative endings, a trigger day
-      // passing and a setup are never activity.
+      expect(body.windowStart).toBe("2026-09-15");
+      // A Guest sees the published built-in only. A reconstructed state, an administrative ending,
+      // a trigger day passing, a setup, a live-quote occurrence and a session before the window are
+      // never activity; one found afterwards is, From history.
       expect(
         ours(body).map((event) => [
           event.sessionDate,
           event.kind,
           event.reason,
+          event.fromHistory,
         ]),
       ).toEqual([
-        ["2026-10-14", "ACTIVATED", "CONDITIONS_MET"],
-        ["2026-10-13", "RESOLVED", "CONDITIONS_ENDED"],
-        ["2026-10-09", "ACTIVATED", "CONDITIONS_MET"],
+        ["2026-10-14", "ACTIVATED", "CONDITIONS_MET", false],
+        ["2026-10-13", "RESOLVED", "CONDITIONS_ENDED", false],
+        ["2026-10-09", "ACTIVATED", "CONDITIONS_MET", false],
+        ["2026-10-06", "ACTIVATED", "CONDITIONS_MET", true],
       ]);
+      const ids_ = ours(body).map((event) => event.id);
+      for (const id of Object.values(excluded)) {
+        expect(ids_).not.toContain(id);
+      }
+      // Every event explains itself with the values its session compared — never a rule alone.
+      expect(
+        ours(body).every(
+          (event) =>
+            event.why.basis === "EVIDENCE" &&
+            event.why.rules.every((rule) =>
+              rule.predicates.every(
+                (predicate) =>
+                  predicate.result !== undefined &&
+                  predicate.metric !== undefined,
+              ),
+            ),
+        ),
+      ).toBe(true);
+      expect(ours(body).every((event) => !("observationBasis" in event))).toBe(
+        true,
+      );
       const resolved = ours(body)[1]!;
       expect(resolved).toMatchObject({
         levelKind: "BUY",
@@ -505,7 +662,7 @@ describe("Monitor history read models", () => {
         levelPercentage: 100,
         signalId: signal.a,
         price: 105,
-        observationBasis: "EOD_CLOSE",
+        fromHistory: false,
         why: {
           basis: "EVIDENCE",
           sessionDate: "2026-10-13",
@@ -524,25 +681,42 @@ describe("Monitor history read models", () => {
           ],
         },
       });
+      // From history keeps both dates apart: the session it happened on, and when it was found.
+      const found = ours(body)[3]!;
+      expect(found).toMatchObject({
+        sessionDate: "2026-10-06",
+        recordedAt: "2026-10-12T22:05:00.000Z",
+        signalId: signal.e,
+        fromHistory: true,
+      });
     });
 
-    it("adds the owner's own Monitors, explaining a change recorded without evidence by its rule alone", async () => {
+    it("adds the owner's own enabled Monitors, never a change recorded without evidence", async () => {
       const body = (await owner.get("/dashboard/activity").expect(200))
         .body as DashboardActivityResponse;
       const events = ours(body);
-      expect(events.map((event) => event.monitor.id)).toEqual([
-        ids.own,
-        ids.builtIn,
-        ids.builtIn,
-        ids.builtIn,
+      expect(
+        events.map((event) => [event.monitor.id, event.sessionDate]),
+      ).toEqual([
+        [ids.builtIn, "2026-10-14"],
+        [ids.builtIn, "2026-10-13"],
+        [ids.own, "2026-10-12"],
+        [ids.builtIn, "2026-10-09"],
+        [ids.builtIn, "2026-10-06"],
       ]);
-      expect(events[0]!.why).toEqual({
-        basis: "RULE_ONLY",
-        sessionDate: "2026-10-14",
+      expect(events[2]!.why).toEqual({
+        basis: "EVIDENCE",
+        sessionDate: "2026-10-12",
         rules: [
           {
             predicates: [
-              { role: "CONDITION", description: "Price is above SMA 200D" },
+              {
+                role: "CONDITION",
+                description: "Price is above SMA 200D",
+                result: "TRUE",
+                metric: 101.5,
+                value: 100,
+              },
             ],
           },
         ],
@@ -575,6 +749,7 @@ describe("Monitor history read models", () => {
       ).body as DashboardActivityResponse;
       expect(second.events.map((event) => event.sessionDate)).toEqual([
         "2026-10-09",
+        "2026-10-06",
       ]);
       expect(second.nextCursor).toBeUndefined();
 
@@ -599,9 +774,10 @@ describe("Monitor history read models", () => {
           event.kind,
         ]),
       ).toEqual([
-        [ids.own, "2026-10-14", "ACTIVATED"],
         [ids.builtIn, "2026-10-14", "ACTIVATED"],
+        [ids.own, "2026-10-12", "ACTIVATED"],
         [ids.builtIn, "2026-10-09", "ACTIVATED"],
+        [ids.builtIn, "2026-10-06", "ACTIVATED"],
       ]);
       const resolved = (
         await owner.get("/dashboard/activity?kind=RESOLVED").expect(200)
@@ -633,24 +809,63 @@ describe("Monitor history read models", () => {
       expect(
         second.events.map((event) => [event.sessionDate, event.kind]),
       ).toEqual([["2026-10-09", "ACTIVATED"]]);
-      expect(second.nextCursor).toBeUndefined();
+      const third = (
+        await owner
+          .get(
+            `/dashboard/activity?monitorId=${ids.builtIn}&kind=ACTIVATED&limit=1&cursor=${second.nextCursor}`,
+          )
+          .expect(200)
+      ).body as DashboardActivityResponse;
+      expect(
+        third.events.map((event) => [event.sessionDate, event.kind]),
+      ).toEqual([["2026-10-06", "ACTIVATED"]]);
+      expect(third.nextCursor).toBeUndefined();
 
       await owner.get("/dashboard/activity?kind=ENDED").expect(400);
       await owner.get("/dashboard/activity?kind=").expect(400);
     });
 
-    it("leaves out a built-in the viewer hid", async () => {
+    it("leaves out a built-in the viewer disabled, for that viewer alone", async () => {
       await owner
-        .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
-        .send({ visible: false })
+        .patch(`/monitors/${ids.builtIn}`)
+        .send({ enabled: false })
         .expect(200);
-      const body = (await owner.get("/dashboard/activity").expect(200))
-        .body as DashboardActivityResponse;
-      expect(ours(body).map((event) => event.monitor.id)).toEqual([ids.own]);
-      await owner
-        .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
-        .send({ visible: true })
-        .expect(200);
+      try {
+        const body = (await owner.get("/dashboard/activity").expect(200))
+          .body as DashboardActivityResponse;
+        expect(ours(body).map((event) => event.monitor.id)).toEqual([
+          ids.own,
+        ]);
+        // Asked for by id, it is still not activity for them.
+        expect(
+          (
+            await owner
+              .get(`/dashboard/activity?monitorId=${ids.builtIn}`)
+              .expect(200)
+          ).body.events,
+        ).toEqual([]);
+        // Another user's feed, a Guest's and the shared Monitor are untouched.
+        const theirs = (await other.get("/dashboard/activity").expect(200))
+          .body as DashboardActivityResponse;
+        expect(ours(theirs)).toHaveLength(4);
+        expect(
+          ours(
+            (await guest.get("/dashboard/activity").expect(200))
+              .body as DashboardActivityResponse,
+          ),
+        ).toHaveLength(4);
+        expect(
+          await prisma.monitor.findUniqueOrThrow({
+            where: { id: ids.builtIn },
+            select: { isPublished: true },
+          }),
+        ).toEqual({ isPublished: true });
+      } finally {
+        await owner
+          .patch(`/monitors/${ids.builtIn}`)
+          .send({ enabled: true })
+          .expect(200);
+      }
     });
 
     it("re-reads the range a reader holds, through a given event, so an event written late for an older session appears in place", async () => {
@@ -659,6 +874,7 @@ describe("Monitor history read models", () => {
       const read = async (path: string) =>
         (await owner.get(path).expect(200)).body as DashboardActivityResponse;
       const created: string[] = [];
+      const createdSignals: string[] = [];
       try {
         // The reader holds the newest two events: their range ends at the October 13 ending.
         const held = await read(`${scoped}&limit=2`);
@@ -670,6 +886,14 @@ describe("Monitor history read models", () => {
 
         // An event written now for October 13, a session the reader already passed, and one for an
         // older session, which lies outside what they hold.
+        const lateSignal = await createSignal({
+          monitorId: ids.builtIn,
+          securityId: s1,
+          versionId: ids.builtInVersion,
+          on: "2026-10-13",
+          price: 103,
+        });
+        createdSignals.push(lateSignal);
         const late = await transition({
           monitorId: ids.builtIn,
           securityId: s1,
@@ -678,6 +902,7 @@ describe("Monitor history read models", () => {
           reason: "CONDITIONS_MET",
           origin: "OBSERVED",
           on: "2026-10-13",
+          signalId: lateSignal,
           versionId: ids.builtInVersion,
           evidence: evidence("TRUE", 103),
         });
@@ -689,7 +914,9 @@ describe("Monitor history read models", () => {
           reason: "CONDITIONS_MET",
           origin: "OBSERVED",
           on: "2026-10-01",
+          signalId: lateSignal,
           versionId: ids.builtInVersion,
+          evidence: evidence("TRUE", 103),
         });
         created.push(late.id, older.id);
 
@@ -705,7 +932,7 @@ describe("Monitor history read models", () => {
         ]);
         expect(range.nextCursor).toBeUndefined();
         // The older one is reached by paging, in its place.
-        const next = await read(`${scoped}&limit=2&cursor=${held.nextCursor}`);
+        const next = await read(`${scoped}&limit=5&cursor=${held.nextCursor}`);
         expect(next.events.map((event) => event.id)).toContain(older.id);
 
         // The kind filter narrows the range too; an event of another kind ends it at once.
@@ -739,6 +966,8 @@ describe("Monitor history read models", () => {
           origin: "OBSERVED" as const,
           observationDate: date("2026-10-15"),
           strategyVersionId: ids.builtInVersion,
+          signalId: lateSignal,
+          evidence: evidence("TRUE", 107),
         }));
         await prisma.monitorStateTransition.createMany({ data: backlog });
         const written = await prisma.monitorStateTransition.findMany({
@@ -764,6 +993,9 @@ describe("Monitor history read models", () => {
         await prisma.monitorStateTransition.deleteMany({
           where: { id: { in: created } },
         });
+        await prisma.monitorSignal.deleteMany({
+          where: { id: { in: createdSignals } },
+        });
       }
     });
   });
@@ -777,14 +1009,27 @@ describe("Monitor history read models", () => {
       (await agent.get(`/monitors/${monitorId}/activity${query}`).expect(200))
         .body as DashboardActivityResponse;
 
-    it("is the Dashboard feed narrowed to that Monitor: the same events, in the same order", async () => {
+    it("is the Dashboard feed narrowed to that Monitor, unwindowed: the same events, in the same order", async () => {
       const builtIn = await history(guest, ids.builtIn);
       const narrowed = (
         await guest
           .get(`/dashboard/activity?monitorId=${ids.builtIn}`)
           .expect(200)
       ).body as DashboardActivityResponse;
-      expect(builtIn.events).toEqual(narrowed.events);
+      // The same events inside the Dashboard's window, and the older ones besides — every one of
+      // them still an end-of-day change with its evidence.
+      expect(builtIn).not.toHaveProperty("windowStart");
+      expect(
+        builtIn.events.filter(
+          (event) => event.sessionDate >= narrowed.windowStart!,
+        ),
+      ).toEqual(narrowed.events);
+      expect(builtIn.events.map((event) => event.id)).toContain(
+        excluded.oldWindow,
+      );
+      expect(builtIn.events.map((event) => event.id)).not.toContain(
+        excluded.live,
+      );
       expect(builtIn.events.length).toBeGreaterThan(0);
 
       const own = await history(owner, ids.own);
@@ -799,10 +1044,10 @@ describe("Monitor history read models", () => {
 
     it("keeps a Monitor's history on its own page when the Dashboard does not show it", async () => {
       const before = await history(owner, ids.builtIn);
-      // Hidden from this viewer's Dashboard: gone from the feed, still on the Monitor's page.
+      // Disabled for this viewer: gone from their feed, still on the Monitor's page.
       await owner
-        .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
-        .send({ visible: false })
+        .patch(`/monitors/${ids.builtIn}`)
+        .send({ enabled: false })
         .expect(200);
       try {
         const feed = (
@@ -816,8 +1061,8 @@ describe("Monitor history read models", () => {
         );
       } finally {
         await owner
-          .put(`/dashboard/monitors/${ids.builtIn}/visibility`)
-          .send({ visible: true })
+          .patch(`/monitors/${ids.builtIn}`)
+          .send({ enabled: true })
           .expect(200);
       }
 
@@ -917,6 +1162,23 @@ describe("Monitor history read models", () => {
   });
 
   describe("the Monitor's Signal table", () => {
+    // The feed's own fixtures — an occurrence found by a catch-up, a live-quote one and one older
+    // than the window — are not this table's cases.
+    beforeAll(async () => {
+      const feedOnly = [
+        signal.e,
+        signal.live,
+        signal.old,
+        signal.ownEvidenced,
+      ];
+      await prisma.monitorStateTransition.deleteMany({
+        where: { signalId: { in: feedOnly } },
+      });
+      await prisma.monitorSignal.deleteMany({
+        where: { id: { in: feedOnly } },
+      });
+    });
+
     it("lists active occurrences first, then resolved ones, each with why it is there", async () => {
       const body = (
         await guest.get(`/monitors/${ids.builtIn}/signals`).expect(200)

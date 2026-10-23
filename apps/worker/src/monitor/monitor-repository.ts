@@ -52,15 +52,11 @@ export type ActiveMonitor = {
   definition: unknown;
   members: readonly ActiveMonitorMember[];
   /**
-   * The initial replay (`docs/decisions/monitor-eod-v2.md` §5): whether this Monitor asks for one,
-   * and its window once the first evaluation fixed it. Absent where a caller builds Monitors by
-   * hand; it is then never replayed.
+   * Whether a member this Monitor has never evaluated is evaluated over the rolling activity window
+   * (`docs/decisions/monitor-eod-v2.md` §12) rather than reconstructed at its newest session. Absent
+   * where a caller builds Monitors by hand; such a member is then reconstructed.
    */
-  replay?: {
-    requested: boolean;
-    windowStart: LocalDate | null;
-    fixedAt: Date | null;
-  };
+  windowReplay?: boolean;
 };
 
 /** One list membership, with the buy eligibility the canonical list model attaches to it. */
@@ -69,7 +65,10 @@ export type ActiveMonitorMember = {
   symbol: string;
   buyWindowMode: "FULL" | "CUSTOM";
   buyWindows: readonly { startDate: LocalDate; endDate: LocalDate | null }[];
-  /** When the security joined the List: a member listed after the replay window was fixed is new. */
+  /**
+   * When the security joined the List. A session that became final before it was not watched for
+   * this member, so a change found on it is history (`docs/decisions/monitor-eod-v2.md` §12).
+   */
   listedAt?: Date;
 };
 
@@ -161,6 +160,12 @@ export type MemberEvaluationWrite = {
     basisGeneration: number;
     /** The ongoing membership this progress belongs to: its start, or null for "Always eligible". */
     membershipStart: LocalDate | null;
+    /**
+     * Where the member's recorded evaluation begins (`docs/decisions/monitor-eod-v2.md` §12), when
+     * this write starts it afresh — a window replay, a reconstruction. Absent when the member is
+     * caught up from its own checkpoint, whose coverage is kept; a new row then starts at `next`.
+     */
+    coverageStart?: LocalDate;
   };
   /**
    * The member's ongoing membership is not the one its state belongs to (a re-entry, a moved
@@ -249,10 +254,11 @@ export interface MonitorEvaluationRepository {
   /** Each member's evaluation progress for one Monitor, keyed by security id. */
   loadCheckpoints(monitorId: string): Promise<Map<string, PersistedCheckpoint>>;
   /**
-   * The securities this Monitor has ever recorded a transition for — decided history that outlives
-   * the member's state and checkpoint, which a membership ending deletes.
+   * Per security, the newest session this Monitor ever recorded a change on — decided history that
+   * outlives the member's state and checkpoint, which a membership ending or a rebind deletes. A
+   * window replay starts after it, so no recorded change is ever recorded twice.
    */
-  loadSecuritiesWithTransitions(monitorId: string): Promise<Set<string>>;
+  loadLastRecordedSessions(monitorId: string): Promise<Map<string, LocalDate>>;
   /**
    * Persists one member's EOD evaluation — every level's changes, Signals and state, and the
    * checkpoint they advance — in one transaction behind the binding fence, the checkpoint's own
@@ -261,17 +267,6 @@ export interface MonitorEvaluationRepository {
   applyMemberEvaluation(
     write: MemberEvaluationWrite,
   ): Promise<MemberEvaluationResult>;
-  /**
-   * Fixes a new Monitor's replay window, once: the first evaluation's answer stands for every later
-   * one. Returns the stored window — this call's, or the one an earlier evaluation fixed — or null
-   * when the Monitor was rebound meanwhile or no longer asks for a replay.
-   */
-  fixReplayWindow(input: {
-    monitorId: string;
-    configVersion: number;
-    windowStart: LocalDate;
-    now: Date;
-  }): Promise<{ windowStart: LocalDate; fixedAt: Date } | null>;
   /**
    * Forgets the progress of members no longer in the Monitor's list, so a member removed and added
    * back is reconstructed rather than caught up from a stale checkpoint. Fenced like every write.
@@ -304,8 +299,10 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
    *   owner by `(createdAt, id)`, and none whose List exceeds the plan's symbol limit. `enabled` is
    *   never rewritten by that derivation.
    * - **A built-in (SYSTEM) Monitor** is shared platform content with no owner and no plan. It runs
-   *   when the operator's `isGloballyEnabled` is on — whether it is published, and whether any
-   *   customer has hidden it, never changes that.
+   *   when the operator's `isGloballyEnabled` is on, once for everybody. A customer disabling it for
+   *   their own account never changes that: a published built-in is enabled by default for every
+   *   Guest, so the public Dashboard always needs it, and an unpublished one is evaluated for the
+   *   administrators preparing it (`builtin-dashboard-signals-v1.md` §17b).
    *
    * A Monitor whose Strategy somehow has no version is skipped rather than failing the cycle.
    */
@@ -358,13 +355,7 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
         configVersion: row.configVersion,
         strategyVersionId: version.id,
         definition: version.definition,
-        replay: {
-          requested: row.initialReplayRequested,
-          windowStart: row.replayWindowStart
-            ? toLocalDate(row.replayWindowStart)
-            : null,
-          fixedAt: row.replayWindowFixedAt,
-        },
+        windowReplay: row.windowReplay,
         members: row.stockList.items.map((item) => ({
           securityId: item.securityId,
           symbol: item.security.symbol,
@@ -626,45 +617,6 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
     );
   }
 
-  async fixReplayWindow(input: {
-    monitorId: string;
-    configVersion: number;
-    windowStart: LocalDate;
-    now: Date;
-  }): Promise<{ windowStart: LocalDate; fixedAt: Date } | null> {
-    // Raw SQL: fixing the window is not an edit, so `updatedAt` must not move.
-    await this.prisma.$executeRaw`
-      UPDATE "Monitor"
-      SET "replayWindowStart" = ${input.windowStart}::date, "replayWindowFixedAt" = ${input.now}
-      WHERE "id" = ${input.monitorId}
-        AND "configVersion" = ${input.configVersion}
-        AND "initialReplayRequested"
-        AND "replayWindowStart" IS NULL
-    `;
-    const row = await this.prisma.monitor.findUnique({
-      where: { id: input.monitorId },
-      select: {
-        configVersion: true,
-        initialReplayRequested: true,
-        replayWindowStart: true,
-        replayWindowFixedAt: true,
-      },
-    });
-    if (
-      !row ||
-      row.configVersion !== input.configVersion ||
-      !row.initialReplayRequested ||
-      !row.replayWindowStart ||
-      !row.replayWindowFixedAt
-    ) {
-      return null;
-    }
-    return {
-      windowStart: toLocalDate(row.replayWindowStart),
-      fixedAt: row.replayWindowFixedAt,
-    };
-  }
-
   async pruneCheckpoints(input: {
     monitorId: string;
     configVersion: number;
@@ -692,13 +644,21 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
     }
   }
 
-  async loadSecuritiesWithTransitions(monitorId: string): Promise<Set<string>> {
-    const rows = await this.prisma.monitorStateTransition.findMany({
-      where: { monitorId },
-      distinct: ["securityId"],
-      select: { securityId: true },
+  async loadLastRecordedSessions(
+    monitorId: string,
+  ): Promise<Map<string, LocalDate>> {
+    const rows = await this.prisma.monitorStateTransition.groupBy({
+      by: ["securityId"],
+      where: { monitorId, observationDate: { not: null } },
+      _max: { observationDate: true },
     });
-    return new Set(rows.map((row) => row.securityId));
+    return new Map(
+      rows.flatMap((row) =>
+        row._max.observationDate
+          ? [[row.securityId, toLocalDate(row._max.observationDate)] as const]
+          : [],
+      ),
+    );
   }
 
   async loadCheckpoints(
@@ -791,6 +751,9 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
               basisGeneration: write.checkpoint.basisGeneration,
               membershipRecorded: true,
               membershipStart: membershipStartOf(write),
+              coverageStart: toDate(
+                write.checkpoint.coverageStart ?? write.checkpoint.next,
+              ),
             },
             update: {
               evaluatedThrough: toDate(write.checkpoint.next),
@@ -798,6 +761,9 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
               basisGeneration: write.checkpoint.basisGeneration,
               membershipRecorded: true,
               membershipStart: membershipStartOf(write),
+              ...(write.checkpoint.coverageStart === undefined
+                ? {}
+                : { coverageStart: toDate(write.checkpoint.coverageStart) }),
             },
           });
           return {

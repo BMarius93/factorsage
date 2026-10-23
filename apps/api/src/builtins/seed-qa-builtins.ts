@@ -145,7 +145,7 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
         isPublished: true,
         isGloballyEnabled: true,
         // Declared state, not a fresh Monitor: nothing to replay.
-        initialReplayRequested: false,
+        windowReplay: false,
         replayWindowStart: null,
         replayWindowFixedAt: null,
         watchingSince: new Date("2026-09-01T00:00:00.000Z"),

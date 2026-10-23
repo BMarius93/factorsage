@@ -204,6 +204,8 @@ describeWithRedis("the stock EOD preparation on PostgreSQL and Redis", () => {
     });
     const monitor = await prisma.monitor.create({
       data: {
+        // Reconstructed at the newest session: this suite is not about the window replay.
+        windowReplay: false,
         ownership: "SYSTEM",
         systemKey: `test-monitor-${key}`,
         name: "Built-in monitor",

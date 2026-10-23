@@ -401,10 +401,10 @@ describe("built-in content", () => {
     /**
      * The Monitors collection is public product content too, so a visitor can browse the built-ins
      * rather than being told to sign in first. It carries the one piece of per-viewer state a
-     * built-in has — whether this viewer's Dashboard shows it — because that is where the control
-     * lives; a Guest has no preference row and therefore reads the built-in default.
+     * built-in has — whether it is Enabled for this viewer — because that is where the switch lives;
+     * a Guest has no preference row and therefore reads the built-in default, enabled.
      */
-    it("lets every viewer list built-in monitors, with this viewer's own dashboard preference", async () => {
+    it("lets every viewer list built-in monitors, with this viewer's own Enabled choice", async () => {
       const guestMonitors = (await guest.get("/monitors").expect(200))
         .body as MonitorSummaryResponse[];
       expect(guestMonitors.every((monitor) => monitor.ownership === "SYSTEM")).toBe(
@@ -417,7 +417,7 @@ describe("built-in content", () => {
         systemKey: key("monitor-a"),
         canEdit: false,
         isPublished: true,
-        dashboardVisible: true,
+        enabled: true,
       });
       expect(
         await prisma.userBuiltInMonitorPreference.count({
@@ -433,32 +433,32 @@ describe("built-in content", () => {
         ).find((monitor) => monitor.id === ids.monitorA)?.canEdit,
       ).toBe(true);
 
-      // A stored preference is reported on the collection that owns the control.
+      // A stored choice is reported on the collection that owns the control.
       await user
-        .put(`/dashboard/monitors/${ids.monitorA}/visibility`)
-        .send({ visible: false })
+        .patch(`/monitors/${ids.monitorA}`)
+        .send({ enabled: false })
         .expect(200);
       try {
         const mine = (await user.get("/monitors").expect(200))
           .body as MonitorSummaryResponse[];
         expect(
-          mine.find((monitor) => monitor.id === ids.monitorA)?.dashboardVisible,
+          mine.find((monitor) => monitor.id === ids.monitorA)?.enabled,
         ).toBe(false);
         expect(
-          mine.find((monitor) => monitor.id === ids.monitorB)?.dashboardVisible,
+          mine.find((monitor) => monitor.id === ids.monitorB)?.enabled,
         ).toBe(true);
         // One account's preference, never the shared monitor's state and never anyone else's.
         expect(
           (
             (await other.get("/monitors").expect(200))
               .body as MonitorSummaryResponse[]
-          ).find((monitor) => monitor.id === ids.monitorA)?.dashboardVisible,
+          ).find((monitor) => monitor.id === ids.monitorA)?.enabled,
         ).toBe(true);
         expect(
           (
             (await guest.get("/monitors").expect(200))
               .body as MonitorSummaryResponse[]
-          ).find((monitor) => monitor.id === ids.monitorA)?.dashboardVisible,
+          ).find((monitor) => monitor.id === ids.monitorA)?.enabled,
         ).toBe(true);
       } finally {
         // Removed rather than set back: a stored `enabled = true` is still a stored preference,
@@ -636,7 +636,8 @@ describe("built-in content", () => {
         .send({ isPublished: true })
         .expect(200);
 
-      // A built-in watches built-in content only, and `enabled` is not its switch.
+      // A built-in watches built-in content only, and `enabled` is not its operator switch: it is
+      // the administrator's own choice for their account, like anybody's.
       const ownList = await prisma.stockList.create({
         data: { userId: adminId, name: "Admin's own" },
       });
@@ -644,10 +645,20 @@ describe("built-in content", () => {
         .patch(`/monitors/${ids.monitorB}`)
         .send({ stockListId: ownList.id })
         .expect(400);
-      await admin
-        .patch(`/monitors/${ids.monitorB}`)
-        .send({ enabled: false })
-        .expect(400);
+      const own = (
+        await admin
+          .patch(`/monitors/${ids.monitorB}`)
+          .send({ enabled: false })
+          .expect(200)
+      ).body as MonitorSummaryResponse;
+      expect(own.enabled).toBe(false);
+      expect(
+        (await prisma.monitor.findUniqueOrThrow({ where: { id: ids.monitorB } }))
+          .isGloballyEnabled,
+      ).toBe(hidden.isGloballyEnabled);
+      await prisma.userBuiltInMonitorPreference.deleteMany({
+        where: { monitorId: ids.monitorB },
+      });
 
       const rebound = (
         await admin
@@ -947,8 +958,7 @@ describe("built-in content", () => {
       );
       const a = monitors.find((monitor) => monitor.id === ids.monitorA);
       expect(a).toMatchObject({
-        visible: true,
-        control: "BUILT_IN_PREFERENCE",
+        enabled: true,
         freshness: "CURRENT",
         activeCount: 1,
         pendingCount: 1,
@@ -1033,8 +1043,8 @@ describe("built-in content", () => {
 
     it("asks a Guest to sign in rather than storing a preference", async () => {
       await guest
-        .put(`/dashboard/monitors/${ids.monitorA}/visibility`)
-        .send({ visible: false })
+        .patch(`/monitors/${ids.monitorA}`)
+        .send({ enabled: false })
         .expect(401);
       expect(
         await prisma.userBuiltInMonitorPreference.count({
@@ -1043,11 +1053,19 @@ describe("built-in content", () => {
       ).toBe(0);
     });
 
-    it("hides a built-in for one user only, without changing its evaluation", async () => {
-      await user
-        .put(`/dashboard/monitors/${ids.monitorA}/visibility`)
-        .send({ visible: false })
-        .expect(200);
+    it("disables a built-in for one user only, without changing its evaluation", async () => {
+      const answer = (
+        await user
+          .patch(`/monitors/${ids.monitorA}`)
+          .send({ enabled: false })
+          .expect(200)
+      ).body as MonitorSummaryResponse;
+      // The caller's own choice, beside the shared Monitor's evaluation, which runs on.
+      expect(answer).toMatchObject({
+        enabled: false,
+        isGloballyEnabled: true,
+        operationalStatus: "ACTIVE",
+      });
       const mine = (await user.get("/dashboard").expect(200))
         .body as DashboardResponse;
       expect(mine.viewer).toBe("AUTHENTICATED");
@@ -1055,7 +1073,7 @@ describe("built-in content", () => {
         ids.monitorB,
       ]);
       expect(
-        mine.monitors.find((monitor) => monitor.id === ids.monitorA)?.visible,
+        mine.monitors.find((monitor) => monitor.id === ids.monitorA)?.enabled,
       ).toBe(false);
 
       expect(
@@ -1076,9 +1094,21 @@ describe("built-in content", () => {
         isPublished: true,
       });
 
+      // A customer may not change anything else about a built-in, and a refused request stores
+      // no choice either.
       await user
-        .put(`/dashboard/monitors/${ids.monitorA}/visibility`)
-        .send({ visible: true })
+        .patch(`/monitors/${ids.monitorB}`)
+        .send({ enabled: false, name: "Mine now" })
+        .expect(403);
+      expect(
+        await prisma.userBuiltInMonitorPreference.count({
+          where: { monitorId: ids.monitorB },
+        }),
+      ).toBe(0);
+
+      await user
+        .patch(`/monitors/${ids.monitorA}`)
+        .send({ enabled: true })
         .expect(200);
       expect(
         testRows(
@@ -1086,15 +1116,48 @@ describe("built-in content", () => {
         ),
       ).toHaveLength(3);
       await user
-        .put(`/dashboard/monitors/${ids.monitorA}/visibility`)
+        .patch(`/monitors/${ids.monitorA}`)
         .send({ hidden: true })
         .expect(400);
+      // A built-in consumes nobody's allowance: no capacity check, no Monitor of theirs.
+      expect(
+        await prisma.monitor.count({ where: { userId } }),
+      ).toBe(0);
     });
 
-    it("refuses a visibility preference for anything but a published built-in", async () => {
+    it("lets an administrator choose for their own account while the operator's switch stays shared", async () => {
+      const answer = (
+        await admin
+          .patch(`/monitors/${ids.monitorA}`)
+          .send({ enabled: false })
+          .expect(200)
+      ).body as MonitorSummaryResponse;
+      try {
+        expect(answer).toMatchObject({ enabled: false, isGloballyEnabled: true });
+        expect(
+          (
+            await prisma.monitor.findUniqueOrThrow({
+              where: { id: ids.monitorA },
+            })
+          ).isGloballyEnabled,
+        ).toBe(true);
+        expect(
+          (
+            (await user.get("/monitors").expect(200))
+              .body as MonitorSummaryResponse[]
+          ).find((monitor) => monitor.id === ids.monitorA)?.enabled,
+        ).toBe(true);
+      } finally {
+        await prisma.userBuiltInMonitorPreference.deleteMany({
+          where: { monitorId: ids.monitorA },
+        });
+      }
+    });
+
+    it("refuses a choice for anything but a built-in the caller can see", async () => {
       await user
-        .put(`/dashboard/monitors/${randomUUID()}/visibility`)
-        .send({ visible: false })
+        .patch(`/monitors/${randomUUID()}`)
+        .send({ enabled: false })
         .expect(404);
       await prisma.monitor.update({
         where: { id: ids.monitorB },
@@ -1102,8 +1165,8 @@ describe("built-in content", () => {
       });
       try {
         await user
-          .put(`/dashboard/monitors/${ids.monitorB}/visibility`)
-          .send({ visible: false })
+          .patch(`/monitors/${ids.monitorB}`)
+          .send({ enabled: false })
           .expect(404);
         const body = (await guest.get("/dashboard").expect(200))
           .body as DashboardResponse;

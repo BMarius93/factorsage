@@ -203,13 +203,11 @@ export function scopedRepository(
       ),
     loadSignalStates: (id) => real.loadSignalStates(id),
     loadCheckpoints: (id) => real.loadCheckpoints(id),
-    loadSecuritiesWithTransitions: (id) =>
-      real.loadSecuritiesWithTransitions(id),
+    loadLastRecordedSessions: (id) => real.loadLastRecordedSessions(id),
     resolveUnvisitedStates: (input) => real.resolveUnvisitedStates(input),
     pruneCheckpoints: (input) => real.pruneCheckpoints(input),
     markScanned: (monitors, now) => real.markScanned(monitors, now),
     applyMemberEvaluation: (write) => real.applyMemberEvaluation(write),
-    fixReplayWindow: (input) => real.fixReplayWindow(input),
     markWatching: (ids, now) => real.markWatching(ids, now),
   };
 }

@@ -10,6 +10,7 @@ import type {
   MonitorSignalPageResponse,
   MonitorSignalResponse,
   MonitorSummaryResponse,
+  MonitorSynchronizationResponse,
   MonitorWaitingLevelResponse,
 } from "@intrinsic/contracts";
 import {
@@ -24,7 +25,7 @@ import {
   type StockSectorAssignmentResponse,
   type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
-import type { Prisma } from "@intrinsic/database";
+import { requestMonitorEvaluation, type Prisma } from "@intrinsic/database";
 import { monitorStrategyLevels } from "@intrinsic/strategy";
 import {
   benchmarkSessionFinalizedAt,
@@ -63,6 +64,7 @@ import {
   type ParsedUpdateMonitorRequest,
 } from "./monitor-requests";
 import { visibleMonitorWhere } from "./monitor-visibility";
+import { readMonitorSynchronization } from "./monitor-synchronization";
 
 /**
  * Raised for a monitor that does not exist *or* belongs to another customer (or is an unpublished
@@ -125,8 +127,10 @@ function summaryOf(
   row: MonitorRow,
   eligibility: MonitorEligibility | undefined,
   viewer: ContentViewer,
-  /** Built-ins this viewer has hidden from their own Dashboard. */
-  hiddenBuiltIns: ReadonlySet<string> = new Set(),
+  /** Built-ins this viewer has disabled for their own account. */
+  disabledBuiltIns: ReadonlySet<string> = new Set(),
+  /** Where the evaluation stands against its activity window, when it is running. */
+  synchronization?: MonitorSynchronizationResponse,
 ): MonitorSummaryResponse {
   const system = row.ownership === "SYSTEM";
   // A built-in has no owner and no plan: whether it runs is the operator's global switch alone.
@@ -139,7 +143,9 @@ function summaryOf(
     ...ownershipResponse(row, viewer),
     id: row.id,
     name: row.name,
-    enabled: system ? row.isGloballyEnabled : row.enabled,
+    // The one user-facing switch. A built-in's is this viewer's own choice — absent a stored one,
+    // the default, enabled — and never the shared Monitor's evaluation, which is `isGloballyEnabled`.
+    enabled: system ? !disabledBuiltIns.has(row.id) : row.enabled,
     strategyId: row.strategy.id,
     strategyName: row.strategy.name,
     stockListId: row.stockList.id,
@@ -160,12 +166,20 @@ function summaryOf(
           isPublished: row.isPublished,
           isGloballyEnabled: row.isGloballyEnabled,
           ...(row.displayOrder === null ? {} : { displayOrder: row.displayOrder }),
-          // The viewer's own preference, never the shared Monitor's state. Absence of a row is
-          // the built-in default, so a Guest — who can have no row — reads `true`.
-          dashboardVisible: !hiddenBuiltIns.has(row.id),
         }
       : {}),
+    ...(status === "ACTIVE" && synchronization ? { synchronization } : {}),
   };
+}
+
+/** Whether the worker evaluates this Monitor now: the operator's switch, or the owner's plan. */
+function isRunning(
+  row: Pick<MonitorRow, "id" | "ownership" | "isGloballyEnabled">,
+  eligibility: ReadonlyMap<string, MonitorEligibility>,
+): boolean {
+  return row.ownership === "SYSTEM"
+    ? row.isGloballyEnabled
+    : (eligibility.get(row.id)?.executionEligible ?? false);
 }
 
 /**
@@ -227,11 +241,11 @@ export class MonitorsService {
    *
    * The collection page presents the two as separate sections, so a Guest gets the published
    * built-ins rather than a redirect to sign in, and an administrator additionally sees the
-   * unpublished ones. Each built-in carries this viewer's own Dashboard visibility preference,
-   * which is the control that lives on this page.
+   * unpublished ones. Every row carries the one Enabled / Disabled switch — a built-in's being this
+   * viewer's own choice — and, while it is evaluated, its synchronization.
    */
   async listForUser(viewer: ContentViewer): Promise<MonitorSummaryResponse[]> {
-    const [rows, eligibility, hidden] = await Promise.all([
+    const [rows, eligibility, disabled] = await Promise.all([
       this.prisma.monitor.findMany({
         where: visibleMonitorWhere(viewer),
         orderBy: [...SYSTEM_FIRST_ORDER, ...MONITOR_ORDER],
@@ -240,21 +254,58 @@ export class MonitorsService {
       viewer
         ? this.entitlements.getMonitorExecutionEligibility(viewer.id)
         : Promise.resolve(new Map<string, MonitorEligibility>()),
-      this.hiddenBuiltInMonitors(viewer),
+      this.disabledBuiltInMonitors(viewer),
     ]);
+    const synchronization = await readMonitorSynchronization(
+      this.prisma,
+      rows.filter((row) => isRunning(row, eligibility)),
+    );
     return rows.map((row) =>
-      summaryOf(row, eligibility.get(row.id), viewer, hidden),
+      summaryOf(
+        row,
+        eligibility.get(row.id),
+        viewer,
+        disabled,
+        synchronization.get(row.id),
+      ),
     );
   }
 
   /**
-   * Which built-ins this viewer has hidden from their own Dashboard.
-   *
-   * Only an override is stored (`docs/decisions/builtin-dashboard-signals-v1.md` section 5.2), so
-   * the absent case is the default rather than a missing value, and a Guest — who is never given a
-   * row — simply has none.
+   * One Monitor's summary as this viewer sees it — their own choice for a built-in, the owner's
+   * eligibility, the synchronization — read after a change, so the answer is the stored state.
    */
-  private async hiddenBuiltInMonitors(
+  private async summaryForViewer(
+    viewer: AuthUser,
+    monitorId: string,
+  ): Promise<MonitorSummaryResponse> {
+    const row = await this.readVisibleMonitor(viewer, monitorId);
+    const [eligibility, disabled] = await Promise.all([
+      row.userId === null
+        ? Promise.resolve(new Map<string, MonitorEligibility>())
+        : this.entitlements.getMonitorExecutionEligibility(row.userId),
+      this.disabledBuiltInMonitors(viewer),
+    ]);
+    const synchronization = isRunning(row, eligibility)
+      ? (await readMonitorSynchronization(this.prisma, [row])).get(row.id)
+      : undefined;
+    return summaryOf(
+      row,
+      eligibility.get(row.id),
+      viewer,
+      disabled,
+      synchronization,
+    );
+  }
+
+  /**
+   * Which built-ins this viewer has disabled for their own account.
+   *
+   * Only an override is stored (`docs/decisions/builtin-dashboard-signals-v1.md` §5.2, §17b), so the
+   * absent case is the default — enabled — rather than a missing value, and a Guest, who is never
+   * given a row, simply has none.
+   */
+  private async disabledBuiltInMonitors(
     viewer: ContentViewer,
   ): Promise<ReadonlySet<string>> {
     if (!viewer) {
@@ -291,6 +342,8 @@ export class MonitorsService {
     const row = await this.prisma.$transaction(async (tx) => {
       if (input.enabled) {
         await this.entitlements.assertCanEnableMonitor(tx, userId);
+        // Running from now: its window is caught up by the next pass, not the next interval.
+        await requestMonitorEvaluation(tx);
       }
       const strategy = await tx.strategy.findFirst({
         where: { id: input.strategyId, userId },
@@ -313,8 +366,9 @@ export class MonitorsService {
           strategyId: input.strategyId,
           stockListId: input.stockListId,
           enabled: input.enabled,
-          // Its first evaluation replays recent history (`docs/decisions/monitor-eod-v2.md` §5).
-          initialReplayRequested: true,
+          // Its members are evaluated over the rolling 30-day activity window
+          // (`docs/decisions/monitor-eod-v2.md` §12).
+          windowReplay: true,
         },
         include: MONITOR_INCLUDE,
       });
@@ -333,8 +387,17 @@ export class MonitorsService {
     const eligibility = await this.entitlements.getMonitorExecutionEligibility(
       userId,
     );
+    const synchronization = isRunning(row, eligibility)
+      ? (await readMonitorSynchronization(this.prisma, [row])).get(row.id)
+      : undefined;
     return {
-      ...summaryOf(row, eligibility.get(row.id), user),
+      ...summaryOf(
+        row,
+        eligibility.get(row.id),
+        user,
+        new Set(),
+        synchronization,
+      ),
       securities: await this.listSecurityEvaluations(
         row,
         await this.monitoredLevelIds(input.strategyId),
@@ -347,7 +410,7 @@ export class MonitorsService {
     viewer: ContentViewer,
     monitorId: string,
   ): Promise<MonitorDetailResponse> {
-    const { row, eligibility, etfSources, securities } =
+    const { row, eligibility, disabled, synchronization, etfSources, securities } =
       await this.readMonitorDetail(viewer, monitorId);
     const [signals, coverage] = await Promise.all([
       this.listSignals(monitorId),
@@ -358,7 +421,13 @@ export class MonitorsService {
       ),
     ]);
     return {
-      ...summaryOf(row, eligibility.get(row.id), viewer),
+      ...summaryOf(
+        row,
+        eligibility.get(row.id),
+        viewer,
+        disabled,
+        synchronization,
+      ),
       securities,
       signals,
       coverage,
@@ -381,7 +450,7 @@ export class MonitorsService {
     viewer: ContentViewer,
     monitorId: string,
   ): Promise<MonitorDetailSummaryResponse> {
-    const { row, eligibility, etfSources, securities } =
+    const { row, eligibility, disabled, synchronization, etfSources, securities } =
       await this.readMonitorDetail(viewer, monitorId);
     const byStatus = Object.fromEntries(
       MONITOR_SECURITY_STATUSES.map((status) => [status, 0]),
@@ -390,7 +459,13 @@ export class MonitorsService {
       byStatus[entry.status] += 1;
     }
     return {
-      ...summaryOf(row, eligibility.get(row.id), viewer),
+      ...summaryOf(
+        row,
+        eligibility.get(row.id),
+        viewer,
+        disabled,
+        synchronization,
+      ),
       memberCounts: { total: securities.length, byStatus },
       coverage: await this.coverageOf(
         row.id,
@@ -417,18 +492,31 @@ export class MonitorsService {
     }
     // Independent reads, issued together: the levels this Monitor actually evaluates, its owner's
     // eligibility and its ETF sources. None is per security.
-    const [monitoredLevelIds, eligibility, etfSources] = await Promise.all([
-      this.monitoredLevelIds(row.strategyId),
-      row.userId === null
-        ? Promise.resolve(new Map<string, MonitorEligibility>())
-        : this.entitlements.getMonitorExecutionEligibility(row.userId),
-      this.etfSourceStatuses(row.strategyId, row.stockListId),
+    const [monitoredLevelIds, eligibility, etfSources, disabled] =
+      await Promise.all([
+        this.monitoredLevelIds(row.strategyId),
+        row.userId === null
+          ? Promise.resolve(new Map<string, MonitorEligibility>())
+          : this.entitlements.getMonitorExecutionEligibility(row.userId),
+        this.etfSourceStatuses(row.strategyId, row.stockListId),
+        this.disabledBuiltInMonitors(viewer),
+      ]);
+    const [securities, synchronization] = await Promise.all([
+      this.listSecurityEvaluations(row, monitoredLevelIds),
+      isRunning(row, eligibility)
+        ? readMonitorSynchronization(this.prisma, [row]).then((all) =>
+            all.get(row.id),
+          )
+        : Promise.resolve(undefined),
     ]);
-    const securities = await this.listSecurityEvaluations(
+    return {
       row,
-      monitoredLevelIds,
-    );
-    return { row, eligibility, etfSources, securities };
+      eligibility,
+      disabled,
+      synchronization,
+      etfSources,
+      securities,
+    };
   }
 
   /**
@@ -814,6 +902,91 @@ export class MonitorsService {
     monitorId: string,
     patch: ParsedUpdateMonitorRequest,
   ): Promise<MonitorSummaryResponse> {
+    const visible = await this.prisma.monitor.findFirst({
+      where: { id: monitorId, ...visibleMonitorWhere(user) },
+      select: { ownership: true },
+    });
+    if (!visible) {
+      throw new MonitorNotFoundError();
+    }
+    if (visible.ownership === "SYSTEM") {
+      // A built-in's `enabled` is the caller's own choice for their account, which any signed-in
+      // viewer may make; everything else about it is the operator's, an administrator's alone. The
+      // operator's part goes first, so a refused one leaves the choice unwritten too.
+      const { enabled, ...operatorPatch } = patch;
+      if (Object.values(operatorPatch).some((value) => value !== undefined)) {
+        await this.applyMonitorPatch(user, monitorId, operatorPatch);
+      }
+      if (enabled !== undefined) {
+        await this.setBuiltInEnabled(user, monitorId, enabled);
+      }
+      return this.summaryForViewer(user, monitorId);
+    }
+    await this.applyMonitorPatch(user, monitorId, patch);
+    return this.summaryForViewer(user, monitorId);
+  }
+
+  /**
+   * Records a signed-in viewer's own Enabled / Disabled choice for a built-in
+   * (`docs/decisions/builtin-dashboard-signals-v1.md` §17b).
+   *
+   * One `UserBuiltInMonitorPreference` row, this user's alone: it decides whether they receive the
+   * built-in's Dashboard results and nothing else — the shared Monitor keeps being evaluated once
+   * for everybody, no other user's choice moves, and no Monitor allowance is consumed. A published
+   * built-in for everyone; an unpublished one only for the administrators who can see it.
+   */
+  private async setBuiltInEnabled(
+    user: AuthUser,
+    monitorId: string,
+    enabled: boolean,
+  ): Promise<void> {
+    const monitor = await this.prisma.monitor.findFirst({
+      where: {
+        id: monitorId,
+        ownership: "SYSTEM",
+        ...(isAdministrator(user) ? {} : { isPublished: true }),
+      },
+      select: { id: true },
+    });
+    if (!monitor) {
+      throw new MonitorNotFoundError();
+    }
+    await this.prisma.userBuiltInMonitorPreference.upsert({
+      where: { userId_monitorId: { userId: user.id, monitorId } },
+      create: { userId: user.id, monitorId, enabled },
+      update: { enabled },
+    });
+    this.logger.info({
+      event: "monitor.built-in-choice.updated",
+      actorUserId: user.id,
+      monitorId,
+      enabled,
+    });
+  }
+
+  /**
+   * Applies a Monitor change the caller is allowed to make on the Monitor itself: its name, whether
+   * a customer's own Monitor is enabled, which Strategy and Stock List it watches, and — for an
+   * administrator on a built-in — the operator's switches. There is still deliberately no cadence.
+   *
+   * Two different operations share it, and they are kept apart on purpose:
+   *
+   * - **Identity only** — name and `enabled`. Neither invalidates anything: disabling stops future
+   *   evaluations and nothing else, and the persisted transition state and checkpoints are **kept**
+   *   so re-enabling resumes with trigger semantics intact and catches up only the sessions it
+   *   missed (`docs/decisions/monitor-eod-v2.md` §12). One atomic statement, no lock, no reset.
+   * - **A rebind** — a different `strategyId` or `stockListId`. That crosses a configuration
+   *   boundary and is handled by `rebindMonitor`.
+   *
+   * Which one this is is decided by comparing **values**, never by which keys the client sent: an
+   * edit form naturally submits the Strategy and List it was prepopulated with, and resubmitting the
+   * same ones must not reset a thing.
+   */
+  private async applyMonitorPatch(
+    user: AuthUser,
+    monitorId: string,
+    patch: ParsedUpdateMonitorRequest,
+  ): Promise<void> {
     const userId = user.id;
     const target = await this.findMutable(user, monitorId);
     const builtInKeys = BUILT_IN_MONITOR_KEYS.filter((key) => patch[key] !== undefined);
@@ -822,14 +995,10 @@ export class MonitorsService {
         `\`${builtInKeys[0]}\` applies to built-in monitors only`,
       );
     }
-    if (target.ownership === "SYSTEM" && patch.enabled !== undefined) {
-      throw new MonitorRequestError(
-        "A built-in monitor is switched on and off with isGloballyEnabled",
-      );
-    }
 
     if (patch.strategyId !== undefined || patch.stockListId !== undefined) {
-      return this.rebindMonitor(user, target.ownership, monitorId, patch);
+      await this.rebindMonitor(user, target.ownership, monitorId, patch);
+      return;
     }
 
     // Switching a Monitor on is a capacity decision, so the check and the write share one
@@ -844,6 +1013,10 @@ export class MonitorsService {
         await this.entitlements.assertCanEnableMonitor(tx, userId, {
           excludeMonitorId: monitorId,
         });
+      }
+      // Switched on: its missing sessions are caught up by the next pass, not the next interval.
+      if (patch.enabled === true || patch.isGloballyEnabled === true) {
+        await requestMonitorEvaluation(tx);
       }
       // `updateMany` applies the ownership filter and the write in one atomic statement.
       return tx.monitor.updateMany({
@@ -878,10 +1051,6 @@ export class MonitorsService {
     }
 
     const row = await this.readVisibleMonitor(user, monitorId);
-    const eligibility =
-      row.userId === null
-        ? new Map<string, MonitorEligibility>()
-        : await this.entitlements.getMonitorExecutionEligibility(row.userId);
     this.logger.info({
       event: "monitor.updated",
       actorUserId: userId,
@@ -895,7 +1064,6 @@ export class MonitorsService {
           }
         : {}),
     });
-    return summaryOf(row, eligibility.get(row.id), user);
   }
 
   /**
@@ -947,7 +1115,7 @@ export class MonitorsService {
     ownership: "USER" | "SYSTEM",
     monitorId: string,
     patch: ParsedUpdateMonitorRequest,
-  ): Promise<MonitorSummaryResponse> {
+  ): Promise<void> {
     const userId = user.id;
     const system = ownership === "SYSTEM";
     // A customer's Monitor watches the customer's own content; a built-in watches built-ins only.
@@ -1020,6 +1188,14 @@ export class MonitorsService {
         ({ resolvedSignals, clearedStates } =
           await crossMonitorConfigurationBoundary(tx, monitorId, now));
       }
+      // A new configuration, or a Monitor switched on: evaluated by the next pass.
+      if (
+        rebound ||
+        patch.enabled === true ||
+        patch.isGloballyEnabled === true
+      ) {
+        await requestMonitorEvaluation(tx);
+      }
 
       const row = await tx.monitor.update({
         where: { id: monitorId },
@@ -1075,10 +1251,6 @@ export class MonitorsService {
           }
         : {}),
     });
-    const eligibility = system
-      ? new Map<string, MonitorEligibility>()
-      : await this.entitlements.getMonitorExecutionEligibility(userId);
-    return summaryOf(outcome.row, eligibility.get(outcome.row.id), user);
   }
 
   /** Re-reads a Monitor the caller can see, or reports it missing if it vanished underneath. */

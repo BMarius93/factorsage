@@ -1446,8 +1446,10 @@ enum MonitorObservationBasis {
 /// Owned by a user, or by the system (a built-in, identified by `systemKey`). A built-in Monitor is
 /// shared: it is evaluated once for everybody, its `enabled` stays true, and whether it runs is the
 /// operator's `isGloballyEnabled`. `isPublished` decides whether customers see it at all. A
-/// customer's choice to hide a built-in from their Dashboard is `UserBuiltInMonitorPreference`
-/// and never touches either column. A built-in references only built-in Lists and Strategies.
+/// signed-in customer's own Enabled / Disabled choice for a built-in is `UserBuiltInMonitorPreference`
+/// and never touches either column: it decides whether that customer receives the built-in's
+/// Dashboard results, never whether the shared Monitor is evaluated. A built-in references only
+/// built-in Lists and Strategies.
 ///
 /// It references the `Strategy` rather than a pinned `StrategyVersion`, because a Monitor is live:
 /// editing the Strategy must change what is being watched. Durable state is scoped to the canonical
@@ -1509,16 +1511,17 @@ model Monitor {
   /// it records `HISTORY`, never newly observed activity. An outage leaves it untouched: sessions
   /// missed then are caught up as `OBSERVED`.
   watchingSince          DateTime?
-  /// Whether this Monitor's first evaluation replays recent history (`docs/decisions/monitor-eod-v2.md`
-  /// §5). Set when a Monitor is created, cleared by a rebind; Monitors that existed before the replay
-  /// was introduced never ask for one.
-  initialReplayRequested Boolean          @default(false)
-  /// The first session of the replay window: 90 calendar days ending at the newest finalized session
-  /// of the pass that first evaluated the Monitor. Fixed once, so every member of the initial universe
-  /// replays the same window however late its data arrives.
+  /// Whether a member this Monitor has never evaluated is evaluated over the rolling activity window
+  /// — the 30 calendar days ending at the pass's newest finalized session — from the exact state
+  /// before it, rather than reconstructed at its newest session alone (`docs/decisions/monitor-eod-v2.md`
+  /// §12). True for every Monitor the product creates; a fixture that inserts rows directly may turn
+  /// it off to exercise the newest-session reconstruction.
+  windowReplay           Boolean          @default(true)
+  /// The record of the retired one-shot 90-day replay (`docs/decisions/monitor-eod-v2.md` §5): the
+  /// first session of the window it fixed. Kept as history and read by nothing that decides anything;
+  /// cleared by a rebind, never written otherwise.
   replayWindowStart      DateTime?        @db.Date
-  /// When the window was fixed. A member listed after it is a new member, reconstructed rather than
-  /// replayed.
+  /// When that 90-day window was fixed. History only, like `replayWindowStart`.
   replayWindowFixedAt    DateTime?
   createdAt              DateTime         @default(now())
   updatedAt              DateTime         @updatedAt
@@ -1751,6 +1754,14 @@ model MonitorEvaluationCheckpoint {
   /// A different ongoing membership — a re-entry, a moved start — is a membership change: the
   /// member's state is ended administratively and rebuilt from the new membership's history.
   membershipStart    DateTime? @db.Date
+  /// Where this member's recorded evaluation begins: every session from here through
+  /// `evaluatedThrough` was stepped in order with each change recorded, and the state on this day
+  /// is exact (`docs/decisions/monitor-eod-v2.md` §12). The start of a window replay, or the
+  /// session a reconstruction or legacy adoption decided first. A Monitor's rolling 30-day activity
+  /// window is covered for this member once this is on or before the window's start (or the
+  /// membership's). Checkpoints written before it was recorded were backfilled with a provable
+  /// lower bound by migration `20261023120000_monitor_rolling_window`.
+  coverageStart      DateTime? @db.Date
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -1761,11 +1772,13 @@ model MonitorEvaluationCheckpoint {
   @@index([securityId])
 }
 
-/// A signed-in customer's override of a built-in Monitor's Dashboard visibility.
+/// A signed-in customer's own Enabled / Disabled choice for one built-in Monitor
+/// (`docs/decisions/builtin-dashboard-signals-v1.md` §17b).
 ///
-/// Absence means the built-in default, which is visible. Only the override is stored: built-ins are
-/// never cloned per user, and this row changes what one user's Dashboard shows — never whether the
-/// shared Monitor is evaluated.
+/// Absence means the built-in default, which is enabled — a Guest, who has no row, sees every
+/// published built-in. Only the override is stored: built-ins are never cloned per user, and this
+/// row decides whether one user receives the built-in's Dashboard results — never whether the
+/// shared Monitor is evaluated, and never anybody else's choice. It consumes no Monitor allowance.
 model UserBuiltInMonitorPreference {
   userId    String
   monitorId String
@@ -1803,6 +1816,12 @@ model MonitorScanSchedule {
   /// Consecutive failed cycles, for backoff and alerting. Reset by a cycle that completes.
   consecutiveFailures Int       @default(0)
   lastError           String?
+  /// A Monitor started running (enabled, created enabled, globally enabled, rebound) and asked for
+  /// its catch-up to start soon rather than at the next scheduled cycle. The API sets it with
+  /// `dueAt = LEAST(dueAt, now)`; a claim consumes it; a cycle that completes while it is set makes
+  /// the next cycle due at once, so a request made during a running cycle is not lost. It never
+  /// makes cadence a user setting: it only moves the next cycle earlier, once.
+  scanRequested       Boolean   @default(false)
   updatedAt           DateTime  @updatedAt
 
   @@index([dueAt])

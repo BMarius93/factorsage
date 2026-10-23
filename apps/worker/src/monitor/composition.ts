@@ -45,6 +45,8 @@ import { PrismaMonitorRepository } from "./monitor-repository.js";
 import { PrismaMonitorScanRepository } from "./scan-repository.js";
 
 export type MonitorRuntime = {
+  /** The child's one PostgreSQL client, for operator commands composed on this runtime. */
+  prisma: PrismaClient;
   scans: PrismaMonitorScanRepository;
   monitors: PrismaMonitorRepository;
   /** Provider-free reads of finalized sessions: the EOD evaluation reaches no provider. */
@@ -199,6 +201,7 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
   };
 
   return {
+    prisma,
     scans: new PrismaMonitorScanRepository(prisma),
     monitors: new PrismaMonitorRepository(prisma),
     data: {

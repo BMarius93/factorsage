@@ -7,6 +7,7 @@ import {
   type MonitorSummaryResponse,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
+import { MONITOR_SCAN_SCHEDULE_ID } from "@intrinsic/database";
 import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -307,12 +308,14 @@ describe("monitors", () => {
     expect(monitor.signals).toEqual([]);
     expect(monitor.activeSignalCount).toBe(0);
     expect(monitor.lastScanAt).toBeUndefined();
-    // A new Monitor asks for its initial replay; the worker fixes the window on its first pass.
+    // A new Monitor's members are evaluated over the rolling 30-day window, and its first pass is
+    // asked for now rather than at the next interval (`monitor-eod-v2.md` §12).
     const row = await prisma.monitor.findUniqueOrThrow({
       where: { id: monitor.id },
     });
-    expect(row.initialReplayRequested).toBe(true);
+    expect(row.windowReplay).toBe(true);
     expect(row.replayWindowStart).toBeNull();
+    expect(monitor.synchronization).toMatchObject({ state: "SYNCHRONIZING" });
   });
 
   it("creates a disabled monitor when asked", async () => {
@@ -337,12 +340,37 @@ describe("monitors", () => {
       .send({ enabled: false })
       .expect(200);
     expect((disabled.body as MonitorSummaryResponse).enabled).toBe(false);
+    // Disabled: evaluating nothing, so there is nothing to synchronize.
+    expect(
+      (disabled.body as MonitorSummaryResponse).synchronization,
+    ).toBeUndefined();
 
+    // Switching it on asks the worker for a pass now, not at the next interval, and the answer
+    // says its missing sessions are being caught up until a pass has completed.
+    await prisma.monitorScanSchedule.upsert({
+      where: { id: MONITOR_SCAN_SCHEDULE_ID },
+      create: {
+        id: MONITOR_SCAN_SCHEDULE_ID,
+        dueAt: new Date(Date.now() + 3_600_000),
+      },
+      update: {
+        dueAt: new Date(Date.now() + 3_600_000),
+        scanRequested: false,
+      },
+    });
     const enabled = await owner
       .patch(`/monitors/${monitor.id}`)
       .send({ enabled: true })
       .expect(200);
     expect((enabled.body as MonitorSummaryResponse).enabled).toBe(true);
+    expect(
+      (enabled.body as MonitorSummaryResponse).synchronization,
+    ).toMatchObject({ state: "SYNCHRONIZING" });
+    const schedule = await prisma.monitorScanSchedule.findUniqueOrThrow({
+      where: { id: MONITOR_SCAN_SCHEDULE_ID },
+    });
+    expect(schedule.scanRequested).toBe(true);
+    expect(schedule.dueAt.getTime()).toBeLessThanOrEqual(Date.now());
   });
 
   it("keeps persisted transition state across a disable and re-enable", async () => {
@@ -837,17 +865,18 @@ describe("monitors", () => {
         .send({ strategyId: secondStrategyId })
         .expect(200);
 
-      // A rebound Monitor is reconstructed from history, never replayed.
+      // The new configuration is evaluated over the rolling window after the newest session the
+      // Monitor already recorded; the old configuration's 90-day replay record goes with it.
       const replay = await prisma.monitor.findUniqueOrThrow({
         where: { id: monitor.id },
         select: {
-          initialReplayRequested: true,
+          windowReplay: true,
           replayWindowStart: true,
           replayWindowFixedAt: true,
         },
       });
       expect(replay).toEqual({
-        initialReplayRequested: false,
+        windowReplay: true,
         replayWindowStart: null,
         replayWindowFixedAt: null,
       });

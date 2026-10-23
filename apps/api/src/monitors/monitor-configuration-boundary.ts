@@ -64,14 +64,16 @@ export async function crossMonitorConfigurationBoundary(
 
 /**
  * The Monitor-row fields a rebind changes, beside the binding itself: a new configuration
- * generation, no scan yet, and no initial replay — a rebound Monitor is reconstructed from history
- * at its newest session, never replayed (`docs/decisions/monitor-eod-v2.md` §5).
+ * generation and no scan yet. The record of a retired 90-day replay belonged to the previous
+ * configuration and goes with it. `windowReplay` stays: the new configuration's members are
+ * evaluated over the rolling window from the session after the newest one this Monitor already
+ * recorded a change on, so nothing recorded under the old binding is recorded twice
+ * (`docs/decisions/monitor-eod-v2.md` §12).
  */
 export function reboundMonitorFields() {
   return {
     configVersion: { increment: 1 },
     lastScanAt: null,
-    initialReplayRequested: false,
     replayWindowStart: null,
     replayWindowFixedAt: null,
   } as const;

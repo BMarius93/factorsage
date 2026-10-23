@@ -313,9 +313,9 @@ async function upsertMonitor(
         stockListId: binding.stockListId,
         isPublished: true,
         isGloballyEnabled: true,
-        // A built-in created now replays recent history on its first evaluation, as any new
-        // Monitor does (`docs/decisions/monitor-eod-v2.md` §5).
-        initialReplayRequested: true,
+        // A built-in created now is evaluated over the rolling 30-day activity window on its first
+        // evaluation, as any new Monitor is (`docs/decisions/monitor-eod-v2.md` §12).
+        windowReplay: true,
       },
     });
     return "created";

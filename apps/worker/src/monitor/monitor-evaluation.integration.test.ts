@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  monitorActivityWindowStart,
   STRATEGY_SCHEMA_VERSION,
   type StrategyDefinition,
   type StrategySignal,
@@ -136,13 +137,11 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       (await real.listActiveMonitors()).filter((m) => created.has(m.monitorId)),
     loadSignalStates: (id) => real.loadSignalStates(id),
     loadCheckpoints: (id) => real.loadCheckpoints(id),
-    loadSecuritiesWithTransitions: (id) =>
-      real.loadSecuritiesWithTransitions(id),
+    loadLastRecordedSessions: (id) => real.loadLastRecordedSessions(id),
     resolveUnvisitedStates: (input) => real.resolveUnvisitedStates(input),
     pruneCheckpoints: (input) => real.pruneCheckpoints(input),
     markScanned: (monitors, now) => real.markScanned(monitors, now),
     applyMemberEvaluation: (write) => real.applyMemberEvaluation(write),
-    fixReplayWindow: (input) => real.fixReplayWindow(input),
     async markWatching(running, now) {
       await prisma.monitor.updateMany({
         where: { id: { in: [...owned].filter((id) => !running.includes(id)) } },
@@ -282,7 +281,9 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         items: {
           create: securities.map((security) => ({
             securityId: security.id,
-            ...(options.listedAt ? { createdAt: options.listedAt } : {}),
+            // Listed before every session the suite drives unless a case says otherwise: in
+            // production a member is never listed after the clock its pass runs on.
+            createdAt: options.listedAt ?? new Date("2000-01-03T00:00:00.000Z"),
           })),
         },
       },
@@ -294,7 +295,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         name: "EOD monitor",
         strategyId: strategy.id,
         stockListId: stockList.id,
-        ...(options.replay ? { initialReplayRequested: true } : {}),
+        windowReplay: options.replay === true,
       },
     });
     systemRows.push({
@@ -1194,7 +1195,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     });
   });
 
-  describe("a new Monitor's initial replay", () => {
+  describe("the rolling 30-day activity window (§12)", () => {
     /** Weekday closes from `from` through `to`, each `price(date)`. */
     function weekdays(
       from: string,
@@ -1216,15 +1217,28 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       return closes;
     }
     const listedAt = new Date("2026-10-01T12:00:00.000Z");
+    /** Above its average since listing in March, below from Sep 21, above again from Oct 5. */
+    const dipInWindow = (date: string) =>
+      date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105;
 
-    it("records every change of its 90-day window on its own session, from the exact state before it", async () => {
-      // Above its average since listing in March, below from Aug 21, above again from Sep 15.
+    function evaluationOn(
+      calendar: { isTradingSession(exchange: string, date: string): Promise<boolean> },
+      lateRecoveryMs: number,
+    ) {
+      return new MonitorEodEvaluation(
+        repository,
+        data,
+        new EodFinalityPolicy({ calendar, now: () => clock.now }),
+        createLogger({ service: "worker", level: "silent" }),
+        { securityConcurrency: 2, lateRecoveryMs, now: () => clock.now },
+      );
+    }
+
+    it("records every change of its 30 calendar days on its own session, from the exact state before them", async () => {
       const security = await createSecurity("2026-03-02");
       await seed(
         security,
-        weekdays("2026-03-02", "2026-10-14", (date) =>
-          date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
-        ),
+        weekdays("2026-03-02", "2026-10-14", dipInWindow),
         after("2026-10-14"),
         "2026-10-14",
         "2026-03-02",
@@ -1236,11 +1250,10 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
 
       const summary = await evaluation().run(1);
       expect(summary.membersReplayed).toBe(1);
-      const monitor = await prisma.monitor.findUniqueOrThrow({
-        where: { id: monitorId },
-      });
-      // 90 calendar days ending at the newest finalized session.
-      expect(day(monitor.replayWindowStart)).toBe("2026-07-17");
+      // 30 calendar days ending at the newest finalized session (Wed Oct 14): Sep 15 – Oct 14.
+      expect(monitorActivityWindowStart(summary.expectedSession)).toBe(
+        "2026-09-15",
+      );
 
       const rows = await transitions(monitorId);
       expect(
@@ -1248,11 +1261,10 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       ).toEqual([
         // Active since March: the window's cutoff does not reset what was latched before it.
         ["2026-03-02", "RECONSTRUCTED", "HISTORY"],
-        ["2026-08-21", "CONDITIONS_ENDED", "HISTORY"],
-        ["2026-09-15", "CONDITIONS_MET", "HISTORY"],
+        ["2026-09-21", "CONDITIONS_ENDED", "HISTORY"],
+        ["2026-10-05", "CONDITIONS_MET", "HISTORY"],
       ]);
-      const ended = rows[1]!;
-      expect(ended.evidence).toEqual({
+      expect(rows[1]!.evidence).toEqual({
         v: 1,
         rules: [
           {
@@ -1269,36 +1281,74 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
           },
         ],
       });
-      const occurrences = await signals(monitorId);
+      // The observation is the session; the processing time is the pass that found it.
+      expect(rows.every((t) => t.occurredAt.getTime() === clock.now.getTime())).toBe(true);
       expect(
-        occurrences.map((signal) => [
+        (await signals(monitorId)).map((signal) => [
           day(signal.observationDate),
           day(signal.resolvedObservationDate) ?? null,
           signal.resolutionReason,
           signal.reconstructed,
         ]),
       ).toEqual([
-        ["2026-03-02", "2026-08-21", "CONDITIONS_ENDED", true],
-        ["2026-09-15", null, null, true],
+        ["2026-03-02", "2026-09-21", "CONDITIONS_ENDED", true],
+        ["2026-10-05", null, null, true],
       ]);
       expect(rows.every((t) => t.strategyVersionId !== null)).toBe(true);
+      const progress = await checkpoint(monitorId, security.id);
+      expect(day(progress?.coverageStart)).toBe("2026-09-15");
+      expect(day(progress?.evaluatedThrough)).toBe("2026-10-14");
 
-      // Idempotent: the window is replayed once.
+      // Zero missing sessions: nothing is evaluated or written again.
       const again = await evaluation().run(2);
       expect(again.membersReplayed).toBe(0);
+      expect(again.sessionsEvaluated).toBe(0);
       expect(await transitions(monitorId)).toHaveLength(3);
       expect(await signals(monitorId)).toHaveLength(2);
     });
 
-    it("starts a member's window at its listing when the security is younger than the window", async () => {
-      const security = await createSecurity("2026-09-01");
+    it("keeps a Trigger latched before the window active through it, never restarting the setup", async () => {
+      const security = await createSecurity("2026-03-02");
+      // Below its average until Aug 3, when it crosses above and stays there.
       await seed(
         security,
-        weekdays("2026-09-01", "2026-10-14", (date) =>
-          date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105,
+        weekdays("2026-03-02", "2026-10-14", (date) =>
+          date >= "2026-08-03" ? 105 : 95,
         ),
         after("2026-10-14"),
         "2026-10-14",
+        "2026-03-02",
+      );
+      const monitorId = await createMonitor(
+        [security],
+        { conditions: signalAbove().conditions, trigger: signalCrosses().trigger! },
+        { replay: true, listedAt },
+      );
+      await evaluation().run(1);
+      expect(
+        (await transitions(monitorId)).map((t) => [
+          day(t.observationDate),
+          t.toState,
+          t.reason,
+        ]),
+      ).toEqual([["2026-08-03", "ACTIVE", "RECONSTRUCTED"]]);
+      const state = await prisma.monitorSignalState.findFirstOrThrow({
+        where: { monitorId },
+      });
+      expect(state.lifecycleState).toBe("ACTIVE");
+      expect(day(state.lifecycleSinceDate)).toBe("2026-08-03");
+    });
+
+    it("starts a member's window at its listing when the security is younger than the window", async () => {
+      const security = await createSecurity("2026-09-22");
+      await seed(
+        security,
+        weekdays("2026-09-22", "2026-10-14", (date) =>
+          date >= "2026-09-28" && date < "2026-10-05" ? 95 : 105,
+        ),
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-09-22",
       );
       const monitorId = await createMonitor([security], signalAbove(), {
         replay: true,
@@ -1311,25 +1361,30 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
           t.reason,
         ]),
       ).toEqual([
-        ["2026-09-01", "CONDITIONS_MET"],
-        ["2026-09-21", "CONDITIONS_ENDED"],
+        ["2026-09-22", "CONDITIONS_MET"],
+        ["2026-09-28", "CONDITIONS_ENDED"],
         ["2026-10-05", "CONDITIONS_MET"],
       ]);
+      // Covered from the window's start: nothing existed to evaluate before the listing.
+      expect(
+        day((await checkpoint(monitorId, security.id))?.coverageStart),
+      ).toBe("2026-09-15");
     });
 
-    it("reconstructs, never replays, a member listed after the window was fixed", async () => {
+    it("evaluates a member added later over its window, as history found when it was added", async () => {
       const first = await createSecurity("2026-09-01");
       const later = await createSecurity("2026-09-01");
-      const closes = weekdays("2026-09-01", "2026-10-14", (date) =>
+      const closes = weekdays("2026-09-01", "2026-10-15", (date) =>
         date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105,
       );
       await seed(first, closes, after("2026-10-14"), "2026-10-14");
-      await seed(later, closes, after("2026-10-14"), "2026-10-14");
       const monitorId = await createMonitor([first], signalAbove(), {
         replay: true,
         listedAt,
       });
       await evaluation().run(1);
+
+      // Added the next morning; Thursday's session is then the first it is watched for.
       const monitor = await prisma.monitor.findUniqueOrThrow({
         where: { id: monitorId },
       });
@@ -1337,38 +1392,49 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         data: {
           stockListId: monitor.stockListId,
           securityId: later.id,
-          createdAt: new Date(monitor.replayWindowFixedAt!.getTime() + 60_000),
+          createdAt: new Date("2026-10-15T13:00:00.000Z"),
         },
       });
-      await evaluation().run(2);
+      clock.now = after("2026-10-15");
+      await seed(first, closes, after("2026-10-15"), "2026-10-15");
+      await seed(later, closes, after("2026-10-15"), "2026-10-15");
+      const second = await evaluation().run(2);
+      expect(second.membersReplayed).toBe(1);
       const added = (await transitions(monitorId)).filter(
         (t) => t.securityId === later.id,
       );
-      expect(added.map((t) => [day(t.observationDate), t.reason])).toEqual([
-        ["2026-10-05", "RECONSTRUCTED"],
+      expect(
+        added.map((t) => [day(t.observationDate), t.reason, t.origin]),
+      ).toEqual([
+        ["2026-09-01", "RECONSTRUCTED", "HISTORY"],
+        ["2026-09-21", "CONDITIONS_ENDED", "HISTORY"],
+        ["2026-10-05", "CONDITIONS_MET", "HISTORY"],
       ]);
+      // Its window ends at the newest finalized session of the pass that found it: Sep 16 – Oct 15.
+      expect(
+        day((await checkpoint(monitorId, later.id))?.coverageStart),
+      ).toBe("2026-09-16");
+      // The first member was only caught up by one session, its coverage kept.
+      expect(
+        day((await checkpoint(monitorId, first.id))?.coverageStart),
+      ).toBe("2026-09-15");
     });
 
     /**
      * Pre-release audit 2026-10-16, finding MON-01 (`docs/audits/pre-release-audit-2026-10-16.md`).
      *
-     * "Only a newly created Monitor replays its 90-day window" (invariant 15; monitor-eod-v2 §5.1:
-     * editing a List replays nothing). A member whose ongoing membership ends is closed
-     * administratively and loses its state **and** its checkpoint; when the owner restores the
-     * membership, the member again has no checkpoint and no state while its `listedAt` is still
-     * before the window was fixed — exactly the replay predicate — so the whole window is decided a
-     * second time, duplicating every Signal it opened. Failed on `bebf3dc7`; a member with any
-     * transition recorded by the Monitor is now never replayed. What re-entry does instead is §4's:
-     * the occurrence still open when the membership ended is closed administratively, and a setup
-     * that still holds is reconstructed as one new occurrence on its true activation session.
+     * A member whose ongoing membership ends is closed administratively and loses its state **and**
+     * its checkpoint; restored, it again has neither. Replaying its whole window then decided every
+     * session a second time and duplicated every Signal it had opened. The window replay starts
+     * after the newest session this Monitor ever recorded a change on for the security, so no
+     * recorded change is ever recorded again; what was ended administratively stays ended, and the
+     * occurrence that still holds is reconstructed as one new occurrence on its true session (§4).
      */
-    it("MON-01: never replays the window again when a member's membership ends and is restored", async () => {
+    it("MON-01: never records a window session twice when a member's membership ends and is restored", async () => {
       const security = await createSecurity("2026-03-02");
       await seed(
         security,
-        weekdays("2026-03-02", "2026-10-14", (date) =>
-          date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
-        ),
+        weekdays("2026-03-02", "2026-10-14", dipInWindow),
         after("2026-10-14"),
         "2026-10-14",
         "2026-03-02",
@@ -1378,8 +1444,7 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         listedAt,
       });
       expect((await evaluation().run(1)).membersReplayed).toBe(1);
-      const replayed = await signals(monitorId);
-      expect(replayed).toHaveLength(2);
+      expect(await signals(monitorId)).toHaveLength(2);
 
       // The owner bounds the membership (it stops being ongoing), the pass ends it…
       await setMembership(monitorId, security, [
@@ -1391,14 +1456,12 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
           (t) => t.reason === "MEMBERSHIP_CHANGED",
         ),
       ).toBe(true);
+      expect(await checkpoint(monitorId, security.id)).toBeNull();
 
-      // …and restores it. The member re-enters as a new membership: reconstructed at the newest
-      // session, never replayed.
+      // …and restores it. Only the sessions after Oct 5 — the newest recorded — are evaluated again.
       await setMembership(monitorId, security, "FULL");
-      const third = await evaluation().run(3);
-      expect(third.membersReplayed).toBe(0);
+      expect((await evaluation().run(3)).membersReplayed).toBe(1);
 
-      // No session the window decided is decided again: every market-decided change appears once.
       const decided = (await transitions(monitorId))
         .filter(
           (t) => t.origin !== "ADMINISTRATIVE" && t.reason !== "RECONSTRUCTED",
@@ -1407,42 +1470,30 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
           (t) =>
             `${t.levelId}|${day(t.observationDate)}|${t.toState}|${t.reason}`,
         );
-      expect(new Set(decided).size).toBe(decided.length);
-      // The past occurrence the window opened and closed stays one occurrence…
-      const occurrences = await signals(monitorId);
+      expect(decided).toEqual([
+        "buy-1|2026-09-21|RESOLVED|CONDITIONS_ENDED",
+        "buy-1|2026-10-05|ACTIVE|CONDITIONS_MET",
+      ]);
       expect(
-        occurrences.filter(
-          (signal) => day(signal.observationDate) === "2026-03-02",
-        ),
-      ).toHaveLength(1);
-      // …and the one still active when the membership ended was closed administratively; re-entry
-      // reconstructs the setup that still holds as one new occurrence (§4), the only open one.
-      expect(
-        occurrences.map((signal) => [
+        (await signals(monitorId)).map((signal) => [
           day(signal.observationDate),
           signal.resolutionReason,
         ]),
       ).toEqual([
         ["2026-03-02", "CONDITIONS_ENDED"],
-        ["2026-09-15", "MEMBERSHIP_CHANGED"],
-        ["2026-09-15", null],
+        ["2026-10-05", "MEMBERSHIP_CHANGED"],
+        ["2026-10-05", null],
       ]);
-      const reentry = (await transitions(monitorId)).filter(
-        (t) => t.reason === "RECONSTRUCTED",
-      );
-      expect(reentry.map((t) => [day(t.observationDate), t.origin])).toEqual([
-        ["2026-03-02", "HISTORY"],
-        ["2026-09-15", "HISTORY"],
-      ]);
+      expect(
+        day((await checkpoint(monitorId, security.id))?.coverageStart),
+      ).toBe("2026-10-06");
     });
 
     it("replays a member exactly once when the pass that replayed it crashed before committing", async () => {
       const security = await createSecurity("2026-03-02");
       await seed(
         security,
-        weekdays("2026-03-02", "2026-10-14", (date) =>
-          date >= "2026-08-21" && date < "2026-09-15" ? 95 : 105,
-        ),
+        weekdays("2026-03-02", "2026-10-14", dipInWindow),
         after("2026-10-14"),
         "2026-10-14",
         "2026-03-02",
@@ -1486,13 +1537,125 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       expect(new Set(opened).size).toBe(opened.length);
     });
 
-    it("never replays a Monitor that did not ask for it", async () => {
+    it("lets one of two concurrent passes record a window, and the other none of it", async () => {
+      const security = await createSecurity("2026-03-02");
+      await seed(
+        security,
+        weekdays("2026-03-02", "2026-10-14", dipInWindow),
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-03-02",
+      );
+      const monitorId = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      const [one, two] = await Promise.all([
+        evaluation().run(1),
+        evaluation().run(2),
+      ]);
+      expect(one.contended + two.contended).toBe(1);
+      expect(await transitions(monitorId)).toHaveLength(3);
+      expect(await signals(monitorId)).toHaveLength(2);
+    });
+
+    it("keeps a Monitor replayed under the retired 90-day rule, and evaluates only the sessions it missed while disabled", async () => {
+      const security = await createSecurity("2026-03-02");
+      const closes = weekdays("2026-03-02", "2026-10-21", (date) =>
+        date >= "2026-10-19" ? 95 : dipInWindow(date),
+      );
+      await seed(security, closes, after("2026-10-14"), "2026-10-14", "2026-03-02");
+      const monitorId = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      await evaluation().run(1);
+      // What the 90-day replay and its migration leave: the record of the old window, and a member
+      // covered from its start.
+      await prisma.monitor.update({
+        where: { id: monitorId },
+        data: {
+          replayWindowStart: new Date("2026-07-17T00:00:00.000Z"),
+          replayWindowFixedAt: after("2026-10-14"),
+        },
+      });
+      await prisma.monitorEvaluationCheckpoint.update({
+        where: { monitorId_securityId: { monitorId, securityId: security.id } },
+        data: { coverageStart: new Date("2026-07-17T00:00:00.000Z") },
+      });
+      const recorded = await transitions(monitorId);
+
+      // Disabled for a week: no pass evaluates it, and it stops being watched.
+      created.delete(monitorId);
+      clock.now = after("2026-10-16");
+      await evaluation().run(2);
+      expect(
+        (await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } }))
+          .watchingSince,
+      ).toBeNull();
+
+      // Re-enabled on Oct 21: only Oct 15 – 21 are evaluated, in order, as history.
+      created.add(monitorId);
+      clock.now = after("2026-10-21");
+      await seed(security, closes, after("2026-10-21"), "2026-10-21", "2026-03-02");
+      const resumed = await evaluation().run(3);
+      expect(resumed.membersReplayed).toBe(0);
+      expect(resumed.sessionsEvaluated).toBe(5);
+      const now = await transitions(monitorId);
+      expect(now.slice(0, recorded.length).map((t) => t.id)).toEqual(
+        recorded.map((t) => t.id),
+      );
+      expect(
+        now
+          .slice(recorded.length)
+          .map((t) => [day(t.observationDate), t.reason, t.origin]),
+      ).toEqual([["2026-10-19", "CONDITIONS_ENDED", "HISTORY"]]);
+      const progress = await checkpoint(monitorId, security.id);
+      expect(day(progress?.evaluatedThrough)).toBe("2026-10-21");
+      expect(day(progress?.coverageStart)).toBe("2026-07-17");
+    });
+
+    it("never waits for, or counts as missing, a session the exchange was closed", async () => {
+      const security = await createSecurity("2026-09-01");
+      // Monday Oct 12 is a closure on this venue: no bar, and none is owed.
+      const closes = weekdays("2026-09-01", "2026-10-14", dipInWindow);
+      delete closes["2026-10-12"];
+      await seed(security, closes, after("2026-10-14"), "2026-10-14");
+      const holidays = {
+        async isTradingSession(_exchange: string, date: string) {
+          const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+          return weekday !== 0 && weekday !== 6 && date !== "2026-10-12";
+        },
+      };
+      const fourDays = 4 * 24 * 60 * 60_000;
+      const closed = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      const summary = await evaluationOn(holidays, fourDays).run(1);
+      expect(summary.membersAwaitingLateSession).toBe(0);
+      expect(
+        day((await checkpoint(closed, security.id))?.evaluatedThrough),
+      ).toBe("2026-10-14");
+
+      // The same missing bar on a venue that was open is a late session, and is waited for.
+      created.delete(closed);
+      const open = await createMonitor([security], signalAbove(), {
+        replay: true,
+        listedAt,
+      });
+      const held = await evaluationOn(WEEKDAY_TRADING_CALENDAR, fourDays).run(2);
+      expect(held.membersAwaitingLateSession).toBe(1);
+      expect(day((await checkpoint(open, security.id))?.evaluatedThrough)).toBe(
+        "2026-10-09",
+      );
+    });
+
+    it("reconstructs a member at its newest session when the Monitor does not replay windows", async () => {
       const security = await createSecurity("2026-09-01");
       await seed(
         security,
-        weekdays("2026-09-01", "2026-10-14", (date) =>
-          date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105,
-        ),
+        weekdays("2026-09-01", "2026-10-14", dipInWindow),
         after("2026-10-14"),
         "2026-10-14",
       );
@@ -1501,11 +1664,11 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       });
       const summary = await evaluation().run(1);
       expect(summary.membersReplayed).toBe(0);
-      expect(
-        (await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } }))
-          .replayWindowStart,
-      ).toBeNull();
       expect(await transitions(monitorId)).toHaveLength(1);
+      // Recorded from the newest session only: the window before it was never stepped.
+      expect(
+        day((await checkpoint(monitorId, security.id))?.coverageStart),
+      ).toBe("2026-10-14");
     });
   });
 

@@ -76,3 +76,4 @@ export type {
 } from "@prisma/client";
 export * from "./backtest-run-numbers.js";
 export * from "./entitlement-locks.js";
+export * from "./monitor-scan-schedule.js";

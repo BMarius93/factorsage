@@ -934,7 +934,7 @@ async function createMonitor(input: {
       strategyId: input.strategyId,
       stockListId: list.id,
       enabled: input.enabled ?? true,
-      initialReplayRequested: args.replay,
+      windowReplay: args.replay,
     },
   });
   return monitor.id;

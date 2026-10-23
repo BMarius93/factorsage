@@ -42,6 +42,13 @@ import {
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 import { weekdaySessions } from "../shared/etf-context.test-helper.js";
 
+/**
+ * When the fixtures' securities joined their Lists: before every session these suites drive, so a
+ * session is observed or history by the Monitor's watching stamp alone, as in production, where a
+ * member is never listed after the clock the pass runs on.
+ */
+const LISTED_BEFORE_EVERY_SESSION = new Date("2000-01-03T00:00:00.000Z");
+
 // Before any PrismaClient in this file is constructed.
 useTestDatabase();
 
@@ -342,11 +349,13 @@ async function createFixtureMonitor(): Promise<{
     data: {
       userId: user.id,
       name: `ETF List ${randomUUID().slice(0, 8)}`,
-      items: { create: [{ securityId: security.id }] },
+      items: { create: [{ securityId: security.id, createdAt: LISTED_BEFORE_EVERY_SESSION }] },
     },
   });
   const monitor = await prisma.monitor.create({
     data: {
+      // Reconstructed at the newest session: this suite is not about the window replay.
+      windowReplay: false,
       userId: user.id,
       name: `ETF Monitor ${randomUUID().slice(0, 8)}`,
       strategyId: strategy.id,
@@ -684,11 +693,18 @@ async function createSectorMonitor(
     data: {
       userId: user.id,
       name: `Sector List ${randomUUID().slice(0, 8)}`,
-      items: { create: securities.map((security) => ({ securityId: security.id })) },
+      items: {
+        create: securities.map((security) => ({
+          securityId: security.id,
+          createdAt: LISTED_BEFORE_EVERY_SESSION,
+        })),
+      },
     },
   });
   const monitor = await prisma.monitor.create({
     data: {
+      // Reconstructed at the newest session: this suite is not about the window replay.
+      windowReplay: false,
       userId: user.id,
       name: `Sector Monitor ${randomUUID().slice(0, 8)}`,
       strategyId: strategy.id,

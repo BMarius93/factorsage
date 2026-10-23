@@ -1,4 +1,5 @@
 import {
+  monitorActivityWindowStart,
   normalizeStrategyDefinition,
   resolveStockSectorEtf,
   type StrategyDefinition,
@@ -123,9 +124,6 @@ export type MonitorEvaluationOptions = {
 
 export const DEFAULT_RECONSTRUCTION_SESSIONS = 252;
 
-/** A new Monitor's initial replay: the calendar days ending at the newest finalized session. */
-export const INITIAL_REPLAY_CALENDAR_DAYS = 90;
-
 export type MonitorEvaluationSummary = {
   expectedSession: LocalDate;
   calendar: FinalizedSession["calendar"];
@@ -141,7 +139,10 @@ export type MonitorEvaluationSummary = {
   membersNotCurrent: number;
   /** Members whose ongoing membership changed under their state, which was ended and rebuilt. */
   membershipResets: number;
-  /** Members of a new Monitor whose initial window was replayed this pass. */
+  /**
+   * Members never evaluated before whose missing activity-window sessions were evaluated this pass,
+   * from the exact state before them (`docs/decisions/monitor-eod-v2.md` §12).
+   */
   membersReplayed: number;
   /** Members whose checkpoint reached the expected session by the end of the pass. */
   membersCurrent: number;
@@ -180,13 +181,18 @@ type PreparedMonitor = {
   readsSector: boolean;
   /** The members evaluated this pass: current members of the List on the expected session. */
   currentMemberIds: SecurityId[];
-  /** The initial replay window, when this Monitor asked for one (`monitor-eod-v2.md` §5). */
-  replayWindow: { windowStart: LocalDate; fixedAt: Date } | null;
   /**
-   * Securities this Monitor has recorded any transition for, read only when it has a replay window.
-   * A member that has history here has been decided by this Monitor and is never replayed again.
+   * The rolling activity window's first day, when this Monitor evaluates a never-evaluated member
+   * over it (`windowReplay`, `monitor-eod-v2.md` §12); null when it reconstructs such a member at
+   * its newest session instead.
    */
-  securitiesWithHistory: ReadonlySet<string>;
+  windowStart: LocalDate | null;
+  /**
+   * The newest session this Monitor has recorded any change on, per security, read only when it
+   * replays windows. A replay never steps a session on or before it, so no session whose changes are
+   * already recorded — under an ended membership, a previous binding — is ever recorded twice.
+   */
+  lastRecorded: ReadonlyMap<string, LocalDate>;
   /** Securities with any persisted state: never replayed, whatever their checkpoint says. */
   securitiesWithState: ReadonlySet<string>;
 };
@@ -279,7 +285,9 @@ export class MonitorEodEvaluation {
         const states = await this.repository.loadSignalStates(
           monitor.monitorId,
         );
-        const replayWindow = await this.replayWindowOf(monitor, expected, now);
+        const windowStart = monitor.windowReplay
+          ? monitorActivityWindowStart(expected.session)
+          : null;
         prepared.push({
           monitor,
           definition,
@@ -290,11 +298,11 @@ export class MonitorEodEvaluation {
           etfCodes: [...collectEtfOperands(definition).keys()].sort(),
           readsSector: collectSectorOperands(definition).length > 0,
           currentMemberIds: [],
-          replayWindow,
-          securitiesWithHistory:
-            replayWindow === null
-              ? new Set<string>()
-              : await this.repository.loadSecuritiesWithTransitions(
+          windowStart,
+          lastRecorded:
+            windowStart === null
+              ? new Map<string, LocalDate>()
+              : await this.repository.loadLastRecordedSessions(
                   monitor.monitorId,
                 ),
           // Keys are `signalStateKey(securityId, levelId)`; a security id holds no space.
@@ -647,26 +655,26 @@ export class MonitorEodEvaluation {
           persisted.signalFingerprint !== level.fingerprint
         );
       });
-      // A new Monitor's initial universe replays its window: a member listed by the time the
-      // window was fixed, never evaluated, with no state. Its first session is the window's, or the
-      // membership's when that began later. A member listed afterwards is new, and reconstructed.
-      //
-      // "Never evaluated" is the transition history, not the checkpoint and state alone: a
-      // membership that ends deletes both, and restoring it would otherwise replay the whole window
-      // a second time and duplicate every Signal it opened (MON-01). A restored member re-enters as
-      // a new membership — reconstructed at its newest session (§4), never replayed.
-      const window = entry.prepared.replayWindow;
+      // A member with no progress and no state under this configuration is evaluated over the
+      // rolling activity window (§12): its missing sessions, in order, from the exact state before
+      // the first. The first is the window's, the membership's when that began later, and never a
+      // session on or before the newest one this Monitor already recorded a change on for the
+      // security — a membership that ended and was restored, a previous binding — so a recorded
+      // change is never recorded twice (MON-01). With nothing left to step, the member is
+      // reconstructed at its newest session instead.
+      const windowStart = entry.prepared.windowStart;
+      const fresh =
+        from === undefined &&
+        (resetMembership ||
+          !entry.prepared.securitiesWithState.has(entry.member.securityId));
+      const recorded = entry.prepared.lastRecorded.get(entry.member.securityId);
       const replayFrom =
-        window !== null &&
-        !checkpoint &&
-        !entry.prepared.securitiesWithState.has(entry.member.securityId) &&
-        !entry.prepared.securitiesWithHistory.has(entry.member.securityId) &&
-        entry.member.listedAt !== undefined &&
-        entry.member.listedAt <= window.fixedAt
-          ? entry.membershipStart !== null &&
-            entry.membershipStart > window.windowStart
-            ? entry.membershipStart
-            : window.windowStart
+        windowStart !== null && fresh
+          ? latestOf(
+              windowStart,
+              entry.membershipStart ?? windowStart,
+              recorded === undefined ? windowStart : addDays(recorded, 1),
+            )
           : undefined;
       return {
         entry,
@@ -813,26 +821,18 @@ export class MonitorEodEvaluation {
         { from, confirmedThrough },
         horizon,
       );
-      const decided = work.map((plan) => {
-        const held = this.holdAtRecoverableGap(
+      const holds = work.map((plan) =>
+        this.holdAtRecoverableGap(
           plan,
           frame,
           stockGaps,
           input.etfSnapshots,
           input.sectorCode,
           input.now,
-        );
-        if (held.held) {
-          summary.membersAwaitingLateSession += 1;
-          this.logger.debug({
-            event: "monitor.late-session.waiting",
-            cycleSequence: input.cycleSequence,
-            monitorId: plan.entry.prepared.monitor.monitorId,
-            symbol: security.symbol,
-            session: held.gap,
-            source: held.source,
-          });
-        }
+        ),
+      );
+      const decided = work.map((plan, index) => {
+        const held = holds[index]!;
         return this.decideEntry(
           { ...plan, through: held.through },
           frame,
@@ -846,6 +846,21 @@ export class MonitorEodEvaluation {
         sessions *= 2;
         continue;
       }
+      // Counted once the read is final, never once per deepening read.
+      work.forEach((plan, index) => {
+        const held = holds[index]!;
+        if (held.held) {
+          summary.membersAwaitingLateSession += 1;
+          this.logger.debug({
+            event: "monitor.late-session.waiting",
+            cycleSequence: input.cycleSequence,
+            monitorId: plan.entry.prepared.monitor.monitorId,
+            symbol: security.symbol,
+            session: held.gap,
+            source: held.source,
+          });
+        }
+      });
       for (const item of decided) {
         if (!item.next) {
           continue;
@@ -860,6 +875,9 @@ export class MonitorEodEvaluation {
             next: item.next,
             basisGeneration: read.priceBasisGeneration,
             membershipStart: item.plan.entry.membershipStart,
+            ...(item.coverageStart === undefined
+              ? {}
+              : { coverageStart: item.coverageStart }),
           },
           item.levels,
           input,
@@ -916,34 +934,6 @@ export class MonitorEodEvaluation {
       }
     }
     return { through, waitingOn };
-  }
-
-  /**
-   * A new Monitor's replay window, fixed by the first evaluation that sees it: the 90 calendar days
-   * ending at the newest finalized session (`docs/decisions/monitor-eod-v2.md` §5). Null when the
-   * Monitor does not ask for a replay — every Monitor older than the replay, and every rebound one.
-   */
-  private async replayWindowOf(
-    monitor: ActiveMonitor,
-    expected: FinalizedSession,
-    now: Date,
-  ): Promise<{ windowStart: LocalDate; fixedAt: Date } | null> {
-    const replay = monitor.replay;
-    if (!replay?.requested) {
-      return null;
-    }
-    if (replay.windowStart !== null && replay.fixedAt !== null) {
-      return { windowStart: replay.windowStart, fixedAt: replay.fixedAt };
-    }
-    return this.repository.fixReplayWindow({
-      monitorId: monitor.monitorId,
-      configVersion: monitor.configVersion,
-      windowStart: addDays(
-        expected.session,
-        -(INITIAL_REPLAY_CALENDAR_DAYS - 1),
-      ),
-      now,
-    });
   }
 
   /** The newest date whose finalization is older than the late-recovery horizon. */
@@ -1130,6 +1120,8 @@ export class MonitorEodEvaluation {
     plan: typeof plan;
     levels: LevelSessionsWrite[];
     next: LocalDate | undefined;
+    /** Where the member's recorded evaluation now begins, when this write starts it afresh. */
+    coverageStart: LocalDate | undefined;
     sessions: number;
     reconstructed: number;
     needsDeeperHistory: boolean;
@@ -1183,10 +1175,16 @@ export class MonitorEodEvaluation {
     const newestIndex = sessions[sessions.length - 1];
     const lastStepped =
       newestIndex === undefined ? undefined : frame.dates[newestIndex];
-    const watchingSince = entry.prepared.watchingSince.getTime();
+    // Observed only when the Monitor was watching this member as the session became final: watched
+    // since `watchingSince`, and the security in its List by then. A session finalized before
+    // either — a paused Monitor's gap, a member added later — is history, found afterwards.
+    const watchedFrom = Math.max(
+      entry.prepared.watchingSince.getTime(),
+      entry.member.listedAt?.getTime() ?? Number.NEGATIVE_INFINITY,
+    );
     const originOf = (date: LocalDate): TransitionOrigin =>
       eodSessionFinalizedAt(date, this.policy.publicationDelayMs).getTime() >=
-      watchingSince
+      watchedFrom
         ? "OBSERVED"
         : "HISTORY";
 
@@ -1240,6 +1238,15 @@ export class MonitorEodEvaluation {
       plan,
       levels,
       next,
+      // A member caught up from its own checkpoint keeps the coverage it had. One decided afresh
+      // is recorded from its window replay's start, or — reconstructed at its newest session — from
+      // that session alone: the sessions before it were never recorded one by one.
+      coverageStart:
+        from !== undefined
+          ? undefined
+          : replay
+            ? plan.replayFrom
+            : lastStepped,
       sessions: sessions.length,
       reconstructed,
       needsDeeperHistory,
@@ -1255,6 +1262,7 @@ export class MonitorEodEvaluation {
       next: LocalDate;
       basisGeneration: number;
       membershipStart: LocalDate | null;
+      coverageStart?: LocalDate;
     },
     levels: readonly LevelSessionsWrite[],
     input: {
@@ -1324,6 +1332,10 @@ export class MonitorEodEvaluation {
       });
     }
   }
+}
+
+function latestOf(...dates: readonly LocalDate[]): LocalDate {
+  return dates.reduce((latest, date) => (date > latest ? date : latest));
 }
 
 function minDefined(

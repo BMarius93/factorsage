@@ -1,3 +1,4 @@
+import { isLocalDate } from "./dates.js";
 import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
 import type { ContentOwnershipResponse } from "./builtins.js";
 import type {
@@ -148,6 +149,66 @@ export type MonitorWhyResponse = {
 };
 
 /**
+ * The Monitor activity window, in calendar days (`docs/decisions/monitor-eod-v2.md` §12): the
+ * Dashboard shows the activity of the last thirty calendar days, and every enabled Monitor is
+ * evaluated over at least those days. Calendar days, never trading sessions — weekends and holidays
+ * count, and have no session to evaluate.
+ */
+export const MONITOR_ACTIVITY_WINDOW_DAYS = 30;
+
+/**
+ * The first calendar day of the activity window that ends on `latest` (a `YYYY-MM-DD` date):
+ * `latest` itself and the 29 days before it. The worker anchors it on the newest finalized session
+ * of its pass, the Dashboard on the newest finalized date, which is never earlier — so the days the
+ * Dashboard shows are always days the worker evaluated.
+ */
+export function monitorActivityWindowStart(latest: string): string {
+  if (!isLocalDate(latest)) {
+    throw new Error(`Invalid local date '${latest}'`);
+  }
+  const date = new Date(`${latest}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - (MONITOR_ACTIVITY_WINDOW_DAYS - 1));
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Where a running Monitor's evaluation stands against its activity window (`monitor-eod-v2.md` §12),
+ * read from durable checkpoints — never from a timestamp alone.
+ *
+ * - `SYNCHRONIZING` — it started running (enabled, re-enabled, unblocked, rebound) and no evaluation
+ *   pass has completed since: its missing sessions are queued or being evaluated;
+ * - `SYNCHRONIZED` — a pass has completed since, every current member has been evaluated, and every
+ *   member's recorded evaluation covers the whole window;
+ * - `PARTIAL` — a pass has completed since, but some current members have no evaluation yet (their
+ *   market data is not available) or a member's recorded evaluation begins inside the window
+ *   (history before it was never recorded session by session, and is not invented).
+ */
+export const MONITOR_SYNCHRONIZATION_STATES = [
+  "SYNCHRONIZING",
+  "SYNCHRONIZED",
+  "PARTIAL",
+] as const;
+export type MonitorSynchronizationState =
+  (typeof MONITOR_SYNCHRONIZATION_STATES)[number];
+
+export type MonitorSynchronizationResponse = {
+  state: MonitorSynchronizationState;
+  /** The first calendar day of the activity window. */
+  windowStart: string;
+  /** Members currently in the Monitor universe. */
+  currentMembers: number;
+  /** Current members whose recorded evaluation covers the whole window. */
+  coveredMembers: number;
+  /** Current members with no evaluation yet under the current configuration. */
+  awaitingMembers: number;
+  /**
+   * When an evaluated member's recorded evaluation begins after `windowStart`: the latest such
+   * start — "recorded since". Absent when every evaluated member covers the window.
+   */
+  historyFrom?: string;
+};
+
+/**
  * How far the Monitor's evaluation has reached: the newest finalized session any current member was
  * evaluated through, and how many current members have reached it.
  */
@@ -166,6 +227,14 @@ export type MonitorCoverageResponse = {
 export type MonitorSummaryResponse = ContentOwnershipResponse & {
   id: string;
   name: string;
+  /**
+   * The one user-facing switch: Enabled or Disabled.
+   *
+   * For a customer's own Monitor it is the Monitor's `enabled` lifecycle. For a built-in it is **this
+   * viewer's** own choice (`UserBuiltInMonitorPreference`, default enabled; a Guest reads the
+   * default): whether they receive its Dashboard results. It never changes whether the shared
+   * built-in is evaluated — that is the operator's `isGloballyEnabled`.
+   */
   enabled: boolean;
   strategyId: string;
   strategyName: string;
@@ -196,21 +265,18 @@ export type MonitorSummaryResponse = ContentOwnershipResponse & {
    */
   isPublished?: boolean;
   /**
-   * Built-in only. Whether the platform evaluates it — the operator's switch. A built-in's
-   * `enabled` mirrors this, and `operationalStatus` is `DISABLED` while it is off.
+   * Built-in only. Whether the platform evaluates it — the operator's switch, shared by everyone.
+   * `operationalStatus` is `DISABLED` while it is off, whatever any viewer's own `enabled` says.
    */
   isGloballyEnabled?: boolean;
   /** Built-in only. */
   displayOrder?: number;
   /**
-   * Built-in only: whether this viewer's Dashboard shows the built-in's rows.
-   *
-   * This is the viewer's own `UserBuiltInMonitorPreference`, never a property of the shared
-   * Monitor — hiding one changes nothing about whether the platform evaluates it, and a customer's
-   * own Monitor has no such field because its real `enabled` lifecycle is that switch. A Guest has
-   * no preference row and reads the built-in default.
+   * Present while the Monitor is being evaluated (`operationalStatus` `ACTIVE`): how far its
+   * evaluation covers the activity window. Absent for a Monitor that is not running — disabled,
+   * paused by a plan limit, or paused by the operator — which is not evaluating anything.
    */
-  dashboardVisible?: boolean;
+  synchronization?: MonitorSynchronizationResponse;
 };
 
 export type MonitorSignalResponse = {
@@ -453,6 +519,11 @@ export type CreateMonitorRequest = {
  */
 export type UpdateMonitorRequest = {
   name?: string;
+  /**
+   * Enabled / Disabled. On a customer's own Monitor, its lifecycle (a capacity decision when it
+   * switches on). On a built-in, the caller's own choice for their account — any signed-in viewer
+   * may send it, alone; it never changes the shared Monitor for anyone else.
+   */
   enabled?: boolean;
   strategyId?: string;
   stockListId?: string;

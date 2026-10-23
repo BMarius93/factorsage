@@ -41,6 +41,13 @@ import {
 } from "./monitor-evaluation.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
+/**
+ * When the fixtures' securities joined their Lists: before every session these suites drive, so a
+ * session is observed or history by the Monitor's watching stamp alone, as in production, where a
+ * member is never listed after the clock the pass runs on.
+ */
+const LISTED_BEFORE_EVERY_SESSION = new Date("2000-01-03T00:00:00.000Z");
+
 loadRootEnv();
 useTestDatabase();
 
@@ -223,11 +230,13 @@ describeInfrastructure(
         data: {
           userId,
           name: `Valuation audit ${randomUUID().slice(0, 8)}`,
-          items: { create: [{ securityId: security.id }] },
+          items: { create: [{ securityId: security.id, createdAt: LISTED_BEFORE_EVERY_SESSION }] },
         },
       });
       const monitor = await prisma.monitor.create({
         data: {
+          // Reconstructed at the newest session: this suite is not about the window replay.
+          windowReplay: false,
           userId,
           name: `Valuation audit ${randomUUID().slice(0, 8)}`,
           strategyId: strategy.id,
