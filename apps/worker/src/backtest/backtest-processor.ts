@@ -452,13 +452,27 @@ export class BacktestProcessor implements BacktestJobProcessor {
         prepared,
         archive,
       );
-      archive?.recordTiming("runningMs", Date.now() - runningStartedAt);
+      const runningMs = Date.now() - runningStartedAt;
+      archive?.recordTiming("runningMs", runningMs);
+      // Phase durations as their own events, so operations can tell a slow simulation from a slow
+      // result write without the debug archive.
+      this.dependencies.logger.info({
+        event: "backtest.simulation.completed",
+        durationMs: runningMs,
+        tradingDays: result.summary.tradingDays,
+      });
 
       phase = "FINALIZING";
       const finalizingStartedAt = Date.now();
       await archive?.recordResult(result);
       await this.finalize(claim, lease, result, prepared.etfDiagnostics);
-      archive?.recordTiming("finalizingMs", Date.now() - finalizingStartedAt);
+      const finalizingMs = Date.now() - finalizingStartedAt;
+      archive?.recordTiming("finalizingMs", finalizingMs);
+      this.dependencies.logger.info({
+        event: "backtest.finalized",
+        durationMs: finalizingMs,
+        tradeCount: result.summary.totalTrades,
+      });
       archiveStatus = "COMPLETED";
 
       this.dependencies.logger.info({

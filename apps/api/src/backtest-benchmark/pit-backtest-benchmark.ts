@@ -12,7 +12,6 @@ import { dirname, join, resolve } from "node:path";
 import {
   normalizeStrategyDefinition,
   strategyDefinitionFingerprint,
-  STRATEGY_SCHEMA_VERSION,
   type AuthUser,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
@@ -30,6 +29,7 @@ import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
 import { repositoryRoot } from "../qa-matrix/matrix-paths";
+import { BENCHMARK_STRATEGIES } from "./benchmark-strategies";
 
 /**
  * Thirty-year backtests over the S&P 500 point-in-time universe, at increasing concurrency
@@ -111,244 +111,14 @@ const STRATEGIES: Record<
     readonly name: string;
     readonly description: string;
     readonly definition: StrategyDefinition;
-    readonly capital: {
-      readonly initialCapital: number;
-      readonly monthlyContribution: number;
-      readonly maximumPositions: number;
-    };
+    readonly capital: (typeof BENCHMARK_STRATEGIES)[StrategyKey]["capital"];
   }
-> = {
-  simple: {
-    name: `${STRATEGY_PREFIX}simple-sma200-cross`,
-    description:
-      "BUY 100% when Price crosses above SMA 200D; FINAL EXIT when Price crosses below SMA 200D.",
-    definition: {
-      schemaVersion: STRATEGY_SCHEMA_VERSION,
-      buyLevels: [
-        {
-          id: "simple-buy1",
-          percentage: 100,
-          signal: {
-            conditions: [],
-            trigger: {
-              id: "simple-buy1-t1",
-              metric: { kind: "PRICE" },
-              operator: "CROSSES_ABOVE",
-              value: { kind: "SERIES", seriesId: "SMA_200D" },
-            },
-          },
-        },
-      ],
-      sellLevels: [],
-      finalExit: {
-        id: "simple-exit",
-        rules: [
-          {
-            id: "simple-exit",
-            signal: {
-              conditions: [],
-              trigger: {
-                id: "simple-exit-t1",
-                metric: { kind: "PRICE" },
-                operator: "CROSSES_BELOW",
-                value: { kind: "SERIES", seriesId: "SMA_200D" },
-              },
-            },
-          },
-        ],
-      },
-    } as StrategyDefinition,
-    capital: {
-      initialCapital: 100_000,
-      monthlyContribution: 0,
-      maximumPositions: 20,
-    },
-  },
-  complex: {
-    name: `${STRATEGY_PREFIX}complex-quality-pullback`,
-    description:
-      "BUY 50% on Price above SMA 200D AND RSI 14D below 45 AND ROIC TTM above 12% AND " +
-      "Debt / Equity below 1.5x AND Margin of Safety (Balanced) above 0%, triggered by RSI 14D " +
-      "crossing above 35; BUY 50% more on Price above SMA 50D AND ROIC TTM above 15%. SELL 50% " +
-      "on RSI 14D above 75; FINAL EXIT on Price below SMA 200D, or ROIC TTM below 8%.",
-    definition: {
-      schemaVersion: STRATEGY_SCHEMA_VERSION,
-      buyLevels: [
-        {
-          id: "complex-buy1",
-          percentage: 50,
-          signal: {
-            conditions: [
-              {
-                id: "complex-buy1-c1",
-                metric: { kind: "PRICE" },
-                operator: "IS_ABOVE",
-                value: { kind: "SERIES", seriesId: "SMA_200D" },
-              },
-              {
-                id: "complex-buy1-c2",
-                metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
-                operator: "IS_BELOW",
-                value: { kind: "NUMBER", value: 45 },
-              },
-              {
-                id: "complex-buy1-c3",
-                metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
-                operator: "IS_ABOVE",
-                value: { kind: "PERCENT", value: 12 },
-              },
-              {
-                id: "complex-buy1-c4",
-                metric: { kind: "FUNDAMENTAL", metricId: "DEBT_TO_EQUITY" },
-                operator: "IS_BELOW",
-                value: { kind: "MULTIPLE", value: 1.5 },
-              },
-              {
-                id: "complex-buy1-c5",
-                metric: { kind: "MARGIN_OF_SAFETY", sourceId: "BALANCED" },
-                operator: "IS_ABOVE",
-                value: { kind: "PERCENT", value: 0 },
-              },
-            ],
-            trigger: {
-              id: "complex-buy1-t1",
-              metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
-              operator: "CROSSES_ABOVE",
-              value: { kind: "NUMBER", value: 35 },
-            },
-          },
-        },
-        {
-          id: "complex-buy2",
-          percentage: 50,
-          signal: {
-            conditions: [
-              {
-                id: "complex-buy2-c1",
-                metric: { kind: "PRICE" },
-                operator: "IS_ABOVE",
-                value: { kind: "SERIES", seriesId: "SMA_50D" },
-              },
-              {
-                id: "complex-buy2-c2",
-                metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
-                operator: "IS_ABOVE",
-                value: { kind: "PERCENT", value: 15 },
-              },
-            ],
-          },
-        },
-      ],
-      sellLevels: [
-        {
-          id: "complex-sell1",
-          percentage: 50,
-          signal: {
-            conditions: [
-              {
-                id: "complex-sell1-c1",
-                metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
-                operator: "IS_ABOVE",
-                value: { kind: "NUMBER", value: 75 },
-              },
-            ],
-          },
-        },
-      ],
-      finalExit: {
-        id: "complex-exit",
-        rules: [
-          {
-            id: "complex-exit",
-            signal: {
-              conditions: [
-                {
-                  id: "complex-exit-c1",
-                  metric: { kind: "PRICE" },
-                  operator: "IS_BELOW",
-                  value: { kind: "SERIES", seriesId: "SMA_200D" },
-                },
-              ],
-            },
-          },
-          {
-            id: "complex-exit2",
-            signal: {
-              conditions: [
-                {
-                  id: "complex-exit2-c1",
-                  metric: { kind: "FUNDAMENTAL", metricId: "ROIC_TTM" },
-                  operator: "IS_BELOW",
-                  value: { kind: "PERCENT", value: 8 },
-                },
-              ],
-            },
-          },
-        ],
-      },
-    } as StrategyDefinition,
-    capital: {
-      initialCapital: 100_000,
-      monthlyContribution: 0,
-      maximumPositions: 20,
-    },
-  },
-  monthly: {
-    name: `${STRATEGY_PREFIX}monthly-contributions-10`,
-    description:
-      "BUY 100% when Price crosses above SMA 50D while above SMA 200D; FINAL EXIT when Price " +
-      "crosses below SMA 200D. Run with monthly contributions and at most ten positions.",
-    definition: {
-      schemaVersion: STRATEGY_SCHEMA_VERSION,
-      buyLevels: [
-        {
-          id: "monthly-buy1",
-          percentage: 100,
-          signal: {
-            conditions: [
-              {
-                id: "monthly-buy1-c1",
-                metric: { kind: "PRICE" },
-                operator: "IS_ABOVE",
-                value: { kind: "SERIES", seriesId: "SMA_200D" },
-              },
-            ],
-            trigger: {
-              id: "monthly-buy1-t1",
-              metric: { kind: "PRICE" },
-              operator: "CROSSES_ABOVE",
-              value: { kind: "SERIES", seriesId: "SMA_50D" },
-            },
-          },
-        },
-      ],
-      sellLevels: [],
-      finalExit: {
-        id: "monthly-exit",
-        rules: [
-          {
-            id: "monthly-exit",
-            signal: {
-              conditions: [],
-              trigger: {
-                id: "monthly-exit-t1",
-                metric: { kind: "PRICE" },
-                operator: "CROSSES_BELOW",
-                value: { kind: "SERIES", seriesId: "SMA_200D" },
-              },
-            },
-          },
-        ],
-      },
-    } as StrategyDefinition,
-    capital: {
-      initialCapital: 10_000,
-      monthlyContribution: 1_000,
-      maximumPositions: 10,
-    },
-  },
-};
-
+> = Object.fromEntries(
+  (["simple", "complex", "monthly"] as const).map((key) => {
+    const { slug, ...entry } = BENCHMARK_STRATEGIES[key];
+    return [key, { ...entry, name: `${STRATEGY_PREFIX}${slug}` }];
+  }),
+) as Record<StrategyKey, never>;
 @Module({
   imports: [ConfigurationModule, DatabaseModule, AuthModule, BacktestsModule],
 })

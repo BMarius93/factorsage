@@ -43,4 +43,5 @@ artifacts/data-correctness-audit/ui/logs/
 # Point-in-time universe reports and benchmark logs: measured locally, aggregated into the decision
 # records, never committed (they name provider-sourced securities and carry run logs).
 artifacts/sp500-historical-pit/
+artifacts/scale-benchmark/
 artifacts/redis-payload-codec/
