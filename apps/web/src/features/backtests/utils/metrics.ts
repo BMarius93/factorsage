@@ -72,10 +72,23 @@ export function liveMetrics(
  * The completed run's durable summary.
  *
  * Same tiles, same order, same units — the page transitions in place rather than swapping to a
- * different result surface, so the user's eye stays where it was.
+ * different result surface, so the user's eye stays where it was. It reads only the fields the
+ * tiles show, which is also what lets a shared report's allowlisted summary feed the same tiles.
  */
 export function resultMetrics(
-  summary: BacktestResultSummaryResponse,
+  summary: Pick<
+    BacktestResultSummaryResponse,
+    | "portfolioReturnPercent"
+    | "benchmarkReturnPercent"
+    | "alphaPercent"
+    | "finalValue"
+    | "netProfit"
+    | "maxDrawdownPercent"
+    | "totalTrades"
+    | "portfolioCagrPercent"
+    | "benchmarkCagrPercent"
+    | "benchmarkMaxDrawdownPercent"
+  >,
 ): BacktestMetricsView {
   return {
     portfolioReturnPercent: summary.portfolioReturnPercent,

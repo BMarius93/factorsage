@@ -166,6 +166,11 @@ forty invariants it validates independently, and which three of those need the d
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 
+For public backtest sharing — the owner's Share action, the `/share/{token}` report, its allowlisted
+contract, the Open Graph metadata and preview image, and what must never cross the link — read
+`../docs/decisions/backtest-sharing-v1.md`. Its § 3 is the privacy contract: a field reaches a
+public reader only by being added to the allowlist on purpose.
+
 For Monitor, Dashboard or built-in content work, read
 `../docs/decisions/builtin-dashboard-signals-v1.md` (the accepted signal lifecycle, SYSTEM ownership,
 the Dashboard and the built-in catalog), then `product/product-overview.md` (the domain map) and

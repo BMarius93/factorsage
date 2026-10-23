@@ -26,6 +26,7 @@
  * | search or autocomplete                                | `stock-search`      |
  * | a market-data read that can hydrate from the provider | `stock-read`        |
  * | a read of the caller's own rows                       | `standard-read`     |
+ * | an unauthenticated read of a shared backtest report    | `public-share-read` |
  * | a download of a whole result set of the caller's rows | `data-export`       |
  * | something the UI polls on a timer                     | `progress-poll`     |
  * | a write to the caller's own rows                      | `mutation`          |
@@ -184,6 +185,27 @@ export const RATE_LIMIT_POLICIES = {
     description: "Reads of the caller's own resources and system catalogs.",
     actor: "user",
     points: 240,
+    durationSeconds: 60,
+    onRedisFailure: "allow",
+  },
+
+  /**
+   * The public half of backtest sharing: a shared report and its link-preview data
+   * (`docs/decisions/backtest-sharing-v1.md`). No session is read, so the counter is always the
+   * client address.
+   *
+   * Sized for one fact that is easy to miss: the web server renders the shared page and its preview
+   * image itself, so most of these requests arrive from **the web tier's** address rather than the
+   * visitor's — one bucket bounds the whole tier's public report reads. Ten a second sustained is
+   * far above what a shared link draws, while still bounding a script hammering one valid token.
+   * Tokens are 256 random bits, so the allowance is not what stops anyone guessing one.
+   *
+   * A capacity policy, so it fails open like the other reads.
+   */
+  "public-share-read": {
+    description: "Unauthenticated reads of a shared backtest report.",
+    actor: "ip",
+    points: 600,
     durationSeconds: 60,
     onRedisFailure: "allow",
   },

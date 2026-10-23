@@ -24,7 +24,7 @@ export function installHttpObservability(
 
       const baseFields = {
         method: request.method,
-        path: request.path,
+        path: loggablePath(request.path),
       };
       logger.debug({ event: "http.request.started", ...baseFields });
 
@@ -64,6 +64,21 @@ export function installHttpObservability(
       next();
     });
   });
+}
+
+/**
+ * A request path as it may be written to a log.
+ *
+ * A shared backtest's link carries its capability token in the path
+ * (`/shared-backtests/{token}`), and a log line is read by more people, and kept longer, than the
+ * link was ever meant to reach. The segment is replaced, so the event still says which route was
+ * served without carrying a working link. Every other path is logged as it arrived.
+ */
+export function loggablePath(path: string): string {
+  return path.replace(
+    /^(\/shared-backtests\/)[^/]+/i,
+    (_match, prefix: string) => `${prefix}:token`,
+  );
 }
 
 function safeCorrelationId(value: string | string[] | undefined): string | undefined {

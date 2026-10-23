@@ -1,0 +1,8 @@
+/* What this page is, in one line under the header: a report of results, nothing more. */
+.intro {
+  margin: 0;
+  max-width: var(--reading-max-width);
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}

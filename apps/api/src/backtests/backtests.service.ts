@@ -267,6 +267,20 @@ type RunProgressRow = Prisma.BacktestRunGetPayload<{
 
 type TradeRow = Prisma.BacktestTradeGetPayload<true>;
 type EquityRow = Prisma.BacktestDailyEquityGetPayload<true>;
+
+/** The equity columns a chart point is projected from; every other column stays in the database. */
+export const CURVE_EQUITY_SELECT = {
+  date: true,
+  returnIndex: true,
+  benchmarkIndex: true,
+  totalValue: true,
+  benchmarkValue: true,
+  cashBaselineValue: true,
+} satisfies Prisma.BacktestDailyEquitySelect;
+
+type CurveEquityRow = Prisma.BacktestDailyEquityGetPayload<{
+  select: typeof CURVE_EQUITY_SELECT;
+}>;
 type SummaryRow = Prisma.BacktestRunSummaryGetPayload<true>;
 type MilestoneRow = Prisma.BacktestRunMilestoneGetPayload<true>;
 
@@ -283,7 +297,7 @@ function toDatabaseDate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
-function fromDatabaseDate(value: Date): string {
+export function fromDatabaseDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
@@ -366,7 +380,7 @@ function frozenSector(
   };
 }
 
-function readSnapshot(value: Prisma.JsonValue): BacktestRunSnapshot {
+export function readSnapshot(value: Prisma.JsonValue): BacktestRunSnapshot {
   const document = asDocument(value);
   if (
     !document ||
@@ -648,7 +662,9 @@ function summaryRowOf(row: RunIndexRow): BacktestRunSummaryResponse {
   };
 }
 
-function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
+export function resultSummaryOf(
+  row: SummaryRow,
+): BacktestResultSummaryResponse {
   const firstSimulatedDate = fromDatabaseDate(row.firstSimulatedDate);
   const lastSimulatedDate = fromDatabaseDate(row.lastSimulatedDate);
   const benchmarkReturnPercent = toNullableNumber(row.benchmarkReturnPercent);
@@ -701,7 +717,9 @@ function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
  * existed — the column was never backfilled, because a funded portfolio is not derivable from a
  * growth index once a run has contributions.
  */
-function curvePointOf(row: EquityRow): BacktestCurvePointResponse {
+export function curvePointOf(
+  row: CurveEquityRow,
+): BacktestCurvePointResponse {
   return {
     date: fromDatabaseDate(row.date),
     portfolioReturnPercent: (toNumber(row.returnIndex) - 1) * 100,
@@ -722,7 +740,7 @@ function curvePointOf(row: EquityRow): BacktestCurvePointResponse {
  * detail payload must not grow with the period. Keeping the endpoints preserves the run's actual
  * start and final return rather than a sampled approximation of them.
  */
-function downsampleCurve(
+export function downsampleCurve(
   points: readonly BacktestCurvePointResponse[],
 ): BacktestCurvePointResponse[] {
   const maximum = BACKTEST_RESULT_MAX_CURVE_POINTS;
@@ -871,8 +889,8 @@ type TradeExportLogFields = {
  * value yet, which leaves that year's benchmark figure unavailable rather than measured over a
  * shorter window.
  */
-function annualReturnsOf(
-  equity: readonly EquityRow[],
+export function annualReturnsOf(
+  equity: readonly Pick<EquityRow, "date" | "returnIndex" | "benchmarkIndex">[],
   run: { startDate: Date; endDate: Date },
 ): BacktestAnnualReturnResponse[] {
   const first = equity[0];

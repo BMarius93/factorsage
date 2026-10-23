@@ -15,6 +15,11 @@
  * requests at all, so a production server (`next start`) never wrote these lines and still does
  * not; the API's logging is a separate system and is untouched.
  *
+ * A shared backtest's link carries its token in the **path** instead — `/share/{token}`, and its
+ * preview image beneath it (`docs/decisions/backtest-sharing-v1.md`). It is not single-use: it
+ * is a standing capability to read the report until its owner revokes it, so a log line holding
+ * one is a working link. Every request under `/share/{token}` is kept out of the log too.
+ *
  * No other page receives a secret in its URL. `/login?next=…&error=…` and `/billing?checkout=…`
  * carry a destination and an outcome, and Google's `code` and `state` return to the API's
  * callback, not to the web app. A new page that does receive one must be added here;
@@ -34,6 +39,13 @@ export const TOKEN_BEARING_ROUTE_PATHS = [
   "/reset-password",
 ] as const;
 
+/**
+ * Every web route whose path carries a capability token as its next segment: `/share/{token}`
+ * and everything beneath it. `request-logging.test.ts` holds this list to the `[token]` route
+ * segments the application actually has.
+ */
+export const TOKEN_BEARING_PATH_PREFIXES = ["/share"] as const;
+
 function escapeForPattern(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -49,9 +61,15 @@ function escapeForPattern(text: string): string {
  * request, and either flag would make it remember where the previous match ended.
  */
 export function incomingRequestLogIgnorePatterns(): RegExp[] {
-  return TOKEN_BEARING_ROUTE_PATHS.map(
-    (path) => new RegExp(`^${escapeForPattern(path)}/?(?:\\?|$)`, "i"),
-  );
+  return [
+    ...TOKEN_BEARING_ROUTE_PATHS.map(
+      (path) => new RegExp(`^${escapeForPattern(path)}/?(?:\\?|$)`, "i"),
+    ),
+    // The prefix, a slash, then a non-empty segment: `/share/{token}` and anything under it.
+    ...TOKEN_BEARING_PATH_PREFIXES.map(
+      (prefix) => new RegExp(`^${escapeForPattern(prefix)}/[^/?#]+`, "i"),
+    ),
+  ];
 }
 
 /** The request-logging configuration `next.config.ts` hands to Next.js. */

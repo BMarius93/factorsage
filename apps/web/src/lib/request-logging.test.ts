@@ -9,6 +9,7 @@ import { logRequests } from "next/dist/server/dev/log-requests";
 import { describe, expect, it, vi } from "vitest";
 import nextConfig from "../../next.config";
 import {
+  TOKEN_BEARING_PATH_PREFIXES,
   TOKEN_BEARING_ROUTE_PATHS,
   incomingRequestLogIgnorePatterns,
   webRequestLoggingConfig,
@@ -30,6 +31,16 @@ const TOKEN_BEARING_REQUESTS = [
   `/verify-email/?token=${TOKEN}`,
   // Answered 404, and still a token in a log line.
   `/Reset-Password?token=${TOKEN}`,
+];
+
+/** A shared backtest's link and its preview image: the token is a path segment. */
+const SHARE_REQUESTS = [
+  `/share/${TOKEN}`,
+  `/share/${TOKEN}/`,
+  `/share/${TOKEN}?utm_source=whatsapp`,
+  `/share/${TOKEN}?_rsc=1a2b3`,
+  `/share/${TOKEN}/preview.png`,
+  `/Share/${TOKEN}`,
 ];
 
 const ORDINARY_REQUESTS = [
@@ -57,6 +68,10 @@ const LOOKALIKE_REQUESTS = [
   "/account/verify-email",
   "/api/reset-password",
   "/stocks/verify-email",
+  "/shares",
+  "/shared/thing",
+  "/stocks/share",
+  "/login?next=%2Fshare%2Fabc",
   "/login?next=%2Fverify-email",
   "/login?next=/reset-password",
   "/forgot-password?next=%2Freset-password",
@@ -177,6 +192,32 @@ describe("web request logging: one-time auth tokens stay out of the dev server l
     for (const path of TOKEN_BEARING_ROUTE_PATHS) {
       expect(devServerLogFor(path), path).toBe("");
       expect(devServerLogFor(`${path}/`), `${path}/`).toBe("");
+    }
+  });
+
+  it("writes nothing for a shared backtest's link or its preview image", () => {
+    for (const url of SHARE_REQUESTS) {
+      for (const method of ["GET", "HEAD"]) {
+        expect(devServerLogFor(url, method), `${method} ${url}`).toBe("");
+      }
+    }
+  });
+
+  it("names the token-bearing path prefixes the application really serves", () => {
+    expect(TOKEN_BEARING_PATH_PREFIXES).toEqual(["/share"]);
+    for (const prefix of TOKEN_BEARING_PATH_PREFIXES) {
+      expect(
+        existsSync(
+          resolve(
+            process.cwd(),
+            "src/app/(app)",
+            `.${prefix}`,
+            "[token]",
+            "page.tsx",
+          ),
+        ),
+        `no [token] page under ${prefix}`,
+      ).toBe(true);
     }
   });
 

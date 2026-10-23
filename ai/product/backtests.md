@@ -398,6 +398,25 @@ never from its snapshot. The page re-reads itself every few seconds only while i
 in flight; a run's own page owns live progress. The New backtest form reads only the runs holding a
 concurrency slot (`GET /backtests?status=ACTIVE`) to show the plan's limit before submission.
 
+## Sharing a completed run
+
+A run's owner may share its **results** — never its strategy, list or trades — through a public,
+read-only link (`docs/decisions/backtest-sharing-v1.md`). **Share** sits beside **Edit and run
+again** on a completed run; it creates one unguessable link, or shows the one that exists, to copy.
+**Stop sharing** ends it at once and for good; sharing again creates a new link.
+
+Anyone holding the link, signed in or not and on any plan, reads `/share/{token}`: the interactive
+chart, the eight KPI tiles, the annual returns, the period, the capital and allocation settings, the
+benchmark, the run's Run ID (`Run #0084`, never its UUID), and **how many** rules and securities the
+run used — nothing that names them. It is laid out like the owner's page — the chart and the eight
+results side by side, then the Strategy vs benchmark annual-returns heatmap — through the same
+components, and its figures are the run's stored ones, through the same code; there is no trade
+log, no locked section and no offer to run "this" backtest, only to create one's own. The link
+unfurls in chat apps with a title, description and image built from the real result.
+
+A shared report reads the frozen run and nothing else: it never starts a run, never asks the
+provider, and never changes because the strategy or list was edited afterwards.
+
 ## Process boundary
 
 The API validates and creates durable work. The worker claims and executes durable work. API and

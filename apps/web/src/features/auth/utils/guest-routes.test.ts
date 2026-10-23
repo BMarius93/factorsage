@@ -20,6 +20,9 @@ describe("isGuestReadableRoute", () => {
       "/pricing",
       "/pricing/",
       "/pricing?next=x",
+      // A shared backtest's read-only report: the token is its authorization.
+      "/share/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd",
+      "/share/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd?utm_source=chat",
     ]) {
       expect(isGuestReadableRoute(path), path).toBe(true);
     }
@@ -36,6 +39,8 @@ describe("isGuestReadableRoute", () => {
       "/pricing/pro",
       "/admin",
       "/lists/abc/edit",
+      "/share",
+      "/share/abc/edit",
     ]) {
       expect(isGuestReadableRoute(path), path).toBe(false);
     }

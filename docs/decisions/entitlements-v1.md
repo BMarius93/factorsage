@@ -118,6 +118,14 @@ safe return path restores the intended prefilled Backtest page when the sign-in 
 `next` destination. No public Backtest-result route, guest-owned run or demo-run exception exists
 in V1.
 
+**Amended 2026-10-22 — Backtest Sharing V1 (owner).** An owner may now publish the results of one of
+their own completed runs behind an unguessable link (`docs/decisions/backtest-sharing-v1.md`), and
+anyone holding it — a Guest included — reads an allowlisted, read-only report at `/share/{token}`.
+That is a publication by the owner, not an entitlement: no plan value, capability or limit changes,
+a Guest still resolves `backtests.canViewDemo: false`, and a Guest still cannot reach any
+`/backtests` route, configuration or trade log. Reading a shared report never depends on the
+reader's plan, and sharing one is open to every plan that has a completed run.
+
 ## 5. Lists
 
 ### Ownership and count
@@ -149,7 +157,9 @@ Built-in Strategies are system content and remain available independently of cus
 ### Guest
 
 Guests may not view a Backtest configuration, run or result and may not initiate Backtest
-execution. Every Backtest surface requires an authenticated session. Guest actions from public
+execution. Every Backtest surface requires an authenticated session. The one exception is a report
+a run's owner chose to share (section 4, amended 2026-10-22), which is an allowlisted projection of
+results and grants nothing else. Guest actions from public
 built-in content open the sign-in prompt rather than submitting work. The public entitlement
 response says the same: a Guest resolves `backtests.canRunLive: false` and
 `backtests.canViewDemo: false`.

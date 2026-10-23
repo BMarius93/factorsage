@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchBacktestProgress,
   fetchBacktestRun,
+  fetchBacktestShare,
   fetchBacktestTrades,
 } from "../api/backtests-api";
 import {
@@ -29,6 +30,14 @@ vi.mock("../api/backtests-api", () => ({
   fetchBacktestRun: vi.fn(),
   fetchBacktestProgress: vi.fn(),
   fetchBacktestTrades: vi.fn(),
+  // A completed run asks whether it is shared; the control itself is covered by its own suite.
+  fetchBacktestShare: vi.fn(async () => ({
+    shared: false,
+    url: null,
+    sharedAt: null,
+  })),
+  enableBacktestShare: vi.fn(),
+  revokeBacktestShare: vi.fn(),
 }));
 
 /**
@@ -1285,5 +1294,37 @@ describe("BacktestRunView", () => {
     await flush();
 
     expect(screen.getByTestId("backtest-not-found")).toBeTruthy();
+  });
+});
+
+describe("BacktestRunView sharing", () => {
+  it("offers Share beside the rerun action for a completed run", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const share = screen.getByTestId("backtest-share");
+    expect(share.textContent).toBe("Share");
+    expect(vi.mocked(fetchBacktestShare)).toHaveBeenCalledWith(
+      "run-1",
+      expect.anything(),
+    );
+    // The private page keeps everything it had: the rerun action and the trade log.
+    expect(screen.getByTestId("backtest-edit-and-rerun")).toBeTruthy();
+    expect(screen.getByTestId("backtest-trades")).toBeTruthy();
+  });
+
+  it("never asks about sharing, or offers it, while a run has no result", async () => {
+    vi.mocked(fetchBacktestShare).mockClear();
+    fetchRunMock.mockResolvedValue(testDetail("RUNNING"));
+    fetchProgressMock.mockResolvedValue(testProgress("RUNNING", 1));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    expect(screen.queryByTestId("backtest-share")).toBeNull();
+    expect(vi.mocked(fetchBacktestShare)).not.toHaveBeenCalled();
   });
 });

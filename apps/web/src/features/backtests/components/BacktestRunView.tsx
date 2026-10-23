@@ -53,9 +53,9 @@ import {
 } from "../utils/metrics";
 import { BacktestAnnualReturns } from "./BacktestAnnualReturns";
 import { BacktestEtfConditions } from "./BacktestEtfConditions";
-import { BacktestComparisonChart } from "./BacktestComparisonChart";
 import { BacktestHoldings } from "./BacktestHoldings";
-import { BacktestMetricsRow } from "./BacktestMetricsRow";
+import { BacktestResultOverview } from "./BacktestResultOverview";
+import { BacktestShareControl } from "./BacktestShareControl";
 import { BacktestTrades } from "./BacktestTrades";
 import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./BacktestRunView.module.css";
@@ -684,16 +684,20 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             }
             // A finished run's natural next step is a variation of it (UI-032). The failure panel
             // carries its own recovery, so the hero offers this only for a completed run.
+            // Sharing publishes the result, so it exists only once there is one.
             {...(completed
               ? {
                   actions: (
-                    <Link
-                      className={forms.secondaryButton}
-                      href={rerunHref(runId, configuration)}
-                      data-testid="backtest-edit-and-rerun"
-                    >
-                      Edit and run again
-                    </Link>
+                    <>
+                      <BacktestShareControl runId={runId} />
+                      <Link
+                        className={forms.secondaryButton}
+                        href={rerunHref(runId, configuration)}
+                        data-testid="backtest-edit-and-rerun"
+                      >
+                        Edit and run again
+                      </Link>
+                    </>
                   ),
                 }
               : {})}
@@ -779,55 +783,19 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
 
           {failed ? null : (
             <>
-              {/* The chart first: what the run *did* over the period, before the numbers that
-              summarise it. The three series are named by the legend under the plot, which is why
-              there is no paragraph here setting the comparison up — the sentence that used to
-              cost a screen before the curve now lives in the chart's own accessible description.
-
-              One frame, one height. The chart is mounted as soon as the run exists, curve or not:
-              its horizontal domain is the configured period, which is known before the first day
-              is simulated, so the axis a user watches fill in is the axis the finished run will
-              have. Only a run that ended with nothing to draw falls back to a message.
-
-              The chart and the eight numbers are one overview: side by side on a wide desktop —
-              the chart about 70% of the width, the numbers a 2 x 4 grid beside it — and stacked,
-              chart first, wherever both would not fit comfortably. Only their placement changes
-              with the width; the same live data reaches the same two components either way. */}
-              <div className={styles.overview} data-testid="backtest-overview">
-                <div className={styles.chartFrame}>
-                  {terminal && curve.length === 0 ? (
-                    <p
-                      className={styles.chartPlaceholder}
-                      data-testid="backtest-chart-placeholder"
-                    >
-                      {/* A run that ended without a curve has nothing still to come, so promising
-                    progress would be false. */}
-                      This run produced no comparison curve.
-                    </p>
-                  ) : (
-                    <BacktestComparisonChart
-                      points={curve}
-                      benchmarkName={configuration.benchmark.name}
-                      ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash. The same money invested three ways: each scenario receives the same initial capital and the same monthly contributions.`}
-                      periodStart={configuration.startDate}
-                      periodEnd={configuration.endDate}
-                      populating={populating}
-                      initialCapital={configuration.initialCapital}
-                      monthlyContribution={configuration.monthlyContribution}
-                    />
-                  )}
-                </div>
-
-                {/* Then the eight numbers that summarise it. No surface of its own: a heading and a
-                  grid of tiles, so the totals do not read as a card inside the hero card. */}
-                <BacktestMetricsRow
-                  metrics={snapshot?.metrics ?? EMPTY_METRICS}
-                  benchmarkName={configuration.benchmark.name}
-                  caption={
-                    terminal ? undefined : "Updating as the run progresses"
-                  }
-                />
-              </div>
+              {/* The chart and the eight numbers that summarise it, as one overview — the same
+                  component a shared report renders. Its frame holds one height from the first
+                  render, so live values arriving never resize the chart. */}
+              <BacktestResultOverview
+                curve={curve}
+                metrics={snapshot?.metrics ?? EMPTY_METRICS}
+                benchmarkName={configuration.benchmark.name}
+                periodStart={configuration.startDate}
+                periodEnd={configuration.endDate}
+                initialCapital={configuration.initialCapital}
+                monthlyContribution={configuration.monthlyContribution}
+                populating={populating}
+              />
 
               {/* Then what each year did, on its own — directly under the totals it decomposes,
                   in the same flat grammar. */}

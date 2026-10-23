@@ -342,6 +342,16 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     trading; `EOD_TAIL_REFRESH=frozen` exists only for deterministic environments over a frozen
     dataset.
 
+26. A shared backtest publishes **results only** (`docs/decisions/backtest-sharing-v1.md`). Its owner
+    may give one completed run one unguessable link (256-bit token, never a database id), revoked by
+    deleting it; anyone holding it reads `SharedBacktestReportResponse`, an explicit allowlist that
+    is never a filtered private DTO. It never carries the strategy, its rules or identifiers, the
+    list or its securities, trades, positions or the owner — only how many rules and securities the
+    frozen run used — and every figure is the stored result through the owner page's own code. The
+    public routes ask nobody who they are, so no plan, session or entitlement changes the answer, and
+    they never start a run, read a stock history or ask the provider. A token is a working link: it
+    stays out of logs and error messages.
+
 ## Dependency rules
 
 Allowed direction:

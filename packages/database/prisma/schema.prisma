@@ -1095,6 +1095,8 @@ model BacktestRun {
   trades                    BacktestTrade[]
   equityPoints              BacktestDailyEquity[]
   positions                 BacktestPosition[]
+  /// The run's public link, while its owner shares it. Never part of the result.
+  share                     BacktestShare?
 
   @@unique([userId, runNumber])
   /// The collection's default order, newest first with the id breaking same-tick ties, read as one
@@ -1334,6 +1336,27 @@ model BacktestRunSummary {
   /// strategy reads no ETF — every run that existed before ETF conditions did.
   etfConditionDiagnostics     Json?
   run                         BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+/// The one active public link to a completed run's results (`docs/decisions/backtest-sharing-v1.md`).
+///
+/// A row exists only while the owner shares the run. Revoking deletes it, so the token stops
+/// resolving at once and nothing can bring it back; sharing again inserts a fresh row with a new
+/// token. `runId` is the key, which makes a second active link for one run unrepresentable rather
+/// than merely refused.
+///
+/// The row references the frozen run and copies nothing from it: the public report is projected
+/// from the run's own snapshot, summary and daily equity when it is read, so sharing never
+/// duplicates a result and never touches one.
+///
+/// `token` is stored as issued, not hashed. It is not a credential to an account: it reads only the
+/// allowlisted public report its owner chose to publish, and the owner has to be able to copy the
+/// same link again later. 32 random bytes, base64url.
+model BacktestShare {
+  runId     String      @id
+  token     String      @unique
+  createdAt DateTime    @default(now())
+  run       BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 }
 
 // ---------------------------------------------------------------------------
