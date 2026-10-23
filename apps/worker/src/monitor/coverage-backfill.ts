@@ -208,22 +208,23 @@ export function planCoverageBackfill(input: CoveragePlanInput): CoveragePlan {
         row.observationDate !== null,
     );
     const decided = recorded.filter((row) => row.reason !== "RECONSTRUCTED");
+    // A change's identity on a level: its session, where it went and why. Not where it came from —
+    // a reconstruction records the change its newest session made as leaving `INACTIVE`, whatever
+    // setup preceded it, and one level makes at most one change into a state per session.
     const keyOf = (
       date: LocalDate,
-      fromState: MonitorLifecycleState,
       to: MonitorLifecycleState,
       reason: string,
-    ) => `${date}|${resting(fromState)}|${to}|${reason}`;
+    ) => `${date}|${to}|${reason}`;
     const changeKey = (change: LevelChange) =>
       keyOf(
         change.transition.observationDate!,
-        change.transition.from,
         change.transition.to,
         change.transition.reason,
       );
     const decidedKeys = new Set(
       decided.map((row) =>
-        keyOf(row.observationDate!, row.fromState, row.toState, row.reason),
+        keyOf(row.observationDate!, row.toState, row.reason),
       ),
     );
     const canonicalKeys = new Set(stepped.map(changeKey));
@@ -248,7 +249,7 @@ export function planCoverageBackfill(input: CoveragePlanInput): CoveragePlan {
         row.observationDate! >= from &&
         row.observationDate! <= through &&
         !canonicalKeys.has(
-          keyOf(row.observationDate!, row.fromState, row.toState, row.reason),
+          keyOf(row.observationDate!, row.toState, row.reason),
         ),
     );
     if (divergent.some((row) => row.observationDate! >= coverageStart)) {
