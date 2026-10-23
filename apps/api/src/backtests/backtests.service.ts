@@ -164,7 +164,11 @@ export class BacktestQueueFullError extends Error {
     readonly retryAfterSeconds: number,
   ) {
     super(
-      "Backtests are in high demand right now and the queue is full. Try again in a few minutes.",
+      `Backtests are in high demand right now and the queue is full. Try again in ${
+        retryAfterSeconds <= 90
+          ? "a minute"
+          : `about ${Math.round(retryAfterSeconds / 60)} minutes`
+      }.`,
     );
     this.name = "BacktestQueueFullError";
   }

@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
+import { entitlementRefusal } from "../../../lib/api/__testing__/request-failures";
 import {
   addStockListItems,
   fetchStockList,
@@ -601,5 +602,70 @@ describe("ListDetail members, paged and filtered", () => {
       () => expect(newRow()?.getAttribute("data-highlight")).toBeNull(),
       { timeout: 4_000 },
     );
+  });
+});
+
+describe("ListDetail premium built-ins", () => {
+  it("explains a locked premium list instead of failing to load it (403)", async () => {
+    fetchStockListMock.mockRejectedValue(
+      entitlementRefusal(
+        "ENTITLEMENT_PREMIUM_CONTENT",
+        "Your plan does not include premium point-in-time universes",
+      ),
+    );
+    render(<ListDetail listId="sp500-pit" />);
+
+    const locked = await screen.findByTestId("list-locked");
+    expect(within(locked).getByRole("heading", { level: 1 }).textContent).toBe(
+      "This list is premium content",
+    );
+    expect(locked.textContent).toContain(
+      "Its members are included in Pro and Pro+, where it can also be backtested and duplicated.",
+    );
+    expect(
+      within(locked)
+        .getByRole("link", { name: "See plans" })
+        .getAttribute("href"),
+    ).toBe("/pricing");
+    expect(
+      within(locked)
+        .getByRole("link", { name: "Back to Lists" })
+        .getAttribute("href"),
+    ).toBe("/lists");
+    // Not an outage: no retry that could never work, and no member view, backtest or copy.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByTestId("list-detail")).toBeNull();
+    expect(screen.queryByTestId("list-items")).toBeNull();
+    expect(screen.queryByTestId("run-backtest")).toBeNull();
+  });
+
+  it("still reports an ordinary failure as one", async () => {
+    fetchStockListMock.mockRejectedValue(new ApiError(500, "Internal error"));
+    render(<ListDetail listId="list-1" />);
+
+    expect(
+      await screen.findByRole("button", { name: "Try again" }),
+    ).toBeDefined();
+    expect(screen.queryByTestId("list-locked")).toBeNull();
+  });
+
+  it("badges a premium list the viewer's plan includes, and keeps its members and backtest", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail([item("item-1", "AAPL")], {
+        ownership: "SYSTEM",
+        systemKey: "sp500-historical-pit",
+        canEdit: false,
+        premium: true,
+      }),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    const badge = screen.getByTestId("premium-badge");
+    expect(badge.textContent).toBe("Premium");
+    expect(badge.getAttribute("data-locked")).toBeNull();
+    expect(screen.getByTestId("built-in-badge")).toBeDefined();
+    expect(screen.getByTestId("list-items")).toBeDefined();
+    expect(screen.getByTestId("run-backtest")).toBeDefined();
   });
 });

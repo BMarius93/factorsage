@@ -271,3 +271,39 @@
   border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
 }
+
+/* --- Queue position and a pending cancellation, under the progress bar --- */
+
+.queue {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+}
+
+.queuePosition {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.queueNote {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--line-height-body);
+}
+
+.cancelling {
+  margin: 10px 0 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.confirmBody {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+}

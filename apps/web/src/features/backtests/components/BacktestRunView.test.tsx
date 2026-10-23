@@ -2,9 +2,15 @@ import {
   BACKTEST_PENDING_POLL_INTERVAL_MS,
   BACKTEST_RUNNING_POLL_INTERVAL_MS,
 } from "@intrinsic/contracts";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../lib/api/client";
 import {
+  RATE_LIMITED_COPY,
+  rateLimited,
+} from "../../../lib/api/__testing__/request-failures";
+import {
+  cancelBacktestRun,
   fetchBacktestProgress,
   fetchBacktestRun,
   fetchBacktestShare,
@@ -30,6 +36,7 @@ vi.mock("../api/backtests-api", () => ({
   fetchBacktestRun: vi.fn(),
   fetchBacktestProgress: vi.fn(),
   fetchBacktestTrades: vi.fn(),
+  cancelBacktestRun: vi.fn(),
   // A completed run asks whether it is shared; the control itself is covered by its own suite.
   fetchBacktestShare: vi.fn(async () => ({
     shared: false,
@@ -83,6 +90,7 @@ vi.mock("lightweight-charts", () => ({
 const fetchRunMock = vi.mocked(fetchBacktestRun);
 const fetchProgressMock = vi.mocked(fetchBacktestProgress);
 const fetchTradesMock = vi.mocked(fetchBacktestTrades);
+const cancelMock = vi.mocked(cancelBacktestRun);
 
 async function flush() {
   await act(async () => {
@@ -102,6 +110,7 @@ beforeEach(() => {
   fetchProgressMock.mockReset();
   fetchTradesMock.mockReset();
   fetchTradesMock.mockResolvedValue(testTradePage());
+  cancelMock.mockReset();
   pushMock.mockReset();
   searchParams = new URLSearchParams();
 });
@@ -1326,5 +1335,254 @@ describe("BacktestRunView sharing", () => {
 
     expect(screen.queryByTestId("backtest-share")).toBeNull();
     expect(vi.mocked(fetchBacktestShare)).not.toHaveBeenCalled();
+  });
+});
+
+describe("BacktestRunView cancellation", () => {
+  const QUEUE = { ahead: 3, executing: 4, capacity: 4 } as const;
+  const REQUESTED_AT = "2026-09-01T10:03:00.000Z";
+
+  /** Opens the confirmation from the header and confirms it. */
+  async function confirmCancel() {
+    fireEvent.click(screen.getByTestId("backtest-cancel"));
+    const dialog = screen.getByTestId("confirm-dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel backtest" }),
+    );
+    await flush();
+    await flush();
+  }
+
+  it("says where a queued run stands without promising when it starts", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED", { queue: QUEUE }));
+    fetchProgressMock.mockResolvedValue(
+      testProgress("RUNNING", 1, { percent: 30 }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    expect(screen.getByTestId("backtest-queue-position").textContent).toBe(
+      "Up to 3 backtests ahead · 4 of 4 slots busy",
+    );
+    // An upper bound under fair scheduling, said as one: never a place in line or a time.
+    const queue = screen.getByTestId("backtest-queue");
+    expect(queue.textContent).toContain("upper bound, not a start time");
+    expect(queue.textContent).not.toMatch(/priority|guarantee|minutes?/i);
+
+    // Executing: the run holds a slot and no longer has a place in the queue.
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Running");
+    expect(screen.queryByTestId("backtest-queue")).toBeNull();
+  });
+
+  it("confirms first, then shows a cancelled queued run as Cancelled and stops asking", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED", { queue: QUEUE }));
+    cancelMock.mockResolvedValue(
+      testDetail("CANCELLED", {
+        completedAt: "2026-09-01T10:04:00.000Z",
+        progress: {
+          percent: 0,
+          message: "Cancelled by its owner",
+          simulatedThrough: null,
+          sequence: 1,
+          updatedAt: "2026-09-01T10:04:00.000Z",
+        },
+      }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const control = screen.getByTestId("backtest-cancel");
+    expect(control.textContent).toBe("Cancel backtest");
+    fireEvent.click(control);
+    // Nothing is stopped until the owner confirms; backing out names what it keeps.
+    expect(cancelMock).not.toHaveBeenCalled();
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(dialog.textContent).toContain("Run #0084 has not started yet");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Keep it queued" }),
+    );
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    expect(cancelMock).not.toHaveBeenCalled();
+
+    await confirmCancel();
+
+    expect(cancelMock).toHaveBeenCalledWith("run-1");
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    const badge = screen.getByTestId("backtest-status");
+    expect(badge.textContent).toBe("Cancelled");
+    expect(badge.getAttribute("data-tone")).toBe("neutral");
+    expect(badge.getAttribute("data-activity")).toBeNull();
+    expect(screen.getByTestId("backtest-cancelled").textContent).toContain(
+      "This backtest was cancelled",
+    );
+    expect(screen.queryByTestId("backtest-cancel")).toBeNull();
+    expect(screen.queryByTestId("backtest-progress")).toBeNull();
+    expect(screen.getByTestId("backtest-status-announcement").textContent).toBe(
+      "Backtest cancelled.",
+    );
+
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS * 20);
+    expect(fetchProgressMock).not.toHaveBeenCalled();
+  });
+
+  it("says Cancelling… while an executing run waits for its worker, and cannot be asked twice", async () => {
+    const running = {
+      progress: {
+        percent: 40,
+        message: null,
+        simulatedThrough: "2023-06-30",
+        sequence: 5,
+        updatedAt: "2026-09-01T10:03:00.000Z",
+      },
+      live: testLive(),
+    };
+    fetchRunMock.mockResolvedValue(testDetail("RUNNING", running));
+    cancelMock.mockResolvedValue(
+      testDetail("RUNNING", {
+        ...running,
+        cancellation: { requestedAt: REQUESTED_AT },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(
+      testProgress("RUNNING", 6, {
+        percent: 41,
+        live: testLive(),
+        cancellation: { requestedAt: REQUESTED_AT },
+      }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    fireEvent.click(screen.getByTestId("backtest-cancel"));
+    expect(screen.getByTestId("confirm-dialog").textContent).toContain(
+      "stops at its next checkpoint",
+    );
+    fireEvent.click(
+      within(screen.getByTestId("confirm-dialog")).getByRole("button", {
+        name: "Cancel backtest",
+      }),
+    );
+    await flush();
+    await flush();
+
+    const control = screen.getByTestId("backtest-cancel");
+    expect(control.textContent).toBe("Cancelling…");
+    expect(control.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("backtest-cancelling").textContent).toContain(
+      "stops at its next checkpoint",
+    );
+    // The worker has not stopped yet, so the run is still what it was.
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Running");
+    expect(screen.getByTestId("backtest-status-announcement").textContent).toBe(
+      "Cancellation requested. The backtest stops at its next checkpoint.",
+    );
+
+    // A checkpoint later the request is still pending, and still said.
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    expect(screen.getByTestId("backtest-cancel").textContent).toBe(
+      "Cancelling…",
+    );
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a run that finished before it could be cancelled, and says so (409)", async () => {
+    fetchRunMock
+      .mockResolvedValueOnce(testDetail("RUNNING", { live: testLive() }))
+      .mockResolvedValueOnce(
+        testDetail("COMPLETED", {
+          completedAt: "2026-09-01T10:20:00.000Z",
+          progress: {
+            percent: 100,
+            message: null,
+            simulatedThrough: "2026-01-02",
+            sequence: 9,
+            updatedAt: "2026-09-01T10:20:00.000Z",
+          },
+          result: testResult(),
+        }),
+      );
+    cancelMock.mockRejectedValue(
+      new ApiError(
+        409,
+        "This backtest has already completed",
+        "BACKTEST_NOT_CANCELLABLE",
+      ),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await confirmCancel();
+
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Completed");
+    expect(screen.getByTestId("backtest-cancel-too-late").textContent).toBe(
+      "This backtest finished before it could be cancelled.",
+    );
+    expect(screen.queryByTestId("backtest-cancel")).toBeNull();
+    expect(screen.getByTestId("backtest-edit-and-rerun")).toBeTruthy();
+  });
+
+  it("keeps any other refusal in the dialog, in the shared wording", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("RUNNING", { live: testLive() }));
+    fetchProgressMock.mockResolvedValue(testProgress("RUNNING", 1));
+    cancelMock.mockRejectedValue(rateLimited());
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await confirmCancel();
+
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      RATE_LIMITED_COPY,
+    );
+    expect(
+      within(dialog)
+        .getByRole("button", { name: "Keep running" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Running");
+  });
+
+  it("renders a cancelled run with no result, offers it again, and never polls", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("CANCELLED", {
+        startedAt: "2026-09-01T10:00:02.000Z",
+        completedAt: "2026-09-01T10:04:00.000Z",
+        milestones: testMilestones(["2021"]),
+      }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Cancelled");
+    const panel = screen.getByTestId("backtest-cancelled");
+    expect(panel.textContent).toContain("This backtest was cancelled");
+    expect(panel.textContent).toContain("so it has no result");
+    const rerun = screen.getByTestId("backtest-cancelled-rerun");
+    expect(rerun.textContent).toBe("Run again with these settings");
+    const href = new URL(rerun.getAttribute("href") ?? "", "https://x.test");
+    expect(href.pathname).toBe("/backtests/new");
+    expect(href.searchParams.get("from")).toBe("run-1");
+    // No result surface of any kind: a stopped run is not an outcome (UI-031).
+    expect(screen.queryByTestId("backtest-overview")).toBeNull();
+    expect(screen.queryByTestId("backtest-chart")).toBeNull();
+    expect(screen.queryByTestId("backtest-annual-returns")).toBeNull();
+    expect(screen.queryByTestId("metric-portfolio-value")).toBeNull();
+    expect(screen.queryByText(/No positions/)).toBeNull();
+    expect(screen.queryByText("No trades have been executed yet.")).toBeNull();
+    expect(screen.queryByTestId("backtest-progress")).toBeNull();
+    expect(screen.queryByTestId("backtest-cancel")).toBeNull();
+    // The configuration says when it was stopped, not when it "finished".
+    const configuration = screen.getByTestId("backtest-configuration");
+    expect(configuration.textContent).toContain("Cancelled");
+    expect(configuration.textContent).not.toContain("Finished");
+
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS * 20);
+    expect(fetchProgressMock).not.toHaveBeenCalled();
+    expect(fetchTradesMock).not.toHaveBeenCalled();
   });
 });

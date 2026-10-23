@@ -62,6 +62,25 @@ describe("ConfirmDialog failures", () => {
     expect(await confirmWith(new Error("network"))).toBe(FALLBACK);
   });
 
+  it("names its quiet button for what backing out keeps when asked to", async () => {
+    const onClose = vi.fn();
+    render(
+      <ConfirmDialog
+        title="Cancel this backtest?"
+        body={<p>Stop it?</p>}
+        confirmLabel="Cancel backtest"
+        pendingLabel="Cancelling…"
+        dismissLabel="Keep running"
+        onConfirm={() => Promise.resolve()}
+        onClose={onClose}
+      />,
+    );
+    // Never two buttons that both say "Cancel".
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Keep running" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("re-enables its buttons after a refusal so the user can back out", async () => {
     await confirmWith(rateLimited());
     expect(

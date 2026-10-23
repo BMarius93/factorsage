@@ -308,4 +308,35 @@ describe("NewBacktestForm", () => {
     );
     expect(push).not.toHaveBeenCalled();
   });
+
+  it("says a full queue in the API's own words, never as the generic failure or a plan limit (503)", async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import("../../../lib/api/client");
+    const API_MESSAGE =
+      "Backtests are in high demand right now and the queue is full. Try again in a few minutes.";
+    createBacktestRunMock.mockRejectedValue(
+      new ApiError(503, API_MESSAGE, "BACKTEST_QUEUE_FULL", undefined, 60),
+    );
+    render(<NewBacktestForm />);
+    await screen.findByLabelText("Benchmark");
+
+    await user.selectOptions(screen.getByLabelText("Strategy"), "strategy-1");
+    await user.selectOptions(screen.getByLabelText("Stock list"), "list-1");
+    await user.click(screen.getByTestId("submit-backtest"));
+
+    const message = await screen.findByTestId("backtest-submit-error");
+    // The API's sentence carries the retry hint; the form adds no second, conflicting wait.
+    expect(message.textContent).toBe(API_MESSAGE);
+    expect(message.textContent).not.toContain("could not be submitted");
+    // Capacity, not a plan limit: there is nothing to upgrade to.
+    expect(screen.queryByTestId("entitlement-see-plans")).toBeNull();
+    // Nothing was created, so the settings stay and the run can be sent again.
+    expect(
+      (screen.getByLabelText("Stock list") as HTMLSelectElement).value,
+    ).toBe("list-1");
+    expect(screen.getByTestId("submit-backtest").hasAttribute("disabled")).toBe(
+      false,
+    );
+    expect(push).not.toHaveBeenCalled();
+  });
 });

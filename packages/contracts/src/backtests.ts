@@ -928,6 +928,10 @@ export type BacktestProgressResponse = {
   /** Every completed year so far, ascending. Bounded by the thirty-year period limit. */
   milestones: BacktestMilestoneResponse[];
   failure: BacktestFailureResponse | null;
+  /** Present while the owner's cancellation is pending, as on the run detail. */
+  cancellation?: { requestedAt: string };
+  /** Where a queued run stands, as on the run detail. Absent once it executes. */
+  queue?: BacktestQueueStateResponse;
 };
 
 // ---------------------------------------------------------------------------

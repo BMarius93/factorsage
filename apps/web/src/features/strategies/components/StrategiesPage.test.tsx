@@ -446,3 +446,74 @@ describe("StrategiesPage", () => {
     });
   });
 });
+
+describe("StrategiesPage premium built-ins", () => {
+  /** A premium built-in strategy, as the API sends it to a plan without premium content. */
+  const locked = summary("premium-1", "Premium Momentum", {
+    ownership: "SYSTEM",
+    systemKey: "premium-momentum",
+    canEdit: false,
+    premium: true,
+    locked: true,
+    buyLevelCount: 2,
+    sellLevelCount: 1,
+  });
+
+  it("names a locked premium strategy with its levels, marks it locked, and says which plans include it", async () => {
+    useAuthSessionMock.mockReturnValue(signedInSession({ plan: "FREE" }));
+    fetchStrategiesMock.mockResolvedValue([
+      builtIn("b1", "Value & Trend"),
+      locked,
+    ]);
+    render(<StrategiesPage />);
+
+    const section = await screen.findByTestId("built-in-strategies");
+    const badges = within(section).getAllByTestId("premium-badge");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.getAttribute("data-locked")).toBe("true");
+    expect(badges[0]?.textContent).toBe("Premium, locked");
+    // Its shape is still shown, for discovery; its rules are not on this plan.
+    expect(section.textContent).toContain("Premium Momentum");
+    expect(section.textContent).toContain("2 buys");
+    const hint = within(section).getByTestId("premium-upgrade-hint");
+    expect(hint.textContent).toBe("Included in Pro and Pro+. See plans");
+    expect(
+      within(hint)
+        .getByRole("link", { name: "See plans" })
+        .getAttribute("href"),
+    ).toBe("/pricing");
+    expect(section.textContent).toContain(
+      "premium ones are included in Pro and Pro+",
+    );
+  });
+
+  it("offers no copy of a locked premium strategy", async () => {
+    const user = userEvent.setup();
+    useAuthSessionMock.mockReturnValue(signedInSession({ plan: "FREE" }));
+    fetchStrategiesMock.mockResolvedValue([locked]);
+    render(<StrategiesPage />);
+    await screen.findByTestId("built-in-strategies");
+
+    const trigger = await findOverflowTrigger("Premium Momentum");
+    await user.click(trigger);
+    const popup = document.getElementById(
+      trigger.getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    const duplicate = within(popup).getByRole("button", { name: "Duplicate" });
+    expect(duplicate.hasAttribute("disabled")).toBe(true);
+    await user.click(duplicate);
+    expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+    expect(duplicateStrategyMock).not.toHaveBeenCalled();
+  });
+
+  it("marks premium without a lock where the plan includes it", async () => {
+    fetchStrategiesMock.mockResolvedValue([{ ...locked, locked: undefined }]);
+    render(<StrategiesPage />);
+
+    const section = await screen.findByTestId("built-in-strategies");
+    const badge = within(section).getByTestId("premium-badge");
+    expect(badge.textContent).toBe("Premium");
+    expect(badge.getAttribute("data-locked")).toBeNull();
+    expect(within(section).queryByTestId("premium-upgrade-hint")).toBeNull();
+  });
+});

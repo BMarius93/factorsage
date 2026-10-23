@@ -91,6 +91,23 @@ export function fetchBacktestRun(
 }
 
 /**
+ * Stops the caller's run (`POST /backtests/{runId}/cancel`).
+ *
+ * A queued run answers `CANCELLED` at once. An executing one keeps its status and carries
+ * `cancellation` until its worker stops it at the next checkpoint, which the progress poll then
+ * reports. Asking again is harmless; a run that already finished is refused with
+ * `409 BACKTEST_NOT_CANCELLABLE`.
+ */
+export async function cancelBacktestRun(
+  runId: string,
+): Promise<BacktestRunDetailResponse> {
+  return (await apiPost<BacktestRunDetailResponse>(
+    `/backtests/${runId}/cancel`,
+    undefined,
+  )) as BacktestRunDetailResponse;
+}
+
+/**
  * The polling payload.
  *
  * Deliberately separate from the run detail: the running page fetches this about once a second

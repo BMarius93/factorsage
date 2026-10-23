@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BACKTEST_RUN_STATUS_FILTERS,
   BACKTEST_RUN_STATUS_LABELS,
   backtestRunLabel,
   isTerminalBacktestStatus,
@@ -59,6 +60,9 @@ function statusTone(status: BacktestRunStatus): StatusTone {
       return "positive";
     case "FAILED":
       return "negative";
+    case "CANCELLED":
+      // Stopped by its owner: decided, and nothing went wrong.
+      return "neutral";
     case "RUNNING":
     case "FINALIZING":
       return "active";
@@ -159,11 +163,17 @@ const RUN_SORT_OPTIONS: readonly SelectControlOption[] = [
 
 const ALL_STATUSES = "all";
 
+/**
+ * Every filter the API offers, in its order. A terminal status reads as its one product label;
+ * `ACTIVE` is the group of runs still queued or executing, which no single status names.
+ */
 const RUN_STATUS_OPTIONS: readonly SelectControlOption[] = [
   { value: ALL_STATUSES, label: "All statuses" },
-  { value: "ACTIVE", label: "In progress" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "FAILED", label: "Failed" },
+  ...BACKTEST_RUN_STATUS_FILTERS.map((filter) => ({
+    value: filter,
+    label:
+      filter === "ACTIVE" ? "In progress" : BACKTEST_RUN_STATUS_LABELS[filter],
+  })),
 ];
 
 /** The column a sort is the order of, for the header that shows it. */
@@ -272,8 +282,8 @@ export function BacktestsPage() {
       header: "Status",
       cardRole: "status",
       render: (run) => {
-        // Both terminal statuses are finished. A FAILED run rendered through the in-flight
-        // branch would show a filled progress bar under a "Failed" pill.
+        // Every terminal status is finished. A FAILED or CANCELLED run rendered through the
+        // in-flight branch would show a progress bar under a pill that says it has stopped.
         const finished = isTerminalBacktestStatus(run.status);
         return (
           <span className={styles.statusCell}>

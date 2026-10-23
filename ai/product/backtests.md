@@ -386,13 +386,18 @@ report it precisely. Developer diagnostics — the original error, its stack, an
 the worker and attempt that produced it — stay in the run's server-side detail and in the worker's
 logs; they never cross the HTTP boundary.
 
-V1 has no cancellation; the reasoning is recorded in `../architecture/backtest-execution.md`.
+An owner may **cancel** a run that has not finished (`POST /backtests/{runId}/cancel`). A queued
+run is cancelled at once and frees the owner's slot; an executing one shows "Cancelling…" and stops
+at its next checkpoint, then reads `CANCELLED` — terminal, with no result, and "Run again with these
+settings" offered. A queued run's page says where it stands ("Up to 3 backtests ahead · 4 of 4 slots
+busy") — an upper bound, because start order is fair across all users and never bought. The
+mechanics are in `../architecture/backtest-execution.md` ("Cancellation", "Global admission").
 
 ## The run history
 
 `/backtests` lists the customer's runs a page at a time — 25 by default, 10, 25, 50 or 100 on
 request — searched (strategy, stock list and benchmark names), filtered (in progress, completed,
-failed) and ordered (newest, oldest, best CAGR, strategy A–Z) by the API across the whole history,
+failed, cancelled) and ordered (newest, oldest, best CAGR, strategy A–Z) by the API across the whole history,
 with the view in the URL. A row is built from what was stored with the run when it was queued,
 never from its snapshot. The page re-reads itself every few seconds only while it shows a run still
 in flight; a run's own page owns live progress. The New backtest form reads only the runs holding a

@@ -22,6 +22,11 @@ import { NewBacktestForm } from "./NewBacktestForm";
 
 let plan: UserPlan = "PRO";
 
+/** Pro's own allowances, read from the matrix so the fixtures sit just past them whatever they are. */
+const PRO_BACKTEST_SYMBOLS = PLAN_ENTITLEMENTS.PRO.backtests.maxSymbols ?? 0;
+const PRO_UNIVERSE_MEMBERS =
+  PLAN_ENTITLEMENTS.PRO.backtests.maxIndexUniverseConstituents ?? 0;
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -59,10 +64,18 @@ const STRATEGY: StrategySummaryResponse = {
   updatedAt: "2026-08-20T10:00:00.000Z",
 };
 
+/**
+ * The universe as the API sends it to the viewer's plan: premium content, and `locked` where the
+ * plan does not include premium content.
+ */
 const universeList = (peak: number): StockListSummaryResponse => ({
   ownership: "SYSTEM",
   systemKey: "sp500-historical-pit",
   canEdit: false,
+  premium: true,
+  ...(PLAN_ENTITLEMENTS[plan].builtInContent.canUsePremium
+    ? {}
+    : { locked: true as const }),
   id: "sp500-pit",
   name: "S&P 500 — Historical PIT",
   itemCount: 731,
@@ -85,8 +98,12 @@ const LARGE_USER_LIST: StockListSummaryResponse = {
   canEdit: true,
   id: "large",
   name: "Large list",
-  itemCount: 120,
-  compliance: { symbolCount: 120, symbolLimit: 100, compliant: false },
+  itemCount: PRO_BACKTEST_SYMBOLS + 20,
+  compliance: {
+    symbolCount: PRO_BACKTEST_SYMBOLS + 20,
+    symbolLimit: PRO_BACKTEST_SYMBOLS,
+    compliant: false,
+  },
   createdAt: "2026-08-01T10:00:00.000Z",
   updatedAt: "2026-08-20T10:00:00.000Z",
 };
@@ -130,14 +147,16 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
   it("tells a plan without the universe that it is not included, before anything is submitted (PR-1)", async () => {
     plan = "STARTER";
     await choose(universeList(506));
-    // Marked in the picker, so choosing it is never a surprise.
+    // Marked in the picker with the plans that include it, so choosing it is never a surprise.
     expect(
-      screen.getByRole("option", { name: "S&P 500 — Historical PIT · Pro" }),
+      screen.getByRole("option", {
+        name: "S&P 500 — Historical PIT · Pro and Pro+",
+      }),
     ).toBeTruthy();
     expect(
       text(await screen.findByTestId("backtest-universe-over-limit")),
     ).toBe(
-      "Backtests over the S&P 500 Historical PIT universe are part of the Pro plan. See plans",
+      "Backtests over the S&P 500 Historical PIT universe are part of the Pro and Pro+ plans. See plans",
     );
     expect(
       screen.getByTestId("backtest-universe-see-plans").getAttribute("href"),
@@ -153,7 +172,7 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
     expect(list.getAttribute("aria-invalid")).toBe("true");
     expect(list.getAttribute("aria-describedby")).toBe("backtest-list-error");
     expect(text(document.getElementById("backtest-list-error")!)).toContain(
-      "part of the Pro plan",
+      "part of the Pro and Pro+ plans",
     );
   });
 
@@ -183,11 +202,11 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
   });
 
   it("compares the most members at once with the plan's universe allowance", async () => {
-    await choose(universeList(600));
+    await choose(universeList(PRO_UNIVERSE_MEMBERS + 50));
     expect(
       text(await screen.findByTestId("backtest-universe-over-limit")),
     ).toContain(
-      "This universe holds up to 600 members at once; your plan runs up to 550.",
+      `This universe holds up to ${PRO_UNIVERSE_MEMBERS + 50} members at once; your plan runs up to ${PRO_UNIVERSE_MEMBERS}.`,
     );
   });
 
@@ -196,7 +215,7 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
     expect(
       text(await screen.findByTestId("backtest-list-over-limit")),
     ).toContain(
-      "This list has 120 stocks; your plan runs up to 100 per backtest.",
+      `This list has ${PRO_BACKTEST_SYMBOLS + 20} stocks; your plan runs up to ${PRO_BACKTEST_SYMBOLS} per backtest.`,
     );
     expect(screen.queryByTestId("backtest-universe-summary")).toBeNull();
   });

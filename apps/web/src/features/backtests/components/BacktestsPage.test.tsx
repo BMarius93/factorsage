@@ -139,6 +139,63 @@ describe("BacktestsPage", () => {
     expect(badges[1]?.textContent).toBe("Running");
   });
 
+  it("shows a cancelled run as Cancelled: finished, still, and without a progress bar", async () => {
+    fetchMock.mockResolvedValue(
+      page([
+        summary("CANCELLED", "run-cancelled"),
+        summary("FAILED", "run-failed"),
+      ]),
+    );
+
+    render(<BacktestsPage />);
+    const badges = await waitFor(() => {
+      const found = screen.getAllByTestId("backtest-card-status");
+      expect(found).toHaveLength(2);
+      return found;
+    });
+
+    const cancelled = badges[0] as HTMLElement;
+    expect(cancelled.getAttribute("data-status")).toBe("CANCELLED");
+    expect(cancelled.textContent).toBe("Cancelled");
+    expect(cancelled.getAttribute("data-tone")).toBe("neutral");
+    expect(cancelled.getAttribute("data-activity")).toBeNull();
+    // No result and no "40% complete": a stopped run is neither in flight nor an outcome.
+    const row = cancelled.closest("tr") as HTMLElement;
+    expect(row.textContent).not.toContain("complete");
+  });
+
+  it("offers every status filter the API has, Cancelled included", async () => {
+    searchParams = new URLSearchParams("status=CANCELLED");
+    fetchMock.mockResolvedValue(
+      page([summary("CANCELLED", "run-cancelled")], {
+        status: "CANCELLED",
+        unfilteredCount: 4,
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<BacktestsPage />);
+    await screen.findByTestId("backtests-grid");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "CANCELLED" }),
+      expect.anything(),
+    );
+    const status = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(status.value).toBe("CANCELLED");
+    expect(Array.from(status.options).map((option) => option.text)).toEqual([
+      "All statuses",
+      "In progress",
+      "Completed",
+      "Failed",
+      "Cancelled",
+    ]);
+    await user.selectOptions(status, "FAILED");
+    expect(pushMock).toHaveBeenLastCalledWith("/backtests?status=FAILED", {
+      scroll: false,
+    });
+  });
+
   it("compares runs by CAGR, and keeps the benchmark out of the stock-list cell (BT-3)", async () => {
     // A long run with a large total return but a modest CAGR.
     const runs = Array.from({ length: 10 }, (_, index) => ({

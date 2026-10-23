@@ -5,6 +5,7 @@ import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import forms from "../../../components/ui/forms.module.css";
+import { PremiumLockedState } from "../../billing/components/PremiumContent";
 import { useStrategy } from "../hooks/use-strategy";
 import { StrategyBuilder } from "./StrategyBuilder";
 import { StrategyReadOnlyView } from "./StrategyReadOnlyView";
@@ -48,6 +49,20 @@ export function StrategyEditor({
               Back to Strategies
             </Link>
           }
+        />
+      </PageContainer>
+    );
+  }
+
+  if (status === "locked" || strategy?.locked === true) {
+    // A premium built-in this plan does not include: its rules are withheld, so there is nothing
+    // to read, backtest or copy — only where it is included.
+    return (
+      <PageContainer>
+        <PremiumLockedState
+          thing="strategy"
+          back={{ href: "/strategies", label: "Strategies" }}
+          testId="strategy-locked"
         />
       </PageContainer>
     );

@@ -25,9 +25,14 @@ import {
   entitlementReason,
   requestFailureMessage,
 } from "../../../lib/api/entitlement-errors";
+import {
+  premiumPlansLabel,
+  premiumPlansPhrase,
+} from "../../billing/components/PremiumContent";
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
 import { readBacktestPrefill } from "../utils/prefill";
+import { queueFullMessage } from "../utils/queue";
 import {
   defaultBacktestPeriod,
   fullPositionHelpText,
@@ -74,9 +79,18 @@ function describedBy(
   return parts.hint ? `${control}-hint` : undefined;
 }
 
-/** What a plan without the point-in-time universe is told, before and instead of a refusal (PR-1). */
-const UNIVERSE_NOT_INCLUDED =
-  "Backtests over the S&P 500 Historical PIT universe are part of the Pro plan.";
+/**
+ * What a plan without the point-in-time universe is told, before and instead of a refusal (PR-1).
+ * The plans that include it are read from the entitlement matrix, never written down here.
+ */
+const UNIVERSE_NOT_INCLUDED = `Backtests over the S&P 500 Historical PIT universe are part of ${premiumPlansPhrase()}.`;
+
+/** The same, for any other premium built-in the plan does not include. */
+const PREMIUM_LIST_NOT_INCLUDED = `Premium lists are part of ${premiumPlansPhrase()}.`;
+const PREMIUM_STRATEGY_NOT_INCLUDED = `Premium strategies are part of ${premiumPlansPhrase()}.`;
+
+/** How a picker marks a choice the plan does not include: the plans that do. */
+const NOT_INCLUDED_MARK = ` · ${premiumPlansLabel()}`;
 
 const DEFAULT_INITIAL_CAPITAL = "10000";
 const DEFAULT_MAXIMUM_POSITIONS = "10";
@@ -93,13 +107,20 @@ const EMPTY_VALUES: BacktestFormValues = {
 };
 
 function submissionMessage(error: unknown): string {
+  // A full deployment-wide queue is this form's own refusal, so it is handled before the shared
+  // translator, which would otherwise call it an unexpected failure: the API's sentence says the
+  // queue is full and when to come back, and nothing was created.
+  //
   // The API validates the same document again, and separately decides whether the caller's plan
   // permits this run at all. When it disagrees on either count its product-vocabulary message is
   // what the user needs to read — a plan limit especially, because "try again in a moment" would
   // be false: the next attempt fails identically.
-  return requestFailureMessage(
-    error,
-    "The backtest could not be submitted right now. Try again in a moment.",
+  return (
+    queueFullMessage(error) ??
+    requestFailureMessage(
+      error,
+      "The backtest could not be submitted right now. Try again in a moment.",
+    )
   );
 }
 
@@ -222,14 +243,21 @@ export function NewBacktestForm() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const validated = validateBacktestForm(values);
-    // A universe the plan does not include is refused here, before a request that could only be
-    // refused: the server still enforces it, but the user hears it beside the list, with the way to
-    // the plans, instead of as a failed submission (PR-1 / BT-4).
-    const found: BacktestFormErrors =
-      universeNotIncluded && validated.errors.stockListId === undefined
-        ? { ...validated.errors, stockListId: UNIVERSE_NOT_INCLUDED }
-        : validated.errors;
-    const request = universeNotIncluded ? null : validated.request;
+    // Premium content the plan does not include — a locked strategy or list, or a universe with no
+    // allowance — is refused here, before a request that could only be refused: the server still
+    // enforces it, but the user hears it beside the field, with the way to the plans, instead of as
+    // a failed submission (PR-1 / BT-4).
+    const found: BacktestFormErrors = {
+      ...validated.errors,
+      ...(strategyLocked && validated.errors.strategyId === undefined
+        ? { strategyId: PREMIUM_STRATEGY_NOT_INCLUDED }
+        : {}),
+      ...(listNotIncluded && validated.errors.stockListId === undefined
+        ? { stockListId: listNotIncludedMessage }
+        : {}),
+    };
+    const request =
+      strategyLocked || listNotIncluded ? null : validated.request;
     setErrors(found);
     setSubmitError(null);
     if (request === null) {
@@ -266,6 +294,12 @@ export function NewBacktestForm() {
       update("startDate", startForPeriodYears(values.endDate, planYears));
     }
   };
+  const selectedStrategy = strategies.find(
+    (strategy) => strategy.id === values.strategyId,
+  );
+  // A premium built-in strategy the plan does not include: the API withholds its rules and
+  // refuses a backtest over it.
+  const strategyLocked = selectedStrategy?.locked === true;
   const selectedList = lists.find((list) => list.id === values.stockListId);
   const chosenListSize = selectedList?.itemCount;
   // The built-in point-in-time index universe is measured by the most members it holds at once,
@@ -273,24 +307,54 @@ export function NewBacktestForm() {
   // same quantity over the run's own period and decides.
   const chosenUniverse = selectedList?.universe;
   const maxUniverse = limits?.maxIndexUniverseConstituents ?? null;
+  // Not "too large" but not part of the plan at all: premium content the plan does not include, or
+  // a universe allowance of zero. Only this case is decided before submission; a positive
+  // allowance is measured by the server over the run's own period, which may hold fewer members
+  // than the universe's all-time peak.
+  const listNotIncluded =
+    selectedList?.locked === true ||
+    (chosenUniverse !== undefined && maxUniverse === 0);
+  const listNotIncludedMessage =
+    chosenUniverse !== undefined
+      ? UNIVERSE_NOT_INCLUDED
+      : PREMIUM_LIST_NOT_INCLUDED;
   const universeTooLarge =
+    !listNotIncluded &&
     chosenUniverse !== undefined &&
     maxUniverse !== null &&
     chosenUniverse.peakSimultaneousMembers > maxUniverse;
-  // Not "too large" but not part of the plan at all: an allowance of zero. Only this case is
-  // decided before submission; a positive allowance is measured by the server over the run's own
-  // period, which may hold fewer members than the universe's all-time peak.
-  const universeNotIncluded = chosenUniverse !== undefined && maxUniverse === 0;
-  /** The list picker marks a universe the plan does not include, so it is never a surprise. */
+  /** The pickers mark what the plan does not include, so choosing it is never a surprise. */
   const listOptionLabel = (item: {
     readonly id: string;
     readonly name: string;
   }) => {
     const list = lists.find((entry) => entry.id === item.id);
-    return list?.universe !== undefined && maxUniverse === 0
-      ? `${item.name} · Pro`
+    return list?.locked === true ||
+      (list?.universe !== undefined && maxUniverse === 0)
+      ? `${item.name}${NOT_INCLUDED_MARK}`
       : item.name;
   };
+  const strategyOptionLabel = (item: {
+    readonly id: string;
+    readonly name: string;
+  }) =>
+    strategies.find((entry) => entry.id === item.id)?.locked === true
+      ? `${item.name}${NOT_INCLUDED_MARK}`
+      : item.name;
+  /** The way to the plans, beside a choice the plan does not include. */
+  const seePlans = (testId: string) => (
+    <Link className={styles.noticeLink} href="/billing" data-testid={testId}>
+      See plans
+    </Link>
+  );
+  const listNotIncludedTestId =
+    chosenUniverse !== undefined
+      ? "backtest-universe-over-limit"
+      : "backtest-list-locked";
+  const listSeePlansTestId =
+    chosenUniverse !== undefined
+      ? "backtest-universe-see-plans"
+      : "backtest-list-see-plans";
   const listTooLarge =
     chosenUniverse === undefined &&
     maxSymbols !== null &&
@@ -352,9 +416,7 @@ export function NewBacktestForm() {
 
   // What the phone action bar says is about to run. Names the two things the user chose,
   // because those are what a mis-selection shows up in; never a credit balance.
-  const chosenStrategy = strategies.find(
-    (strategy) => strategy.id === values.strategyId,
-  )?.name;
+  const chosenStrategy = selectedStrategy?.name;
   const chosenList = lists.find((list) => list.id === values.stockListId)?.name;
   const summary =
     chosenStrategy && chosenList
@@ -491,12 +553,34 @@ export function NewBacktestForm() {
                     invalid={errors.strategyId !== undefined}
                     {...(errors.strategyId
                       ? { describedBy: "backtest-strategy-error" }
-                      : {})}
+                      : strategyLocked
+                        ? { describedBy: "backtest-strategy-hint" }
+                        : {})}
+                    optionLabel={strategyOptionLabel}
                     onValueChange={(id) => update("strategyId", id)}
                   />
                   {errors.strategyId ? (
-                    <p className={forms.hint} id="backtest-strategy-error">
+                    <p
+                      className={forms.hint}
+                      id="backtest-strategy-error"
+                      data-testid={
+                        strategyLocked ? "backtest-strategy-locked" : undefined
+                      }
+                    >
                       {errors.strategyId}
+                      {strategyLocked ? (
+                        <> {seePlans("backtest-strategy-see-plans")}</>
+                      ) : null}
+                    </p>
+                  ) : strategyLocked ? (
+                    <p
+                      className={styles.limitText}
+                      id="backtest-strategy-hint"
+                      data-state="over"
+                      data-testid="backtest-strategy-locked"
+                    >
+                      {PREMIUM_STRATEGY_NOT_INCLUDED}{" "}
+                      {seePlans("backtest-strategy-see-plans")}
                     </p>
                   ) : null}
                 </div>
@@ -515,7 +599,10 @@ export function NewBacktestForm() {
                     invalid={errors.stockListId !== undefined}
                     {...(errors.stockListId
                       ? { describedBy: "backtest-list-error" }
-                      : listTooLarge || universeTooLarge || chosenUniverse
+                      : listNotIncluded ||
+                          listTooLarge ||
+                          universeTooLarge ||
+                          chosenUniverse
                         ? { describedBy: "backtest-list-hint" }
                         : {})}
                     optionLabel={listOptionLabel}
@@ -526,24 +613,22 @@ export function NewBacktestForm() {
                       className={forms.hint}
                       id="backtest-list-error"
                       data-testid={
-                        universeNotIncluded
-                          ? "backtest-universe-over-limit"
-                          : undefined
+                        listNotIncluded ? listNotIncludedTestId : undefined
                       }
                     >
                       {errors.stockListId}
-                      {universeNotIncluded ? (
-                        <>
-                          {" "}
-                          <Link
-                            className={styles.noticeLink}
-                            href="/billing"
-                            data-testid="backtest-universe-see-plans"
-                          >
-                            See plans
-                          </Link>
-                        </>
+                      {listNotIncluded ? (
+                        <> {seePlans(listSeePlansTestId)}</>
                       ) : null}
+                    </p>
+                  ) : listNotIncluded ? (
+                    <p
+                      className={styles.limitText}
+                      id="backtest-list-hint"
+                      data-state="over"
+                      data-testid={listNotIncludedTestId}
+                    >
+                      {listNotIncludedMessage} {seePlans(listSeePlansTestId)}
                     </p>
                   ) : listTooLarge ? (
                     <p
@@ -562,20 +647,7 @@ export function NewBacktestForm() {
                       data-state="over"
                       data-testid="backtest-universe-over-limit"
                     >
-                      {maxUniverse === 0 ? (
-                        <>
-                          {UNIVERSE_NOT_INCLUDED}{" "}
-                          <Link
-                            className={styles.noticeLink}
-                            href="/billing"
-                            data-testid="backtest-universe-see-plans"
-                          >
-                            See plans
-                          </Link>
-                        </>
-                      ) : (
-                        `This universe holds up to ${chosenUniverse.peakSimultaneousMembers} members at once; your plan runs up to ${maxUniverse}.`
-                      )}
+                      {`This universe holds up to ${chosenUniverse.peakSimultaneousMembers} members at once; your plan runs up to ${maxUniverse}.`}
                     </p>
                   ) : chosenUniverse ? (
                     <p
