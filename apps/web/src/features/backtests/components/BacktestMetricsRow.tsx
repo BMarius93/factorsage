@@ -54,8 +54,9 @@ export type BacktestMetricsRowProps = {
  * thirty-year run with a three-year one.
  *
  * The section owns no surface. It is a heading and a grid of tiles inside the result hero, exactly
- * as Annual returns is, so the two read as one flat sequence under the chart rather than as a card
- * nested in a card.
+ * as Annual returns is, so the numbers read as part of one flat result rather than as a card nested
+ * in a card. Where they sit is the run view's decision: beside the chart as a 2 x 4 grid from
+ * 1,280px, under it on narrower screens.
  */
 export function BacktestMetricsRow({
   metrics,

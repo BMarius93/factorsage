@@ -146,24 +146,28 @@ export function testResult(
       openPositions: 5,
     },
     // Three years of the run's period, each with its own return. Deliberately not a rising
-    // sequence: a cumulative rendering would be invisible against one.
+    // sequence: a cumulative rendering would be invisible against one. The benchmark's figures
+    // differ from the Strategy's in every year, so a cell showing the wrong row is visible.
     annualReturns: [
       {
         year: "2021",
         simulatedThrough: "2021-12-31",
         returnPercent: 18,
+        benchmarkReturnPercent: 26.89,
         partial: false,
       },
       {
         year: "2022",
         simulatedThrough: "2022-12-31",
         returnPercent: -7.5,
+        benchmarkReturnPercent: -19.44,
         partial: false,
       },
       {
         year: "2023",
         simulatedThrough: "2023-12-31",
         returnPercent: 24.25,
+        benchmarkReturnPercent: 3.1,
         partial: false,
       },
     ],
@@ -245,6 +249,8 @@ export function testDetail(
 ): BacktestRunDetailResponse {
   return {
     id: "run-1",
+    // Not 1: a label that rendered the number unpadded, or the UUID, would still read "1".
+    runNumber: 84,
     status,
     configuration: testConfiguration(),
     queuedAt: "2026-09-01T10:00:00.000Z",

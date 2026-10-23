@@ -202,9 +202,38 @@ export type BacktestRunConfigurationResponse = {
   methodology: BacktestMethodologyResponse;
 };
 
+/**
+ * A run's user-facing identity: `Run #0001`, `Run #0002`, … — four digits, zero-padded, and wider
+ * once an account passes 9,999 runs rather than wrapping.
+ *
+ * `runNumber` is sequential per user, allocated once at submission and never changed, so the label
+ * is stable for the life of the run. The UUID `id` stays the technical identity every link uses.
+ * The one place the label is spelled, so no surface formats it differently.
+ */
+export function backtestRunLabel(runNumber: number): string {
+  return `Run #${String(runNumber).padStart(4, "0")}`;
+}
+
+/**
+ * The Run ID a search names, if it names one: `Run #0012`, `run 12`, `#12`, `0012` and `12` all name
+ * run 12. Anything else — including a number with other words around it — names none, and is
+ * searched as text only. The inverse of {@link backtestRunLabel}, so a label copied from the page
+ * finds its run.
+ */
+export function backtestRunNumberFromSearch(search: string): number | null {
+  const match = /^\s*(?:run\s*)?#?\s*(\d{1,9})\s*$/i.exec(search);
+  if (!match) {
+    return null;
+  }
+  const runNumber = Number(match[1]);
+  return Number.isSafeInteger(runNumber) && runNumber >= 1 ? runNumber : null;
+}
+
 /** One row of `GET /backtests`. */
 export type BacktestRunSummaryResponse = {
   id: string;
+  /** Sequential per user and immutable; rendered by {@link backtestRunLabel}. */
+  runNumber: number;
   status: BacktestRunStatus;
   /**
    * The strategy and stock list the run was submitted with, exactly as on the run's
@@ -581,11 +610,34 @@ export type BacktestAnnualReturnResponse = {
   /** Return over this year's simulated portion, cash-flow adjusted. Not cumulative. */
   returnPercent: number;
   /**
+   * What the run's benchmark returned over **the same window** — from the same start (the previous
+   * year's last simulated date, or the run's first simulated date) to the same `simulatedThrough`
+   * — chained off the run's own benchmark growth index, which is the series every other benchmark
+   * figure of the run comes from. A price return, exactly as the run's total benchmark return is.
+   *
+   * Null when the benchmark has no value at one end of that window — a benchmark whose history
+   * begins after the window starts, or a run with no benchmark reading at all. Never estimated:
+   * a figure over a shorter window would not be comparable with the Strategy's beside it.
+   */
+  benchmarkReturnPercent: number | null;
+  /**
    * True when only part of the calendar year was simulated — the run's first year when it starts
    * after 1 January, its last when it ends before 31 December. The figure is still the true return
    * over the part that was simulated; nothing outside the requested period is fabricated.
    */
   partial: boolean;
+};
+
+/**
+ * The benchmark side of {@link backtestAnnualReturns}: the benchmark's growth index on the run's
+ * first simulated date, which is the base the first year's benchmark figure is measured from.
+ *
+ * The engine bases that index at 1.0 on the first date the benchmark has a value, so it is 1.0
+ * whenever the benchmark had a value on the run's first simulated date — the same base the
+ * Strategy's return index has — and null when the benchmark's history began later.
+ */
+export type BacktestAnnualBenchmarkBase = {
+  readonly indexAtFirstSimulatedDate: number | null;
 };
 
 /**
@@ -595,6 +647,20 @@ export type BacktestAnnualReturnResponse = {
  * annualReturn(year) = returnIndex(last simulated day of year)
  *                    / returnIndex(last simulated day of the previous year) - 1
  * ```
+ *
+ * The benchmark's figure for the same year reads the run's benchmark growth index on exactly the
+ * same two dates — the Strategy's anchors — so the two numbers of a year always describe one
+ * window:
+ *
+ * ```text
+ * benchmarkAnnualReturn(year) = benchmarkIndex(last simulated day of year)
+ *                             / benchmarkIndex(last simulated day of the previous year) - 1
+ * ```
+ *
+ * with the first year divided by the index on the run's first simulated date (`benchmark`). A
+ * missing reading at either anchor makes that year's benchmark figure null; it is never bridged
+ * from a nearby date. Without `benchmark`, or without a `benchmarkIndex` on the points, every
+ * benchmark figure is null.
  *
  * The index is the run's own `time-weighted-index@1` growth index, based at 1.0 before the first
  * simulated day, so a monthly contribution raises portfolio value without inventing return. That is
@@ -610,10 +676,17 @@ export type BacktestAnnualReturnResponse = {
  * calendar year is read, so both produce the same answer. Order does not matter.
  */
 export function backtestAnnualReturns(
-  points: readonly { date: string; returnIndex: number }[],
+  points: readonly {
+    date: string;
+    returnIndex: number;
+    /** The run's benchmark growth index on the same date; null where it had no value. */
+    benchmarkIndex?: number | null;
+  }[],
   period: { startDate: string; endDate: string },
+  benchmark?: BacktestAnnualBenchmarkBase,
 ): BacktestAnnualReturnResponse[] {
-  const lastOfYear = new Map<string, { date: string; returnIndex: number }>();
+  type AnnualPoint = (typeof points)[number];
+  const lastOfYear = new Map<string, AnnualPoint>();
   for (const point of points) {
     if (!Number.isFinite(point.returnIndex) || point.returnIndex <= 0) {
       // A non-positive growth index is not a reading; dividing by one would report a wipeout that
@@ -633,22 +706,39 @@ export function backtestAnnualReturns(
   const endsMidYear = period.endDate.slice(5) < "12-31";
 
   let previousIndex = 1;
+  let previousBenchmarkIndex = usableIndex(
+    benchmark?.indexAtFirstSimulatedDate,
+  );
   return [...lastOfYear.keys()].sort().map((year) => {
-    const point = lastOfYear.get(year) as {
-      date: string;
-      returnIndex: number;
-    };
+    const point = lastOfYear.get(year) as AnnualPoint;
     const returnPercent = (point.returnIndex / previousIndex - 1) * 100;
     previousIndex = point.returnIndex;
+    const benchmarkIndex = benchmark ? usableIndex(point.benchmarkIndex) : null;
+    const benchmarkReturnPercent =
+      benchmarkIndex === null || previousBenchmarkIndex === null
+        ? null
+        : (benchmarkIndex / previousBenchmarkIndex - 1) * 100;
+    previousBenchmarkIndex = benchmarkIndex;
     return {
       year,
       simulatedThrough: point.date,
       returnPercent,
+      benchmarkReturnPercent,
       partial:
         (year === startYear && startsMidYear) ||
         (year === endYear && endsMidYear),
     };
   });
+}
+
+/** A growth-index reading that can be divided by, or null: absent, non-finite or non-positive. */
+function usableIndex(value: number | null | undefined): number | null {
+  return value !== null &&
+    value !== undefined &&
+    Number.isFinite(value) &&
+    value > 0
+    ? value
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1048,6 +1138,8 @@ export function backtestTradesExportFilename(
 
 export type BacktestRunDetailResponse = {
   id: string;
+  /** Sequential per user and immutable; rendered by {@link backtestRunLabel}. */
+  runNumber: number;
   status: BacktestRunStatus;
   configuration: BacktestRunConfigurationResponse;
   queuedAt: string;

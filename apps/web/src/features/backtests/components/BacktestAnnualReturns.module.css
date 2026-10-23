@@ -1,13 +1,13 @@
-/* A strip of per-year figures under the results they decompose.
+/* The Strategy-vs-benchmark annual returns heatmap, under the results it decomposes.
 
-   Thirty years has to fit without becoming a wall, so the cells are a fixed-track grid that
-   simply gains columns as the viewport allows: five across a phone, up to ten on a wide
-   desktop. The year and its return stack inside each cell, which is what keeps a 390px
-   column legible at this density. */
+   One column per calendar year, two rows. Columns keep one compact width whatever the run's
+   length, so three years read as a short strip and thirty scroll sideways inside their own region
+   instead of shrinking until a figure no longer fits — the page itself never scrolls sideways. */
 
 .section {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 /* The explanatory line sits under the heading on a phone and beside it from 600px up. Relying on
@@ -32,57 +32,195 @@
   font-size: var(--text-small);
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr));
-  gap: 4px;
-  margin: 0;
-  padding: 0;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.cell {
-  display: grid;
-  gap: 1px;
-  padding: 5px 6px;
-  border: 1px solid var(--color-border);
+/* The scroll region. `min-width: 0` lets it be narrower than its table inside the hero's grid. */
+.scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   border-radius: var(--radius-sm);
-  background: var(--color-surface-soft);
-  text-align: center;
 }
 
-.year {
+.scroll:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Separate borders with a small spacing give every cell its own rounded tile, the same grammar as
+   the result tiles above; the table is as wide as its columns and no wider. */
+.table {
+  width: max-content;
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.year,
+.corner {
+  padding: 2px 4px 4px;
   color: var(--color-text-secondary);
   font-size: var(--text-label-size);
   font-weight: var(--weight-emphasis);
-  font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
 }
 
-.partial {
+/* A partial year's label is quieter, and carries the asterisk the footnote explains. */
+.year[data-partial="true"] {
   color: var(--color-text-muted);
 }
 
-.value {
-  margin: 0;
+.partialMark {
+  margin-left: 1px;
+  color: var(--color-text-muted);
+}
+
+/* The row labels stay in view while the years scroll under them. */
+.rowLabel,
+.corner {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-surface);
+}
+
+.rowLabel {
+  max-width: 7rem;
+  padding: 0 10px 0 2px;
+  color: var(--color-text-body);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One year's figure. Dark text on every shade: the state colours' ink would fall under 4.5:1 on
+   the deeper shades, and the sign already says the direction in words. */
+.cell {
+  min-width: 4.5rem;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-soft);
   color: var(--color-text-primary);
   font-size: var(--text-small);
   font-weight: var(--weight-emphasis);
-  font-variant-numeric: tabular-nums;
   line-height: var(--line-height-tight);
+  text-align: center;
+  white-space: nowrap;
 }
 
-.value[data-tone="positive"] {
-  color: var(--color-positive-ink);
+/* Four restrained steps of each state colour over the surface — see `annualReturnShade`. */
+.cell[data-tone="positive"] {
+  border-color: transparent;
 }
 
-.value[data-tone="negative"] {
-  color: var(--color-negative-ink);
+.cell[data-tone="positive"][data-intensity="1"] {
+  background: color-mix(
+    in srgb,
+    var(--color-positive) 9%,
+    var(--color-surface)
+  );
 }
 
-.footnote {
-  margin: 0;
+.cell[data-tone="positive"][data-intensity="2"] {
+  background: color-mix(
+    in srgb,
+    var(--color-positive) 17%,
+    var(--color-surface)
+  );
+}
+
+.cell[data-tone="positive"][data-intensity="3"] {
+  background: color-mix(
+    in srgb,
+    var(--color-positive) 26%,
+    var(--color-surface)
+  );
+}
+
+.cell[data-tone="positive"][data-intensity="4"] {
+  background: color-mix(
+    in srgb,
+    var(--color-positive) 36%,
+    var(--color-surface)
+  );
+}
+
+.cell[data-tone="negative"] {
+  border-color: transparent;
+}
+
+.cell[data-tone="negative"][data-intensity="1"] {
+  background: color-mix(
+    in srgb,
+    var(--color-negative) 8%,
+    var(--color-surface)
+  );
+}
+
+.cell[data-tone="negative"][data-intensity="2"] {
+  background: color-mix(
+    in srgb,
+    var(--color-negative) 15%,
+    var(--color-surface)
+  );
+}
+
+.cell[data-tone="negative"][data-intensity="3"] {
+  background: color-mix(
+    in srgb,
+    var(--color-negative) 23%,
+    var(--color-surface)
+  );
+}
+
+.cell[data-tone="negative"][data-intensity="4"] {
+  background: color-mix(
+    in srgb,
+    var(--color-negative) 32%,
+    var(--color-surface)
+  );
+}
+
+/* A benchmark figure the run cannot measure: a dash on a plain dashed tile, never a shade. */
+.cell[data-tone="unavailable"] {
+  border-style: dashed;
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+/* A part-year column: a dashed inner rule on top of its shade, as well as the asterisk above it,
+   so a short window is never read as a whole year. */
+.cell[data-partial="true"] {
+  outline: 1px dashed
+    color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+  outline-offset: -4px;
+}
+
+.footnotes {
+  display: grid;
+  gap: 2px;
   color: var(--color-text-muted);
   font-size: var(--text-label-size);
+}
+
+.footnotes p {
+  margin: 0;
 }
 
 @media (min-width: 600px) {
@@ -96,16 +234,9 @@
 }
 
 @media (min-width: 880px) {
-  .grid {
-    grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
-    gap: 6px;
-  }
-
   .cell {
-    padding: 6px 8px;
-  }
-
-  .value {
+    min-width: 5rem;
+    height: 32px;
     font-size: var(--text-secondary);
   }
 }

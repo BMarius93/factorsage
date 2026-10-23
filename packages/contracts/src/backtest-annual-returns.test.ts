@@ -178,4 +178,207 @@ describe("backtestAnnualReturns", () => {
   it("reports nothing for a run with no simulated day", () => {
     expect(backtestAnnualReturns([], WHOLE_YEARS)).toEqual([]);
   });
+
+  it("reports no benchmark figure when it is given no benchmark base", () => {
+    const years = backtestAnnualReturns(
+      [
+        { date: "2020-12-31", returnIndex: 1.2, benchmarkIndex: 1.1 },
+        { date: "2021-12-31", returnIndex: 1.32, benchmarkIndex: 1.21 },
+      ],
+      WHOLE_YEARS,
+    );
+    expect(years.map((entry) => entry.benchmarkReturnPercent)).toEqual([
+      null,
+      null,
+    ]);
+  });
+});
+
+/**
+ * The benchmark row of the annual-returns comparison.
+ *
+ * Its figure for a year is read off the run's own benchmark growth index on **the Strategy's two
+ * anchor dates**, so a Strategy cell and the Benchmark cell under it always describe one window —
+ * and a window the benchmark did not cover is reported as unavailable, never shortened.
+ */
+describe("backtestAnnualReturns — benchmark", () => {
+  /** Daily points carrying both indices; `null` is a date the benchmark had no value. */
+  function paired(
+    entries: readonly (readonly [string, number, number | null])[],
+  ): { date: string; returnIndex: number; benchmarkIndex: number | null }[] {
+    return entries.map(([date, returnIndex, benchmarkIndex]) => ({
+      date,
+      returnIndex,
+      benchmarkIndex,
+    }));
+  }
+
+  const FROM_START = { indexAtFirstSimulatedDate: 1 };
+
+  it("measures each year on the same dates as the Strategy, not cumulatively", () => {
+    const years = backtestAnnualReturns(
+      paired([
+        ["2020-01-02", 1, 1],
+        ["2020-12-31", 1.2, 1.1],
+        ["2021-06-30", 1.3, 1.5],
+        ["2021-12-31", 1.32, 1.21],
+        ["2022-12-30", 0.99, 1.331],
+      ]),
+      { startDate: "2020-01-02", endDate: "2022-12-30" },
+      FROM_START,
+    );
+    expect(
+      years.map((entry) => [
+        entry.year,
+        entry.simulatedThrough,
+        entry.benchmarkReturnPercent,
+      ]),
+    ).toEqual([
+      ["2020", "2020-12-31", expect.closeTo(10, 8)],
+      // The mid-year 1.5 is not the year's end: 2021 is 1.21 / 1.1.
+      ["2021", "2021-12-31", expect.closeTo(10, 8)],
+      ["2022", "2022-12-30", expect.closeTo(10, 8)],
+    ]);
+  });
+
+  it("chains back to the benchmark's total return over the run", () => {
+    const years = backtestAnnualReturns(
+      paired([
+        ["2020-01-02", 1, 1],
+        ["2020-12-31", 1.2, 0.8],
+        ["2021-12-31", 1.1, 1.04],
+        ["2022-12-30", 1.5, 1.3],
+      ]),
+      { startDate: "2020-01-02", endDate: "2022-12-30" },
+      FROM_START,
+    );
+    const chained = years.reduce(
+      (total, entry) => total * (1 + (entry.benchmarkReturnPercent ?? 0) / 100),
+      1,
+    );
+    expect(chained).toBeCloseTo(1.3, 10);
+    expect(years[0]?.benchmarkReturnPercent).toBeCloseTo(-20, 8);
+  });
+
+  it("leaves the Strategy's own figures exactly as they were", () => {
+    const strategyOnly = backtestAnnualReturns(
+      daily([
+        ["2020-03-02", 1],
+        ["2020-12-31", 1.08],
+        ["2021-12-31", 0.972],
+        ["2022-06-15", 1.05],
+      ]),
+      { startDate: "2020-03-02", endDate: "2022-06-15" },
+    );
+    const withBenchmark = backtestAnnualReturns(
+      paired([
+        ["2020-03-02", 1, 1],
+        ["2020-12-31", 1.08, 1.3],
+        ["2021-12-31", 0.972, null],
+        ["2022-06-15", 1.05, 1.1],
+      ]),
+      { startDate: "2020-03-02", endDate: "2022-06-15" },
+      FROM_START,
+    );
+    expect(
+      withBenchmark.map(({ benchmarkReturnPercent: _ignored, ...rest }) => rest),
+    ).toEqual(
+      strategyOnly.map(({ benchmarkReturnPercent: _ignored, ...rest }) => rest),
+    );
+  });
+
+  it("shares the year's partial flag: a part-year is a part-year for both rows", () => {
+    const years = backtestAnnualReturns(
+      paired([
+        ["2020-05-11", 1, 1],
+        ["2020-12-31", 1.08, 1.05],
+        ["2021-12-31", 1.188, 1.155],
+        ["2022-03-15", 1.2, 1.2],
+      ]),
+      { startDate: "2020-05-11", endDate: "2022-03-15" },
+      FROM_START,
+    );
+    expect(
+      years.map((entry) => [
+        entry.year,
+        entry.partial,
+        entry.benchmarkReturnPercent,
+      ]),
+    ).toEqual([
+      // Measured from the run's first simulated date, like the Strategy's first year.
+      ["2020", true, expect.closeTo(5, 8)],
+      ["2021", false, expect.closeTo(10, 8)],
+      ["2022", true, expect.closeTo((1.2 / 1.155 - 1) * 100, 8)],
+    ]);
+  });
+
+  it("reports a year the benchmark did not cover from its start as unavailable, not as a shorter return", () => {
+    // The benchmark's history begins in June 2020, after the run started: its index is based at
+    // 1.0 on that later date, so 2020's figure would cover half the Strategy's window.
+    const years = backtestAnnualReturns(
+      paired([
+        ["2020-01-02", 1, null],
+        ["2020-06-01", 1.05, 1],
+        ["2020-12-31", 1.1, 1.2],
+        ["2021-12-31", 1.21, 1.32],
+      ]),
+      { startDate: "2020-01-02", endDate: "2021-12-31" },
+      { indexAtFirstSimulatedDate: null },
+    );
+    expect(years.map((entry) => entry.benchmarkReturnPercent)).toEqual([
+      null,
+      // From the first year-end the benchmark had a value at, the windows agree again.
+      expect.closeTo(10, 8),
+    ]);
+    // The Strategy's figure for the same year is unaffected.
+    expect(years[0]?.returnPercent).toBeCloseTo(10, 8);
+  });
+
+  it("reports a year whose end has no benchmark reading as unavailable, and the year after too", () => {
+    const years = backtestAnnualReturns(
+      paired([
+        ["2020-12-31", 1.1, 1.1],
+        ["2021-12-31", 1.21, null],
+        ["2022-12-30", 1.331, 1.331],
+      ]),
+      { startDate: "2020-01-01", endDate: "2022-12-30" },
+      FROM_START,
+    );
+    // 2022 cannot be measured from a 2021 reading that does not exist; it is not bridged to 2020.
+    expect(years.map((entry) => entry.benchmarkReturnPercent)).toEqual([
+      expect.closeTo(10, 8),
+      null,
+      null,
+    ]);
+  });
+
+  it("reads the same answer off per-year milestones as off the daily series", () => {
+    const daily = paired([
+      ["2020-01-02", 1, 1],
+      ["2020-07-01", 1.04, 1.02],
+      ["2020-12-31", 1.08, 1.05],
+      ["2021-03-01", 1.1, 1.0],
+      ["2021-12-31", 1.188, 1.155],
+    ]);
+    const milestones = daily.filter((point) => point.date.endsWith("12-31"));
+    const period = { startDate: "2020-01-02", endDate: "2021-12-31" };
+    expect(backtestAnnualReturns(milestones, period, FROM_START)).toEqual(
+      backtestAnnualReturns(daily, period, FROM_START),
+    );
+  });
+
+  it("ignores a non-finite or non-positive benchmark reading rather than dividing by it", () => {
+    const years = backtestAnnualReturns(
+      paired([
+        ["2020-12-31", 1.1, 0],
+        ["2021-12-31", 1.21, Number.NaN],
+      ]),
+      { startDate: "2020-01-01", endDate: "2021-12-31" },
+      FROM_START,
+    );
+    expect(years.map((entry) => entry.benchmarkReturnPercent)).toEqual([
+      null,
+      null,
+    ]);
+  });
 });

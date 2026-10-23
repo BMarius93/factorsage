@@ -167,8 +167,8 @@ export function resolveE2eAccountCleanupTarget(
  * Every relation of `User` a cleanup decision has to account for, and how a refusal names it.
  *
  * Every relation of `User` except `verificationTokens`, which each policy decides on its own.
- * `billingSubscription` (one-to-one) and `StripeWebhookEvent.userId` (no foreign key) are checked
- * separately. Each `SET NULL` relation (`updated*`) is here too, so a delete never silently
+ * `billingSubscription` and `backtestRunNumberCounter` (both one-to-one) and
+ * `StripeWebhookEvent.userId` (no foreign key) are checked separately. Each `SET NULL` relation (`updated*`) is here too, so a delete never silently
  * rewrites a row someone else owns.
  */
 const DEPENDENTS = {
@@ -228,6 +228,7 @@ const REGISTRATION_STATE: Prisma.UserWhereInput = {
   stripeCustomerId: null,
   sessionVersion: 0,
   billingSubscription: { is: null },
+  backtestRunNumberCounter: { is: null },
   ...none(DEPENDENT_RELATIONS),
 };
 
@@ -252,6 +253,7 @@ const AUTH_LIFECYCLE_STATE: Prisma.UserWhereInput = {
   plan: UserPlan.FREE,
   stripeCustomerId: null,
   billingSubscription: { is: null },
+  backtestRunNumberCounter: { is: null },
   ...none(FOREIGN_DEPENDENTS),
   OR: [
     {
@@ -289,6 +291,11 @@ type Candidate = {
   readonly stripeCustomerId: string | null;
   readonly sessionVersion: number;
   readonly hasBillingSubscription: boolean;
+  /**
+   * Whether the account was ever allocated a backtest Run ID — it submitted a run, even if every
+   * run has since been deleted.
+   */
+  readonly hasBacktestRunNumbers: boolean;
   readonly namedByWebhook: boolean;
   readonly verificationTokens: number;
   readonly counts: Readonly<Record<Dependent, number>>;
@@ -334,6 +341,9 @@ function neverDeletable(account: Candidate): string[] {
   if (account.hasBillingSubscription) {
     reasons.push("has a billing subscription");
   }
+  if (account.hasBacktestRunNumbers) {
+    reasons.push("has submitted backtest runs");
+  }
   reasons.push(...dependentRefusals(account, FOREIGN_DEPENDENTS));
   if (account.namedByWebhook) {
     reasons.push("named by a Stripe webhook event");
@@ -378,6 +388,9 @@ const CLEANUP_POLICIES: Readonly<
       }
       if (account.hasBillingSubscription) {
         reasons.push("has a billing subscription");
+      }
+      if (account.hasBacktestRunNumbers) {
+        reasons.push("has submitted backtest runs");
       }
       if (account.sessionVersion !== 0) {
         reasons.push(
@@ -508,6 +521,7 @@ export async function pruneE2eDisposableAccounts(
       stripeCustomerId: true,
       sessionVersion: true,
       billingSubscription: { select: { id: true } },
+      backtestRunNumberCounter: { select: { userId: true } },
       legalRecords: {
         select: { documentKind: true, record: true, surface: true },
       },
@@ -553,6 +567,7 @@ export async function pruneE2eDisposableAccounts(
       stripeCustomerId: account.stripeCustomerId,
       sessionVersion: account.sessionVersion,
       hasBillingSubscription: account.billingSubscription !== null,
+      hasBacktestRunNumbers: account.backtestRunNumberCounter !== null,
       namedByWebhook: webhookReferences.has(account.id),
       verificationTokens,
       counts,

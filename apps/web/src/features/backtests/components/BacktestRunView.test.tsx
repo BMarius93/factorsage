@@ -13,6 +13,7 @@ import {
   TEST_BENCHMARK_NAME,
   TEST_PERIOD_END,
   TEST_PERIOD_START,
+  testConfiguration,
   testCurve,
   testDetail,
   testLive,
@@ -145,6 +146,132 @@ describe("BacktestRunView", () => {
       "—",
     );
     expect(screen.getByTestId("metric-trades").textContent).toContain("—");
+  });
+
+  it("titles the page with the Run ID and names what the run executed under it", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        completedAt: "2026-09-01T10:20:00.000Z",
+        result: testResult(),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The run's own identity, not the strategy's name, is the page's one heading.
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("Run #0084");
+    expect(screen.getByTestId("backtest-status").textContent).toBe("Completed");
+    // The metadata line: Strategy · List · period · Benchmark, from the run's snapshot.
+    const metadata = screen.getByTestId("backtest-run-metadata");
+    expect(metadata.textContent).toBe(
+      `Strategy: Deep value·List: Quality compounders·Jan 4, 2021 – Jan 2, 2026·Benchmark: ${TEST_BENCHMARK_NAME}`,
+    );
+    expect(
+      screen.getByTestId("backtest-header-strategy").getAttribute("href"),
+    ).toBe("/strategies/strategy-1");
+    expect(
+      screen.getByTestId("backtest-header-list").getAttribute("href"),
+    ).toBe("/lists/list-1");
+    // The tab names the run and the strategy it executed.
+    expect(document.title).toBe("Run #0084 · Deep value · FactorSage");
+    // The preserved actions and sections are all still there.
+    expect(screen.getByTestId("backtest-edit-and-rerun")).toBeTruthy();
+    // The configuration's submission time reads "Created", not "Queued".
+    const configuration = screen.getByTestId("backtest-configuration");
+    expect(configuration.textContent).toContain("Created");
+    expect(configuration.textContent).not.toContain("Queued");
+  });
+
+  it("keeps a deleted strategy's and list's snapshot names in the header, unlinked", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        configuration: testConfiguration({
+          strategyId: null,
+          strategyName: "Retired strategy",
+          stockListId: null,
+          stockListName: "Retired list",
+        }),
+        result: testResult(),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    for (const [testId, name] of [
+      ["backtest-header-strategy", "Retired strategy"],
+      ["backtest-header-list", "Retired list"],
+    ] as const) {
+      const reference = screen.getByTestId(testId);
+      expect(reference.textContent).toBe(name);
+      expect(reference.tagName).not.toBe("A");
+      expect(reference.getAttribute("data-static")).toBe("true");
+    }
+    expect(
+      screen.getByTestId("backtest-run-metadata").querySelectorAll("a"),
+    ).toHaveLength(0);
+  });
+
+  it("updates the chart and all eight numbers live, in place, inside the one overview", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
+    fetchProgressMock
+      .mockResolvedValueOnce(
+        testProgress("RUNNING", 1, {
+          percent: 30,
+          live: testLive({
+            curve: testCurve(4),
+            portfolioReturnPercent: 3,
+            totalValue: 10_300,
+            tradeCount: 2,
+          }),
+        }),
+      )
+      .mockResolvedValue(
+        testProgress("RUNNING", 2, {
+          percent: 60,
+          live: testLive({
+            curve: testCurve(9),
+            portfolioReturnPercent: 7.25,
+            totalValue: 10_725,
+            tradeCount: 5,
+          }),
+        }),
+      );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    const overview = screen.getByTestId("backtest-overview");
+    const chart = screen.getByTestId("backtest-chart");
+    const results = screen.getByTestId("backtest-results");
+    expect(overview.contains(chart)).toBe(true);
+    expect(overview.contains(results)).toBe(true);
+
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    expect(chart.dataset.strategyPoints).toBe("4");
+    expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
+      "+3.00%",
+    );
+    expect(screen.getByTestId("metric-trades").textContent).toContain("2");
+    expect(results.textContent).toContain("Updating as the run progresses");
+
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    // The same chart and the same tiles, fed the newer checkpoint: nothing was remounted or moved.
+    expect(screen.getByTestId("backtest-overview")).toBe(overview);
+    expect(screen.getByTestId("backtest-chart")).toBe(chart);
+    expect(screen.getByTestId("backtest-results")).toBe(results);
+    expect(chart.dataset.strategyPoints).toBe("9");
+    expect(chart.dataset.interaction).toBe("locked");
+    expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
+      "+7.25%",
+    );
+    expect(screen.getByTestId("metric-portfolio-value").textContent).toContain(
+      "$10,725",
+    );
+    expect(screen.getByTestId("metric-trades").textContent).toContain("5");
   });
 
   it("says a queued run's status once, names its progress bar, and announces only transitions (BT-5)", async () => {
@@ -320,7 +447,7 @@ describe("BacktestRunView", () => {
     ).toBeNull();
   });
 
-  it("reports each calendar year on its own, directly below the results", async () => {
+  it("reports each calendar year on its own, Strategy above benchmark, directly below the results", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", { result: testResult() }),
     );
@@ -331,24 +458,127 @@ describe("BacktestRunView", () => {
 
     const section = screen.getByTestId("backtest-annual-returns");
     expect(section.getAttribute("data-year-count")).toBe("3");
-    const cells = [...section.querySelectorAll("[data-year]")];
-    expect(cells.map((cell) => cell.getAttribute("data-year"))).toEqual([
+    // One column per year, oldest first.
+    const years = screen.getAllByTestId("backtest-annual-year");
+    expect(years.map((cell) => cell.textContent)).toEqual([
       "2021",
       "2022",
       "2023",
     ]);
-    // Each year's own figure, including a negative one — never a cumulative badge.
-    expect(cells.map((cell) => cell.textContent)).toEqual([
-      "2021+18.00%",
-      "2022-7.50%",
-      "2023+24.25%",
+    // Each year's own figure, including a negative one — never a cumulative badge — in the
+    // Strategy row, and the benchmark's own figure for the same year in the row under it.
+    const strategy = screen.getAllByTestId("backtest-annual-return");
+    const benchmark = screen.getAllByTestId("backtest-annual-benchmark-return");
+    expect(strategy.map((cell) => cell.textContent)).toEqual([
+      "+18.00%",
+      "-7.50%",
+      "+24.25%",
     ]);
-    // The heading keeps its one line of copy, and the note that explains the asterisk survives
-    // the reorder. `testResult` reports three whole years, so this run has no partial marker.
+    expect(benchmark.map((cell) => cell.textContent)).toEqual([
+      "+26.89%",
+      "-19.44%",
+      "+3.10%",
+    ]);
+    // Aligned: every figure sits in its year's column, in both rows.
+    years.forEach((year, index) => {
+      const column = (year as HTMLTableCellElement).cellIndex;
+      expect((strategy[index] as HTMLTableCellElement).cellIndex).toBe(column);
+      expect((benchmark[index] as HTMLTableCellElement).cellIndex).toBe(column);
+      expect(strategy[index]?.getAttribute("data-year")).toBe(year.textContent);
+      expect(benchmark[index]?.getAttribute("data-year")).toBe(
+        year.textContent,
+      );
+    });
+    // The rows are named, the benchmark by the run's own snapshot.
+    expect(
+      screen.getByTestId("backtest-annual-strategy-row").querySelector("th")
+        ?.textContent,
+    ).toBe("Strategy");
+    expect(
+      screen.getByTestId("backtest-annual-benchmark-row").querySelector("th")
+        ?.textContent,
+    ).toBe(TEST_BENCHMARK_NAME);
+    // A real table: the years are column headers and the two series row headers.
+    const table = screen.getByTestId("backtest-annual-heatmap");
+    expect(table.tagName).toBe("TABLE");
+    expect(table.querySelectorAll('th[scope="col"]')).toHaveLength(4);
+    expect(table.querySelectorAll('th[scope="row"]')).toHaveLength(2);
+    // The heading keeps its one line of copy. `testResult` reports three whole years with a
+    // benchmark figure for each, so this run has neither a partial marker nor a gap.
     expect(section.textContent).toContain(
       "Each calendar year on its own, not cumulative.",
     );
     expect(section.querySelector("[data-partial]")).toBeNull();
+    expect(screen.queryByTestId("backtest-annual-unavailable-note")).toBeNull();
+  });
+
+  it("shades each cell by its direction and size, and keeps the figure written in it", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const shades = (testId: string) =>
+      screen
+        .getAllByTestId(testId)
+        .map((cell) => [
+          cell.getAttribute("data-tone"),
+          cell.getAttribute("data-intensity"),
+        ]);
+    // +18.00%, -7.50%, +24.25% and +26.89%, -19.44%, +3.10%.
+    expect(shades("backtest-annual-return")).toEqual([
+      ["positive", "3"],
+      ["negative", "2"],
+      ["positive", "3"],
+    ]);
+    expect(shades("backtest-annual-benchmark-return")).toEqual([
+      ["positive", "3"],
+      ["negative", "3"],
+      ["positive", "1"],
+    ]);
+    // The precise figures stay available on hover, as before the heatmap.
+    expect(screen.getAllByTestId("backtest-annual-return")[1]?.title).toBe(
+      "2022: Strategy -7.50%",
+    );
+    expect(
+      screen.getAllByTestId("backtest-annual-benchmark-return")[1]?.title,
+    ).toBe(`2022: ${TEST_BENCHMARK_NAME} -19.44%`);
+  });
+
+  it("scrolls a thirty-year history inside its own region, with every year in one row", async () => {
+    const annualReturns = Array.from({ length: 31 }, (_unused, index) => ({
+      year: String(1996 + index),
+      simulatedThrough: `${1996 + index}-12-31`,
+      returnPercent: index % 3 === 0 ? -4 - index : 6 + index,
+      benchmarkReturnPercent: index === 0 ? null : 5 + (index % 7),
+      partial: index === 0 || index === 30,
+    }));
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult({ annualReturns }) }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    expect(screen.getAllByTestId("backtest-annual-year")).toHaveLength(31);
+    expect(screen.getAllByTestId("backtest-annual-return")).toHaveLength(31);
+    expect(
+      screen.getAllByTestId("backtest-annual-benchmark-return"),
+    ).toHaveLength(31);
+    // A named, keyboard-reachable scroll region holds the table, so the page itself never has to.
+    const region = screen.getByTestId("backtest-annual-returns-scroll");
+    expect(region.getAttribute("role")).toBe("region");
+    expect(region.tabIndex).toBe(0);
+    expect(region.getAttribute("aria-labelledby")).toBe(
+      screen.getByRole("heading", { name: "Annual returns" }).id,
+    );
+    expect(region.contains(screen.getByTestId("backtest-annual-heatmap"))).toBe(
+      true,
+    );
   });
 
   it("marks a part-year and explains the asterisk", async () => {
@@ -360,12 +590,14 @@ describe("BacktestRunView", () => {
               year: "1996",
               simulatedThrough: "1996-12-31",
               returnPercent: 4.5,
+              benchmarkReturnPercent: 3.25,
               partial: true,
             },
             {
               year: "1997",
               simulatedThrough: "1997-12-31",
               returnPercent: 12,
+              benchmarkReturnPercent: 31.01,
               partial: false,
             },
           ],
@@ -387,6 +619,75 @@ describe("BacktestRunView", () => {
     expect(section.textContent).toContain(
       "* part of the year only — the run started or ended inside it.",
     );
+    // Both cells of a part-year column are marked, so neither row's figure reads as a whole year,
+    // and the tooltip says over which part.
+    const strategy1996 = section.querySelector(
+      '[data-testid="backtest-annual-return"][data-year="1996"]',
+    );
+    const benchmark1996 = section.querySelector(
+      '[data-testid="backtest-annual-benchmark-return"][data-year="1996"]',
+    );
+    expect(strategy1996?.getAttribute("data-partial")).toBe("true");
+    expect(benchmark1996?.getAttribute("data-partial")).toBe("true");
+    expect(strategy1996?.getAttribute("title")).toBe(
+      "1996: Strategy +4.50% over the part of the year the run simulated, through 1996-12-31",
+    );
+    expect(benchmark1996?.getAttribute("title")).toBe(
+      `1996: ${TEST_BENCHMARK_NAME} +3.25% over the same part of the year, through 1996-12-31`,
+    );
+    expect(
+      section
+        .querySelector(
+          '[data-testid="backtest-annual-return"][data-year="1997"]',
+        )
+        ?.getAttribute("data-partial"),
+    ).toBeNull();
+  });
+
+  it("says a benchmark year is unavailable rather than inventing a figure", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: testResult({
+          annualReturns: [
+            {
+              year: "2021",
+              simulatedThrough: "2021-12-31",
+              returnPercent: 18,
+              benchmarkReturnPercent: null,
+              partial: false,
+            },
+            {
+              year: "2022",
+              simulatedThrough: "2022-12-30",
+              returnPercent: -7.5,
+              benchmarkReturnPercent: -19.44,
+              partial: false,
+            },
+          ],
+        }),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const [missing, present] = screen.getAllByTestId(
+      "backtest-annual-benchmark-return",
+    );
+    // A dash, said in words to assistive technology, on an unshaded tile — never a zero.
+    expect(missing?.getAttribute("data-tone")).toBe("unavailable");
+    expect(missing?.textContent).toBe("—Unavailable");
+    expect(missing?.textContent).not.toContain("0.00%");
+    expect(missing?.title).toContain("return unavailable");
+    expect(present?.textContent).toBe("-19.44%");
+    // The Strategy's figure for that year is unaffected.
+    expect(
+      screen.getAllByTestId("backtest-annual-return")[0]?.textContent,
+    ).toBe("+18.00%");
+    expect(
+      screen.getByTestId("backtest-annual-unavailable-note").textContent,
+    ).toContain(`${TEST_BENCHMARK_NAME} return unavailable`);
   });
 
   it("orders a completed result chart, results, years, configuration, trade log", async () => {
@@ -613,10 +914,25 @@ describe("BacktestRunView", () => {
     const results = screen.getByTestId("backtest-results");
     const years = screen.getByTestId("backtest-annual-returns");
     const grid = screen.getByTestId("backtest-metrics");
+    const overview = screen.getByTestId("backtest-overview");
 
-    // Results and Annual returns are peers in the hero's one stack — Results does not sit inside
-    // a surface of its own that Annual returns does without.
-    expect(results.parentElement).toBe(years.parentElement);
+    // The chart and Results are the one overview — side by side on a wide desktop, stacked
+    // otherwise — and that overview and Annual returns are peers in the hero's one stack: Results
+    // does not sit inside a surface of its own that Annual returns does without.
+    expect(results.parentElement).toBe(overview);
+    expect(overview.contains(screen.getByTestId("backtest-chart"))).toBe(true);
+    expect(overview.contains(years)).toBe(false);
+    expect(overview.parentElement).toBe(years.parentElement);
+    // The chart comes first in it, then the numbers.
+    expect(
+      [...overview.children].map((child) =>
+        child.contains(screen.getByTestId("backtest-chart"))
+          ? "chart"
+          : child === results
+            ? "results"
+            : "other",
+      ),
+    ).toEqual(["chart", "results"]);
     // And the tiles hang straight off the section: heading, grid, tiles, with nothing wrapped
     // around the grid to draw a second box.
     expect(grid.parentElement).toBe(results);
@@ -823,6 +1139,12 @@ describe("BacktestRunView", () => {
     expect(screen.queryByTestId("metric-portfolio-value")).toBeNull();
     expect(screen.queryByText("This run made no trades.")).toBeNull();
     expect(screen.queryByText(/No positions/)).toBeNull();
+    // Neither the overview nor the annual heatmap stays behind, and the run keeps its Run ID.
+    expect(screen.queryByTestId("backtest-overview")).toBeNull();
+    expect(screen.queryByTestId("backtest-annual-returns")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "Run #0084",
+    );
   });
 
   it("omits the phase row when the failure has no user-facing phase", async () => {
@@ -874,12 +1196,20 @@ describe("BacktestRunView", () => {
     // identical numbers, and not the cumulative ladder this replaced.
     const running = screen.getByTestId("backtest-annual-returns");
     expect(
-      [...running.querySelectorAll("[data-year]")].map((node) =>
-        node.getAttribute("data-year"),
-      ),
+      screen
+        .getAllByTestId("backtest-annual-year")
+        .map((node) => node.getAttribute("data-year")),
     ).toEqual(["1996", "1997", "1998"]);
     expect(running.textContent).toContain("+5.00%");
     expect(running.textContent).not.toContain("+10.00%");
+    // The benchmark row is chained the same way from the milestones' cumulative benchmark return
+    // (0%, 4%, 8%), its first year measured from the live curve's first point: 0.00%, +4.00%,
+    // +3.85% — not the cumulative 8%.
+    expect(
+      screen
+        .getAllByTestId("backtest-annual-benchmark-return")
+        .map((node) => node.textContent),
+    ).toEqual(["0.00%", "+4.00%", "+3.85%"]);
     // Live work wears the pulse.
     expect(
       screen.getByTestId("backtest-status").getAttribute("data-activity"),

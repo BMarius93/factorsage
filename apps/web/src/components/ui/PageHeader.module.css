@@ -111,6 +111,11 @@
   line-height: var(--line-height-body);
 }
 
+/* A metadata line, not prose: it may use the header's width. */
+.lead[data-width="full"] {
+  max-width: none;
+}
+
 .aside {
   display: flex;
   flex: none;

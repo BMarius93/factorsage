@@ -138,6 +138,10 @@ describe("pruneE2eDisposableAccounts", () => {
     await refuse("revoked", ["sessions revoked (session version 1)"], {
       sessionVersion: 1,
     });
+    // Its runs may all be gone; the Run IDs it was allocated say it used the product.
+    await refuse("backtest submitter", ["has submitted backtest runs"], {
+      backtestRunNumberCounter: { create: { lastRunNumber: 2 } },
+    });
     await refuse("owner", ["stock lists: 1"], {
       stockLists: { create: { name: `E2E accounts staged ${base}` } },
     });
@@ -509,6 +513,13 @@ describe("pruneE2eDisposableAccounts", () => {
       }),
     );
     await refuse(
+      "backtest submitter",
+      ["has submitted backtest runs"],
+      activated({
+        backtestRunNumberCounter: { create: { lastRunNumber: 2 } },
+      }),
+    );
+    await refuse(
       "google",
       ["OAuth identities: 1"],
       activated({
@@ -805,7 +816,8 @@ describe("pruneE2eDisposableAccounts", () => {
    * to know every such reference. A new one is a new way for an account to own or have touched
    * something: decide whether it makes a disposable account ineligible — add it to `DEPENDENTS` in
    * `e2e-accounts.ts` — and only then add it here. `EmailVerificationToken` is the one reference a
-   * disposable account may hold, and `BillingSubscription` is checked on its own.
+   * disposable account may hold, and `BillingSubscription` and `BacktestRunNumberCounter` are
+   * checked on their own.
    */
   it("accounts for every foreign key that references User", async () => {
     const rows = await prisma.$queryRaw<{ reference: string }[]>`
@@ -821,6 +833,7 @@ describe("pruneE2eDisposableAccounts", () => {
         "ActorGroup.updatedByUserId SET NULL",
         "ActorGroup.userId CASCADE",
         "BacktestRun.userId CASCADE",
+        "BacktestRunNumberCounter.userId CASCADE",
         "BillingSubscription.userId CASCADE",
         "EmailVerificationToken.userId CASCADE",
         "LegalRecord.userId CASCADE",

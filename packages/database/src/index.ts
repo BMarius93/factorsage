@@ -74,4 +74,5 @@ export type {
   User,
   UserBuiltInMonitorPreference,
 } from "@prisma/client";
+export * from "./backtest-run-numbers.js";
 export * from "./entitlement-locks.js";

@@ -340,6 +340,25 @@ exists to go wrong.
 A first or last year the run only partly simulated is reported over the part that was simulated and
 marked `partial`; nothing outside the requested period is fabricated.
 
+**The benchmark's figure for the same year** (`benchmarkReturnPercent`) is read off the run's own
+benchmark growth index — the persisted `benchmarkIndex` on the same equity rows, or each milestone's
+cumulative benchmark return while the run executes — on **the Strategy's two anchor dates**:
+
+```text
+benchmarkAnnualReturn(year) = benchmarkIndex(last simulated day of year)
+                            / benchmarkIndex(last simulated day of the previous year) - 1
+```
+
+The first year divides by the benchmark index on the run's first simulated date. The engine bases
+that index at 1.0 on the first date the benchmark has a value, so it is aligned with the Strategy's
+base exactly when the benchmark had a value on the run's first day; when its history begins later,
+that reading is absent and the year's benchmark figure is **null**. The same holds for any year whose
+start or end has no reading. A null is never bridged from a nearby date or measured over a shorter
+window, because a figure over a different window would not be comparable with the Strategy's beside
+it. Like every other benchmark figure of a run it is a price return, and chaining the available years
+reproduces the benchmark's total return. The same `backtestAnnualReturns` produces both rows, so the
+Strategy's figures are computed exactly as before.
+
 ## The trade log
 
 A run's trades are read a page at a time, from the database:

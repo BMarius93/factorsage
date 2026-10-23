@@ -2,6 +2,7 @@
 
 import {
   BACKTEST_RUN_STATUS_LABELS,
+  backtestRunLabel,
   isTerminalBacktestStatus,
   type BacktestRunSort,
   type BacktestRunStatus,
@@ -91,8 +92,29 @@ function ReturnValue({
 }
 
 /**
- * The run's stock list, linked while the list still exists; a list deleted since the run keeps its
- * snapshotted name as a static chip rather than a link that would 404 (UI-034).
+ * The strategy the run executed, by the name it was submitted with — never the strategy's current
+ * name — and linked while that strategy still exists. A strategy deleted since the run keeps its
+ * name as a static chip rather than a link that would 404 (UI-034).
+ */
+function StrategyReference({
+  run,
+}: {
+  readonly run: BacktestRunSummaryResponse;
+}) {
+  return (
+    <EntityReferenceChip
+      kind="strategy"
+      name={run.strategyName}
+      testId="backtest-strategy-reference"
+      {...(run.strategyId ? { href: `/strategies/${run.strategyId}` } : {})}
+    />
+  );
+}
+
+/**
+ * The run's stock list, by the name it was submitted with, linked while the list still exists; a
+ * list deleted since the run keeps its name as a static chip rather than a link that would 404
+ * (UI-034).
  */
 function StockListReference({
   run,
@@ -103,6 +125,7 @@ function StockListReference({
     <EntityReferenceChip
       kind="list"
       name={run.stockListName}
+      testId="backtest-list-reference"
       {...(run.stockListId ? { href: `/lists/${run.stockListId}` } : {})}
     />
   );
@@ -145,23 +168,23 @@ const RUN_STATUS_OPTIONS: readonly SelectControlOption[] = [
 
 /** The column a sort is the order of, for the header that shows it. */
 const SORT_COLUMNS: Readonly<Record<BacktestRunSort, DataTableSort>> = {
-  newest: { key: "queued", direction: "desc" },
-  oldest: { key: "queued", direction: "asc" },
+  newest: { key: "created", direction: "desc" },
+  oldest: { key: "created", direction: "asc" },
   cagr: { key: "cagr", direction: "desc" },
-  strategy: { key: "run", direction: "asc" },
+  strategy: { key: "strategy", direction: "asc" },
 };
 
-/** The sort a pressed header asks for; Queued toggles between its two directions. */
+/** The sort a pressed header asks for; Created toggles between its two directions. */
 function sortForColumn(
   column: string,
   current: BacktestRunSort,
 ): BacktestRunSort | null {
   switch (column) {
-    case "run":
+    case "strategy":
       return "strategy";
     case "cagr":
       return "cagr";
-    case "queued":
+    case "created":
       return current === "newest" ? "oldest" : "newest";
     default:
       return null;
@@ -198,13 +221,17 @@ function useSearchDraft(
 /**
  * The signed-in user's backtest runs, a page at a time.
  *
+ * A run is identified by its own Run ID — `Run #0001`, sequential per user and never changed — not
+ * by the strategy it executed: several runs of one strategy are different runs, and the strategy is
+ * one of their inputs, with a column of its own beside the stock list.
+ *
  * Paged, searched, filtered and ordered by the API (`GET /backtests?page=`), with the whole view in
  * the URL — so every count and every page describe the whole history, the browser never holds more
  * than the page on screen, and no run's snapshot is read to list it. A run's own page owns live
  * progress; this page re-reads only itself, and only while it shows a run still in flight.
  *
  * Compact, like Lists, Strategies and Monitors: the title, the count and the controls on one row;
- * the row opens through the run's name, so there is no second "View results" link in it.
+ * the row opens through its Run ID, so there is no second "View results" link in it.
  */
 export function BacktestsPage() {
   const runs = useBacktestRunPage();
@@ -214,21 +241,28 @@ export function BacktestsPage() {
   const columns: readonly DataTableColumn<BacktestRunSummaryResponse>[] = [
     {
       key: "run",
-      header: "Strategy",
+      header: "Run",
       cardRole: "identity",
-      sortable: true,
+      // The Run ID and the period are short and never wrap, so the identity needs less than the
+      // default floor a name would; the relationship chips beside it get the difference.
+      minWidth: "10.5rem",
       render: (run) => (
         <>
           <Link className={styles.nameLink} href={`/backtests/${run.id}`}>
-            <span className={styles.name}>{run.strategyName}</span>
+            <span className={styles.name} data-testid="backtest-run-label">
+              {backtestRunLabel(run.runNumber)}
+            </span>
             <span className={styles.period}>
               {formatPeriod(run.startDate, run.endDate)}
             </span>
           </Link>
-          {/* Between 880 and 1,279px the Stock list column folds in here, under the period, as
-              on Monitors: with the CAGR column the run's figures need the room. */}
-          <IntermediateOnly testId="backtest-folded-list">
-            <StockListReference run={run} />
+          {/* Between 880 and 1,279px the Strategy and Stock list columns fold in here, under the
+              period, as on Monitors: with the CAGR column the run's figures need the room. */}
+          <IntermediateOnly testId="backtest-folded-references">
+            <span className={styles.foldedReferences}>
+              <StrategyReference run={run} />
+              <StockListReference run={run} />
+            </span>
           </IntermediateOnly>
         </>
       ),
@@ -279,12 +313,26 @@ export function BacktestsPage() {
       },
     },
     {
+      key: "strategy",
+      header: "Strategy",
+      cardRole: "links",
+      foldIntermediate: true,
+      sortable: true,
+      width: "13%",
+      render: (run) => (
+        <span className={styles.referenceCell}>
+          <StrategyReference run={run} />
+        </span>
+      ),
+    },
+    {
       key: "list",
       header: "Stock list",
       cardRole: "links",
       foldIntermediate: true,
+      width: "13%",
       render: (run) => (
-        <span className={styles.listCell}>
+        <span className={styles.referenceCell}>
           <StockListReference run={run} />
         </span>
       ),
@@ -343,8 +391,10 @@ export function BacktestsPage() {
       ),
     },
     {
-      key: "queued",
-      header: "Queued",
+      // When the run was submitted. Not "Queued": a run is created and queued in one step, and
+      // the time it then waited in the queue is not what this column reports.
+      key: "created",
+      header: "Created",
       cardRole: "hidden",
       // Low-priority: the one column that steps out in the intermediate band without a folded
       // copy — the run's own page carries its timestamps.

@@ -30,6 +30,12 @@ type PageHeaderProps = {
   readonly title: ReactNode;
   /** One sentence explaining what the page is for. Optional on detail pages. */
   readonly lead?: ReactNode;
+  /**
+   * `reading` — the default — caps the lead at a prose measure. `full` lets it use the header's
+   * width, for a lead that is a line of metadata rather than a sentence: a run's
+   * `Strategy · List · period · Benchmark` should read on one line where it fits.
+   */
+  readonly leadWidth?: "reading" | "full";
   /** Status pills or counts that belong to the title itself, rendered beside it. */
   readonly badges?: ReactNode;
   /**
@@ -65,6 +71,7 @@ type PageHeaderProps = {
 export function PageHeader({
   title,
   lead,
+  leadWidth = "reading",
   badges,
   mark,
   aside,
@@ -107,7 +114,11 @@ export function PageHeader({
               <h1 className={styles.title}>{title}</h1>
               {badges ? <div className={styles.badges}>{badges}</div> : null}
             </div>
-            {lead ? <p className={styles.lead}>{lead}</p> : null}
+            {lead ? (
+              <p className={styles.lead} data-width={leadWidth}>
+                {lead}
+              </p>
+            ) : null}
           </div>
         </div>
         {aside ? <div className={styles.aside}>{aside}</div> : null}

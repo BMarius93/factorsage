@@ -33,9 +33,11 @@ vi.mock("next/navigation", () => ({
 function summary(
   status: BacktestRunSummaryResponse["status"],
   id: string,
+  runNumber = 1,
 ): BacktestRunSummaryResponse {
   return {
     id,
+    runNumber,
     status,
     strategyId: "strategy-1",
     strategyName: `Strategy ${id}`,
@@ -79,9 +81,10 @@ function page(
   };
 }
 
+/** Completed runs `run-<from>…`, each with its own Run ID: `run-0` is `Run #0001`. */
 function completed(count: number, from = 0) {
   return Array.from({ length: count }, (_, index) =>
-    summary("COMPLETED", `run-${from + index}`),
+    summary("COMPLETED", `run-${from + index}`, from + index + 1),
   );
 }
 
@@ -139,7 +142,7 @@ describe("BacktestsPage", () => {
   it("compares runs by CAGR, and keeps the benchmark out of the stock-list cell (BT-3)", async () => {
     // A long run with a large total return but a modest CAGR.
     const runs = Array.from({ length: 10 }, (_, index) => ({
-      ...summary("COMPLETED", `run-${index}`),
+      ...summary("COMPLETED", `run-${index}`, index + 1),
       portfolioReturnPercent: index === 0 ? 900 : 40 + index,
       portfolioCagrPercent: index === 0 ? 7.9 : 8 + index,
       benchmarkReturnPercent: 50,
@@ -173,14 +176,24 @@ describe("BacktestsPage", () => {
     const folded = screen.getAllByTestId("backtest-folded-benchmark")[0]!;
     expect(folded.textContent).toBe("vs Total Market Index +50.00%");
     expect(folded.closest("td")?.getAttribute("data-column")).toBe("portfolio");
-    // The stock list folds under the strategy in the same band; it is still the list's link.
-    const foldedList = screen.getAllByTestId("backtest-folded-list")[0]!;
-    expect(foldedList.closest("td")?.getAttribute("data-column")).toBe("run");
+    // The strategy and the stock list fold under the Run ID in the same band, so the run's
+    // figures keep their columns; they are still the strategy's and the list's links.
+    const foldedReferences = screen.getAllByTestId(
+      "backtest-folded-references",
+    )[0]!;
+    expect(foldedReferences.closest("td")?.getAttribute("data-column")).toBe(
+      "run",
+    );
     expect(
-      within(foldedList)
+      within(foldedReferences)
         .getByRole("link", { name: /Quality compounders/ })
         .getAttribute("href"),
     ).toBe("/lists/list-1");
+    expect(
+      within(foldedReferences)
+        .getByRole("link", { name: /Strategy run-0/ })
+        .getAttribute("href"),
+    ).toBe("/strategies/strategy-1");
   });
 
   it("asks the API for exactly the view the URL names, and shows its counts", async () => {
@@ -255,7 +268,7 @@ describe("BacktestsPage", () => {
     expect(pushMock).toHaveBeenLastCalledWith("/backtests", { scroll: false });
   });
 
-  it("sorts from the CAGR, Strategy and Queued headers, Queued both ways", async () => {
+  it("sorts from the CAGR, Strategy and Created headers, Created both ways", async () => {
     fetchMock.mockResolvedValue(page(completed(3)));
     const user = userEvent.setup();
 
@@ -263,7 +276,10 @@ describe("BacktestsPage", () => {
     await screen.findByTestId("backtests-grid");
     const header = (name: string) =>
       screen.getByRole("columnheader", { name: new RegExp(name) });
-    expect(header("Queued").getAttribute("aria-sort")).toBe("descending");
+    expect(header("Created").getAttribute("aria-sort")).toBe("descending");
+    // The Run ID is the run's identity, not an order of its own: the Created header orders by
+    // submission, which is the same order.
+    expect(within(header("^Run$")).queryByRole("button")).toBeNull();
 
     await user.click(within(header("CAGR")).getByRole("button"));
     expect(pushMock).toHaveBeenLastCalledWith("/backtests?sort=cagr", {
@@ -273,7 +289,7 @@ describe("BacktestsPage", () => {
     expect(pushMock).toHaveBeenLastCalledWith("/backtests?sort=strategy", {
       scroll: false,
     });
-    await user.click(within(header("Queued")).getByRole("button"));
+    await user.click(within(header("Created")).getByRole("button"));
     expect(pushMock).toHaveBeenLastCalledWith("/backtests?sort=oldest", {
       scroll: false,
     });
@@ -284,7 +300,7 @@ describe("BacktestsPage", () => {
     await waitFor(() =>
       expect(header("CAGR").getAttribute("aria-sort")).toBe("descending"),
     );
-    expect(header("Queued").getAttribute("aria-sort")).toBeNull();
+    expect(header("Created").getAttribute("aria-sort")).toBeNull();
   });
 
   it("sends a search once typing pauses, replacing the address rather than stacking history", async () => {
@@ -326,7 +342,7 @@ describe("BacktestsPage", () => {
       );
 
     const { rerender } = render(<BacktestsPage />);
-    await screen.findByText("Strategy run-0");
+    await screen.findByText("Run #0001");
 
     // Page 2 is asked for and is slow; the reader moves on to page 3 before it lands.
     searchParams = new URLSearchParams("page=2");
@@ -336,16 +352,16 @@ describe("BacktestsPage", () => {
         screen.getByTestId("backtests-footer").getAttribute("aria-busy"),
       ).toBe("true"),
     );
-    expect(screen.getByText("Strategy run-0")).toBeTruthy();
+    expect(screen.getByText("Run #0001")).toBeTruthy();
 
     searchParams = new URLSearchParams("page=3");
     rerender(<BacktestsPage />);
-    await screen.findByText("Strategy run-50");
+    await screen.findByText("Run #0051");
     await act(async () => {
       resolveSecond(page(completed(25, 25), { page: 2, totalCount: 80 }));
     });
-    expect(screen.queryByText("Strategy run-25")).toBeNull();
-    expect(screen.getByText("Strategy run-50")).toBeTruthy();
+    expect(screen.queryByText("Run #0026")).toBeNull();
+    expect(screen.getByText("Run #0051")).toBeTruthy();
     expect(
       screen.getByTestId("backtests-footer").getAttribute("aria-busy"),
     ).toBeNull();
@@ -356,20 +372,20 @@ describe("BacktestsPage", () => {
     searchParams = new URLSearchParams("page=2");
     fetchMock
       .mockResolvedValueOnce(
-        page([summary("RUNNING", "live"), ...completed(2)], {
+        page([summary("RUNNING", "live", 99), ...completed(2)], {
           page: 2,
           totalCount: 40,
         }),
       )
       .mockResolvedValueOnce(
-        page([summary("COMPLETED", "live"), ...completed(2)], {
+        page([summary("COMPLETED", "live", 99), ...completed(2)], {
           page: 2,
           totalCount: 40,
         }),
       );
 
     render(<BacktestsPage />);
-    await screen.findByText("Strategy live");
+    await screen.findByText("Run #0099");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -432,14 +448,14 @@ describe("BacktestsPage", () => {
     const user = userEvent.setup();
 
     const { rerender } = render(<BacktestsPage />);
-    await screen.findByText("Strategy run-0");
+    await screen.findByText("Run #0001");
     searchParams = new URLSearchParams("page=2");
     rerender(<BacktestsPage />);
 
     const failed = await screen.findByTestId("backtests-read-failed");
-    expect(screen.getByText("Strategy run-0")).toBeTruthy();
+    expect(screen.getByText("Run #0001")).toBeTruthy();
     await user.click(within(failed).getByRole("button", { name: "Try again" }));
-    await screen.findByText("Strategy run-25");
+    await screen.findByText("Run #0026");
     expect(screen.queryByTestId("backtests-read-failed")).toBeNull();
   });
 
@@ -450,13 +466,112 @@ describe("BacktestsPage", () => {
 
     expect(screen.queryByTestId("backtests-footer")).toBeNull();
     expect(screen.getByTestId("backtests-count").textContent).toBe("10 runs");
-    // The row opens through its name; there is no second "View results" link in it.
+    // The row opens through its Run ID; there is no second "View results" link in it.
     expect(screen.queryByRole("link", { name: /^View results/ })).toBeNull();
     expect(
-      screen
-        .getByRole("link", { name: /^Strategy run-0/ })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: /^Run #0001/ }).getAttribute("href"),
     ).toBe("/backtests/run-0");
+  });
+
+  it("identifies each run by its Run ID, with the strategy in a column of its own", async () => {
+    fetchMock.mockResolvedValue(
+      page([
+        {
+          ...summary("COMPLETED", "run-uuid-84", 84),
+          strategyName: "Value & Trend",
+        },
+      ]),
+    );
+
+    render(<BacktestsPage />);
+    await screen.findByTestId("backtests-grid");
+
+    // The columns: Run first, a dedicated Strategy column, and "Created" rather than "Queued" —
+    // the submission time is what the column reports.
+    const headers = screen
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent?.replace(/[↑↓↕]/g, "").trim());
+    expect(headers).toEqual([
+      "Run",
+      "Status",
+      "Strategy",
+      "Stock list",
+      "Benchmark",
+      "CAGR",
+      "Total return",
+      "Excess return",
+      "Created",
+    ]);
+
+    const row = screen.getAllByRole("row")[1] as HTMLElement;
+    const runCell = row.querySelector('[data-column="run"]') as HTMLElement;
+    // The Run ID is the primary link, to the run's own page by its unchanged UUID, with the
+    // period under it.
+    const runLink = within(runCell).getByRole("link", { name: /^Run #0084/ });
+    expect(runLink.getAttribute("href")).toBe("/backtests/run-uuid-84");
+    expect(runLink.textContent).toBe("Run #0084Jan 4, 2021 – Jan 2, 2026");
+    // The strategy is not the run's identity any more.
+    expect(within(runLink).queryByText("Value & Trend")).toBeNull();
+
+    // The Strategy column links the strategy the run executed, by the name it was submitted with.
+    const strategyCell = row.querySelector(
+      '[data-column="strategy"]',
+    ) as HTMLElement;
+    expect(
+      within(strategyCell)
+        .getByRole("link", { name: "Value & Trend" })
+        .getAttribute("href"),
+    ).toBe("/strategies/strategy-1");
+    // The Stock list column still links its list.
+    const listCell = row.querySelector('[data-column="list"]') as HTMLElement;
+    expect(
+      within(listCell)
+        .getByRole("link", { name: "Quality compounders" })
+        .getAttribute("href"),
+    ).toBe("/lists/list-1");
+  });
+
+  it("keeps a deleted strategy's and list's names, without a link that would 404", async () => {
+    fetchMock.mockResolvedValue(
+      page([
+        {
+          ...summary("COMPLETED", "run-orphaned", 3),
+          strategyId: null,
+          strategyName: "Momentum (deleted)",
+          stockListId: null,
+          stockListName: "Old universe",
+        },
+      ]),
+    );
+
+    render(<BacktestsPage />);
+    await screen.findByTestId("backtests-grid");
+
+    const row = screen.getAllByRole("row")[1] as HTMLElement;
+    for (const [column, name] of [
+      ["strategy", "Momentum (deleted)"],
+      ["list", "Old universe"],
+    ] as const) {
+      const cell = row.querySelector(
+        `[data-column="${column}"]`,
+      ) as HTMLElement;
+      // The historical name, as plain text: no link at all, rather than one to a missing page.
+      expect(cell.textContent).toContain(name);
+      expect(within(cell).queryByRole("link")).toBeNull();
+      expect(cell.querySelector('[data-static="true"]')?.textContent).toBe(
+        name,
+      );
+    }
+    // Folded in the intermediate band, the same holds.
+    const folded = screen.getByTestId("backtest-folded-references");
+    expect(within(folded).queryByRole("link")).toBeNull();
+    expect(folded.textContent).toBe("Momentum (deleted)Old universe");
+    // The run itself still opens.
+    expect(
+      within(row)
+        .getByRole("link", { name: /^Run #0003/ })
+        .getAttribute("href"),
+    ).toBe("/backtests/run-orphaned");
   });
 });
 

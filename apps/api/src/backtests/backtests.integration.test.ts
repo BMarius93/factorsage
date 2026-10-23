@@ -26,6 +26,7 @@ import {
   EXECUTION_CALENDAR_REFERENCE_CODE,
   MARKET_REFERENCE_SERIES,
 } from "@intrinsic/domain";
+import { allocateBacktestRunNumber } from "@intrinsic/database";
 import { PrismaBenchmarkDataStore } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY, cagrPercent } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -1230,11 +1231,20 @@ describe("backtests", () => {
         where: { id: submitted.id },
       });
       await prisma.backtestRun.delete({ where: { id: submitted.id } });
-      const rows = seeds.map((seed) => ({ id: randomUUID(), seed }));
+      const rows: { id: string; seed: Seed; runNumber: number }[] = [];
+      for (const seed of seeds) {
+        // Numbered like any submitted run, from the owner's counter.
+        rows.push({
+          id: randomUUID(),
+          seed,
+          runNumber: await allocateBacktestRunNumber(prisma, template.userId),
+        });
+      }
       await prisma.backtestRun.createMany({
-        data: rows.map(({ id, seed }) => ({
+        data: rows.map(({ id, seed, runNumber }) => ({
           id,
           userId: template.userId,
+          runNumber,
           strategyId: template.strategyId,
           strategyVersionId: template.strategyVersionId,
           stockListId: template.stockListId,
@@ -1964,6 +1974,31 @@ describe("backtests", () => {
     // The run was submitted for 2015-01-01 to 2020-12-31, so no calendar year of it is partial.
     expect(annual.some((entry) => entry.partial)).toBe(false);
 
+    // Each year's benchmark figure comes off the same rows' persisted benchmark index, on the same
+    // two dates as the Strategy's. This fixture's benchmark has no value on the run's first day,
+    // so the first year cannot be measured over the Strategy's window and is reported as
+    // unavailable — not as a return over the shorter window it did cover.
+    const benchmarkIndexOn = (date: string) =>
+      1 +
+      (Date.parse(`${date}T00:00:00.000Z`) -
+        Date.parse("2015-01-01T00:00:00.000Z")) /
+        86_400_000 /
+        20_000;
+    expect(annual[0]?.benchmarkReturnPercent).toBeNull();
+    for (const [index, entry] of annual.entries()) {
+      if (index === 0) {
+        continue;
+      }
+      const previous = annual[index - 1]?.simulatedThrough ?? "";
+      expect(entry.benchmarkReturnPercent).toBeCloseTo(
+        (benchmarkIndexOn(entry.simulatedThrough) /
+          benchmarkIndexOn(previous) -
+          1) *
+          100,
+        6,
+      );
+    }
+
     // Trades and holdings are no longer part of the result payload: the log is paginated from the
     // database, and a completed run ends in cash rather than in holdings.
     expect(result).not.toHaveProperty("trades");
@@ -2078,6 +2113,24 @@ describe("backtests", () => {
     expect(point?.strategyValue).toBe(100_002);
     expect(point?.benchmarkValue).toBeNull();
     expect(point?.cashBaselineValue).toBe(100_020);
+
+    // The benchmark had a value from the first simulated day, so even this one-month, part-year
+    // run carries its benchmark figure — measured over the same window as the Strategy's, and
+    // equal to the benchmark's whole return over the run, the same number the curve ends on.
+    const annual =
+      (response.body as BacktestRunDetailResponse).result?.annualReturns ?? [];
+    expect(annual).toEqual([
+      {
+        year: "2015",
+        simulatedThrough: isoDate(2),
+        returnPercent: expect.closeTo((2 / 10_000) * 100, 8),
+        benchmarkReturnPercent: expect.closeTo(
+          point?.benchmarkReturnPercent ?? Number.NaN,
+          8,
+        ),
+        partial: true,
+      },
+    ]);
   });
 
   it("exposes a failure's product code and message, never its developer detail", async () => {

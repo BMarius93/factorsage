@@ -39,19 +39,40 @@ An open symbol occupies one position slot regardless of whether the strategy ent
 75%, or 100% of its full-position budget. Cash and position-capacity constraints are enforced by
 the execution engine.
 
+## Run IDs
+
+Every run has its own user-facing identity, its **Run ID**: `Run #0001`, `Run #0002`, … numbered per
+user in submission order. It is allocated once when the run is created and never changes; a deleted
+run's number is never given to another run, and there are no custom names and no renaming. The
+technical identity every link and reference uses is still the run's UUID.
+
+A run is identified by its Run ID, not by its strategy: several runs of one strategy are different
+runs, and the strategy is one of their inputs. The Backtests list therefore leads each row with the
+Run ID (and the period under it) and shows the **Strategy** and the **Stock list** in columns of their
+own; the run's own page is titled with its Run ID and names what it executed in one line under it —
+`Strategy: … · List: … · period · Benchmark: …`. The list's `Created` column is when the run was
+submitted, and its search finds a run by its Run ID (`Run #0012`, `#12` or `12`) as well as by the
+names it was submitted with.
+
+Both read the names the run's immutable snapshot recorded, never the entities' current names, and
+link to the strategy and list while they still exist. Once one has been deleted its snapshot name is
+shown as plain text rather than as a link to a missing page.
+
 ## What a finished result shows, in order
 
 A completed run reads top to bottom as the shape of the run, then the numbers that summarise it:
 
 ```text
-header  ->  chart  ->  Results  ->  Annual returns  ->  Run configuration  ->  Trade log
+header  ->  chart + Results  ->  Annual returns  ->  Run configuration  ->  Trade log
 ```
 
 The chart comes first because it answers "what happened over the period" before any figure can, and
 the three scenarios it draws are named by its own legend — no paragraph sets the comparison up above
-it. `Results` (eight tiles) and `Annual returns` are two flat sections inside the one result surface,
-not two cards: the summary, then the same period decomposed year by year. The configuration the run
-froze follows, collapsed, and the trade log last.
+it. The chart and `Results` (eight tiles) are one overview: on a wide desktop (from 1,280px) they
+share a row — the chart about 70% of the width, the eight tiles a 2 x 4 grid beside it — and on
+narrower screens the tiles follow the chart. `Annual returns` follows as a flat section inside the
+same result surface, not a card of its own: the summary, then the same period decomposed year by
+year. The configuration the run froze follows, collapsed, and the trade log last.
 
 There are no final holdings, because the run ended in cash.
 
@@ -84,6 +105,14 @@ built on, so a year that received twelve monthly contributions does not report t
 performance, and the yearly figures multiply back together to the run's total return. A first or last
 year the run only partly simulated is reported over the part that was simulated and marked as
 partial; nothing outside the requested period is invented.
+
+Each year also reports what the run's **benchmark** returned over exactly the same window, read off
+the same benchmark series the run's total benchmark return comes from. A year the benchmark cannot be
+measured over — its history starts after the run does, so the window has no starting value — is
+reported as unavailable, never estimated or measured over a shorter window. The page shows the two as
+a heatmap: one column per year, Strategy above the benchmark, every cell printing its figure and
+shaded green for a gain or red for a loss, deeper for a larger one. A long history scrolls sideways
+inside the section.
 
 ## Why every trade happened
 
