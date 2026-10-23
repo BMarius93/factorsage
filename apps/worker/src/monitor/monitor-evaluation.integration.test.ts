@@ -1222,7 +1222,9 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       date >= "2026-09-21" && date < "2026-10-05" ? 95 : 105;
 
     function evaluationOn(
-      calendar: { isTradingSession(exchange: string, date: string): Promise<boolean> },
+      calendar: {
+        isTradingSession(exchange: string, date: string): Promise<boolean>;
+      },
       lateRecoveryMs: number,
     ) {
       return new MonitorEodEvaluation(
@@ -1282,7 +1284,9 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         ],
       });
       // The observation is the session; the processing time is the pass that found it.
-      expect(rows.every((t) => t.occurredAt.getTime() === clock.now.getTime())).toBe(true);
+      expect(
+        rows.every((t) => t.occurredAt.getTime() === clock.now.getTime()),
+      ).toBe(true);
       expect(
         (await signals(monitorId)).map((signal) => [
           day(signal.observationDate),
@@ -1321,7 +1325,10 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       );
       const monitorId = await createMonitor(
         [security],
-        { conditions: signalAbove().conditions, trigger: signalCrosses().trigger! },
+        {
+          conditions: signalAbove().conditions,
+          trigger: signalCrosses().trigger!,
+        },
         { replay: true, listedAt },
       );
       await evaluation().run(1);
@@ -1411,13 +1418,13 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         ["2026-10-05", "CONDITIONS_MET", "HISTORY"],
       ]);
       // Its window ends at the newest finalized session of the pass that found it: Sep 16 – Oct 15.
-      expect(
-        day((await checkpoint(monitorId, later.id))?.coverageStart),
-      ).toBe("2026-09-16");
+      expect(day((await checkpoint(monitorId, later.id))?.coverageStart)).toBe(
+        "2026-09-16",
+      );
       // The first member was only caught up by one session, its coverage kept.
-      expect(
-        day((await checkpoint(monitorId, first.id))?.coverageStart),
-      ).toBe("2026-09-15");
+      expect(day((await checkpoint(monitorId, first.id))?.coverageStart)).toBe(
+        "2026-09-15",
+      );
     });
 
     /**
@@ -1564,7 +1571,13 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       const closes = weekdays("2026-03-02", "2026-10-21", (date) =>
         date >= "2026-10-19" ? 95 : dipInWindow(date),
       );
-      await seed(security, closes, after("2026-10-14"), "2026-10-14", "2026-03-02");
+      await seed(
+        security,
+        closes,
+        after("2026-10-14"),
+        "2026-10-14",
+        "2026-03-02",
+      );
       const monitorId = await createMonitor([security], signalAbove(), {
         replay: true,
         listedAt,
@@ -1597,7 +1610,13 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       // Re-enabled on Oct 21: only Oct 15 – 21 are evaluated, in order, as history.
       created.add(monitorId);
       clock.now = after("2026-10-21");
-      await seed(security, closes, after("2026-10-21"), "2026-10-21", "2026-03-02");
+      await seed(
+        security,
+        closes,
+        after("2026-10-21"),
+        "2026-10-21",
+        "2026-03-02",
+      );
       const resumed = await evaluation().run(3);
       expect(resumed.membersReplayed).toBe(0);
       expect(resumed.sessionsEvaluated).toBe(5);
@@ -1644,7 +1663,9 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         replay: true,
         listedAt,
       });
-      const held = await evaluationOn(WEEKDAY_TRADING_CALENDAR, fourDays).run(2);
+      const held = await evaluationOn(WEEKDAY_TRADING_CALENDAR, fourDays).run(
+        2,
+      );
       expect(held.membersAwaitingLateSession).toBe(1);
       expect(day((await checkpoint(open, security.id))?.evaluatedThrough)).toBe(
         "2026-10-09",

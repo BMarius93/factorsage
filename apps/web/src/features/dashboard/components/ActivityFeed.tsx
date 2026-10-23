@@ -1,11 +1,11 @@
 "use client";
 
 import type { DashboardActivityEventResponse } from "@intrinsic/contracts";
-import Link from "next/link";
 import { memo, useMemo, type MouseEvent } from "react";
+import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
-import { formatDayLong } from "../../../lib/dates";
+import { formatDateTime, formatDayLong } from "../../../lib/dates";
 import {
   LEVEL_KIND_LABELS,
   RESOLUTION_REASON_LABELS,
@@ -51,8 +51,12 @@ export function activityStateLabel(
  *   session under the same Monitor. The step stays on the row as `data-level-index`.
  * - **No price.** An activation's price is not shown on its own; a price that a condition compared
  *   is shown on that condition's line.
- * - **The Monitor** that observed the event has its own column, last: its name as a quiet link to the
- *   Monitor's page, wrapping rather than widening the row.
+ * - **The Monitor** that recorded the event has its own column, last: the product's clickable
+ *   reference pill (`EntityReferenceChip`), the same one Strategy and Stock List references use, which
+ *   opens the Monitor's page and clips a long name after two lines with the whole name in its title.
+ * - **From history.** An event found after its session became final — a monitor's catch-up of its
+ *   30-day window, a stock added later — says so under its state, with when it was found; it is
+ *   still listed under the session it happened on.
  *
  * Table roles are written explicitly, as `DataTable` writes them, because the rows are laid out as
  * a grid rather than with table layout (`ActivityFeed.module.css`). A click on a row that lands on
@@ -206,10 +210,14 @@ const ActivityRow = memo(function ActivityRow({
             {activityStateLabel(event)}
           </span>
         </span>
-        {event.observationBasis === "LIVE_QUOTE" ? (
-          // An occurrence the earlier live-quote Monitor decided on an intraday price, said quietly.
-          <span className={styles.basis} data-testid="dashboard-event-basis">
-            Intraday quote
+        {event.fromHistory ? (
+          // Found afterwards: the session is when it happened, `recordedAt` when it was found.
+          <span
+            className={styles.basis}
+            data-testid="dashboard-event-history"
+            title={`Found on ${formatDateTime(event.recordedAt)}`}
+          >
+            From history
           </span>
         ) : null}
       </td>
@@ -230,12 +238,12 @@ const ActivityRow = memo(function ActivityRow({
             <span className={styles.monitorLabel} aria-hidden="true">
               Monitor
             </span>
-            <Link
-              className={styles.monitorLink}
+            <EntityReferenceChip
+              kind="monitor"
+              name={event.monitor.name}
               href={`/monitors/${event.monitor.id}`}
-            >
-              {event.monitor.name}
-            </Link>
+              testId="dashboard-event-monitor-link"
+            />
           </span>
         </td>
       ) : null}

@@ -833,9 +833,7 @@ describe("Monitor history read models", () => {
       try {
         const body = (await owner.get("/dashboard/activity").expect(200))
           .body as DashboardActivityResponse;
-        expect(ours(body).map((event) => event.monitor.id)).toEqual([
-          ids.own,
-        ]);
+        expect(ours(body).map((event) => event.monitor.id)).toEqual([ids.own]);
         // Asked for by id, it is still not activity for them.
         expect(
           (
@@ -1165,12 +1163,7 @@ describe("Monitor history read models", () => {
     // The feed's own fixtures — an occurrence found by a catch-up, a live-quote one and one older
     // than the window — are not this table's cases.
     beforeAll(async () => {
-      const feedOnly = [
-        signal.e,
-        signal.live,
-        signal.old,
-        signal.ownEvidenced,
-      ];
+      const feedOnly = [signal.e, signal.live, signal.old, signal.ownEvidenced];
       await prisma.monitorStateTransition.deleteMany({
         where: { signalId: { in: feedOnly } },
       });

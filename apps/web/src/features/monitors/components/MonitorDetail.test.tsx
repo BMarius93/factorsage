@@ -279,11 +279,11 @@ describe("MonitorDetail", () => {
       await detailReady();
 
       expect(screen.getByTestId("built-in-badge")).toBeDefined();
+      // The viewer's own state: enabled by default, and evaluated for everyone.
       expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
-        "Running",
+        "Enabled",
       );
       expect(screen.queryByTestId("edit-monitor")).toBeNull();
-      expect(screen.queryByTestId("monitor-detail-actions")).toBeNull();
       expect(
         screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
       ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
@@ -355,6 +355,59 @@ describe("MonitorDetail", () => {
       });
     });
 
+    it("lets a signed-in customer disable it for their own account, and nothing else", async () => {
+      const user = userEvent.setup();
+      fetchMonitorMock.mockResolvedValue(
+        detail({ ...builtIn, canEdit: false }),
+      );
+      updateMonitorMock.mockResolvedValue({
+        ...detail({ ...builtIn, canEdit: false }),
+        enabled: false,
+      });
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      await openOverflowMenu(user, "Value entries");
+      expect(screen.queryByTestId("toggle-monitor-globally")).toBeNull();
+      expect(screen.queryByTestId("publish-monitor")).toBeNull();
+      await user.click(screen.getByTestId("toggle-monitor"));
+      await waitFor(() =>
+        expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
+          enabled: false,
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
+          "Disabled",
+        ),
+      );
+    });
+
+    it("lets an administrator pause it for everyone, apart from their own choice", async () => {
+      const user = userEvent.setup();
+      fetchMonitorMock.mockResolvedValue(detail({ ...builtIn, canEdit: true }));
+      updateMonitorMock.mockResolvedValue({
+        ...detail({ ...builtIn, canEdit: true }),
+        isGloballyEnabled: false,
+        operationalStatus: "DISABLED",
+      });
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      await openOverflowMenu(user, "Value entries");
+      await user.click(screen.getByTestId("toggle-monitor-globally"));
+      await waitFor(() =>
+        expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
+          isGloballyEnabled: false,
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
+          "Paused by FactorSage",
+        ),
+      );
+    });
+
     it("lets an administrator pause and unpublish it, never delete it", async () => {
       const user = userEvent.setup();
       fetchMonitorMock.mockResolvedValue(detail({ ...builtIn, canEdit: true }));
@@ -382,6 +435,28 @@ describe("MonitorDetail", () => {
         ),
       );
     });
+  });
+
+  it("says on its Signals section when the monitor is catching up on its 30-day window", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        synchronization: {
+          state: "SYNCHRONIZING",
+          windowStart: "2026-09-15",
+          currentMembers: 3,
+          coveredMembers: 0,
+          awaitingMembers: 3,
+        },
+      }),
+    );
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const line = screen.getByTestId("monitor-synchronization");
+    expect(line.getAttribute("data-state")).toBe("SYNCHRONIZING");
+    expect(line.textContent).toBe(
+      "Synchronizing · Evaluating the last 30 days",
+    );
   });
 
   it("offers the owner the same Run backtest a built-in has, prefilled (UI-008)", async () => {

@@ -22,14 +22,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Intent and operational state are two pills, and they must be able to wrap without
-   pushing the row's other columns around. */
-.stateCell {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
 /* A monitor with something to look at reads as live; zero stays quiet rather than
    competing with the rows that matter. */
 .signalCount {
@@ -81,15 +73,39 @@
   white-space: nowrap;
 }
 
-/* The built-in dashboard-visibility switch, with room under it for a refused save. */
-.visibilityCell {
+/* The Enabled switch with its label, and under it only what the switch cannot say: a plan limit,
+   a pause by FactorSage, a monitor catching up. Every row of both sections uses it. */
+.enabledCell {
   display: inline-grid;
-  justify-items: end;
+  justify-items: start;
   gap: 6px;
+  min-width: 0;
 }
 
-@media (max-width: 879px) {
-  .visibilityCell {
-    justify-items: start;
-  }
+.enabledLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.enabledText {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+
+.stateNote {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.stateReason {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
 }

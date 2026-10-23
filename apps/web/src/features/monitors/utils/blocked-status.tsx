@@ -40,14 +40,14 @@ export function blockedShortReason(
 }
 
 /**
- * **One** effective state per monitor (UI-021).
+ * **One** effective state per monitor (UI-021), for the monitor's own page header.
  *
- * `enabled` is what the user asked for; the operational status is what the system does with it.
- * They used to render as two pills side by side — "Enabled" and "Not scanning" — which read as a
- * contradiction, and the reason lived in a hover tooltip a phone cannot open. A monitor the plan
- * has stopped now reads "Paused — plan limit", its reason sits under it as text, and the
- * configured intent is a secondary fact on the monitor's own page. Collection and detail share
- * this component so they cannot drift apart.
+ * `enabled` is what the viewer asked for — on a built-in, their own choice for their account — and
+ * the operational status is what the system does with it. A monitor the plan has stopped reads
+ * "Paused — plan limit" with its reason as text, never beside a contradictory "Enabled"; a built-in
+ * FactorSage paused for everyone reads "Paused by FactorSage" whatever the viewer chose. Otherwise
+ * it is the viewer's switch, Enabled or Disabled. The collection shows the switch itself
+ * (`MonitorEnabledControl`) with the same paused states under it, so the two cannot disagree.
  */
 export function MonitorStateBadge({
   monitor,
@@ -55,7 +55,10 @@ export function MonitorStateBadge({
   showReason = false,
   size = "default",
 }: {
-  readonly monitor: OperationalState & { readonly enabled: boolean };
+  readonly monitor: OperationalState & {
+    readonly enabled: boolean;
+    readonly isGloballyEnabled?: boolean;
+  };
   readonly builtIn?: boolean;
   /** Adds the short reason under a paused state — for a collection row, where there is room. */
   readonly showReason?: boolean;
@@ -86,13 +89,18 @@ export function MonitorStateBadge({
       </span>
     );
   }
-  const label = builtIn
-    ? monitor.enabled
-      ? "Running"
-      : "Paused"
-    : monitor.enabled
-      ? "Enabled"
-      : "Disabled";
+  if (builtIn && monitor.isGloballyEnabled === false) {
+    return (
+      <StatusBadge
+        tone="pending"
+        size={size}
+        testId="monitor-state-pill"
+        dataAttributes={{ "data-state": "PAUSED_GLOBALLY" }}
+      >
+        Paused by FactorSage
+      </StatusBadge>
+    );
+  }
   return (
     <StatusBadge
       tone={monitor.enabled ? "positive" : "pending"}
@@ -102,7 +110,7 @@ export function MonitorStateBadge({
         "data-state": monitor.enabled ? "ENABLED" : "DISABLED",
       }}
     >
-      {label}
+      {monitor.enabled ? "Enabled" : "Disabled"}
     </StatusBadge>
   );
 }

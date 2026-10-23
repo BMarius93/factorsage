@@ -40,7 +40,13 @@ describe("a running Monitor's synchronization", () => {
       });
       securities.push(row.id);
     }
-    const [a, b, c, d, e] = securities as [string, string, string, string, string];
+    const [a, b, c, d, e] = securities as [
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
     const strategy = await prisma.strategy.create({
       data: {
         ownership: "SYSTEM",
@@ -189,13 +195,15 @@ describe("a running Monitor's synchronization", () => {
         basisGeneration: 0,
       },
     });
-    expect(await read({ watchingSince: watched, lastScanAt: watched })).toEqual({
-      state: "SYNCHRONIZED",
-      windowStart: "2026-09-15",
-      currentMembers: 4,
-      coveredMembers: 4,
-      awaitingMembers: 0,
-    });
+    expect(await read({ watchingSince: watched, lastScanAt: watched })).toEqual(
+      {
+        state: "SYNCHRONIZED",
+        windowStart: "2026-09-15",
+        currentMembers: 4,
+        coveredMembers: 4,
+        awaitingMembers: 0,
+      },
+    );
     // Progress recorded under a previous binding is not progress under this one.
     expect(
       (

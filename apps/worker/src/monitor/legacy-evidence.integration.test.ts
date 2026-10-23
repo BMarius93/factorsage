@@ -81,7 +81,13 @@ describe("legacy Monitor evidence", () => {
   });
   const fingerprint = monitorStrategyLevels(definition)[0]!.fingerprint;
   const key = randomUUID();
-  const ids = { security: "", strategy: "", version: "", list: "", monitor: "" };
+  const ids = {
+    security: "",
+    strategy: "",
+    version: "",
+    list: "",
+    monitor: "",
+  };
   const transitionIds: Record<string, string> = {};
 
   const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -232,14 +238,38 @@ describe("legacy Monitor evidence", () => {
 
     // Activated Oct 7 at its close, ended Oct 13: decided before evidence existed.
     const decided = await occurrence({ on: "2026-10-07", price: 101 });
-    await legacy({ name: "activation", on: "2026-10-07", signalId: decided, to: "ACTIVE" });
-    await legacy({ name: "ending", on: "2026-10-13", signalId: decided, to: "RESOLVED" });
+    await legacy({
+      name: "activation",
+      on: "2026-10-07",
+      signalId: decided,
+      to: "ACTIVE",
+    });
+    await legacy({
+      name: "ending",
+      on: "2026-10-13",
+      signalId: decided,
+      to: "RESOLVED",
+    });
     // The live-quote Monitor's occurrence: an intraday price, never given end-of-day values.
-    const intraday = await occurrence({ on: "2026-10-08", price: 101.73, basis: "LIVE_QUOTE" });
-    await legacy({ name: "intraday", on: "2026-10-08", signalId: intraday, to: "ACTIVE" });
+    const intraday = await occurrence({
+      on: "2026-10-08",
+      price: 101.73,
+      basis: "LIVE_QUOTE",
+    });
+    await legacy({
+      name: "intraday",
+      on: "2026-10-08",
+      signalId: intraday,
+      to: "ACTIVE",
+    });
     // Recorded at a price the stored close does not have: the data is not what decided it.
     const repriced = await occurrence({ on: "2026-10-09", price: 99.5 });
-    await legacy({ name: "repriced", on: "2026-10-09", signalId: repriced, to: "ACTIVE" });
+    await legacy({
+      name: "repriced",
+      on: "2026-10-09",
+      signalId: repriced,
+      to: "ACTIVE",
+    });
     // Decided under logic this version does not hold.
     const edited = await occurrence({ on: "2026-10-12", price: 104 });
     await legacy({
@@ -250,10 +280,20 @@ describe("legacy Monitor evidence", () => {
       fingerprint: "another-logic",
     });
     // An ending on a session whose Condition held: the data does not reproduce the change.
-    await legacy({ name: "contradicted", on: "2026-10-12", signalId: decided, to: "RESOLVED" });
+    await legacy({
+      name: "contradicted",
+      on: "2026-10-12",
+      signalId: decided,
+      to: "RESOLVED",
+    });
     // Before the window, and one that already has its evidence: neither is a candidate.
     const old = await occurrence({ on: "2026-09-09", price: 105 });
-    await legacy({ name: "beforeWindow", on: "2026-09-09", signalId: old, to: "ACTIVE" });
+    await legacy({
+      name: "beforeWindow",
+      on: "2026-09-09",
+      signalId: old,
+      to: "ACTIVE",
+    });
     await legacy({
       name: "recorded",
       on: "2026-10-14",
@@ -305,8 +345,17 @@ describe("legacy Monitor evidence", () => {
     expect(report.outcomes.EXCLUDED_LIVE_QUOTE).toBeGreaterThanOrEqual(1);
     expect(report.outcomes.EXCLUDED_PRICE_MISMATCH).toBeGreaterThanOrEqual(1);
     expect(report.outcomes.EXCLUDED_LOGIC_MISMATCH).toBeGreaterThanOrEqual(1);
-    expect(report.outcomes.EXCLUDED_DECISION_MISMATCH).toBeGreaterThanOrEqual(1);
-    for (const name of ["activation", "ending", "intraday", "repriced", "edited", "contradicted"]) {
+    expect(report.outcomes.EXCLUDED_DECISION_MISMATCH).toBeGreaterThanOrEqual(
+      1,
+    );
+    for (const name of [
+      "activation",
+      "ending",
+      "intraday",
+      "repriced",
+      "edited",
+      "contradicted",
+    ]) {
       expect(await evidenceOf(name)).toBeNull();
     }
   });
@@ -324,11 +373,20 @@ describe("legacy Monitor evidence", () => {
         {
           ruleId: "buy-1",
           predicates: [
-            { id: "c1", role: "CONDITION", result: "TRUE", metric: 101, value: 100 },
+            {
+              id: "c1",
+              role: "CONDITION",
+              result: "TRUE",
+              metric: 101,
+              value: 100,
+            },
           ],
         },
       ],
-      reconstructed: { at: now.toISOString(), by: "monitors:backfill-evidence" },
+      reconstructed: {
+        at: now.toISOString(),
+        by: "monitors:backfill-evidence",
+      },
     });
     expect(await evidenceOf("ending")).toMatchObject({
       rules: [
@@ -350,7 +408,13 @@ describe("legacy Monitor evidence", () => {
       reason: before.reason,
     });
     // Unverifiable events stay without evidence, so the Dashboard leaves them out.
-    for (const name of ["intraday", "repriced", "edited", "contradicted", "beforeWindow"]) {
+    for (const name of [
+      "intraday",
+      "repriced",
+      "edited",
+      "contradicted",
+      "beforeWindow",
+    ]) {
       expect(await evidenceOf(name)).toBeNull();
     }
     expect(await evidenceOf("recorded")).toEqual({ v: 1, rules: [] });

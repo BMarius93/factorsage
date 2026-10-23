@@ -22,7 +22,6 @@ import {
   createMonitor,
   deleteMonitor,
   fetchMonitors,
-  setBuiltInMonitorVisibility,
   updateMonitor,
 } from "../api/monitors-api";
 import { MonitorsPage } from "./MonitorsPage";
@@ -42,7 +41,6 @@ vi.mock("../api/monitors-api", () => ({
   createMonitor: vi.fn(),
   updateMonitor: vi.fn(),
   deleteMonitor: vi.fn(),
-  setBuiltInMonitorVisibility: vi.fn(),
 }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({
@@ -59,7 +57,6 @@ vi.mock("../../lists/api/stock-lists-api", () => ({
 
 const useAuthSessionMock = vi.mocked(useAuthSession);
 const fetchMonitorsMock = vi.mocked(fetchMonitors);
-const setVisibilityMock = vi.mocked(setBuiltInMonitorVisibility);
 const createMonitorMock = vi.mocked(createMonitor);
 const updateMonitorMock = vi.mocked(updateMonitor);
 const deleteMonitorMock = vi.mocked(deleteMonitor);
@@ -156,7 +153,6 @@ beforeEach(() => {
   createMonitorMock.mockReset();
   updateMonitorMock.mockReset();
   deleteMonitorMock.mockReset();
-  setVisibilityMock.mockReset();
   fetchStrategiesMock.mockReset().mockResolvedValue(STRATEGIES);
   fetchStockListsMock.mockReset().mockResolvedValue(LISTS);
   useAuthSessionMock.mockReturnValue(signedInSession());
@@ -178,9 +174,19 @@ function builtIn(
     stockListName: "S&P 500 Growth Leaders",
     isPublished: true,
     isGloballyEnabled: true,
-    dashboardVisible: true,
     ...overrides,
   });
+}
+
+/** The one Enabled / Disabled switch of the row naming `name`. */
+function switchOf(name: string): HTMLElement {
+  const row = screen
+    .getAllByTestId("monitor-card")
+    .find((card) => within(card).queryByRole("link", { name }));
+  if (!row) {
+    throw new Error(`No row for ${name}`);
+  }
+  return within(row).getByTestId("monitor-enabled-switch");
 }
 
 describe("MonitorsPage", () => {
@@ -223,10 +229,10 @@ describe("MonitorsPage", () => {
     expect(own.compareDocumentPosition(builtIns)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    // A built-in is read-only for a customer: no enable/disable, no edit, no delete.
-    expect(
-      within(builtIns).queryByRole("button", { name: /S&P Value & Trend/ }),
-    ).toBeNull();
+    // A built-in has the same switch as the customer's own monitor — their own choice for it — and
+    // nothing else a customer can do to it: no edit, no delete, so its menu cell is empty.
+    expect(within(builtIns).getByTestId("monitor-enabled-switch")).toBeDefined();
+    expect(within(own).getByTestId("monitor-enabled-switch")).toBeDefined();
     // The row opens through its name: there is one link to the monitor, not a second "Open".
     expect(
       within(builtIns)
@@ -234,65 +240,93 @@ describe("MonitorsPage", () => {
         .getAttribute("href"),
     ).toBe("/monitors/builtin-1");
     expect(within(builtIns).queryByRole("link", { name: /^Open / })).toBeNull();
-    // Nothing a customer can do to a built-in from here, so no menu column either.
-    expect(within(builtIns).queryByRole("button", { name: /More actions/ })).toBeNull();
+    expect(
+      within(builtIns).queryByRole("button", { name: /More actions/ }),
+    ).toBeNull();
+    // One table shape for both sections, and no separate dashboard column.
+    const headers = (section: HTMLElement) =>
+      within(section)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent?.trim());
+    expect(headers(builtIns)).toEqual(headers(own));
+    expect(headers(own)).toEqual([
+      "Monitor",
+      "Enabled",
+      "Strategy",
+      "Stock list",
+      "Active signals",
+      "Last checked",
+      "Actions",
+    ]);
+    expect(screen.queryByText(/on my dashboard/i)).toBeNull();
   });
 
-  it("saves a built-in's dashboard visibility as this user's own preference", async () => {
+  it("enables or disables a built-in for this viewer alone, through the same switch", async () => {
     const user = userEvent.setup();
     // The page re-reads the collection after a change, so the second answer is the persisted
-    // preference: the row never keeps a value the server did not confirm.
+    // choice: the row never keeps a value the server did not confirm.
     fetchMonitorsMock
       .mockResolvedValueOnce([builtIn()])
-      .mockResolvedValue([builtIn({ dashboardVisible: false })]);
-    setVisibilityMock.mockResolvedValue(undefined);
+      .mockResolvedValue([builtIn({ enabled: false })]);
+    updateMonitorMock.mockResolvedValue(builtIn({ enabled: false }));
 
     render(<MonitorsPage />);
 
-    const toggle = await screen.findByTestId("built-in-monitor-toggle");
+    const toggle = await screen.findByTestId("monitor-enabled-switch");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     await user.click(toggle);
 
     await waitFor(() =>
-      expect(setVisibilityMock).toHaveBeenCalledWith("builtin-1", {
-        visible: false,
+      expect(updateMonitorMock).toHaveBeenCalledWith("builtin-1", {
+        enabled: false,
       }),
     );
     await waitFor(() =>
       expect(
-        screen.getByTestId("built-in-monitor-toggle").getAttribute("aria-checked"),
+        screen.getByTestId("monitor-enabled-switch").getAttribute("aria-checked"),
       ).toBe("false"),
     );
-    // It is a preference, never the shared monitor: nothing patched the monitor itself.
-    expect(updateMonitorMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId("monitor-enabled-control").getAttribute("data-enabled"),
+    ).toBe("false");
   });
 
-  it("keeps the row on its real preference when the change is refused", async () => {
+  it("keeps the row on its real state when the change is refused", async () => {
     const user = userEvent.setup();
     fetchMonitorsMock.mockResolvedValue([builtIn()]);
-    setVisibilityMock.mockRejectedValue(new Error("network"));
+    updateMonitorMock.mockRejectedValue(new Error("network"));
 
     render(<MonitorsPage />);
-    await user.click(await screen.findByTestId("built-in-monitor-toggle"));
+    await user.click(await screen.findByTestId("monitor-enabled-switch"));
 
+    expect(await screen.findByTestId("monitor-toggle-error")).toBeDefined();
     expect(
-      await screen.findByTestId("monitor-visibility-error"),
-    ).toBeDefined();
-    expect(
-      screen.getByTestId("built-in-monitor-toggle").getAttribute("aria-checked"),
+      screen.getByTestId("monitor-enabled-switch").getAttribute("aria-checked"),
     ).toBe("true");
   });
 
-  it("shows a hidden built-in as hidden", async () => {
-    fetchMonitorsMock.mockResolvedValue([builtIn({ dashboardVisible: false })]);
+  it("shows a built-in the viewer disabled as disabled, and one FactorSage paused as paused", async () => {
+    fetchMonitorsMock.mockResolvedValue([
+      builtIn({ enabled: false }),
+      builtIn({
+        id: "builtin-2",
+        name: "Paused built-in",
+        isGloballyEnabled: false,
+        operationalStatus: "DISABLED",
+      }),
+    ]);
 
     render(<MonitorsPage />);
 
     expect(
-      (await screen.findByTestId("built-in-monitor-toggle")).getAttribute(
-        "aria-checked",
+      (await screen.findAllByTestId("monitor-enabled-switch")).map((toggle) =>
+        toggle.getAttribute("aria-checked"),
       ),
-    ).toBe("false");
+    ).toEqual(["false", "true"]);
+    // Enabled by the viewer, but not evaluating: never presented as running.
+    expect(
+      screen.getAllByTestId("monitor-state-pill").map((pill) => pill.textContent),
+    ).toEqual(["Paused by FactorSage"]);
   });
 
   it("lets an administrator edit a built-in through the ordinary editor", async () => {
@@ -320,12 +354,12 @@ describe("MonitorsPage", () => {
     expect(await screen.findByTestId("built-in-monitors")).toBeDefined();
     expect(screen.queryByTestId("your-monitors")).toBeNull();
 
-    await user.click(screen.getByTestId("built-in-monitor-toggle"));
+    await user.click(screen.getByTestId("monitor-enabled-switch"));
     let prompt = await screen.findByTestId("sign-in-prompt");
     expect(
       within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
     ).toBe("/login?next=%2Fmonitors");
-    expect(setVisibilityMock).not.toHaveBeenCalled();
+    expect(updateMonitorMock).not.toHaveBeenCalled();
     await user.click(within(prompt).getByRole("button", { name: "Close dialog" }));
 
     await user.click(screen.getByTestId("new-monitor-button"));
@@ -367,8 +401,8 @@ describe("MonitorsPage", () => {
     expect(screen.getByText("3 active signals")).toBeDefined();
     expect(screen.getByText(/^Sep 12, 2026, /)).toBeDefined();
 
-    expect(screen.getByText("Enabled")).toBeDefined();
-    expect(screen.getByText("Disabled")).toBeDefined();
+    expect(switchOf("Value entries").getAttribute("aria-checked")).toBe("true");
+    expect(switchOf("Exit watch").getAttribute("aria-checked")).toBe("false");
     // A monitor that has never been included in a cycle says so rather than borrowing a timestamp.
     expect(screen.getByText("Not checked yet")).toBeDefined();
     expect(screen.getByText("1 stock", OUTSIDE_FOLD)).toBeDefined();
@@ -404,19 +438,25 @@ describe("MonitorsPage", () => {
 
     render(<MonitorsPage />);
 
-    // One effective state per row (UI-021): a monitor the plan stopped reads "Paused — plan
-    // limit", with its reason as text rather than a tooltip, never "Enabled" + "Not scanning".
+    // The switch shows the intent — all three are enabled — and a monitor the plan stopped says
+    // so under it (UI-021): "Paused — plan limit", with its reason as text rather than a tooltip.
+    // A monitor that is simply enabled gets no second "Enabled" pill beside its switch.
     const pills = await screen.findAllByTestId("monitor-state-pill");
     expect(pills.map((pill) => pill.textContent)).toEqual([
       "Paused — plan limit",
       "Paused — plan limit",
-      "Enabled",
     ]);
     expect(pills.map((pill) => pill.getAttribute("data-blocked-reason"))).toEqual([
       "MONITOR_CAPACITY",
       "LIST_OVER_LIMIT",
-      null,
     ]);
+    expect(
+      screen
+        .getAllByTestId("monitor-enabled-switch")
+        .map((toggle) => toggle.getAttribute("aria-checked")),
+    ).toEqual(["true", "true", "true"]);
+    // Paused monitors are evaluating nothing, so none of them is shown catching up.
+    expect(screen.queryByTestId("monitor-synchronization")).toBeNull();
     expect(
       screen.getAllByTestId("monitor-state-reason").map((reason) => reason.textContent),
     ).toEqual([
@@ -510,12 +550,7 @@ describe("MonitorsPage", () => {
     updateMonitorMock.mockResolvedValue(summary({ enabled: false }));
 
     render(<MonitorsPage />);
-    await waitFor(() => {
-      expect(screen.getByText("Enabled")).toBeDefined();
-    });
-
-    await openOverflowMenu(userEvent, "Value entries");
-    await userEvent.click(screen.getByTestId("toggle-monitor"));
+    await userEvent.click(await screen.findByTestId("monitor-enabled-switch"));
 
     await waitFor(() => {
       expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
@@ -523,12 +558,13 @@ describe("MonitorsPage", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.getByText("Disabled")).toBeDefined();
+      expect(
+        screen.getByTestId("monitor-enabled-switch").getAttribute("aria-checked"),
+      ).toBe("false");
     });
-    expect(screen.queryByText("Enabled")).toBeNull();
-    // The action now offers the opposite transition.
+    // The menu holds what is not the switch.
     await openOverflowMenu(userEvent, "Value entries");
-    expect(screen.getByTestId("toggle-monitor").textContent).toBe("Enable");
+    expect(screen.queryByTestId("toggle-monitor")).toBeNull();
   });
 
   it("re-enables a disabled monitor", async () => {
@@ -538,13 +574,10 @@ describe("MonitorsPage", () => {
     updateMonitorMock.mockResolvedValue(summary({ enabled: true }));
 
     render(<MonitorsPage />);
-    await waitFor(() => {
-      expect(screen.getByText("Disabled")).toBeDefined();
-    });
-    await openOverflowMenu(userEvent, "Value entries");
-    expect(screen.getByTestId("toggle-monitor").textContent).toBe("Enable");
+    const toggle = await screen.findByTestId("monitor-enabled-switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
-    await userEvent.click(screen.getByTestId("toggle-monitor"));
+    await userEvent.click(toggle);
 
     await waitFor(() => {
       expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
@@ -552,7 +585,9 @@ describe("MonitorsPage", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.getByText("Enabled")).toBeDefined();
+      expect(
+        screen.getByTestId("monitor-enabled-switch").getAttribute("aria-checked"),
+      ).toBe("true");
     });
   });
 
@@ -561,28 +596,96 @@ describe("MonitorsPage", () => {
     updateMonitorMock.mockRejectedValue(new Error("network"));
 
     render(<MonitorsPage />);
-    await waitFor(() => {
-      expect(screen.getByText("Enabled")).toBeDefined();
-    });
-
-    await openOverflowMenu(userEvent, "Value entries");
-    await userEvent.click(screen.getByTestId("toggle-monitor"));
+    await userEvent.click(await screen.findByTestId("monitor-enabled-switch"));
 
     await waitFor(() => {
       expect(
-        screen.getByText("That change did not save. This monitor is still", {
+        screen.getByText("That change did not save. Value entries is still", {
           exact: false,
         }),
       ).toBeDefined();
     });
-    // Nothing was applied optimistically, so the card still shows what the server holds.
-    expect(screen.getByText("Enabled")).toBeDefined();
-    await openOverflowMenu(userEvent, "Value entries");
-    expect(screen.getByTestId("toggle-monitor").textContent).toBe("Disable");
-    // And the action is usable again rather than stuck pending.
-    expect(screen.getByTestId("toggle-monitor").hasAttribute("disabled")).toBe(
-      false,
+    // Nothing was applied optimistically, so the row still shows what the server holds…
+    const toggle = screen.getByTestId("monitor-enabled-switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    // …and the switch is usable again rather than stuck pending.
+    expect(toggle.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("says when an enabled monitor is catching up on its window, and re-reads until it is done", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const synchronizing = summary({
+        synchronization: {
+          state: "SYNCHRONIZING",
+          windowStart: "2026-09-24",
+          currentMembers: 12,
+          coveredMembers: 0,
+          awaitingMembers: 12,
+        },
+      });
+      fetchMonitorsMock.mockResolvedValueOnce([synchronizing]).mockResolvedValue([
+        summary({
+          synchronization: {
+            state: "SYNCHRONIZED",
+            windowStart: "2026-09-24",
+            currentMembers: 12,
+            coveredMembers: 12,
+            awaitingMembers: 0,
+          },
+        }),
+      ]);
+
+      render(<MonitorsPage />);
+
+      const note = await screen.findByTestId("monitor-synchronization");
+      expect(note.getAttribute("data-state")).toBe("SYNCHRONIZING");
+      expect(note.textContent).toContain("Synchronizing");
+      expect(note.textContent).toContain("Evaluating the last 30 days");
+      expect(fetchMonitorsMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await waitFor(() =>
+        expect(screen.queryByTestId("monitor-synchronization")).toBeNull(),
+      );
+      expect(fetchMonitorsMock).toHaveBeenCalledTimes(2);
+      // Synchronized: nothing else is re-read.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetchMonitorsMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("states partial coverage honestly, and nothing for a disabled monitor", async () => {
+    fetchMonitorsMock.mockResolvedValue([
+      summary({
+        synchronization: {
+          state: "PARTIAL",
+          windowStart: "2026-09-24",
+          currentMembers: 12,
+          coveredMembers: 10,
+          awaitingMembers: 1,
+          historyFrom: "2026-10-14",
+        },
+      }),
+      summary({
+        id: "monitor-2",
+        name: "Switched off",
+        enabled: false,
+        operationalStatus: "DISABLED",
+      }),
+    ]);
+
+    render(<MonitorsPage />);
+
+    const notes = await screen.findAllByTestId("monitor-synchronization");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.getAttribute("data-state")).toBe("PARTIAL");
+    expect(notes[0]!.textContent).toContain(
+      "1 of 12 stocks waiting for market data",
     );
+    expect(notes[0]!.textContent).toContain("History recorded since Oct 14, 2026");
   });
 
   it("deletes a monitor only after confirmation", async () => {

@@ -249,7 +249,9 @@ describe("ActivityConditions", () => {
     ).not.toContain("did not hold");
   });
 
-  it("shows a rule recorded without values by its wording alone, and says so", () => {
+  it("never shows a Why without recorded values as if it had decided anything", () => {
+    // The API admits no such event into the feed (§12); were one to arrive, it reads as unavailable
+    // rather than as conditions with no values or an old "not recorded" note.
     render(
       <ActivityConditions
         why={{
@@ -265,23 +267,11 @@ describe("ActivityConditions", () => {
         }}
       />,
     );
-    expect(lines()).toEqual([
-      {
-        mark: "",
-        expression: "Price is above SMA 200D",
-        values: null,
-        result: "unrecorded",
-      },
-      {
-        mark: "",
-        expression: "RSI 14D is below 70",
-        values: null,
-        result: "unrecorded",
-      },
-    ]);
+    expect(screen.queryAllByTestId("dashboard-condition")).toHaveLength(0);
     expect(
-      screen.getByTestId("dashboard-conditions-unrecorded").textContent,
-    ).toBe("Values were not recorded for this signal.");
+      screen.getByTestId("dashboard-conditions-unavailable").textContent,
+    ).toBe("Conditions are not available for this event.");
+    expect(screen.queryByText(/Values were not recorded/)).toBeNull();
   });
 
   it("shows all ten of ten conditions, with nothing folded away", () => {

@@ -3,7 +3,6 @@ import {
   describeTrigger,
   monitorActivityWindowStart,
   normalizeStrategyDefinition,
-  type AuthUser,
   type DashboardActivityEventResponse,
   type DashboardActivityResponse,
   type DashboardFreshness,

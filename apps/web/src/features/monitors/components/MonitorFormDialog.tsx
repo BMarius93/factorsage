@@ -165,7 +165,8 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             name: trimmedName,
             strategyId,
             stockListId,
-            // A built-in's switch is its global enable, which the monitor page owns.
+            // A built-in's Enabled is each viewer's own choice, made beside it on the Monitors page;
+            // pausing it for everyone is the operator's switch on its own page.
             ...(builtIn ? {} : { enabled: enabledValue }),
           }),
         );

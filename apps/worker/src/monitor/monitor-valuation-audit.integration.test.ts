@@ -230,7 +230,14 @@ describeInfrastructure(
         data: {
           userId,
           name: `Valuation audit ${randomUUID().slice(0, 8)}`,
-          items: { create: [{ securityId: security.id, createdAt: LISTED_BEFORE_EVERY_SESSION }] },
+          items: {
+            create: [
+              {
+                securityId: security.id,
+                createdAt: LISTED_BEFORE_EVERY_SESSION,
+              },
+            ],
+          },
         },
       });
       const monitor = await prisma.monitor.create({

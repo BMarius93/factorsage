@@ -1242,11 +1242,7 @@ export class MonitorEodEvaluation {
       // is recorded from its window replay's start, or — reconstructed at its newest session — from
       // that session alone: the sessions before it were never recorded one by one.
       coverageStart:
-        from !== undefined
-          ? undefined
-          : replay
-            ? plan.replayFrom
-            : lastStepped,
+        from !== undefined ? undefined : replay ? plan.replayFrom : lastStepped,
       sessions: sessions.length,
       reconstructed,
       needsDeeperHistory,

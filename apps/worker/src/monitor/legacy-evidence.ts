@@ -84,8 +84,7 @@ export type LegacyEventCandidate = {
 
 /** What a candidate's logic is, once its version has been read. */
 export type LegacyLogic =
-  | { kind: "UNREADABLE" }
-  | { kind: "LEVEL"; level: MonitorStrategyLevel };
+  { kind: "UNREADABLE" } | { kind: "LEVEL"; level: MonitorStrategyLevel };
 
 /** The relative tolerance a stored close is compared with the recorded activation price at. */
 const PRICE_TOLERANCE = 1e-9;
@@ -122,9 +121,7 @@ export function verifyLegacyEvent(
   if (index < 0) {
     return { outcome: "EXCLUDED_SESSION_MISSING" };
   }
-  const activationIndex = frame.dates.indexOf(
-    candidate.occurrence.activatedOn,
-  );
+  const activationIndex = frame.dates.indexOf(candidate.occurrence.activatedOn);
   if (activationIndex < 0) {
     return { outcome: "EXCLUDED_SESSION_MISSING" };
   }
@@ -132,7 +129,8 @@ export function verifyLegacyEvent(
   const recorded = candidate.occurrence.activationPrice;
   if (
     !Number.isFinite(close) ||
-    Math.abs(close - recorded) > PRICE_TOLERANCE * Math.max(1, Math.abs(recorded))
+    Math.abs(close - recorded) >
+      PRICE_TOLERANCE * Math.max(1, Math.abs(recorded))
   ) {
     return { outcome: "EXCLUDED_PRICE_MISMATCH" };
   }
@@ -241,8 +239,15 @@ export class LegacyEvidenceBackfill {
         origin: { in: ["OBSERVED", "HISTORY"] },
         observationDate: { gte: new Date(`${windowStart}T00:00:00.000Z`) },
         OR: [
-          { toState: "ACTIVE", reason: { in: ["CONDITIONS_MET", "TRIGGER_FIRED"] } },
-          { fromState: "ACTIVE", toState: { not: "ACTIVE" }, reason: "CONDITIONS_ENDED" },
+          {
+            toState: "ACTIVE",
+            reason: { in: ["CONDITIONS_MET", "TRIGGER_FIRED"] },
+          },
+          {
+            fromState: "ACTIVE",
+            toState: { not: "ACTIVE" },
+            reason: "CONDITIONS_ENDED",
+          },
         ],
       },
       select: {
@@ -287,7 +292,10 @@ export class LegacyEvidenceBackfill {
       select: { id: true, definition: true },
     })) {
       try {
-        definitions.set(version.id, normalizeStrategyDefinition(version.definition));
+        definitions.set(
+          version.id,
+          normalizeStrategyDefinition(version.definition),
+        );
       } catch {
         definitions.set(version.id, null);
       }
@@ -320,11 +328,15 @@ export class LegacyEvidenceBackfill {
       const frame = await this.readFrame(
         securities.get(securityId),
         candidates.map((entry) => entry.candidate),
-        candidates.flatMap((entry) => (entry.definition ? [entry.definition] : [])),
+        candidates.flatMap((entry) =>
+          entry.definition ? [entry.definition] : [],
+        ),
       );
       for (const { row, candidate, definition } of candidates) {
         const level = definition
-          ? monitorStrategyLevels(definition).find((entry) => entry.id === row.levelId)
+          ? monitorStrategyLevels(definition).find(
+              (entry) => entry.id === row.levelId,
+            )
           : undefined;
         const decided = verifyLegacyEvent(
           candidate,
@@ -371,10 +383,14 @@ export class LegacyEvidenceBackfill {
       candidate.session,
       ...(candidate.occurrence ? [candidate.occurrence.activatedOn] : []),
     ]);
-    const from = dates.reduce((oldest, date) => (date < oldest ? date : oldest));
+    const from = dates.reduce((oldest, date) =>
+      date < oldest ? date : oldest,
+    );
     const to = dates.reduce((newest, date) => (date > newest ? date : newest));
     const operands = [
-      ...new Set(definitions.flatMap((definition) => collectOperands(definition))),
+      ...new Set(
+        definitions.flatMap((definition) => collectOperands(definition)),
+      ),
     ].sort();
     try {
       // A few sessions earlier than the oldest date, so a Trigger's previous session is in it.
