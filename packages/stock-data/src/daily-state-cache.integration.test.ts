@@ -1219,6 +1219,67 @@ describeInfrastructure("columnar daily-state chunks against PostgreSQL", () => {
     expect(provider.calls).toEqual([]);
   });
 
+  it("reads a non-resident LRU security's windows from PostgreSQL on request: the same frames, nothing admitted", async () => {
+    const cache = cacheOver();
+    const service = serviceOver(cache);
+    const plain = serviceOver();
+    const windows = years
+      .filter((each) => each >= 2020)
+      .map((year) => ({
+        from: `${year}-01-01`,
+        to: year === 2026 ? TODAY : `${year}-12-31`,
+      }));
+    const expected: EvaluationFrame[] = [];
+    for (const window of windows) {
+      expected.push(
+        await plain.readDailyEvaluationFrame(security, window, FRAME_OPERANDS),
+      );
+    }
+    await cache.evict(security.id);
+    expect(await cache.isNonResidentLruSecurity(security.id)).toBe(true);
+
+    let storeReads = 0;
+    const onStoreRead = () => {
+      storeReads += 1;
+    };
+    // A run's window loop: consecutive windows with a carry, as the backtest worker reads them.
+    const carry = new EvaluationWindowCarry();
+    for (const [index, window] of windows.entries()) {
+      expectSameFrame(
+        await service.readDailyEvaluationFrame(
+          security,
+          window,
+          FRAME_OPERANDS,
+          { carry, nonResidentRead: "STORE", onStoreRead },
+        ),
+        expected[index]!,
+        window.from,
+      );
+    }
+    expect(storeReads).toBe(windows.length);
+    expect(await cache.hasResidentStock(security.id)).toBe(false);
+    expect(
+      await namespaceKeys(`${namespace}:security:${security.id}:*`),
+    ).toEqual([]);
+
+    // Once resident again, the option changes nothing: the projection serves the read.
+    await plain.readDailyEvaluationFrame(security, windows[0]!, FRAME_OPERANDS);
+    expect(await cache.isNonResidentLruSecurity(security.id)).toBe(false);
+    storeReads = 0;
+    expectSameFrame(
+      await service.readDailyEvaluationFrame(
+        security,
+        windows[0]!,
+        FRAME_OPERANDS,
+        { nonResidentRead: "STORE", onStoreRead },
+      ),
+      expected[0]!,
+      "resident",
+    );
+    expect(storeReads).toBe(0);
+    expect(provider.calls).toEqual([]);
+  });
+
   /**
    * The protected tier (`docs/decisions/protected-stock-tier-v1.md`): the same keys, published from
    * PostgreSQL alone, resident outside the LRU and rebuilt identically after a flush.

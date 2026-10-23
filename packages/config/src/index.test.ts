@@ -710,6 +710,7 @@ describe("backtest worker configuration", () => {
       checkpointEveryDays: 5,
       checkpointMinIntervalMs: 1_000,
       frameConcurrency: 4,
+      nonResidentFrameRead: "REBUILD",
     });
   });
 
@@ -735,6 +736,22 @@ describe("backtest worker configuration", () => {
     expect(config.checkpointEveryDays).toBe(10);
     expect(config.checkpointMinIntervalMs).toBe(500);
     expect(config.frameConcurrency).toBe(12);
+  });
+
+  it("reads how a window reads a non-resident security, and refuses anything else", () => {
+    expect(
+      getBacktestWorkerConfig({ BACKTEST_NON_RESIDENT_FRAME_READ: "STORE" })
+        .nonResidentFrameRead,
+    ).toBe("STORE");
+    expect(
+      getBacktestWorkerConfig({ BACKTEST_NON_RESIDENT_FRAME_READ: "REBUILD" })
+        .nonResidentFrameRead,
+    ).toBe("REBUILD");
+    for (const value of ["store", "POSTGRES", "1"]) {
+      expect(() =>
+        getBacktestWorkerConfig({ BACKTEST_NON_RESIDENT_FRAME_READ: value }),
+      ).toThrow(/BACKTEST_NON_RESIDENT_FRAME_READ/);
+    }
   });
 
   it("rejects a worker count that cannot run", () => {

@@ -212,6 +212,10 @@ class FakeRedis implements RedisCacheClient {
         )),
       ];
     }
+    if (script.includes("lru-candidate")) {
+      if (this.sortedSets.get(keys[0]!)?.has(args[0]!)) return 0;
+      return this.sets.get(keys[1]!)?.has(args[0]!) ? 0 : 1;
+    }
     if (script.includes("protected-ready")) {
       if (!this.sets.get(keys[0]!)?.has(args[0]!)) return 0;
       const manifest = this.values.get(keys[1]!);
@@ -899,6 +903,33 @@ describe("two residency tiers", () => {
       cache.readDailyPrices("universe-1", range),
     ).resolves.toHaveLength(1);
     await expect(cache.readDailyPrices("other-1", range)).resolves.toBeNull();
+  });
+
+  it("names as a non-resident LRU security only a stock a read would rebuild into the LRU", async () => {
+    const redis = new FakeRedis();
+    const universe: ReadonlySet<string> = new Set(["universe-1"]);
+    const cache = new RedisStockDataCache(
+      redis,
+      1,
+      ns,
+      undefined,
+      {},
+      undefined,
+      {
+        eligible: async () => universe,
+      },
+    );
+    await cache.protectStocks(["designated"]);
+    await publish(cache, "other-1");
+    // Resident in the LRU; designated (READY or not); admitted by the canonical universe: none.
+    await expect(cache.isNonResidentLruSecurity("other-1")).resolves.toBe(false);
+    await expect(cache.isNonResidentLruSecurity("designated")).resolves.toBe(false);
+    await expect(cache.isNonResidentLruSecurity("universe-1")).resolves.toBe(false);
+    // Never read, or evicted by capacity: a read would rebuild it into the LRU.
+    await expect(cache.isNonResidentLruSecurity("never-read")).resolves.toBe(true);
+    await publish(cache, "other-2");
+    await expect(cache.isNonResidentLruSecurity("other-1")).resolves.toBe(true);
+    await expect(cache.isNonResidentLruSecurity("other-2")).resolves.toBe(false);
   });
 
   it("never adds an LRU member on a read, and reports every eviction with its victims", async () => {

@@ -519,6 +519,20 @@ export type EvaluationFrameOptions = {
    * pinned generation, so the frame is the same frame.
    */
   carry?: EvaluationWindowCarry;
+  /**
+   * How a frame of a security that is **not resident and belongs to the LRU tier** is read.
+   *
+   * - `REBUILD` (the default, and every caller but the backtest window loop): the read rebuilds the
+   *   security's whole maintained history into Redis and admits it to the LRU, as any read does.
+   * - `STORE`: this window's rows are read from PostgreSQL — the canonical rows the projection is
+   *   built from, under the same pinned generation — and nothing is admitted. A backtest over more
+   *   ordinary securities than the LRU holds otherwise rebuilds each of them, whole, in every
+   *   calendar-year window, and evicts the stocks people are reading meanwhile
+   *   (`docs/production/benchmarks.md`, "LRU"). Protected and resident securities are unaffected.
+   */
+  nonResidentRead?: "REBUILD" | "STORE";
+  /** Called once for each frame `nonResidentRead: "STORE"` served from PostgreSQL. */
+  onStoreRead?: () => void;
 };
 
 /**
@@ -1774,10 +1788,24 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     const carried =
       carry?.take(security.id, expected, context.from, period.from) ?? null;
     const read = carried ? { from: period.from, to: context.to } : context;
+    const fromStore =
+      options.nonResidentRead === "STORE" &&
+      (await this.cache.isNonResidentLruSecurity?.(security.id)) === true;
+    if (fromStore) {
+      options.onStoreRead?.();
+    }
     const [readPrices, readDerived, alternativeData, valuation] =
       await Promise.all([
-        this.readDailyPriceProjection(security, read, "BACKTEST"),
-        this.readDailyDerivedStateProjection(security, read, "BACKTEST"),
+        fromStore
+          ? this.readStoredRange(security, read, (range) =>
+              this.store.getDailyPrices(security.id, range),
+            )
+          : this.readDailyPriceProjection(security, read, "BACKTEST"),
+        fromStore
+          ? this.readStoredRange(security, read, (range) =>
+              this.store.getDailyDerivedState(security.id, range),
+            )
+          : this.readDailyDerivedStateProjection(security, read, "BACKTEST"),
         // Reads only; `prepareDailyEvaluationData` already ingested, exactly as it already hydrated.
         this.loadAlternativeDataFacts(security, operands, context, options),
         // The prepared inputs when the run passes them, so a window never reads the statements again.
@@ -2471,6 +2499,20 @@ export class CanonicalStockDataService implements StockDetailsDataService {
     if (!(await this.cache.renewHydration(hydrating))) {
       throw new Error("Stock cache hydration generation changed");
     }
+  }
+
+  /**
+   * Canonical rows of one backtest read range, from PostgreSQL alone: the same bounded range the
+   * projection read would have asked Redis for, so a `STORE` frame reads exactly the rows a
+   * resident one does.
+   */
+  private async readStoredRange<T>(
+    security: Security,
+    requested: Required<DateRange>,
+    read: (range: Required<DateRange>) => Promise<T[]>,
+  ): Promise<T[]> {
+    const projection = this.projectionRange(security, requested, "BACKTEST");
+    return projection ? read(projection) : [];
   }
 
   private async readDailyPriceProjection(

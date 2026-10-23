@@ -797,7 +797,23 @@ export function getBacktestWorkerConfig(env: Environment = process.env) {
       1_000,
     ),
     frameConcurrency: integer(env, ["BACKTEST_FRAME_LOAD_CONCURRENCY"], 4),
+    nonResidentFrameRead: nonResidentFrameRead(env),
   } as const;
+}
+
+/**
+ * How a backtest window reads a security that is neither resident nor protected
+ * (`EvaluationFrameOptions.nonResidentRead` in `@intrinsic/stock-data`): `REBUILD` rebuilds it into
+ * the LRU as every other read does; `STORE` reads the window from PostgreSQL without admitting it.
+ */
+function nonResidentFrameRead(env: Environment): "REBUILD" | "STORE" {
+  const value = optional(env, "BACKTEST_NON_RESIDENT_FRAME_READ") ?? "REBUILD";
+  if (value !== "REBUILD" && value !== "STORE") {
+    throw new Error(
+      "Invalid application configuration: BACKTEST_NON_RESIDENT_FRAME_READ must be REBUILD or STORE",
+    );
+  }
+  return value;
 }
 
 /**

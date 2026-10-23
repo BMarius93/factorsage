@@ -77,6 +77,7 @@ const loop = new BacktestWorkerLoop(
     {
       workerId,
       frameConcurrency: config.frameConcurrency,
+      nonResidentFrameRead: config.nonResidentFrameRead,
       checkpointEveryDays: config.checkpointEveryDays,
       checkpointMinIntervalMs: config.checkpointMinIntervalMs,
       leaseMs: config.leaseMs,

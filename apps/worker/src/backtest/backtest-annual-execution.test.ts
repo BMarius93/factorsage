@@ -23,7 +23,7 @@ import type {
 } from "@intrinsic/domain";
 import { BacktestRunStatus } from "@intrinsic/database";
 import { createLogger } from "@intrinsic/observability";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   BacktestProcessor,
   type BacktestBenchmarkLoader,
@@ -265,6 +265,8 @@ class RecordingFrameLoader implements BacktestFrameLoader {
   readonly windows: Required<DateRange>[] = [];
   /** The generation each window read was pinned to. */
   readonly pins: (number | undefined)[] = [];
+  /** How each window read asked for a non-resident security to be read. */
+  readonly readModes: ("REBUILD" | "STORE" | undefined)[] = [];
 
   constructor(
     private readonly failWindowStartingIn?: string,
@@ -294,10 +296,19 @@ class RecordingFrameLoader implements BacktestFrameLoader {
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
-    options?: { priceBasisGeneration?: number },
+    options?: {
+      priceBasisGeneration?: number;
+      nonResidentRead?: "REBUILD" | "STORE";
+      onStoreRead?: () => void;
+    },
   ): Promise<EvaluationFrame> {
     this.windows.push(range);
     this.pins.push(options?.priceBasisGeneration);
+    this.readModes.push(options?.nonResidentRead);
+    if (options?.nonResidentRead === "STORE") {
+      // The fixture security is never resident: every window is a store read.
+      options.onStoreRead?.();
+    }
     if (
       this.failWindowStartingIn &&
       range.from.startsWith(this.failWindowStartingIn)
@@ -383,6 +394,7 @@ class FixtureBenchmarks implements BacktestBenchmarkLoader {
 function processorWith(
   stockData: BacktestFrameLoader,
   repository: RecordingRepository = new RecordingRepository(),
+  options: { nonResidentFrameRead?: "REBUILD" | "STORE" } = {},
 ) {
   const processor = new BacktestProcessor(
     {
@@ -416,6 +428,7 @@ function processorWith(
       checkpointMinIntervalMs: 0,
       leaseMs: 60_000,
       workerId: "worker-under-test",
+      ...options,
     },
   );
   return { processor, repository };
@@ -610,6 +623,33 @@ describe("annual execution windows", () => {
  *
  * Nothing here moves a timeout, and no case depends on wall-clock timing.
  */
+describe("non-resident frame reads", () => {
+  it("asks for, and counts, store reads only when configured to", async () => {
+    const debug = vi.spyOn(logger, "debug");
+    const store = new RecordingFrameLoader();
+    try {
+      const { processor, repository } = processorWith(store, undefined, {
+        nonResidentFrameRead: "STORE",
+      });
+      await processor.process(claimOf(snapshotDocument()), lease);
+      expect(repository.failures).toEqual([]);
+      expect(store.readModes).toEqual(["STORE", "STORE", "STORE"]);
+      const loaded = debug.mock.calls
+        .map(([entry]) => entry as unknown as Record<string, unknown>)
+        .filter((entry) => entry?.event === "backtest.window.loaded");
+      expect(loaded.map((entry) => entry.storeReads)).toEqual([1, 1, 1]);
+    } finally {
+      debug.mockRestore();
+    }
+
+    const rebuild = new RecordingFrameLoader();
+    const { processor, repository } = processorWith(rebuild);
+    await processor.process(claimOf(snapshotDocument()), lease);
+    expect(repository.failures).toEqual([]);
+    expect(rebuild.readModes).toEqual([undefined, undefined, undefined]);
+  });
+});
+
 describe("progress checkpoint durability", () => {
   /** Written by `PREPARING_DATA` / `RUNNING` / `FINALIZING`, and by nothing else. */
   const isPhaseTransition = (write: BacktestProgressWrite): boolean =>

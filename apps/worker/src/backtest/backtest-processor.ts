@@ -121,6 +121,8 @@ export interface BacktestFrameLoader {
       priceBasisGeneration?: number;
       valuation?: ValuationTimeline;
       carry?: EvaluationWindowCarry;
+      nonResidentRead?: "REBUILD" | "STORE";
+      onStoreRead?: () => void;
     },
   ): Promise<EvaluationFrame>;
 }
@@ -238,6 +240,11 @@ type PreparedRun = {
 
 export type BacktestProcessorOptions = {
   frameConcurrency: number;
+  /**
+   * How a window reads a security that is neither resident nor protected: rebuild it into the LRU
+   * (`REBUILD`, the default) or read the window from PostgreSQL without admitting it (`STORE`).
+   */
+  nonResidentFrameRead?: "REBUILD" | "STORE";
   checkpointEveryDays: number;
   checkpointMinIntervalMs: number;
   leaseMs: number;
@@ -1259,7 +1266,8 @@ export class BacktestProcessor implements BacktestJobProcessor {
         throw new BacktestInterruptedError(interruption);
       }
       const startedAt = Date.now();
-      const frames = await this.loadWindowFrames(prepared, window);
+      const reads = { store: 0 };
+      const frames = await this.loadWindowFrames(prepared, window, reads);
       const durationMs = Date.now() - startedAt;
       this.dependencies.logger.debug({
         event: "backtest.window.loaded",
@@ -1269,6 +1277,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
         durationMs,
         securityCount: frames.length,
         tradingDays: window.dates.length,
+        storeReads: reads.store,
       });
       archive?.recordWindowLoad({ window, durationMs, frames });
       await simulation.consumeWindow(window, { frames });
@@ -1290,7 +1299,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
   private async loadWindowFrames(
     prepared: PreparedRun,
     window: BacktestExecutionWindow,
+    reads: { store: number } = { store: 0 },
   ): Promise<EvaluationFrame[]> {
+    const nonResidentRead = this.options.nonResidentFrameRead ?? "REBUILD";
     const range = { from: window.from, to: window.to } as const;
     const frames: EvaluationFrame[] = new Array(prepared.securities.length);
     await this.mapWithConcurrency(prepared.securities, async (entry, index) => {
@@ -1303,6 +1314,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
             {
               resolveGroupMembers: prepared.resolveGroupMembers,
               carry: prepared.carry,
+              ...(nonResidentRead === "STORE"
+                ? {
+                    nonResidentRead,
+                    onStoreRead: () => {
+                      reads.store += 1;
+                    },
+                  }
+                : {}),
               ...(entry.priceBasisGeneration === undefined
                 ? {}
                 : { priceBasisGeneration: entry.priceBasisGeneration }),
