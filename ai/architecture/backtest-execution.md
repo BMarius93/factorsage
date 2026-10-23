@@ -504,8 +504,9 @@ same transaction as the run, so the queue and the execution record cannot disagr
 harmless, and an expired lease self-heals.
 
 ```text
-BacktestJob   QUEUED -> CLAIMED -> COMPLETED | FAILED
-BacktestRun   QUEUED -> PREPARING_DATA -> RUNNING -> FINALIZING -> COMPLETED | FAILED
+BacktestJob   QUEUED -> CLAIMED -> COMPLETED | FAILED | CANCELLED
+BacktestRun   QUEUED -> PREPARING_DATA -> RUNNING -> FINALIZING -> COMPLETED | FAILED | CANCELLED
+              QUEUED -> CANCELLED                    (cancelled before any worker took it)
 ```
 
 - **Claiming** is `SELECT … FOR UPDATE SKIP LOCKED` over `BacktestJob`, which is what makes two
@@ -549,6 +550,47 @@ the shared FMP gate so a large backtest cannot starve Stock Details.
 
 `BACKTEST_WORKER_PROCESSES` defaults to 2 — a conservative local value. Set it to 1 for a
 single-process environment; scale it with cores where several users run backtests concurrently.
+
+## Global admission
+
+How many backtests execute at once is a **deployment-wide** number, not a per-process one:
+`BACKTEST_GLOBAL_MAX_RUNNING` (production 4; unset = no cap, the development default). Processes can
+outnumber it — during a rolling deploy two supervisors overlap, and a second host may be added — and
+the cap still holds, because it is decided inside the claim, in PostgreSQL:
+
+1. The claim transaction takes `pg_advisory_xact_lock(8362, 0)` (`lockBacktestAdmission`), so
+   admission decisions are serialized deployment-wide; the lock is released by the commit.
+2. It counts the jobs executing now (`CLAIMED` with a live lease). At the cap, it claims nothing.
+3. It reads a batch of candidates ordered **fairly**: by how many runs the candidate's owner is
+   already executing, then by `availableAt`, `createdAt`, `id`. A user's second run therefore waits
+   behind every other user's first. No plan, payment or role changes the order — there is no paid
+   priority.
+4. For each candidate it **try**-locks the owner's entitlement scope
+   (`pg_try_advisory_xact_lock(8361, hashtext(userId))`). An owner whose lock is held — a billing
+   reconciliation or a submission mid-flight — is passed over for this claim rather than waited on,
+   so one slow billing write cannot stall the whole queue (OPS-11). It then re-reads the owner's
+   plan and role and applies the per-user limit (`maxConcurrentRuns`; Pro+ 2).
+5. It claims the job with `FOR UPDATE SKIP LOCKED`, excluding a job whose cancellation is pending.
+
+The executing count is `CLAIMED` jobs **with a live lease** (`BACKTEST_JOB_LEASE_MS`, default
+60 s, renewed every heartbeat). A crashed worker's slot therefore returns within one lease, without
+waiting for stale recovery. The one way the cap can be exceeded is a worker that is alive but
+stalled past its lease (a blocked event loop): its slot is reclaimable while it is still computing,
+until its next heartbeat finds the lease lost and it stops — its writes are ownership-guarded, so
+only CPU, never data, is doubled. The benchmark's event-loop probe measures how far real stalls are
+from the lease (`../../docs/production/benchmarks.md`). Pro+'s two runs execute simultaneously when
+capacity allows; they never hold more than two slots.
+
+**Backpressure.** Submission counts the deployment's `QUEUED` jobs inside its own transaction and
+refuses beyond `BACKTEST_QUEUE_MAX_QUEUED` (default 100) with `503 BACKTEST_QUEUE_FULL` and
+`Retry-After` (`BACKTEST_QUEUE_FULL_RETRY_AFTER_SECONDS`, default 60), creating nothing. A queued
+run's detail and progress carry `queue: { ahead, executing, capacity }` — informational, since fair
+ordering means `ahead` is an upper bound on who starts first.
+
+**What a slot covers.** A claimed run holds its slot through `PREPARING_DATA` too: hydration of
+securities PostgreSQL has never stored (a true provider miss) happens inside the slot. The
+tradeoff and its measured cost are in `../../docs/production/benchmarks.md` ("Preparation inside
+the slot").
 
 ## Progress and live results
 
@@ -742,14 +784,24 @@ allowlists.
 
 See `../../docs/development/backtest-debug-archive.md`.
 
-## Cancellation — deferred
+## Cancellation
 
-V1 has no cancel. The claim/lease machinery would support it cheaply — the worker already re-reads
-the job row on every checkpoint — but a usable cancellation is an API endpoint, an authorization
-rule, a terminal `CANCELLED` status through the contract and the UI, and its own tests, and a
-half-built one is worse than none. A run that must be stopped today is stopped by its worker
-exiting; the lease then expires and `maxAttempts` bounds the retries. Adding cancellation later is
-additive: a `cancelRequestedAt` column, a status member, and a check at the existing checkpoint.
+`POST /backtests/{runId}/cancel` (owner only; another user's run is a `404`):
+
+- **Queued** — the job row is locked (`FOR UPDATE`) and, still `QUEUED`, becomes `CANCELLED` with
+  the run, in one transaction: `completedAt` set, no result. The owner's concurrency slot is free at
+  once, because only `QUEUED` and executing runs count as in flight.
+- **Executing** — the request is recorded (`BacktestJob.cancelRequestedAt`); the response carries
+  `cancellation: { requestedAt }` and the status is unchanged. The worker notices on its own cadence
+  (`CANCELLATION_POLL_INTERVAL_MS` = 2 s, and on every lease renewal), interrupts the run at its next
+  checkpoint (`BacktestInterruptedError("CANCELLED")`) and acknowledges with an ownership-guarded
+  `cancelJob`: job and run `CANCELLED`, progress cleared. The slot is held until that write, so the
+  global cap stays strict.
+- **Recovery** — a stale job with a pending cancellation is cancelled rather than requeued, and a
+  released job (graceful shutdown) with one is cancelled rather than released; a job whose
+  cancellation is pending is never claimed.
+- Idempotent: cancelling a cancelled run answers `200` with it. A finished run is
+  `409 BACKTEST_NOT_CANCELLABLE`.
 
 ## Performance
 
