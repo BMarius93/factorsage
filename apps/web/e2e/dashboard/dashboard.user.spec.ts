@@ -59,18 +59,21 @@ test.describe("PRO_USER dashboard", () => {
       page.getByRole("link", { name: "Run backtest" }),
     ).toBeVisible();
 
-    // Active first, then ended — each with its Why.
+    // Active first, then ended — each with its Why. The Monitor's own table is its full history:
+    // the last occurrence ended before the Dashboard's 30-day window, so only this page lists it.
     const rows = page.getByTestId("monitor-signal-row");
-    await expect(rows).toHaveCount(2);
+    await expect(rows).toHaveCount(3);
     await expect(rows.first().getByTestId("monitor-signal-status")).toHaveText(
       "Active",
     );
-    await expect(rows.last().getByTestId("monitor-signal-status")).toHaveText(
-      "Ended · conditions no longer hold",
-    );
-    await expect(rows.last().getByTestId("monitor-why")).toContainText(
-      "did not hold",
-    );
+    for (const ended of [rows.nth(1), rows.nth(2)]) {
+      await expect(ended.getByTestId("monitor-signal-status")).toHaveText(
+        "Ended · conditions no longer hold",
+      );
+      await expect(ended.getByTestId("monitor-why")).toContainText(
+        "did not hold",
+      );
+    }
     await expect(page.getByTestId("monitor-coverage-line")).toContainText(
       "Evaluated through the",
     );
