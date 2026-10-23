@@ -67,7 +67,12 @@ its own measured capacity in §4 and sized to stay out of their way.
 |      1,000 |    2.20 min (2) |           2.58 min (8) | 2.58 min |
 
 Plus **4.31 s of slot time per cold non-canonical member** (`H-cold-mixed-shared`: preparation
-1,082 s vs 4.3 s warm, four runs sharing 1,000 rebuilt securities).
+1,082 s vs 4.3 s warm, four runs sharing 1,000 rebuilt securities). That is the conservative end:
+there all four slots waited on the same rebuilds. When each run rebuilds its own members
+(`H-warm-mixed-disjoint`, three runs rebuilding 684 securities at once) a rebuild cost **~2.4 s** of
+slot time, plus ~0.04 s per security-year for members another run's preparation evicted before the
+windows read them. With 2.4 s the capacities in the cold columns of §3.2 would be 1.5–1.7× higher;
+the tables keep 4.31 s.
 
 ### 3.2 Capacity of the four slots, by workload mix and cold share
 

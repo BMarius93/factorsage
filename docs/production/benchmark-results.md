@@ -67,6 +67,26 @@ of its work runs off the JavaScript thread); PostgreSQL had ≤ 18 connections a
 blocks — on this machine's network block storage a window read from PostgreSQL costs ~40 ms per security-year, about
 ten times a Redis frame read (3.5 ms).
 
+**Four users whose ordinary members exceed the LRU together** (`H-warm-mixed-disjoint`: 750 + 750 +
+1,000 + 1,000, the four lists' 1,400 ordinary members spanning the whole 1,000-security pool, LRU
+500, warm): **15.6 min** for the four, against 2.6 min when the four lists share their members.
+
+| Run   | Execution | Preparation | Frame reads (from PostgreSQL) | Evictions caused | Digest                         |
+| ----- | --------: | ----------: | ----------------------------- | ---------------: | ------------------------------ |
+| 1,000 |     195 s |       4.4 s | 163 s (0)                     |                0 | `6fd89fb1…`                    |
+| 750   |     766 s |       619 s | 122 s (0)                     |              300 | `868e738e…`                    |
+| 750   |     776 s |       434 s | 318 s (3,472)                 |              124 | `ab76eccf…` = the H 750 list   |
+| 1,000 |     938 s |       619 s | 295 s (3,472)                 |              260 | `851d9aa3…` = the H 1,000 list |
+
+The run whose members were all resident took 195 s (157 s when all four are resident: the others'
+rebuilds took CPU from it); the other three rebuilt 684 securities between them in 434–619 s of
+preparation — **~2.4 s of slot time per rebuilt security**, against 4.3 s in the cold shared run,
+where all four slots waited on the same rebuilds — and two of them then read 3,472 frames from
+PostgreSQL that the others' preparation had evicted (+130–170 s each). The two
+lists that also ran in the shared, fully resident `H` runs produced **the same digests** here, under
+684 evictions and 6,944 window reads from PostgreSQL. Worker memory peaked at 2.12 GB per process
+(5.8 GB for the four); event-loop delay inside the preparing workers reached 6.9 s.
+
 ## 3. Per-plan workloads and four simultaneous executions (warm cache)
 
 30-year runs ending on the newest stored session (2026-10-22), the simple strategy (SMA 200
@@ -125,3 +145,25 @@ Hydration and computation separate cleanly: the 1,000 rebuilds cost **~4.3 s of 
 security** with four workers sharing them (the protected tier alone rebuilt at 0.8–0.84 securities/s,
 §1), while computation was the same as warm. The rebuild is CPU-bound (decoding PostgreSQL rows and
 encoding the year chunks); PostgreSQL itself used 34 s of CPU over the 21 minutes.
+
+## 5. True provider miss
+
+### Real FMP: the one sample
+
+`scripts/cloud/fmp-live.sh`, 2026-10-23, three approved securities, a budget of 200 requests, the
+development database (`benchmark-results/fmp-live-sample-2026-10-23.txt`):
+
+|                                                                           |   AAPL |   MSFT |    KO |
+| ------------------------------------------------------------------------- | -----: | -----: | ----: |
+| Hydration                                                                 | 13.1 s | 14.6 s | 9.7 s |
+| … prices, statements and derived state                                    |  9.0 s |  8.0 s | 7.5 s |
+| … splits and valuation ratios                                             |  0.7 s |  1.3 s | 0.6 s |
+| … insider and congressional trades                                        |  3.4 s |  5.3 s | 1.7 s |
+| Requests (profile 2, prices 2, statements 6, splits 1, insider, congress) |     23 |     26 |    17 |
+| Daily prices stored                                                       |  8,559 |  8,559 | 8,559 |
+
+37.9 s for the three, sequentially; 66 requests, none retried, none refused; 8,559 sessions each
+(1992-10-22 → 2026-10-22). The same three through the synthetic provider took 23.5 s (median 7.1 s
+per security) with 65 requests — 35 of them the exchange-holiday calendar's first fill, which the live
+sample did not request — and 6.9 MB of responses; the synthetic
+provider serves no insider or congressional data.
