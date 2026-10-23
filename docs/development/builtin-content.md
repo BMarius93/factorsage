@@ -9,7 +9,7 @@ their data comes from. `docs/decisions/builtin-dashboard-signals-v1.md` is the p
 
 ```bash
 pnpm builtins:bootstrap     # deploy step: create any missing built-in by systemKey (DATABASE_URL)
-pnpm monitors:scan-once     # run one Monitor cycle now; reconstructs the new Monitors' state
+pnpm monitors:scan-once     # run one Monitor cycle now; evaluates the new Monitors' last 30 days
 pnpm builtins:reset         # development: restore every built-in to the catalog (refused in production)
 pnpm test:builtins:seed     # deterministic QA built-ins for Playwright (TEST_DATABASE_URL only)
 ```
@@ -25,9 +25,10 @@ pnpm test:builtins:seed     # deterministic QA built-ins for Playwright (TEST_DA
   missing symbol; run the catalog synchronization (`POST /admin/securities/sync` as an
   administrator) and bootstrap again.
 - **Monitor state is reconstructed, not seeded.** The bootstrap creates no state. The first cycle —
-  scheduled, or `pnpm monitors:scan-once` — replays about a year of closed history per level and
-  records at most one `reconstructed` occurrence and one transition per level
-  (`ai/architecture/monitor-engine.md`, "Reconstruction").
+  scheduled, or `pnpm monitors:scan-once` — reconstructs each level's exact state before the
+  rolling 30-day activity window from closed history, then records every change of the window on
+  its own session, From history (`ai/architecture/monitor-engine.md`, "Reconstruction";
+  `docs/decisions/monitor-eod-v2.md` §12).
 - **Production administrator.** An ordinary user with `role = ADMIN`, created with `pnpm db:seed`
   from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in the environment. No credential is in source control, and
   the QA `ADMIN_USER` persona is a test account only.

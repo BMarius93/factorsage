@@ -859,7 +859,7 @@ visibility switch — opens the shared sign-in prompt in place. Navigating a Gue
 discarded the page they were reading to tell them they needed an account to change it.
 
 **Monitor visibility moves to the Monitors page (supersedes section 4 and section 5.2's placement,
-not their semantics).** The toggle is a property of a Monitor, so it lives in the built-in section
+not their semantics; itself superseded by section 17b).** The toggle is a property of a Monitor, so it lives in the built-in section
 of the Monitors collection. The Dashboard is the signal table alone: the monitor cards below it
 competed with the signals they configured and made the product's home page read as a settings
 screen. The preference itself is unchanged — one `UserBuiltInMonitorPreference` override row, per
@@ -883,6 +883,29 @@ state AND action.
 first and built-in content second, in two sections, rather than one mixed table. A signed-in user
 with nothing of their own gets a compact empty section, never a full-page empty state that hides
 the built-ins below it.
+
+## 17b. Accepted amendment — one Enabled switch (2026-10-23)
+
+`docs/decisions/monitor-eod-v2.md` §12.4 is the decision; this records what it changes here.
+
+**One switch for every Monitor (supersedes 17a's "Monitor visibility moves to the Monitors page"
+and the "visibility" wording of sections 4 and 5).** The product no longer has an "On my
+Dashboard" concept. Every Monitor row — the viewer's own and every built-in — has the same
+**Enabled / Disabled** switch in the same column, and the Dashboard shows exactly the activity of
+the Monitors Enabled for the viewer. On a built-in the switch is the viewer's own choice, saved
+through the ordinary `PATCH /monitors/:monitorId { enabled }` as the same
+`UserBuiltInMonitorPreference` override row (absent = enabled; a Guest is always on the default and
+is asked to sign in). It never changes the shared evaluation (section 5's "do not clone" stands),
+never counts against a plan, and one viewer's choice never affects another's. Administrators keep
+the operator switches (`isGloballyEnabled`, `isPublished`, order, name) through the same route; a
+non-administrator sending them is refused (403). `PUT /dashboard/monitors/:monitorId/visibility`,
+`dashboardVisible`, and the Dashboard's `visible`/`control` fields are removed.
+
+**Collections share one table shape (amends 17a's "Collections separate ownership").** "Your
+monitors" and "Built-in monitors" keep their two sections but use the same columns — Monitor,
+Enabled, Strategy, Stock list, Active signals, Last checked, and the actions menu for a signed-in
+viewer — the same typography, pills and switch. Under the switch go only what it cannot say: "Paused
+— plan limit" with its reason, "Paused by FactorSage", and the window synchronization state.
 
 ## 18. Recommended implementation order
 

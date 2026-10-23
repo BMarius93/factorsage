@@ -315,9 +315,10 @@ Monitor (user-owned with `enabled`, or SYSTEM built-in with isPublished / isGlob
   +-- produces Signal occurrences (created on entering ACTIVE, resolved with a reason, never
   |   reopened) and a transition history of state changes only
   |
-Dashboard = ACTIVE occurrences + PENDING_TRIGGER setups of every Monitor the viewer can see
-  +-- Guest: published built-ins; signed-in: those not hidden (UserBuiltInMonitorPreference)
-      plus the user's own enabled Monitors
+Dashboard = Monitor activity: evidenced end-of-day activations and endings of the last 30 days
+  |   (observed, or From history), of every Monitor Enabled for the viewer
+  +-- Guest: published built-ins; signed-in: those not disabled (UserBuiltInMonitorPreference)
+      plus the user's own enabled Monitors — one Enabled switch per Monitor row
 ```
 
 `product/product-overview.md` holds the one-page map of how List, Strategy, Backtest, Monitor and

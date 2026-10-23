@@ -52,8 +52,10 @@ from one session's evening to the next. Each simulated day runs the stock EOD pr
 completion, follow-up runs included, then one Monitor pass. Concurrency is the production default:
 2 securities for the stock EOD child, 4 for the Monitor pass. `productHistoryYears` is 8, as before.
 
-Steps: **cold** (first session: every security hydrated, every member reconstructed, or its 90-day
-window replayed with `--replay`), **idle** (the same evening ten minutes later: what most scan
+Steps: **cold** (first session: every security hydrated, every member reconstructed, or its
+activity window replayed with `--replay` — measured below with the retired 90-day window; since
+`docs/decisions/monitor-eod-v2.md` §12 the window is 30 calendar days, about a third of those
+sessions, and has not been re-measured), **idle** (the same evening ten minutes later: what most scan
 intervals see), **steady** (one new session) and **gap** (one run after an outage of five sessions).
 
 Same machine and versions as the V1 record below: Apple M1, 8 GB, Node 22.23.2, PostgreSQL 16.15
@@ -110,7 +112,9 @@ and Redis 7.4.11 in Docker Desktop.
   write is still one transaction per member.
 - **An idle pass is cheap.** It is one readiness read per security plus the per-Monitor loads, so
   the ten-minute scan interval costs a few seconds an hour at 9,000 members.
-- **The replay is a one-off.** A new Monitor's 90-day window is about two times its reconstruction.
+- **The replay is bounded.** A never-evaluated member's window — 90 days when measured, 30 now
+  (§12) — cost about two times its reconstruction; it runs once per member, and a member with a
+  checkpoint only catches up the sessions it missed.
 
 Steady daily provider budget: about `2 × U` requests per trading session, plus 8 for each security
 seen for the first time, plus one calendar request per exchange a day. At U = 500 that is about
