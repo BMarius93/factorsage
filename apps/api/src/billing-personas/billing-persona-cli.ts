@@ -171,7 +171,7 @@ export async function openBillingPersonaCli(input: {
 }
 
 /**
- * Refuses to go further unless the four configured prices are the V1 catalog.
+ * Refuses to go further unless the configured prices are the catalog.
  *
  * The same check as `pnpm billing:verify-catalog`, run in-process so that no way of invoking the
  * seed skips it: a fixture built on a mis-mapped price would be a persona on the wrong plan.
@@ -182,7 +182,7 @@ export async function requireVerifiedCatalog(
   const { findings } = await verifyStripeCatalog(context);
   if (findings.length === 0) {
     console.log(
-      "Catalog verified: the four configured prices match the V1 catalog.",
+      "Catalog verified: the configured prices match the catalog.",
     );
     return true;
   }

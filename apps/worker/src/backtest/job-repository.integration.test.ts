@@ -50,7 +50,8 @@ describe("backtest job claiming", () => {
       // jobs of the same owner at once. FREE would refuse the second on concurrency and the
       // protocol assertion would fail for an unrelated reason. The concurrency gate itself is
       // proven in `claim-entitlements.integration.test.ts`.
-      data: { email: `worker-${suffix}@example.test`, plan: "PRO" },
+      // PRO_PLUS, whose plan runs two at once: the suite claims two of this owner's jobs together.
+      data: { email: `worker-${suffix}@example.test`, plan: "PRO_PLUS" },
     });
     userId = user.id;
 
@@ -339,7 +340,7 @@ describe("backtest job claiming", () => {
 
     expect(
       await repository.heartbeat(seeded.jobId, workerB, new Date(), LEASE_MS),
-    ).toBe(false);
+    ).toBe("LOST");
     expect(
       await repository.updateProgress({
         jobId: seeded.jobId,

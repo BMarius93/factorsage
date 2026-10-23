@@ -31,6 +31,11 @@ export type BuiltInList = {
   name: string;
   description: string;
   displayOrder: number;
+  /**
+   * A premium predefined List (`docs/decisions/entitlements-v2.md` §6): its members are read,
+   * backtested and copied only on a plan that includes premium content. Omitted is standard.
+   */
+  premium?: boolean;
   members: readonly BuiltInListMember[];
 };
 
@@ -39,6 +44,8 @@ export type BuiltInStrategy = {
   name: string;
   description: string;
   displayOrder: number;
+  /** A premium predefined Strategy: its rules are read, run and copied on premium plans only. */
+  premium?: boolean;
   definition: StrategyDefinition;
 };
 

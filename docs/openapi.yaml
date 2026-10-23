@@ -1545,9 +1545,9 @@ paths:
           in: query
           required: false
           description: |
-            `ACTIVE` is every run still queued or executing; `COMPLETED` and `FAILED` are the two
-            terminal statuses. Case-insensitive.
-          schema: { type: string, enum: [ACTIVE, COMPLETED, FAILED] }
+            `ACTIVE` is every run still queued or executing; `COMPLETED`, `FAILED` and `CANCELLED`
+            are the terminal statuses. Case-insensitive.
+          schema: { type: string, enum: [ACTIVE, COMPLETED, FAILED, CANCELLED] }
         - name: sort
           in: query
           required: false
@@ -1643,9 +1643,15 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503":
           description: |
-            The run cannot be created under the methodology it would have to record — for example
-            the execution calendar is unavailable. Not the caller's fault, and the same request will
-            work later.
+            Not the caller's fault, and the same request will work later. Either the run cannot be
+            created under the methodology it would have to record — for example the execution
+            calendar is unavailable — or the deployment-wide queue already holds as many waiting
+            runs as it accepts (`code: BACKTEST_QUEUE_FULL`, with `Retry-After`). Nothing was
+            created.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying, on `BACKTEST_QUEUE_FULL`.
+              schema: { type: integer, minimum: 1 }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1834,6 +1840,45 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /backtests/{runId}/cancel:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    post:
+      tags: [Backtests]
+      operationId: cancelBacktestRun
+      summary: Stop the caller's run.
+      description: |
+        A `QUEUED` run is cancelled at once. An executing run keeps its execution slot until the
+        worker running it stops at its next checkpoint, usually within seconds; until then the run
+        reports `cancellation`, and then `CANCELLED`. A run that reaches its final write before the
+        worker sees the request completes normally. Idempotent: cancelling a `CANCELLED` run
+        returns it unchanged. Owner only; another user's run answers exactly like one that does not
+        exist.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "200":
+          description: The run after the request.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRunDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "409":
+          description: The run already completed or failed; there is nothing to stop.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Error" }
+                  - type: object
+                    required: [code]
+                    properties:
+                      code: { type: string, const: BACKTEST_NOT_CANCELLABLE }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /backtests/{runId}/share:
@@ -3788,6 +3833,7 @@ components:
                 - ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT
                 - ENTITLEMENT_MONITOR_LIMIT
                 - ENTITLEMENT_RESOURCE_OVER_LIMIT
+                - ENTITLEMENT_PREMIUM_CONTENT
             tier: { $ref: "#/components/schemas/EntitlementTier" }
             limit:
               { type: integer, description: What the caller's plan allows. }
@@ -3914,8 +3960,10 @@ components:
     # -------------------------------------------------------------------------------------------
     UserPlan:
       type: string
-      enum: [FREE, STARTER, PRO]
-      description: The persisted commercial plan. Server-resolved and read-only to a client.
+      enum: [FREE, STARTER, PRO, PRO_PLUS]
+      description: |
+        The persisted commercial plan, cheapest first; `PRO_PLUS` is the product's "Pro+".
+        Server-resolved and read-only to a client.
     UserRole:
       type: string
       enum: [USER, ADMIN]
@@ -3923,7 +3971,7 @@ components:
         Orthogonal to the plan: an administrator may be on any plan, and no plan grants the role.
     EntitlementTier:
       type: string
-      enum: [GUEST, FREE, STARTER, PRO, ADMIN]
+      enum: [GUEST, FREE, STARTER, PRO, PRO_PLUS, ADMIN]
       description: Which entitlement set was applied. Diagnostics and UI only.
 
     AuthUser:
@@ -4062,10 +4110,15 @@ components:
               { $ref: "#/components/schemas/EntitlementLimit" }
         builtInContent:
           type: object
-          required: [canViewLists, canViewStrategies]
+          required: [canViewLists, canViewStrategies, canUsePremium]
           properties:
             canViewLists: { type: boolean }
             canViewStrategies: { type: boolean }
+            canUsePremium:
+              type: boolean
+              description: |
+                Whether premium built-ins — premium predefined Lists and Strategies and the
+                point-in-time index universes — may be read in full, backtested and duplicated.
         lists:
           type: object
           required: [canCreateCustom, maxSaved, maxSymbols]
@@ -4595,8 +4648,20 @@ components:
       type: string
       enum: [USER, SYSTEM]
       description: |
-        `USER` content belongs to one customer. `SYSTEM` content is built in: readable by everyone,
-        Guests included, and changeable by administrators only.
+        `USER` content belongs to one customer. `SYSTEM` content is built in: changeable by
+        administrators only, and readable by everyone, Guests included — except that a **premium**
+        built-in's membership or rules are read only on a plan that includes premium content.
+    ContentPremium:
+      type: boolean
+      const: true
+      description: Present only on a premium built-in List or Strategy.
+    ContentLocked:
+      type: boolean
+      const: true
+      description: |
+        Present when the object is premium and the caller's plan does not include premium content:
+        its detail answers `403 ENTITLEMENT_PREMIUM_CONTENT`, and it cannot be backtested or
+        duplicated. Presentation only.
 
     SystemContentError:
       allOf:
@@ -4808,6 +4873,8 @@ components:
         canEdit:
           type: boolean
           description: Whether the caller may change it. Presentation only; the API authorizes every change.
+        premium: { $ref: "#/components/schemas/ContentPremium" }
+        locked: { $ref: "#/components/schemas/ContentLocked" }
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
@@ -4880,6 +4947,7 @@ components:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
         systemKey: { type: string }
         canEdit: { type: boolean }
+        premium: { $ref: "#/components/schemas/ContentPremium" }
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
@@ -5474,6 +5542,8 @@ components:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
         systemKey: { type: string }
         canEdit: { type: boolean }
+        premium: { $ref: "#/components/schemas/ContentPremium" }
+        locked: { $ref: "#/components/schemas/ContentLocked" }
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
@@ -5718,7 +5788,31 @@ components:
     # -------------------------------------------------------------------------------------------
     BacktestRunStatus:
       type: string
-      enum: [QUEUED, PREPARING_DATA, RUNNING, FINALIZING, COMPLETED, FAILED]
+      enum:
+        [QUEUED, PREPARING_DATA, RUNNING, FINALIZING, COMPLETED, FAILED, CANCELLED]
+      description: |
+        `COMPLETED`, `FAILED` and `CANCELLED` are terminal. A `CANCELLED` run was stopped by its
+        owner and holds no result.
+    BacktestQueueState:
+      type: object
+      description: |
+        Where a `QUEUED` run stands. `ahead` counts the runs queued before it, deployment-wide — an
+        upper bound on how many start first, because waiting runs are started fairly across owners.
+      required: [ahead, executing, capacity]
+      properties:
+        ahead: { type: integer, minimum: 0 }
+        executing:
+          { type: integer, minimum: 0, description: Backtests executing right now, deployment-wide. }
+        capacity:
+          { type: integer, minimum: 1, description: How many may execute at once, deployment-wide. }
+    BacktestCancellation:
+      type: object
+      description: |
+        Present while the owner's cancellation is pending: requested, and the worker executing the
+        run has not stopped yet. The run keeps its execution slot until it does.
+      required: [requestedAt]
+      properties:
+        requestedAt: { type: string, format: date-time }
 
     CreateBacktestRunRequest:
       type: object
@@ -6328,6 +6422,10 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/BacktestFailure" }
             - { type: "null" }
+        cancellation: { $ref: "#/components/schemas/BacktestCancellation" }
+        queue:
+          allOf: [{ $ref: "#/components/schemas/BacktestQueueState" }]
+          description: Present only while the run is `QUEUED`.
 
     BacktestResultSummary:
       type: object
@@ -6516,6 +6614,10 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/BacktestFailure" }
             - { type: "null" }
+        cancellation: { $ref: "#/components/schemas/BacktestCancellation" }
+        queue:
+          allOf: [{ $ref: "#/components/schemas/BacktestQueueState" }]
+          description: Present only while the run is `QUEUED`.
 
     BacktestRunStrategy:
       type: object
@@ -7406,10 +7508,10 @@ components:
     # -------------------------------------------------------------------------------------------
     BillingPriceKey:
       type: string
-      enum: [STARTER_MONTHLY, STARTER_YEARLY, PRO_MONTHLY, PRO_YEARLY]
+      enum: [STARTER_MONTHLY, PRO_MONTHLY, PRO_PLUS_MONTHLY]
       description: |
-        The complete accepted surface for naming a price. A provider price identifier is never
-        accepted from a client.
+        The complete accepted surface for naming a price: Starter, Pro and Pro+, monthly. A provider
+        price identifier is never accepted from a client.
     BillingInterval: { type: string, enum: [MONTH, YEAR] }
     BillingSubscriptionStatus:
       type: string
@@ -7430,7 +7532,7 @@ components:
       required: [key, plan, interval, amountMinorUnits, currency, lookupKey]
       properties:
         key: { $ref: "#/components/schemas/BillingPriceKey" }
-        plan: { type: string, enum: [STARTER, PRO] }
+        plan: { type: string, enum: [STARTER, PRO, PRO_PLUS] }
         interval: { $ref: "#/components/schemas/BillingInterval" }
         amountMinorUnits: { type: integer, minimum: 0 }
         currency: { type: string, const: usd }
@@ -7440,7 +7542,7 @@ components:
       type: object
       required: [plan, interval, effectiveAt]
       properties:
-        plan: { type: string, enum: [STARTER, PRO] }
+        plan: { type: string, enum: [STARTER, PRO, PRO_PLUS] }
         interval: { $ref: "#/components/schemas/BillingInterval" }
         effectiveAt: { $ref: "#/components/schemas/NullableDateTime" }
 
@@ -7458,7 +7560,7 @@ components:
         ]
       properties:
         plan:
-          oneOf: [{ type: string, enum: [STARTER, PRO] }, { type: "null" }]
+          oneOf: [{ type: string, enum: [STARTER, PRO, PRO_PLUS] }, { type: "null" }]
         interval:
           oneOf:
             [{ $ref: "#/components/schemas/BillingInterval" }, { type: "null" }]

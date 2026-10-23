@@ -11,7 +11,7 @@
  *
  * What it deliberately cannot do is as important as what it can:
  *
- * - **No product or price operation of any kind.** The shared four-price catalog is read by
+ * - **No product or price operation of any kind.** The shared price catalog is read by
  *   `StripeGateway.describePrices` and written by nobody.
  * - **One delete: a Test Clock.** Stripe removes a clock's customers and their subscriptions with
  *   it, so there is no "delete customer" or "cancel subscription now" to aim at an object this

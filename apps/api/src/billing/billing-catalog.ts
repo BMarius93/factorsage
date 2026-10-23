@@ -14,10 +14,10 @@ import {
  * This is the whole of what makes a Stripe price mean a FactorSage plan. `docs/decisions/
  * stripe-billing-v1.md` section 1 forbids inferring a plan from the amount, the product name, the
  * currency, the Dashboard ordering or arbitrary metadata, and this class is what leaves no other
- * path available: a price id that is not one of the four configured values resolves to `null`, and
+ * path available: a price id that is not one of the configured values resolves to `null`, and
  * every caller treats `null` as fail-closed.
  *
- * Environment separation falls out of the same structure. The four ids come from configuration, so
+ * Environment separation falls out of the same structure. The ids come from configuration, so
  * a sandbox deployment physically cannot resolve a live price and a live deployment cannot resolve
  * a sandbox one — an event carrying the other environment's price yields `null` and is surfaced,
  * never mapped.

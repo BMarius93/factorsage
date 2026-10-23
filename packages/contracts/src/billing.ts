@@ -29,17 +29,22 @@ import type { UserPlan } from "./entitlements.js";
 // ---------------------------------------------------------------------------
 
 /**
- * The four logical purchase targets. This list *is* the allowlist: a client names one of these,
- * never a Stripe Price ID, and the server resolves it to the configured price for its environment.
+ * The logical purchase targets. This list *is* the allowlist: a client names one of these, never
+ * a Stripe Price ID, and the server resolves it to the configured price for its environment.
  *
  * `FREE` is deliberately absent — there is no Stripe Price for it, and moving to Free is a
  * cancellation, never a price switch (decision document section 7).
+ *
+ * **Monthly only** since the 2026-10-23 catalog (`docs/decisions/stripe-billing-v1.md` §1,
+ * amended): the product specification prices Starter, Pro and Pro+ per month and fixes no annual
+ * price, and selling the retired annual prices beside the new monthly ones would have been an
+ * unapproved discount. Every interval-aware path below stays generic, so an annual price the owner
+ * fixes later is a catalog entry, a configuration name and a verifier amount — not new code.
  */
 export const BILLING_PRICE_KEYS = [
   "STARTER_MONTHLY",
-  "STARTER_YEARLY",
   "PRO_MONTHLY",
-  "PRO_YEARLY",
+  "PRO_PLUS_MONTHLY",
 ] as const;
 
 export type BillingPriceKey = (typeof BILLING_PRICE_KEYS)[number];
@@ -54,10 +59,10 @@ export function isBillingPriceKey(value: unknown): value is BillingPriceKey {
 /** A plan that can be bought. `FREE` is the absence of a paid subscription, never a purchase. */
 export type PaidPlan = Exclude<UserPlan, "FREE">;
 
-export const PAID_PLANS: readonly PaidPlan[] = ["STARTER", "PRO"];
+export const PAID_PLANS: readonly PaidPlan[] = ["STARTER", "PRO", "PRO_PLUS"];
 
 export function isPaidPlan(value: unknown): value is PaidPlan {
-  return value === "STARTER" || value === "PRO";
+  return value === "STARTER" || value === "PRO" || value === "PRO_PLUS";
 }
 
 /** Billing cadence. Uppercase because it is persisted as a PostgreSQL enum, not a Stripe string. */
@@ -85,11 +90,12 @@ export type BillingCatalogEntry = {
 };
 
 /**
- * The V1 catalog, exactly as the decision document fixes it: $9 / $99 / $29 / $299.
+ * The catalog, exactly as the decision document fixes it: $19 / $49 / $199 a month.
  *
  * These amounts are what `pnpm billing:verify-catalog` asserts against the configured Stripe
  * prices, so a Dashboard price edited to the wrong number fails loudly instead of quietly selling
- * Pro for nine dollars.
+ * Pro+ for nineteen dollars. Stripe Prices are immutable, so a new amount is always a new Price
+ * object in the Dashboard and a new configured Price ID here — never an edit of an existing one.
  */
 export const BILLING_CATALOG: Readonly<
   Record<BillingPriceKey, BillingCatalogEntry>
@@ -98,33 +104,25 @@ export const BILLING_CATALOG: Readonly<
     key: "STARTER_MONTHLY",
     plan: "STARTER",
     interval: "MONTH",
-    amountMinorUnits: 900,
+    amountMinorUnits: 1_900,
     currency: "usd",
     lookupKey: "factorsage_starter_monthly",
-  },
-  STARTER_YEARLY: {
-    key: "STARTER_YEARLY",
-    plan: "STARTER",
-    interval: "YEAR",
-    amountMinorUnits: 9_900,
-    currency: "usd",
-    lookupKey: "factorsage_starter_yearly",
   },
   PRO_MONTHLY: {
     key: "PRO_MONTHLY",
     plan: "PRO",
     interval: "MONTH",
-    amountMinorUnits: 2_900,
+    amountMinorUnits: 4_900,
     currency: "usd",
     lookupKey: "factorsage_pro_monthly",
   },
-  PRO_YEARLY: {
-    key: "PRO_YEARLY",
-    plan: "PRO",
-    interval: "YEAR",
-    amountMinorUnits: 29_900,
+  PRO_PLUS_MONTHLY: {
+    key: "PRO_PLUS_MONTHLY",
+    plan: "PRO_PLUS",
+    interval: "MONTH",
+    amountMinorUnits: 19_900,
     currency: "usd",
-    lookupKey: "factorsage_pro_yearly",
+    lookupKey: "factorsage_pro_plus_monthly",
   },
 };
 
@@ -135,28 +133,54 @@ export function billingCatalogEntry(key: BillingPriceKey): BillingCatalogEntry {
   return BILLING_CATALOG[key];
 }
 
-/** The one logical key for a (plan, interval) pair. The inverse of the catalog. */
+/**
+ * The logical key for a (plan, interval) pair, or `null` when the catalog sells no such price —
+ * an annual price while the catalog is monthly-only. The inverse of the catalog.
+ */
+export function findBillingPriceKey(
+  plan: PaidPlan,
+  interval: BillingInterval,
+): BillingPriceKey | null {
+  const entry = BILLING_CATALOG_ENTRIES.find(
+    (candidate) => candidate.plan === plan && candidate.interval === interval,
+  );
+  return entry?.key ?? null;
+}
+
+/**
+ * The logical key for a (plan, interval) pair the caller knows the catalog sells — a pair read
+ * back from a configured price, which can only be one the catalog holds.
+ */
 export function billingPriceKeyFor(
   plan: PaidPlan,
   interval: BillingInterval,
 ): BillingPriceKey {
-  const entry = BILLING_CATALOG_ENTRIES.find(
-    (candidate) => candidate.plan === plan && candidate.interval === interval,
-  );
-  if (!entry) {
-    // Unreachable while the catalog covers both plans in both intervals; the throw is what makes
-    // adding a third plan a compile-and-test failure rather than a silent `undefined`.
+  const key = findBillingPriceKey(plan, interval);
+  if (key === null) {
+    // The throw is what makes a pair the catalog does not sell a test failure rather than a
+    // silent `undefined` at a call site that assumed it exists.
     throw new Error(`No billing price key for ${plan}/${interval}`);
   }
-  return entry.key;
+  return key;
 }
+
+/**
+ * The cadences the catalog sells, in `BILLING_INTERVALS` order. Every paid plan is sold monthly;
+ * a cadence appears here only when every paid plan has a price in it, so a pricing toggle can
+ * never offer a cadence one of the cards cannot honour.
+ */
+export const OFFERED_BILLING_INTERVALS: readonly BillingInterval[] =
+  BILLING_INTERVALS.filter((interval) =>
+    PAID_PLANS.every((plan) => findBillingPriceKey(plan, interval) !== null),
+  );
 
 // ---------------------------------------------------------------------------
 // Transition classification
 // ---------------------------------------------------------------------------
 
 /**
- * Plan rank **for billing transitions only** (decision document section 7: `FREE < STARTER < PRO`).
+ * Plan rank **for billing transitions only** (decision document section 7:
+ * `FREE < STARTER < PRO < PRO_PLUS`).
  *
  * This is not an entitlement comparison and must never be used as one. Feature code asks the
  * entitlement resolver for a named capability; this ordering exists so billing can answer one
@@ -167,6 +191,7 @@ const BILLING_PLAN_RANK: Readonly<Record<UserPlan, number>> = {
   FREE: 0,
   STARTER: 1,
   PRO: 2,
+  PRO_PLUS: 3,
 };
 
 export function billingPlanRank(plan: UserPlan): number {
@@ -453,7 +478,7 @@ export type BillingStatusResponse = {
   readonly canStartCheckout: boolean;
   readonly canOpenPortal: boolean;
   readonly canChangePlan: boolean;
-  /** The four purchase targets, so the pricing UI has one source for names and amounts. */
+  /** The purchase targets, so the pricing UI has one source for names and amounts. */
   readonly catalog: readonly BillingCatalogEntry[];
 };
 
@@ -504,7 +529,7 @@ export const BILLING_ERROR_CODES = [
   "BILLING_AUTH_REQUIRED",
   /** This deployment has no Stripe configuration. */
   "BILLING_NOT_CONFIGURED",
-  /** The requested target is not one of the four catalog keys. */
+  /** The requested target is not one of the catalog keys. */
   "BILLING_INVALID_PRICE_KEY",
   /** A configured Price ID is missing, duplicated or otherwise unusable. */
   "BILLING_CATALOG_MISCONFIGURED",

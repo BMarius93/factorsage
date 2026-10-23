@@ -538,3 +538,11 @@ export type UpdateMonitorRequest = {
   /** Built-in only, administrators only. `null` clears it. */
   displayOrder?: number | null;
 };
+
+/**
+ * The `code` of the `409` refusing to switch on a Monitor beyond the deployment's operational
+ * fair-use ceiling (`MONITOR_FAIR_USE_MAX_ENABLED_PER_USER`). Distinct from every entitlement code
+ * on purpose: it is capacity protection, never a plan limit (`docs/decisions/entitlements-v2.md`
+ * §7), so a UI must not answer it with an upgrade offer.
+ */
+export const MONITOR_FAIR_USE_LIMIT_CODE = "MONITOR_FAIR_USE_LIMIT" as const;

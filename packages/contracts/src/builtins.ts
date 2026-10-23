@@ -2,8 +2,10 @@
  * Built-in (SYSTEM) content: the platform's own Lists, Strategies and Monitors.
  *
  * `docs/decisions/builtin-dashboard-signals-v1.md` is the product decision. Built-ins are ordinary
- * domain objects with a different owner: everybody — Guests included — may read and use them,
- * only an `ADMIN` may change them, and none of them counts against a customer's own content.
+ * domain objects with a different owner: everybody — Guests included — may read and use a standard
+ * built-in, only an `ADMIN` may change one, and none of them counts against a customer's own
+ * content. A **premium** built-in is read in full and used only on a plan that includes premium
+ * content (`docs/decisions/entitlements-v2.md` §6).
  */
 export const CONTENT_OWNERSHIPS = ["USER", "SYSTEM"] as const;
 export type ContentOwnership = (typeof CONTENT_OWNERSHIPS)[number];
@@ -18,6 +20,17 @@ export type ContentOwnershipResponse = {
    * is an administrator. Presentation only — every mutation is authorized by the API.
    */
   canEdit: boolean;
+  /**
+   * Present on a **premium** built-in (`docs/decisions/entitlements-v2.md` §6) — a premium
+   * predefined List or Strategy, or a point-in-time index universe. Absent for everything else.
+   */
+  premium?: true;
+  /**
+   * Present when the object is premium and the viewer's plan does not include premium content: its
+   * name, description and size are shown, its membership or rules are not, and it cannot be
+   * backtested or duplicated. Presentation only — the API refuses each of those itself.
+   */
+  locked?: true;
 };
 
 /** The `code` of a 403 refusing a non-administrator's change to built-in content. */

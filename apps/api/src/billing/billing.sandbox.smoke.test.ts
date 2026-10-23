@@ -50,7 +50,7 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
     if (!config) {
       throw new Error(
         "STRIPE_SANDBOX_SMOKE=true but no Stripe configuration is present. Set STRIPE_SECRET_KEY, " +
-          "STRIPE_WEBHOOK_SECRET and the four STRIPE_PRICE_* variables to sandbox values.",
+          "STRIPE_WEBHOOK_SECRET and the three STRIPE_PRICE_* variables to sandbox values.",
       );
     }
     if (!config.testMode) {
@@ -78,12 +78,12 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
   });
 
   /**
-   * The catalog contract: four active, recurring, USD, licensed prices at the documented amounts.
+   * The catalog contract: three active, recurring, USD, licensed prices at the documented amounts.
    *
    * This is the check that would have caught a Dashboard price edited to the wrong number, which
    * runtime deliberately cannot see because it never reads an amount.
    */
-  it("holds the four V1 prices exactly as the decision document fixes them", async () => {
+  it("holds the three catalog prices exactly as the decision document fixes them", async () => {
     const described = await gateway.describePrices(catalog.priceIds());
     expect(described).toHaveLength(BILLING_PRICE_KEYS.length);
 
@@ -105,15 +105,23 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
     }
   });
 
-  it("groups each plan's two cadences under one product", async () => {
+  it("sells each plan under a product of its own", async () => {
+    // An invoice and the Customer Portal name the product, so a Pro+ price on the Pro product
+    // would bill $199 for "Pro".
     const described = await gateway.describePrices(catalog.priceIds());
     const productOf = (key: (typeof BILLING_PRICE_KEYS)[number]) =>
       described.find((price) => price.id === catalog.resolveKey(key).priceId)
         ?.productId;
 
-    expect(productOf("STARTER_MONTHLY")).toBe(productOf("STARTER_YEARLY"));
-    expect(productOf("PRO_MONTHLY")).toBe(productOf("PRO_YEARLY"));
-    expect(productOf("STARTER_MONTHLY")).not.toBe(productOf("PRO_MONTHLY"));
+    const products = [
+      productOf("STARTER_MONTHLY"),
+      productOf("PRO_MONTHLY"),
+      productOf("PRO_PLUS_MONTHLY"),
+    ];
+    for (const product of products) {
+      expect(product).toMatch(/^prod_/);
+    }
+    expect(new Set(products).size).toBe(products.length);
   });
 
   /**

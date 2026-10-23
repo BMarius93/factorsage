@@ -58,9 +58,8 @@ useTestDatabase();
 
 const PRICE_IDS: Record<BillingPriceKey, string> = {
   STARTER_MONTHLY: "price_fixture_starter_monthly",
-  STARTER_YEARLY: "price_fixture_starter_yearly",
   PRO_MONTHLY: "price_fixture_pro_monthly",
-  PRO_YEARLY: "price_fixture_pro_yearly",
+  PRO_PLUS_MONTHLY: "price_fixture_pro_plus_monthly",
 };
 
 const CONFIG: StripeBillingConfig = {

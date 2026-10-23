@@ -7,10 +7,12 @@ import {
   billingPlanRank,
   billingPriceKeyFor,
   classifyBillingTransition,
+  findBillingPriceKey,
   isBillingInterval,
   isBillingPriceKey,
   isPaidPlan,
   occupiesPaidSlot,
+  OFFERED_BILLING_INTERVALS,
   resolveEffectivePlan,
   type BillingPriceKey,
   type BillingSubscriptionStatus,
@@ -29,31 +31,26 @@ import {
  */
 
 describe("billing catalog", () => {
-  it("is exactly the four V1 prices", () => {
+  it("is exactly the three monthly prices", () => {
     expect([...BILLING_PRICE_KEYS]).toEqual([
       "STARTER_MONTHLY",
-      "STARTER_YEARLY",
       "PRO_MONTHLY",
-      "PRO_YEARLY",
+      "PRO_PLUS_MONTHLY",
     ]);
   });
 
   it("maps each key to the plan, interval and amount the decision document fixes", () => {
     expect(BILLING_CATALOG.STARTER_MONTHLY.plan).toBe("STARTER");
     expect(BILLING_CATALOG.STARTER_MONTHLY.interval).toBe("MONTH");
-    expect(BILLING_CATALOG.STARTER_MONTHLY.amountMinorUnits).toBe(900);
-
-    expect(BILLING_CATALOG.STARTER_YEARLY.plan).toBe("STARTER");
-    expect(BILLING_CATALOG.STARTER_YEARLY.interval).toBe("YEAR");
-    expect(BILLING_CATALOG.STARTER_YEARLY.amountMinorUnits).toBe(9_900);
+    expect(BILLING_CATALOG.STARTER_MONTHLY.amountMinorUnits).toBe(1_900);
 
     expect(BILLING_CATALOG.PRO_MONTHLY.plan).toBe("PRO");
     expect(BILLING_CATALOG.PRO_MONTHLY.interval).toBe("MONTH");
-    expect(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits).toBe(2_900);
+    expect(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits).toBe(4_900);
 
-    expect(BILLING_CATALOG.PRO_YEARLY.plan).toBe("PRO");
-    expect(BILLING_CATALOG.PRO_YEARLY.interval).toBe("YEAR");
-    expect(BILLING_CATALOG.PRO_YEARLY.amountMinorUnits).toBe(29_900);
+    expect(BILLING_CATALOG.PRO_PLUS_MONTHLY.plan).toBe("PRO_PLUS");
+    expect(BILLING_CATALOG.PRO_PLUS_MONTHLY.interval).toBe("MONTH");
+    expect(BILLING_CATALOG.PRO_PLUS_MONTHLY.amountMinorUnits).toBe(19_900);
   });
 
   it("prices everything in USD", () => {
@@ -62,12 +59,14 @@ describe("billing catalog", () => {
     }
   });
 
-  it("has no FREE price and no legacy or out-of-scope product", () => {
+  it("has no FREE price, no retired annual price and no out-of-scope product", () => {
     const keys = BILLING_PRICE_KEYS as readonly string[];
     for (const forbidden of [
       "FREE",
       "FREE_MONTHLY",
-      "PRO_PLUS_MONTHLY",
+      // The retired annual prices ($99 / $299) are not sold beside the new monthly ones.
+      "STARTER_YEARLY",
+      "PRO_YEARLY",
       "PRO_PLUS_YEARLY",
       "CREDIT_TOPUP",
       "CREDITS",
@@ -75,18 +74,27 @@ describe("billing catalog", () => {
     ]) {
       expect(keys).not.toContain(forbidden);
     }
-    expect(BILLING_CATALOG_ENTRIES).toHaveLength(4);
+    expect(BILLING_CATALOG_ENTRIES).toHaveLength(3);
   });
 
-  it("inverts to the one key for a plan and interval", () => {
+  it("inverts to the one key for a plan and interval, and to nothing for an unsold cadence", () => {
     expect(billingPriceKeyFor("STARTER", "MONTH")).toBe("STARTER_MONTHLY");
-    expect(billingPriceKeyFor("STARTER", "YEAR")).toBe("STARTER_YEARLY");
     expect(billingPriceKeyFor("PRO", "MONTH")).toBe("PRO_MONTHLY");
-    expect(billingPriceKeyFor("PRO", "YEAR")).toBe("PRO_YEARLY");
+    expect(billingPriceKeyFor("PRO_PLUS", "MONTH")).toBe("PRO_PLUS_MONTHLY");
+    expect(findBillingPriceKey("STARTER", "YEAR")).toBeNull();
+    expect(findBillingPriceKey("PRO", "YEAR")).toBeNull();
+    expect(findBillingPriceKey("PRO_PLUS", "YEAR")).toBeNull();
+    expect(() => billingPriceKeyFor("PRO", "YEAR")).toThrow();
+  });
+
+  it("offers only the cadences every paid plan is sold in", () => {
+    expect([...OFFERED_BILLING_INTERVALS]).toEqual(["MONTH"]);
   });
 
   it("rejects anything that is not a catalog key", () => {
     expect(isBillingPriceKey("STARTER_MONTHLY")).toBe(true);
+    expect(isBillingPriceKey("PRO_PLUS_MONTHLY")).toBe(true);
+    expect(isBillingPriceKey("STARTER_YEARLY")).toBe(false);
     expect(isBillingPriceKey("price_1234567890")).toBe(false);
     expect(isBillingPriceKey("PRO")).toBe(false);
     expect(isBillingPriceKey("starter_monthly")).toBe(false);
@@ -98,8 +106,10 @@ describe("billing catalog", () => {
   it("narrows paid plans and intervals", () => {
     expect(isPaidPlan("STARTER")).toBe(true);
     expect(isPaidPlan("PRO")).toBe(true);
+    expect(isPaidPlan("PRO_PLUS")).toBe(true);
     expect(isPaidPlan("FREE")).toBe(false);
     expect(isPaidPlan("ADMIN")).toBe(false);
+    expect(isPaidPlan("PRO+")).toBe(false);
     expect(isBillingInterval("MONTH")).toBe(true);
     expect(isBillingInterval("YEAR")).toBe(true);
     expect(isBillingInterval("month")).toBe(false);
@@ -108,17 +118,19 @@ describe("billing catalog", () => {
 });
 
 describe("billing plan rank", () => {
-  it("orders FREE < STARTER < PRO", () => {
+  it("orders FREE < STARTER < PRO < PRO_PLUS", () => {
     expect(billingPlanRank("FREE")).toBe(0);
     expect(billingPlanRank("STARTER")).toBe(1);
     expect(billingPlanRank("PRO")).toBe(2);
+    expect(billingPlanRank("PRO_PLUS")).toBe(3);
     expect(billingPlanRank("FREE")).toBeLessThan(billingPlanRank("STARTER"));
     expect(billingPlanRank("STARTER")).toBeLessThan(billingPlanRank("PRO"));
+    expect(billingPlanRank("PRO")).toBeLessThan(billingPlanRank("PRO_PLUS"));
   });
 });
 
 describe("transition classification", () => {
-  /** Every ordered pair of the four prices, written out. 16 cases, no generation. */
+  /** Every ordered pair of the three prices, written out. 9 cases, no generation. */
   const CASES: readonly {
     from: BillingPriceKey;
     to: BillingPriceKey;
@@ -127,32 +139,21 @@ describe("transition classification", () => {
   }[] = [
     // Same price.
     { from: "STARTER_MONTHLY", to: "STARTER_MONTHLY", kind: "SAME_PRICE", effect: "UNCHANGED" },
-    { from: "STARTER_YEARLY", to: "STARTER_YEARLY", kind: "SAME_PRICE", effect: "UNCHANGED" },
     { from: "PRO_MONTHLY", to: "PRO_MONTHLY", kind: "SAME_PRICE", effect: "UNCHANGED" },
-    { from: "PRO_YEARLY", to: "PRO_YEARLY", kind: "SAME_PRICE", effect: "UNCHANGED" },
+    { from: "PRO_PLUS_MONTHLY", to: "PRO_PLUS_MONTHLY", kind: "SAME_PRICE", effect: "UNCHANGED" },
 
-    // Starter -> Pro is an upgrade in all four combinations, including the two where the
-    // cadence shortens. Tier direction wins.
+    // Every move to a higher tier is an immediate upgrade, Starter -> Pro+ included.
     { from: "STARTER_MONTHLY", to: "PRO_MONTHLY", kind: "TIER_UPGRADE", effect: "IMMEDIATE" },
-    { from: "STARTER_MONTHLY", to: "PRO_YEARLY", kind: "TIER_UPGRADE", effect: "IMMEDIATE" },
-    { from: "STARTER_YEARLY", to: "PRO_YEARLY", kind: "TIER_UPGRADE", effect: "IMMEDIATE" },
-    { from: "STARTER_YEARLY", to: "PRO_MONTHLY", kind: "TIER_UPGRADE", effect: "IMMEDIATE" },
+    { from: "STARTER_MONTHLY", to: "PRO_PLUS_MONTHLY", kind: "TIER_UPGRADE", effect: "IMMEDIATE" },
+    { from: "PRO_MONTHLY", to: "PRO_PLUS_MONTHLY", kind: "TIER_UPGRADE", effect: "IMMEDIATE" },
 
-    // Pro -> Starter is a downgrade in all four combinations, including the two where the
-    // cadence lengthens.
+    // Every move to a lower tier is scheduled for the end of the paid period.
     { from: "PRO_MONTHLY", to: "STARTER_MONTHLY", kind: "TIER_DOWNGRADE", effect: "SCHEDULED" },
-    { from: "PRO_MONTHLY", to: "STARTER_YEARLY", kind: "TIER_DOWNGRADE", effect: "SCHEDULED" },
-    { from: "PRO_YEARLY", to: "STARTER_MONTHLY", kind: "TIER_DOWNGRADE", effect: "SCHEDULED" },
-    { from: "PRO_YEARLY", to: "STARTER_YEARLY", kind: "TIER_DOWNGRADE", effect: "SCHEDULED" },
-
-    // Same tier: monthly -> yearly is immediate, yearly -> monthly is scheduled.
-    { from: "STARTER_MONTHLY", to: "STARTER_YEARLY", kind: "CADENCE_LENGTHENED", effect: "IMMEDIATE" },
-    { from: "PRO_MONTHLY", to: "PRO_YEARLY", kind: "CADENCE_LENGTHENED", effect: "IMMEDIATE" },
-    { from: "STARTER_YEARLY", to: "STARTER_MONTHLY", kind: "CADENCE_SHORTENED", effect: "SCHEDULED" },
-    { from: "PRO_YEARLY", to: "PRO_MONTHLY", kind: "CADENCE_SHORTENED", effect: "SCHEDULED" },
+    { from: "PRO_PLUS_MONTHLY", to: "STARTER_MONTHLY", kind: "TIER_DOWNGRADE", effect: "SCHEDULED" },
+    { from: "PRO_PLUS_MONTHLY", to: "PRO_MONTHLY", kind: "TIER_DOWNGRADE", effect: "SCHEDULED" },
   ];
 
-  it("covers every ordered pair of the four prices", () => {
+  it("covers every ordered pair of the three prices", () => {
     expect(CASES).toHaveLength(BILLING_PRICE_KEYS.length ** 2);
   });
 
@@ -165,16 +166,6 @@ describe("transition classification", () => {
       expect(transition.to).toBe(testCase.to);
     });
   }
-
-  it("does not classify by interval direction alone", () => {
-    // The two cases a naive monthly/yearly classifier gets backwards.
-    expect(classifyBillingTransition("STARTER_YEARLY", "PRO_MONTHLY").effect).toBe(
-      "IMMEDIATE",
-    );
-    expect(classifyBillingTransition("PRO_MONTHLY", "STARTER_YEARLY").effect).toBe(
-      "SCHEDULED",
-    );
-  });
 });
 
 describe("effective plan", () => {

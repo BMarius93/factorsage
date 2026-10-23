@@ -24,6 +24,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   SYSTEM_FIRST_ORDER,
   assertMutable,
+  assertPremiumAccessible,
   auditOf,
   mutableWhere,
   ownershipResponse,
@@ -415,6 +416,9 @@ export class StrategiesService {
     if (!source) {
       throw new StrategyNotFoundError();
     }
+    // The copy is the customer's own ordinary Strategy, so the premium gate stands here or nowhere
+    // (`docs/decisions/entitlements-v2.md` §6).
+    assertPremiumAccessible(source, user, "STRATEGY");
     const rekeyed = normalizeStrategyDefinition(
       rekeyStrategyDefinition(readDefinition(source), randomUUID),
     );
@@ -532,6 +536,9 @@ export class StrategiesService {
     if (!row) {
       throw new StrategyNotFoundError();
     }
+    // A premium built-in's rules are the premium content; the collection still names it, with its
+    // level counts, and marks it `locked` (entitlements-v2 §6).
+    assertPremiumAccessible(row, viewer, "STRATEGY");
     return detailOf(row, viewer);
   }
 

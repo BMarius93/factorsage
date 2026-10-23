@@ -1,5 +1,6 @@
 import {
   getAlternativeDataConfig,
+  getBacktestAdmissionConfig,
   getEodFinalityConfig,
   getBacktestDebugArchiveConfig,
   getFmpConfig,
@@ -231,7 +232,11 @@ export function createBacktestRuntime(
   );
 
   return {
-    repository: new PrismaBacktestJobRepository(prisma),
+    // The deployment-wide execution cap is decided at the claim, in PostgreSQL, so it holds across
+    // every worker process on every host (`ai/architecture/backtest-execution.md`, "Global admission").
+    repository: new PrismaBacktestJobRepository(prisma, {
+      globalMaxRunning: getBacktestAdmissionConfig().globalMaxRunning,
+    }),
     securities: new PrismaBacktestSecurityCatalog(prisma),
     stockData,
     benchmarks,

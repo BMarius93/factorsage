@@ -68,9 +68,11 @@ import {
   type BacktestTradeReasonIndex,
   type BacktestTradeResponse,
   type BacktestTradeSource,
+  type BacktestQueueStateResponse,
 } from "@intrinsic/contracts";
 import {
   allocateBacktestRunNumber,
+  type BacktestJobStatus,
   BacktestTradeAction as TradeAction,
   BacktestTradeSource as TradeSource,
   ContentOwnership,
@@ -85,10 +87,16 @@ import {
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
-import { getBacktestWorkerConfig } from "@intrinsic/config";
+import {
+  getBacktestAdmissionConfig,
+  getBacktestWorkerConfig,
+} from "@intrinsic/config";
 import { BACKTEST_METHODOLOGY, cagrPercent } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
-import { readableWhere } from "../builtins/content-access";
+import {
+  assertPremiumAccessible,
+  readableWhere,
+} from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import {
@@ -145,6 +153,35 @@ export class BacktestUnavailableError extends Error {
   }
 }
 
+/**
+ * The deployment-wide queue is full (`BACKTEST_QUEUE_MAX_QUEUED`): admission backpressure, never an
+ * entitlement. The caller's plan allows the run; the deployment cannot accept more waiting work
+ * right now, so the answer is `503` with a `Retry-After`, and nothing was created.
+ */
+export class BacktestQueueFullError extends Error {
+  constructor(
+    readonly queued: number,
+    readonly retryAfterSeconds: number,
+  ) {
+    super(
+      "Backtests are in high demand right now and the queue is full. Try again in a few minutes.",
+    );
+    this.name = "BacktestQueueFullError";
+  }
+}
+
+/** A run that already reached `COMPLETED` or `FAILED` cannot be cancelled. */
+export class BacktestNotCancellableError extends Error {
+  constructor(readonly status: BacktestRunStatus) {
+    super(
+      status === "COMPLETED"
+        ? "This backtest has already completed"
+        : "This backtest has already finished",
+    );
+    this.name = "BacktestNotCancellableError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Row shapes
 // ---------------------------------------------------------------------------
@@ -159,10 +196,22 @@ const MILESTONE_ORDER = {
   orderBy: { sequence: "asc" as const },
 } satisfies Prisma.BacktestRun$milestonesArgs;
 
+/** What the read surface needs of the durable queue row: its state and its place in the queue. */
+const RUN_JOB_SELECT = {
+  select: {
+    id: true,
+    status: true,
+    availableAt: true,
+    createdAt: true,
+    cancelRequestedAt: true,
+  },
+} satisfies Prisma.BacktestRunInclude["job"];
+
 const RUN_DETAIL_INCLUDE = {
   progress: true,
   summary: true,
   milestones: MILESTONE_ORDER,
+  job: RUN_JOB_SELECT,
 } satisfies Prisma.BacktestRunInclude;
 
 type RunDetailRow = Prisma.BacktestRunGetPayload<{
@@ -224,7 +273,9 @@ function runListCondition(
 ): Prisma.Sql {
   const conditions: Prisma.Sql[] = [Prisma.sql`run."userId" = ${userId}`];
   if (status === "ACTIVE") {
-    conditions.push(Prisma.sql`run."status" NOT IN ('COMPLETED', 'FAILED')`);
+    conditions.push(
+      Prisma.sql`run."status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')`,
+    );
   } else if (status !== undefined) {
     conditions.push(Prisma.sql`run."status" = ${status}::"BacktestRunStatus"`);
   }
@@ -259,7 +310,25 @@ const RUN_LIST_ORDER: Readonly<Record<BacktestRunSort, Prisma.Sql>> = {
 const PROGRESS_INCLUDE = {
   progress: true,
   milestones: MILESTONE_ORDER,
+  job: RUN_JOB_SELECT,
 } satisfies Prisma.BacktestRunInclude;
+
+type RunJobState = {
+  status: BacktestJobStatus;
+  cancelRequestedAt: Date | null;
+} | null;
+
+/**
+ * A cancellation the owner asked for that has not taken effect yet: the job is still `CLAIMED`,
+ * and its worker stops at the next checkpoint. Once it has, the run itself reads `CANCELLED`.
+ */
+function cancellationOf(
+  job: RunJobState,
+): { requestedAt: string } | undefined {
+  return job?.status === "CLAIMED" && job.cancelRequestedAt
+    ? { requestedAt: job.cancelRequestedAt.toISOString() }
+    : undefined;
+}
 
 type RunProgressRow = Prisma.BacktestRunGetPayload<{
   include: typeof PROGRESS_INCLUDE;
@@ -914,8 +983,10 @@ export function annualReturnsOf(
 function detailOf(
   row: RunDetailRow,
   result: BacktestResultResponse | null,
+  queue?: BacktestQueueStateResponse,
 ): BacktestRunDetailResponse {
   const snapshot = readSnapshot(row.snapshot);
+  const cancellation = cancellationOf(row.job);
   return {
     id: row.id,
     runNumber: row.runNumber,
@@ -939,6 +1010,8 @@ function detailOf(
     milestones: row.milestones.map(milestoneOf),
     result,
     failure: failureOf(row),
+    ...(cancellation ? { cancellation } : {}),
+    ...(queue ? { queue } : {}),
   };
 }
 
@@ -968,7 +1041,11 @@ function milestoneOf(row: MilestoneRow): BacktestMilestoneResponse {
   };
 }
 
-function progressOf(row: RunProgressRow): BacktestProgressResponse {
+function progressOf(
+  row: RunProgressRow,
+  queue?: BacktestQueueStateResponse,
+): BacktestProgressResponse {
+  const cancellation = cancellationOf(row.job);
   return {
     runId: row.id,
     status: row.status,
@@ -986,6 +1063,8 @@ function progressOf(row: RunProgressRow): BacktestProgressResponse {
     live: liveOf(row.status, row.progress),
     milestones: row.milestones.map(milestoneOf),
     failure: failureOf(row),
+    ...(cancellation ? { cancellation } : {}),
+    ...(queue ? { queue } : {}),
   };
 }
 
@@ -1075,6 +1154,9 @@ export class BacktestsService {
         "The selected strategy was not found",
       );
     }
+    // A premium built-in Strategy runs only on a plan that includes premium content
+    // (`docs/decisions/entitlements-v2.md` §6) — refused before its definition is read.
+    assertPremiumAccessible(strategy, user, "STRATEGY");
     const version = strategy.versions[0];
     if (!version) {
       throw new BacktestConfigurationError(
@@ -1113,20 +1195,28 @@ export class BacktestsService {
       stockList.ownership === ContentOwnership.SYSTEM
         ? pointInTimeIndexUniverseForList(stockList.systemKey)
         : null;
+    // Premium before size: a plan without premium content is told that, not that a universe is
+    // larger than a limit (entitlements-v2 §6). A point-in-time universe is premium by definition.
+    assertPremiumAccessible(
+      indexUniverse ? { ownership: stockList.ownership, premium: true } : stockList,
+      user,
+      indexUniverse ? "INDEX_UNIVERSE" : "LIST",
+    );
     if (!indexUniverse) {
+      // The commercial capacity first: it is what every customer meets — the largest plan limit
+      // equals the engine ceiling below — and it is also what refuses a List that became oversized
+      // through a downgrade: the run is rejected, while the List itself stays intact and readable.
+      this.entitlements.assertBacktestUniverseLimit(user, {
+        kind: "LIST",
+        symbols: stockList.items.length,
+      });
+      // The absolute engine guard, which only an administrator, whose plan limits are lifted, can
+      // reach.
       if (stockList.items.length > BACKTEST_MAX_SECURITIES) {
         throw new BacktestConfigurationError(
           `A backtest can cover at most ${BACKTEST_MAX_SECURITIES} stocks; this list has ${stockList.items.length}`,
         );
       }
-      // The commercial capacity, on top of the absolute engine guard above. It binds first for
-      // every plan — the strictest plan limit is 100 against an engine ceiling of 200 — and it is
-      // also what refuses a List that became oversized through a downgrade: the run is rejected,
-      // while the List itself stays intact and readable.
-      this.entitlements.assertBacktestUniverseLimit(user, {
-        kind: "LIST",
-        symbols: stockList.items.length,
-      });
     }
 
     const benchmarkCode = input.benchmarkCode ?? DEFAULT_BENCHMARK_CODE;
@@ -1353,6 +1443,14 @@ export class BacktestsService {
     // failed submission rolls the allocation back with it, so only committed runs consume a number.
     const run = await this.prisma.$transaction(async (tx) => {
       await this.entitlements.assertBacktestConcurrency(tx, userId);
+      // Admission backpressure, after the plan's own limit (`BACKTEST_QUEUE_MAX_QUEUED`). Not an
+      // entitlement and not a lock: a bound on how much work may wait deployment-wide, read at the
+      // moment of submission. Two submissions racing past it overshoot by at most one each.
+      const admission = getBacktestAdmissionConfig();
+      const queued = await tx.backtestJob.count({ where: { status: "QUEUED" } });
+      if (queued >= admission.queueMaxQueued) {
+        throw new BacktestQueueFullError(queued, admission.queueFullRetryAfterSeconds);
+      }
       const runNumber = await allocateBacktestRunNumber(tx, userId);
       return tx.backtestRun.create({
       data: {
@@ -1388,7 +1486,7 @@ export class BacktestsService {
         },
         progress: { create: { percent: 0, message: "Queued", sequence: 0 } },
       },
-      include: { ...RUN_DETAIL_INCLUDE, job: { select: { id: true } } },
+      include: RUN_DETAIL_INCLUDE,
       });
     });
 
@@ -1407,7 +1505,7 @@ export class BacktestsService {
       maximumPositions: input.maximumPositions,
       durationMs: Date.now() - startedAt,
     });
-    return detailOf(run, null);
+    return detailOf(run, null, await this.queueStateOf(run));
   }
 
   /**
@@ -1535,7 +1633,137 @@ export class BacktestsService {
     if (!run) {
       throw new BacktestRunNotFoundError();
     }
-    return detailOf(run, await this.readResult(run));
+    return detailOf(run, await this.readResult(run), await this.queueStateOf(run));
+  }
+
+  /**
+   * Where a waiting run stands in the deployment-wide queue, or nothing for any other run.
+   *
+   * Two indexed counts. `ahead` counts what was queued before this run — an upper bound on what
+   * starts first, because the claim orders owners fairly rather than strictly first-in-first-out.
+   */
+  private async queueStateOf(run: {
+    status: BacktestRunStatus;
+    job: {
+      id: string;
+      status: BacktestJobStatus;
+      availableAt: Date;
+      createdAt: Date;
+    } | null;
+  }): Promise<BacktestQueueStateResponse | undefined> {
+    if (run.status !== "QUEUED" || run.job?.status !== "QUEUED") {
+      return undefined;
+    }
+    const now = new Date();
+    const [counts] = await this.prisma.$queryRaw<
+      { ahead: bigint; executing: bigint }[]
+    >`
+      SELECT
+        (SELECT count(*) FROM "BacktestJob" j
+          WHERE j."status" = 'QUEUED'
+            AND j."cancelRequestedAt" IS NULL
+            AND (j."availableAt", j."createdAt", j."id")
+                < (${run.job.availableAt}, ${run.job.createdAt}, ${run.job.id})) AS ahead,
+        (SELECT count(*) FROM "BacktestJob" j
+          WHERE j."status" = 'CLAIMED'
+            AND (j."leaseExpiresAt" IS NULL OR j."leaseExpiresAt" > ${now})) AS executing
+    `;
+    return {
+      ahead: Number(counts?.ahead ?? 0),
+      executing: Number(counts?.executing ?? 0),
+      capacity: getBacktestAdmissionConfig().globalMaxRunning,
+    };
+  }
+
+  /**
+   * Stops the caller's run (`ai/architecture/backtest-execution.md`, "Cancellation").
+   *
+   * - **Queued**: cancelled at once. It held no slot, so nothing else changes.
+   * - **Executing**: the request is recorded on the job, which keeps `CLAIMED` — and its execution
+   *   slot — until the worker that holds it stops at its next checkpoint (within seconds) and
+   *   records `CANCELLED`, or its lease expires and recovery does. Capacity is therefore released
+   *   only once execution has actually stopped, so a cancellation can never let a fifth run start
+   *   beside four that are still computing. A run that reaches its final write before the worker
+   *   sees the request completes normally.
+   * - **Already cancelled**: answered as it is — the request is idempotent, so a double click or a
+   *   retried request is harmless.
+   * - **Completed or failed**: refused with `409`; there is nothing left to stop.
+   *
+   * The job row is locked first, then the run — the order the claim and recovery use — so a
+   * cancellation and a claim of the same job serialize instead of deadlocking.
+   */
+  async cancelRun(
+    userId: string,
+    runId: string,
+  ): Promise<BacktestRunDetailResponse> {
+    const now = new Date();
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<
+        {
+          jobId: string;
+          jobStatus: BacktestJobStatus;
+          runStatus: BacktestRunStatus;
+        }[]
+      >`
+        SELECT j."id" AS "jobId", j."status" AS "jobStatus", r."status" AS "runStatus"
+        FROM "BacktestRun" r
+        JOIN "BacktestJob" j ON j."runId" = r."id"
+        WHERE r."id" = ${runId} AND r."userId" = ${userId}
+        FOR UPDATE OF j
+      `;
+      const row = rows[0];
+      if (!row) {
+        throw new BacktestRunNotFoundError();
+      }
+      if (row.runStatus === "CANCELLED") {
+        return "ALREADY_CANCELLED" as const;
+      }
+      if (row.runStatus === "COMPLETED" || row.runStatus === "FAILED") {
+        throw new BacktestNotCancellableError(row.runStatus);
+      }
+      if (row.jobStatus === "QUEUED") {
+        await tx.$executeRaw`
+          UPDATE "BacktestJob"
+          SET "status" = 'CANCELLED',
+              "cancelRequestedAt" = ${now},
+              "lastError" = 'Cancelled by its owner',
+              "updatedAt" = ${now}
+          WHERE "id" = ${row.jobId}
+        `;
+        await tx.$executeRaw`
+          UPDATE "BacktestRun"
+          SET "status" = 'CANCELLED',
+              "completedAt" = ${now},
+              "updatedAt" = ${now}
+          WHERE "id" = ${runId}
+        `;
+        await tx.$executeRaw`
+          UPDATE "BacktestRunProgress"
+          SET "message" = 'Cancelled by its owner',
+              "snapshot" = NULL,
+              "sequence" = "sequence" + 1,
+              "updatedAt" = ${now}
+          WHERE "runId" = ${runId}
+        `;
+        return "CANCELLED" as const;
+      }
+      // Executing (or between attempts): the worker holding it acknowledges at a checkpoint.
+      await tx.$executeRaw`
+        UPDATE "BacktestJob"
+        SET "cancelRequestedAt" = COALESCE("cancelRequestedAt", ${now}),
+            "updatedAt" = ${now}
+        WHERE "id" = ${row.jobId}
+      `;
+      return "REQUESTED" as const;
+    });
+
+    this.logger.info({
+      event: "backtest.cancel.requested",
+      actorUserId: userId,
+      runId,
+      outcome,
+    });
+    return this.getRun(userId, runId);
   }
 
   /**
@@ -1554,7 +1782,7 @@ export class BacktestsService {
     if (!run) {
       throw new BacktestRunNotFoundError();
     }
-    return progressOf(run);
+    return progressOf(run, await this.queueStateOf(run));
   }
 
   /**

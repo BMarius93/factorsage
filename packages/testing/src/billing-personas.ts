@@ -37,6 +37,7 @@ import type {
 export const BILLING_PERSONA_NAMES = [
   "BILLING_STARTER_ACTIVE",
   "BILLING_PRO_ACTIVE",
+  "BILLING_PRO_PLUS_ACTIVE",
   "BILLING_PRO_CANCELING",
   "BILLING_STARTER_PAST_DUE",
   "BILLING_CANCELED",
@@ -128,9 +129,9 @@ export const BILLING_PERSONAS: Readonly<
     name: "BILLING_STARTER_ACTIVE",
     slug: "starter-active",
     email: billingPersonaEmail("starter-active"),
-    priceKey: "STARTER_YEARLY",
+    priceKey: "STARTER_MONTHLY",
     subscribedPlan: "STARTER",
-    interval: "YEAR",
+    interval: "MONTH",
     lifecycle: "ACTIVE",
     expected: {
       stripeStatus: "active",
@@ -143,8 +144,8 @@ export const BILLING_PERSONAS: Readonly<
     storageState: billingPersonaStorageState("starter-active"),
     purpose:
       "The baseline: a paid Starter subscription with nothing scheduled. It is the control for " +
-      "BILLING_STARTER_PAST_DUE — same plan, different Stripe status, same entitlements — and it " +
-      "bills the yearly Starter price, so the five personas between them cover all four " +
+      "BILLING_STARTER_PAST_DUE — same plan, different Stripe status, same entitlements. With " +
+      "BILLING_PRO_ACTIVE and BILLING_PRO_PLUS_ACTIVE, the personas between them cover all three " +
       "configured catalog prices.",
   },
   BILLING_PRO_ACTIVE: {
@@ -168,13 +169,34 @@ export const BILLING_PERSONAS: Readonly<
       "A paying Pro customer. Unlike PRO_USER, whose plan is seeded, this account is PRO because " +
       "Stripe says so and reconciliation agreed.",
   },
+  BILLING_PRO_PLUS_ACTIVE: {
+    name: "BILLING_PRO_PLUS_ACTIVE",
+    slug: "pro-plus-active",
+    email: billingPersonaEmail("pro-plus-active"),
+    priceKey: "PRO_PLUS_MONTHLY",
+    subscribedPlan: "PRO_PLUS",
+    interval: "MONTH",
+    lifecycle: "ACTIVE",
+    expected: {
+      stripeStatus: "active",
+      cancellationScheduled: false,
+      mirrorStatus: "ACTIVE",
+      planReason: "SUBSCRIPTION_ACTIVE",
+      userPlan: "PRO_PLUS",
+      holdsPaidSlot: true,
+    },
+    storageState: billingPersonaStorageState("pro-plus-active"),
+    purpose:
+      "A paying Pro+ customer: the one persona on the highest tier, and the only one billing the " +
+      "Pro+ price. PRO_PLUS because Stripe says so and reconciliation agreed.",
+  },
   BILLING_PRO_CANCELING: {
     name: "BILLING_PRO_CANCELING",
     slug: "pro-canceling",
     email: billingPersonaEmail("pro-canceling"),
-    priceKey: "PRO_YEARLY",
+    priceKey: "PRO_MONTHLY",
     subscribedPlan: "PRO",
-    interval: "YEAR",
+    interval: "MONTH",
     lifecycle: "CANCELING",
     expected: {
       stripeStatus: "active",

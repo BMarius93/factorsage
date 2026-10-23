@@ -18,7 +18,7 @@ import { BadRequestException } from "@nestjs/common";
  * of them is refused, because a silently dropped field looks to a client exactly like an accepted
  * one, and the next person to add a field would not know it must not be read.
  *
- * The only accepted input in the whole billing surface is one of four logical catalog keys.
+ * The only accepted input in the whole billing surface is one of the logical catalog keys.
  */
 
 const ALLOWED_KEYS = ["priceKey"] as const;

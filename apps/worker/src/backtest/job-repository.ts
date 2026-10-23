@@ -7,7 +7,8 @@ import type {
 import {
   BacktestJobStatus,
   BacktestRunStatus,
-  ENTITLEMENT_LOCK_NAMESPACE,
+  lockBacktestAdmission,
+  tryLockUserEntitlementScope,
   type Prisma,
   type PrismaClient,
 } from "@intrinsic/database";
@@ -62,6 +63,22 @@ export type StaleJobRecovery = {
   requeued: number;
   /** Runs failed terminally because they had no attempt left. */
   abandoned: number;
+  /**
+   * Runs whose owner had asked to stop them and whose worker died before acknowledging it:
+   * cancelled rather than requeued, so a cancellation survives the crash of the process holding it.
+   */
+  cancelled: number;
+};
+
+/** What message a cancellation leaves on the job and the run's progress. */
+export const CANCELLED_MESSAGE = "Cancelled by its owner";
+
+export type BacktestJobRepositoryOptions = {
+  /**
+   * Backtests that may execute at once across the whole deployment (`BACKTEST_GLOBAL_MAX_RUNNING`).
+   * `null` leaves only the per-owner limits, as before global admission existed.
+   */
+  readonly globalMaxRunning: number | null;
 };
 
 export type BacktestProgressWrite = {
@@ -137,6 +154,15 @@ export type BacktestFailureWrite = {
   };
 };
 
+/** What a lease renewal found. */
+export type LeaseRenewal =
+  /** This worker still holds the claim. */
+  | "HELD"
+  /** The claim is gone — recovered and possibly executing elsewhere. Stop writing at once. */
+  | "LOST"
+  /** Still held, and the run's owner asked to stop it: stop at the next checkpoint and cancel. */
+  | "CANCEL_REQUESTED";
+
 export interface BacktestJobRepository {
   claimNextJob(
     workerId: string,
@@ -148,6 +174,21 @@ export interface BacktestJobRepository {
     workerId: string,
     now: Date,
     leaseMs: number,
+  ): Promise<LeaseRenewal>;
+  /**
+   * Whether the owner has asked to stop this claimed job. A primary-key read, cheap enough to poll
+   * every couple of seconds so a cancellation releases its slot promptly.
+   */
+  isCancelRequested(jobId: string, workerId: string): Promise<boolean>;
+  /**
+   * Records a cancellation this worker acknowledged: the job and the run become `CANCELLED`, and
+   * the execution slot is free from this commit on. Ownership-guarded like every other write.
+   */
+  cancelJob(
+    jobId: string,
+    runId: string,
+    workerId: string,
+    now: Date,
   ): Promise<boolean>;
   recoverStaleJobs(
     now: Date,
@@ -198,41 +239,47 @@ const RESULT_TRANSACTION_TIMEOUT_MS = 120_000;
 const RESULT_TRANSACTION_MAX_WAIT_MS = 30_000;
 
 export class PrismaBacktestJobRepository implements BacktestJobRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly globalMaxRunning: number | null;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    options: BacktestJobRepositoryOptions = { globalMaxRunning: null },
+  ) {
+    this.globalMaxRunning = options.globalMaxRunning;
+  }
 
   /**
-   * Takes exactly one queued job the owner's plan currently permits to execute, or nothing.
+   * Takes exactly one queued job that the deployment and its owner's plan both have room for, or
+   * nothing.
    *
-   * `FOR UPDATE SKIP LOCKED` is the whole concurrency design between workers: a second worker
-   * running this in the same millisecond skips the row the first one locked and takes another job
-   * instead of blocking on it or duplicating it. The claim, the attempt increment and the run's
-   * move into `PREPARING_DATA` commit together, so a queued run is never observable as
-   * claimed-but-idle.
+   * Two limits, both decided here and both atomic:
    *
-   * On top of that sits the entitlement gate, and it is a **separate** limit from the queue's own:
-   * how many of *one owner's* runs may execute at once. It cannot be expressed in the candidate
-   * query as a SQL `CASE` over plans, because that would be a second copy of the commercial matrix
-   * living in a string — so the candidate row carries the owner's persisted plan and role, and
-   * `resolveEntitlements` answers in the one place it is defined.
+   * - **Deployment-wide** (`BACKTEST_GLOBAL_MAX_RUNNING`): how many backtests execute at once
+   *   across every worker process on every host. Every claim first takes the admission lock
+   *   (`lockBacktestAdmission`), so claims serialize and the count of live claims they read cannot
+   *   change under them — two workers can never both read three and both take the fourth slot.
+   *   Only `CLAIMED` jobs with a live lease count, so a worker that died holding a slot stops
+   *   holding it the moment its lease lapses, without waiting for recovery.
+   * - **Per owner** (`entitlements.backtests.maxConcurrentRuns`): resolved from the owner's plan
+   *   and role **re-read after taking the owner's entitlement lock**, so a plan change committed a
+   *   moment earlier is the one enforced. It cannot be expressed as a SQL `CASE` over plans — that
+   *   would be a second copy of the commercial matrix in a string — so `resolveEntitlements`
+   *   answers in the one place it is defined.
    *
-   * The order of operations is what makes it sound:
+   * **Fair across owners.** Candidates are ordered by how many runs their owner is already
+   * executing, then first-in-first-out. A Pro+ owner's second run therefore starts only when no
+   * other owner's first run is waiting, and while capacity is free both of their runs do execute
+   * at once; no owner's backlog can hold the head of the line. There is no paid priority: plan
+   * decides how many of an owner's runs may execute together, never who goes first.
    *
-   * 1. Peek at a batch of claimable jobs **without** locking them. Locking a batch would make
-   *    every job a worker merely considered unavailable to its peers for the rest of the
-   *    transaction.
-   * 2. For each, take the owner's entitlement lock — waiting for the first owner considered, and
-   *    never waiting for any owner after it. Without the lock two workers evaluating the same
-   *    owner at once would both read the same executing count and both claim. Waiting for the
-   *    first is what keeps capacity usable rather than merely safe; not waiting for the rest is
-   *    what makes holding several owners' locks in one transaction deadlock-free, because no
-   *    transaction ever waits while already holding one.
-   * 3. Count what that owner currently has executing, and stop if the plan has no room.
-   * 4. Re-select that one row `FOR UPDATE SKIP LOCKED` and re-assert it is still claimable, which
-   *    is what closes the window between the unlocked peek and the claim.
+   * **Lock order and why it cannot deadlock.** Admission lock (waited for), then owner locks —
+   * only ever *tried*, never waited for — then the job row (`SKIP LOCKED`), then its run row. No
+   * other transaction takes the admission lock, so none can hold an owner lock while waiting for
+   * it; and because the claim never waits on an owner lock, billing reconciliation holding one
+   * across a Stripe call delays that owner by one poll instead of stalling every claim.
    *
-   * A job whose owner is at capacity is left `QUEUED`, never failed and never deleted: it executes
-   * as soon as a slot frees. That is what makes a downgrade non-destructive for work already in
-   * the queue.
+   * A job left `QUEUED` is never failed or deleted here: it executes as soon as both limits allow.
+   * That is what keeps a downgrade non-destructive for work already in the queue.
    */
   async claimNextJob(
     workerId: string,
@@ -242,79 +289,93 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
     const leaseExpiresAt = new Date(now.getTime() + leaseMs);
 
     return this.prisma.$transaction(async (tx) => {
+      await lockBacktestAdmission(tx);
+
+      if (this.globalMaxRunning !== null) {
+        const [executing] = await tx.$queryRaw<{ running: bigint }[]>`
+          SELECT count(*) AS running
+          FROM "BacktestJob"
+          WHERE "status" = 'CLAIMED'
+            AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" > ${now})
+        `;
+        if (Number(executing?.running ?? 0) >= this.globalMaxRunning) {
+          return null;
+        }
+      }
+
+      // Peeked without locking: locking the batch would make every job a worker merely considered
+      // unavailable to its peers for the rest of the transaction. Each owner's live executing count
+      // rides along; under the admission lock no other claim can raise it, and a completion or a
+      // recovery committing meanwhile can only lower it, so the value is never an undercount.
       const candidates = await tx.$queryRaw<
         {
           id: string;
           runId: string;
           attempts: number;
           userId: string;
-          plan: string;
-          role: string;
+          ownerRunning: bigint;
         }[]
       >`
-        SELECT j."id", j."runId", j."attempts",
-               r."userId", u."plan"::text AS plan, u."role"::text AS role
+        WITH executing AS (
+          SELECT r."userId", count(*) AS running
+          FROM "BacktestJob" j
+          JOIN "BacktestRun" r ON r."id" = j."runId"
+          WHERE j."status" = 'CLAIMED'
+            AND (j."leaseExpiresAt" IS NULL OR j."leaseExpiresAt" > ${now})
+          GROUP BY r."userId"
+        )
+        SELECT j."id", j."runId", j."attempts", r."userId",
+               COALESCE(e."running", 0) AS "ownerRunning"
         FROM "BacktestJob" j
         JOIN "BacktestRun" r ON r."id" = j."runId"
-        JOIN "User" u ON u."id" = r."userId"
+        LEFT JOIN executing e ON e."userId" = r."userId"
         WHERE j."status" = 'QUEUED'
           AND j."availableAt" <= ${now}
           AND j."attempts" < j."maxAttempts"
-        ORDER BY j."availableAt" ASC, j."createdAt" ASC
+          AND j."cancelRequestedAt" IS NULL
+        ORDER BY COALESCE(e."running", 0) ASC,
+                 j."availableAt" ASC,
+                 j."createdAt" ASC,
+                 j."id" ASC
         LIMIT ${CLAIM_CANDIDATE_BATCH}
       `;
 
-      const lockedOwners = new Set<string>();
+      const passedOver = new Set<string>();
       for (const candidate of candidates) {
-        const entitlements = resolveEntitlements({
-          kind: "AUTHENTICATED",
-          userId: candidate.userId,
-          plan: candidate.plan as UserPlan,
-          role: candidate.role as UserRole,
-        });
-
-        if (!lockedOwners.has(candidate.userId)) {
-          if (lockedOwners.size === 0) {
-            // The first owner this claim considers is waited for. At this point the transaction
-            // holds no entitlement lock, so a transaction waiting here can never be part of a
-            // deadlock cycle — and waiting is what keeps a plan's capacity usable: two workers
-            // polling in the same millisecond for one owner with room for two runs must end up
-            // claiming both, not have the loser abandon the round.
-            await tx.$executeRaw`
-              SELECT pg_advisory_xact_lock(
-                ${ENTITLEMENT_LOCK_NAMESPACE}::int4, hashtext(${candidate.userId})
-              )
-            `;
-          } else {
-            // Every subsequent owner is tried without waiting. That is the rule that makes the
-            // whole loop deadlock-free: no transaction ever blocks while already holding one of
-            // these locks, so no two of them can wait on each other.
-            const [lock] = await tx.$queryRaw<{ locked: boolean }[]>`
-              SELECT pg_try_advisory_xact_lock(
-                ${ENTITLEMENT_LOCK_NAMESPACE}::int4, hashtext(${candidate.userId})
-              ) AS locked
-            `;
-            if (!lock?.locked) {
-              continue;
-            }
-          }
-          lockedOwners.add(candidate.userId);
+        if (passedOver.has(candidate.userId)) {
+          // Same owner, same answer: they are at capacity, or someone else holds their lock.
+          continue;
+        }
+        if (!(await tryLockUserEntitlementScope(tx, candidate.userId))) {
+          passedOver.add(candidate.userId);
+          continue;
         }
 
-        // Only leases that have not expired count as executing. A worker that died holding a job
-        // must not keep its owner at capacity until recovery notices: the stale claim stops
-        // blocking them the moment its lease lapses, which is the same self-healing property the
-        // lease gives the job itself.
-        const [executing] = await tx.$queryRaw<{ running: bigint }[]>`
-          SELECT count(*) AS running
-          FROM "BacktestJob" j
-          JOIN "BacktestRun" r ON r."id" = j."runId"
-          WHERE r."userId" = ${candidate.userId}
-            AND j."status" = 'CLAIMED'
-            AND (j."leaseExpiresAt" IS NULL OR j."leaseExpiresAt" > ${now})
+        const [owner] = await tx.$queryRaw<{ plan: string; role: string }[]>`
+          SELECT "plan"::text AS plan, "role"::text AS role
+          FROM "User"
+          WHERE "id" = ${candidate.userId}
         `;
-        const running = Number(executing?.running ?? 0);
-        if (!withinLimit(entitlements.backtests.maxConcurrentRuns, running + 1)) {
+        if (!owner) {
+          passedOver.add(candidate.userId);
+          continue;
+        }
+        let maxConcurrentRuns: number | null;
+        try {
+          maxConcurrentRuns = resolveEntitlements({
+            kind: "AUTHENTICATED",
+            userId: candidate.userId,
+            plan: owner.plan as UserPlan,
+            role: owner.role as UserRole,
+          }).backtests.maxConcurrentRuns;
+        } catch {
+          // A plan this build does not know (a deploy-order mistake) is refused, never read as
+          // unlimited, and must not block the owners behind it: their jobs are still considered.
+          passedOver.add(candidate.userId);
+          continue;
+        }
+        if (!withinLimit(maxConcurrentRuns, Number(candidate.ownerRunning) + 1)) {
+          passedOver.add(candidate.userId);
           continue;
         }
 
@@ -325,6 +386,7 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
             AND "status" = 'QUEUED'
             AND "availableAt" <= ${now}
             AND "attempts" < "maxAttempts"
+            AND "cancelRequestedAt" IS NULL
           FOR UPDATE SKIP LOCKED
         `;
         if (!locked[0]) {
@@ -377,19 +439,89 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
     workerId: string,
     now: Date,
     leaseMs: number,
-  ): Promise<boolean> {
-    const updated = await this.prisma.backtestJob.updateMany({
-      where: {
-        id: jobId,
-        claimedBy: workerId,
-        status: BacktestJobStatus.CLAIMED,
-      },
-      data: {
-        heartbeatAt: now,
-        leaseExpiresAt: new Date(now.getTime() + leaseMs),
-      },
+  ): Promise<LeaseRenewal> {
+    const renewed = await this.prisma.$queryRaw<
+      { cancelRequestedAt: Date | null }[]
+    >`
+      UPDATE "BacktestJob"
+      SET "heartbeatAt" = ${now},
+          "leaseExpiresAt" = ${new Date(now.getTime() + leaseMs)}
+      WHERE "id" = ${jobId}
+        AND "claimedBy" = ${workerId}
+        AND "status" = 'CLAIMED'
+      RETURNING "cancelRequestedAt"
+    `;
+    const row = renewed[0];
+    if (!row) {
+      return "LOST";
+    }
+    return row.cancelRequestedAt === null ? "HELD" : "CANCEL_REQUESTED";
+  }
+
+  async isCancelRequested(jobId: string, workerId: string): Promise<boolean> {
+    const job = await this.prisma.backtestJob.findFirst({
+      where: { id: jobId, claimedBy: workerId, status: BacktestJobStatus.CLAIMED },
+      select: { cancelRequestedAt: true },
     });
-    return updated.count === 1;
+    return job?.cancelRequestedAt != null;
+  }
+
+  /**
+   * Records the cancellation this worker acknowledged at a checkpoint.
+   *
+   * The job leaves `CLAIMED` here and nowhere earlier, which is what makes "cancellation releases
+   * capacity" safe: the slot is counted until the process using it has stopped. The run becomes
+   * `CANCELLED` with no result; its progress keeps no live snapshot, so a computed prefix can never
+   * be read as a result, exactly as for `FAILED`.
+   */
+  async cancelJob(
+    jobId: string,
+    runId: string,
+    workerId: string,
+    now: Date,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const closed = await tx.backtestJob.updateMany({
+        where: {
+          id: jobId,
+          claimedBy: workerId,
+          status: BacktestJobStatus.CLAIMED,
+        },
+        data: {
+          status: BacktestJobStatus.CANCELLED,
+          claimedBy: null,
+          leaseExpiresAt: null,
+          heartbeatAt: null,
+          lastError: CANCELLED_MESSAGE,
+        },
+      });
+      if (closed.count !== 1) {
+        return false;
+      }
+      await tx.backtestRun.updateMany({
+        where: {
+          id: runId,
+          status: {
+            in: [
+              BacktestRunStatus.QUEUED,
+              BacktestRunStatus.PREPARING_DATA,
+              BacktestRunStatus.RUNNING,
+              BacktestRunStatus.FINALIZING,
+            ],
+          },
+        },
+        data: { status: BacktestRunStatus.CANCELLED, completedAt: now },
+      });
+      await tx.$executeRaw`
+        UPDATE "BacktestRunProgress"
+        SET "message" = ${CANCELLED_MESSAGE},
+            "snapshot" = NULL,
+            "sequence" = "sequence" + 1,
+            "updatedAt" = ${now}
+        WHERE "runId" = ${runId}
+      `;
+      return true;
+    });
   }
 
   /**
@@ -406,6 +538,50 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
   ): Promise<StaleJobRecovery> {
     const availableAt = new Date(now.getTime() + retryBackoffMs);
 
+    // A worker that died after its owner asked to stop the run: the request outlives the process,
+    // so the run is cancelled rather than handed to another worker to execute in full.
+    const cancelled = await this.prisma.$queryRaw<{ id: string }[]>`
+      WITH stale AS (
+        SELECT j."id", j."runId"
+        FROM "BacktestJob" j
+        JOIN "BacktestRun" r ON r."id" = j."runId"
+        WHERE j."status" = 'CLAIMED'
+          AND j."leaseExpiresAt" < ${now}
+          AND j."cancelRequestedAt" IS NOT NULL
+          AND r."status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+        FOR UPDATE OF j SKIP LOCKED
+      ),
+      closed AS (
+        UPDATE "BacktestJob" j
+        SET "status" = 'CANCELLED',
+            "claimedBy" = NULL,
+            "leaseExpiresAt" = NULL,
+            "heartbeatAt" = NULL,
+            "lastError" = ${CANCELLED_MESSAGE},
+            "updatedAt" = ${now}
+        FROM stale
+        WHERE j."id" = stale."id"
+        RETURNING j."runId"
+      ),
+      cleared AS (
+        UPDATE "BacktestRunProgress" p
+        SET "message" = ${CANCELLED_MESSAGE},
+            "snapshot" = NULL,
+            "sequence" = p."sequence" + 1,
+            "updatedAt" = ${now}
+        FROM closed
+        WHERE p."runId" = closed."runId"
+        RETURNING p."runId"
+      )
+      UPDATE "BacktestRun" r
+      SET "status" = 'CANCELLED',
+          "completedAt" = ${now},
+          "updatedAt" = ${now}
+      FROM closed
+      WHERE r."id" = closed."runId"
+      RETURNING r."id"
+    `;
+
     const requeued = await this.prisma.$queryRaw<{ id: string }[]>`
       WITH stale AS (
         SELECT j."id", j."runId"
@@ -414,7 +590,8 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
         WHERE j."status" = 'CLAIMED'
           AND j."leaseExpiresAt" < ${now}
           AND j."attempts" < j."maxAttempts"
-          AND r."status" NOT IN ('COMPLETED', 'FAILED')
+          AND j."cancelRequestedAt" IS NULL
+          AND r."status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
         FOR UPDATE OF j SKIP LOCKED
       ),
       released AS (
@@ -469,7 +646,8 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
         FROM "BacktestJob" j
         JOIN "BacktestRun" r ON r."id" = j."runId"
         WHERE j."attempts" >= j."maxAttempts"
-          AND r."status" NOT IN ('COMPLETED', 'FAILED')
+          AND j."cancelRequestedAt" IS NULL
+          AND r."status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
           AND (
             (j."status" = 'CLAIMED' AND j."leaseExpiresAt" < ${now})
             -- A graceful shutdown releases the claim without refunding the attempt, which bounds a
@@ -502,7 +680,11 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
       RETURNING r."id"
     `;
 
-    return { requeued: requeued.length, abandoned: abandoned.length };
+    return {
+      requeued: requeued.length,
+      abandoned: abandoned.length,
+      cancelled: cancelled.length,
+    };
   }
 
   /**
@@ -845,12 +1027,18 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
     workerId: string,
     now: Date,
   ): Promise<boolean> {
+    // A run its owner asked to stop is not handed back to the queue to run again in full: the
+    // claim skips cancel-requested jobs, so requeueing one would strand it. It is cancelled instead.
+    if (await this.isCancelRequested(jobId, workerId)) {
+      return this.cancelJob(jobId, runId, workerId, now);
+    }
     return this.prisma.$transaction(async (tx) => {
       const released = await tx.backtestJob.updateMany({
         where: {
           id: jobId,
           claimedBy: workerId,
           status: BacktestJobStatus.CLAIMED,
+          cancelRequestedAt: null,
         },
         data: {
           status: BacktestJobStatus.QUEUED,

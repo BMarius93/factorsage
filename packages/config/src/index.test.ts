@@ -885,15 +885,17 @@ describe(".env.example template", () => {
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
       "STRIPE_PRICE_STARTER_MONTHLY",
-      "STRIPE_PRICE_STARTER_YEARLY",
       "STRIPE_PRICE_PRO_MONTHLY",
-      "STRIPE_PRICE_PRO_YEARLY",
+      "STRIPE_PRICE_PRO_PLUS_MONTHLY",
     ];
 
     for (const name of mustBeEmpty) {
       expect(template).toHaveProperty(name);
       expect(`${name}=${template[name]}`).toBe(`${name}=`);
     }
+    // A listed variable invites a value, and a value for a retired annual price refuses startup.
+    expect(template).not.toHaveProperty("STRIPE_PRICE_STARTER_YEARLY");
+    expect(template).not.toHaveProperty("STRIPE_PRICE_PRO_YEARLY");
   });
 
   it("parses cleanly, with Google and SMTP genuinely disabled", () => {
@@ -921,9 +923,8 @@ describe(".env.example template", () => {
 describe("getStripeBillingConfig", () => {
   const PRICES = {
     STRIPE_PRICE_STARTER_MONTHLY: "price_starter_m",
-    STRIPE_PRICE_STARTER_YEARLY: "price_starter_y",
     STRIPE_PRICE_PRO_MONTHLY: "price_pro_m",
-    STRIPE_PRICE_PRO_YEARLY: "price_pro_y",
+    STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_pro_plus_m",
   };
 
   function sandbox(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -946,9 +947,8 @@ describe("getStripeBillingConfig", () => {
     expect(config?.testMode).toBe(true);
     expect(config?.priceIds).toEqual({
       STARTER_MONTHLY: "price_starter_m",
-      STARTER_YEARLY: "price_starter_y",
       PRO_MONTHLY: "price_pro_m",
-      PRO_YEARLY: "price_pro_y",
+      PRO_PLUS_MONTHLY: "price_pro_plus_m",
     });
   });
 
@@ -1032,12 +1032,68 @@ describe("getStripeBillingConfig", () => {
   });
 
   it("rejects two logical prices pointing at one Stripe price", () => {
-    // The copy-paste that would sell Pro at the Starter price, or bill a yearly plan monthly.
+    // The copy-paste that would sell Pro at the Starter price, or Pro+ at the Pro price.
     expect(() =>
       getStripeBillingConfig(
         sandbox({ STRIPE_PRICE_PRO_MONTHLY: "price_starter_m" }),
       ),
     ).toThrow(/each logical price must map to its own Stripe price/);
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({ STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_pro_m" }),
+      ),
+    ).toThrow(
+      /STRIPE_PRICE_PRO_PLUS_MONTHLY and STRIPE_PRICE_PRO_MONTHLY are the same Stripe Price ID/,
+    );
+  });
+
+  it("requires the Pro+ price once billing is configured", () => {
+    // A deployment configured for the retired catalog that dropped its annual prices but never
+    // added Pro+: refused at startup rather than failing the first Pro+ Checkout.
+    const withoutProPlus = sandbox();
+    delete withoutProPlus.STRIPE_PRICE_PRO_PLUS_MONTHLY;
+    expect(() => getStripeBillingConfig(withoutProPlus)).toThrow(
+      "Invalid application configuration: STRIPE_PRICE_PRO_PLUS_MONTHLY is required",
+    );
+    expect(() =>
+      getStripeBillingConfig(sandbox({ STRIPE_PRICE_PRO_PLUS_MONTHLY: "  " })),
+    ).toThrow(/STRIPE_PRICE_PRO_PLUS_MONTHLY is required/);
+  });
+
+  it.each(["STRIPE_PRICE_STARTER_YEARLY", "STRIPE_PRICE_PRO_YEARLY"])(
+    "refuses the retired %s rather than ignoring it",
+    (retired) => {
+      // Set beside a complete monthly catalog, so nothing else about the configuration is wrong:
+      // the deployment was set up for an annual price this product no longer sells.
+      expect(() =>
+        getStripeBillingConfig(sandbox({ [retired]: "price_retired_annual" })),
+      ).toThrow(
+        new RegExp(`${retired} belongs to the retired annual catalog and is no longer read`),
+      );
+    },
+  );
+
+  it("names every retired variable it refuses, and ignores one left blank", () => {
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({
+          STRIPE_PRICE_STARTER_YEARLY: "price_starter_y",
+          STRIPE_PRICE_PRO_YEARLY: "price_pro_y",
+        }),
+      ),
+    ).toThrow(
+      /STRIPE_PRICE_STARTER_YEARLY and STRIPE_PRICE_PRO_YEARLY belong to the retired annual catalog/,
+    );
+    // An empty line kept from the old template configures nothing, so it is not a refusal.
+    expect(
+      getStripeBillingConfig(
+        sandbox({ STRIPE_PRICE_STARTER_YEARLY: "", STRIPE_PRICE_PRO_YEARLY: " " }),
+      )?.priceIds,
+    ).toEqual({
+      STARTER_MONTHLY: "price_starter_m",
+      PRO_MONTHLY: "price_pro_m",
+      PRO_PLUS_MONTHLY: "price_pro_plus_m",
+    });
   });
 });
 

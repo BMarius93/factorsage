@@ -73,8 +73,15 @@ export const BACKTEST_MAX_MAXIMUM_POSITIONS = 100;
  * (`docs/decisions/price-retention-warmup-horizon.md`).
  */
 export const BACKTEST_MAX_PERIOD_YEARS = 30;
-/** Guards the run before it starts rather than letting a worker exhaust memory mid-execution. */
-export const BACKTEST_MAX_SECURITIES = 200;
+/**
+ * Guards the run before it starts rather than letting a worker exhaust memory mid-execution.
+ *
+ * Equal to the largest plan's symbol limit (Pro+, 1,000: `docs/decisions/entitlements-v2.md`), so
+ * the commercial limit is what a customer meets and this engine ceiling only ever binds an
+ * administrator, whose plan limits are lifted. Sized from the measured worker footprint of a
+ * 1,000-security, thirty-year run (`docs/production/PRODUCTION-READINESS-REPORT.md` §B).
+ */
+export const BACKTEST_MAX_SECURITIES = 1_000;
 /**
  * The same guard for the built-in point-in-time index universe, whose distinct securities over a
  * thirty-year period are about twice its simultaneous members: every one is prepared, but only the
@@ -106,9 +113,10 @@ export const BACKTEST_INVALID_CODE = "BACKTEST_INVALID" as const;
 // ---------------------------------------------------------------------------
 
 /**
- * Lifecycle of one run. `QUEUED` is durable work waiting for a worker; `PREPARING_DATA` is
- * hydration and frame projection; `RUNNING` is the simulation; `FINALIZING` persists results.
- * `COMPLETED` and `FAILED` are terminal, and a client stops polling there.
+ * Lifecycle of one run. `QUEUED` is durable work waiting for an execution slot; `PREPARING_DATA`
+ * is hydration and frame projection; `RUNNING` is the simulation; `FINALIZING` persists results.
+ * `COMPLETED`, `FAILED` and `CANCELLED` are terminal, and a client stops polling there. A
+ * `CANCELLED` run was stopped by its owner and holds no result.
  */
 export const BACKTEST_RUN_STATUSES = [
   "QUEUED",
@@ -117,6 +125,7 @@ export const BACKTEST_RUN_STATUSES = [
   "FINALIZING",
   "COMPLETED",
   "FAILED",
+  "CANCELLED",
 ] as const;
 
 export type BacktestRunStatus = (typeof BACKTEST_RUN_STATUSES)[number];
@@ -129,11 +138,33 @@ export const BACKTEST_RUN_STATUS_LABELS = {
   FINALIZING: "Finalizing",
   COMPLETED: "Completed",
   FAILED: "Failed",
+  CANCELLED: "Cancelled",
 } as const satisfies Record<BacktestRunStatus, string>;
 
 export function isTerminalBacktestStatus(status: BacktestRunStatus): boolean {
-  return status === "COMPLETED" || status === "FAILED";
+  return status === "COMPLETED" || status === "FAILED" || status === "CANCELLED";
 }
+
+/**
+ * Where a `QUEUED` run stands (`ai/architecture/backtest-execution.md`, "Global admission").
+ *
+ * Informational: the claim orders waiting runs fairly across owners, so `ahead` counts the runs
+ * queued before this one and is an upper bound on how many start first, never a promise.
+ */
+export type BacktestQueueStateResponse = {
+  /** Runs queued before this one, deployment-wide. */
+  ahead: number;
+  /** Backtests executing right now, deployment-wide. */
+  executing: number;
+  /** How many may execute at once, deployment-wide. */
+  capacity: number;
+};
+
+/** The `code` of the `503` refusing a submission while the deployment-wide queue is full. */
+export const BACKTEST_QUEUE_FULL_CODE = "BACKTEST_QUEUE_FULL" as const;
+
+/** The `code` of the `409` refusing to cancel a run that has already finished. */
+export const BACKTEST_NOT_CANCELLABLE_CODE = "BACKTEST_NOT_CANCELLABLE" as const;
 
 /**
  * Benchmark identity **as the run executed it**, read from the immutable submission snapshot.
@@ -291,12 +322,14 @@ export const BACKTEST_RUN_DEFAULT_SORT: BacktestRunSort = "newest";
 
 /**
  * The status filter of the backtest collection. `ACTIVE` is every run still queued or executing —
- * the runs holding a concurrency slot; `COMPLETED` and `FAILED` are the two terminal statuses.
+ * the runs holding a concurrency slot; `COMPLETED`, `FAILED` and `CANCELLED` are the terminal
+ * statuses.
  */
 export const BACKTEST_RUN_STATUS_FILTERS = [
   "ACTIVE",
   "COMPLETED",
   "FAILED",
+  "CANCELLED",
 ] as const;
 export type BacktestRunStatusFilter =
   (typeof BACKTEST_RUN_STATUS_FILTERS)[number];
@@ -1157,6 +1190,13 @@ export type BacktestRunDetailResponse = {
   milestones: BacktestMilestoneResponse[];
   result: BacktestResultResponse | null;
   failure: BacktestFailureResponse | null;
+  /**
+   * Present while the owner's cancellation is pending: requested, and the worker executing the run
+   * has not stopped yet. The run keeps its slot until it does, usually within seconds.
+   */
+  cancellation?: { requestedAt: string };
+  /** Present only while the run is `QUEUED`. */
+  queue?: BacktestQueueStateResponse;
 };
 
 /**

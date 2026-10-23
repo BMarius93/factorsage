@@ -24,6 +24,8 @@ export type BacktestWorkerLoopOptions = {
   leaseMs: number;
   heartbeatIntervalMs: number;
   retryBackoffMs: number;
+  /** How often a running job checks for its owner's cancellation; the lease's default otherwise. */
+  cancellationPollIntervalMs?: number;
   now?: () => Date;
 };
 
@@ -93,6 +95,9 @@ export class BacktestWorkerLoop {
       workerId: this.options.workerId,
       leaseMs: this.options.leaseMs,
       heartbeatIntervalMs: this.options.heartbeatIntervalMs,
+      ...(this.options.cancellationPollIntervalMs
+        ? { cancellationPollIntervalMs: this.options.cancellationPollIntervalMs }
+        : {}),
       now: this.now,
     });
     this.activeLease = lease;
@@ -135,6 +140,10 @@ export class BacktestWorkerLoop {
   ): Promise<void> {
     if (err instanceof BacktestInterruptedError && err.reason === "SHUTDOWN") {
       await this.releaseClaim(claim);
+      return;
+    }
+    if (err instanceof BacktestInterruptedError && err.reason === "CANCELLED") {
+      await this.recordCancellation(claim);
       return;
     }
     if (err instanceof BacktestInterruptedError) {
@@ -184,6 +193,36 @@ export class BacktestWorkerLoop {
     }
   }
 
+  /**
+   * The owner's cancellation, acknowledged at a checkpoint. Recording it is what frees the slot; if
+   * the write cannot be made, the lease expires and recovery records the same cancellation, so a
+   * failure here delays the slot by one lease and never runs the job again.
+   */
+  private async recordCancellation(claim: ClaimedBacktestJob): Promise<void> {
+    try {
+      const cancelled = await this.repository.cancelJob(
+        claim.jobId,
+        claim.runId,
+        this.options.workerId,
+        this.now(),
+      );
+      this.logger.info({
+        event: "backtest.cancelled",
+        runId: claim.runId,
+        jobId: claim.jobId,
+        actorUserId: claim.actorUserId,
+        cancelled,
+      });
+    } catch (err) {
+      this.logger.error({
+        event: "backtest.cancel.failed",
+        runId: claim.runId,
+        jobId: claim.jobId,
+        err,
+      });
+    }
+  }
+
   private async claimNextJob(): Promise<ClaimedBacktestJob | null> {
     try {
       return await this.repository.claimNextJob(
@@ -216,11 +255,16 @@ export class BacktestWorkerLoop {
         this.now(),
         this.options.retryBackoffMs,
       );
-      if (recovery.requeued > 0 || recovery.abandoned > 0) {
+      if (
+        recovery.requeued > 0 ||
+        recovery.abandoned > 0 ||
+        recovery.cancelled > 0
+      ) {
         this.logger.warn({
           event: "backtest.job.recovered",
           requeued: recovery.requeued,
           abandoned: recovery.abandoned,
+          cancelled: recovery.cancelled,
         });
       }
     } catch (err) {

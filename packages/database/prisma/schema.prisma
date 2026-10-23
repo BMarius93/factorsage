@@ -14,10 +14,10 @@ enum UserRole {
 
 /// The persisted commercial plan of an authenticated user.
 ///
-/// `GUEST` is deliberately absent: `docs/decisions/entitlements-v1.md` derives guest entitlements
+/// `GUEST` is deliberately absent: `docs/decisions/entitlements-v2.md` derives guest entitlements
 /// from the absence of an authenticated session, so there is no anonymous `User` row to give a
 /// plan to. `ADMIN` is deliberately absent too — it is a role, never a commercial plan, and lives
-/// on `User.role`.
+/// on `User.role`. `PRO_PLUS` is the product's "Pro+".
 ///
 /// A billing provider may later move a user between these values at the billing boundary, but the
 /// entitlements each value grants live in `@intrinsic/contracts`, never in the biller.
@@ -25,6 +25,7 @@ enum UserPlan {
   FREE
   STARTER
   PRO
+  PRO_PLUS
 }
 
 /// Billing cadence of a paid subscription.
@@ -400,6 +401,10 @@ model RecentSecurityView {
 ///
 /// `systemKey` is the immutable identity of a built-in List — the seed/bootstrap key — and never the
 /// display name. `updatedByUserId` records the administrator behind the latest edit of a built-in.
+///
+/// `premium` marks a premium built-in (`docs/decisions/entitlements-v2.md` §6): its membership is
+/// read, backtested and copied only on a plan that includes premium content. Only a `SYSTEM` row can
+/// be premium — a CHECK constraint says so — because a customer's copy is ordinary content.
 model StockList {
   id              String           @id @default(uuid())
   ownership       ContentOwnership @default(USER)
@@ -408,6 +413,7 @@ model StockList {
   name            String
   description     String?
   displayOrder    Int?
+  premium         Boolean          @default(false)
   updatedByUserId String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -452,6 +458,9 @@ model Strategy {
   name            String
   description     String?
   displayOrder    Int?
+  /// A premium built-in Strategy: its rules are read, backtested and copied only on a plan that
+  /// includes premium content (`docs/decisions/entitlements-v2.md` §6). `SYSTEM` rows only.
+  premium         Boolean           @default(false)
   updatedByUserId String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -981,6 +990,8 @@ model MarketDataRefreshSchedule {
   @@index([dueAt])
 }
 
+/// `CANCELLED` is terminal like `COMPLETED` and `FAILED`: the owner stopped the run, and it holds no
+/// result (`ai/architecture/backtest-execution.md`, "Cancellation").
 enum BacktestRunStatus {
   QUEUED
   PREPARING_DATA
@@ -988,13 +999,17 @@ enum BacktestRunStatus {
   FINALIZING
   COMPLETED
   FAILED
+  CANCELLED
 }
 
+/// `CLAIMED` is the only status that holds an execution slot — per owner and deployment-wide — and
+/// only while its lease is live. `CANCELLED` is terminal and never reclaimed.
 enum BacktestJobStatus {
   QUEUED
   CLAIMED
   COMPLETED
   FAILED
+  CANCELLED
 }
 
 enum BacktestTradeAction {
@@ -1138,6 +1153,10 @@ model BacktestJob {
   leaseExpiresAt DateTime?
   heartbeatAt    DateTime?
   lastError      String?
+  /// The owner asked to stop a claimed run. The job keeps `CLAIMED` — and its execution slot —
+  /// until the worker that holds it stops at a checkpoint and records `CANCELLED`, or its lease
+  /// expires and recovery does; capacity is released only once execution has actually stopped.
+  cancelRequestedAt DateTime?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   run            BacktestRun       @relation(fields: [runId], references: [id], onDelete: Cascade)

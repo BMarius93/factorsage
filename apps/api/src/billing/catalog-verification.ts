@@ -13,7 +13,7 @@ import type { StripeGateway, StripePriceDescriptor } from "./stripe-gateway";
  * a subscription on those prices — the billing QA persona tooling — can refuse on exactly the
  * findings the operator command would have printed. `verify-stripe-catalog.ts` explains why the
  * check exists: runtime deliberately never reads an amount, so nothing else would notice a
- * `STRIPE_PRICE_PRO_MONTHLY` that points at the $9 Starter price.
+ * `STRIPE_PRICE_PRO_MONTHLY` that points at the $19 Starter price.
  */
 
 export type CatalogFinding = {
@@ -24,7 +24,7 @@ export type CatalogFinding = {
 export type CatalogVerification = {
   /** Each configured price as Stripe holds it, or `null` when it could not be read. */
   readonly prices: ReadonlyMap<BillingPriceKey, StripePriceDescriptor | null>;
-  /** Empty when all four prices match the V1 catalog. */
+  /** Empty when every configured price matches the catalog. */
   readonly findings: readonly CatalogFinding[];
 };
 
@@ -37,8 +37,9 @@ export function formatCatalogAmount(minorUnits: number | null): string {
 
 /**
  * Verifies every configured price to be present and **active**, **recurring** at the configured
- * interval with `interval_count = 1`, **USD**, **licensed**, priced at exactly $9 / $99 / $29 / $299,
- * attached to an **active** product shared with its sibling interval, and distinct from the others.
+ * interval with `interval_count = 1`, **USD**, **licensed**, priced at exactly $19 / $49 / $199,
+ * attached to an **active** product shared with any sibling interval of the same plan and with no
+ * other plan, and distinct from the others.
  */
 export async function verifyStripeCatalog(input: {
   readonly stripe: Pick<StripeGateway, "describePrices">;
@@ -138,6 +139,22 @@ export async function verifyStripeCatalog(input: {
       } else if (!known) {
         productByPlan.set(expected.plan, price.productId);
       }
+    }
+  }
+
+  // One product per plan, and never one product for two plans: an invoice or the Customer Portal
+  // names the product, so a Pro+ price created on the Pro product would bill $199 for "Pro".
+  const planByProduct = new Map<string, string>();
+  for (const [plan, productId] of productByPlan) {
+    const other = planByProduct.get(productId);
+    if (other) {
+      const key = BILLING_PRICE_KEYS.find((candidate) => BILLING_CATALOG[candidate].plan === plan);
+      findings.push({
+        key: key as BillingPriceKey,
+        problem: `belongs to product ${productId}, which is also the ${other} product; each plan needs its own product`,
+      });
+    } else {
+      planByProduct.set(productId, plan);
     }
   }
 

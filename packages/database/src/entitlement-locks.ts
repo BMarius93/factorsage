@@ -50,3 +50,26 @@ export async function lockUserEntitlementScope(
   // PostgreSQL has no `pg_advisory_xact_lock(bigint, integer)` overload to resolve it to.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ENTITLEMENT_LOCK_NAMESPACE}::int4, hashtext(${userId}))`;
 }
+
+/** A client that can run a raw query and read its rows; satisfied by a transaction client. */
+export type RawSelectClient = Pick<Prisma.TransactionClient, "$queryRaw">;
+
+/**
+ * Tries to take the user's entitlement lock for the rest of the calling transaction, **without
+ * waiting**, and says whether it got it.
+ *
+ * For a transaction that already holds another lock and must therefore never block on this one —
+ * the backtest claim, which holds the deployment-wide admission lock while it considers owners. A
+ * claim that waited here could stall every other claim behind whatever holds the user's lock, and
+ * billing reconciliation holds it across a Stripe call. Skipping the owner for one poll costs a
+ * second; waiting could cost every user's queue that long.
+ */
+export async function tryLockUserEntitlementScope(
+  tx: RawSelectClient,
+  userId: string,
+): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ locked: boolean }[]>`
+    SELECT pg_try_advisory_xact_lock(${ENTITLEMENT_LOCK_NAMESPACE}::int4, hashtext(${userId})) AS locked
+  `;
+  return row?.locked === true;
+}

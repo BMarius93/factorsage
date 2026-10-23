@@ -12,7 +12,7 @@ import {
  * `pnpm billing:verify-catalog` — proves the configured Stripe prices are the ones this product sells.
  *
  * The allowlist maps a logical key to a Price ID and trusts nothing else about it, which is correct
- * for runtime but leaves one gap: nothing stops `STRIPE_PRICE_PRO_MONTHLY` from pointing at the $9
+ * for runtime but leaves one gap: nothing stops `STRIPE_PRICE_PRO_MONTHLY` from pointing at the $19
  * Starter price. Runtime would then sell Pro entitlements for nine dollars and never complain,
  * because by design it never reads the amount. `docs/decisions/stripe-billing-v1.md` section 2 asks
  * for exactly this check, loudly, at configuration time rather than at revenue time.

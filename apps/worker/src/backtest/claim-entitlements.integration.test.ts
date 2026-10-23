@@ -19,7 +19,7 @@ const LEASE_MS = 60_000;
 /**
  * The worker-side half of backtest concurrency, against real PostgreSQL.
  *
- * `docs/decisions/entitlements-v1.md` requires concurrency to be enforced on the server/worker
+ * `docs/decisions/entitlements-v2.md` requires concurrency to be enforced on the server/worker
  * side rather than only where a run is submitted, and this is the suite that proves the worker
  * half. It matters because submission is not the only way a job becomes claimable: an expired
  * lease requeues one, a graceful shutdown releases one, and a plan can drop while the owner
@@ -106,11 +106,11 @@ describe("backtest claim entitlements", () => {
   }
 
   beforeAll(async () => {
-    for (const name of ["free", "pro", "other", "admin"]) {
+    for (const name of ["free", "pro", "proplus", "other", "admin"]) {
       const user = await prisma.user.create({
         data: {
           email: `claim-${name}-${suffix}@example.test`,
-          plan: name === "pro" ? "PRO" : "FREE",
+          plan: name === "pro" ? "PRO" : name === "proplus" ? "PRO_PLUS" : "FREE",
           role: name === "admin" ? "ADMIN" : "USER",
         },
         select: { id: true },
@@ -178,16 +178,23 @@ describe("backtest claim entitlements", () => {
     expect(remaining.filter((row) => row.status === "CLAIMED")).toHaveLength(1);
   });
 
-  it("executes two at a time for a PRO owner", async () => {
+  it("executes one at a time for a PRO owner", async () => {
     await seedQueuedJob("pro");
     await seedQueuedJob("pro");
-    await seedQueuedJob("pro");
+
+    expect(await drain(2)).toHaveLength(1);
+  });
+
+  it("executes two at a time for a PRO_PLUS owner", async () => {
+    await seedQueuedJob("proplus");
+    await seedQueuedJob("proplus");
+    await seedQueuedJob("proplus");
 
     expect(await drain(3)).toHaveLength(2);
     expect(
       await prisma.backtestJob.count({
         where: {
-          run: { userId: userIdOf("pro") },
+          run: { userId: userIdOf("proplus") },
           status: BacktestJobStatus.CLAIMED,
         },
       }),
@@ -228,10 +235,12 @@ describe("backtest claim entitlements", () => {
   });
 
   it("applies the owner's current plan to runs queued under a higher one", async () => {
-    // The downgrade case. Two runs were legitimately submitted on PRO; the plan then dropped.
-    await setPlan("pro", "PRO");
-    const queued = [await seedQueuedJob("pro"), await seedQueuedJob("pro")];
-    await setPlan("pro", "FREE");
+    // The downgrade case. Two runs were legitimately submitted on PRO_PLUS; the plan then dropped.
+    const queued = [
+      await seedQueuedJob("proplus"),
+      await seedQueuedJob("proplus"),
+    ];
+    await setPlan("proplus", "PRO");
 
     const claimed = await drain(2);
 
@@ -240,7 +249,20 @@ describe("backtest claim entitlements", () => {
     expect(
       await prisma.backtestRun.count({ where: { id: { in: queued } } }),
     ).toBe(2);
-    await setPlan("pro", "PRO");
+    await setPlan("proplus", "PRO_PLUS");
+  });
+
+  it("reads the plan after taking the owner's lock, so an upgrade committed just before counts", async () => {
+    await seedQueuedJob("pro");
+    await seedQueuedJob("pro");
+    expect(await drain(2)).toHaveLength(1);
+
+    await setPlan("pro", "PRO_PLUS");
+    try {
+      expect(await drain(1)).toHaveLength(1);
+    } finally {
+      await setPlan("pro", "PRO");
+    }
   });
 
   it("does not let one owner at capacity block another owner's queue", async () => {

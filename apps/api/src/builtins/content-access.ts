@@ -1,4 +1,13 @@
-import type { AuthUser, ContentOwnershipResponse } from "@intrinsic/contracts";
+import {
+  assertCanUsePremiumContent,
+  authenticatedPrincipal,
+  GUEST_PRINCIPAL,
+  resolveEntitlements,
+  type AuthUser,
+  type ContentOwnershipResponse,
+  type Entitlements,
+  type PremiumContentKind,
+} from "@intrinsic/contracts";
 
 /**
  * Who may read and who may change a List, Strategy or Monitor.
@@ -21,7 +30,38 @@ type OwnedRow = {
   ownership: "USER" | "SYSTEM";
   userId: string | null;
   systemKey: string | null;
+  /** Lists and Strategies carry it; a Monitor is never premium. */
+  premium?: boolean;
 };
+
+/** The viewer's entitlements. `CookieAuthGuard` reloaded plan and role, so nothing here is client input. */
+export function viewerEntitlements(viewer: ContentViewer): Entitlements {
+  return resolveEntitlements(
+    viewer ? authenticatedPrincipal(viewer) : GUEST_PRINCIPAL,
+  );
+}
+
+/** A premium built-in. Only `SYSTEM` rows can be premium; a CHECK constraint holds the column to it. */
+export function isPremiumContent(row: Pick<OwnedRow, "ownership" | "premium">): boolean {
+  return row.ownership === "SYSTEM" && row.premium === true;
+}
+
+/**
+ * Refuses reading a premium built-in in full — its membership or rules — or using it, on a plan
+ * that does not include premium content (`docs/decisions/entitlements-v2.md` §6). Throws the
+ * ordinary `EntitlementError`, so it maps to the same `403` and reason code everywhere.
+ *
+ * Ordinary content, and any premium row for a viewer whose plan includes it, passes untouched.
+ */
+export function assertPremiumAccessible(
+  row: Pick<OwnedRow, "ownership" | "premium">,
+  viewer: ContentViewer,
+  kind: PremiumContentKind,
+): void {
+  if (isPremiumContent(row)) {
+    assertCanUsePremiumContent(viewerEntitlements(viewer), kind);
+  }
+}
 
 /** A non-administrator attempted to change built-in content. */
 export class SystemContentReadOnlyError extends Error {
@@ -103,12 +143,17 @@ export function ownershipResponse(
   viewer: ContentViewer,
 ): ContentOwnershipResponse {
   const system = row.ownership === "SYSTEM";
+  const premium = isPremiumContent(row);
   return {
     ownership: row.ownership,
     ...(system && row.systemKey ? { systemKey: row.systemKey } : {}),
     canEdit: system
       ? isAdministrator(viewer)
       : viewer !== null && row.userId === viewer.id,
+    ...(premium ? { premium: true as const } : {}),
+    ...(premium && !viewerEntitlements(viewer).builtInContent.canUsePremium
+      ? { locked: true as const }
+      : {}),
   };
 }
 

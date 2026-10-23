@@ -37,6 +37,7 @@ import type {
   BacktestResultWrite,
   ClaimedBacktestJob,
   StaleJobRecovery,
+  LeaseRenewal,
 } from "./job-repository.js";
 import { BacktestSnapshotError, parseRunSnapshot } from "./run-snapshot.js";
 
@@ -205,11 +206,17 @@ class RecordingRepository implements BacktestJobRepository {
   async claimNextJob(): Promise<ClaimedBacktestJob | null> {
     return null;
   }
-  async heartbeat(): Promise<boolean> {
+  async heartbeat(): Promise<LeaseRenewal> {
+    return "HELD";
+  }
+  async isCancelRequested(): Promise<boolean> {
+    return false;
+  }
+  async cancelJob(): Promise<boolean> {
     return true;
   }
   async recoverStaleJobs(): Promise<StaleJobRecovery> {
-    return { requeued: 0, abandoned: 0 };
+    return { requeued: 0, abandoned: 0, cancelled: 0 };
   }
   async updateProgress(write: {
     percent: number;

@@ -7,6 +7,7 @@ import {
 import type {
   BacktestJobRepository,
   ClaimedBacktestJob,
+  LeaseRenewal,
   StaleJobRecovery,
 } from "./job-repository.js";
 import {
@@ -29,6 +30,9 @@ const CLAIM: ClaimedBacktestJob = {
 /** Records what the loop asked the queue to do, without a database. */
 class RecordingRepository implements BacktestJobRepository {
   readonly released: { jobId: string; runId: string; workerId: string }[] = [];
+  readonly cancelled: { jobId: string; runId: string; workerId: string }[] = [];
+  /** Set by a test to stand for the owner's `POST /backtests/:id/cancel`. */
+  cancelRequested = false;
   private readonly queue: ClaimedBacktestJob[];
 
   constructor(queue: ClaimedBacktestJob[] = []) {
@@ -39,12 +43,25 @@ class RecordingRepository implements BacktestJobRepository {
     return this.queue.shift() ?? null;
   }
 
-  async heartbeat(): Promise<boolean> {
+  async heartbeat(): Promise<LeaseRenewal> {
+    return this.cancelRequested ? "CANCEL_REQUESTED" : "HELD";
+  }
+
+  async isCancelRequested(): Promise<boolean> {
+    return this.cancelRequested;
+  }
+
+  async cancelJob(
+    jobId: string,
+    runId: string,
+    workerId: string,
+  ): Promise<boolean> {
+    this.cancelled.push({ jobId, runId, workerId });
     return true;
   }
 
   async recoverStaleJobs(): Promise<StaleJobRecovery> {
-    return { requeued: 0, abandoned: 0 };
+    return { requeued: 0, abandoned: 0, cancelled: 0 };
   }
 
   async updateProgress(): Promise<boolean> {
@@ -119,6 +136,7 @@ function createLoop(
     leaseMs: 60_000,
     heartbeatIntervalMs: 60_000,
     retryBackoffMs: 1_000,
+    cancellationPollIntervalMs: 5,
   });
 }
 
@@ -170,5 +188,45 @@ describe("backtest worker loop shutdown", () => {
 
     // A five-second poll interval must not become a five-second shutdown.
     expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+});
+
+describe("backtest worker loop cancellation", () => {
+  it("stops a run its owner cancelled and records the cancellation instead of releasing it", async () => {
+    const repository = new RecordingRepository([CLAIM]);
+    const processor = new CheckpointingProcessor();
+    const loop = createLoop(repository, processor);
+
+    const running = loop.run();
+    await processor.waitUntilStarted();
+    repository.cancelRequested = true;
+    // The lease polls for the request; the processor's next checkpoint throws CANCELLED.
+    for (let wait = 0; wait < 200 && repository.cancelled.length === 0; wait += 1) {
+      await delay(5);
+    }
+    loop.stop();
+    await running;
+
+    expect(repository.cancelled).toEqual([
+      { jobId: CLAIM.jobId, runId: CLAIM.runId, workerId: WORKER_ID },
+    ]);
+    // Handing it back would only run it again in full.
+    expect(repository.released).toEqual([]);
+  });
+
+  it("cancels rather than releases when a cancellation and a shutdown arrive together", async () => {
+    const repository = new RecordingRepository([CLAIM]);
+    const processor = new CheckpointingProcessor();
+    const loop = createLoop(repository, processor);
+
+    const running = loop.run();
+    await processor.waitUntilStarted();
+    repository.cancelRequested = true;
+    await delay(30);
+    loop.stop();
+    await running;
+
+    expect(repository.cancelled).toHaveLength(1);
+    expect(repository.released).toEqual([]);
   });
 });

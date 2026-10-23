@@ -499,13 +499,23 @@ export function getAdminBootstrapConfig(env: Environment = process.env) {
   } as const;
 }
 
-/** The four logical price keys, spelled as the environment-variable suffixes they map to. */
+/** The logical price keys, spelled as the environment-variable suffixes they map to. */
 const STRIPE_PRICE_ENV_NAMES = {
   STARTER_MONTHLY: "STRIPE_PRICE_STARTER_MONTHLY",
-  STARTER_YEARLY: "STRIPE_PRICE_STARTER_YEARLY",
   PRO_MONTHLY: "STRIPE_PRICE_PRO_MONTHLY",
-  PRO_YEARLY: "STRIPE_PRICE_PRO_YEARLY",
+  PRO_PLUS_MONTHLY: "STRIPE_PRICE_PRO_PLUS_MONTHLY",
 } as const;
+
+/**
+ * Price variables of the retired annual catalog ($99 / $299, `docs/decisions/stripe-billing-v1.md`
+ * §1, amended 2026-10-23). Refused rather than ignored: a deployment still configuring one was set
+ * up for a catalog that no longer exists, and an operator should learn that at startup rather than
+ * from a customer who was never offered the annual price they expected.
+ */
+const RETIRED_STRIPE_PRICE_ENV_NAMES = [
+  "STRIPE_PRICE_STARTER_YEARLY",
+  "STRIPE_PRICE_PRO_YEARLY",
+] as const;
 
 export type StripePriceKeyName = keyof typeof STRIPE_PRICE_ENV_NAMES;
 
@@ -574,6 +584,18 @@ export function getStripeBillingConfig(
     return null;
   }
 
+  const retired = RETIRED_STRIPE_PRICE_ENV_NAMES.filter(
+    (name) => optional(env, name) !== undefined,
+  );
+  if (retired.length > 0) {
+    const [verb, pronoun] = retired.length === 1 ? ["belongs", "is"] : ["belong", "are"];
+    throw new Error(
+      `Invalid application configuration: ${retired.join(" and ")} ${verb} to the retired ` +
+        `annual catalog and ${pronoun} no longer read; the catalog is Starter, Pro and Pro+ monthly ` +
+        "(STRIPE_PRICE_STARTER_MONTHLY, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_PLUS_MONTHLY)",
+    );
+  }
+
   const environment = runtimeEnvironment(env);
   const secretKey = required(env, "STRIPE_SECRET_KEY");
   const testMode = isStripeTestSecret(secretKey);
@@ -618,9 +640,9 @@ export function getStripeBillingConfig(
     }
     const duplicate = seen.get(value);
     if (duplicate) {
-      // Two logical keys pointing at one Stripe price would make plan and interval ambiguous in
-      // exactly the direction that matters: a Pro price resolving to Starter, or a yearly price
-      // billing monthly. It is always a copy-paste error and never a valid configuration.
+      // Two logical keys pointing at one Stripe price would make the plan ambiguous in exactly the
+      // direction that matters: a Pro+ price resolving to Pro, or a Pro price to Starter. It is
+      // always a copy-paste error and never a valid configuration.
       throw new Error(
         `Invalid application configuration: ${name} and ${STRIPE_PRICE_ENV_NAMES[duplicate]} are ` +
           "the same Stripe Price ID; each logical price must map to its own Stripe price",
@@ -704,6 +726,58 @@ export function getBacktestWorkerConfig(env: Environment = process.env) {
       1_000,
     ),
     frameConcurrency: integer(env, ["BACKTEST_FRAME_LOAD_CONCURRENCY"], 4),
+  } as const;
+}
+
+/**
+ * Deployment-wide backtest admission (`ai/architecture/backtest-execution.md`, "Global admission").
+ *
+ * - `globalMaxRunning` — how many backtests may **execute** at once across the whole deployment,
+ *   every worker process on every host together. It is enforced atomically at the claim
+ *   (`lockBacktestAdmission`), so it is a real limit rather than a sum of per-process ones; a worker
+ *   process beyond it simply polls. The production target is 4. Every worker must be given the same
+ *   value: each claim compares the shared count with its own setting.
+ * - `queueMaxQueued` — how many runs may **wait** for a slot before a new submission is refused
+ *   with `503 BACKTEST_QUEUE_FULL` and a `Retry-After`: admission backpressure, never an
+ *   entitlement. Per-user in-flight limits already bound each user's share of the queue; this
+ *   bounds the total when many users submit at once. Read by the API at submission.
+ * - `queueFullRetryAfterSeconds` — the `Retry-After` such a refusal carries.
+ *
+ * A cap above `BACKTEST_WORKER_PROCESSES` × hosts can never bind; the API logs both at startup.
+ */
+export function getBacktestAdmissionConfig(env: Environment = process.env) {
+  const globalMaxRunning = integer(env, ["BACKTEST_GLOBAL_MAX_RUNNING"], 4);
+  if (globalMaxRunning > MAX_BACKTEST_WORKER_PROCESSES * 8) {
+    throw new Error(
+      "Invalid application configuration: BACKTEST_GLOBAL_MAX_RUNNING must be between 1 and " +
+        `${MAX_BACKTEST_WORKER_PROCESSES * 8}`,
+    );
+  }
+  return {
+    globalMaxRunning,
+    queueMaxQueued: integer(env, ["BACKTEST_QUEUE_MAX_QUEUED"], 100),
+    queueFullRetryAfterSeconds: integer(
+      env,
+      ["BACKTEST_QUEUE_FULL_RETRY_AFTER_SECONDS"],
+      60,
+    ),
+  } as const;
+}
+
+/**
+ * The operational fair-use ceiling on one user's **enabled** Monitors.
+ *
+ * Not an entitlement: Pro and Pro+ advertise unlimited active Monitors and the entitlement matrix
+ * says `null`. "Unlimited" is no advertised numerical subscription cap, not unlimited
+ * infrastructure (`docs/decisions/entitlements-v2.md` §7): a Monitor pass costs about one
+ * transaction per monitored member per finalized session, so one account with hundreds of
+ * 750-symbol Monitors would lengthen the end-of-day pass for every customer. This bounds that,
+ * refused with its own code (`MONITOR_FAIR_USE_LIMIT`) and never presented as a plan limit. Read at
+ * each enable, so it can be raised for one deployment without a code change.
+ */
+export function getMonitorFairUseConfig(env: Environment = process.env) {
+  return {
+    maxEnabledPerUser: integer(env, ["MONITOR_FAIR_USE_MAX_ENABLED_PER_USER"], 100),
   } as const;
 }
 

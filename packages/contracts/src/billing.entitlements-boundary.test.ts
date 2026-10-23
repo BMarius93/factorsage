@@ -90,7 +90,7 @@ describe("billing carries no entitlement values", () => {
     // Money is the only number billing is allowed to know. Every numeric literal in a catalog
     // entry is an amount in cents, and nothing else in the module holds a product bound.
     const amounts = BILLING_CATALOG_ENTRIES.map((entry) => entry.amountMinorUnits);
-    expect(amounts).toEqual([900, 9_900, 2_900, 29_900]);
+    expect(amounts).toEqual([1_900, 4_900, 19_900]);
 
     for (const entry of BILLING_CATALOG_ENTRIES) {
       const keys = Object.keys(entry).sort();

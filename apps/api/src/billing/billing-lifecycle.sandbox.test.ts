@@ -266,14 +266,16 @@ describe.skipIf(!ENABLED)(
     });
 
     /**
-     * BILL-01: PRO_MONTHLY → STARTER_MONTHLY (scheduled for the period end) → PRO_YEARLY the same day
-     * (a lengthened cadence, so immediate and invoiced). The user has paid for a year of PRO; at the
-     * old period end they must still be on PRO_YEARLY, and nothing may still be scheduled.
+     * BILL-01: PRO_MONTHLY → STARTER_MONTHLY (scheduled for the period end) → PRO_PLUS_MONTHLY the
+     * same day (a tier upgrade, so immediate and invoiced). The user has paid the Pro+ proration; at
+     * the period end the downgrade was scheduled for they must still be on PRO_PLUS_MONTHLY, and
+     * nothing may still be scheduled.
      *
-     * Observed on 2026-10-16 before the fix: the upgrade succeeded and was invoiced, the schedule
-     * stayed attached with its STARTER_MONTHLY phase, and at the old monthly boundary Stripe moved
-     * the subscription to STARTER_MONTHLY — FactorSage followed to STARTER. The upgrade now releases
-     * the schedule before it updates the price.
+     * Observed on 2026-10-16 before the fix, with the then-sold PRO_YEARLY as the upgrade: the
+     * upgrade succeeded and was invoiced, the schedule stayed attached with its STARTER_MONTHLY
+     * phase, and at the old monthly boundary Stripe moved the subscription to STARTER_MONTHLY —
+     * FactorSage followed to STARTER. The upgrade now releases the schedule before it updates the
+     * price.
      */
     it(
       "BILL-01: an immediate upgrade made while a downgrade is scheduled survives the old period end",
@@ -309,11 +311,11 @@ describe.skipIf(!ENABLED)(
         try {
           const upgrade = await billing.changePlan({
             user: await authUser(persona.email),
-            priceKey: "PRO_YEARLY",
+            priceKey: "PRO_PLUS_MONTHLY",
             requestId: randomUUID(),
           });
           observations.push({
-            step: "changePlan PRO_YEARLY response",
+            step: "changePlan PRO_PLUS_MONTHLY response",
             response: upgrade,
           });
         } catch (error: unknown) {
@@ -322,7 +324,7 @@ describe.skipIf(!ENABLED)(
               ? `${error.name}: ${error.message}`
               : String(error);
           observations.push({
-            step: "changePlan PRO_YEARLY threw",
+            step: "changePlan PRO_PLUS_MONTHLY threw",
             error: upgradeError,
           });
         }
@@ -368,7 +370,7 @@ describe.skipIf(!ENABLED)(
         await advanceClock(seeded.customerId, target);
         await reconcile(persona.email);
         const afterBoundary = await observe(
-          "after the old monthly period end",
+          "after the period end the downgrade was scheduled for",
           persona.email,
           seeded.customerId,
         );
@@ -383,12 +385,12 @@ describe.skipIf(!ENABLED)(
         expect(afterBoundary.stripe).toEqual([
           expect.objectContaining({
             status: "active",
-            price: "PRO_YEAR",
+            price: "PRO_PLUS_MONTH",
             scheduled: false,
           }),
         ]);
         expect(afterBoundary.factorsage).toEqual(
-          expect.objectContaining({ plan: "PRO" }),
+          expect.objectContaining({ plan: "PRO_PLUS" }),
         );
       },
       STRIPE_TIMEOUT_MS,

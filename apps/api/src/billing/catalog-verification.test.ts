@@ -18,9 +18,8 @@ import type { StripePriceDescriptor } from "./stripe-gateway";
 
 const PRICE_IDS: Record<BillingPriceKey, string> = {
   STARTER_MONTHLY: "price_starter_monthly",
-  STARTER_YEARLY: "price_starter_yearly",
   PRO_MONTHLY: "price_pro_monthly",
-  PRO_YEARLY: "price_pro_yearly",
+  PRO_PLUS_MONTHLY: "price_pro_plus_monthly",
 };
 
 const CONFIG: StripeBillingConfig = {
@@ -78,7 +77,7 @@ async function problems(
 }
 
 describe("verifyStripeCatalog", () => {
-  it("finds nothing wrong with the four V1 prices", async () => {
+  it("finds nothing wrong with the three catalog prices", async () => {
     const result = await verifyStripeCatalog({
       stripe: stripeWith(),
       catalog: new BillingCatalog(CONFIG),
@@ -87,9 +86,12 @@ describe("verifyStripeCatalog", () => {
     expect([...result.prices.keys()]).toEqual([...BILLING_PRICE_KEYS]);
   });
 
-  it("catches a Pro key pointing at a nine-dollar price", async () => {
-    expect(await problems({ PRO_MONTHLY: { unitAmount: 900 } })).toEqual([
-      "PRO_MONTHLY: amount is $9.00, expected $29.00",
+  it("catches a key pointing at a cheaper plan's price", async () => {
+    expect(await problems({ PRO_MONTHLY: { unitAmount: 1_900 } })).toEqual([
+      "PRO_MONTHLY: amount is $19.00, expected $49.00",
+    ]);
+    expect(await problems({ PRO_PLUS_MONTHLY: { unitAmount: 4_900 } })).toEqual([
+      "PRO_PLUS_MONTHLY: amount is $49.00, expected $199.00",
     ]);
   });
 
@@ -109,20 +111,44 @@ describe("verifyStripeCatalog", () => {
     ],
     ["a one-time price", { recurringInterval: null }, /one-time price/],
     ["a metered price", { usageType: "metered" }, /usage type is metered/],
-    [
-      "a product of its own",
-      { productId: "prod_other" },
-      /price belongs to prod_other/,
-    ],
   ])("catches %s", async (_label, override, expected) => {
     const found = await problems({ STARTER_MONTHLY: override });
     expect(found.join(" | ")).toMatch(expected);
     expect(found.every((line) => line.startsWith("STARTER_"))).toBe(true);
   });
 
+  it("catches two plans sold under one product", async () => {
+    // The Pro+ price created on the Pro product: every invoice and the Customer Portal would
+    // name a $199 subscription "Pro".
+    expect(
+      await problems({ PRO_PLUS_MONTHLY: { productId: "prod_pro" } }),
+    ).toEqual([
+      "PRO_PLUS_MONTHLY: belongs to product prod_pro, which is also the PRO product; each plan needs its own product",
+    ]);
+
+    // One product for the whole catalog: every plan after the first is reported.
+    const shared = { productId: "prod_factorsage" };
+    expect(
+      await problems({
+        STARTER_MONTHLY: shared,
+        PRO_MONTHLY: shared,
+        PRO_PLUS_MONTHLY: shared,
+      }),
+    ).toEqual([
+      "PRO_MONTHLY: belongs to product prod_factorsage, which is also the STARTER product; each plan needs its own product",
+      "PRO_PLUS_MONTHLY: belongs to product prod_factorsage, which is also the STARTER product; each plan needs its own product",
+    ]);
+  });
+
+  it("accepts a product of any id, so long as no other plan shares it", async () => {
+    expect(
+      await problems({ STARTER_MONTHLY: { productId: "prod_other" } }),
+    ).toEqual([]);
+  });
+
   it("reports a configured price Stripe does not have", async () => {
-    expect(await problems({ PRO_YEARLY: null })).toEqual([
-      "PRO_YEARLY: price_pro_yearly does not exist in this Stripe environment",
+    expect(await problems({ PRO_PLUS_MONTHLY: null })).toEqual([
+      "PRO_PLUS_MONTHLY: price_pro_plus_monthly does not exist in this Stripe environment",
     ]);
   });
 });

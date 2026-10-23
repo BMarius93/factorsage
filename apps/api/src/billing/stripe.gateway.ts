@@ -770,7 +770,7 @@ const FIXTURE_PAYMENT_METHOD_TOKENS: Readonly<
 export class StripeTestModeFixtureGateway implements StripeFixtureGateway {
   private readonly stripe: Stripe;
 
-  /** The four configured catalog prices. A subscription on anything else is refused. */
+  /** The configured catalog prices. A subscription on anything else is refused. */
   private readonly catalogPriceIds: ReadonlySet<string>;
 
   constructor(
@@ -965,7 +965,7 @@ export class StripeTestModeFixtureGateway implements StripeFixtureGateway {
   }): Promise<StripeFixtureSubscription> {
     if (!this.catalogPriceIds.has(input.priceId)) {
       throw new StripeFixtureError(
-        "Refusing to create a fixture subscription on a price that is not one of the four " +
+        "Refusing to create a fixture subscription on a price that is not one of the " +
           "configured FactorSage catalog prices.",
       );
     }

@@ -186,6 +186,7 @@ async function upsertList(
             name: list.name,
             description: list.description,
             displayOrder: list.displayOrder,
+            premium: list.premium ?? false,
             updatedByUserId: null,
           },
           select: { id: true },
@@ -199,6 +200,7 @@ async function upsertList(
             name: list.name,
             description: list.description,
             displayOrder: list.displayOrder,
+            premium: list.premium ?? false,
           },
           select: { id: true },
         })
@@ -261,6 +263,7 @@ async function upsertStrategy(
         name: strategy.name,
         description: strategy.description,
         displayOrder: strategy.displayOrder,
+        premium: strategy.premium ?? false,
         versions: {
           create: {
             versionNumber: 1,
@@ -282,6 +285,7 @@ async function upsertStrategy(
       name: strategy.name,
       description: strategy.description,
       displayOrder: strategy.displayOrder,
+      premium: strategy.premium ?? false,
       updatedByUserId: null,
     },
   });
