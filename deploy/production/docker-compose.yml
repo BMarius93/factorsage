@@ -111,7 +111,8 @@ services:
       MARKET_DATA_WORKER_PROCESSES: "1"
       STOCK_EOD_WORKER_PROCESSES: "1"
       STOCK_LRU_MAX_SECURITIES: "500"
-      NODE_OPTIONS: "--max-old-space-size=3072"
+      # Every measured run used a 2 GB V8 heap; a 3 GB one raised a hydrating child's peak by 0.26 GB.
+      NODE_OPTIONS: "--max-old-space-size=2048"
     depends_on:
       migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
@@ -121,9 +122,10 @@ services:
     stop_grace_period: 45s
     deploy:
       resources:
-        # Seven Node processes: four backtest children (2.1 GB each at most, measured while preparation
-        # rebuilds ~1,000 securities; 0.5 GB executing), Monitor, market-data and stock-EOD children.
-        limits: { cpus: "5.0", memory: 12G }
+        # Seven Node processes: four backtest children (measured: 0.5 GB executing, 2.1 GB rebuilding
+        # ~1,000 securities, up to 3.4 GB hydrating first-time securities; four hydrating at once 11.9 GB),
+        # Monitor, market-data and stock-EOD children.
+        limits: { cpus: "5.0", memory: 15G }
 
   # The schema job: applied before the API or worker of a release starts (depends_on above).
   migrate:
@@ -161,7 +163,7 @@ services:
     stop_grace_period: 120s
     deploy:
       resources:
-        limits: { cpus: "3.0", memory: 10G }
+        limits: { cpus: "3.0", memory: 8G }
 
   redis:
     image: ${REDIS_IMAGE:-redis:7.4-alpine}

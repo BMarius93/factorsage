@@ -1,0 +1,6 @@
+{"event":"phase8.synthetic","at":"2026-10-23T23:23:57Z","args":""}
+{"event":"phase8.start","at":"2026-10-23T23:23:57Z","label":"H-miss-mixed-shared"}
+{"event":"phase8.done","at":"2026-10-23T23:42:20Z","label":"H-miss-mixed-shared","exit":0,"seconds":1103}
+{"event":"phase8.start","at":"2026-10-23T23:42:20Z","label":"C-miss-mixed-heap3072"}
+{"event":"phase8.done","at":"2026-10-23T23:48:18Z","label":"C-miss-mixed-heap3072","exit":0,"seconds":358}
+{"event":"phase8.start","at":"2026-10-23T23:48:18Z","label":"F8-H-warm-kill-worker"}

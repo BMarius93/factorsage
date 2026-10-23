@@ -189,4 +189,22 @@ resident):
 - **Hydrating is the most memory-hungry thing a worker does**: 3.42 GB per process, against 2.1 GB
   for a 1,000-security rebuild from PostgreSQL and 0.5 GB executing — with a 2 GB V8 heap (Node's
   default on this machine), so at least ~1.3 GB of it is outside the JavaScript heap.
+  The same run under a 3 GB heap (`C-miss-mixed-heap3072`) peaked at 3.68 GB and ran 7 % faster
+  (344 s): a larger heap buys a little speed for more memory, so production keeps the measured 2 GB.
 - Every member was prepared (none skipped) and both runs completed on their first attempt.
+
+**Four first-time hydrations at once** (`H-miss-mixed-shared`: 750 + 750 + 1,000 + 1,000, the four
+lists sharing 400 never-hydrated ordinary members, all four executing):
+
+|                      | Measured                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| Wall time, four runs | **18.2 min** (2.6 min warm): preparation 683 s (750) and 963 s (1,000), execution as warm   |
+| Hydration            | 400 securities, each once: 2.4 s of wall time each with four workers hydrating together     |
+| Provider             | 3,880 requests (9.7 per security), 918 MB; none failed or was repeated                      |
+| **Worker memory**    | **11.9 GB for the four processes** (3.28 GB the largest); the 16 GB machine had 725 MB left |
+| PostgreSQL           | 39 connections, 12 active, 7.9 M rows inserted (+3.6 GB), 86 CPU-seconds                    |
+| Results              | both 750 runs one digest, both 1,000 runs one digest; every run on its first attempt        |
+
+This is the deployment's memory high-water mark: four runs hydrating first-time securities at once
+need ~12 GB for the backtest processes alone (`benchmark-results/H-miss-mixed-shared.memory.log`
+samples the machine's free memory every 5 s).
