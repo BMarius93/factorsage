@@ -574,7 +574,8 @@ series from FMP.
 - `apps/worker/src/monitor/monitor-evaluation.integration.test.ts` and
   `monitor-evaluation.semantics.integration.test.ts` — PostgreSQL. The EOD evaluation through the
   real repository: finalized sessions in order from a checkpoint, catch-up, reconstruction and the
-  rolling 30-day window evaluation with its recorded coverage, ongoing membership, pending setups,
+  rolling 30-day window evaluation with its recorded coverage and the back-fill of a window whose
+  records began late (append-only, verified, nothing twice), ongoing membership, pending setups,
   latched triggers, logic edits, built-in Monitors, and transition history that always ends in the
   stored state (`docs/decisions/monitor-eod-v2.md` §12).
 - `apps/worker/src/monitor/legacy-evidence.integration.test.ts` — PostgreSQL. The legacy evidence

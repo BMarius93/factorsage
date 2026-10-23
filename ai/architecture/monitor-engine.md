@@ -397,6 +397,16 @@ where that recorded evaluation begins (the newest session for a member reconstru
 as it was while a member continues from its checkpoint), which is what the API's synchronization
 state reads. Everything else below still applies to it.
 
+**A member whose records begin inside its window is back-filled** (§12.2a): after the forward
+evaluation, each pass decides the missing sessions of every such member through the same replay,
+verifies the result against the persisted state and the recorded transitions (same logic
+fingerprint, resting states written either way), and appends only what is missing — new transitions
+(`HISTORY`) and new occurrences for ones that began and ended inside the gap — reusing every
+recorded occurrence, never changing a state row or a recorded row, in one transaction behind the
+binding fence, the checkpoint and every `stateVersion` (`planCoverageBackfill`,
+`applyCoverageBackfill`). A member whose records cannot be reconciled is marked
+(`coverageBlockedFrom`) and left alone until its window moves.
+
 Because reconstruction is keyed on "no current state", it covers new members, re-added members,
 rebinds, edited levels and legacy state with one mechanism. `resolveUnvisitedStates` therefore deletes the
 state of a removed member or level (after closing its occurrence and recording why) instead of
@@ -410,6 +420,9 @@ A Monitor that starts running does not wait for the next interval: the API's
 schedule due now and sets `MonitorScanSchedule.scanRequested`; the claim clears it, and a pass that
 was already running completes with `dueAt = now` while it is set, so a request that arrived during
 that pass is caught up by the next one rather than lost (`docs/decisions/monitor-eod-v2.md` §12.2).
+Each pass also records the newest finalized session its canonical `EodFinalityPolicy` found
+(`MonitorScanSchedule.latestSession`), which the Dashboard's window ends on without asking the
+provider itself (§12.1).
 
 `pnpm monitors:backfill-evidence` (dry run; `--apply` to write) records evidence on legacy
 transitions only where the canonical evaluator, the recorded version and the finalized frame

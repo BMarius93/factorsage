@@ -21,7 +21,7 @@ separate "on my Dashboard" setting.
 
 The user does **not** configure the monitoring interval/cadence. Cadence is an application/infrastructure decision.
 
-Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics, and catches up the sessions it missed in order — recorded as history, not as newly observed activity (§ Transition history). Enabling asks the worker for that catch-up at once rather than at its next interval, and until a pass has completed the Monitor says **Synchronizing — Evaluating the last 30 days** under its switch; a member whose market data is not there yet, or whose history begins inside the window, makes it **Partial history**, with how many stocks are waiting or the date its history starts. A Monitor that is not being evaluated — disabled, plan-blocked, paused by FactorSage — never shows either.
+Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics, and catches up the sessions it missed in order — recorded as history, not as newly observed activity (§ Transition history). Enabling asks the worker for that catch-up at once rather than at its next interval, and while anything can still be decided the Monitor says **Synchronizing — Evaluating the last 30 days** under its switch. It reads **Partial history** only for history that genuinely cannot be evaluated — a stock with no market data to evaluate, or sessions whose recorded decisions (an earlier intraday Monitor's, for example) cannot be reconciled without rewriting them — with how many stocks are waiting or the date its history starts; never merely because its records are recent. A Monitor that is not being evaluated — disabled, plan-blocked, paused by FactorSage — never shows either.
 
 `enabled` is intent, not a promise that the Monitor is scanning. After a downgrade an enabled
 Monitor can be `BLOCKED_BY_ENTITLEMENT` — over the plan's active-Monitor count
@@ -207,6 +207,19 @@ membership began inside the window starts then. A session whose changes this Mon
 recorded for the security is never evaluated again, so restoring a membership or re-enabling never
 duplicates an event. A member the Monitor has evaluated before continues from where it stopped —
 every missed session, in order — rather than starting over.
+
+The whole window is evaluated, whatever the member's records begin with. A member whose records
+begin inside the window — evaluated before the window rule existed, or a Monitor rebound to another
+Strategy or List — has the missing sessions decided the same way and **added**: checked first
+against what is recorded, nothing recorded twice, an occurrence already recorded reused rather than
+duplicated, nothing recorded changed (`docs/decisions/monitor-eod-v2.md` §12.2a). When recorded
+decisions cannot be reconciled — sessions an earlier intraday Monitor decided — they are left as
+they are, and the Monitor says from when its history is recorded.
+
+The window ends on the newest finalized **session**, never a calendar day: on a weekend or an
+exchange holiday it is the window of the last session, and it moves only when a new session becomes
+final. An event belongs to it by the session it happened on: an occurrence found today for a session
+older than the window is stored and shown on the Monitor's own page, never on the Dashboard.
 
 ### Historical reconstruction
 

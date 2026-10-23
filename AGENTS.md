@@ -122,10 +122,15 @@ Read `ai/README.md` before substantial work.
     `isBuyWindowEligible` and must never call the Monitor predicate (§4). A member a Monitor has never
     evaluated is evaluated over the rolling **30-day** activity window, from the exact state before
     it, never on a session whose changes that Monitor already recorded; a member with a checkpoint
-    continues from it; coverage is the checkpoint's durable `coverageStart`, never inferred from a
-    timestamp; and every session-decided transition stores its `strategyVersionId` and operand
-    `evidence` (§5, §12). Dashboard activity is evidenced end-of-day events of the Monitors Enabled
-    for the viewer, inside that window (§12.3). Do not reintroduce a
+    continues from it; a member whose records begin inside its window has the missing sessions
+    back-filled — verified against what is recorded, append-only, never recording a change or an
+    occurrence twice, never rewriting a recorded row (§12.2a); coverage is the checkpoint's durable
+    `coverageStart`, never inferred from a timestamp; and every session-decided transition stores
+    its `strategyVersionId` and operand `evidence` (§5, §12). Dashboard activity is evidenced
+    end-of-day events of the Monitors Enabled for the viewer whose **session** lies inside the 30
+    calendar days ending on the newest finalized session — enforced in the query for every page,
+    cursor, filter and `through` read, anchored without a provider request (§12.1, §12.3). Do not
+    reintroduce a
     live-quote observation or a quote endpoint (the FMP client has none, §8), a jump from a stale
     checkpoint to the newest session, or a Monitor-cycle provider read. A member is never stepped
     past a session its security or an ETF it reads has not printed while the bar may still arrive
