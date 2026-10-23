@@ -37,9 +37,17 @@ import { repositoryRoot } from "../qa-matrix/matrix-paths";
  * It changes Redis residency (that is the point) and nothing in PostgreSQL. Aggregates only.
  */
 
-type Phase = "lru" | "concurrency" | "digest" | "child";
+type Phase =
+  "lru" | "concurrency" | "digest" | "child" | "promotion" | "residency";
 
-const PROTECTED_SAMPLE = ["AAPL", "MS", "MCO", "CVC", "JPM", "XOM"];
+/**
+ * Protected securities whose chunk bytes the digest covers. The default is the real S&P 500
+ * universe's; the synthetic scale benchmark passes its own (`STOCK_CACHE_PROTECTED_SAMPLE`,
+ * comma-separated symbols), since its canonical universe is `SYN0001…`.
+ */
+const PROTECTED_SAMPLE = process.env.STOCK_CACHE_PROTECTED_SAMPLE?.split(",")
+  .map((symbol) => symbol.trim())
+  .filter(Boolean) ?? ["AAPL", "MS", "MCO", "CVC", "JPM", "XOM"];
 
 type Context = {
   runtime: IndexUniverseRuntime;
@@ -312,8 +320,30 @@ async function runConcurrency(
   // happens here, before sampling starts, so the samples measure only the processes below.
   const initial = await runtime.redis.zcard(`${ns}:resident-stocks`);
   const first = (await lruMembers(runtime))[0];
+  let forcedEviction: {
+    lruBefore: number;
+    lruAfter: number;
+    durationMs: number;
+    evictedKeysLeft: number;
+  } | null = null;
   if (initial > capacity && first) {
+    const membersBefore = await lruMembers(runtime);
+    const startedAt = Date.now();
     await runtime.cache.touch(first);
+    const durationMs = Date.now() - startedAt;
+    const membersAfter = new Set(await lruMembers(runtime));
+    let evictedKeysLeft = 0;
+    for (const id of membersBefore.filter(
+      (member) => !membersAfter.has(member),
+    )) {
+      evictedKeysLeft += (await keysOf(runtime, id)).length;
+    }
+    forcedEviction = {
+      lruBefore: membersBefore.length,
+      lruAfter: membersAfter.size,
+      durationMs,
+      evictedKeysLeft,
+    };
   }
   let sampling = true;
   let maxObserved = 0;
@@ -414,6 +444,7 @@ async function runConcurrency(
   const report = {
     phase: "concurrency",
     capacity,
+    forcedEviction,
     processes: input.processes,
     operationsPerProcess: input.operations,
     wallMs,
@@ -455,6 +486,131 @@ async function runConcurrency(
       runtime.guard.ledger().sent + total((result) => result.providerRequests),
   };
   write(input.out, report);
+  return report;
+}
+
+/**
+ * Promotion (`stock-cache-tiers-v1.md` §3): designating an LRU member protected moves it out of the
+ * LRU with its data exactly as it was — no rewrite, no rehydration, no TTL — and frees its slot.
+ */
+async function runPromotion(context: Context, out: string | null) {
+  const { runtime } = context;
+  const before = await lruMembers(runtime);
+  const candidate = before.at(-1);
+  if (!candidate) {
+    throw new Error(
+      "The LRU is empty: read some ordinary securities first (the lru phase)",
+    );
+  }
+  const keysBefore = (await keysOf(runtime, candidate)).sort();
+  const digest = async () => {
+    const hash = createHash("sha256");
+    for (const key of keysBefore) {
+      hash.update(key);
+      if ((await runtime.redis.type(key)) === "string") {
+        hash.update((await runtime.redis.getBuffer(key)) ?? Buffer.alloc(0));
+      }
+    }
+    return hash.digest("hex");
+  };
+  const bytesBefore = await digest();
+  const designated = await runtime.cache.protectStocks([candidate]);
+  const after = await lruMembers(runtime);
+  const keysAfter = (await keysOf(runtime, candidate)).sort();
+  const ttls = await Promise.all(
+    keysAfter.map((key) => runtime.redis.pttl(key)),
+  );
+  const report = {
+    phase: "promotion",
+    capacity: runtime.cache.lruCapacity,
+    designated,
+    lruBefore: before.length,
+    lruAfter: after.length,
+    leftLru: !after.includes(candidate),
+    isDesignated:
+      (await runtime.redis.sismember(`${ns}:protected-stocks`, candidate)) ===
+      1,
+    keysUnchanged: JSON.stringify(keysBefore) === JSON.stringify(keysAfter),
+    bytesUnchanged: bytesBefore === (await digest()),
+    keysWithTtl: ttls.filter((ttl) => ttl >= 0).length,
+    keys: keysAfter.length,
+    // Demotion: reconciling the designation with the canonical universe hands the stock back to
+    // the LRU as its newest member, under its capacity, with its data still intact.
+    demotion: await (async () => {
+      const reconciled = await runtime.cache.reconcileProtectedStocks([
+        ...(await loadProtectedTierSecurityIds(runtime.prisma)),
+      ]);
+      const lru = await lruMembers(runtime);
+      return {
+        ...reconciled,
+        rejoinedAsNewest: lru.at(-1) === candidate,
+        lruSize: lru.length,
+        withinCapacity: lru.length <= runtime.cache.lruCapacity,
+        keysUnchanged:
+          JSON.stringify(keysBefore) ===
+          JSON.stringify((await keysOf(runtime, candidate)).sort()),
+        bytesUnchanged: bytesBefore === (await digest()),
+      };
+    })(),
+  };
+  write(out, report);
+  return report;
+}
+
+/**
+ * Protected residency: every designated security is READY, has keys, and carries no TTL on any key;
+ * and the protected digest survives whatever LRU churn ran before (compare with a previous digest).
+ */
+async function runResidency(context: Context, out: string | null) {
+  const { runtime } = context;
+  const designated = await runtime.redis.smembers(`${ns}:protected-stocks`);
+  let keys = 0;
+  let withTtl = 0;
+  let missingManifest = 0;
+  for (const id of designated) {
+    const manifest = await runtime.redis.get(`${ns}:security:${id}:manifest`);
+    if (!manifest) {
+      missingManifest += 1;
+    }
+    const registered = await runtime.redis.smembers(
+      `${ns}:security:${id}:keys`,
+    );
+    keys += registered.length;
+    const pipeline = runtime.redis.pipeline();
+    for (const key of registered) {
+      pipeline.pttl(key);
+    }
+    for (const [, ttl] of (await pipeline.exec()) ?? []) {
+      if (typeof ttl === "number" && ttl >= 0) {
+        withTtl += 1;
+      }
+    }
+  }
+  const audit = await runtime.cache.auditTiers(
+    new Set(await loadProtectedTierSecurityIds(runtime.prisma)),
+  );
+  const report = {
+    phase: "residency",
+    designated: designated.length,
+    keys,
+    protectedKeysWithTtl: withTtl,
+    designatedWithoutManifest: missingManifest,
+    digest: await protectedDigest(
+      runtime,
+      context.protectedSample.map((row) => row.id),
+    ),
+    audit: {
+      lru: audit.lru,
+      protected: {
+        ...audit.protected,
+        notResident: audit.protected.notResident.length,
+      },
+      orphans: audit.orphans.length,
+      dualResidency: audit.dualResidency.length,
+      violations: audit.violations,
+    },
+  };
+  write(out, report);
   return report;
 }
 
@@ -542,10 +698,12 @@ async function main() {
     phase !== "lru" &&
     phase !== "concurrency" &&
     phase !== "digest" &&
-    phase !== "child"
+    phase !== "child" &&
+    phase !== "promotion" &&
+    phase !== "residency"
   ) {
     throw new Error(
-      "Usage: stock-cache-tier-validation <lru|concurrency|digest> [--out f] [--processes n] [--operations n]",
+      "Usage: stock-cache-tier-validation <lru|concurrency|digest|promotion|residency> [--out f] [--processes n] [--operations n]",
     );
   }
   const option = (name: string, fallback: string | null) => {
@@ -589,6 +747,14 @@ async function main() {
         },
       };
       write(option("--out", null), report);
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      return;
+    }
+    if (phase === "promotion" || phase === "residency") {
+      const report =
+        phase === "promotion"
+          ? await runPromotion(ctx, option("--out", null))
+          : await runResidency(ctx, option("--out", null));
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
       return;
     }

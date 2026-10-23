@@ -161,4 +161,18 @@ describe("the production FmpClient against the synthetic provider", () => {
     expect(failing.counters.failuresInjected).toBe(1);
     await failing.close();
   });
+
+  it("refuses everything during an outage window, then recovers", async () => {
+    const provider = createSyntheticFmpServer({ lastSession: LAST, universe: 20 });
+    await new Promise<void>((resolve) => provider.server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(provider.server.address() as AddressInfo).port}`;
+    const profile = `${base}/stable/profile?symbol=SYN0001&apikey=${SYNTHETIC_FMP_API_KEY}`;
+    await fetch(`${base}/__synthetic/outage?ms=200&status=429`);
+    expect((await fetch(profile)).status).toBe(429);
+    expect((await fetch(profile)).status).toBe(429);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect((await fetch(profile)).status).toBe(200);
+    expect(provider.counters.outageRefusals).toBe(2);
+    await provider.close();
+  });
 });

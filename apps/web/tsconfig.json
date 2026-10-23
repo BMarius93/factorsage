@@ -24,6 +24,7 @@
     "src/**/*.tsx",
     "e2e/**/*.ts",
     "qa/**/*.ts",
+    "load-test/**/*.ts",
     "dev-server/**/*.ts",
     "playwright.config.ts",
     "playwright.mail.config.ts",

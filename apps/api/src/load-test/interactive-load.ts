@@ -48,6 +48,14 @@ type Arguments = {
   label: string;
   report: string;
   apiPid: number | null;
+  /** The API's stderr log, whose `bench.event-loop` lines (`event-loop-probe.cjs`) are summarized. */
+  apiLog: string | null;
+  /** Count executing and queued backtests in the benchmark database while the load runs. */
+  sampleJobs: boolean;
+  /** Share of Stock Details views of the canonical (protected-tier) universe; the rest are long-tail. */
+  popularShare: number;
+  /** `setup`: the size of the completed benchmark run each user's history copies. */
+  templateSize: number;
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -65,6 +73,10 @@ function parseArguments(argv: readonly string[]): Arguments {
     label: "",
     report: "docs/production/benchmark-results/interactive-load.jsonl",
     apiPid: null,
+    apiLog: null,
+    sampleJobs: false,
+    popularShare: 0.8,
+    templateSize: 250,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] as string;
@@ -97,6 +109,18 @@ function parseArguments(argv: readonly string[]): Arguments {
         break;
       case "--api-pid":
         parsed.apiPid = Number(value);
+        break;
+      case "--api-log":
+        parsed.apiLog = value;
+        break;
+      case "--sample-jobs":
+        parsed.sampleJobs = value === "true";
+        break;
+      case "--popular-share":
+        parsed.popularShare = Number(value);
+        break;
+      case "--template-size":
+        parsed.templateSize = Number(value);
         break;
       default:
         throw new Error(`Unknown argument ${flag}`);
@@ -152,8 +176,15 @@ async function cloneRunRows(
 async function setup(args: Arguments): Promise<unknown> {
   const prisma = new PrismaClient();
   try {
+    // A Pro-sized result (250 securities, 30 years by default): realistic pages without copying the
+    // hundreds of thousands of trade rows a 1,000-security run holds into every account.
     const template = await prisma.backtestRun.findFirst({
-      where: { status: "COMPLETED", summary: { isNot: null }, user: { email: { startsWith: "scale-bench-" } } },
+      where: {
+        status: "COMPLETED",
+        summary: { isNot: null },
+        securityCount: args.templateSize,
+        user: { email: { startsWith: "scale-bench-" } },
+      },
       orderBy: { completedAt: "desc" },
       select: { id: true },
     });
@@ -274,7 +305,7 @@ async function setup(args: Arguments): Promise<unknown> {
   }
 }
 
-type Sample = { route: string; status: number; ms: number };
+type Sample = { route: string; status: number; ms: number; at: number };
 
 class Session {
   private cookie = "";
@@ -307,12 +338,20 @@ class Session {
       status = -1;
       return null;
     } finally {
-      this.samples.push({ route, status, ms: performance.now() - startedAt });
+      this.samples.push({ route, status, ms: performance.now() - startedAt, at: Date.now() });
     }
   }
 }
 
 type Context = { runId: string | null; listId: string | null; strategyId: string | null; monitorId: string | null };
+
+/**
+ * The benchmark universe (`bench:scale-backtests setup`): `SYN0001…SYN0735` are the canonical
+ * universe (protected tier), `SYN0736…SYN1735` the hydrated long tail (LRU tier).
+ */
+const PROTECTED_UNIVERSE = 735;
+const LONG_TAIL = 1_000;
+let popularShare = 0.8;
 
 const JOURNEYS: readonly { name: string; weight: number; steps: (session: Session, context: Context, pick: () => number) => Promise<void> }[] = [
   {
@@ -328,15 +367,21 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
     name: "stock-details",
     weight: 20,
     steps: async (session, _context, pick) => {
-      const symbol = syntheticSymbol(1 + Math.floor(pick() * 1_735));
+      // Most views are of well-known names (the canonical universe, always resident); the rest are
+      // the long tail, read through the LRU — a cold one is rebuilt from PostgreSQL on the read.
+      const popular = pick() < popularShare;
+      const symbol = popular
+        ? syntheticSymbol(1 + Math.floor(pick() * PROTECTED_UNIVERSE))
+        : syntheticSymbol(PROTECTED_UNIVERSE + 1 + Math.floor(pick() * LONG_TAIL));
+      const tier = popular ? "[protected]" : "[long tail]";
       await session.request("GET /stocks/search", `/stocks/search?q=${symbol.slice(0, 5)}`);
-      await session.request("GET /stocks/:symbol", `/stocks/${symbol}`);
-      await session.request("GET /stocks/:symbol/summary", `/stocks/${symbol}/summary`);
+      await session.request(`GET /stocks/:symbol ${tier}`, `/stocks/${symbol}`);
+      await session.request(`GET /stocks/:symbol/summary ${tier}`, `/stocks/${symbol}/summary`);
       const to = new Date().toISOString().slice(0, 10);
       const from = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
-      await session.request("GET /stocks/:symbol/prices", `/stocks/${symbol}/prices?from=${from}&to=${to}`);
+      await session.request(`GET /stocks/:symbol/prices ${tier}`, `/stocks/${symbol}/prices?from=${from}&to=${to}`);
       await session.request(
-        "GET /stocks/:symbol/technicals/daily",
+        `GET /stocks/:symbol/technicals/daily ${tier}`,
         `/stocks/${symbol}/technicals/daily?from=${from}&to=${to}&series=SMA_50D,SMA_200D,RSI_14D`,
       );
     },
@@ -359,6 +404,11 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
       await session.request("GET /lists", "/lists");
       if (context.listId) {
         await session.request("GET /lists/:id", `/lists/${context.listId}`);
+        // An edit, as a person renaming or annotating a List: a write beside every read.
+        await session.request("PATCH /lists/:id", `/lists/${context.listId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ description: `Edited ${new Date().toISOString()}` }),
+        });
       }
     },
   },
@@ -403,7 +453,10 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
     steps: async (session, context) => {
       await session.request("GET /monitors", "/monitors");
       if (context.monitorId) {
+        // The Monitor page: its current conditions, its signal table and its activity feed.
+        await session.request("GET /monitors/:id", `/monitors/${context.monitorId}`);
         await session.request("GET /monitors/:id/signals", `/monitors/${context.monitorId}/signals`);
+        await session.request("GET /monitors/:id/activity", `/monitors/${context.monitorId}/activity`);
       }
     },
   },
@@ -437,8 +490,55 @@ function processStats(pid: number): { rss: number; cpuMs: number } {
   }
 }
 
+/** `bench.event-loop` lines of the API's probe inside a window. */
+function eventLoopIn(path: string | null, from: number, to: number) {
+  if (!path) {
+    return null;
+  }
+  const samples: { p99Ms: number; maxMs: number; p50Ms: number }[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.includes('"bench.event-loop"')) {
+      continue;
+    }
+    try {
+      const record = JSON.parse(line) as { at: string; p99Ms: number; maxMs: number; p50Ms: number };
+      const at = Date.parse(record.at);
+      if (at >= from && at <= to) {
+        samples.push(record);
+      }
+    } catch {
+      // A partial line written while this read: skipped.
+    }
+  }
+  return {
+    samples: samples.length,
+    p50MsMedian: percentile(samples.map((sample) => sample.p50Ms), 0.5),
+    p99MsMedian: percentile(samples.map((sample) => sample.p99Ms), 0.5),
+    p99MsMax: Math.round(Math.max(0, ...samples.map((sample) => sample.p99Ms))),
+    maxMs: Math.round(Math.max(0, ...samples.map((sample) => sample.maxMs))),
+  };
+}
+
 async function run(args: Arguments): Promise<unknown> {
   const secret = password();
+  popularShare = args.popularShare;
+  // Backtest activity while the load runs, from the benchmark database (read-only counts).
+  const jobs: { at: number; executing: number; queued: number }[] = [];
+  const jobsPrisma = args.sampleJobs
+    ? new PrismaClient({ datasources: { db: { url: benchEnvironment().databaseUrl } } })
+    : null;
+  const jobSampler = jobsPrisma
+    ? setInterval(() => {
+        void jobsPrisma.$queryRaw<{ executing: bigint; queued: bigint }[]>`
+          SELECT count(*) FILTER (WHERE status = 'CLAIMED') AS executing,
+                 count(*) FILTER (WHERE status = 'QUEUED') AS queued
+          FROM "BacktestJob"`
+          .then(([row]) =>
+            jobs.push({ at: Date.now(), executing: Number(row?.executing ?? 0), queued: Number(row?.queued ?? 0) }),
+          )
+          .catch(() => undefined);
+      }, 2_000)
+    : null;
   const samples: Sample[] = [];
   const loginFailures: string[] = [];
   const startedAt = Date.now();
@@ -489,12 +589,21 @@ async function run(args: Arguments): Promise<unknown> {
   if (sampler) {
     clearInterval(sampler);
   }
+  if (jobSampler) {
+    clearInterval(jobSampler);
+  }
+  await jobsPrisma?.$disconnect();
+  const finishedAt = Date.now();
   measuredFrom = startedAt + args.rampS * 1_000;
-  const wallS = (Date.now() - startedAt) / 1_000;
+  const wallS = (finishedAt - startedAt) / 1_000;
   const apiAfter = args.apiPid ? processStats(args.apiPid) : null;
+  // Percentiles cover the steady state only: the ramp, its sign-ins included, is excluded.
+  const measured = samples.filter((sample) => sample.at >= measuredFrom);
+  const measuredS = Math.max(1, (finishedAt - measuredFrom) / 1_000);
+  const jobsMeasured = jobs.filter((sample) => sample.at >= measuredFrom);
 
   const byRoute = new Map<string, Sample[]>();
-  for (const sample of samples) {
+  for (const sample of measured) {
     byRoute.set(sample.route, [...(byRoute.get(sample.route) ?? []), sample]);
   }
   const routes = [...byRoute.entries()]
@@ -517,7 +626,7 @@ async function run(args: Arguments): Promise<unknown> {
       };
     })
     .sort((left, right) => right.requests - left.requests);
-  const all = samples.filter((sample) => sample.status >= 200 && sample.status < 400);
+  const all = measured.filter((sample) => sample.status >= 200 && sample.status < 400);
   const report = {
     label: args.label,
     recordedAt: new Date().toISOString(),
@@ -526,10 +635,11 @@ async function run(args: Arguments): Promise<unknown> {
     rampS: args.rampS,
     thinkMs: args.thinkMs,
     machine: { cpus: cpus().length, totalMemoryBytes: totalmem(), node: process.version },
-    requests: samples.length,
-    throughputPerS: Math.round((samples.length / wallS) * 10) / 10,
-    errors: samples.length - all.length,
-    errorRate: samples.length === 0 ? 0 : Math.round(((samples.length - all.length) / samples.length) * 10_000) / 10_000,
+    requests: measured.length,
+    requestsIncludingRamp: samples.length,
+    throughputPerS: Math.round((measured.length / measuredS) * 10) / 10,
+    errors: measured.length - all.length,
+    errorRate: measured.length === 0 ? 0 : Math.round(((measured.length - all.length) / measured.length) * 10_000) / 10_000,
     loginFailures: loginFailures.length,
     latencyMs: {
       p50: percentile(all.map((entry) => entry.ms), 0.5),
@@ -545,6 +655,23 @@ async function run(args: Arguments): Promise<unknown> {
             rssPeakBytes: Math.max(0, ...rss),
           }
         : null,
+    apiEventLoop: eventLoopIn(args.apiLog, measuredFrom, finishedAt),
+    backtests: jobsPrisma
+      ? {
+          samples: jobsMeasured.length,
+          executingMin: Math.min(...jobsMeasured.map((sample) => sample.executing)),
+          executingMax: Math.max(0, ...jobsMeasured.map((sample) => sample.executing)),
+          executingMean:
+            Math.round(
+              (jobsMeasured.reduce((sum, sample) => sum + sample.executing, 0) / Math.max(1, jobsMeasured.length)) * 100,
+            ) / 100,
+          shareAtFour:
+            Math.round(
+              (jobsMeasured.filter((sample) => sample.executing >= 4).length / Math.max(1, jobsMeasured.length)) * 100,
+            ) / 100,
+          queuedMax: Math.max(0, ...jobsMeasured.map((sample) => sample.queued)),
+        }
+      : null,
     measuredFrom: new Date(measuredFrom).toISOString(),
     routes,
   };

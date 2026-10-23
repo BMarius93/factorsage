@@ -651,6 +651,8 @@ export type SyntheticFmpOptions = {
 export type SyntheticFmpCounters = {
   requests: number;
   failuresInjected: number;
+  /** Requests refused during an outage window (`/__synthetic/outage`). */
+  outageRefusals: number;
   unexpected: number;
   bytes: number;
   byEndpoint: Record<string, number>;
@@ -785,9 +787,11 @@ export function createSyntheticFmpServer(
   const failEvery = Math.max(0, options.failEvery ?? 0);
   const failStatus = options.failStatus ?? 429;
   const log = options.log ?? (() => {});
+  let outage: { until: number; status: number } | null = null;
   const counters: SyntheticFmpCounters = {
     requests: 0,
     failuresInjected: 0,
+    outageRefusals: 0,
     unexpected: 0,
     bytes: 0,
     byEndpoint: {},
@@ -800,12 +804,23 @@ export function createSyntheticFmpServer(
     if (url.pathname === "/__synthetic/counters") {
       return json(response, 200, counters);
     }
+    // A provider outage or exhausted quota for the next `ms` milliseconds: every request is answered
+    // `status` (429 by default) until it passes (the rate-limit exhaustion test).
+    if (url.pathname === "/__synthetic/outage") {
+      const ms = Math.max(0, Number(url.searchParams.get("ms") ?? "0"));
+      outage = { until: Date.now() + ms, status: Number(url.searchParams.get("status") ?? "429") };
+      return json(response, 200, { outageUntil: new Date(outage.until).toISOString(), status: outage.status });
+    }
     if (request.method !== "GET") {
       return json(response, 405, { error: "synthetic FMP answers GET only" });
     }
     counters.requests += 1;
     const sequence = counters.requests;
     const respond = () => {
+      if (outage && Date.now() < outage.until) {
+        counters.outageRefusals += 1;
+        return json(response, outage.status, { error: "synthetic FMP: outage" });
+      }
       if (failEvery > 0 && sequence % failEvery === 0) {
         counters.failuresInjected += 1;
         return json(response, failStatus, { error: "synthetic FMP: injected failure" });

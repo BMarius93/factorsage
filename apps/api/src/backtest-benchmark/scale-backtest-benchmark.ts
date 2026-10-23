@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
@@ -102,7 +102,7 @@ const PERSONAS = {
 } as const satisfies Record<string, UserPlan>;
 type Persona = keyof typeof PERSONAS;
 
-type ScenarioKey = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H";
+type ScenarioKey = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I";
 
 /** The task's scenarios: who submits, and how many symbols each run holds. */
 const SCENARIOS: Record<ScenarioKey, readonly { persona: Persona; size: number }[]> = {
@@ -120,6 +120,13 @@ const SCENARIOS: Record<ScenarioKey, readonly { persona: Persona; size: number }
     { persona: "pro-a", size: 750 },
     { persona: "pro-b", size: 750 },
     { persona: "proplus-a", size: 1_000 },
+    { persona: "proplus-b", size: 1_000 },
+  ],
+  // The sizing case: four 1,000-security runs at once — two Pro+ owners, both of their slots.
+  I: [
+    { persona: "proplus-a", size: 1_000 },
+    { persona: "proplus-a", size: 1_000 },
+    { persona: "proplus-b", size: 1_000 },
     { persona: "proplus-b", size: 1_000 },
   ],
 };
@@ -156,6 +163,16 @@ type Arguments = {
   freshFrom: number;
   /** How many hydrated ordinary securities follow the protected universe. */
   ordinaryPool: number;
+  /**
+   * Fault injection for the recovery tests (`docs/production/benchmarks.md`, "Failure tests"), at
+   * `chaosAtS` seconds after submission: `kill-worker` SIGKILLs the worker holding a claim and starts
+   * a replacement `chaosRestartDelayS` later (as the supervisor would); `redis-restart` runs
+   * `BENCH_REDIS_RESTART_COMMAND` (stops and restarts the Redis server); `redis-flush` empties the
+   * benchmark's Redis database (a Redis that lost everything).
+   */
+  chaos: "kill-worker" | "redis-restart" | "redis-flush" | null;
+  chaosAtS: number;
+  chaosRestartDelayS: number;
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -192,6 +209,9 @@ function parseArguments(argv: readonly string[]): Arguments {
     workerEnv: {},
     freshFrom: 1_736,
     ordinaryPool: 1_000,
+    chaos: null,
+    chaosAtS: 60,
+    chaosRestartDelayS: 5,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] as string;
@@ -230,7 +250,7 @@ function parseArguments(argv: readonly string[]): Arguments {
         parsed.concurrency = positive(flag, value());
         break;
       case "--scenario":
-        parsed.scenario = oneOf(["A", "B", "C", "D", "E", "F", "G", "H"] as const);
+        parsed.scenario = oneOf(["A", "B", "C", "D", "E", "F", "G", "H", "I"] as const);
         break;
       case "--cache":
         parsed.cache = oneOf(["cold", "warm", "miss"] as const);
@@ -266,6 +286,20 @@ function parseArguments(argv: readonly string[]): Arguments {
         break;
       case "--ordinary-pool":
         parsed.ordinaryPool = positive(flag, value());
+        break;
+      case "--chaos": {
+        const kind = value();
+        if (kind !== "kill-worker" && kind !== "redis-restart" && kind !== "redis-flush") {
+          throw new Error("--chaos is kill-worker, redis-restart or redis-flush");
+        }
+        parsed.chaos = kind;
+        break;
+      }
+      case "--chaos-at-s":
+        parsed.chaosAtS = positive(flag, value());
+        break;
+      case "--chaos-restart-delay-s":
+        parsed.chaosRestartDelayS = positive(flag, value());
         break;
       case "--worker-env": {
         const [key, ...parts] = value().split("=");
@@ -816,6 +850,7 @@ function startWorkers(
   count: number,
   logDirectory: string,
   env: Record<string, string>,
+  firstIndex = 0,
 ): ChildProcess[] {
   const entry = join(repositoryRoot(), "apps/worker/dist/backtest/worker-process.js");
   if (!existsSync(entry)) {
@@ -824,7 +859,7 @@ function startWorkers(
   mkdirSync(logDirectory, { recursive: true });
   const probe = join(repositoryRoot(), "apps/api/src/backtest-benchmark/event-loop-probe.cjs");
   const children: ChildProcess[] = [];
-  for (let index = 0; index < count; index += 1) {
+  for (let index = firstIndex; index < firstIndex + count; index += 1) {
     const child = spawn(process.execPath, ["--require", probe, entry], {
       cwd: repositoryRoot(),
       env,
@@ -869,6 +904,10 @@ type RunLog = {
   benchmarkMs?: number;
   windowLoadMs: number;
   windows: number;
+  /** Frames a window read from PostgreSQL (`BACKTEST_NON_RESIDENT_FRAME_READ=STORE`). */
+  storeReads: number;
+  /** Per window: `[year, durationMs, storeReads]`. */
+  windowLog: [number, number, number][];
   simulationMs?: number;
   finalizingMs?: number;
   completedMs?: number;
@@ -926,6 +965,8 @@ function readWorkerLogs(logDirectory: string, count: number) {
           runId,
           windowLoadMs: 0,
           windows: 0,
+          storeReads: 0,
+          windowLog: [],
           lruEvictions: 0,
           lruAdmissionsEvicting: 0,
           providerRequests: 0,
@@ -952,6 +993,12 @@ function readWorkerLogs(logDirectory: string, count: number) {
         case "backtest.window.loaded":
           run.windowLoadMs += Number(record.durationMs);
           run.windows += 1;
+          run.storeReads += Number(record.storeReads ?? 0);
+          run.windowLog.push([
+            Number(record.year),
+            Number(record.durationMs),
+            Number(record.storeReads ?? 0),
+          ]);
           break;
         case "backtest.simulation.completed":
           run.simulationMs = Number(record.durationMs);
@@ -1108,6 +1155,8 @@ async function run(
     ...args.workerEnv,
   });
   const workers = startWorkers(args.workers, logDirectory, workerEnv);
+  const chaosEvents: Record<string, unknown>[] = [];
+  let chaosTimer: NodeJS.Timeout | null = null;
   const samples: Sample[] = [];
   let sampler: NodeJS.Timeout | null = null;
   const runIds: string[] = [];
@@ -1182,16 +1231,44 @@ async function run(
       throw new Error(`Every submission was refused: ${submissionErrors.join("; ")}`);
     }
 
+    if (args.chaos) {
+      chaosTimer = setTimeout(() => {
+        void injectFault(args, {
+          prisma,
+          redis,
+          runIds,
+          workers,
+          logDirectory,
+          workerEnv,
+          startedAt,
+          events: chaosEvents,
+        }).catch((error: unknown) =>
+          chaosEvents.push({ event: "chaos-failed", error: error instanceof Error ? error.message : String(error) }),
+        );
+      }, args.chaosAtS * 1_000);
+    }
+
     const deadline = startedAt + args.timeoutMinutes * 60_000;
+    // A run still executing at the deadline is cancelled (stale recovery closes it once its worker
+    // is gone, so no later invocation executes it) and the report records what it had done.
+    let timedOut: string[] = [];
     for (;;) {
-      const pending = await prisma.backtestRun.count({
+      const unfinished = await prisma.backtestRun.findMany({
         where: { id: { in: runIds }, status: { notIn: ["COMPLETED", "FAILED", "CANCELLED"] } },
+        select: { id: true, userId: true },
       });
-      if (pending === 0) {
+      if (unfinished.length === 0) {
         break;
       }
       if (Date.now() > deadline) {
-        throw new Error(`Timed out with ${pending} of ${runIds.length} runs unfinished`);
+        timedOut = unfinished.map((run) => run.id);
+        for (const run of unfinished) {
+          await backtests.cancelRun(run.userId, run.id).catch(() => undefined);
+        }
+        process.stderr.write(
+          `${JSON.stringify({ event: "scale-benchmark.timed-out", unfinished: timedOut.length, of: runIds.length })}\n`,
+        );
+        break;
       }
       if (workers.every((child) => child.exitCode !== null)) {
         throw new Error("Every worker exited before the runs finished");
@@ -1230,6 +1307,9 @@ async function run(
         const timing = logs.byRun.get(row.id);
         const claimedAt = row.job?.claimedAt ?? row.startedAt;
         const submission = submissionOfRun.get(row.id);
+        // `completedAt` is stamped as the result write starts; the run is visible complete only once
+        // that write commits, which the worker logs as `backtest.completed`.
+        const finishedAt = timing?.completedAt ?? row.completedAt?.getTime() ?? null;
         return {
           runId: row.id,
           status: row.status,
@@ -1237,9 +1317,8 @@ async function run(
           attempts: row.job?.attempts ?? null,
           securityCount: row.securityCount,
           queueWaitMs: claimedAt ? claimedAt.getTime() - row.queuedAt.getTime() : null,
-          executionMs:
-            row.completedAt && claimedAt ? row.completedAt.getTime() - claimedAt.getTime() : null,
-          endToEndMs: row.completedAt ? row.completedAt.getTime() - row.queuedAt.getTime() : null,
+          executionMs: finishedAt && claimedAt ? finishedAt - claimedAt.getTime() : null,
+          endToEndMs: finishedAt ? finishedAt - row.queuedAt.getTime() : null,
           executionCalendarMs: timing?.executionCalendarMs ?? null,
           preparationMs: timing?.preparationMs ?? null,
           preparedSecurities: timing?.preparedSecurities ?? null,
@@ -1247,6 +1326,9 @@ async function run(
           benchmarkMs: timing?.benchmarkMs ?? null,
           frameReadMs: timing?.windowLoadMs ?? null,
           windows: timing?.windows ?? null,
+          storeReads: timing?.storeReads ?? 0,
+          windowLog: timing?.windowLog ?? [],
+          timedOut: timedOut.includes(row.id),
           simulationMs: timing?.simulationMs ?? null,
           computeMs:
             timing?.simulationMs !== undefined
@@ -1290,6 +1372,9 @@ async function run(
       overlap: args.overlap,
       strategy: args.strategy,
       workers: args.workers,
+      timeoutMinutes: args.timeoutMinutes,
+      timedOutRuns: timedOut.length,
+      chaos: args.chaos ? { kind: args.chaos, atS: args.chaosAtS, events: chaosEvents } : null,
       submissions: submissions.map((submission) => ({
         persona: submission.persona,
         plan: PERSONAS[submission.persona],
@@ -1311,6 +1396,8 @@ async function run(
         STOCK_LRU_MAX_SECURITIES: workerEnv.STOCK_LRU_MAX_SECURITIES,
         BACKTEST_GLOBAL_MAX_RUNNING: workerEnv.BACKTEST_GLOBAL_MAX_RUNNING,
         BACKTEST_FRAME_LOAD_CONCURRENCY: workerEnv.BACKTEST_FRAME_LOAD_CONCURRENCY ?? "4 (default)",
+        BACKTEST_NON_RESIDENT_FRAME_READ:
+          workerEnv.BACKTEST_NON_RESIDENT_FRAME_READ ?? "REBUILD (default)",
         workerEnv: Object.fromEntries(
           Object.entries(args.workerEnv).map(([key, value]) => [
             key,
@@ -1404,8 +1491,74 @@ async function run(
     if (sampler) {
       clearInterval(sampler);
     }
+    if (chaosTimer) {
+      clearTimeout(chaosTimer);
+    }
     await stopWorkers(workers);
   }
+}
+
+/** One injected fault (`--chaos`), recorded with when it happened relative to submission. */
+async function injectFault(
+  args: Arguments,
+  input: {
+    prisma: PrismaClient;
+    redis: ReturnType<typeof createStockDataRedisClient>;
+    runIds: readonly string[];
+    workers: ChildProcess[];
+    logDirectory: string;
+    workerEnv: Record<string, string>;
+    startedAt: number;
+    events: Record<string, unknown>[];
+  },
+): Promise<void> {
+  const at = () => Date.now() - input.startedAt;
+  if (args.chaos === "kill-worker") {
+    const claimed = await input.prisma.backtestJob.findMany({
+      where: { runId: { in: [...input.runIds] }, status: "CLAIMED" },
+      select: { runId: true, claimedBy: true, attempts: true },
+    });
+    // The worker id is `<host>-<pid>-<hex>`.
+    const target = claimed.find((job) => job.claimedBy);
+    const pid = target?.claimedBy ? Number(target.claimedBy.split("-").at(-2)) : Number.NaN;
+    const victim = input.workers.find((child) => child.pid === pid);
+    if (!victim) {
+      input.events.push({ event: "kill-worker-skipped", at: at(), reason: "no worker holds a claim" });
+      return;
+    }
+    victim.kill("SIGKILL");
+    input.events.push({ event: "worker-killed", at: at(), pid, runId: target?.runId, attempts: target?.attempts });
+    await new Promise((resolveWait) => setTimeout(resolveWait, args.chaosRestartDelayS * 1_000));
+    const [replacement] = startWorkers(1, input.logDirectory, input.workerEnv, input.workers.length);
+    if (replacement) {
+      input.workers.push(replacement);
+      input.events.push({ event: "worker-restarted", at: at(), pid: replacement.pid });
+    }
+    return;
+  }
+  if (args.chaos === "redis-flush") {
+    await input.redis.flushdb();
+    input.events.push({ event: "redis-flushed", at: at() });
+    return;
+  }
+  const command = process.env.BENCH_REDIS_RESTART_COMMAND?.trim();
+  if (!command) {
+    throw new Error("--chaos redis-restart needs BENCH_REDIS_RESTART_COMMAND (stops and restarts Redis)");
+  }
+  const stoppedAt = Date.now();
+  input.events.push({ event: "redis-restart-begun", at: at() });
+  const result = spawnSync("sh", ["-c", command], { stdio: "ignore", timeout: 300_000 });
+  for (;;) {
+    try {
+      if ((await input.redis.ping()) === "PONG") {
+        break;
+      }
+    } catch {
+      // Still down or loading.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+  }
+  input.events.push({ event: "redis-restarted", at: at(), exit: result.status, downMs: Date.now() - stoppedAt });
 }
 
 async function audit(redis: ReturnType<typeof createStockDataRedisClient>, prisma: PrismaClient) {
