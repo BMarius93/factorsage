@@ -149,7 +149,8 @@ describe("preflight rejection", () => {
 
     const owner = check(report, "qa-owner");
     expect(owner?.status).toBe("FAIL");
-    expect(owner?.problems?.join(" ")).toContain("2 backtests at once");
+    // Pro runs one backtest at a time (entitlements-v2 §3).
+    expect(owner?.problems?.join(" ")).toContain("may run 1 backtest at once");
     expect(owner?.problems?.join(" ")).toContain("QA_ADMIN");
     expect(report.ok).toBe(false);
   });
