@@ -1,4 +1,7 @@
-import type { PrismaClient } from "@intrinsic/database";
+import {
+  MONITOR_SCAN_SCHEDULE_ID,
+  type PrismaClient,
+} from "@intrinsic/database";
 
 /**
  * The durable Monitor scan schedule, as the worker sees it.
@@ -16,7 +19,7 @@ import type { PrismaClient } from "@intrinsic/database";
  */
 
 /** The singleton row's id. One row is what serializes the cycle across processes. */
-export const MONITOR_SCAN_SCHEDULE_ID = "GLOBAL";
+export { MONITOR_SCAN_SCHEDULE_ID };
 
 export type ClaimedMonitorScan = {
   /** Monotonic cycle number this claim consumed. */
@@ -147,6 +150,9 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
             "leaseExpiresAt" = ${leaseExpiresAt},
             "lastStartedAt" = ${now},
             "cycleSequence" = "cycleSequence" + 1,
+            -- This cycle loads the running Monitors after the claim, so it answers every catch-up
+            -- request made so far; one made from here on is kept for the next.
+            "scanRequested" = false,
             "updatedAt" = ${now}
         WHERE "id" = ${MONITOR_SCAN_SCHEDULE_ID}
         RETURNING "cycleSequence"
@@ -186,26 +192,31 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
    * Ownership-guarded on `claimedBy`, exactly like every write after a backtest claim: a worker
    * whose lease was recovered while it was still running cannot push the next cycle out from under
    * the process that took over.
+   *
+   * A catch-up requested while this cycle ran (`scanRequested`, set by the API when a Monitor
+   * starts running) makes the next cycle due at once rather than after the interval: this cycle had
+   * already loaded its Monitors, so it may not have evaluated the one that asked.
    */
   async completeScan(input: {
     workerId: string;
     now: Date;
     nextDueAt: Date;
   }): Promise<boolean> {
-    const updated = await this.prisma.monitorScanSchedule.updateMany({
-      where: { id: MONITOR_SCAN_SCHEDULE_ID, claimedBy: input.workerId },
-      data: {
-        dueAt: input.nextDueAt,
-        claimedBy: null,
-        claimedAt: null,
-        leaseExpiresAt: null,
-        heartbeatAt: null,
-        lastCompletedAt: input.now,
-        consecutiveFailures: 0,
-        lastError: null,
-      },
-    });
-    return updated.count === 1;
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "MonitorScanSchedule"
+      SET "dueAt" = CASE WHEN "scanRequested" THEN ${input.now} ELSE ${input.nextDueAt} END,
+          "claimedBy" = NULL,
+          "claimedAt" = NULL,
+          "leaseExpiresAt" = NULL,
+          "heartbeatAt" = NULL,
+          "lastCompletedAt" = ${input.now},
+          "consecutiveFailures" = 0,
+          "lastError" = NULL,
+          "updatedAt" = ${input.now}
+      WHERE "id" = ${MONITOR_SCAN_SCHEDULE_ID}
+        AND "claimedBy" = ${input.workerId}
+    `;
+    return updated === 1;
   }
 
   /**

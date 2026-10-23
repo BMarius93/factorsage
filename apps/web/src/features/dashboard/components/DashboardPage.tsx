@@ -2,6 +2,7 @@
 
 import {
   MONITOR_ACTIVITY_KINDS,
+  MONITOR_ACTIVITY_WINDOW_DAYS,
   type DashboardMonitorResponse,
   type MonitorActivityKind,
 } from "@intrinsic/contracts";
@@ -73,14 +74,16 @@ function isActivityKind(value: string): value is MonitorActivityKind {
  * timer, and the feed takes the whole width. The sidebar's track is reserved in CSS at the same
  * query, so the feed does not move when Market watch appears after hydration.
  *
- * **The feed** lists what the Monitors the viewer can see **observed** after each market close — a
- * stock becoming a match, or a match ending because its conditions stopped holding — grouped under
- * the session it happened on, newest first, each with every condition that decided it. History a
- * new Monitor replayed, edits, removals and a trigger day passing are not activity; they live on
+ * **The feed** lists the last 30 days of what the Monitors enabled for the viewer decided at each
+ * market close — a stock becoming a match, or a match ending because its conditions stopped
+ * holding — grouped under the session it happened on, newest first, each with every condition and
+ * the values that decided it (`docs/decisions/monitor-eod-v2.md` §12). An event found later, by a
+ * Monitor catching up on its window, is marked From history and still sits under its own session.
+ * Edits, removals, reconstructed states and a trigger day passing are not activity; they live on
  * each Monitor's own page. Two filters narrow it — one Monitor, one kind of event — and both are
  * applied by the API, so every page, the "new events" count and every older page are of the
  * narrowed feed. A Guest sees the published built-in Monitors; a signed-in user sees those they
- * have not hidden, plus their own enabled ones. Nothing is described as live: every row is a
+ * have not disabled, plus their own enabled ones. Nothing is described as live: every row is a
  * finalized end-of-day session.
  */
 export function DashboardPage() {
@@ -90,8 +93,8 @@ export function DashboardPage() {
   const [eventFilter, setEventFilter] = useState<string>(ALL_EVENTS);
 
   const monitors = dashboard?.monitors ?? [];
-  const shownMonitors = monitors.filter((monitor) => monitor.visible);
-  // A Monitor that is no longer shown (hidden elsewhere since) is not a filter that can match:
+  const shownMonitors = monitors.filter((monitor) => monitor.enabled);
+  // A Monitor that is no longer enabled (disabled elsewhere since) is not a filter that can match:
   // the feed falls back to every Monitor rather than to an empty page that cannot explain itself.
   const monitorId =
     monitorFilter !== ALL_MONITORS &&
@@ -133,8 +136,9 @@ export function DashboardPage() {
   );
   const autoLoading = autoLoad.supported && autoLoadAllowed;
 
-  // A Monitor shown or hidden since (here or in another tab) changes which events are activity at
-  // all: the feed reads its newest page again. Not on the first answer, which only confirms it.
+  // A Monitor enabled or disabled since (on the Monitors page, or in another tab) changes which
+  // events are activity at all: the feed reads its newest page again. Not on the first answer,
+  // which only confirms it.
   const scope = dashboard
     ? shownMonitors
         .map((monitor) => monitor.id)
@@ -207,7 +211,7 @@ export function DashboardPage() {
               <p>
                 A <b>Monitor</b> watches a <b>List</b> using a <b>Strategy</b>.
                 You&apos;re viewing FactorSage&apos;s built-in monitors. Sign in
-                to choose which ones appear here, create your own, and backtest
+                to choose which ones are enabled, create your own, and backtest
                 any of them.
               </p>
               <Link className={forms.tintedButton} href={signInHref()}>
@@ -228,6 +232,12 @@ export function DashboardPage() {
                 <h2 id="activity-title" className={styles.title}>
                   Monitor activity
                 </h2>
+                <span
+                  className={styles.window}
+                  data-testid="dashboard-activity-window"
+                >
+                  Last {MONITOR_ACTIVITY_WINDOW_DAYS} days
+                </span>
                 {dashboard ? (
                   <OverallFreshness monitors={shownMonitors} now={now} />
                 ) : null}
@@ -305,8 +315,8 @@ export function DashboardPage() {
                         title="No matching activity"
                         body={
                           <p>
-                            Nothing in the activity history matches these
-                            filters.
+                            Nothing in the last {MONITOR_ACTIVITY_WINDOW_DAYS}{" "}
+                            days matches these filters.
                           </p>
                         }
                         actions={
@@ -326,14 +336,14 @@ export function DashboardPage() {
                         testId="dashboard-activity-empty"
                         title={
                           shownMonitors.length === 0
-                            ? "No monitors are shown"
-                            : "No activity yet"
+                            ? "No monitors are enabled"
+                            : `No activity in the last ${MONITOR_ACTIVITY_WINDOW_DAYS} days`
                         }
                         body={
                           <p>
                             {shownMonitors.length === 0
-                              ? "Turn a monitor back on from the Monitors page to see its activity here."
-                              : "When a monitor sees a stock start or stop matching at a market close, it appears here. Each monitor's own page shows its full history."}
+                              ? "Enable a monitor on the Monitors page to see its activity here."
+                              : "When an enabled monitor sees a stock start or stop matching at a market close, it appears here. Each monitor's own page shows its full history."}
                           </p>
                         }
                         actions={

@@ -286,6 +286,21 @@ processes never scan at once, and no cron, timer or queue library is involved. A
 lease expires and any worker frees it, which is the one failure mode a singleton has that a queue of
 independent jobs does not.
 
+Migration `20261023120000_monitor_rolling_window` (`docs/decisions/monitor-eod-v2.md` §12.7) adds
+`MonitorEvaluationCheckpoint.coverageStart` — the first session a member's recorded evaluation
+covers, backfilled to `evaluatedThrough` and, only where every durable fact proves the retired
+90-day replay is still the member's evaluation, to that replay's window — renames
+`Monitor.initialReplayRequested` to `windowReplay` (default and every row `true`), and adds
+`MonitorScanSchedule.scanRequested`, the request a Monitor that starts running makes for a prompt
+pass. Additive apart from the rename; no Signal, transition, state or price is rewritten.
+
+Migration `20261024090000_monitor_window_completeness` adds `MonitorScanSchedule.latestSession`,
+`latestSessionCalendar` and `latestSessionAt` — the newest finalized session the Monitor pass's
+canonical end-of-day policy found, which the Dashboard's rolling window ends on — and
+`MonitorEvaluationCheckpoint.coverageBlockedFrom`, the window start a coverage back-fill could not
+reconcile with a member's recorded decisions (`docs/decisions/monitor-eod-v2.md` §12.1, §12.2a).
+Additive; no row changes.
+
 Migration `20260920120000_backtest_trade_source_and_exit_rule` gives `BacktestTrade` the two
 identities a trade log needs in order to explain itself. `source` (`BacktestTradeSource`:
 `STRATEGY | END_OF_BACKTEST`) records whether the Strategy's own signal produced the order or the end

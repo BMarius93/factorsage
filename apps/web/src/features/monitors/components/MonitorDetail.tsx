@@ -43,6 +43,8 @@ import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitor } from "../hooks/use-monitor";
+import { synchronizationNote } from "../utils/synchronization";
+import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { useAutoLoad } from "../../../lib/use-auto-load";
 import {
   fetchMonitorHistory,
@@ -256,6 +258,7 @@ function signalCountLabel(counts: {
 export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const router = useRouter();
   const { status, monitor, reload } = useMonitor(monitorId);
+  const gate = useSignInPrompt();
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
   const [togglePending, setTogglePending] = useState(false);
   const [toggleFailure, setToggleFailure] = useState<string | null>(null);
@@ -383,12 +386,24 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       setTogglePending(false);
     }
   };
-  const toggle = () =>
-    patchSwitch(
-      builtIn
-        ? { isGloballyEnabled: !view.enabled }
-        : { enabled: !view.enabled },
-    );
+  // The one Enabled / Disabled switch: the owner's monitor's lifecycle, or — on a built-in — this
+  // viewer's own choice. An administrator's pause of a built-in for everyone is a separate switch.
+  const toggle = () => patchSwitch({ enabled: !view.enabled });
+  const toggleForEveryone = () =>
+    patchSwitch({ isGloballyEnabled: !(view.isGloballyEnabled ?? true) });
+  const enableItem = {
+    label: view.enabled
+      ? togglePending
+        ? "Disabling…"
+        : "Disable"
+      : togglePending
+        ? "Enabling…"
+        : "Enable",
+    disabled: togglePending,
+    onSelect: toggle,
+    testId: "toggle-monitor",
+  };
+  const sync = synchronizationNote(view);
 
   const etfSources = etfSourceLines(view.etfSources);
   // Which sector ETF each watched stock's Stock's Sector rules read now, and which stocks have none.
@@ -440,13 +455,23 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
           actions={
             !view.canEdit ? (
-              <RunBacktestLink
-                prefill={{
-                  strategyId: view.strategyId,
-                  stockListId: view.stockListId,
-                }}
-                testId="backtest-this-monitor"
-              />
+              <>
+                <RunBacktestLink
+                  prefill={{
+                    strategyId: view.strategyId,
+                    stockListId: view.stockListId,
+                  }}
+                  testId="backtest-this-monitor"
+                />
+                {/* A signed-in viewer enables or disables a built-in for their own account. */}
+                {builtIn && gate.signedIn ? (
+                  <OverflowMenu
+                    label={view.name}
+                    testId="monitor-detail-actions"
+                    items={[enableItem]}
+                  />
+                ) : null}
+              </>
             ) : builtIn ? (
               <>
                 <RunBacktestLink
@@ -467,13 +492,16 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   label={view.name}
                   testId="monitor-detail-actions"
                   items={[
+                    enableItem,
                     {
-                      label: view.enabled
-                        ? "Pause for everyone"
-                        : "Resume for everyone",
+                      label:
+                        view.isGloballyEnabled === false
+                          ? "Resume for everyone"
+                          : "Pause for everyone",
                       disabled: togglePending,
-                      onSelect: toggle,
-                      testId: "toggle-monitor",
+                      onSelect: toggleForEveryone,
+                      testId: "toggle-monitor-globally",
+                      separated: true,
                     },
                     {
                       label: view.isPublished ? "Unpublish" : "Publish",
@@ -506,18 +534,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   label={view.name}
                   testId="monitor-detail-actions"
                   items={[
-                    {
-                      label: view.enabled
-                        ? togglePending
-                          ? "Disabling…"
-                          : "Disable"
-                        : togglePending
-                          ? "Enabling…"
-                          : "Enable",
-                      disabled: togglePending,
-                      onSelect: toggle,
-                      testId: "toggle-monitor",
-                    },
+                    enableItem,
                     {
                       label: "Delete monitor",
                       tone: "danger",
@@ -652,6 +669,16 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
         >
           <div className={styles.coverage} data-testid="monitor-coverage">
+            {sync ? (
+              <p
+                className={styles.coverageLine}
+                data-testid="monitor-synchronization"
+                data-state={sync.state}
+                role="status"
+              >
+                <strong>{sync.label}</strong> · {sync.detail}
+              </p>
+            ) : null}
             {view.coverage ? (
               <p
                 className={styles.coverageLine}

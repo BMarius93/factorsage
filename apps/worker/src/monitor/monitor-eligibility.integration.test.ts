@@ -110,6 +110,8 @@ describe("monitor execution eligibility", () => {
     });
     const monitor = await prisma.monitor.create({
       data: {
+        // Reconstructed at the newest session: this suite is not about the window replay.
+        windowReplay: false,
         userId,
         name: `Monitor ${randomUUID().slice(0, 8)}`,
         strategyId: strategy.id,

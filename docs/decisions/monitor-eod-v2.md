@@ -19,6 +19,7 @@ never intent.
 | 7 | `feat/monitor-web-ux` | Dashboard Monitor activity, the Monitor's one Signal table, coverage line, E2E (§7) |
 | 8 | `feat/monitor-eod-cleanup` | The real-time paths removed, the V1 suites ported, the capacity bench re-measured (§8) |
 | 9 | `fix/monitor-eod-v2-final-correctness` | Weekly indicators complete at the week's last scheduled session (§9); late EOD bars recovered within a bounded horizon (§10); the data-correctness Playwright coverage restored |
+| 10 | `claude/determined-brahmagupta-b9x4ar` | The rolling 30-day activity window replacing the 90-day initial replay, every window's missing sessions completed (§12.2a); one Enabled switch for every Monitor; the Dashboard's activity limited to evidenced end-of-day events of enabled Monitors, strictly inside the window (§12) |
 
 ## 1. The Monitor universe: ongoing membership only
 
@@ -295,6 +296,11 @@ removes it. The data-correctness signals audit's independent oracle now restates
 
 ## 5. The initial replay and transition evidence
 
+> **Superseded in part by §12 (2026-10-23).** The one-shot 90-day window of §5.1 is retired: every
+> Monitor now evaluates a member it has never evaluated over the **rolling 30-day** activity window,
+> and the Dashboard shows `HISTORY` events as From history. §5.2's exact-state-before-the-window
+> mechanics and §5.3's evidence are unchanged and are what §12 reuses.
+
 ### 5.1 Which Monitors replay
 
 A Monitor created through the API, or a built-in created by the bootstrap, has
@@ -347,7 +353,8 @@ before it writes nothing and is reconstructed later, as any undecidable level is
 
 The frame is read once per security, from far enough before the earliest window to reconstruct the
 state before it, through the horizon. The Dashboard feed (step 6) never shows `HISTORY`, so a
-replayed window is visible only in the Monitor's own history.
+replayed window is visible only in the Monitor's own history. (Since §12 the feed shows a `HISTORY`
+event that a session decided, marked From history.)
 
 ### 5.3 Evidence and version on every transition
 
@@ -385,6 +392,11 @@ responses keep every field the web reads today, so the web moves over in step 7 
 current-match read is removed in step 8.
 
 ### 6.1 `GET /dashboard/activity` — the Monitor Activity feed
+
+> **Amended by §12.3 (2026-10-23).** Events are now the evidenced end-of-day changes — `OBSERVED`
+> or `HISTORY` (From history) — of the Monitors **enabled** for the viewer, over the rolling 30-day
+> window; the live-quote Monitor's occurrences and anything without recorded evidence are excluded.
+> The bullets below record step 6 as it was built.
 
 The important changes the Monitors on the viewer's Dashboard **observed**, newest session first:
 
@@ -492,7 +504,9 @@ continues its session. Four columns, aligned across rows of any height:
   grows with its conditions and nothing caps it. A `RULE_ONLY` Why shows its wording and says values
   were not recorded;
 - **Monitor** — last, the name of the Monitor that observed the event as a quiet link to its page
-  (`/monitors/{id}`), wrapping inside its column when long; no chip.
+  (`/monitors/{id}`), wrapping inside its column when long; no chip. (Since §12.4 it is the
+  product's Monitor reference pill, and `Intraday quote` and the `RULE_ONLY` note are gone from the
+  feed.)
 
 There is no Price column: the activation price is the Signal table's to show, and a price appears in
 the feed only where a condition compared it. Two dropdowns beside the card's heading —
@@ -530,7 +544,8 @@ rule in the Strategy's own words, each predicate marked held / did not hold / co
 `(101.50 vs 98.25)`, or `(95.00 → 105.00 vs 100.00)` for a Trigger — `n/a` where a value did not
 resolve, and "Values were not recorded for this signal" for a `RULE_ONLY` Why.
 
-**Deterministic E2E content.** `seedQaBuiltIns` now writes the QA built-ins' changes as the
+**Deterministic E2E content.** (Since §12.7 the QA built-ins' dates are relative to the seeding day,
+so they stay inside the rolling window.) `seedQaBuiltIns` now writes the QA built-ins' changes as the
 evaluation writes them: observed transitions with the real Strategy version and evidence (QATEST1
 activated under Monitor A on Sep 1, ended Sep 8 and activated again Sep 10; activated under Monitor
 B Sep 11; QATEST2 waiting for its trigger since Sep 14), Signals carrying the real version id, and a
@@ -749,3 +764,335 @@ administratively: every stored Signal shown once, active first, on its own final
 its price, provenance and Why; a waiting setup under Waiting only; history and administrative changes
 in the Signal table and never in the feed; every feed event the Signal-table record it is; and a
 private Monitor's records unreadable to anyone but its owner.
+
+## 12. The rolling 30-day window, one Enabled switch, end-of-day activity only (2026-10-23)
+
+Step 10 is a product change, not a UI cleanup. It keeps every rule above that it does not name —
+finalized sessions only (§3), ongoing membership (§4), the exact state before a window and evidence
+on every decision (§5.2, §5.3), the keyset feed and its refresh (§6.1, §7) — and changes four
+things: how much history a Monitor evaluates when it starts, which switch decides what a viewer
+sees, which events are activity, and what the Dashboard shows of them.
+
+### 12.1 The window
+
+The Dashboard shows the last **30 calendar days** of Monitor activity
+(`MONITOR_ACTIVITY_WINDOW_DAYS`, `@intrinsic/contracts`). `monitorActivityWindowStart(latest)` is
+`latest` and the 29 days before it, inclusive — calendar days, never sessions: weekends and holidays
+count and have nothing to evaluate. With the newest finalized session on Friday Oct 23, 2026 the
+window is Sep 24 – Oct 23; Sep 23 is outside.
+
+**The anchor is a session, by the canonical policy.** The worker anchors the window on the newest
+finalized session its `EodFinalityPolicy` finds (the venue schedule, or its weekday fallback), and
+records that answer each pass on `MonitorScanSchedule` (`latestSession`, `latestSessionCalendar`,
+`latestSessionAt`; migration §12.7). The Dashboard and the synchronization state anchor on the same
+session (`readMonitorActivityWindow`, `apps/api`) without asking the provider — a public read never
+does: the newest finalized **weekday** is the answer when the pass found the same session; when the
+pass, asked after that weekday became final, found an earlier session, the weekday was an exchange
+holiday and the pass's session is the answer; otherwise (the pass has not asked since, the worker is
+down) the weekday is taken to be a session — the policy's own fallback. A weekend or a holiday is
+never the anchor, so the window the Dashboard shows is the window the worker evaluated, and it
+moves only as sessions become final. A Monitor's own Activity history and Signal table are not
+windowed.
+
+### 12.2 The evaluation: a member never evaluated is evaluated over the window
+
+`Monitor.windowReplay` replaces `initialReplayRequested` (§5.1), defaults to `true`, and the
+migration (§12.7) sets it on every Monitor. When a pass plans a security's members
+(`evaluateSecurity`), a member is evaluated over the window when it is **fresh** — no checkpoint under the current configuration and no persisted state
+(or a membership that was reset, §4). Its first session is the latest of:
+
+1. the window's first day;
+2. its ongoing membership's start (§4), so a member added on Oct 10 starts on Oct 10;
+3. the day after the newest session on which this Monitor already recorded any change for the
+   security (`loadLastRecordedSessions`, read only for window-replaying Monitors) — so a session
+   whose changes are recorded, under an ended membership or a previous binding, is never recorded
+   twice. This is what keeps pre-release audit MON-01 fixed now that the replay is no longer
+   one-shot.
+
+From there §5.2 applies unchanged: the exact state before the first session is reconstructed from
+the closed history before it (a Trigger that fired before the window with its Conditions still
+holding is `ACTIVE` since that Trigger, recorded as one `RECONSTRUCTED` change on its true session),
+then every session in the window is stepped in order through `stepMonitorLevel`, each change on its
+own session with its version and evidence. A level with nothing left to step is reconstructed at its
+newest session, as before.
+
+A member **with** a checkpoint is not replayed: it continues from its checkpoint and persisted state,
+stepping every missed session in order. Origins are §3.4's: a Monitor that was paused (disabled,
+plan-blocked, globally paused) has `watchingSince` cleared, so the sessions it resumes over are
+`HISTORY`; an outage leaves the stamp, so its sessions are `OBSERVED`. Nothing is recomputed that a
+checkpoint already decided, so re-enabling never duplicates a transition or a Signal, and a latched
+Trigger stays latched.
+
+**Coverage.** `MonitorEvaluationCheckpoint.coverageStart` records the first session whose changes
+the member's current evaluation recorded: the window replay's first session; the newest session for
+a member reconstructed there (the sessions before it were never stepped one by one); unchanged when
+a member continues from its checkpoint; moved earlier by a back-fill (§12.2a). The synchronization
+state (§12.5) reads it — completeness is never inferred from a timestamp.
+
+**Asking for the pass now.** Enabling a Monitor, a built-in's global resume, a rebind, and switching
+a customer's own Monitor off (which can hand its plan slot to the next one) call
+`requestMonitorEvaluation` (`@intrinsic/database`) in the same transaction: `dueAt` becomes
+`LEAST(dueAt, now())` and `scanRequested` is set. The worker's 5-second poll claims the schedule; a
+pass already running when the request arrived clears nothing — `completeScan` sets the next `dueAt`
+to now while `scanRequested` is set, and the claim clears it — so a request is never lost to a pass
+that started before it. The catch-up therefore starts within seconds, not at the 10-minute interval.
+
+**Every new session, downtime, concurrency.** Unchanged: each pass evaluates every running Monitor's
+new finalized sessions; a worker that was down catches up from each checkpoint; each member is
+written in one transaction guarded by its checkpoint and the binding's `configVersion`, so two
+passes cannot both record a session and a crash before commit writes nothing. The window advances
+with each finalized session without recomputing anything: a covered member's `coverageStart` only
+falls further behind the window's first day.
+
+### 12.2a Completing a window whose recorded evaluation began late (2026-10-24)
+
+A member's recorded evaluation can begin **inside** its window although the member is not fresh: a
+checkpoint written before coverage was recorded (migration §12.7 could prove only the session it had
+reached), a rebound Monitor whose window replay began after the sessions its previous binding
+recorded (rule 3 above), a restored membership. Those sessions are missing, and the window is not
+complete until they are decided. After its forward evaluation, each pass therefore **back-fills**
+every member whose `coverageStart` is after the first session its window requires (the window's
+first day, or the membership's later start) — and reads nothing for any other member
+(`backfillCoverage`, `planCoverageBackfill` in `apps/worker/src/monitor/coverage-backfill.ts`).
+
+The missing sessions are decided exactly as a window replay decides them — the exact state before
+the first, from the closed history before it, then every session in order through
+`stepMonitorLevel`, each change with its evidence — and **reconciled** with what is recorded,
+never written over it. The transition log is append-only; the back-fill keeps it so:
+
+1. **Verified first.** Stepped on through the member's checkpoint, the canonical history must end in
+   the persisted state (state, since and every rule's latch, a resting state written either way);
+   every change of the sessions already recorded must be recorded; and every decision recorded for
+   the sessions in question under the same logic must be canonical. Anything else — sessions an
+   earlier intraday Monitor decided, a history re-based since, data that changed — is a conflict.
+2. **Only what is missing is added.** A change already recorded for the security and the level under
+   the same logic fingerprint — by this binding, an earlier one, or an earlier membership — is never
+   recorded twice, so a rebind that kept the logic, or a restored membership, adds nothing.
+3. **Occurrences are reused.** A change concerns the occurrence recorded for it when one is recorded
+   with the same activation session and the same fate (still open as the member's active
+   occurrence, or ended on the same session for the same reason). A new occurrence is created only
+   for one that began **and** ended inside the missing sessions; one that would reach the recorded
+   sessions without a recorded occurrence is a conflict, so a level never gains a second live
+   occurrence. An occurrence a reconstruction recorded as its starting state keeps that
+   `RECONSTRUCTED` change; the session that activated it is recorded beside it, on the same
+   occurrence (the Signal table then explains the occurrence from that session, not the
+   reconstruction).
+4. **One transaction, guarded.** New transitions (origin `HISTORY`, the current version, the
+   evidence), new occurrences, and the new `coverageStart`, behind the binding fence, the checkpoint
+   (`evaluatedThrough` and `coverageStart` as read) and every state's `stateVersion` as read —
+   nothing is written when any moved, and the next pass plans again. The member's state rows are
+   never changed.
+
+When recorded decisions disagree with the canonical history only inside the missing sessions, the
+back-fill starts the day after the newest of them and records what follows; the member keeps the
+sessions before that as they were recorded. When it cannot start anywhere, nothing is written. In
+both cases `MonitorEvaluationCheckpoint.coverageBlockedFrom` records the window start that could not
+be completed, and the member is not planned again until its window's first day has moved past it
+(once per new session at most); a member whose coverage is written afresh clears it. A level whose
+logic was edited since its state was written is decided forward first, by the same pass's next run.
+
+Two consequences are deliberate. A **Strategy edit** is not a reason to re-decide a window: the
+edited level is reset and reconstructed at its newest session as before (§3), and the sessions its
+previous logic decided stay as they were decided. And sessions the **live-quote Monitor** decided
+intraday before step 8 are never re-decided over its records: they stay excluded from the
+Dashboard (§12.3), and a member whose window still holds them reports partial history until the
+window has moved past them.
+
+### 12.3 Activity: what the Dashboard shows
+
+`GET /dashboard/activity` reads only events that pass `ACTIVITY_EVENT_SCOPE`, in the query itself so
+no page, cursor or count can include anything else:
+
+- **a finalized session decided it**: origin `OBSERVED` or `HISTORY`, with an observation date —
+  never `ADMINISTRATIVE`;
+- **its evidence was recorded** (`evidence IS NOT NULL`): every condition shows the values it
+  compared on that session; nothing is recomputed at read time;
+- **its occurrence was decided on the close** (`MonitorSignal.observationBasis = EOD_CLOSE`): the
+  live-quote Monitor's intraday occurrences (`LIVE_QUOTE`, before step 8) are history kept for the
+  Signal table, not activity — neither their activation nor their ending;
+- **it is an event**: entering `ACTIVE` through `CONDITIONS_MET` or `TRIGGER_FIRED`, or leaving it
+  through `CONDITIONS_ENDED`. `RECONSTRUCTED` anchors, administrative endings, a trigger day passing
+  and setups are never events;
+- **inside the window**: `observationDate >= windowStart` (§12.1), which the response returns —
+  by the session, never by `occurredAt`: an event a catch-up records today for a session older than
+  the window is stored, and is on the Monitor's own history, but never on the Dashboard;
+- **of a Monitor Enabled for the viewer**: their own enabled Monitors and the published built-ins
+  they have not disabled (all of them for a Guest). A plan-blocked or globally paused Monitor's past
+  events remain: they happened, and the viewer still wants that Monitor.
+
+Each event carries `fromHistory` (origin `HISTORY`: a window replay, a resumed Monitor's catch-up, a
+member added later), `recordedAt` (the transition's `occurredAt`, when FactorSage evaluated the
+session) and `why`, always `EVIDENCE`. `sessionDate` stays the session the conditions held on: a
+BUY found on Oct 23 for the Oct 9 close is listed under **October 9**, marked From history, with
+"Found on Oct 23" as its detail — observation date and processing time are never confused. Order,
+keyset paging, the `kind`/`monitorId` filters and the `through` refresh are §6.1's, each read inside
+the window: "Show older activity" ends at the window's first day with no further cursor; a cursor
+held from before the window moved reaches nothing older than its new first day; and a `through`
+refresh whose bottom event has aged out returns every event the window still holds, which the web
+feed puts in place of what it held (the aged-out events leave it) instead of starting over.
+
+### 12.4 One Enabled switch
+
+`PATCH /monitors/:monitorId { enabled }` is the only switch, for every Monitor a viewer can see:
+
+- **a customer's own Monitor**: `Monitor.enabled`, its lifecycle; enabling is capacity-checked in the
+  same transaction, disabling never refused;
+- **a built-in**: the viewer's own choice, stored as one `UserBuiltInMonitorPreference` override
+  (absent means enabled). It never changes the evaluation: a built-in is evaluated **once for
+  everyone** while it is published and `isGloballyEnabled`, consumes no plan allowance, and one
+  viewer disabling it changes nothing for anybody else. An administrator's own `enabled` is their
+  own choice too; the operator fields (`isGloballyEnabled`, `isPublished`, name, order) travel the
+  same route, administrators only (403 otherwise);
+- **a Guest**: 401 — there is nowhere to store a choice; every built-in is enabled for a Guest.
+
+`PUT /dashboard/monitors/:monitorId/visibility`, `dashboardVisible`, and the Dashboard's
+`visible`/`control` fields are removed. `MonitorSummaryResponse.enabled` and the Dashboard's
+`DashboardMonitorResponse.enabled` are the viewer's switch; the Dashboard shows exactly those
+Monitors' activity.
+
+### 12.5 Synchronization: never presented as evaluating when it is not
+
+A running Monitor's summary carries `synchronization` (`readMonitorSynchronization`, two reads for
+any number of Monitors), and a Monitor that is not being evaluated — disabled, plan-blocked,
+globally paused — carries none:
+
+- `SYNCHRONIZING` — something can still be decided: no pass has completed since it started running
+  (`lastScanAt < watchingSince`, or either is null — both are stamped by the worker with the pass's
+  own instant; a rebind clears `lastScanAt`), or a current member's `coverageStart` is after the
+  first session its window requires and its back-fill has not been found irreconcilable (§12.2a);
+- `PARTIAL` — only history that genuinely cannot be evaluated: a current member with no checkpoint
+  under this binding after a completed pass (no market data to evaluate it on — `awaitingMembers`),
+  or one whose back-fill found its missing sessions irreconcilable with what is recorded
+  (`coverageBlockedFrom`; `historyFrom`, the latest recorded start among them). A recent checkpoint
+  alone never makes a Monitor partial;
+- `SYNCHRONIZED` — every current member's recorded evaluation covers every session its window
+  requires.
+
+The Monitors page shows `Synchronizing — Evaluating the last 30 days` or `Partial history — N of M
+stocks waiting for market data` / `History recorded since <date>` under the switch, and polls every
+15 seconds while any Monitor is synchronizing; the Monitor's page shows the same line in its
+coverage block.
+
+### 12.6 Legacy events without evidence
+
+Transitions recorded before §5.3 carry no evidence, so their Why would be `RULE_ONLY`; the Dashboard
+excludes them (§12.3) rather than show conditions without values. `pnpm monitors:backfill-evidence`
+(`apps/worker/src/monitor/legacy-evidence.ts`; dry run by default, `--apply` to write) reconstructs
+evidence only where it can be **proved** from persisted end-of-day data and the version that decided
+the change, and excludes the rest:
+
+- the candidates are event-shaped transitions (§12.3) inside the window with `evidence IS NULL` and
+  origin `OBSERVED` or `HISTORY`;
+- each security's finalized frame is read once (`readFinalizedEvaluationFrame`, from 14 days before
+  the oldest candidate), and each candidate must pass every check, in order, or is excluded with its
+  reason: its occurrence was decided on the close (`EXCLUDED_LIVE_QUOTE`), it has an occurrence
+  (`EXCLUDED_NO_OCCURRENCE`), its recorded version is readable (`EXCLUDED_VERSION_UNREADABLE`) and
+  that version's level has the recorded logic fingerprint (`EXCLUDED_LOGIC_MISMATCH`), it reads no ETF
+  or Stock's Sector operand whose own history would have to be reconstructed too
+  (`EXCLUDED_ETF_DEPENDENCY`), its session is in the frame (`EXCLUDED_SESSION_MISSING`), the frame's
+  close equals the recorded activation price within a relative 1e-9 (`EXCLUDED_PRICE_MISMATCH`), and
+  the canonical `explainMonitorLevel` on that session reproduces the recorded decision
+  (`EXCLUDED_DECISION_MISMATCH`); a frame read that fails is `EXCLUDED_READ_FAILED`;
+- a verified candidate is written as its evidence plus a `reconstructed: { at, by }` marker, with an
+  `evidence IS NULL` guard, so a re-run or a concurrent writer never overwrites anything. Its
+  `observationDate` (the session) and `occurredAt` (when it was originally recorded) are untouched.
+
+The run prints the candidate, recoverable and excluded counts and logs
+`monitor.legacy-evidence.started` / `.completed` with every outcome. On 2026-10-23 the development
+and hermetic E2E databases hold **0** candidates; production counts come from the dry run there
+before `--apply`.
+
+### 12.7 Migration `20261023120000_monitor_rolling_window`
+
+1. `MonitorEvaluationCheckpoint.coverageStart DATE`, set to `evaluatedThrough` for every row — the
+   only bound provable for a checkpoint whose start was never recorded. A member of a Monitor's
+   initial universe that the retired 90-day replay evaluated is then covered from that window (or its
+   membership's later start), only where every durable fact says that replay is still its
+   evaluation: the replay window is fixed, the checkpoint is under the current `configVersion` with
+   its membership recorded, the list item was created and last edited before the window was fixed,
+   and no `MEMBERSHIP_CHANGED`, `MEMBER_REMOVED` or `MONITOR_REBOUND` transition exists for it.
+2. `Monitor.initialReplayRequested` is renamed `windowReplay`, defaults to `true`, and is set on
+   every Monitor. `replayWindowStart` and `replayWindowFixedAt` stay as the record of the retired
+   90-day replay; nothing writes them any more.
+3. `MonitorScanSchedule.scanRequested BOOLEAN NOT NULL DEFAULT false`.
+
+Additive apart from the rename; no Signal, transition, state or price is rewritten. A 90-day Monitor
+keeps all of its recorded sessions, and its members with checkpoints continue from them.
+
+Migration `20261024090000_monitor_window_completeness` (additive, no row changes):
+`MonitorScanSchedule.latestSession`, `latestSessionCalendar`, `latestSessionAt` (the canonical
+session the pass found, §12.1) and `MonitorEvaluationCheckpoint.coverageBlockedFrom` (§12.2a). After
+it is deployed, the next passes back-fill every checkpoint the first migration could only bound by
+the session it had reached — those whose recorded history reconciles become covered; the rest report
+partial history with the date it starts.
+
+### 12.8 Tests
+
+- Worker (`monitor-evaluation.integration.test.ts`, "the rolling 30-day activity window"): a new
+  Monitor records the window's changes and no earlier ones (coverage from the window's first day); a
+  Trigger latched before the window stays `ACTIVE` from its true session; a security younger than
+  the window; a member added later is `HISTORY` from its membership's start; a restored membership
+  replays only after its last recorded change (MON-01); a crash mid-window and a retry; two
+  concurrent passes, one contended; a 90-day Monitor keeps its sessions and catches up five missed
+  sessions as `HISTORY` on re-enable without duplicates; an exchange closure is not awaited while an
+  open venue's late bar is held and recovered; a non-replaying reconstruction's coverage; the pass
+  records its canonical session and never moves it back.
+- Worker, "completing a window whose recorded evaluation began late" (§12.2a): a member a
+  pre-coverage pass reconstructed at its newest session ends with exactly the changes and
+  occurrences a window replay of it records, its reconstructed occurrence reused and its state
+  untouched, and a later pass records nothing; a rebind that kept the logic adds nothing; a rebind
+  to new logic records the whole window under it, one occurrence per trigger; recorded decisions
+  that disagree inside the missing sessions make it start after them (`coverageBlockedFrom` set); a
+  persisted state the canonical history does not reach writes nothing and is tried again only when
+  the window moves; two racing passes record the missing sessions once; a covered member is never
+  back-filled as the window advances, only each new session is decided. MON-01's restored member is
+  now covered from the window's first day by what its first membership recorded, nothing twice.
+- `scan-repository.integration.test.ts`: a request during a running pass makes the next one due
+  now. `legacy-evidence.integration.test.ts`: the dry run reports what is recoverable and what stays
+  excluded, with each reason, and writes nothing; `--apply` records verified evidence once, stamped
+  as reconstructed, and nothing else.
+- Contracts: exactly 30 calendar dates inclusive (Oct 23 → Sep 24; Sep 23 outside), advancing a day
+  per day.
+- API: `monitor-synchronization.integration.test.ts` (each state, membership-aware coverage; a gap
+  still being completed is `SYNCHRONIZING`, only an irreconcilable one `PARTIAL`);
+  `builtins.integration.test.ts` (per-user built-in enable through `PATCH`, isolation between
+  users, no allowance consumed, operator fields administrators only, Guest 401);
+  `monitor-history.integration.test.ts` (window, From history with `recordedAt`, no `LIVE_QUOTE`
+  ending, no event without evidence, enabled Monitors only; "the Dashboard's rolling 30-day window":
+  Sep 14 out and Sep 15 in, more than 30 days stored, an event recorded today for a session 58 days
+  old never shown, pages and "show older" stopping at the first day, combined filters, the window
+  advancing a day, a held cursor reaching nothing older, a `through` whose bottom aged out returning
+  what the window holds, weekend and exchange-holiday anchors, the Monitor's own unwindowed history);
+  `monitors.integration.test.ts`
+  (`SYNCHRONIZING` on create and enable, the scan request on enable and on disable);
+  `entitlements.integration.test.ts` (a blocked Monitor reports no synchronization).
+- Web unit: the unified tables and the switch, the Guest prompt, paused and synchronizing notes, the
+  Dashboard's enabled-only filter, the Monitor pill, From history, no values-not-recorded note, and a
+  refresh whose oldest event aged out keeping the rest instead of starting over.
+- E2E: the Dashboard's sessions read from the API and held to the page, the window caption, From
+  history, the pill by mouse and keyboard, phones; the switch on own and built-in Monitors (durable,
+  per account, Guest prompt), the plan's paused states and the slot hand-over, the prompt pass after
+  enabling. `seedQaBuiltIns` dates the QA history relative to the seeding day (`qaBuiltInSessions`):
+  Monitor A's first activation and ending are `HISTORY`, written as its window replay records them
+  (the seed turns `windowReplay` off so the running worker leaves the declared state alone), its
+  second activation and Monitor B's are observed. An older Monitor A occurrence, recorded on the
+  seeding day for sessions before the window, is on Monitor A's own history and never on the
+  Dashboard under any filter.
+
+### 12.9 Limitations
+
+- Sessions whose recorded decisions cannot be reconciled with the canonical history — chiefly the
+  live-quote Monitor's intraday decisions before step 8, a history re-based since, or a persisted
+  state from logic that has since changed — are not re-decided: re-deciding them would rewrite or
+  contradict what the Monitor reported. The member reports `PARTIAL` ("History recorded since …")
+  until the window has moved past them (§12.2a). In production this is expected for Monitors that
+  ran before step 8 (Oct 14, 2026), until about Nov 13, 2026.
+- A Strategy edit does not re-decide past sessions under the new logic (§12.2a).
+- Re-enabling after a long pause steps every missed session from the checkpoint, not only the
+  window's: that is what keeps the state exact, and costs only the missed sessions. Events older
+  than the window are recorded, and are on the Monitor's own history, but not on the Dashboard.
+- Until the Monitor pass has recorded its canonical session once, the Dashboard anchors on the
+  newest finalized weekday (§12.1) — exact except on an exchange holiday, the policy's own fallback.
+- Legacy evidence is reconstructed only for Strategies without ETF or Stock's Sector operands, and
+  from the market data materialized now; the decision and activation-price checks are what make
+  that safe, and anything they cannot prove stays excluded.

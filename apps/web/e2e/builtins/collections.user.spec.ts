@@ -12,8 +12,9 @@ import { overflowMenuActions } from "../utils/overflow-menu";
  * A signed-in customer meeting the same built-in content: their own first, the platform's under it.
  *
  * The built-in sections must not disappear once someone signs in — that was the whole point of
- * making them public — and the one piece of per-viewer state a built-in has, whether its signals
- * reach this account's Dashboard, is edited here and persists for this account alone.
+ * making them public — and the one piece of per-viewer state a built-in has, whether it is Enabled
+ * for this account (and so reaches its Dashboard), is the same switch as on a customer's own
+ * monitor, and persists for this account alone.
  *
  * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`.
  */
@@ -104,30 +105,56 @@ test.describe("PRO_USER built-in collections", () => {
     await expect(page.getByTestId("save-strategy")).toHaveCount(0);
   });
 
-  test("saves a built-in monitor's dashboard visibility for this account only", async ({
+  test("enables and disables a built-in monitor for this account only, with the same switch", async ({
     page,
     browser,
   }) => {
     await page.goto("/monitors");
     const toggle = builtInRow(page, QA_MONITOR).getByTestId(
-      "built-in-monitor-toggle",
+      "monitor-enabled-switch",
     );
     await expect(toggle).toHaveAttribute("aria-checked", "true");
+    // The same switch, in the same column, as on the customer's own monitors.
+    await expect(
+      page
+        .getByTestId("your-monitors")
+        .getByTestId("monitor-enabled-switch")
+        .first(),
+    ).toBeVisible();
 
     try {
       await toggle.click();
       await expect(
-        builtInRow(page, QA_MONITOR).getByTestId("built-in-monitor-toggle"),
+        builtInRow(page, QA_MONITOR).getByTestId("monitor-enabled-switch"),
       ).toHaveAttribute("aria-checked", "false");
+      await expect(
+        builtInRow(page, QA_MONITOR).getByTestId("monitor-enabled-control"),
+      ).toContainText("Disabled");
 
       // Durable, not local state.
       await page.reload();
       await expect(
-        builtInRow(page, QA_MONITOR).getByTestId("built-in-monitor-toggle"),
+        builtInRow(page, QA_MONITOR).getByTestId("monitor-enabled-switch"),
       ).toHaveAttribute("aria-checked", "false");
 
-      // And it is a Dashboard preference: that monitor's rows are gone from this account's
-      // Dashboard, while the shared monitor keeps producing them for everybody else.
+      // A built-in never counts against the plan's Monitor allowance, whatever its switch says.
+      const monitors = (await (
+        await page.request.get(`${apiBaseUrl()}/monitors`)
+      ).json()) as {
+        name: string;
+        enabled: boolean;
+        operationalStatus: string;
+      }[];
+      expect(
+        monitors.find((monitor) => monitor.name === QA_MONITOR),
+      ).toMatchObject({
+        enabled: false,
+        // Still running for everybody else: the shared monitor is evaluated once.
+        operationalStatus: "ACTIVE",
+      });
+
+      // Disabled for this account: that monitor's events are gone from its Dashboard, while the
+      // shared monitor keeps producing them for everybody else.
       await page.goto("/");
       await expect(
         page
@@ -152,7 +179,7 @@ test.describe("PRO_USER built-in collections", () => {
     } finally {
       await page.goto("/monitors");
       const current = builtInRow(page, QA_MONITOR).getByTestId(
-        "built-in-monitor-toggle",
+        "monitor-enabled-switch",
       );
       if ((await current.getAttribute("aria-checked")) === "false") {
         await current.click();

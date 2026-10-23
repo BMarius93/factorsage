@@ -26,6 +26,13 @@ import {
 } from "./monitor-evaluation.test-helper.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
+/**
+ * When the fixtures' securities joined their Lists: before every session these suites drive, so a
+ * session is observed or history by the Monitor's watching stamp alone, as in production, where a
+ * member is never listed after the clock the pass runs on.
+ */
+const LISTED_BEFORE_EVERY_SESSION = new Date("2000-01-03T00:00:00.000Z");
+
 // Before any PrismaClient in this file is constructed.
 useTestDatabase();
 
@@ -229,11 +236,20 @@ async function createMonitor(input: {
     data: {
       userId: input.userId,
       name: `List ${randomUUID().slice(0, 8)}`,
-      items: { create: [{ securityId: input.security.id }] },
+      items: {
+        create: [
+          {
+            securityId: input.security.id,
+            createdAt: LISTED_BEFORE_EVERY_SESSION,
+          },
+        ],
+      },
     },
   });
   const monitor = await prisma.monitor.create({
     data: {
+      // Reconstructed at the newest session: this suite is not about the window replay.
+      windowReplay: false,
       userId: input.userId,
       name: `Monitor ${randomUUID().slice(0, 8)}`,
       strategyId: strategy.id,

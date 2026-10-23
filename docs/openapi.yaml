@@ -2029,9 +2029,11 @@ paths:
       description: |
         Readable without a session: a Guest receives the published built-in (`SYSTEM`) monitors
         only. A signed-in caller also receives their own, and an administrator additionally
-        receives unpublished built-ins. Each built-in carries `dashboardVisible`, the caller's own
-        Dashboard visibility preference — absence of a stored preference is the built-in default,
-        so a Guest always reads `true`.
+        receives unpublished built-ins. Every row carries the one Enabled / Disabled switch,
+        `enabled`: a customer's own monitor's lifecycle, or — for a built-in — the caller's own
+        choice for their account (absence of a stored choice is the default, enabled, so a Guest
+        always reads `true`). A monitor that is being evaluated also carries `synchronization`:
+        how far its evaluation covers the rolling 30-day activity window.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
@@ -2123,9 +2125,15 @@ paths:
         `lastScanAt` is cleared, while signal history is kept. An in-flight scan cycle is fenced off
         so it cannot write state belonging to the old configuration.
 
-        A built-in monitor may be changed by an administrator only: its name, its binding (to other
-        built-in content only), `isPublished`, `isGloballyEnabled` and `displayOrder`. Those three
-        fields are refused on a customer's monitor, and `enabled` is refused on a built-in.
+        `enabled` switches a customer's own monitor on or off (switching on is a capacity decision).
+        On a built-in, any signed-in caller may send `enabled` alone: it is the caller's own choice
+        for their account — whether they receive the built-in's Dashboard activity — and it never
+        changes whether the shared built-in is evaluated, never another user's choice, and consumes
+        no monitor allowance. Everything else about a built-in may be changed by an administrator
+        only: its name, its binding (to other built-in content only), `isPublished`,
+        `isGloballyEnabled` and `displayOrder`. Those three fields are refused on a customer's
+        monitor. A monitor switched on, or rebound, is evaluated by the next pass rather than at the
+        next scheduled interval; its missing sessions of the activity window are caught up then.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: monitor-mutation }
       requestBody:
@@ -2288,25 +2296,36 @@ paths:
       operationId: getDashboardActivity
       summary: Observed monitor activity, newest session first.
       description: |
-        The changes the monitors on the caller's Dashboard observed: an occurrence that became
-        active (`ACTIVATED`), or one a market observation ended (`RESOLVED`, conditions no longer
-        hold). Never included: history (a new monitor's initial replay, a reconstruction, a paused
-        monitor's catch-up), administrative endings (an edit, a removal, a membership change, a
-        rebind), a trigger day passing, and setups waiting for a trigger. Ordered by the exchange
-        session the change was observed on, then by insertion order, and paged by `cursor`.
+        The end-of-day activity of the monitors the caller has enabled, over the rolling 30-day
+        window (`windowStart`: exactly 30 calendar days ending on the newest finalized session by the
+        canonical end-of-day policy — never a weekend or a holiday — and moving as each session
+        becomes final). An event belongs to the window by its session, never by when it was
+        recorded: one found today for a session older than the window is not activity. The window
+        applies in the query to every read — pages, cursors, filters and `through`. An occurrence
+        a finalized session activated (`ACTIVATED`), or one a market observation ended
+        (`RESOLVED`, conditions no longer hold). An event found after its session became final — a
+        window replay, a resumed monitor's catch-up, a member added later — is included with
+        `fromHistory: true`, dated by its session, with `recordedAt` saying when it was found.
+        Never included: a reconstructed state, administrative endings (an edit, a removal, a
+        membership change, a rebind), a trigger day passing, setups waiting for a trigger, any change
+        without recorded evidence, and occurrences the earlier live-quote monitor decided on an
+        intraday price. Ordered by the exchange session, then by insertion order, and paged by
+        `cursor`.
 
-        Readable without a session: a Guest sees the published built-ins. A signed-in caller also
-        sees their own enabled monitors, and built-ins they have hidden are left out. `monitorId`
-        narrows the feed to one of those monitors; any other id yields no events. `kind` narrows
-        it to one kind of event, in the database, so every page and its cursor are of that kind
-        alone; both filters combine.
+        Readable without a session: a Guest sees the published built-ins, all enabled. A signed-in
+        caller also sees their own enabled monitors, and built-ins they have disabled are left out.
+        `monitorId` narrows the feed to one of those monitors; any other id yields no events.
+        `kind` narrows it to one kind of event, in the database, so every page and its cursor are of
+        that kind alone; both filters combine.
 
         `through=<event id>` reads the range a caller already holds instead of a page: every event
         from the newest down to and including that one, 200 at a time, continued with `cursor` (the
         range's own `nextCursor`). Re-reading it is how a reader refreshes: it returns new events
-        above, and events written late for a session inside the range, wherever they sort. An event
-        the caller cannot see in this feed — another kind, a hidden or unknown monitor — yields no
-        events, and the caller starts over from the first page.
+        above, and events written late for a session inside the range, wherever they sort. When the
+        event's session has since left the window, the range is every event the window still holds
+        (the aged-out events are no longer in it). An event the caller cannot see in this feed —
+        another kind, a disabled or unknown monitor — yields no events, and the caller starts over
+        from the first page.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: monitorId
@@ -2351,9 +2370,10 @@ paths:
       operationId: getDashboard
       summary: Every current monitor match and setup the caller can see.
       description: |
-        Readable without a session. A Guest sees the published built-in monitors, all visible by
-        default. A signed-in caller also sees their own monitors, and built-ins they have hidden are
-        left out of `rows`. Signing in changes only visibility, never what any monitor decided.
+        Readable without a session. A Guest sees the published built-in monitors, all enabled by
+        default. A signed-in caller also sees their own monitors, and built-ins they have disabled
+        for their account are left out of `rows`. Signing in changes only which monitors are
+        enabled for the caller, never what any monitor decided.
 
         `rows` holds `ACTIVE` signal occurrences and `PENDING_TRIGGER` setups only, one row per
         monitor outcome — the same security under two monitors is two rows — newest state change
@@ -2367,44 +2387,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DashboardResponse" }
-        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
-        "429": { $ref: "#/components/responses/TooManyRequests" }
-
-  /dashboard/monitors/{monitorId}/visibility:
-    parameters:
-      - { $ref: "#/components/parameters/MonitorId" }
-    put:
-      tags: [Dashboard]
-      operationId: setBuiltInMonitorVisibility
-      summary: Show or hide a published built-in monitor on the caller's Dashboard.
-      description: |
-        Stores the caller's override only; absence means visible. It never changes whether the
-        shared built-in is evaluated. A Guest is refused — nothing anonymous is ever stored. A
-        customer's own monitor is switched with `PATCH /monitors/{monitorId}` instead.
-      security: [{ cookieAuth: [] }]
-      x-rate-limit: { policy: mutation }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "#/components/schemas/UpdateBuiltInMonitorVisibilityRequest",
-              }
-      responses:
-        "200":
-          description: The stored preference.
-          headers: *rateLimitHeaders
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/BuiltInMonitorVisibility" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404":
-          description: No published built-in monitor with this id.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -6999,12 +6981,12 @@ components:
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         enabled:
-          {
-            type: boolean,
-            description: The user's intent,
-            never rewritten by the server. For a built-in,
-            its global switch.,
-          }
+          type: boolean
+          description: |
+            The one Enabled / Disabled switch. For a customer's own monitor, the owner's intent,
+            never rewritten by the server (a plan limit is `operationalStatus`). For a built-in, the
+            caller's own choice for their account — whether they receive its Dashboard activity —
+            default enabled, and never whether the shared monitor is evaluated (`isGloballyEnabled`).
         strategyId: { type: string, format: uuid }
         strategyName: { type: string }
         stockListId: { type: string, format: uuid }
@@ -7021,10 +7003,38 @@ components:
         isGloballyEnabled:
           { type: boolean, description: Built-in monitors only. }
         displayOrder: { type: integer, description: Built-in monitors only. }
-        dashboardVisible:
+        synchronization: { $ref: "#/components/schemas/MonitorSynchronization" }
+
+    MonitorSynchronization:
+      type: object
+      description: |
+        Present while the monitor is evaluated (`operationalStatus` `ACTIVE`): how far its
+        evaluation covers the rolling 30-day activity window, read from durable checkpoints.
+        `SYNCHRONIZING` — something can still be decided: no evaluation pass has completed since it
+        started running, or a member's recorded evaluation begins inside the window and its missing
+        sessions are still being decided; `SYNCHRONIZED` — every current member's recorded
+        evaluation covers every session the window requires; `PARTIAL` — only history that cannot
+        be evaluated: members with no market data after a completed pass (`awaitingMembers`), or
+        members whose missing sessions could not be reconciled with decisions already recorded for
+        them (`historyFrom`). Nothing recorded is rewritten to complete a window.
+      required:
+        [state, windowStart, currentMembers, coveredMembers, awaitingMembers]
+      properties:
+        state: { type: string, enum: [SYNCHRONIZING, SYNCHRONIZED, PARTIAL] }
+        windowStart:
           {
-            type: boolean,
-            description: "Built-in monitors only: whether this viewer's dashboard shows its rows. The viewer's own preference, never the shared monitor's state.",
+            type: string,
+            format: date,
+            description: The first calendar day of the activity window.,
+          }
+        currentMembers: { type: integer, minimum: 0 }
+        coveredMembers: { type: integer, minimum: 0 }
+        awaitingMembers: { type: integer, minimum: 0 }
+        historyFrom:
+          {
+            type: string,
+            format: date,
+            description: "When a member's missing sessions could not be recorded: the latest day a member's recorded evaluation starts on.",
           }
 
     MonitorDetail:
@@ -7117,8 +7127,7 @@ components:
           ownership,
           strategy,
           stockList,
-          visible,
-          control,
+          enabled,
           freshness,
           activeCount,
           pendingCount,
@@ -7129,17 +7138,12 @@ components:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
         strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
         stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
-        visible:
-          {
-            type: boolean,
-            description: Whether its rows are on this caller's Dashboard.,
-          }
-        control:
-          type: string
-          enum: [BUILT_IN_PREFERENCE, MONITOR_ENABLED]
+        enabled:
+          type: boolean
           description: |
-            What a toggle changes: the caller's own visibility of a built-in, or a customer
-            monitor's real `enabled` lifecycle.
+            Whether it is enabled for this caller — exactly the monitors whose activity their
+            Dashboard shows: a customer's own monitor's `enabled`, or the caller's own choice for a
+            built-in (default enabled; always for a Guest). Switched with `PATCH /monitors/{monitorId}`.
         freshness:
           type: string
           enum: [CURRENT, STALE, NOT_SCANNED, PAUSED]
@@ -7233,6 +7237,9 @@ components:
           monitor,
           strategy,
           stockList,
+          fromHistory,
+          recordedAt,
+          why,
         ]
       properties:
         id: { type: string, description: Stable and opaque. }
@@ -7253,10 +7260,27 @@ components:
         strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
         stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
         signalId: { type: string, format: uuid }
-        price: { type: number, description: The occurrence's activation price. }
-        observationBasis:
-          { $ref: "#/components/schemas/MonitorObservationBasis" }
-        why: { $ref: "#/components/schemas/MonitorWhy" }
+        price:
+          {
+            type: number,
+            description: "The occurrence's activation price: its session's finalized close.",
+          }
+        fromHistory:
+          type: boolean
+          description: |
+            True when the session was not watched as it became final — a window replay, a resumed
+            monitor's catch-up, a member added later — so the event was found afterwards.
+            `sessionDate` is still the session the conditions held on.
+        recordedAt:
+          {
+            type: string,
+            format: date-time,
+            description: When FactorSage evaluated the session and recorded the event.,
+          }
+        why:
+          allOf:
+            - { $ref: "#/components/schemas/MonitorWhy" }
+          description: "Always `EVIDENCE`: every predicate with the values it compared."
 
     DashboardActivityResponse:
       type: object
@@ -7264,24 +7288,16 @@ components:
       properties:
         viewer: { type: string, enum: [GUEST, AUTHENTICATED] }
         generatedAt: { type: string, format: date-time }
+        windowStart:
+          {
+            type: string,
+            format: date,
+            description: "The Dashboard feed's rolling window: only sessions on or after this day — 30 calendar days ending on the newest finalized session. Absent on a monitor's own activity history, which is not windowed.",
+          }
         events:
           type: array
           items: { $ref: "#/components/schemas/DashboardActivityEvent" }
         nextCursor: { type: string }
-
-    UpdateBuiltInMonitorVisibilityRequest:
-      type: object
-      additionalProperties: false
-      required: [visible]
-      properties:
-        visible: { type: boolean }
-
-    BuiltInMonitorVisibility:
-      type: object
-      required: [monitorId, visible]
-      properties:
-        monitorId: { type: string, format: uuid }
-        visible: { type: boolean }
 
     BuiltInContentItem:
       type: object

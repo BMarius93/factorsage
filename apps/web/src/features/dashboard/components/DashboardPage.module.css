@@ -153,6 +153,15 @@
 
 /* `Updated 4 min ago`: what a reader checks, not what they read first. The warning treatments
    (stale, never scanned) keep the `StatusBadge` they have always had. */
+/* The rolling window the feed covers, beside its title: a fact, not a control. */
+.window {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .freshness {
   overflow: hidden;
   color: var(--color-text-muted);

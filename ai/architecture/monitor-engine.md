@@ -227,8 +227,9 @@ having edited anything.
 
 `listActiveMonitors` returns customer Monitors that are `enabled` **and** execution-eligible under
 their owner's entitlements, plus built-in Monitors whose `isGloballyEnabled` is on. A built-in has no
-owner, no plan and no capacity; `isPublished` and customers' Dashboard preferences never affect
-evaluation. Built-in Monitors are shared: ten thousand viewers cost one evaluation.
+owner, no plan and no capacity; `isPublished` and each customer's own Enabled choice for it
+(`UserBuiltInMonitorPreference`, `docs/decisions/monitor-eod-v2.md` §12.4) never affect evaluation.
+Built-in Monitors are shared: ten thousand viewers cost one evaluation.
 
 ## Rebinding: the configuration fence
 
@@ -287,8 +288,8 @@ apps/worker           monitor-evaluation.ts  MonitorEodEvaluation               
   needs the two halves apart.
 - **`decideLevelSessions`** adds the Monitor framing — the sessions after the member's checkpoint,
   applied in order, ongoing-membership gating, logic-change resets, reconstruction at the newest
-  session or the initial replay, each change's origin and evidence — and returns one decided write
-  for the level, or nothing.
+  session or the rolling window evaluation, each change's origin and evidence — and returns one
+  decided write for the level, or nothing.
 - **`applyMemberEvaluation`** persists every level of one member atomically: the Signals it closes
   (with reason and session) and opens, the state rows, the transition rows and the checkpoint, in
   one transaction behind the binding fence, the checkpoint's previous value and the `stateVersion`
@@ -387,9 +388,24 @@ session entered the state. Only a decidable newest session creates a row, so a l
 decided yet waits, and a history read that fails leaves the level for a later cycle rather than
 starting it from nothing.
 
-**A new Monitor replays instead** (`docs/decisions/monitor-eod-v2.md` §5): the same reconstruction
-anchored at the session before its 90-day window gives the exact state before it, and every window
-session is then stepped and recorded. Everything else below still applies to it.
+**A member never evaluated is evaluated over the rolling window instead**
+(`docs/decisions/monitor-eod-v2.md` §12.2): the same reconstruction anchored at the session before
+the 30-day activity window — or the member's later membership start, or the day after the newest
+session this Monitor already recorded a change on for the security — gives the exact state before
+it, and every window session is then stepped and recorded. The checkpoint's `coverageStart` records
+where that recorded evaluation begins (the newest session for a member reconstructed there; kept
+as it was while a member continues from its checkpoint), which is what the API's synchronization
+state reads. Everything else below still applies to it.
+
+**A member whose records begin inside its window is back-filled** (§12.2a): after the forward
+evaluation, each pass decides the missing sessions of every such member through the same replay,
+verifies the result against the persisted state and the recorded transitions (same logic
+fingerprint, resting states written either way), and appends only what is missing — new transitions
+(`HISTORY`) and new occurrences for ones that began and ended inside the gap — reusing every
+recorded occurrence, never changing a state row or a recorded row, in one transaction behind the
+binding fence, the checkpoint and every `stateVersion` (`planCoverageBackfill`,
+`applyCoverageBackfill`). A member whose records cannot be reconciled is marked
+(`coverageBlockedFrom`) and left alone until its window moves.
 
 Because reconstruction is keyed on "no current state", it covers new members, re-added members,
 rebinds, edited levels and legacy state with one mechanism. `resolveUnvisitedStates` therefore deletes the
@@ -398,6 +414,20 @@ keeping a reset row.
 
 `pnpm monitors:scan-once` runs one cycle through the normal singleton claim — the operator step after
 `pnpm builtins:bootstrap`.
+
+A Monitor that starts running does not wait for the next interval: the API's
+`requestMonitorEvaluation` (`@intrinsic/database`), in the same transaction as the change, makes the
+schedule due now and sets `MonitorScanSchedule.scanRequested`; the claim clears it, and a pass that
+was already running completes with `dueAt = now` while it is set, so a request that arrived during
+that pass is caught up by the next one rather than lost (`docs/decisions/monitor-eod-v2.md` §12.2).
+Each pass also records the newest finalized session its canonical `EodFinalityPolicy` found
+(`MonitorScanSchedule.latestSession`), which the Dashboard's window ends on without asking the
+provider itself (§12.1).
+
+`pnpm monitors:backfill-evidence` (dry run; `--apply` to write) records evidence on legacy
+transitions only where the canonical evaluator, the recorded version and the finalized frame
+reproduce the recorded decision and price; everything else stays excluded from the Dashboard
+(§12.6).
 
 ## Historical data loading
 

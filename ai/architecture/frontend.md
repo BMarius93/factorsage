@@ -236,8 +236,8 @@ The API still
 authorizes every request — a page for another customer's object reads as not found.
 
 **A Guest is never redirected for navigating.** Reaching a protected *action* — New list, New
-strategy, New monitor, Duplicate on a built-in list or strategy, a built-in Monitor's
-dashboard-visibility switch — opens `SignInPrompt`
+strategy, New monitor, Duplicate on a built-in list or strategy, a Monitor's Enabled switch —
+opens `SignInPrompt`
 where they are, offering Sign in and Create an account; `/login` is a destination they choose, not
 one they are sent to. `useSignInPrompt` (`features/auth/hooks/use-sign-in-prompt.tsx`) is the one
 way a page asks: it answers whether the viewer is signed in, runs the action or opens the prompt,

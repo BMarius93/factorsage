@@ -46,8 +46,9 @@ Ownership boundaries and invariants:
   that customer's Strategy and List; a built-in Monitor references only built-ins. A Backtest may
   reference the caller's own or built-in content, checked in the transaction that creates it.
 - Built-ins are ordinary domain objects: the same evaluator, snapshot rules and Buy Window
-  semantics apply. A customer's Dashboard preference hides a built-in Monitor from that customer
-  only; nothing is cloned per user.
+  semantics apply. A customer can disable a built-in Monitor for their own account with the same
+  Enabled switch every Monitor has; that hides its activity from their Dashboard only, never
+  changes its shared evaluation, and nothing is cloned per user.
 - A signed-in user may **duplicate** a List or Strategy they can read — their own or a built-in —
   from its collection row. That is the user's own action, not per-user cloning: the copy is ordinary
   USER content owned by them, holding the source's configuration under new ids and none of its

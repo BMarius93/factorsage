@@ -52,15 +52,11 @@ export type ActiveMonitor = {
   definition: unknown;
   members: readonly ActiveMonitorMember[];
   /**
-   * The initial replay (`docs/decisions/monitor-eod-v2.md` §5): whether this Monitor asks for one,
-   * and its window once the first evaluation fixed it. Absent where a caller builds Monitors by
-   * hand; it is then never replayed.
+   * Whether a member this Monitor has never evaluated is evaluated over the rolling activity window
+   * (`docs/decisions/monitor-eod-v2.md` §12) rather than reconstructed at its newest session. Absent
+   * where a caller builds Monitors by hand; such a member is then reconstructed.
    */
-  replay?: {
-    requested: boolean;
-    windowStart: LocalDate | null;
-    fixedAt: Date | null;
-  };
+  windowReplay?: boolean;
 };
 
 /** One list membership, with the buy eligibility the canonical list model attaches to it. */
@@ -69,7 +65,10 @@ export type ActiveMonitorMember = {
   symbol: string;
   buyWindowMode: "FULL" | "CUSTOM";
   buyWindows: readonly { startDate: LocalDate; endDate: LocalDate | null }[];
-  /** When the security joined the List: a member listed after the replay window was fixed is new. */
+  /**
+   * When the security joined the List. A session that became final before it was not watched for
+   * this member, so a change found on it is history (`docs/decisions/monitor-eod-v2.md` §12).
+   */
   listedAt?: Date;
 };
 
@@ -161,6 +160,12 @@ export type MemberEvaluationWrite = {
     basisGeneration: number;
     /** The ongoing membership this progress belongs to: its start, or null for "Always eligible". */
     membershipStart: LocalDate | null;
+    /**
+     * Where the member's recorded evaluation begins (`docs/decisions/monitor-eod-v2.md` §12), when
+     * this write starts it afresh — a window replay, a reconstruction. Absent when the member is
+     * caught up from its own checkpoint, whose coverage is kept; a new row then starts at `next`.
+     */
+    coverageStart?: LocalDate;
   };
   /**
    * The member's ongoing membership is not the one its state belongs to (a re-entry, a moved
@@ -192,6 +197,110 @@ export type PersistedCheckpoint = {
    * memberships were recorded — adopted under the current one, never reset for it.
    */
   membership: { start: LocalDate | null } | undefined;
+  /**
+   * Where the member's recorded evaluation begins (`docs/decisions/monitor-eod-v2.md` §12.2): every
+   * session from here through `evaluatedThrough` has its changes recorded.
+   */
+  coverageStart: LocalDate;
+  /** The required start a coverage back-fill could not reconcile with the recorded decisions. */
+  coverageBlockedFrom: LocalDate | undefined;
+};
+
+/**
+ * One recorded change of a member, as a coverage back-fill reconciles the canonical history of its
+ * missing sessions against it (`docs/decisions/monitor-eod-v2.md` §12.2).
+ */
+export type RecordedTransition = {
+  sequence: bigint;
+  levelId: string;
+  signalFingerprint: string;
+  fromState: MonitorLifecycleState;
+  toState: MonitorLifecycleState;
+  reason: MonitorTransitionReason;
+  origin: TransitionOrigin;
+  observationDate: LocalDate | null;
+  signalId: string | null;
+};
+
+/** One recorded occurrence of a member, with how it ended, if it has. */
+export type RecordedSignal = {
+  id: string;
+  levelId: string;
+  /** Null on occurrences recorded before fingerprints were. */
+  signalFingerprint: string | null;
+  observationDate: LocalDate;
+  resolved: boolean;
+  resolvedObservationDate: LocalDate | null;
+  resolutionReason: MonitorTransitionReason | null;
+};
+
+/** Everything a coverage back-fill reads about one member, at one moment. */
+export type MemberRecord = {
+  checkpoint: {
+    evaluatedThrough: LocalDate;
+    configVersion: number;
+    /** As `PersistedCheckpoint.membership`. */
+    membership: { start: LocalDate | null } | undefined;
+    coverageStart: LocalDate;
+    coverageBlockedFrom: LocalDate | undefined;
+  };
+  /** The member's states, by level id. */
+  states: ReadonlyMap<string, PersistedSignalState>;
+  transitions: readonly RecordedTransition[];
+  signals: readonly RecordedSignal[];
+};
+
+/** Which occurrence a back-filled change concerns: one already recorded, or one this write adds. */
+export type BackfillSignalRef = { existing: string } | { planned: number };
+
+/** One change a coverage back-fill adds, on its own session, with what decided it. */
+export type BackfillChange = {
+  from: MonitorLifecycleState;
+  to: MonitorLifecycleState;
+  reason: MonitorTransitionReason;
+  exitRuleId: string | null;
+  observationDate: LocalDate;
+  evidence?: MonitorTransitionEvidence;
+  signal: BackfillSignalRef | null;
+};
+
+/** Everything a coverage back-fill adds for one level: append-only. */
+export type BackfillLevelWrite = {
+  levelId: string;
+  levelKind: MonitorLevelKind;
+  signalFingerprint: string;
+  hasTrigger: boolean;
+  strategyVersionId: string;
+  /**
+   * Occurrences found inside the missing sessions that nothing recorded yet. Each began and ended
+   * there — one that reaches the recorded sessions is always an occurrence already recorded.
+   */
+  signals: readonly {
+    observationDate: LocalDate;
+    price: number;
+    close: { observationDate: LocalDate; reason: MonitorTransitionReason };
+  }[];
+  changes: readonly BackfillChange[];
+};
+
+/**
+ * A member's missing window sessions, recorded (`docs/decisions/monitor-eod-v2.md` §12.2): new
+ * transitions and occurrences only — nothing recorded is changed — and the coverage they complete,
+ * written in one transaction behind the binding fence, the checkpoint and every state's version as
+ * the plan read them.
+ */
+export type CoverageBackfillWrite = {
+  monitorId: string;
+  configVersion: number;
+  securityId: string;
+  now: Date;
+  expected: { evaluatedThrough: LocalDate; coverageStart: LocalDate };
+  states: readonly { id: string; stateVersion: number }[];
+  /** The member's recorded evaluation now begins here. */
+  coverageStart: LocalDate;
+  /** Set when the sessions before `coverageStart` that the window requires could not be reconciled. */
+  coverageBlockedFrom: LocalDate | null;
+  levels: readonly BackfillLevelWrite[];
 };
 
 /**
@@ -249,10 +358,11 @@ export interface MonitorEvaluationRepository {
   /** Each member's evaluation progress for one Monitor, keyed by security id. */
   loadCheckpoints(monitorId: string): Promise<Map<string, PersistedCheckpoint>>;
   /**
-   * The securities this Monitor has ever recorded a transition for — decided history that outlives
-   * the member's state and checkpoint, which a membership ending deletes.
+   * Per security, the newest session this Monitor ever recorded a change on — decided history that
+   * outlives the member's state and checkpoint, which a membership ending or a rebind deletes. A
+   * window replay starts after it, so no recorded change is ever recorded twice.
    */
-  loadSecuritiesWithTransitions(monitorId: string): Promise<Set<string>>;
+  loadLastRecordedSessions(monitorId: string): Promise<Map<string, LocalDate>>;
   /**
    * Persists one member's EOD evaluation — every level's changes, Signals and state, and the
    * checkpoint they advance — in one transaction behind the binding fence, the checkpoint's own
@@ -262,17 +372,6 @@ export interface MonitorEvaluationRepository {
     write: MemberEvaluationWrite,
   ): Promise<MemberEvaluationResult>;
   /**
-   * Fixes a new Monitor's replay window, once: the first evaluation's answer stands for every later
-   * one. Returns the stored window — this call's, or the one an earlier evaluation fixed — or null
-   * when the Monitor was rebound meanwhile or no longer asks for a replay.
-   */
-  fixReplayWindow(input: {
-    monitorId: string;
-    configVersion: number;
-    windowStart: LocalDate;
-    now: Date;
-  }): Promise<{ windowStart: LocalDate; fixedAt: Date } | null>;
-  /**
    * Forgets the progress of members no longer in the Monitor's list, so a member removed and added
    * back is reconstructed rather than caught up from a stale checkpoint. Fenced like every write.
    */
@@ -281,6 +380,34 @@ export interface MonitorEvaluationRepository {
     configVersion: number;
     securityIds: readonly string[];
   }): Promise<number>;
+  /**
+   * Records the newest finalized session this pass's canonical end-of-day policy found, and when it
+   * asked, for the Dashboard's rolling window to end on (`docs/decisions/monitor-eod-v2.md` §12.3).
+   */
+  recordExpectedSession(
+    expected: { session: LocalDate; calendar: "EXCHANGE" | "WEEKDAYS" },
+    at: Date,
+  ): Promise<void>;
+  /** One member's checkpoint, states and recorded history, or null when it has no checkpoint. */
+  loadMemberRecord(
+    monitorId: string,
+    securityId: string,
+  ): Promise<MemberRecord | null>;
+  /** Applies a coverage back-fill: append-only, all or nothing. */
+  applyCoverageBackfill(
+    write: CoverageBackfillWrite,
+  ): Promise<MemberEvaluationResult>;
+  /**
+   * Records that a coverage back-fill could not reconcile the member's missing sessions from
+   * `blockedFrom` with what is recorded — on the checkpoint it read, and only that one.
+   */
+  markCoverageBlocked(input: {
+    monitorId: string;
+    configVersion: number;
+    securityId: string;
+    evaluatedThrough: LocalDate;
+    blockedFrom: LocalDate;
+  }): Promise<void>;
 }
 
 /** The key a `(securityId, levelId)` pair is looked up by inside one Monitor's state map. */
@@ -304,8 +431,10 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
    *   owner by `(createdAt, id)`, and none whose List exceeds the plan's symbol limit. `enabled` is
    *   never rewritten by that derivation.
    * - **A built-in (SYSTEM) Monitor** is shared platform content with no owner and no plan. It runs
-   *   when the operator's `isGloballyEnabled` is on — whether it is published, and whether any
-   *   customer has hidden it, never changes that.
+   *   when the operator's `isGloballyEnabled` is on, once for everybody. A customer disabling it for
+   *   their own account never changes that: a published built-in is enabled by default for every
+   *   Guest, so the public Dashboard always needs it, and an unpublished one is evaluated for the
+   *   administrators preparing it (`builtin-dashboard-signals-v1.md` §17b).
    *
    * A Monitor whose Strategy somehow has no version is skipped rather than failing the cycle.
    */
@@ -358,13 +487,7 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
         configVersion: row.configVersion,
         strategyVersionId: version.id,
         definition: version.definition,
-        replay: {
-          requested: row.initialReplayRequested,
-          windowStart: row.replayWindowStart
-            ? toLocalDate(row.replayWindowStart)
-            : null,
-          fixedAt: row.replayWindowFixedAt,
-        },
+        windowReplay: row.windowReplay,
         members: row.stockList.items.map((item) => ({
           securityId: item.securityId,
           symbol: item.security.symbol,
@@ -626,45 +749,6 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
     );
   }
 
-  async fixReplayWindow(input: {
-    monitorId: string;
-    configVersion: number;
-    windowStart: LocalDate;
-    now: Date;
-  }): Promise<{ windowStart: LocalDate; fixedAt: Date } | null> {
-    // Raw SQL: fixing the window is not an edit, so `updatedAt` must not move.
-    await this.prisma.$executeRaw`
-      UPDATE "Monitor"
-      SET "replayWindowStart" = ${input.windowStart}::date, "replayWindowFixedAt" = ${input.now}
-      WHERE "id" = ${input.monitorId}
-        AND "configVersion" = ${input.configVersion}
-        AND "initialReplayRequested"
-        AND "replayWindowStart" IS NULL
-    `;
-    const row = await this.prisma.monitor.findUnique({
-      where: { id: input.monitorId },
-      select: {
-        configVersion: true,
-        initialReplayRequested: true,
-        replayWindowStart: true,
-        replayWindowFixedAt: true,
-      },
-    });
-    if (
-      !row ||
-      row.configVersion !== input.configVersion ||
-      !row.initialReplayRequested ||
-      !row.replayWindowStart ||
-      !row.replayWindowFixedAt
-    ) {
-      return null;
-    }
-    return {
-      windowStart: toLocalDate(row.replayWindowStart),
-      fixedAt: row.replayWindowFixedAt,
-    };
-  }
-
   async pruneCheckpoints(input: {
     monitorId: string;
     configVersion: number;
@@ -692,13 +776,21 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
     }
   }
 
-  async loadSecuritiesWithTransitions(monitorId: string): Promise<Set<string>> {
-    const rows = await this.prisma.monitorStateTransition.findMany({
-      where: { monitorId },
-      distinct: ["securityId"],
-      select: { securityId: true },
+  async loadLastRecordedSessions(
+    monitorId: string,
+  ): Promise<Map<string, LocalDate>> {
+    const rows = await this.prisma.monitorStateTransition.groupBy({
+      by: ["securityId"],
+      where: { monitorId, observationDate: { not: null } },
+      _max: { observationDate: true },
     });
-    return new Set(rows.map((row) => row.securityId));
+    return new Map(
+      rows.flatMap((row) =>
+        row._max.observationDate
+          ? [[row.securityId, toLocalDate(row._max.observationDate)] as const]
+          : [],
+      ),
+    );
   }
 
   async loadCheckpoints(
@@ -713,6 +805,8 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
         basisGeneration: true,
         membershipRecorded: true,
         membershipStart: true,
+        coverageStart: true,
+        coverageBlockedFrom: true,
       },
     });
     return new Map(
@@ -722,16 +816,323 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
           evaluatedThrough: toLocalDate(row.evaluatedThrough),
           configVersion: row.configVersion,
           basisGeneration: row.basisGeneration,
-          membership: row.membershipRecorded
-            ? {
-                start: row.membershipStart
-                  ? toLocalDate(row.membershipStart)
-                  : null,
-              }
+          membership: membershipOf(row),
+          coverageStart: toLocalDate(row.coverageStart ?? row.evaluatedThrough),
+          coverageBlockedFrom: row.coverageBlockedFrom
+            ? toLocalDate(row.coverageBlockedFrom)
             : undefined,
         },
       ]),
     );
+  }
+
+  async recordExpectedSession(
+    expected: { session: LocalDate; calendar: "EXCHANGE" | "WEEKDAYS" },
+    at: Date,
+  ): Promise<void> {
+    // Raw SQL: recording what the policy said is not an edit of the schedule. Never moved back by a
+    // pass that asked earlier than the one already recorded.
+    await this.prisma.$executeRaw`
+      UPDATE "MonitorScanSchedule"
+      SET "latestSession" = ${toDate(expected.session)},
+          "latestSessionCalendar" = ${expected.calendar},
+          "latestSessionAt" = ${at}
+      WHERE "id" = 'GLOBAL'
+        AND ("latestSessionAt" IS NULL OR "latestSessionAt" <= ${at})
+    `;
+  }
+
+  async loadMemberRecord(
+    monitorId: string,
+    securityId: string,
+  ): Promise<MemberRecord | null> {
+    const checkpoint = await this.prisma.monitorEvaluationCheckpoint.findUnique({
+      where: { monitorId_securityId: { monitorId, securityId } },
+      select: {
+        evaluatedThrough: true,
+        configVersion: true,
+        membershipRecorded: true,
+        membershipStart: true,
+        coverageStart: true,
+        coverageBlockedFrom: true,
+      },
+    });
+    if (!checkpoint) {
+      return null;
+    }
+    const [states, transitions, signals] = await Promise.all([
+      this.prisma.monitorSignalState.findMany({
+        where: { monitorId, securityId },
+        select: {
+          id: true,
+          levelId: true,
+          levelKind: true,
+          stateVersion: true,
+          signalFingerprint: true,
+          lastOutcome: true,
+          activeSignalId: true,
+          lifecycleState: true,
+          lifecycleSinceDate: true,
+          ruleStates: true,
+        },
+      }),
+      this.prisma.monitorStateTransition.findMany({
+        where: { monitorId, securityId },
+        select: {
+          sequence: true,
+          levelId: true,
+          signalFingerprint: true,
+          fromState: true,
+          toState: true,
+          reason: true,
+          origin: true,
+          observationDate: true,
+          signalId: true,
+        },
+        orderBy: { sequence: "asc" },
+      }),
+      this.prisma.monitorSignal.findMany({
+        where: { monitorId, securityId },
+        select: {
+          id: true,
+          levelId: true,
+          signalFingerprint: true,
+          observationDate: true,
+          resolvedAt: true,
+          resolvedObservationDate: true,
+          resolutionReason: true,
+        },
+      }),
+    ]);
+    return {
+      checkpoint: {
+        evaluatedThrough: toLocalDate(checkpoint.evaluatedThrough),
+        configVersion: checkpoint.configVersion,
+        membership: membershipOf(checkpoint),
+        coverageStart: toLocalDate(
+          checkpoint.coverageStart ?? checkpoint.evaluatedThrough,
+        ),
+        coverageBlockedFrom: checkpoint.coverageBlockedFrom
+          ? toLocalDate(checkpoint.coverageBlockedFrom)
+          : undefined,
+      },
+      states: new Map(
+        states.map((row) => [
+          row.levelId,
+          {
+            id: row.id,
+            stateVersion: row.stateVersion,
+            signalFingerprint: row.signalFingerprint,
+            levelKind: row.levelKind,
+            lastOutcome: row.lastOutcome,
+            activeSignalId: row.activeSignalId,
+            lifecycle: {
+              state: row.lifecycleState,
+              since: row.lifecycleSinceDate
+                ? toLocalDate(row.lifecycleSinceDate)
+                : null,
+              rules: parseMonitorRuleStates(row.ruleStates),
+            },
+          },
+        ]),
+      ),
+      transitions: transitions.map((row) => ({
+        sequence: row.sequence,
+        levelId: row.levelId,
+        signalFingerprint: row.signalFingerprint,
+        fromState: row.fromState,
+        toState: row.toState,
+        reason: row.reason,
+        origin: row.origin,
+        observationDate: row.observationDate
+          ? toLocalDate(row.observationDate)
+          : null,
+        signalId: row.signalId,
+      })),
+      signals: signals.map((row) => ({
+        id: row.id,
+        levelId: row.levelId,
+        signalFingerprint: row.signalFingerprint,
+        observationDate: toLocalDate(row.observationDate),
+        resolved: row.resolvedAt !== null,
+        resolvedObservationDate: row.resolvedObservationDate
+          ? toLocalDate(row.resolvedObservationDate)
+          : null,
+        resolutionReason: row.resolutionReason,
+      })),
+    };
+  }
+
+  async applyCoverageBackfill(
+    write: CoverageBackfillWrite,
+  ): Promise<MemberEvaluationResult> {
+    const nothing: MemberEvaluationResult = {
+      applied: false,
+      openedSignals: 0,
+      closedSignals: 0,
+      transitions: 0,
+    };
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          await assertBindingCurrent(tx, write.monitorId, write.configVersion);
+          // The plan was read from this checkpoint and these states: if either moved — a pass
+          // advanced the member, another back-fill completed it, a membership reset rebuilt it —
+          // nothing is written, and the next pass plans again from what is there.
+          const current = await tx.$queryRaw<
+            { evaluatedThrough: Date; coverageStart: Date | null }[]
+          >`
+            SELECT "evaluatedThrough", "coverageStart"
+            FROM "MonitorEvaluationCheckpoint"
+            WHERE "monitorId" = ${write.monitorId} AND "securityId" = ${write.securityId}
+            FOR UPDATE
+          `;
+          const row = current[0];
+          if (
+            !row ||
+            toLocalDate(row.evaluatedThrough) !==
+              write.expected.evaluatedThrough ||
+            toLocalDate(row.coverageStart ?? row.evaluatedThrough) !==
+              write.expected.coverageStart
+          ) {
+            throw new MonitorCheckpointConflictError();
+          }
+          const states = await tx.$queryRaw<{ id: string; stateVersion: number }[]>`
+            SELECT "id", "stateVersion"
+            FROM "MonitorSignalState"
+            WHERE "monitorId" = ${write.monitorId} AND "securityId" = ${write.securityId}
+            FOR UPDATE
+          `;
+          const expected = new Map(
+            write.states.map((state) => [state.id, state.stateVersion]),
+          );
+          if (
+            states.length !== expected.size ||
+            states.some((state) => expected.get(state.id) !== state.stateVersion)
+          ) {
+            throw new MonitorTransitionConflictError();
+          }
+
+          let opened = 0;
+          let closed = 0;
+          const transitionRows: Prisma.MonitorStateTransitionCreateManyInput[] = [];
+          for (const level of write.levels) {
+            // Occurrences the missing sessions began and ended: recorded already ended, as they did.
+            const planned: string[] = [];
+            for (const signal of level.signals) {
+              const created = await tx.monitorSignal.create({
+                data: {
+                  monitorId: write.monitorId,
+                  securityId: write.securityId,
+                  levelId: level.levelId,
+                  levelKind: level.levelKind,
+                  strategyVersionId: level.strategyVersionId,
+                  signalFingerprint: level.signalFingerprint,
+                  hasTrigger: level.hasTrigger,
+                  observationDate: toDate(signal.observationDate),
+                  observationPrice: signal.price,
+                  observationBasis: "EOD_CLOSE",
+                  detectedAt: write.now,
+                  reconstructed: true,
+                  resolvedAt: write.now,
+                  resolvedObservationDate: toDate(signal.close.observationDate),
+                  resolutionReason: signal.close.reason,
+                },
+                select: { id: true },
+              });
+              planned.push(created.id);
+              opened += 1;
+              closed += 1;
+            }
+            for (const change of level.changes) {
+              transitionRows.push({
+                monitorId: write.monitorId,
+                securityId: write.securityId,
+                levelId: level.levelId,
+                levelKind: level.levelKind,
+                exitRuleId: change.exitRuleId,
+                signalFingerprint: level.signalFingerprint,
+                fromState: change.from,
+                toState: change.to,
+                reason: change.reason,
+                // Decided now, for a session nobody was watching for it: history, always.
+                origin: "HISTORY",
+                occurredAt: write.now,
+                observationDate: toDate(change.observationDate),
+                signalId:
+                  change.signal === null
+                    ? null
+                    : "existing" in change.signal
+                      ? change.signal.existing
+                      : planned[change.signal.planned]!,
+                strategyVersionId: level.strategyVersionId,
+                ...(change.evidence
+                  ? {
+                      evidence:
+                        change.evidence as unknown as Prisma.InputJsonValue,
+                    }
+                  : {}),
+              });
+            }
+          }
+          if (transitionRows.length > 0) {
+            await tx.monitorStateTransition.createMany({ data: transitionRows });
+          }
+          await tx.monitorEvaluationCheckpoint.update({
+            where: {
+              monitorId_securityId: {
+                monitorId: write.monitorId,
+                securityId: write.securityId,
+              },
+            },
+            data: {
+              coverageStart: toDate(write.coverageStart),
+              coverageBlockedFrom:
+                write.coverageBlockedFrom === null
+                  ? null
+                  : toDate(write.coverageBlockedFrom),
+            },
+          });
+          return {
+            applied: true,
+            openedSignals: opened,
+            closedSignals: closed,
+            transitions: transitionRows.length,
+          };
+        },
+        { timeout: 30_000 },
+      );
+    } catch (error) {
+      if (error instanceof MonitorBindingChangedError) {
+        return { ...nothing, staleConfiguration: true };
+      }
+      if (
+        error instanceof MonitorCheckpointConflictError ||
+        error instanceof MonitorTransitionConflictError ||
+        isBenignWriteRace(error)
+      ) {
+        return { ...nothing, contended: true };
+      }
+      throw error;
+    }
+  }
+
+  async markCoverageBlocked(input: {
+    monitorId: string;
+    configVersion: number;
+    securityId: string;
+    evaluatedThrough: LocalDate;
+    blockedFrom: LocalDate;
+  }): Promise<void> {
+    await this.prisma.monitorEvaluationCheckpoint.updateMany({
+      where: {
+        monitorId: input.monitorId,
+        securityId: input.securityId,
+        configVersion: input.configVersion,
+        evaluatedThrough: toDate(input.evaluatedThrough),
+      },
+      data: { coverageBlockedFrom: toDate(input.blockedFrom) },
+    });
   }
 
   async applyMemberEvaluation(
@@ -791,6 +1192,10 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
               basisGeneration: write.checkpoint.basisGeneration,
               membershipRecorded: true,
               membershipStart: membershipStartOf(write),
+              coverageStart: toDate(
+                write.checkpoint.coverageStart ?? write.checkpoint.next,
+              ),
+              coverageBlockedFrom: null,
             },
             update: {
               evaluatedThrough: toDate(write.checkpoint.next),
@@ -798,6 +1203,12 @@ export class PrismaMonitorRepository implements MonitorEvaluationRepository {
               basisGeneration: write.checkpoint.basisGeneration,
               membershipRecorded: true,
               membershipStart: membershipStartOf(write),
+              ...(write.checkpoint.coverageStart === undefined
+                ? {}
+                : {
+                    coverageStart: toDate(write.checkpoint.coverageStart),
+                    coverageBlockedFrom: null,
+                  }),
             },
           });
           return {
@@ -1061,6 +1472,15 @@ export function endedStateOf(
     return "INACTIVE";
   }
   return null;
+}
+
+function membershipOf(row: {
+  membershipRecorded: boolean;
+  membershipStart: Date | null;
+}): { start: LocalDate | null } | undefined {
+  return row.membershipRecorded
+    ? { start: row.membershipStart ? toLocalDate(row.membershipStart) : null }
+    : undefined;
 }
 
 function membershipStartOf(write: MemberEvaluationWrite): Date | null {

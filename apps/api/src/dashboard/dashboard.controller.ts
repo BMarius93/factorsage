@@ -5,38 +5,28 @@ import type {
 } from "@intrinsic/contracts";
 import {
   BadRequestException,
-  Body,
   Controller,
   Get,
   Inject,
-  NotFoundException,
-  Param,
-  Put,
   Query,
   UseGuards,
 } from "@nestjs/common";
-import { CookieAuthGuard } from "../auth/cookie-auth.guard";
-import { CurrentUser } from "../auth/current-user.decorator";
 import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
 import { Viewer } from "../auth/viewer.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
+import { parseActivityQuery } from "./dashboard-requests";
 import {
-  parseActivityQuery,
-  parseVisibilityRequest,
-} from "./dashboard-requests";
-import {
-  BuiltInMonitorNotFoundError,
   DashboardService,
   InvalidActivityCursorError,
 } from "./dashboard.service";
 
 /**
- * The Dashboard: every current Monitor match and setup the viewer can see
- * (`docs/decisions/builtin-dashboard-signals-v1.md`).
+ * The Dashboard: the Monitors the viewer can see and the activity of those Enabled for them
+ * (`docs/decisions/builtin-dashboard-signals-v1.md`, `docs/decisions/monitor-eod-v2.md` §12).
  *
- * The read accepts a Guest, who sees the published built-ins with their default visibility. Hiding
- * or showing a built-in is a signed-in customer's own preference, so a Guest is refused with a 401
- * and nothing anonymous is ever stored.
+ * Both reads accept a Guest, who sees the published built-ins, all enabled by default. Enabling or
+ * disabling any Monitor — a built-in for one's own account included — is `PATCH /monitors/:id`, so
+ * nothing here writes and nothing anonymous is ever stored.
  */
 @Controller("dashboard")
 export class DashboardController {
@@ -52,8 +42,9 @@ export class DashboardController {
   }
 
   /**
-   * The Monitor Activity feed: observed activations and market resolutions on the Monitors this
-   * viewer's Dashboard shows, newest session first. Readable by a Guest, like the Dashboard.
+   * The Monitor Activity feed: end-of-day activations and market resolutions of the Monitors this
+   * viewer has enabled, over the rolling 30-day window, newest session first. Readable by a Guest,
+   * like the Dashboard.
    */
   @RateLimit("standard-read")
   @Get("activity")
@@ -70,29 +61,6 @@ export class DashboardController {
     } catch (error) {
       if (error instanceof InvalidActivityCursorError) {
         throw new BadRequestException(error.message);
-      }
-      throw error;
-    }
-  }
-
-  @RateLimit("mutation")
-  @Put("monitors/:monitorId/visibility")
-  @UseGuards(CookieAuthGuard)
-  async setVisibility(
-    @CurrentUser() user: AuthUser,
-    @Param("monitorId") monitorId: string,
-    @Body() body: unknown,
-  ): Promise<{ monitorId: string; visible: boolean }> {
-    const { visible } = parseVisibilityRequest(body);
-    try {
-      return await this.dashboard.setBuiltInVisibility(
-        user,
-        monitorId,
-        visible,
-      );
-    } catch (error) {
-      if (error instanceof BuiltInMonitorNotFoundError) {
-        throw new NotFoundException(error.message);
       }
       throw error;
     }

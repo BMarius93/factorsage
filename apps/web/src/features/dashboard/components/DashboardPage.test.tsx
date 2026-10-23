@@ -63,8 +63,7 @@ function monitor(
     ownership: "SYSTEM",
     strategy: { id: "strategy-a", name: "Value & Trend" },
     stockList: { id: "list-a", name: "S&P 500 Growth Leaders" },
-    visible: true,
-    control: "BUILT_IN_PREFERENCE",
+    enabled: true,
     freshness: "CURRENT",
     lastScanAt: RECENT_SCAN,
     activeCount: 1,
@@ -99,7 +98,8 @@ function event(
     stockList: { id: "list-a", name: "S&P 500 Growth Leaders" },
     signalId: "signal-1",
     price: 210.5,
-    observationBasis: "EOD_CLOSE",
+    fromHistory: false,
+    recordedAt: "2026-10-13T22:05:00.000Z",
     why: {
       basis: "EVIDENCE",
       sessionDate: "2026-10-13",
@@ -411,7 +411,7 @@ describe("DashboardPage — the Monitor activity feed", () => {
     expect(within(table).queryByRole("link", { name: "Backtest" })).toBeNull();
   });
 
-  it("names the Monitor in its own column, linked to its page, and links the stock", async () => {
+  it("names the Monitor in its own column as the product's reference pill, linked to its page", async () => {
     render(<DashboardPage />);
     const [buy, sell] = await rows();
     expect(
@@ -428,8 +428,14 @@ describe("DashboardPage — the Monitor activity feed", () => {
         sell!.querySelector('td[data-column="monitor"]') as HTMLElement,
       ).getByRole("link", { name: "Nasdaq Trend Confirmation" }),
     ).toBeTruthy();
-    // A plain link, not the reference chip, and nothing about the Monitor left under the signal.
-    expect(monitorCell.querySelector("[data-kind]")).toBeNull();
+    // The same clickable pill Strategy and Stock List references use, the whole name in its title
+    // for when a long one is clipped, and nothing about the Monitor left under the signal.
+    const pill = within(monitorCell as HTMLElement).getByTestId(
+      "dashboard-event-monitor-link",
+    );
+    expect(pill.getAttribute("data-kind")).toBe("monitor");
+    expect(pill.getAttribute("title")).toBe("S&P Value & Trend");
+    expect(pill.tagName).toBe("A");
     const signal = buy!.querySelector('td[data-column="signal"]')!;
     expect(signal.textContent).not.toContain("S&P Value & Trend");
     expect(signal.querySelector("a")).toBeNull();
@@ -460,15 +466,33 @@ describe("DashboardPage — the Monitor activity feed", () => {
     expect(failed!.textContent).toContain("95.00 < 100.00");
   });
 
-  it("marks an event the earlier live-quote monitor recorded, quietly", async () => {
+  it("marks an event found later as From history, under its own session", async () => {
     fetchActivityMock.mockResolvedValue(
-      page([event({ observationBasis: "LIVE_QUOTE" })]),
+      page([
+        event({
+          fromHistory: true,
+          sessionDate: "2026-10-09",
+          recordedAt: "2026-10-23T14:02:00.000Z",
+        }),
+        event({ id: "event-observed", sessionDate: "2026-10-08" }),
+      ]),
     );
     render(<DashboardPage />);
-    const [row] = await rows();
-    expect(within(row!).getByTestId("dashboard-event-basis").textContent).toBe(
-      "Intraday quote",
-    );
+    const [found, observed] = await rows();
+    const mark = within(found!).getByTestId("dashboard-event-history");
+    expect(mark.textContent).toBe("From history");
+    // When it was found is said, apart from the session it happened on.
+    expect(mark.getAttribute("title")).toMatch(/^Found on Oct 23, 2026/);
+    expect(
+      found!
+        .closest('[data-testid="dashboard-session-group"]')
+        ?.getAttribute("data-session"),
+    ).toBe("2026-10-09");
+    expect(
+      within(observed!).queryByTestId("dashboard-event-history"),
+    ).toBeNull();
+    // No intraday label survives anywhere in the feed.
+    expect(screen.queryByText("Intraday quote")).toBeNull();
   });
 
   it("opens Stock Details from a click anywhere on the row that is not a control", async () => {
@@ -939,17 +963,19 @@ describe("DashboardPage — states", () => {
     render(<DashboardPage />);
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     const empty = await screen.findByTestId("dashboard-activity-empty");
-    expect(within(empty).getByText("No activity yet")).toBeDefined();
+    expect(
+      within(empty).getByText("No activity in the last 30 days"),
+    ).toBeDefined();
   });
 
-  it("sends a viewer who hid every monitor to the page that can bring one back", async () => {
+  it("sends a viewer who disabled every monitor to the page that can enable one", async () => {
     fetchDashboardMock.mockResolvedValue(
-      dashboard({ monitors: [monitor({ visible: false })] }),
+      dashboard({ monitors: [monitor({ enabled: false })] }),
     );
     fetchActivityMock.mockResolvedValue(page([]));
     render(<DashboardPage />);
     const empty = await screen.findByTestId("dashboard-activity-empty");
-    expect(within(empty).getByText("No monitors are shown")).toBeDefined();
+    expect(within(empty).getByText("No monitors are enabled")).toBeDefined();
     expect(
       within(empty)
         .getByRole("link", { name: "Go to monitors" })

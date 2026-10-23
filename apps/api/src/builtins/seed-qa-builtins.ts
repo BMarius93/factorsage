@@ -1,11 +1,23 @@
-import { strategySignalFingerprint } from "@intrinsic/contracts";
+import {
+  monitorActivityWindowStart,
+  strategySignalFingerprint,
+} from "@intrinsic/contracts";
 import type { PrismaClient } from "@intrinsic/database";
+import type { LocalDate } from "@intrinsic/domain";
+import { nyseFullClosures } from "../e2e-stack/fake-fmp";
+import { eodToday } from "../eod-today";
 import { QA_SECURITIES } from "../stocks/seed-qa-securities";
 import { bootstrapBuiltIns, type BuiltInCatalog } from "./builtin-bootstrap";
 import { BUILT_IN_STRATEGIES } from "./builtin-catalog";
 
 /**
  * Deterministic built-in content for the Playwright Dashboard suites.
+ *
+ * Every session is counted back from the day the seed runs, in fixture exchange sessions
+ * (`qaBuiltInSessions`), so the declared activity always sits inside the Dashboard's rolling 30-day
+ * window (`docs/decisions/monitor-eod-v2.md` §12) whatever day the suite runs on. Monitor A was
+ * enabled after its first occurrence had come and gone: the window replay found that occurrence,
+ * so its activation and ending are activity marked From history.
  *
  * The real catalog needs real securities and real market data, which the deterministic E2E stack
  * never has. This one is built over the fictional QA securities with the canonical Trend
@@ -76,6 +88,63 @@ export const QA_BUILT_IN_CATALOG: BuiltInCatalog = {
   ],
 };
 
+/**
+ * The fixture exchange sessions on or before `today`, newest first: weekdays that are not one of
+ * the fixture provider's NYSE full closures — the calendar the E2E stack's workers read.
+ */
+function recentFixtureSessions(today: LocalDate, count: number): LocalDate[] {
+  const sessions: LocalDate[] = [];
+  const cursor = new Date(`${today}T00:00:00.000Z`);
+  const closures = new Map<number, Set<string>>();
+  while (sessions.length < count) {
+    const date = cursor.toISOString().slice(0, 10);
+    const year = cursor.getUTCFullYear();
+    if (!closures.has(year)) {
+      closures.set(year, new Set(nyseFullClosures(year)));
+    }
+    const weekday = cursor.getUTCDay();
+    if (weekday !== 0 && weekday !== 6 && !closures.get(year)!.has(date)) {
+      sessions.push(date);
+    }
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return sessions;
+}
+
+/**
+ * The sessions the QA built-ins' declared history happens on, counted back from `today` in exchange
+ * sessions: every activity event within the last 30 calendar days, the reconstructed occurrence
+ * before them.
+ */
+export function qaBuiltInSessions(today: LocalDate = eodToday()) {
+  const sessions = recentFixtureSessions(today, 31);
+  return {
+    /** Monitor A: QATEST1 activated — found later by Monitor A's window replay. */
+    firstActivation: sessions[15]!,
+    /** Monitor A: that occurrence ended — found by the same replay. */
+    firstEnding: sessions[10]!,
+    /** Monitor A: QATEST1 activated again, observed. */
+    secondActivation: sessions[8]!,
+    /** Monitor B: QATEST1 activated, observed. */
+    monitorBActivation: sessions[7]!,
+    /** Monitor B: QATEST2's membership changed (an administrative ending). */
+    membershipEnded: sessions[6]!,
+    /** Monitor B: QATEST2's setup started waiting for its trigger. */
+    setup: sessions[5]!,
+    /** Monitor B: QATEST2's reconstructed occurrence began — before the window. */
+    reconstructed: sessions[30]!,
+    /**
+     * Monitor A: an older occurrence of QATEST1, activated and ended before the window, that an
+     * evaluation recorded only on the day it was seeded — stored and on the Monitor's own history,
+     * never Dashboard activity, however recently it was found.
+     */
+    agedActivation: sessions[27]!,
+    agedEnding: sessions[25]!,
+    /** Monitor B: when a reconstruction found it. */
+    reconstructionFound: sessions[28]!,
+  };
+}
+
 export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
   await bootstrapBuiltIns(prisma, "reset", QA_BUILT_IN_CATALOG);
   const monitors = await prisma.monitor.findMany({
@@ -120,6 +189,17 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
   // different logic and resets it.
   const fingerprint = strategySignalFingerprint(level.signal);
   const now = new Date();
+  const at = qaBuiltInSessions();
+  const day = (date: LocalDate) => new Date(`${date}T00:00:00.000Z`);
+  /** A session's finalized close, plus the minutes an evaluation took to record it. */
+  const closeOf = (date: LocalDate) => new Date(`${date}T22:00:00.000Z`);
+  // Monitor A was enabled the day after its first occurrence ended: the replay of its window found
+  // that occurrence then. Monitor B has been watching since before any of its sessions.
+  const monitorAWatchingSince = new Date(
+    closeOf(at.firstEnding).getTime() + 15 * 60 * 60_000,
+  );
+  const monitorAReplayedAt = new Date(monitorAWatchingSince.getTime() + 60_000);
+  const monitorBWatchingSince = day(at.reconstructionFound);
 
   await prisma.$transaction(async (tx) => {
     // A reconcile, not an append: every run leaves exactly the declared state and no preferences.
@@ -145,12 +225,20 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
         isPublished: true,
         isGloballyEnabled: true,
         // Declared state, not a fresh Monitor: nothing to replay.
-        initialReplayRequested: false,
+        windowReplay: false,
         replayWindowStart: null,
         replayWindowFixedAt: null,
-        watchingSince: new Date("2026-09-01T00:00:00.000Z"),
       },
     });
+    for (const [key, watchingSince] of [
+      [QA_BUILT_IN_KEYS.monitorA, monitorAWatchingSince],
+      [QA_BUILT_IN_KEYS.monitorB, monitorBWatchingSince],
+    ] as const) {
+      await tx.monitor.update({
+        where: { id: byKey.get(key)! },
+        data: { watchingSince },
+      });
+    }
 
     // What the Trend Confirmation BUY level compared on a session, as the worker records it.
     const evidence = (input: {
@@ -192,8 +280,8 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
       ],
     });
 
-    // An earlier occurrence of Monitor A that a later session ended, for the activity feed and
-    // the Signal table's ended rows.
+    // An earlier occurrence of Monitor A that a later session ended, found by the replay of the
+    // window when Monitor A was enabled: activity From history, and the Signal table's ended rows.
     {
       const monitorId = byKey.get(QA_BUILT_IN_KEYS.monitorA)!;
       const security = securityId.get(QA_ALPHA.symbol)!;
@@ -206,11 +294,12 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
           strategyVersionId: version.id,
           signalFingerprint: fingerprint,
           hasTrigger: true,
-          observationDate: new Date("2026-09-01T00:00:00.000Z"),
+          observationDate: day(at.firstActivation),
           observationPrice: 97.5,
-          detectedAt: new Date("2026-09-01T22:00:00.000Z"),
-          resolvedAt: new Date("2026-09-08T22:00:00.000Z"),
-          resolvedObservationDate: new Date("2026-09-08T00:00:00.000Z"),
+          detectedAt: monitorAReplayedAt,
+          reconstructed: true,
+          resolvedAt: monitorAReplayedAt,
+          resolvedObservationDate: day(at.firstEnding),
           resolutionReason: "CONDITIONS_ENDED",
         },
       });
@@ -225,9 +314,9 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
             fromState: "INACTIVE",
             toState: "ACTIVE",
             reason: "TRIGGER_FIRED",
-            origin: "OBSERVED",
-            occurredAt: new Date("2026-09-01T22:00:00.000Z"),
-            observationDate: new Date("2026-09-01T00:00:00.000Z"),
+            origin: "HISTORY",
+            occurredAt: monitorAReplayedAt,
+            observationDate: day(at.firstActivation),
             signalId: ended.id,
             strategyVersionId: version.id,
             evidence: evidence({
@@ -246,9 +335,9 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
             fromState: "ACTIVE",
             toState: "RESOLVED",
             reason: "CONDITIONS_ENDED",
-            origin: "OBSERVED",
-            occurredAt: new Date("2026-09-08T22:00:00.000Z"),
-            observationDate: new Date("2026-09-08T00:00:00.000Z"),
+            origin: "HISTORY",
+            occurredAt: monitorAReplayedAt,
+            observationDate: day(at.firstEnding),
             signalId: ended.id,
             strategyVersionId: version.id,
             evidence: evidence({
@@ -256,6 +345,77 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
               trend: false,
               crossed: false,
               price: 90.25,
+            }),
+          },
+        ],
+      });
+    }
+
+    // An occurrence of Monitor A older than the Dashboard's window, recorded only now: processing
+    // time never brings an old session into the window (`monitor-eod-v2.md` §12.3).
+    {
+      const monitorId = byKey.get(QA_BUILT_IN_KEYS.monitorA)!;
+      const security = securityId.get(QA_ALPHA.symbol)!;
+      const aged = await tx.monitorSignal.create({
+        data: {
+          monitorId,
+          securityId: security,
+          levelId: buyLevel,
+          levelKind: "BUY",
+          strategyVersionId: version.id,
+          signalFingerprint: fingerprint,
+          hasTrigger: true,
+          observationDate: day(at.agedActivation),
+          observationPrice: 96.25,
+          detectedAt: now,
+          reconstructed: true,
+          resolvedAt: now,
+          resolvedObservationDate: day(at.agedEnding),
+          resolutionReason: "CONDITIONS_ENDED",
+        },
+      });
+      await tx.monitorStateTransition.createMany({
+        data: [
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "INACTIVE",
+            toState: "ACTIVE",
+            reason: "TRIGGER_FIRED",
+            origin: "HISTORY",
+            occurredAt: now,
+            observationDate: day(at.agedActivation),
+            signalId: aged.id,
+            strategyVersionId: version.id,
+            evidence: evidence({
+              golden: true,
+              trend: true,
+              crossed: true,
+              price: 96.25,
+            }),
+          },
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "ACTIVE",
+            toState: "RESOLVED",
+            reason: "CONDITIONS_ENDED",
+            origin: "HISTORY",
+            occurredAt: now,
+            observationDate: day(at.agedEnding),
+            signalId: aged.id,
+            strategyVersionId: version.id,
+            evidence: evidence({
+              golden: true,
+              trend: false,
+              crossed: false,
+              price: 89.5,
             }),
           },
         ],
@@ -277,11 +437,11 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
           strategyVersionId: version.id,
           signalFingerprint: fingerprint,
           hasTrigger: true,
-          observationDate: new Date("2026-08-20T00:00:00.000Z"),
+          observationDate: day(at.reconstructed),
           observationPrice: 45.5,
-          detectedAt: new Date("2026-08-24T22:00:00.000Z"),
+          detectedAt: closeOf(at.reconstructionFound),
           reconstructed: true,
-          resolvedAt: new Date("2026-09-12T14:00:00.000Z"),
+          resolvedAt: new Date(`${at.membershipEnded}T14:00:00.000Z`),
           resolvedObservationDate: null,
           resolutionReason: "MEMBERSHIP_CHANGED",
         },
@@ -298,8 +458,8 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
             toState: "ACTIVE",
             reason: "RECONSTRUCTED",
             origin: "HISTORY",
-            occurredAt: new Date("2026-08-24T22:00:00.000Z"),
-            observationDate: new Date("2026-08-20T00:00:00.000Z"),
+            occurredAt: closeOf(at.reconstructionFound),
+            observationDate: day(at.reconstructed),
             signalId: reconstructed.id,
             strategyVersionId: version.id,
           },
@@ -313,7 +473,7 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
             toState: "RESOLVED",
             reason: "MEMBERSHIP_CHANGED",
             origin: "ADMINISTRATIVE",
-            occurredAt: new Date("2026-09-12T14:00:00.000Z"),
+            occurredAt: new Date(`${at.membershipEnded}T14:00:00.000Z`),
             observationDate: null,
             signalId: reconstructed.id,
           },
@@ -326,26 +486,26 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
         monitor: QA_BUILT_IN_KEYS.monitorA,
         symbol: QA_ALPHA.symbol,
         state: "ACTIVE",
-        date: "2026-09-10",
+        date: at.secondActivation,
         price: 101.25,
       },
       {
         monitor: QA_BUILT_IN_KEYS.monitorB,
         symbol: QA_ALPHA.symbol,
         state: "ACTIVE",
-        date: "2026-09-11",
+        date: at.monitorBActivation,
         price: 102.5,
       },
       {
         monitor: QA_BUILT_IN_KEYS.monitorB,
         symbol: QA_BETA.symbol,
         state: "PENDING_TRIGGER",
-        date: "2026-09-14",
+        date: at.setup,
         price: 48.75,
       },
     ] as const;
     for (const row of rows) {
-      const day = new Date(`${row.date}T00:00:00.000Z`);
+      const session = day(row.date);
       const since = new Date(`${row.date}T15:00:00.000Z`);
       const monitorId = byKey.get(row.monitor)!;
       const security = securityId.get(row.symbol)!;
@@ -360,7 +520,7 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
                 strategyVersionId: version.id,
                 signalFingerprint: fingerprint,
                 hasTrigger: true,
-                observationDate: day,
+                observationDate: session,
                 observationPrice: row.price,
                 detectedAt: since,
               },
@@ -374,13 +534,13 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
           levelKind: "BUY",
           signalFingerprint: fingerprint,
           lastEvaluableResult: "NOT_MATCHED",
-          lastEvaluableDate: day,
+          lastEvaluableDate: session,
           lastEvaluableAt: since,
           lastOutcome: "NOT_MATCHED",
           lastOutcomeAt: since,
           lifecycleState: row.state,
           lifecycleSince: since,
-          lifecycleSinceDate: day,
+          lifecycleSinceDate: session,
           lifecycleSincePrice: row.price,
           ruleStates: {
             [buyLevel]: {
@@ -408,7 +568,7 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
           reason: row.state === "ACTIVE" ? "TRIGGER_FIRED" : "SETUP_STARTED",
           origin: "OBSERVED",
           occurredAt: new Date(`${row.date}T22:00:00.000Z`),
-          observationDate: day,
+          observationDate: session,
           signalId: signal?.id ?? null,
           strategyVersionId: version.id,
           evidence: evidence({
@@ -460,6 +620,10 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
           membershipStart: member.start
             ? new Date(`${member.start}T00:00:00.000Z`)
             : null,
+          // Its window is covered: the declared history is the whole of it.
+          coverageStart: day(
+            monitorActivityWindowStart(through.toISOString().slice(0, 10)),
+          ),
         },
       });
     }

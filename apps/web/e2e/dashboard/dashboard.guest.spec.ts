@@ -1,4 +1,7 @@
-import type { DashboardActivityResponse } from "@intrinsic/contracts";
+import type {
+  DashboardActivityEventResponse,
+  DashboardActivityResponse,
+} from "@intrinsic/contracts";
 import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
@@ -7,11 +10,14 @@ import { apiBaseUrl } from "../utils/entitlements";
  * session, with the Market watch sidebar beside it from 1,280px (`docs/decisions/monitor-eod-v2.md`
  * §7, Dashboard V2). The sidebar itself is `market-watch.guest.spec.ts`.
  *
- * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`: the QA built-ins record four observed
- * changes — QATEST1 activated under Monitor A on Sep 1, ended on Sep 8 and activated again on Sep 10,
- * and activated under Monitor B on Sep 11 — plus a setup waiting for its trigger, which is not
- * activity. Each is written with the version and evidence that decided it, and checkpointed, so a
- * running worker leaves them exactly as declared.
+ * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`: the QA built-ins record four
+ * end-of-day changes inside the Dashboard's rolling 30-day window, dated relative to the day they are
+ * seeded (`qaBuiltInSessions`): QATEST1 activated under Monitor A and ended — both found later by
+ * Monitor A's window replay, so From history — then activated again under Monitor A and under
+ * Monitor B, both observed; plus a setup waiting for its trigger, which is not activity. Each is
+ * written with the version and evidence that decided it, and checkpointed, so a running worker leaves
+ * them exactly as declared. The sessions are read from the API rather than written here, and the
+ * page is held to them.
  */
 
 const MONITOR_A = "QA Built-in Monitor A";
@@ -21,6 +27,33 @@ function qaRows(page: Page) {
   return page
     .getByTestId("dashboard-activity-row")
     .filter({ hasText: /QA Built-in Monitor/ });
+}
+
+/** A session as the feed's heading writes it: `October 9, 2026`. */
+const sessionHeading = (date: string): string =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00.000Z`));
+
+/** The QA built-ins' events as the API serves them, newest first, and the window they are read in. */
+async function qaActivity(
+  page: Page,
+  query = "",
+): Promise<{ windowStart: string; events: DashboardActivityEventResponse[] }> {
+  const response = await page.request.get(
+    `${apiBaseUrl()}/dashboard/activity?limit=50${query}`,
+  );
+  expect(response.status()).toBe(200);
+  const body = (await response.json()) as DashboardActivityResponse;
+  return {
+    windowStart: body.windowStart!,
+    events: body.events.filter((event) =>
+      /^QA Built-in Monitor/.test(event.monitor.name),
+    ),
+  };
 }
 
 /** The session heading of the group an event sits in. */
@@ -58,12 +91,19 @@ test.describe("guest dashboard", () => {
 
     const rows = qaRows(page);
     await expect(rows).toHaveCount(4);
-    // Newest session first; the same security under two monitors is two events.
+    const { windowStart, events } = await qaActivity(page);
+    expect(events).toHaveLength(4);
+    // Every event inside the rolling 30-day window, newest session first.
+    const sessions = events.map((event) => event.sessionDate);
+    expect([...sessions].sort().reverse()).toEqual(sessions);
+    expect(sessions.every((session) => session >= windowStart)).toBe(true);
+    // The same security under two monitors is two events.
     await expect(rows.first()).toContainText(MONITOR_B);
-    await expect(sessionOf(rows.first())).toHaveText("September 11, 2026");
-    await expect(sessionOf(rows.nth(1))).toHaveText("September 10, 2026");
-    await expect(sessionOf(rows.nth(2))).toHaveText("September 8, 2026");
-    await expect(sessionOf(rows.nth(3))).toHaveText("September 1, 2026");
+    for (const [index, session] of sessions.entries()) {
+      await expect(sessionOf(rows.nth(index))).toHaveText(
+        sessionHeading(session),
+      );
+    }
     // Every session is written once, however many events it holds.
     const headings = await page
       .getByTestId("dashboard-session")
@@ -108,8 +148,8 @@ test.describe("guest dashboard", () => {
         await expect(row).toHaveAttribute("data-level", "BUY");
         await expect(row).toHaveAttribute("data-level-index", "1");
         await expect(row).not.toContainText(/Buy 1/);
-        // The Monitor is named on every event in its own column, as a plain link to its page —
-        // not a chip under the signal.
+        // The Monitor is named on every event in its own column, as the product's reference pill
+        // linking to its page — the one Strategy and Stock List references use.
         const monitor = row.locator('[data-column="monitor"]');
         await expect(monitor.getByRole("link")).toHaveText(
           /QA Built-in Monitor [AB]/,
@@ -118,7 +158,10 @@ test.describe("guest dashboard", () => {
           "href",
           /^\/monitors\/[^/]+$/,
         );
-        await expect(monitor.locator("[data-kind]")).toHaveCount(0);
+        await expect(monitor.getByRole("link")).toHaveAttribute(
+          "data-kind",
+          "monitor",
+        );
         await expect(row.locator('[data-column="signal"]')).not.toContainText(
           "QA Built-in Monitor",
         );
@@ -215,8 +258,9 @@ test.describe("guest dashboard", () => {
 
     await eventFilter.selectOption({ label: "Ended" });
     await expect(qaRows(page)).toHaveCount(1);
+    const [ending] = (await qaActivity(page, "&kind=RESOLVED")).events;
     await expect(sessionOf(qaRows(page).first())).toHaveText(
-      "September 8, 2026",
+      sessionHeading(ending!.sessionDate),
     );
 
     await monitorFilter.selectOption({ label: MONITOR_B });
@@ -249,16 +293,114 @@ test.describe("guest dashboard", () => {
         /^QA Built-in Monitor/.test(event.monitor.name),
       );
     };
+    const { events: all } = await qaActivity(page);
     const activated = await collect("kind=ACTIVATED");
-    expect(activated.map((event) => [event.sessionDate, event.kind])).toEqual([
-      ["2026-09-11", "ACTIVATED"],
-      ["2026-09-10", "ACTIVATED"],
-      ["2026-09-01", "ACTIVATED"],
-    ]);
+    expect(activated.map((event) => [event.sessionDate, event.kind])).toEqual(
+      all
+        .filter((event) => event.kind === "ACTIVATED")
+        .map((event) => [event.sessionDate, "ACTIVATED"]),
+    );
+    expect(activated).toHaveLength(3);
     const ended = await collect("kind=RESOLVED");
-    expect(ended.map((event) => [event.sessionDate, event.kind])).toEqual([
-      ["2026-09-08", "RESOLVED"],
+    expect(ended.map((event) => [event.sessionDate, event.kind])).toEqual(
+      all
+        .filter((event) => event.kind === "RESOLVED")
+        .map((event) => [event.sessionDate, "RESOLVED"]),
+    );
+    expect(ended).toHaveLength(1);
+  });
+
+  test("marks the events a window replay found as From history, under their own sessions", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(qaRows(page)).toHaveCount(4);
+    await expect(page.getByTestId("dashboard-activity-window")).toHaveText(
+      "Last 30 days",
+    );
+    const { events } = await qaActivity(page);
+    const found = events.filter((event) => event.fromHistory);
+    // Monitor A's first occurrence, activated and ended before Monitor A was enabled.
+    expect(found.map((event) => [event.monitor.name, event.kind])).toEqual([
+      [MONITOR_A, "RESOLVED"],
+      [MONITOR_A, "ACTIVATED"],
     ]);
+    // Found later than it happened, and the two are kept apart.
+    for (const event of found) {
+      expect(event.recordedAt.slice(0, 10) > event.sessionDate).toBe(true);
+    }
+    const marked = qaRows(page).filter({
+      has: page.getByTestId("dashboard-event-history"),
+    });
+    await expect(marked).toHaveCount(2);
+    for (const [index, event] of found.entries()) {
+      await expect(sessionOf(marked.nth(index))).toHaveText(
+        sessionHeading(event.sessionDate),
+      );
+      await expect(
+        marked.nth(index).getByTestId("dashboard-event-history"),
+      ).toHaveText("From history");
+    }
+    // Observed events carry no such mark, and nothing intraday is left in the feed.
+    await expect(
+      qaRows(page)
+        .filter({ hasText: MONITOR_B })
+        .getByTestId("dashboard-event-history"),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-activity")).not.toContainText(
+      "Intraday quote",
+    );
+    await expect(page.getByTestId("dashboard-activity")).not.toContainText(
+      "Values were not recorded",
+    );
+  });
+
+  test("never shows an event older than the 30-day window, even one recorded today", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(qaRows(page)).toHaveCount(4);
+    const { windowStart, events } = await qaActivity(page);
+    expect(events.every((event) => event.sessionDate >= windowStart)).toBe(
+      true,
+    );
+    // Monitor A's own history holds an occurrence from before the window, recorded only when the
+    // fixture was seeded: stored, found today — and still not activity.
+    const monitorA = events.find((event) => event.monitor.name === MONITOR_A)!
+      .monitor.id;
+    const history = (await (
+      await page.request.get(
+        `${apiBaseUrl()}/monitors/${monitorA}/activity?limit=50`,
+      )
+    ).json()) as DashboardActivityResponse;
+    const aged = history.events.filter(
+      (event) => event.sessionDate < windowStart,
+    );
+    expect(aged.map((event) => event.kind).sort()).toEqual([
+      "ACTIVATED",
+      "RESOLVED",
+    ]);
+    for (const event of aged) {
+      expect(event.fromHistory).toBe(true);
+      expect(event.recordedAt.slice(0, 10) >= windowStart).toBe(true);
+    }
+    // Under no filter and on no page.
+    for (const query of [
+      "",
+      `&monitorId=${monitorA}`,
+      `&monitorId=${monitorA}&kind=ACTIVATED`,
+      `&monitorId=${monitorA}&kind=RESOLVED`,
+    ]) {
+      const read = await qaActivity(page, query);
+      expect(
+        read.events.filter((event) => aged.some((old) => old.id === event.id)),
+      ).toEqual([]);
+    }
+    for (const event of aged) {
+      await expect(page.getByTestId("dashboard-activity")).not.toContainText(
+        sessionHeading(event.sessionDate),
+      );
+    }
   });
 
   test("opens Stock Details from a row", async ({ page }) => {
@@ -269,15 +411,33 @@ test.describe("guest dashboard", () => {
     await expect(page).toHaveURL(/\/stocks\/QATEST1$/);
   });
 
-  test("links the monitor that observed an event", async ({ page }) => {
+  test("links the monitor that recorded an event, by mouse and by keyboard", async ({
+    page,
+  }) => {
     await page.goto("/");
-    // From the row's own Monitor column — and the click opens the Monitor, not the row's stock.
-    await qaRows(page)
+    // From the row's own Monitor pill — and the click opens the Monitor, not the row's stock.
+    const pill = qaRows(page)
       .filter({ hasText: MONITOR_B })
       .first()
       .locator('[data-column="monitor"]')
-      .getByRole("link", { name: MONITOR_B })
-      .click();
+      .getByRole("link", { name: MONITOR_B });
+    await pill.click();
+    await expect(page).toHaveURL(/\/monitors\/[^/]+$/);
+    await expect(page.getByTestId("monitor-detail")).toBeVisible();
+
+    // The same pill is a focusable link with a visible focus ring, opened with Enter.
+    await page.goto("/");
+    const again = qaRows(page)
+      .filter({ hasText: MONITOR_A })
+      .first()
+      .locator('[data-column="monitor"]')
+      .getByRole("link", { name: MONITOR_A });
+    await again.focus();
+    await expect(again).toBeFocused();
+    expect(
+      await again.evaluate((element) => getComputedStyle(element).boxShadow),
+    ).not.toBe("none");
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/monitors\/[^/]+$/);
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
   });

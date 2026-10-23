@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  monitorActivityWindowStart,
   normalizeStrategyDefinition,
   STRATEGY_SCHEMA_VERSION,
   type StrategyCondition,
@@ -51,8 +52,8 @@ useTestDatabase();
  * - **catch-up** — a pass on the first evening and one on the last, every session in between in one
  *   chronological catch-up;
  * - **restarts** — passes on a deterministic subset of evenings;
- * - **initial replay** — a new Monitor replaying its 90-day window on the last evening, and one that
- *   replays mid-way and then continues from its checkpoint;
+ * - **window replay** — a new Monitor replaying its rolling 30-day window on the last evening, and
+ *   one that replays mid-way and then continues from its checkpoint;
  * - **Strategy edit** — an edit mid-way: the edited level matches the new logic's backtest from the
  *   edit on, the untouched levels keep matching the old one.
  *
@@ -335,7 +336,7 @@ describe("one history, many ways to decide it, one record", () => {
         strategyId: strategyRow.id,
         stockListId: list.id,
         enabled: true,
-        ...(options.replay ? { initialReplayRequested: true } : {}),
+        windowReplay: options.replay === true,
       },
     });
     running.add(monitor.id);
@@ -541,14 +542,14 @@ describe("one history, many ways to decide it, one record", () => {
   );
 
   it.each(SEEDS)(
-    "seed %i: an initial replay records its window as the backtest does, and continues from its checkpoint",
+    "seed %i: a window replay records its window as the backtest does, and continues from its checkpoint",
     async (seed) => {
       const definition = strategy("EMA_20D");
       const template = generatedPrices(seed, "template");
       const sessions = template.map((price) => price.date);
       const middle = sessions[sessions.length - 31]!;
 
-      // Replay on the last evening: the 90-day window ending at it.
+      // Replay on the last evening: the rolling 30-day window ending at it.
       const whole = await createSecurity();
       const wholePrices = template.map((price) => ({
         ...price,
@@ -563,13 +564,7 @@ describe("one history, many ways to decide it, one record", () => {
         evening(HISTORY_TO),
       );
       expect(summary.membersReplayed).toBe(1);
-      const window = (
-        await prisma.monitor.findUniqueOrThrow({
-          where: { id: replayed.monitorId },
-        })
-      )
-        .replayWindowStart!.toISOString()
-        .slice(0, 10);
+      const window = monitorActivityWindowStart(summary.expectedSession);
       const beforeWindow = addDays(window, -1);
       expect(
         (await changesOf(replayed.monitorId, beforeWindow)).join("\n"),
@@ -590,7 +585,12 @@ describe("one history, many ways to decide it, one record", () => {
       const resumed = await createMonitor(continued, definition, {
         replay: true,
       });
-      await passAt(continuedData, continued, continuedPrices, evening(middle));
+      const firstPass = await passAt(
+        continuedData,
+        continued,
+        continuedPrices,
+        evening(middle),
+      );
       for (
         let date = addDays(middle, 1);
         date <= HISTORY_TO;
@@ -598,13 +598,10 @@ describe("one history, many ways to decide it, one record", () => {
       ) {
         await passAt(continuedData, continued, continuedPrices, evening(date));
       }
-      const resumedWindow = (
-        await prisma.monitor.findUniqueOrThrow({
-          where: { id: resumed.monitorId },
-        })
-      )
-        .replayWindowStart!.toISOString()
-        .slice(0, 10);
+      // The window of the pass that first evaluated it; later passes catch up from the checkpoint.
+      const resumedWindow = monitorActivityWindowStart(
+        firstPass.expectedSession,
+      );
       const beforeResumed = addDays(resumedWindow, -1);
       expect(
         (await changesOf(resumed.monitorId, beforeResumed)).join("\n"),

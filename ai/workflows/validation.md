@@ -482,6 +482,7 @@ or equal to `DATABASE_URL` (except in CI, where one database is the whole enviro
 | `pnpm test:builtins:seed`, `pnpm test:entitlements:seed` | `TEST_DATABASE_URL`        |
 | `pnpm builtins:bootstrap`, `pnpm builtins:reset`         | `DATABASE_URL`             |
 | `pnpm monitors:scan-once`                                | `DATABASE_URL`             |
+| `pnpm monitors:backfill-evidence [--apply]`              | `DATABASE_URL`             |
 | `pnpm test:matrix:seed`                                  | `TEST_DATABASE_URL`        |
 | `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`                | `TEST_DATABASE_URL`        |
 | `pnpm qa:billing:seed` / `status` / `cleanup`            | `DATABASE_URL`             |
@@ -573,13 +574,20 @@ series from FMP.
 - `apps/worker/src/monitor/monitor-evaluation.integration.test.ts` and
   `monitor-evaluation.semantics.integration.test.ts` — PostgreSQL. The EOD evaluation through the
   real repository: finalized sessions in order from a checkpoint, catch-up, reconstruction and the
-  90-day replay, ongoing membership, pending setups, latched triggers, logic edits, built-in
-  Monitors, and transition history that always ends in the stored state
-  (`docs/decisions/monitor-eod-v2.md`).
+  rolling 30-day window evaluation with its recorded coverage and the back-fill of a window whose
+  records began late (append-only, verified, nothing twice), ongoing membership, pending setups,
+  latched triggers, logic edits, built-in Monitors, and transition history that always ends in the
+  stored state (`docs/decisions/monitor-eod-v2.md` §12).
+- `apps/worker/src/monitor/legacy-evidence.integration.test.ts` — PostgreSQL. The legacy evidence
+  backfill (`pnpm monitors:backfill-evidence`): what it verifies and records, what it excludes and
+  why, and that a dry run writes nothing.
+- `apps/api/src/monitors/monitor-synchronization.integration.test.ts` — PostgreSQL. The
+  Synchronizing / Partial history / Synchronized state from checkpoints and coverage.
 - `apps/api/src/builtins/builtin-catalog.test.ts` — **needs nothing.** The canonical catalog pinned
   to the decision document.
 - `apps/api/src/builtins/builtins.integration.test.ts` — PostgreSQL. Bootstrap idempotency, SYSTEM
-  authorization, administrator edits, capacity, and the Dashboard read model with preferences.
+  authorization, administrator edits, capacity, the per-user Enabled switch on built-ins, and the
+  Dashboard read model with those choices.
 - `apps/web/e2e/dashboard/*.spec.ts` — Playwright against the deterministic stack, after
   `pnpm test:builtins:seed`.
 

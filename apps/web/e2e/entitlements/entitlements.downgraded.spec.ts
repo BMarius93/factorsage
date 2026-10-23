@@ -1,5 +1,4 @@
 import { expect, test } from "../fixtures";
-import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 import {
   addStockToOpenList,
   fixtureName,
@@ -173,9 +172,17 @@ test.describe.serial("entitlements after a downgrade", () => {
     // The one the user turned off reads as disabled, not as paused: intent and eligibility are
     // different facts and the card never conflates them.
     const disabled = monitorCard(page, "Downgraded Monitor 4 (off)");
-    await expect(disabled.getByTestId("monitor-state-pill")).toHaveText(
+    await expect(
+      disabled.getByTestId("monitor-enabled-switch"),
+    ).toHaveAttribute("aria-checked", "false");
+    await expect(disabled.getByTestId("monitor-enabled-control")).toContainText(
       "Disabled",
     );
+    await expect(disabled.getByTestId("monitor-state-pill")).toHaveCount(0);
+    // A paused monitor is not evaluating, and is never presented as catching up.
+    await expect(
+      page.getByTestId("your-monitors").getByTestId("monitor-synchronization"),
+    ).toHaveCount(0);
 
     // And the page says, once and with numbers, what happened and what to do.
     const notice = page.getByTestId("monitors-compliance-notice");
@@ -238,28 +245,20 @@ test.describe.serial("entitlements after a downgrade", () => {
     // Disabling is always allowed — it is how a user over capacity reduces their active set — and
     // the slot passes to the next enabled monitor. Nothing was written to that monitor: its status
     // is derived, so it simply resolves differently now.
-    await chooseFromOverflowMenu(
-      page,
-      fixtureName("Downgraded Monitor 1"),
-      "Disable",
-      slotHolder,
-    );
+    await slotHolder.getByTestId("monitor-enabled-switch").click();
     await expect(slotHolder).toContainText("Disabled", { timeout: 20_000 });
-    await expect(next.getByTestId("monitor-state-pill")).toHaveAttribute(
-      "data-state",
-      "ENABLED",
+    // No longer paused: nothing under its switch but the switch itself.
+    await expect(next.getByTestId("monitor-state-pill")).toHaveCount(0);
+    await expect(next.getByTestId("monitor-enabled-switch")).toHaveAttribute(
+      "aria-checked",
+      "true",
     );
 
     // And turning it back on is refused, which is the half of this rule that is easy to miss.
     // Enabling is capacity-gated on *intent*, so a FREE account that already has two monitors
     // switched on cannot switch on a third — the downgrade leaves a one-way ratchet. Existing
     // intent is preserved; new intent is not granted.
-    await chooseFromOverflowMenu(
-      page,
-      fixtureName("Downgraded Monitor 1"),
-      "Enable",
-      slotHolder,
-    );
+    await slotHolder.getByTestId("monitor-enabled-switch").click();
     const refusal = slotHolder.getByTestId("monitor-toggle-error");
     await expect(refusal).toBeVisible({ timeout: 20_000 });
     await expect(refusal).toContainText("1");

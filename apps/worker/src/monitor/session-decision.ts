@@ -39,10 +39,11 @@ import type {
  *
  * - **A level with state under its current logic** is caught up session by session from that state.
  *   A catch-up over a week writes the changes of that week, never one row per session.
- * - **A replay** (a new Monitor's initial window) establishes the exact state **before** the window
- *   — a reconstruction at the session just before it, from the closed history before that, so a
- *   long-latched setup or occurrence survives the cutoff — and then steps every window session in
- *   order, recording every change with its true session date.
+ * - **A replay** (a never-evaluated member's activity window, `docs/decisions/monitor-eod-v2.md`
+ *   §12) establishes the exact state **before** the window — a reconstruction at the session just
+ *   before it, from the closed history before that, so a long-latched setup or occurrence survives
+ *   the cutoff — and then steps every window session in order, recording every change with its true
+ *   session date.
  * - **Otherwise, a level with no state, or state under logic that changed**, is reconstructed at
  *   the newest session from the closed history before it — the one result a full replay would
  *   reach, recorded as one `RECONSTRUCTED` change (or the change the newest session itself made) —
@@ -68,8 +69,8 @@ export type SessionDecisionInput = {
   monitoredOn: (date: LocalDate) => boolean;
   /**
    * Decide every session in `sessions` from the exact state before the first, recording each change
-   * — the initial replay of a new Monitor. Ignored for a level with state under its current logic,
-   * which is caught up as always.
+   * — a never-evaluated member's activity-window replay. Ignored for a level with state under its
+   * current logic, which is caught up as always.
    */
   replay?: boolean;
 };
@@ -244,11 +245,11 @@ export function decideLevelSessions(
 }
 
 /**
- * A new Monitor's window (`docs/decisions/monitor-eod-v2.md` §5): the exact state before the first
- * window session, then every window session stepped in order.
+ * A never-evaluated member's activity window (`docs/decisions/monitor-eod-v2.md` §5, §12): the exact
+ * state before the first window session, then every window session stepped in order.
  *
  * The state before the window is a reconstruction at the session just before it — the same exact
- * mechanism the newest-session reconstruction uses, anchored earlier — so a 90-day cutoff can never
+ * mechanism the newest-session reconstruction uses, anchored earlier — so a 30-day cutoff can never
  * reset a setup or an occurrence latched long before it. That state, when something is current, is
  * recorded as one `RECONSTRUCTED` change on its true activation session; everything inside the
  * window is recorded change by change.

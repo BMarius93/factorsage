@@ -26,15 +26,18 @@ import { apiBaseUrl } from "../utils/entitlements";
  *   session, with its activation price and the Why that decided it;
  * - every feed event is shown under the heading of its own finalized session, with the values its
  *   Why compared — and, since Dashboard V2, without a standalone price of its own;
- * - only **observed** changes are activity: a change history established, or one an administrative
- *   event made, is a Signal-table record and never a feed event;
- * - every feed event is a Signal-table record with the same stock, level, session and price;
+ * - only changes a finalized session decided are activity — observed when it closed, or found From
+ *   history by a later evaluation of that session (§12); a state a reconstruction established, or
+ *   one an administrative event made, is a Signal-table record and never a feed event;
+ * - every feed event is a Signal-table record with the same stock, level, session, price and
+ *   provenance, and inside the Dashboard's rolling 30-day window;
  * - nothing is dated after the newest finalized session, and nothing calls itself live;
  * - a private Monitor's records are its owner's alone.
  *
- * Needs `pnpm test:personas:seed` (which seeds the QA built-ins): Monitor A and Monitor B, with
- * observed activations and endings, a setup waiting for its trigger, and one occurrence that a
- * reconstruction established and a membership change ended administratively.
+ * Needs `pnpm test:personas:seed` (which seeds the QA built-ins, dated relative to the seeding day):
+ * Monitor A and Monitor B, with activations and endings observed and found From history, a setup
+ * waiting for its trigger, and one occurrence that a reconstruction established before the window
+ * and a membership change ended administratively.
  */
 
 const BUILT_IN = /^QA Built-in Monitor [AB]$/;
@@ -57,7 +60,7 @@ const evidenceValue = (value: number): string =>
     maximumFractionDigits: 2,
   }).format(value);
 
-/** A session as the feed's session heading writes it: `September 11, 2026`. */
+/** A session as the feed's session heading writes it: `October 9, 2026`. */
 const sessionHeading = (date: string): string =>
   new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -110,10 +113,13 @@ async function signalRows(
   return page1.rows;
 }
 
-/** The whole feed, page by page (the API serves at most 50 events a page). */
-async function activity(page: Page): Promise<DashboardActivityEventResponse[]> {
+/** The whole feed, page by page (the API serves at most 50 events a page), and its window. */
+async function activityWithWindow(
+  page: Page,
+): Promise<{ windowStart: string; events: DashboardActivityEventResponse[] }> {
   const events: DashboardActivityEventResponse[] = [];
   let cursor: string | undefined;
+  let windowStart = "";
   do {
     const feed: DashboardActivityResponse =
       await getJson<DashboardActivityResponse>(
@@ -121,9 +127,14 @@ async function activity(page: Page): Promise<DashboardActivityEventResponse[]> {
         `/dashboard/activity?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
       );
     events.push(...feed.events);
+    windowStart = feed.windowStart ?? windowStart;
     cursor = feed.nextCursor;
   } while (cursor);
-  return events;
+  return { windowStart, events };
+}
+
+async function activity(page: Page): Promise<DashboardActivityEventResponse[]> {
+  return (await activityWithWindow(page)).events;
 }
 
 test.describe("Monitor records, reconciled", () => {
@@ -226,9 +237,11 @@ test.describe("Monitor records, reconciled", () => {
     );
     expect(established).toMatchObject({
       fromHistory: true,
-      activatedOn: "2026-08-20",
       resolutionReason: "MEMBERSHIP_CHANGED",
     });
+    // Established by a reconstruction, on a session before the Dashboard's window.
+    const { windowStart } = await activityWithWindow(page);
+    expect(established!.activatedOn! < windowStart).toBe(true);
     // Ended by an administrative change, not by a session: no session ended it.
     expect(established!.resolvedOn).toBeUndefined();
     await page.goto(`/monitors/${monitorB.id}`);
@@ -244,7 +257,10 @@ test.describe("Monitor records, reconciled", () => {
 
     const events = await activity(page);
     for (const event of events) {
-      // Only observed activations, and endings a market observation made.
+      // Only activations, and endings a market observation made — each with the evidence that
+      // decided it, on a session inside the window.
+      expect(event.why.basis).toBe("EVIDENCE");
+      expect(event.sessionDate >= windowStart).toBe(true);
       expect(
         (event.kind === "ACTIVATED" &&
           ["TRIGGER_FIRED", "CONDITIONS_MET"].includes(event.reason)) ||
@@ -260,16 +276,22 @@ test.describe("Monitor records, reconciled", () => {
   }) => {
     const monitors = await builtInMonitors(page);
     const ids = new Set(monitors.map((monitor) => monitor.id));
-    const events = (await activity(page)).filter((event) =>
-      ids.has(event.monitor.id),
-    );
+    const feed = await activityWithWindow(page);
+    const events = feed.events.filter((event) => ids.has(event.monitor.id));
     expect(events.length).toBeGreaterThan(0);
+    // Both provenances are present: observed when the session closed, and found From history.
+    expect(new Set(events.map((event) => event.fromHistory))).toEqual(
+      new Set([true, false]),
+    );
     // Newest session first.
     const sessions = events.map((event) => event.sessionDate);
     expect([...sessions].sort().reverse()).toEqual(sessions);
     const today = newYorkDate(new Date());
     for (const event of events) {
       expect(event.sessionDate <= today).toBe(true);
+      expect(event.sessionDate >= feed.windowStart).toBe(true);
+      // Recorded when FactorSage evaluated the session: never before that session closed.
+      expect(event.recordedAt.slice(0, 10) >= event.sessionDate).toBe(true);
       const record = (await signalRows(page, event.monitor.id)).find(
         (row) => row.id === event.signalId,
       );
@@ -279,7 +301,7 @@ test.describe("Monitor records, reconciled", () => {
       ).toBeDefined();
       expect(record!.security.symbol).toBe(event.security.symbol);
       expect(record!.levelKind).toBe(event.levelKind);
-      expect(record!.fromHistory).toBe(false);
+      expect(record!.fromHistory).toBe(event.fromHistory);
       if (event.kind === "ACTIVATED") {
         expect(record!.activatedOn).toBe(event.sessionDate);
         expect(record!.activationPrice).toBe(event.price);
@@ -308,6 +330,9 @@ test.describe("Monitor records, reconciled", () => {
       // The activation price is the Signal table's to show; the feed shows prices only where a
       // condition compared them.
       await expect(shown).not.toContainText("$");
+      await expect(shown.getByTestId("dashboard-event-history")).toHaveCount(
+        event.fromHistory ? 1 : 0,
+      );
       await expectWhyShown(shown, event.why);
     }
   });

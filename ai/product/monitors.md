@@ -12,11 +12,16 @@ A Monitor combines a Strategy with a monitored symbol universe/source. It must n
 
 ## User controls
 
-For V1, the user controls whether a Monitor is `enabled` or `disabled`.
+The user controls one thing per Monitor: whether it is **Enabled** or **Disabled** — the same
+switch, in the same column, on every row of the Monitors page, for their own Monitors and for
+built-ins alike (`docs/decisions/monitor-eod-v2.md` §12.4). On their own Monitor it is the Monitor's
+lifecycle (`enabled`); on a built-in it is their own choice for their account (§ Built-in Monitors).
+The Dashboard shows exactly the activity of the Monitors Enabled for the viewer; there is no
+separate "on my Dashboard" setting.
 
 The user does **not** configure the monitoring interval/cadence. Cadence is an application/infrastructure decision.
 
-Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics, and catches up the sessions it missed in order — recorded as history, not as newly observed activity (§ Transition history).
+Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics, and catches up the sessions it missed in order — recorded as history, not as newly observed activity (§ Transition history). Enabling asks the worker for that catch-up at once rather than at its next interval, and while anything can still be decided the Monitor says **Synchronizing — Evaluating the last 30 days** under its switch. It reads **Partial history** only for history that genuinely cannot be evaluated — a stock with no market data to evaluate, or sessions whose recorded decisions (an earlier intraday Monitor's, for example) cannot be reconciled without rewriting them — with how many stocks are waiting or the date its history starts; never merely because its records are recent. A Monitor that is not being evaluated — disabled, plan-blocked, paused by FactorSage — never shows either.
 
 `enabled` is intent, not a promise that the Monitor is scanning. After a downgrade an enabled
 Monitor can be `BLOCKED_BY_ENTITLEMENT` — over the plan's active-Monitor count
@@ -35,9 +40,11 @@ and a capacity refusal offers "Save without monitoring" (UI-022) — the plan al
 switched-off Monitor.
 
 How the UI tells a Monitor's story (`docs/decisions/monitor-eod-v2.md` §6–§7): the Dashboard's
-**Monitor activity** feed lists observed activations and endings under one heading per market
-session, newest first — Stock, Signal (`Buy ● Activated`, `Sell ○ Ended`, the level shown without
-its step), every condition with the values that decided it, one per line, and the Monitor, linked —
+**Monitor activity** feed lists the last 30 days of end-of-day activations and endings of the
+Monitors Enabled for the viewer under one heading per market session, newest first — Stock, Signal
+(`Buy ● Activated`, `Sell ○ Ended`, the level shown without its step, and **From history** on an
+event found after its session), every condition with the values that decided it, one per line, and
+the Monitor as its reference pill, linked —
 narrowed by a Monitor and an Event dropdown applied by the API, 25 events at a time, older pages
 loading on their own near the end of the feed (four per visit and filter) and then on **Show more
 activity**;
@@ -53,8 +60,9 @@ The Monitor page also has an **Activity history**: the Dashboard's activity feed
 alone (`GET /monitors/:monitorId/activity` — the same events, order, cursors and refresh, no second
 event model), shown in the Dashboard's layout under its own heading, apart from the Signal table it
 explains. The Signal table says what each occurrence *is* now; the history says what *happened*,
-session by session. It does not depend on the Dashboard's choices: a built-in hidden from the
-viewer's Dashboard, or the owner's Monitor switched off, keeps its history on its own page. The page
+session by session, and it is not limited to the Dashboard's 30 days. It does not depend on the
+Dashboard's choices: a built-in the viewer disabled, or the owner's Monitor switched off, keeps its
+history on its own page. The page
 reads its detail as `?view=summary` — the members counted rather than listed, no newest Signals —
 because it shows neither list.
 
@@ -167,9 +175,12 @@ Each change also records its **origin**:
 
 - **Observed** — a session decided while the Monitor was being watched. Sessions missed during an
   infrastructure outage are caught up in order and are still observed: the user was owed them.
-- **History** — a session the Monitor was not watching when it became final: a reconstruction, or
-  the sessions a disabled or plan-paused Monitor catches up when it resumes. These are never
-  presented as new activity.
+- **History** — a session the Monitor was not watching when it became final: the 30-day window a
+  newly enabled Monitor evaluates, a member added later, or the sessions a disabled or plan-paused
+  Monitor catches up when it resumes. These are never presented as newly observed: the Dashboard
+  lists such an activation or ending under the session it happened on, marked **From history**, with
+  when it was found ("Found on Oct 23") kept apart from that session. A reconstructed starting state
+  is never an event.
 - **Administrative** — a configuration change that observed no session: an edit, a removal, a
   rebind.
 
@@ -179,23 +190,40 @@ numbers of that day, never recomputed from an edited Strategy. Administrative ch
 carry only their reason.
 
 Every Signal records how its price was observed. Occurrences decided by the earlier live-quote
-Monitor keep their intraday price and are labelled as such; every later one is its session's
-finalized close.
+Monitor keep their intraday price and are labelled as such on the Monitor's own page; every later
+one is its session's finalized close. Only the latter are Dashboard activity, and only with the
+values that decided them recorded (`docs/decisions/monitor-eod-v2.md` §12.3, §12.6).
 
-### A new Monitor's first 90 days
+### The last 30 days
 
-A Monitor **created** — by a user, or a built-in by the bootstrap — shows what happened over the 90
-calendar days before its first evaluation, not only where it stands now: its first evaluation
-replays every finalized session of that window, in order, through the same evaluator and lifecycle,
-and records each activation and resolution on its true session, as history (`From history`). The
-state at the start of the window is exact — a setup triggered long before the window is active since
-that trigger, never restarted by the cutoff. A member whose membership began inside the window
-starts then. The replay happens once: a member added later, a rebind, an edit or a re-enable never
-regenerates 90 days of events, and Monitors that existed before this rule replay nothing.
+A Monitor shows what happened over the **last 30 calendar days**, not only where it stands now
+(`docs/decisions/monitor-eod-v2.md` §12). A member it has never evaluated — every member of a
+Monitor just created or enabled for the first time, a member added later, a member whose market
+data arrives late — is evaluated over that window: every finalized session in order, through the
+same evaluator and lifecycle, each activation and resolution recorded on its true session, as
+history (`From history`). The state at the start of the window is exact — a setup triggered long
+before the window is active since that trigger, never restarted by the cutoff. A member whose
+membership began inside the window starts then. A session whose changes this Monitor already
+recorded for the security is never evaluated again, so restoring a membership or re-enabling never
+duplicates an event. A member the Monitor has evaluated before continues from where it stopped —
+every missed session, in order — rather than starting over.
+
+The whole window is evaluated, whatever the member's records begin with. A member whose records
+begin inside the window — evaluated before the window rule existed, or a Monitor rebound to another
+Strategy or List — has the missing sessions decided the same way and **added**: checked first
+against what is recorded, nothing recorded twice, an occurrence already recorded reused rather than
+duplicated, nothing recorded changed (`docs/decisions/monitor-eod-v2.md` §12.2a). When recorded
+decisions cannot be reconciled — sessions an earlier intraday Monitor decided — they are left as
+they are, and the Monitor says from when its history is recorded.
+
+The window ends on the newest finalized **session**, never a calendar day: on a weekend or an
+exchange holiday it is the window of the last session, and it moves only when a new session becomes
+final. An event belongs to it by the session it happened on: an occurrence found today for a session
+older than the window is stored and shown on the Monitor's own page, never on the Dashboard.
 
 ### Historical reconstruction
 
-Outside that first replay, a level with no current state — a new member, a rebind, an edited level
+Outside the window evaluation, a level with no current state — a new member, a rebind, an edited level
 — does not start as if nothing had happened before. The first cycle replays closed sessions through the same
 evaluator and the same lifecycle up to the newest finalized session, and persists only the result:
 at most one occurrence (marked `reconstructed`, dated to its real activation session) and one
@@ -536,12 +564,13 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
   operator switches and no `enabled` of its own: `isPublished` (customers can see it) and
   `isGloballyEnabled` (the cycle evaluates it). It consumes nobody's active-Monitor capacity and is
   never deleted.
-- **Visibility is per user, evaluation is not.** A Guest sees every published built-in on the
-  Dashboard. A signed-in user sees them too unless they hid one; only that override is stored, and it
-  never changes whether the Monitor runs. The switch lives on the **Monitors page**, in the built-in
-  section, beside the Monitor it is a property of — not on the Dashboard, which is the signal table
-  and nothing else. `GET /monitors` carries it as `dashboardVisible` for built-ins. A Guest's toggle
-  asks them to sign in and stores nothing.
+- **Enabled is per user, evaluation is not** (`docs/decisions/monitor-eod-v2.md` §12.4). Every
+  built-in row has the same Enabled switch as a customer's own Monitor, saved through the same
+  `PATCH /monitors/:id { enabled }`. On a built-in it is the viewer's own choice — default enabled,
+  always enabled for a Guest — stored as one override row and never changing whether the Monitor
+  runs or anybody else's choice; `GET /monitors` returns it as the built-in's `enabled`. A Guest's
+  switch asks them to sign in and stores nothing. A built-in FactorSage has paused for everyone
+  reads "Paused by FactorSage" under the switch.
 - **A customer's own Monitor** keeps its real `enabled` lifecycle: disabled (or plan-blocked)
   Monitors contribute no Dashboard rows, whatever their frozen state says. A customer's Monitor
   watches only the customer's own Lists and Strategies; a built-in Monitor watches only built-ins.
@@ -550,8 +579,9 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
 - **Administrators** (`role = ADMIN`) change built-ins through the ordinary routes and editors;
   everybody else reads them. Changing a display name never changes the `systemKey`.
 
-The Dashboard's Monitor activity feed (`docs/decisions/monitor-eod-v2.md` §6–§7) lists the observed
-changes of the Monitors shown — one row per event, the same security under two Monitors, or two
+The Dashboard's Monitor activity feed (`docs/decisions/monitor-eod-v2.md` §6–§7, §12) lists the
+end-of-day changes of the last 30 days of the Monitors Enabled for the viewer, observed or From
+history — one row per event, the same security under two Monitors, or two
 steps of one level, being two rows — grouped under their market session, newest first, with each
 Monitor's freshness from its real evaluation time. Its columns are Stock, Signal (level and state),
 Conditions and Monitor; there is no Price column, and Strategy and List are one click away from the
@@ -559,8 +589,9 @@ Monitor. Twenty-five events open the feed; as the reader comes within 600px of i
 page loads on its own — one request at a time, de-duplicated, in the API's order, so no event is
 shown twice or skipped — up to four older pages per visit and per filter, after which **Show more
 activity** asks for each further page (an endless feed would put the page's footer and its
-disclosure out of reach). A failed page stops the automatic loading and offers **Try again**. Waiting setups and
-history are on each Monitor's own page, not here.
+disclosure out of reach). A failed page stops the automatic loading and offers **Try again**. Waiting setups,
+reconstructed states, administrative endings and anything older than the window are on each
+Monitor's own page, not here.
 
 ## Open product decisions
 

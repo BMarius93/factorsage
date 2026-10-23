@@ -63,8 +63,19 @@ export function summaryOf(
     ...(detail.displayOrder === undefined
       ? {}
       : { displayOrder: detail.displayOrder }),
+    ...(detail.synchronization === undefined
+      ? {}
+      : { synchronization: detail.synchronization }),
   };
 }
+
+/**
+ * How often the collection is re-read while a monitor is catching up on its activity window
+ * (`docs/decisions/monitor-eod-v2.md` §12). A catch-up is one evaluation pass, which the API asks
+ * for as soon as a monitor is enabled, so it usually ends within a few polls; nothing is re-read
+ * while every monitor is synchronized.
+ */
+export const MONITORS_SYNCHRONIZING_POLL_MS = 15_000;
 
 /** Loads the signed-in user's monitors once and keeps them in sync with local mutations. */
 export function useMonitors(): MonitorsState {
@@ -136,6 +147,19 @@ export function useMonitors(): MonitorsState {
     },
     [reload],
   );
+
+  // While a monitor is synchronizing, re-read until it is not, so the row says when its catch-up
+  // is done without a reload. Each answer schedules the next look; none is pending otherwise.
+  const synchronizing = monitors.some(
+    (monitor) => monitor.synchronization?.state === "SYNCHRONIZING",
+  );
+  useEffect(() => {
+    if (!synchronizing || status !== "ready") {
+      return;
+    }
+    const timer = setTimeout(reload, MONITORS_SYNCHRONIZING_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [synchronizing, status, monitors, reload]);
 
   const applyDeleted = useCallback(
     (monitorId: string) => {

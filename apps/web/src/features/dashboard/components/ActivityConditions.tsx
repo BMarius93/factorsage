@@ -36,8 +36,9 @@ const RESULT_TEXT: Record<
  * Trigger are all ANDed, so they are simply listed, one per line, with no connector between them:
  * a list of requirements reads as "all of these". A FINAL EXIT reached by several Exit Rules lists
  * each rule under its own label, the rules joined by `or` and each rule's lines indented under it,
- * so alternatives can never read as one AND group. A Why recorded without values shows its rules
- * alone and says so.
+ * so alternatives can never read as one AND group. Every event the feed receives carries the values
+ * that decided it (the API admits no other, `docs/decisions/monitor-eod-v2.md` §12); a Why without
+ * them is never drawn as if it had been decided on nothing — it reads as unavailable.
  *
  * The condition is what a reader reads first: the expression is the line's primary text, and the
  * operands it compared follow it smaller and quieter — on the same line where they fit, under the
@@ -50,7 +51,7 @@ export function ActivityConditions({
   readonly why: MonitorWhyResponse | undefined;
   readonly testId?: string;
 }) {
-  if (!why || why.rules.length === 0) {
+  if (!why || why.basis !== "EVIDENCE" || why.rules.length === 0) {
     return (
       <p className={styles.unavailable} data-testid={`${testId}-unavailable`}>
         Conditions are not available for this event.
@@ -139,11 +140,6 @@ export function ActivityConditions({
           return lines;
         })}
       </ol>
-      {why.basis === "RULE_ONLY" ? (
-        <p className={styles.note} data-testid={`${testId}-unrecorded`}>
-          Values were not recorded for this signal.
-        </p>
-      ) : null}
     </div>
   );
 }

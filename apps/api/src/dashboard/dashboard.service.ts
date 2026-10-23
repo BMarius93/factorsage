@@ -2,7 +2,6 @@ import {
   describeCondition,
   describeTrigger,
   normalizeStrategyDefinition,
-  type AuthUser,
   type DashboardActivityEventResponse,
   type DashboardActivityResponse,
   type DashboardFreshness,
@@ -15,7 +14,7 @@ import {
   type StrategyScopeNames,
   type StrategySignal,
 } from "@intrinsic/contracts";
-import type { Prisma } from "@intrinsic/database";
+import { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   monitorStrategyLevels,
@@ -24,6 +23,7 @@ import {
 import { Inject, Injectable } from "@nestjs/common";
 import type { ContentViewer } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
+import { readMonitorActivityWindow } from "../monitors/monitor-activity-window";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { visibleMonitorWhere } from "../monitors/monitor-visibility";
 import { monitorStateSince } from "../monitors/signal-since";
@@ -63,14 +63,6 @@ export class MonitorActivityNotFoundError extends Error {
   }
 }
 
-/** A built-in the viewer asked to hide or show does not exist or is not published. */
-export class BuiltInMonitorNotFoundError extends Error {
-  constructor() {
-    super("Built-in monitor was not found");
-    this.name = "BuiltInMonitorNotFoundError";
-  }
-}
-
 /** What the feed shows of each Monitor an event belongs to. */
 const ACTIVITY_MONITOR_SELECT = {
   id: true,
@@ -94,6 +86,8 @@ const ACTIVITY_EVENT_SELECT = {
   levelKind: true,
   toState: true,
   reason: true,
+  origin: true,
+  occurredAt: true,
   observationDate: true,
   strategyVersionId: true,
   evidence: true,
@@ -122,30 +116,57 @@ type ActivityEventRow = Prisma.MonitorStateTransitionGetPayload<{
 }>;
 
 /**
- * What an event is (§6.1), narrowed to one kind when asked. Each branch is exactly the
+ * The reasons a finalized session enters `ACTIVE` by. A reconstructed state (`RECONSTRUCTED`) is
+ * where a replay or a reconstruction *starts*, established from history before it rather than
+ * decided on its date, so it is never an event.
+ */
+const ACTIVATING_REASONS = ["CONDITIONS_MET", "TRIGGER_FIRED"] as const;
+
+/**
+ * What an event is (§6.1, §12), narrowed to one kind when asked. Each branch is exactly the
  * classification the response applies, so a filtered read holds the same events as the unfiltered
  * feed minus the other kind, and the keyset cursor and `through` ranges page it unchanged.
  */
 function activityKindWhere(
   kind: ActivityQuery["kind"],
 ): Prisma.MonitorStateTransitionWhereInput {
+  const activated: Prisma.MonitorStateTransitionWhereInput = {
+    toState: "ACTIVE",
+    reason: { in: [...ACTIVATING_REASONS] },
+  };
+  const resolved: Prisma.MonitorStateTransitionWhereInput = {
+    fromState: "ACTIVE",
+    toState: { not: "ACTIVE" },
+    reason: "CONDITIONS_ENDED",
+  };
   if (kind === "ACTIVATED") {
-    return { toState: "ACTIVE" };
+    return activated;
   }
   if (kind === "RESOLVED") {
-    return {
-      fromState: "ACTIVE",
-      toState: { not: "ACTIVE" },
-      reason: "CONDITIONS_ENDED",
-    };
+    return resolved;
   }
-  return {
-    OR: [
-      { toState: "ACTIVE" },
-      { fromState: "ACTIVE", reason: "CONDITIONS_ENDED" },
-    ],
-  };
+  return { OR: [activated, resolved] };
 }
+
+/**
+ * What every event is, whatever the kind (`docs/decisions/monitor-eod-v2.md` §12), enforced in the
+ * query so no page, cursor or count can include anything else:
+ *
+ * - **a finalized end-of-day session decided it** — observed, or found afterwards (`HISTORY`, shown
+ *   as From history); never an administrative change, which observed no session;
+ * - **its evidence was recorded** — every condition shows the values it compared on that session.
+ *   A change recorded before evidence existed is shown only once `monitors:backfill-evidence` has
+ *   verified and recorded it, and never with values recomputed at read time;
+ * - **its occurrence was decided on the session's close** (`EOD_CLOSE`): an occurrence the earlier
+ *   live-quote Monitor decided on an intraday price is history kept for the Signal table, not
+ *   activity — neither its activation nor its ending.
+ */
+const ACTIVITY_EVENT_SCOPE = {
+  origin: { in: ["OBSERVED", "HISTORY"] },
+  observationDate: { not: null },
+  evidence: { not: Prisma.DbNull },
+  signal: { is: { observationBasis: "EOD_CLOSE" } },
+} satisfies Prisma.MonitorStateTransitionWhereInput;
 
 const LEVEL_ORDER = { BUY: 0, SELL: 1, FINAL_EXIT: 2 } as const;
 
@@ -222,7 +243,7 @@ export class DashboardService {
         ? this.entitlements.getMonitorExecutionEligibility(viewer.id)
         : Promise.resolve(new Map<string, MonitorEligibility>()),
     ]);
-    const hidden = new Set(
+    const disabled = new Set(
       preferences
         .filter((entry) => !entry.enabled)
         .map((entry) => entry.monitorId),
@@ -295,8 +316,7 @@ export class DashboardService {
         ownership: monitor.ownership,
         strategy: { id: monitor.strategy.id, name: monitor.strategy.name },
         stockList: { id: monitor.stockList.id, name: monitor.stockList.name },
-        visible: system ? !hidden.has(monitor.id) : monitor.enabled,
-        control: system ? "BUILT_IN_PREFERENCE" : "MONITOR_ENABLED",
+        enabled: system ? !disabled.has(monitor.id) : monitor.enabled,
         freshness: this.freshnessOf(isRunning, monitor.lastScanAt, now),
         ...(monitor.lastScanAt
           ? { lastScanAt: monitor.lastScanAt.toISOString() }
@@ -309,7 +329,7 @@ export class DashboardService {
     const byId = new Map(monitors.map((monitor) => [monitor.id, monitor]));
     const shown = new Set(
       monitorResponses
-        .filter((monitor) => monitor.visible && running.has(monitor.id))
+        .filter((monitor) => monitor.enabled && running.has(monitor.id))
         .map((monitor) => monitor.id),
     );
     const rows: DashboardRowResponse[] = [];
@@ -438,15 +458,17 @@ export class DashboardService {
   }
 
   /**
-   * The Monitor Activity feed (`docs/decisions/monitor-eod-v2.md` §6): the important changes the
-   * Monitors on this viewer's Dashboard **observed**, newest session first.
+   * The Monitor Activity feed (`docs/decisions/monitor-eod-v2.md` §6, §12): the end-of-day activity
+   * of the Monitors this viewer has enabled, over the rolling 30-day window, newest session first.
    *
-   * An event is an occurrence that became `ACTIVE`, or one a market observation ended
-   * (`CONDITIONS_ENDED`). Never shown: history (an initial replay, a reconstruction, a paused
-   * Monitor's catch-up), administrative endings (an edit, a removal, a membership change, a
-   * rebind), a trigger day passing (`EVENT_SESSION_ENDED`) and setups waiting for a trigger. The
-   * Monitors are the ones the Dashboard shows the viewer — published built-ins they have not
-   * hidden, and their own enabled Monitors — and each event explains itself from the version and
+   * An event is an occurrence a finalized session activated, or one a market observation ended
+   * (`CONDITIONS_ENDED`) — observed, or found afterwards (`fromHistory`: a window replay, a resumed
+   * Monitor's catch-up, a member added later). Never shown: a reconstructed state, administrative
+   * endings (an edit, a removal, a membership change, a rebind), a trigger day passing
+   * (`EVENT_SESSION_ENDED`), setups waiting for a trigger, anything without recorded evidence, and
+   * the live-quote Monitor's intraday occurrences (`ACTIVITY_EVENT_SCOPE`). The Monitors are the
+   * ones Enabled for the viewer — published built-ins they have not disabled (all of them for a
+   * Guest), and their own enabled Monitors — and each event explains itself from the version and
    * evidence recorded with it. Keyset-paged on `(session, sequence)`, so a page is stable while new
    * sessions arrive.
    */
@@ -474,23 +496,34 @@ export class DashboardService {
           })
         : Promise.resolve([]),
     ]);
-    const hidden = new Set(preferences.map((entry) => entry.monitorId));
-    const visible = new Map(
+    const disabled = new Set(preferences.map((entry) => entry.monitorId));
+    const enabled = new Map(
       monitors
         .filter((monitor) =>
           monitor.ownership === "SYSTEM"
-            ? !hidden.has(monitor.id)
+            ? !disabled.has(monitor.id)
             : monitor.enabled,
         )
         .map((monitor) => [monitor.id, monitor]),
     );
     const monitorIds =
       query.monitorId === undefined
-        ? [...visible.keys()]
-        : visible.has(query.monitorId)
+        ? [...enabled.keys()]
+        : enabled.has(query.monitorId)
           ? [query.monitorId]
           : [];
-    return this.readActivity(viewer, visible, monitorIds, query, now);
+    // The rolling window ends on the newest finalized session by the canonical policy — the window
+    // the Monitor pass evaluated — and is applied in the query to every read: pages, cursors,
+    // filters and `through` re-reads alike (§12.3).
+    const { windowStart } = await readMonitorActivityWindow(this.prisma, now);
+    return this.readActivity(
+      viewer,
+      enabled,
+      monitorIds,
+      query,
+      now,
+      windowStart,
+    );
   }
 
   /**
@@ -499,8 +532,8 @@ export class DashboardService {
    * same order, no second event model.
    *
    * Readable exactly where the Monitor's own page is (`visibleMonitorWhere`): its owner's, enabled
-   * or not, and a published built-in, hidden from this viewer's Dashboard or not. The Dashboard
-   * shows what a viewer chose to follow; a Monitor's page shows its whole history.
+   * or not, and a published built-in, enabled for this viewer or not. The Dashboard shows the last
+   * thirty days of what a viewer enabled; a Monitor's page shows its whole history.
    */
   async getMonitorActivity(
     viewer: ContentViewer,
@@ -541,19 +574,25 @@ export class DashboardService {
     monitorIds: readonly string[],
     query: ActivityQuery,
     now: Date,
+    /** The Dashboard's rolling window; absent on a Monitor's own, unwindowed history. */
+    windowStart?: string,
   ): Promise<DashboardActivityResponse> {
     const empty: DashboardActivityResponse = {
       viewer: viewer ? "AUTHENTICATED" : "GUEST",
       generatedAt: now.toISOString(),
+      ...(windowStart === undefined ? {} : { windowStart }),
       events: [],
     };
     if (monitorIds.length === 0) {
       return empty;
     }
-    const scope = {
+    const scope: Prisma.MonitorStateTransitionWhereInput = {
+      ...ACTIVITY_EVENT_SCOPE,
       monitorId: { in: [...monitorIds] },
-      origin: "OBSERVED" as const,
-      observationDate: { not: null },
+      observationDate:
+        windowStart === undefined
+          ? { not: null }
+          : { gte: new Date(`${windowStart}T00:00:00.000Z`) },
     };
 
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
@@ -575,12 +614,16 @@ export class DashboardService {
       : null;
 
     // The bottom of a `through` range: an event of this feed. One the viewer can no longer see (its
-    // Monitor hidden or gone) ends the range at once, and the reader starts over from the top.
+    // Monitor hidden or gone) ends the range at once, and the reader starts over from the top. One
+    // that has aged out of the window is still the bottom of what the reader holds: the range is then
+    // every event the window still has — never one older than its first day.
     let floor: { date: Date; sequence: bigint } | null = null;
     if (query.through !== undefined) {
       const bottom = await this.prisma.monitorStateTransition.findFirst({
         where: {
-          ...scope,
+          ...ACTIVITY_EVENT_SCOPE,
+          monitorId: { in: [...monitorIds] },
+          observationDate: { not: null },
           id: query.through,
           AND: [activityKindWhere(query.kind)],
         },
@@ -589,7 +632,12 @@ export class DashboardService {
       if (!bottom) {
         return empty;
       }
-      floor = { date: bottom.observationDate!, sequence: bottom.sequence };
+      const agedOut =
+        windowStart !== undefined &&
+        bottom.observationDate!.toISOString().slice(0, 10) < windowStart;
+      floor = agedOut
+        ? null
+        : { date: bottom.observationDate!, sequence: bottom.sequence };
     }
     const limit =
       query.through === undefined ? query.limit : ACTIVITY_THROUGH_LIMIT;
@@ -648,7 +696,14 @@ export class DashboardService {
     };
   }
 
-  /** The response for each stored change, explained by the version and evidence recorded with it. */
+  /**
+   * The response for each stored change, explained by the version and evidence recorded with it.
+   *
+   * The query already admits only changes with recorded evidence, so every Why is `EVIDENCE`. A row
+   * whose evidence cannot be matched to the version that decided it would render without values,
+   * which the feed never shows: it is left out of the page and logged — the page's cursor is still
+   * its last stored row, so nothing after it is skipped.
+   */
   private async activityEvents(
     page: readonly ActivityEventRow[],
     monitors: ReadonlyMap<string, ActivityMonitor>,
@@ -677,14 +732,31 @@ export class DashboardService {
       ),
     );
 
-    return page.map((row) => {
+    return page.flatMap((row) => {
       const monitor = monitors.get(row.monitorId)!;
       const version = versionOf(row);
       const level = version
         ? levelsByVersion.get(version)?.get(row.levelId)
         : undefined;
       const sessionDate = row.observationDate!.toISOString().slice(0, 10);
-      return {
+      const why = level
+        ? whyOf(
+            level,
+            parseTransitionEvidence(row.evidence),
+            scopeNames,
+            sessionDate,
+          )
+        : undefined;
+      if (why?.basis !== "EVIDENCE") {
+        this.logger.warn({
+          event: "dashboard.activity.evidence-unmatched",
+          transitionId: row.id,
+          monitorId: row.monitorId,
+          ...(version ? { strategyVersionId: version } : {}),
+        });
+        return [];
+      }
+      const event: DashboardActivityEventResponse = {
         id: row.id,
         kind: row.toState === "ACTIVE" ? "ACTIVATED" : "RESOLVED",
         reason: row.reason,
@@ -717,53 +789,14 @@ export class DashboardService {
           ? {
               signalId: row.signal.id,
               price: Number(row.signal.observationPrice),
-              observationBasis: row.signal.observationBasis,
             }
           : {}),
-        ...(level
-          ? {
-              why: whyOf(
-                level,
-                parseTransitionEvidence(row.evidence),
-                scopeNames,
-                sessionDate,
-              ),
-            }
-          : {}),
+        fromHistory: row.origin === "HISTORY",
+        recordedAt: row.occurredAt.toISOString(),
+        why,
       };
+      return [event];
     });
-  }
-
-  /**
-   * Records a signed-in customer's choice to show or hide a published built-in.
-   *
-   * Only the override is stored, and it changes this user's Dashboard alone — the shared Monitor
-   * keeps being evaluated for everyone.
-   */
-  async setBuiltInVisibility(
-    user: AuthUser,
-    monitorId: string,
-    visible: boolean,
-  ): Promise<{ monitorId: string; visible: boolean }> {
-    const monitor = await this.prisma.monitor.findFirst({
-      where: { id: monitorId, ownership: "SYSTEM", isPublished: true },
-      select: { id: true },
-    });
-    if (!monitor) {
-      throw new BuiltInMonitorNotFoundError();
-    }
-    await this.prisma.userBuiltInMonitorPreference.upsert({
-      where: { userId_monitorId: { userId: user.id, monitorId } },
-      create: { userId: user.id, monitorId, enabled: visible },
-      update: { enabled: visible },
-    });
-    this.logger.info({
-      event: "dashboard.built-in-visibility.updated",
-      actorUserId: user.id,
-      monitorId,
-      visible,
-    });
-    return { monitorId, visible };
   }
 
   private freshnessOf(

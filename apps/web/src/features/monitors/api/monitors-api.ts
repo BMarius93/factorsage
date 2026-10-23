@@ -6,16 +6,9 @@ import type {
   MonitorSignalPageResponse,
   MonitorSignalRowState,
   MonitorSummaryResponse,
-  UpdateBuiltInMonitorVisibilityRequest,
   UpdateMonitorRequest,
 } from "@intrinsic/contracts";
-import {
-  apiDelete,
-  apiGet,
-  apiPatch,
-  apiPost,
-  apiPut,
-} from "../../../lib/api/client";
+import { apiDelete, apiGet, apiPatch, apiPost } from "../../../lib/api/client";
 
 export function fetchMonitors(options: { signal?: AbortSignal } = {}) {
   return apiGet<MonitorSummaryResponse[]>("/monitors", options);
@@ -47,6 +40,10 @@ export async function createMonitor(
 /**
  * Patches a monitor's name, whether it is enabled, and which Strategy and Stock List it watches.
  *
+ * `enabled` is the one switch every monitor has. On a built-in it is the caller's own choice for
+ * their account — whether its activity reaches their dashboard — and it never changes the shared
+ * monitor for anyone else; a Guest's call is refused, which is why the page asks for an account.
+ *
  * Sending a different `strategyId` or `stockListId` **rebinds** the monitor: the API resolves the
  * Signals still active under the configuration being replaced, discards its transition state and
  * clears its last-checked time, so the caller should re-read the monitor rather than patch its
@@ -65,22 +62,6 @@ export async function updateMonitor(
 
 export async function deleteMonitor(monitorId: string): Promise<void> {
   await apiDelete(`/monitors/${monitorId}`);
-}
-
-/**
- * Shows or hides a published built-in monitor on the signed-in user's dashboard.
- *
- * Visibility only: the shared monitor keeps being evaluated for everyone, and only this user's
- * preference row moves (`docs/decisions/builtin-dashboard-signals-v1.md` section 5.2). The route
- * lives under `/dashboard` because that is the surface the preference governs; the control lives
- * with monitors because that is the thing it is a property of. A Guest's call is refused by the
- * API, which is why the page asks for an account instead of making it.
- */
-export async function setBuiltInMonitorVisibility(
-  monitorId: string,
-  body: UpdateBuiltInMonitorVisibilityRequest,
-): Promise<void> {
-  await apiPut(`/dashboard/monitors/${monitorId}/visibility`, body);
 }
 
 /**

@@ -2,7 +2,6 @@ import type { ContentOwnership } from "./builtins.js";
 import type {
   MonitorLevelKind,
   MonitorLifecycleState,
-  MonitorObservationBasis,
   MonitorTransitionReason,
   MonitorWhyResponse,
 } from "./monitors.js";
@@ -41,33 +40,22 @@ export const DASHBOARD_FRESHNESS = [
 ] as const;
 export type DashboardFreshness = (typeof DASHBOARD_FRESHNESS)[number];
 
-/**
- * What a visibility toggle changes.
- *
- * - `BUILT_IN_PREFERENCE` — the viewer's own Dashboard visibility of a shared built-in Monitor
- *   (`PUT /dashboard/monitors/:monitorId/visibility`); it never changes whether it is evaluated.
- * - `MONITOR_ENABLED` — a customer's own Monitor, whose real `enabled` lifecycle is the switch
- *   (`PATCH /monitors/:monitorId`).
- */
-export const DASHBOARD_VISIBILITY_CONTROLS = [
-  "BUILT_IN_PREFERENCE",
-  "MONITOR_ENABLED",
-] as const;
-export type DashboardVisibilityControl =
-  (typeof DASHBOARD_VISIBILITY_CONTROLS)[number];
-
 export type DashboardEntityReference = { id: string; name: string };
 
-/** One Monitor the viewer can put on their Dashboard. */
+/** One Monitor the viewer can see. */
 export type DashboardMonitorResponse = {
   id: string;
   name: string;
   ownership: ContentOwnership;
   strategy: DashboardEntityReference;
   stockList: DashboardEntityReference;
-  /** Whether its rows are on this viewer's Dashboard. */
-  visible: boolean;
-  control: DashboardVisibilityControl;
+  /**
+   * Whether it is Enabled for this viewer — the one user-facing switch, and exactly the Monitors
+   * whose activity the Dashboard shows. A customer's own Monitor's `enabled`; a built-in's per-user
+   * choice (default enabled, and always the default for a Guest). The switch itself lives on the
+   * Monitors page (`PATCH /monitors/:monitorId`).
+   */
+  enabled: boolean;
   freshness: DashboardFreshness;
   /** The latest completed scan of its current configuration. */
   lastScanAt?: string;
@@ -134,9 +122,11 @@ export type DashboardResponse = {
 };
 
 /**
- * What one Monitor Activity event is (`GET /dashboard/activity`): an occurrence that became active,
- * or one that a market observation ended. Administrative endings, a trigger day passing, setups and
- * history never appear (`docs/decisions/monitor-eod-v2.md` §6).
+ * What one Monitor Activity event is (`GET /dashboard/activity`): an occurrence that a finalized
+ * end-of-day session activated, or one that a session's market observation ended
+ * (`docs/decisions/monitor-eod-v2.md` §6, §12). Administrative endings, a trigger day passing,
+ * setups and reconstructed states never appear; neither does an event without recorded evidence or
+ * one of an occurrence the earlier live-quote Monitor decided intraday.
  */
 export const MONITOR_ACTIVITY_KINDS = ["ACTIVATED", "RESOLVED"] as const;
 export type MonitorActivityKind = (typeof MONITOR_ACTIVITY_KINDS)[number];
@@ -158,20 +148,30 @@ export type DashboardActivityEventResponse = {
   stockList: DashboardEntityReference;
   /** The occurrence. */
   signalId?: string;
-  /** The occurrence's activation price. */
+  /** The occurrence's activation price: its session's finalized close. */
   price?: number;
-  observationBasis?: MonitorObservationBasis;
-  why?: MonitorWhyResponse;
+  /**
+   * True when the session was not being watched when it became final — a window replay, a resumed
+   * Monitor's catch-up, a member added later — so the event was found afterwards, `From history`.
+   * `sessionDate` is still the session the conditions held on; `recordedAt` says when it was found.
+   */
+  fromHistory: boolean;
+  /** When FactorSage evaluated the session and recorded the event (processing time). */
+  recordedAt: string;
+  /** The predicates that decided it, with the values compared on `sessionDate`: always `EVIDENCE`. */
+  why: MonitorWhyResponse;
 };
 
-/** `GET /dashboard/activity`: observed changes, newest session first. */
+/** `GET /dashboard/activity`: end-of-day activity, newest session first. */
 export type DashboardActivityResponse = {
   viewer: "GUEST" | "AUTHENTICATED";
   generatedAt: string;
+  /**
+   * The Dashboard's rolling window (`MONITOR_ACTIVITY_WINDOW_DAYS`): only sessions on or after this
+   * day are activity. Absent on a Monitor's own Activity history, which is not windowed.
+   */
+  windowStart?: string;
   events: DashboardActivityEventResponse[];
   /** Opaque; pass back as `cursor` for older events. Absent on the last page. */
   nextCursor?: string;
 };
-
-/** `PUT /dashboard/monitors/:monitorId/visibility`. */
-export type UpdateBuiltInMonitorVisibilityRequest = { visible: boolean };

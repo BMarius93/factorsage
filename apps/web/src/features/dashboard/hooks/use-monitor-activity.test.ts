@@ -176,6 +176,43 @@ describe("useMonitorActivity — a refresh re-reads what the reader holds (DB-2)
     );
   });
 
+  it("drops what aged out of the rolling window and keeps the rest, rather than starting over", async () => {
+    const hook = await openFeed(
+      answer(
+        [
+          event(10, "2026-10-13"),
+          event(9, "2026-09-16"),
+          event(8, "2026-09-15"),
+        ],
+        { windowStart: "2026-09-15" },
+      ),
+    );
+    // The window moved to Sep 16: the event the range ended on is older than its first day, so the
+    // API answers with everything the window still holds — and one new event above it.
+    fetchMock.mockResolvedValueOnce(
+      answer(
+        [
+          event(11, "2026-10-14"),
+          event(10, "2026-10-13"),
+          event(9, "2026-09-16"),
+        ],
+        {
+          windowStart: "2026-09-16",
+        },
+      ),
+    );
+    act(() => hook.result.current.refresh());
+    await waitFor(() =>
+      expect(ids(hook)).toEqual(["event-11", "event-10", "event-9"]),
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith({ through: "event-8" });
+    expect(hook.result.current.arrivals).toEqual({
+      above: 1,
+      within: 0,
+      backlog: false,
+    });
+  });
+
   it("keeps an older page that arrived while the range was being re-read", async () => {
     const hook = await openFeed(
       answer([event(10), event(9)], { nextCursor: "c1" }),

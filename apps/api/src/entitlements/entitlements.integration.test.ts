@@ -1105,6 +1105,10 @@ describe("entitlements", () => {
         expect(monitor.operationalStatus).toBe("BLOCKED_BY_ENTITLEMENT");
         expect(monitor.blockedReason).toBe("MONITOR_CAPACITY");
       }
+      // A paused Monitor is evaluating nothing, so it is never presented as catching up.
+      expect(monitors.every((row) => row.synchronization === undefined)).toBe(
+        true,
+      );
     });
 
     it("separates a list-compliance block from a capacity block", async () => {

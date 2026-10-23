@@ -119,9 +119,18 @@ Read `ai/README.md` before substantial work.
     (`docs/decisions/monitor-eod-v2.md` §3). Its universe is the List's **current** members only —
     `FULL`, or an open-ended period that has begun (`isOngoingListMember`) — gating BUY, SELL and
     FINAL EXIT alike; a member edited out ends administratively (`MEMBERSHIP_CHANGED`). Backtests keep
-    `isBuyWindowEligible` and must never call the Monitor predicate (§4). Only a newly created
-    Monitor replays its 90-day window, from the exact state before it, and every session-decided
-    transition stores its `strategyVersionId` and operand `evidence` (§5). Do not reintroduce a
+    `isBuyWindowEligible` and must never call the Monitor predicate (§4). A member a Monitor has never
+    evaluated is evaluated over the rolling **30-day** activity window, from the exact state before
+    it, never on a session whose changes that Monitor already recorded; a member with a checkpoint
+    continues from it; a member whose records begin inside its window has the missing sessions
+    back-filled — verified against what is recorded, append-only, never recording a change or an
+    occurrence twice, never rewriting a recorded row (§12.2a); coverage is the checkpoint's durable
+    `coverageStart`, never inferred from a timestamp; and every session-decided transition stores
+    its `strategyVersionId` and operand `evidence` (§5, §12). Dashboard activity is evidenced
+    end-of-day events of the Monitors Enabled for the viewer whose **session** lies inside the 30
+    calendar days ending on the newest finalized session — enforced in the query for every page,
+    cursor, filter and `through` read, anchored without a provider request (§12.1, §12.3). Do not
+    reintroduce a
     live-quote observation or a quote endpoint (the FMP client has none, §8), a jump from a stale
     checkpoint to the newest session, or a Monitor-cycle provider read. A member is never stepped
     past a session its security or an ETF it reads has not printed while the bar may still arrive
@@ -234,8 +243,10 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     `ownership = SYSTEM`, `userId = null`, an immutable `systemKey` that is the only bootstrap
     identity (never the display name). Everybody may read it, Guests included; only `role = ADMIN`
     changes it, through the ordinary routes and editors; nobody deletes it. It never counts against a
-    customer's capacity and is never cloned per user — a customer's Dashboard visibility of a
-    built-in Monitor is the only per-user state (`UserBuiltInMonitorPreference`). A signed-in
+    customer's capacity and is never cloned per user — whether a built-in Monitor is **Enabled** for
+    a customer (the one Enabled switch every Monitor has, `PATCH /monitors/:id { enabled }`) is the
+    only per-user state (`UserBuiltInMonitorPreference`), and it never changes the shared
+    evaluation (`docs/decisions/monitor-eod-v2.md` §12.4). A signed-in
     customer may still **duplicate** a built-in List or Strategy on purpose: the copy is ordinary
     USER content they own, detached from the built-in and held to their plan. Deploys run
     `pnpm builtins:bootstrap`, which creates missing built-ins and never overwrites an
