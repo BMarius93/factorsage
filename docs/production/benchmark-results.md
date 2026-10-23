@@ -167,3 +167,26 @@ development database (`benchmark-results/fmp-live-sample-2026-10-23.txt`):
 per security) with 65 requests — 35 of them the exchange-holiday calendar's first fill, which the live
 sample did not request — and 6.9 MB of responses; the synthetic
 provider serves no insider or congressional data.
+
+### Synthetic provider, inside a run
+
+The run's preparation hydrates every never-seen member before execution, inside its slot
+(`--cache miss`: the list's ordinary members have never been hydrated; its canonical members are
+resident):
+
+| Run                                                   | First-time securities | Execution (warm) | Preparation                   | Provider requests                                | Responses | Worker RSS peak |
+| ----------------------------------------------------- | --------------------: | ---------------- | ----------------------------- | ------------------------------------------------ | --------: | --------------: |
+| `C-miss-mixed`: Pro × 250, provider answers at once   |                   100 | 369 s (38 s)     | 333 s, **3.3 s per security** | 970: profile, prices ×2, statements ×6, calendar |    229 MB |     **3.42 GB** |
+| `B-miss-mixed-latency250`: Starter × 50, +250 ms each |                    20 | 90 s (12 s)      | 79 s, 3.9 s per security      | 250                                              |     46 MB |         3.42 GB |
+
+- A first-time security costs **~3.3 s of its run's slot** against an instant provider (four
+  hydrations at a time per run), ~3.9 s with 250 ms of provider latency; the real FMP sample's
+  prices-statements-derived-state stage took 7.5–9.0 s per security one at a time (synthetic: 7.1 s),
+  so ~3.5–4.5 s per security inside a run is the estimate for real FMP (**not measured**).
+- ~9.7 provider requests and ~2.3 MB per first-time security for what a backtest needs (the insider
+  and congressional datasets, ~12 more requests per security on real FMP, were not requested by
+  these runs' preparation: the synthetic provider recorded no request outside its endpoints).
+- **Hydrating is the most memory-hungry thing a worker does**: 3.42 GB per process, against 2.1 GB
+  for a 1,000-security rebuild from PostgreSQL and 0.5 GB executing — with a 2 GB V8 heap (Node's
+  default on this machine), so at least ~1.3 GB of it is outside the JavaScript heap.
+- Every member was prepared (none skipped) and both runs completed on their first attempt.

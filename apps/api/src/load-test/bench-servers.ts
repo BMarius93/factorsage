@@ -138,8 +138,11 @@ async function main(): Promise<void> {
     RATE_LIMIT_KEY_NAMESPACE: "rate-limit:bench",
     RATE_LIMIT_ALLOWANCE_MULTIPLIER: "100",
     EOD_TAIL_REFRESH: "frozen",
+    // Every SMTP_* variable, or a session's mail settings leak in and half-configure SMTP.
     SMTP_HOST: "",
     SMTP_PORT: "",
+    SMTP_SECURE: "",
+    SMTP_FROM: "",
     SMTP_USER: "",
     SMTP_PASSWORD: "",
     LOG_LEVEL: "info",

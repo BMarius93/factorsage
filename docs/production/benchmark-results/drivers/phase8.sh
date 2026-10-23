@@ -31,6 +31,12 @@ synthetic() { # extra args: restart the synthetic provider
 redis-cli CONFIG SET save "900 1 300 100000" > /dev/null
 synthetic
 
+# Worker memory, before the failure tests: four first-time hydrations at once (the H lists share 400
+# never-hydrated ordinary members) with the 2 GB heap every run above had (Node's default here), and
+# one run under a 3 GB heap, to see whether a larger heap limit raises the peak.
+bench H-miss-mixed-shared --scenario H --cache miss --mix mixed --overlap shared --strategy simple --worker-env "NODE_OPTIONS=--max-old-space-size=2048" --timeout-minutes 90
+bench C-miss-mixed-heap3072 --scenario C --cache miss --mix mixed --strategy simple --worker-env "NODE_OPTIONS=--max-old-space-size=3072" --timeout-minutes 60
+
 # 1. A worker SIGKILLed while executing (warm): the run must be re-executed once, with the same result.
 bench F8-H-warm-kill-worker --scenario H --cache warm --mix mixed --overlap shared --strategy simple --chaos kill-worker --chaos-at-s 60
 audit after-kill-worker-warm

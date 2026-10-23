@@ -58,3 +58,9 @@ OK
 {"event":"phase4b.finished","at":"2026-10-23T23:13:08Z"}
 {"event":"phase4.synthetic","args":"","at":"2026-10-23T23:13:09Z"}
 {"event":"phase4.start","label":"C-miss-mixed","at":"2026-10-23T23:13:09Z"}
+{"event":"phase4.done","label":"C-miss-mixed","exit":0,"seconds":384,"at":"2026-10-23T23:19:33Z"}
+{"event":"phase4.synthetic","args":"--latency-ms 250","at":"2026-10-23T23:19:34Z"}
+{"event":"phase4.start","label":"B-miss-mixed-latency250","at":"2026-10-23T23:19:34Z"}
+{"event":"phase4.done","label":"B-miss-mixed-latency250","exit":0,"seconds":104,"at":"2026-10-23T23:21:18Z"}
+{"event":"phase4.synthetic","args":"","at":"2026-10-23T23:21:20Z"}
+{"event":"phase4c.finished","at":"2026-10-23T23:21:20Z"}
