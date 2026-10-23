@@ -1,0 +1,68 @@
+{
+  "indexKey": "SP500",
+  "designation": {
+    "added": 0,
+    "removed": 0,
+    "designated": 735
+  },
+  "outcomes": {
+    "published": 733,
+    "alreadyResident": 2,
+    "refused": {},
+    "failed": []
+  },
+  "verification": {
+    "resident": 735,
+    "notResident": []
+  },
+  "memory": {
+    "before": {
+      "usedMemoryBytes": 533129624,
+      "maxMemoryBytes": 0,
+      "maxMemoryPolicy": "noeviction",
+      "keys": 36651
+    },
+    "after": {
+      "usedMemoryBytes": 1302080600,
+      "maxMemoryBytes": 0,
+      "maxMemoryPolicy": "noeviction",
+      "keys": 90158
+    },
+    "tier": {
+      "securities": 735,
+      "keys": 53655,
+      "bytes": 769575344,
+      "byFamily": {
+        "keys": {
+          "keys": 735,
+          "bytes": 7051520
+        },
+        "daily-state:v2": {
+          "keys": 25725,
+          "bytes": 551675496
+        },
+        "prices:1D": {
+          "keys": 25725,
+          "bytes": 210036888
+        },
+        "manifest": {
+          "keys": 735,
+          "bytes": 464520
+        },
+        "security": {
+          "keys": 735,
+          "bytes": 346920
+        }
+      },
+      "perSecurityBytes": {
+        "mean": 1047041,
+        "p50": 1022800,
+        "p95": 1193040,
+        "max": 1205328
+      }
+    }
+  },
+  "providerRequests": 0,
+  "durationMs": 973436,
+  "stoppedEarly": false
+}

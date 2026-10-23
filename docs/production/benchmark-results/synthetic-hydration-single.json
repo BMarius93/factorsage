@@ -1,0 +1,30 @@
+{
+  "command": "hydrate",
+  "securities": 3,
+  "concurrency": 1,
+  "wallMs": 23508,
+  "perSecurityMs": {
+    "samples": 3,
+    "median": 7074,
+    "p95": 9600,
+    "max": 9600,
+    "mean": 7834
+  },
+  "failures": 0,
+  "failureSample": [],
+  "providerRequests": {
+    "requests": 65,
+    "failuresInjected": 0,
+    "unexpected": 0,
+    "bytes": 6905155,
+    "byEndpoint": {
+      "historical-price-eod/full": 6,
+      "profile": 3,
+      "income-statement": 6,
+      "balance-sheet-statement": 6,
+      "cash-flow-statement": 6,
+      "holidays-by-exchange": 35,
+      "splits": 3
+    }
+  }
+}

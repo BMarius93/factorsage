@@ -1,0 +1,23 @@
+{
+  "phase": "promotion",
+  "capacity": 500,
+  "designated": 1,
+  "lruBefore": 400,
+  "lruAfter": 399,
+  "leftLru": true,
+  "isDesignated": true,
+  "keysUnchanged": true,
+  "bytesUnchanged": true,
+  "keysWithTtl": 0,
+  "keys": 72,
+  "demotion": {
+    "added": 0,
+    "removed": 1,
+    "designated": 735,
+    "rejoinedAsNewest": true,
+    "lruSize": 400,
+    "withinCapacity": true,
+    "keysUnchanged": true,
+    "bytesUnchanged": true
+  }
+}
