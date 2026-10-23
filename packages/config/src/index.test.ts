@@ -941,6 +941,51 @@ describe("getStripeBillingConfig", () => {
     expect(getStripeBillingConfig({ NODE_ENV: "development" })).toBeNull();
   });
 
+  describe("retired prices (STRIPE_LEGACY_PRICES)", () => {
+    it("is empty when unset", () => {
+      expect(getStripeBillingConfig(sandbox())?.legacyPrices).toEqual([]);
+    });
+
+    it("parses each retired price with the plan and cadence it grants", () => {
+      const config = getStripeBillingConfig(
+        sandbox({ STRIPE_LEGACY_PRICES: " price_old1=STARTER/MONTH , price_old2=PRO/YEAR,price_old3=PRO_PLUS/MONTH " }),
+      );
+      expect(config?.legacyPrices).toEqual([
+        { priceId: "price_old1", plan: "STARTER", interval: "MONTH" },
+        { priceId: "price_old2", plan: "PRO", interval: "YEAR" },
+        { priceId: "price_old3", plan: "PRO_PLUS", interval: "MONTH" },
+      ]);
+    });
+
+    it.each([
+      ["price_old1", "not price_…=PLAN/INTERVAL"],
+      ["price_old1=FREE/MONTH", "FREE is never a price"],
+      ["price_old1=PRO/WEEK", "unknown cadence"],
+      ["prod_old1=PRO/MONTH", "not a price id"],
+    ])("refuses %s (%s)", (entry) => {
+      expect(() => getStripeBillingConfig(sandbox({ STRIPE_LEGACY_PRICES: entry }))).toThrow(
+        /STRIPE_LEGACY_PRICES entry/,
+      );
+    });
+
+    it("refuses a duplicate and a price that is also a current catalog price", () => {
+      expect(() =>
+        getStripeBillingConfig(
+          sandbox({ STRIPE_LEGACY_PRICES: "price_old1=PRO/YEAR,price_old1=PRO/YEAR" }),
+        ),
+      ).toThrow(/appears twice/);
+      expect(() =>
+        getStripeBillingConfig(sandbox({ STRIPE_LEGACY_PRICES: "price_pro_m=PRO/MONTH" })),
+      ).toThrow(/current catalog price/);
+    });
+
+    it("points an operator still setting a retired annual variable at it", () => {
+      expect(() =>
+        getStripeBillingConfig(sandbox({ STRIPE_PRICE_PRO_YEARLY: "price_pro_y" })),
+      ).toThrow(/STRIPE_LEGACY_PRICES/);
+    });
+  });
+
   it("resolves a complete sandbox configuration", () => {
     const config = getStripeBillingConfig(sandbox());
     expect(config).not.toBeNull();

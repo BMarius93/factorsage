@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { Component, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { guestSession } from "../../auth/__testing__/auth-session";
@@ -12,6 +11,9 @@ import { PricingPage } from "./PricingPage";
  * no catalog entry for, and the page lets that refusal reach the route's error boundary rather than
  * rendering around it.
  *
+ * The catalog sells one cadence, so every card is priced on the first render: the lost price —
+ * here Pro+'s monthly one — fails the page as it opens, not after a cadence switch.
+ *
  * Its own file because the catalog is replaced for the whole module graph.
  */
 
@@ -20,7 +22,7 @@ vi.mock("@intrinsic/contracts", async (importOriginal) => {
   return {
     ...actual,
     BILLING_CATALOG_ENTRIES: actual.BILLING_CATALOG_ENTRIES.filter(
-      (entry) => entry.key !== "PRO_YEARLY",
+      (entry) => entry.key !== "PRO_PLUS_MONTHLY",
     ),
   };
 });
@@ -44,6 +46,9 @@ vi.mock("../api/billing-api", () => ({
   changeBillingPlan: vi.fn(),
 }));
 
+/** What the stand-in boundary caught, so the test can say the page failed for the right reason. */
+const caught: unknown[] = [];
+
 /** Stands in for the `(app)` route's `error.tsx`. */
 class Boundary extends Component<
   { readonly children: ReactNode },
@@ -53,6 +58,10 @@ class Boundary extends Component<
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  override componentDidCatch(error: unknown) {
+    caught.push(error);
   }
 
   override render() {
@@ -66,6 +75,7 @@ class Boundary extends Component<
 
 describe("PricingPage with an incomplete catalog", () => {
   beforeEach(() => {
+    caught.length = 0;
     vi.mocked(useAuthSession).mockReturnValue(guestSession());
     // React reports the caught render error to the console; that report is the expected outcome.
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -75,20 +85,19 @@ describe("PricingPage with an incomplete catalog", () => {
     vi.restoreAllMocks();
   });
 
-  it("fails into the error boundary instead of quoting a price it does not have", async () => {
+  it("fails into the error boundary instead of quoting a price it does not have", () => {
     render(
       <Boundary>
         <PricingPage />
       </Boundary>,
     );
-    // Monthly prices are all present, so the page renders normally first.
-    expect(screen.getByTestId("plan-price-PRO").textContent).toContain("$");
-
-    await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
 
     expect(screen.getByTestId("route-error")).toBeTruthy();
     expect(screen.queryByTestId("billing-catalog")).toBeNull();
     expect(document.body.textContent).not.toContain("undefined");
+    // Refused for the price that is missing, not for some unrelated reason.
+    expect(caught).toHaveLength(1);
+    expect(String(caught[0])).toContain("No catalog entry for PRO_PLUS/MONTH");
     expect(fetchBillingStatus).not.toHaveBeenCalled();
     expect(startCheckout).not.toHaveBeenCalled();
   });

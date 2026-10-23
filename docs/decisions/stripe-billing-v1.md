@@ -2,6 +2,20 @@
 
 Status: accepted product and integration decision for V1 implementation
 
+**Amended 2026-10-23 — entitlements-v2.** `docs/decisions/entitlements-v2.md` adds a fourth plan,
+`PRO_PLUS` ("Pro+"), and replaces the catalog (§2 there). The catalog is now **three monthly prices**,
+each on a Stripe product of its own: `STARTER_MONTHLY` $19, `PRO_MONTHLY` $49, `PRO_PLUS_MONTHLY` $199
+(`STRIPE_PRICE_STARTER_MONTHLY`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_PLUS_MONTHLY`). The
+yearly prices are retired: `STARTER_YEARLY` and `PRO_YEARLY` are no longer keys, and a deployment with
+billing configured refuses to start while `STRIPE_PRICE_STARTER_YEARLY` or `STRIPE_PRICE_PRO_YEARLY`
+holds a value. Plan rank is `FREE < STARTER < PRO < PRO_PLUS`, and the transition matrix is by tier
+only (§9 there): any upgrade is immediate, any downgrade is scheduled for the period end, and
+cancellation goes through Customer Portal at the period end; the same-plan cadence rules of sections
+7–9 have nothing to classify unless a yearly price is re-added. Where the text below names the V1
+amounts, four prices, yearly keys or variables, the three-plan rank, or says there is no Pro+
+(sections 1, 2, 6, 7, 18, 19, 31, 32 and 33), it is the original V1 text, kept as written; every other
+rule stands. Monthly-only is entitlements-v2 §11, item 1, awaiting the owner's confirmation.
+
 This document is the source of truth for FactorSage Stripe Billing V1. It complements `docs/decisions/entitlements-v1.md`.
 
 The fundamental boundary is:

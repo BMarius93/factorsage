@@ -9,8 +9,8 @@ import {
  * What a FREE user sees and can do on the billing surface.
  *
  * FREE_USER is the persona with nothing bought, so it is the one that proves the purchase path
- * exists, that the four catalog options are offered, and — the part worth a browser test — that a
- * crafted request cannot buy something the catalog does not sell.
+ * exists, that the three monthly catalog prices are offered, and — the part worth a browser test —
+ * that a crafted request cannot buy something the catalog does not sell.
  *
  * No Stripe-hosted page is opened. The checkout button's job here is to reach the API and come back
  * with a Stripe URL; whether Stripe renders it is Stripe's problem and the sandbox smoke suite's.
@@ -29,24 +29,23 @@ test.describe("FREE billing", () => {
     expect(status.canChangePlan).toBe(false);
     expect(status.catalog.map((entry) => entry.key)).toEqual([
       "STARTER_MONTHLY",
-      "STARTER_YEARLY",
       "PRO_MONTHLY",
-      "PRO_YEARLY",
+      "PRO_PLUS_MONTHLY",
     ]);
   });
 
-  test("compares three plans, marks Free as current, and offers no billing management", async ({
+  test("compares four plans, marks Free as current, and offers no billing management", async ({
     page,
   }) => {
     await openBillingPage(page);
 
     await expect(page.getByTestId("billing-plan")).toHaveText("Free");
-    for (const plan of ["FREE", "STARTER", "PRO"]) {
+    for (const plan of ["FREE", "STARTER", "PRO", "PRO_PLUS"]) {
       await expect(page.getByTestId(`plan-card-${plan}`)).toBeVisible();
     }
-    // Three plans, three cards. Monthly and yearly are a property of a plan, not two products.
+    // Four plans, four cards: one per plan, never one per price.
     await expect(page.getByTestId("billing-catalog")).toBeVisible();
-    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(3);
+    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(4);
 
     await expect(page.getByTestId("plan-card-FREE")).toHaveAttribute(
       "data-current",
@@ -57,50 +56,35 @@ test.describe("FREE billing", () => {
       "Upgrade to Starter",
     );
     await expect(page.getByTestId("plan-action-PRO")).toHaveText("Upgrade to Pro");
+    await expect(page.getByTestId("plan-action-PRO_PLUS")).toHaveText(
+      "Upgrade to Pro+",
+    );
     await expect(page.getByTestId("manage-billing")).toHaveCount(0);
   });
 
-  test("re-prices the same three cards when the cadence changes", async ({ page }) => {
-    await openBillingPage(page);
-
-    await expect(page.getByTestId("plan-price-STARTER")).toContainText("$9");
-    await expect(page.getByTestId("plan-price-PRO")).toContainText("$29");
-    await expect(page.getByTestId("plan-action-STARTER")).toHaveAttribute(
-      "data-price-key",
-      "STARTER_MONTHLY",
-    );
-
-    await page.getByRole("radio", { name: "Yearly" }).check();
-
-    await expect(page.getByTestId("plan-price-STARTER")).toContainText("$99");
-    await expect(page.getByTestId("plan-price-PRO")).toContainText("$299");
-    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(3);
-    // The displayed cadence and the price the button will send must always agree.
-    await expect(page.getByTestId("plan-action-STARTER")).toHaveAttribute(
-      "data-price-key",
-      "STARTER_YEARLY",
-    );
-    await expect(page.getByTestId("plan-action-PRO")).toHaveAttribute(
-      "data-price-key",
-      "PRO_YEARLY",
-    );
-  });
-
-  test("keeps the cadence control keyboard-operable and semantically selected", async ({
+  test("prices every paid plan monthly, and sends the key of the price it shows", async ({
     page,
   }) => {
     await openBillingPage(page);
 
-    const monthly = page.getByRole("radio", { name: "Monthly" });
-    const yearly = page.getByRole("radio", { name: "Yearly" });
-    await expect(monthly).toBeChecked();
-
-    await monthly.focus();
-    await page.keyboard.press("ArrowRight");
-
-    await expect(yearly).toBeChecked();
-    await expect(monthly).not.toBeChecked();
-    await expect(page.getByTestId("plan-price-PRO")).toContainText("$299");
+    // The catalog sells one cadence, so there is no toggle: $19, $49 and $199 a month.
+    await expect(page.getByTestId("billing-interval-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("plan-price-STARTER")).toHaveText("$19/ month");
+    await expect(page.getByTestId("plan-price-PRO")).toHaveText("$49/ month");
+    await expect(page.getByTestId("plan-price-PRO_PLUS")).toHaveText("$199/ month");
+    // The displayed price and the price the button will send must always agree.
+    await expect(page.getByTestId("plan-action-STARTER")).toHaveAttribute(
+      "data-price-key",
+      "STARTER_MONTHLY",
+    );
+    await expect(page.getByTestId("plan-action-PRO")).toHaveAttribute(
+      "data-price-key",
+      "PRO_MONTHLY",
+    );
+    await expect(page.getByTestId("plan-action-PRO_PLUS")).toHaveAttribute(
+      "data-price-key",
+      "PRO_PLUS_MONTHLY",
+    );
   });
 
   test("stacks the plans on a phone without overflowing sideways", async ({
@@ -120,9 +104,9 @@ test.describe("FREE billing", () => {
       .evaluateAll((cards) =>
         cards.map((card) => Math.round(card.getBoundingClientRect().x)),
       );
-    expect(lefts).toHaveLength(3);
+    expect(lefts).toHaveLength(4);
     expect(new Set(lefts).size).toBe(1);
-    await expect(page.getByRole("radio", { name: "Yearly" })).toBeVisible();
+    await expect(page.getByTestId("plans-footnote")).toBeVisible();
   });
 
   test("reaches billing from the account menu", async ({ page }) => {
@@ -148,7 +132,9 @@ test.describe("FREE billing", () => {
       { priceKey: "PRO_MONTHLY", role: "ADMIN" },
       { priceKey: "PRO_MONTHLY", customerId: "cus_someone_else" },
       { priceKey: "PRO_MONTHLY", successUrl: "https://evil.test/granted" },
-      { priceKey: "PRO_PLUS_MONTHLY" },
+      // A retired key is a crafted key too: the catalog sells monthly prices only.
+      { priceKey: "PRO_YEARLY" },
+      { priceKey: "STARTER_YEARLY" },
       { priceKey: "price_1234" },
       {},
     ]) {

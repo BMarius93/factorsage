@@ -510,7 +510,8 @@ const STRIPE_PRICE_ENV_NAMES = {
  * Price variables of the retired annual catalog ($99 / $299, `docs/decisions/stripe-billing-v1.md`
  * §1, amended 2026-10-23). Refused rather than ignored: a deployment still configuring one was set
  * up for a catalog that no longer exists, and an operator should learn that at startup rather than
- * from a customer who was never offered the annual price they expected.
+ * from a customer who was never offered the annual price they expected. Existing subscribers on a
+ * retired price keep their plan through `STRIPE_LEGACY_PRICES` instead.
  */
 const RETIRED_STRIPE_PRICE_ENV_NAMES = [
   "STRIPE_PRICE_STARTER_YEARLY",
@@ -519,11 +520,27 @@ const RETIRED_STRIPE_PRICE_ENV_NAMES = [
 
 export type StripePriceKeyName = keyof typeof STRIPE_PRICE_ENV_NAMES;
 
+/**
+ * A retired Stripe price that existing subscriptions may still be billed on — a V1 monthly price
+ * ($9 / $29) or a retired annual one — and the plan it grants. Recognized so those subscribers keep
+ * their plan (grandfathered) instead of failing closed to Free; never sold, never a change target.
+ */
+export type StripeLegacyPrice = {
+  readonly priceId: string;
+  readonly plan: "STARTER" | "PRO" | "PRO_PLUS";
+  readonly interval: "MONTH" | "YEAR";
+};
+
 export type StripeBillingConfig = {
   readonly secretKey: string;
   readonly webhookSecret: string;
   /** Logical catalog key -> the Stripe Price ID configured for *this* environment. */
   readonly priceIds: Readonly<Record<StripePriceKeyName, string>>;
+  /**
+   * Retired prices still recognized for existing subscriptions (`STRIPE_LEGACY_PRICES`). Always
+   * present from `getStripeBillingConfig`; optional so a hand-built test configuration needs none.
+   */
+  readonly legacyPrices?: readonly StripeLegacyPrice[];
   /** True when the configured secret key is a test-mode/sandbox key. */
   readonly testMode: boolean;
   /** Where Stripe returns the browser after hosted Checkout. Server-configured, never client. */
@@ -566,6 +583,52 @@ function isStripeLiveSecret(secretKey: string): boolean {
  *
  * Never expose the returned object, or any field of it, to browser code.
  */
+/**
+ * `STRIPE_LEGACY_PRICES`: comma-separated `price_…=PLAN/INTERVAL` entries, e.g.
+ * `price_1AbC=STARTER/MONTH,price_2DeF=PRO/YEAR`. Each retired price keeps the subscribers billed on
+ * it on that plan. A malformed entry, an unknown plan or interval, a duplicate, or a price that is
+ * also a current catalog price is refused at startup: the one direction a typo here can fail in is
+ * granting the wrong plan.
+ */
+function parseStripeLegacyPrices(
+  raw: string | undefined,
+  currentPriceIds: ReadonlySet<string>,
+): StripeLegacyPrice[] {
+  if (!raw) {
+    return [];
+  }
+  const plans = ["STARTER", "PRO", "PRO_PLUS"] as const;
+  const intervals = ["MONTH", "YEAR"] as const;
+  const seen = new Set<string>();
+  const legacy: StripeLegacyPrice[] = [];
+  for (const entry of raw.split(",").map((part) => part.trim()).filter(Boolean)) {
+    const match = /^(price_[A-Za-z0-9_]+)=([A-Z_]+)\/([A-Z]+)$/.exec(entry);
+    const plan = plans.find((candidate) => candidate === match?.[2]);
+    const interval = intervals.find((candidate) => candidate === match?.[3]);
+    if (!match || !plan || !interval) {
+      throw new Error(
+        `Invalid application configuration: STRIPE_LEGACY_PRICES entry '${entry}' must be ` +
+          "price_…=PLAN/INTERVAL with PLAN one of STARTER, PRO, PRO_PLUS and INTERVAL MONTH or YEAR",
+      );
+    }
+    const priceId = match[1] as string;
+    if (currentPriceIds.has(priceId)) {
+      throw new Error(
+        `Invalid application configuration: ${priceId} is a current catalog price and cannot also be ` +
+          "a legacy price in STRIPE_LEGACY_PRICES",
+      );
+    }
+    if (seen.has(priceId)) {
+      throw new Error(
+        `Invalid application configuration: ${priceId} appears twice in STRIPE_LEGACY_PRICES`,
+      );
+    }
+    seen.add(priceId);
+    legacy.push({ priceId, plan, interval });
+  }
+  return legacy;
+}
+
 export function getStripeBillingConfig(
   env: Environment = process.env,
 ): StripeBillingConfig | null {
@@ -592,7 +655,9 @@ export function getStripeBillingConfig(
     throw new Error(
       `Invalid application configuration: ${retired.join(" and ")} ${verb} to the retired ` +
         `annual catalog and ${pronoun} no longer read; the catalog is Starter, Pro and Pro+ monthly ` +
-        "(STRIPE_PRICE_STARTER_MONTHLY, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_PLUS_MONTHLY)",
+        "(STRIPE_PRICE_STARTER_MONTHLY, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_PLUS_MONTHLY). " +
+        "To keep subscribers on a retired price on their plan, list it in STRIPE_LEGACY_PRICES " +
+        "(price_…=STARTER/YEAR) instead",
     );
   }
 
@@ -652,12 +717,18 @@ export function getStripeBillingConfig(
     priceIds[key] = value;
   }
 
+  const legacyPrices = parseStripeLegacyPrices(
+    optional(env, "STRIPE_LEGACY_PRICES"),
+    new Set(seen.keys()),
+  );
+
   const webBaseUrl = getWebBaseUrl(env);
 
   return {
     secretKey,
     webhookSecret,
     priceIds,
+    legacyPrices,
     testMode,
     // Defaults land on the web app's own billing page, so a working local setup needs no URL
     // configuration at all — and an override is still an absolute URL validated like any other.

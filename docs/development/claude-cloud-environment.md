@@ -148,9 +148,8 @@ QA_DOWNGRADED_PASSWORD=<at least 12 characters>
 QA_BILLING_PASSWORD=<at least 12 characters>
 SANDBOX_STRIPE_SECRET_KEY=<sk_test_… of the cloud sandbox>
 SANDBOX_STRIPE_PRICE_STARTER_MONTHLY=<price_…>
-SANDBOX_STRIPE_PRICE_STARTER_YEARLY=<price_…>
 SANDBOX_STRIPE_PRICE_PRO_MONTHLY=<price_…>
-SANDBOX_STRIPE_PRICE_PRO_YEARLY=<price_…>
+SANDBOX_STRIPE_PRICE_PRO_PLUS_MONTHLY=<price_…>
 PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 BASH_MAX_TIMEOUT_MS=14400000
 ```
@@ -166,6 +165,11 @@ BASH_MAX_TIMEOUT_MS=14400000
 - `SANDBOX_STRIPE_*` are deliberately **not** the names the application reads. `pnpm test`, a plain
   `pnpm dev:api` and Playwright therefore run without Stripe, exactly as CI does; only
   `scripts/cloud/with-stripe.sh` and `stack.sh up dev --stripe` map them onto `STRIPE_*`.
+- The three `SANDBOX_STRIPE_PRICE_*_MONTHLY` are the catalog's three monthly prices (§2.4), and
+  `with-stripe.sh` refuses to run unless each is a `price_…` id. An environment set up for the V1
+  catalog still has `SANDBOX_STRIPE_PRICE_STARTER_YEARLY` and `SANDBOX_STRIPE_PRICE_PRO_YEARLY`:
+  nothing reads them any more, so delete them, add `SANDBOX_STRIPE_PRICE_PRO_PLUS_MONTHLY`, and point
+  the Starter and Pro variables at the $19 and $49 prices.
 - Leave `NODE_ENV` unset: the application defaults to `development`, Vitest to `test`, and
   `next build` must choose `production` itself — an ambient `NODE_ENV=development` makes `pnpm build`
   fail while prerendering.
@@ -196,26 +200,31 @@ Dashboard:
    empty rather than copying another environment.
 2. Inside it, **Developers → API keys**: the secret key (`sk_test_…`) is
    `SANDBOX_STRIPE_SECRET_KEY`.
-3. Two products and four recurring USD prices, `interval_count` 1, per unit: **Starter** at $9 /
-   month and $99 / year, **Pro** at $29 / month and $299 / year. In the Dashboard (**Product
-   catalog → Add product**), or with your local Stripe CLI without logging it in:
+3. Three products — one per plan — and three recurring monthly USD prices, `interval_count` 1, per
+   unit: **Starter** at $19 / month, **Pro** at $49 / month, **Pro+** at $199 / month. In the
+   Dashboard (**Product catalog → Add product**), or with your local Stripe CLI without logging it
+   in:
 
    ```bash
    read -rs STRIPE_API_KEY && export STRIPE_API_KEY      # paste the cloud sandbox sk_test_ key
    stripe products create --name "Starter" --description "FactorSage Starter"
-   stripe prices create --product <prod_starter> --currency usd --unit-amount 900 \
+   stripe prices create --product <prod_starter> --currency usd --unit-amount 1900 \
      -d "recurring[interval]=month" --lookup-key factorsage_starter_monthly
-   stripe prices create --product <prod_starter> --currency usd --unit-amount 9900 \
-     -d "recurring[interval]=year" --lookup-key factorsage_starter_yearly
    stripe products create --name "Pro" --description "FactorSage Pro"
-   stripe prices create --product <prod_pro> --currency usd --unit-amount 2900 \
+   stripe prices create --product <prod_pro> --currency usd --unit-amount 4900 \
      -d "recurring[interval]=month" --lookup-key factorsage_pro_monthly
-   stripe prices create --product <prod_pro> --currency usd --unit-amount 29900 \
-     -d "recurring[interval]=year" --lookup-key factorsage_pro_yearly
+   stripe products create --name "Pro+" --description "FactorSage Pro+"
+   stripe prices create --product <prod_pro_plus> --currency usd --unit-amount 19900 \
+     -d "recurring[interval]=month" --lookup-key factorsage_pro_plus_monthly
    unset STRIPE_API_KEY
    ```
 
-   The four `price_…` ids are the four `SANDBOX_STRIPE_PRICE_*` values.
+   The three `price_…` ids are the three `SANDBOX_STRIPE_PRICE_*_MONTHLY` values. Pro+ needs a
+   product of its own: `pnpm billing:verify-catalog` refuses two plans sharing one. A sandbox that
+   already holds the V1 catalog keeps its Starter and Pro products; give their new price commands
+   `-d transfer_lookup_key=true`, because those lookup keys still belong to the $9 and $29 prices,
+   then archive the four V1 prices (`ai/architecture/billing.md`, _Stripe Dashboard configuration
+   checklist_).
 
 4. **Settings → Billing → Customer portal**, then save a configuration: payment-method update
    **on**, invoice history **on**, cancel subscriptions **on** and **at end of billing period**,
@@ -307,7 +316,7 @@ pnpm db:migrate:deploy && pnpm db:test:prepare
   sandbox. The API acknowledges unhandled types (`IGNORED_UNHANDLED_TYPE`), which is what makes a
   harmless probe possible. The signing secret is redacted from the listener's log.
 - **Billing QA personas** (`docs/development/billing-qa-personas.md`) are the scripted form of the
-  Test Clock runbook: five accounts with real sandbox subscriptions. Seeding and the opt-in
+  Test Clock runbook: six accounts with real sandbox subscriptions. Seeding and the opt-in
   validation suite go through `with-stripe.sh`; the browser suite runs on the ordinary `e2e` stack,
   which has no Stripe in it, because it only reads what reconciliation already produced. Without
   `--database test` the same commands target the development database, for `up dev --stripe`.

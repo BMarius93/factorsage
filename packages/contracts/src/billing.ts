@@ -298,9 +298,9 @@ export type BillingSubscriptionStatus =
 /**
  * The billing facts an effective-plan decision is allowed to depend on.
  *
- * `plan` and `interval` are `null` when the subscription's **current** price is not one of the
- * four configured prices — an archived legacy price, a Dashboard experiment, another environment's
- * price. That is a fail-closed state, not an error to swallow.
+ * `plan` and `interval` are `null` when the subscription's **current** price is neither one of the
+ * configured catalog prices nor a recognized retired one — a Dashboard experiment, another
+ * environment's price. That is a fail-closed state, not an error to swallow.
  */
 export type BillingSubscriptionSnapshot = {
   readonly status: BillingSubscriptionStatus;

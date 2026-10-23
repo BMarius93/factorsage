@@ -3,6 +3,8 @@ import {
   BILLING_CATALOG,
   BILLING_PRICE_KEYS,
   BillingError,
+  OFFERED_BILLING_INTERVALS,
+  findBillingPriceKey,
   type BillingInterval,
   type BillingPriceKey,
   type PaidPlan,
@@ -23,10 +25,22 @@ import {
  * never mapped.
  */
 export type ResolvedPrice = {
+  /**
+   * The logical price. For a **legacy** price (below) it is the catalog price of the same plan — the
+   * one a transition is classified from — never the price the subscription is billed on.
+   */
   readonly key: BillingPriceKey;
+  /** The Stripe price the subscription is actually billed on. */
   readonly priceId: string;
   readonly plan: PaidPlan;
+  /** The cadence actually billed, which for a legacy price may be one the catalog no longer sells. */
   readonly interval: BillingInterval;
+  /**
+   * True for a retired price listed in `STRIPE_LEGACY_PRICES`: existing subscribers billed on it keep
+   * its plan (grandfathered), but it is never sold and never a change target — `resolveKey` cannot
+   * reach it, because no logical key names it.
+   */
+  readonly legacy: boolean;
 };
 
 export class BillingCatalog {
@@ -45,15 +59,38 @@ export class BillingCatalog {
         priceId,
         plan: entry.plan,
         interval: entry.interval,
+        legacy: false,
       };
       byKey.set(key, resolved);
       byPriceId.set(priceId, resolved);
     }
 
+    // Retired prices resolve only by id. A transition from one is classified exactly as from the
+    // plan's current price: up a tier is an immediate upgrade, down a tier a period-end downgrade,
+    // and "the same plan at today's price" is no change at all — the subscriber stays grandfathered.
+    const legacyPrices = config.legacyPrices ?? [];
+    for (const legacy of legacyPrices) {
+      const key =
+        findBillingPriceKey(legacy.plan, OFFERED_BILLING_INTERVALS[0] ?? "MONTH") ??
+        findBillingPriceKey(legacy.plan, "MONTH");
+      if (!key) {
+        throw new BillingError("Billing catalog is misconfigured", {
+          code: "BILLING_CATALOG_MISCONFIGURED",
+        });
+      }
+      byPriceId.set(legacy.priceId, {
+        key,
+        priceId: legacy.priceId,
+        plan: legacy.plan,
+        interval: legacy.interval,
+        legacy: true,
+      });
+    }
+
     // `getStripeBillingConfig` already refuses duplicate ids at startup. Asserting it again here is
     // cheap and keeps the invariant local to the structure that depends on it: a collision would
     // silently make one logical price unreachable and the other ambiguous.
-    if (byPriceId.size !== BILLING_PRICE_KEYS.length) {
+    if (byPriceId.size !== BILLING_PRICE_KEYS.length + legacyPrices.length) {
       throw new BillingError("Billing catalog is misconfigured", {
         code: "BILLING_CATALOG_MISCONFIGURED",
       });

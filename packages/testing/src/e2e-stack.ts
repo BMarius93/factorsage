@@ -273,6 +273,8 @@ const PROVIDER_OVERRIDES = {
   // developer `.env` that still sets one must not stop every hermetic process from booting.
   STRIPE_PRICE_STARTER_YEARLY: "",
   STRIPE_PRICE_PRO_YEARLY: "",
+  // A developer's retired-price list names real Stripe prices; the hermetic stack has none.
+  STRIPE_LEGACY_PRICES: "",
 } as const;
 
 /**

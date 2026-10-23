@@ -1,6 +1,7 @@
 import {
   billingPlanRank,
   billingPriceKeyFor,
+  findBillingPriceKey,
   classifyBillingTransition,
   isPaidPlan,
   occupiesPaidSlot,
@@ -101,7 +102,9 @@ export function currentPriceKeyOf(
   ) {
     return null;
   }
-  return billingPriceKeyFor(subscription.plan, subscription.interval);
+  // `null` for a price the catalog no longer sells (a retired cadence): no card offers it, so no
+  // card may claim to be it either — the plan itself is still marked current by `billing.plan`.
+  return findBillingPriceKey(subscription.plan, subscription.interval);
 }
 
 /** The paid plan of a subscription that has ended, if any: the one a returning buyer left. */

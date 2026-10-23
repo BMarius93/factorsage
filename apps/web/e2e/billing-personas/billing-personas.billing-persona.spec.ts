@@ -1,3 +1,4 @@
+import type { BillingInterval, UserPlan } from "@intrinsic/contracts";
 import { BILLING_PERSONA_LIST } from "@intrinsic/testing/billing-personas";
 import { expect, test, type Page } from "../fixtures";
 import { openBillingPage, readBillingStatus } from "../utils/billing";
@@ -21,8 +22,16 @@ import { apiBaseUrl, type EntitlementsPayload } from "../utils/entitlements";
  * what each persona must be; the pages below are held to it.
  */
 
-const PLAN_LABEL = { FREE: "Free", STARTER: "Starter", PRO: "Pro" } as const;
-const INTERVAL_LABEL = { MONTH: "Monthly", YEAR: "Yearly" } as const;
+const PLAN_LABEL: Readonly<Record<UserPlan, string>> = {
+  FREE: "Free",
+  STARTER: "Starter",
+  PRO: "Pro",
+  PRO_PLUS: "Pro+",
+};
+const INTERVAL_LABEL: Readonly<Record<BillingInterval, string>> = {
+  MONTH: "Monthly",
+  YEAR: "Yearly",
+};
 
 /** Every request the page makes to a Stripe host. Always empty in a passing test. */
 function watchStripe(page: Page): string[] {
@@ -93,6 +102,9 @@ for (const persona of BILLING_PERSONA_LIST) {
       ).toHaveAttribute("data-current", "true");
       await expect(page.getByTestId("plan-current-badge")).toHaveCount(1);
       await expect(page.getByTestId("manage-billing")).toBeVisible();
+      // Four plans, and no cadence toggle: the catalog sells monthly prices only.
+      await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(4);
+      await expect(page.getByTestId("billing-interval-toggle")).toHaveCount(0);
 
       const subscription = page.getByTestId("billing-subscription");
       await expect(subscription).toBeVisible();
@@ -127,11 +139,16 @@ for (const persona of BILLING_PERSONA_LIST) {
           ).toContainText(
             `You keep ${PLAN_LABEL[expected.userPlan]} until then`,
           );
-          // No plan change is offered while the cancellation stands: the API would refuse it.
-          await expect(page.getByTestId("plan-action-STARTER")).toHaveCount(0);
-          await expect(page.getByTestId("plan-hint-STARTER")).toHaveText(
-            "Resume your subscription in Manage billing to change plan",
-          );
+          // No plan change is offered while the cancellation stands, up or down: the API would
+          // refuse it.
+          for (const plan of ["STARTER", "PRO_PLUS"] as const) {
+            await expect(page.getByTestId(`plan-action-${plan}`)).toHaveCount(
+              0,
+            );
+            await expect(page.getByTestId(`plan-hint-${plan}`)).toHaveText(
+              "Resume your subscription in Manage billing to change plan",
+            );
+          }
           await expect(page.getByTestId("plan-hint-FREE")).toHaveText(
             "Scheduled at the end of your current period",
           );
@@ -172,6 +189,9 @@ for (const persona of BILLING_PERSONA_LIST) {
           ).toBeEnabled();
           await expect(page.getByTestId("plan-action-STARTER")).toHaveText(
             "Upgrade to Starter",
+          );
+          await expect(page.getByTestId("plan-action-PRO_PLUS")).toHaveText(
+            "Upgrade to Pro+",
           );
           break;
       }

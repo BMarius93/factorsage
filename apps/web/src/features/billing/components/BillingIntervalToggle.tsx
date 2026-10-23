@@ -1,6 +1,6 @@
 "use client";
 
-import { BILLING_INTERVALS, type BillingInterval } from "@intrinsic/contracts";
+import { OFFERED_BILLING_INTERVALS, type BillingInterval } from "@intrinsic/contracts";
 import { INTERVAL_LABEL } from "../utils/format";
 import styles from "./BillingPage.module.css";
 
@@ -24,9 +24,10 @@ type BillingIntervalToggleProps = {
  * action. Only the look is shared: that component is a row of `aria-pressed` buttons, and the
  * cadence keeps its radios.
  *
- * It changes nothing but which of the four catalog prices each card offers. The cadence is never
- * sent on its own: a card's button carries the resolved logical price key, so what the page shows
- * and what the API is asked for cannot disagree.
+ * It changes nothing but which catalog prices each card offers. The cadence is never sent on its
+ * own: a card's button carries the resolved logical price key, so what the page shows and what the
+ * API is asked for cannot disagree. It offers only the cadences the catalog sells
+ * (`OFFERED_BILLING_INTERVALS`), and `PlanCatalog` does not render it at all while that is one.
  */
 export function BillingIntervalToggle({
   value,
@@ -39,7 +40,7 @@ export function BillingIntervalToggle({
       aria-label="Billing interval"
       data-testid="billing-interval-toggle"
     >
-      {BILLING_INTERVALS.map((interval) => (
+      {OFFERED_BILLING_INTERVALS.map((interval) => (
         <label
           key={interval}
           className={styles.segment}

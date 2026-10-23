@@ -52,10 +52,18 @@ const PRICE_IDS: Record<BillingPriceKey, string> = {
   PRO_PLUS_MONTHLY: "price_test_pro_plus_monthly",
 };
 
+/** Retired prices existing subscribers may still be billed on (`STRIPE_LEGACY_PRICES`). */
+const LEGACY_PRO_YEARLY = "price_test_legacy_pro_yearly";
+const LEGACY_STARTER_MONTHLY = "price_test_legacy_starter_monthly";
+
 const BILLING_CONFIG: StripeBillingConfig = {
   secretKey: "sk_test_integration",
   webhookSecret: WEBHOOK_SECRET,
   priceIds: PRICE_IDS,
+  legacyPrices: [
+    { priceId: LEGACY_PRO_YEARLY, plan: "PRO", interval: "YEAR" },
+    { priceId: LEGACY_STARTER_MONTHLY, plan: "STARTER", interval: "MONTH" },
+  ],
   testMode: true,
   checkoutSuccessUrl: "http://localhost:3000/billing?checkout=success",
   checkoutCancelUrl: "http://localhost:3000/billing?checkout=cancelled",
@@ -103,7 +111,10 @@ describe("billing", () => {
               const key = (Object.keys(PRICE_IDS) as BillingPriceKey[]).find(
                 (candidate) => PRICE_IDS[candidate] === priceId,
               );
-              return key ? BILLING_CATALOG[key].interval : null;
+              const legacy = BILLING_CONFIG.legacyPrices?.find(
+                (candidate) => candidate.priceId === priceId,
+              );
+              return key ? BILLING_CATALOG[key].interval : (legacy?.interval ?? null);
             },
           }),
       })
@@ -556,6 +567,68 @@ describe("billing", () => {
       expect(result.planReason).toBe("PRICE_NOT_IN_CATALOG");
       expect(result.anomalous).toBe(true);
       expect(await planOf()).toBe("FREE");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Retired (legacy) prices — entitlements-v2 §2
+  // -------------------------------------------------------------------------
+
+  describe("subscribers on a retired price", () => {
+    async function givenLegacy(priceId: string) {
+      const customerId = stripe.seedCustomer(userId);
+      await prisma.user.update({ where: { id: userId }, data: { stripeCustomerId: customerId } });
+      const subscription = stripe.seedSubscription({ customerId, priceId });
+      const result = await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+      return { customerId, subscriptionId: subscription.id, result };
+    }
+
+    it("keep their plan (grandfathered) instead of failing closed to Free", async () => {
+      const { result } = await givenLegacy(LEGACY_PRO_YEARLY);
+      expect(result.plan).toBe("PRO");
+      expect(result.planReason).toBe("SUBSCRIPTION_ACTIVE");
+      expect(result.anomalous).toBe(false);
+      const mirror = await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } });
+      expect(mirror).toMatchObject({
+        plan: "PRO",
+        billingInterval: "YEAR",
+        stripePriceId: LEGACY_PRO_YEARLY,
+      });
+    });
+
+    it("move up a tier immediately, onto today's price", async () => {
+      const { subscriptionId } = await givenLegacy(LEGACY_STARTER_MONTHLY);
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_PLUS_MONTHLY" })
+        .expect(201);
+      expect(response.body).toMatchObject({ effect: "IMMEDIATE", kind: "TIER_UPGRADE", plan: "PRO_PLUS" });
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(PRICE_IDS.PRO_PLUS_MONTHLY);
+    });
+
+    it("move down a tier at period end, keeping the paid period", async () => {
+      await givenLegacy(LEGACY_PRO_YEARLY);
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "STARTER_MONTHLY" })
+        .expect(201);
+      expect(response.body).toMatchObject({ effect: "SCHEDULED", kind: "TIER_DOWNGRADE" });
+      expect(await planOf()).toBe("PRO");
+    });
+
+    it("are already on their plan: today's price of the same plan is not a change", async () => {
+      const { subscriptionId } = await givenLegacy(LEGACY_PRO_YEARLY);
+      const refused = await agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" });
+      expect(refused.status).toBeGreaterThanOrEqual(400);
+      expect((refused.body as { code: string }).code).toBe("BILLING_CHANGE_NOT_ALLOWED");
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(LEGACY_PRO_YEARLY);
+    });
+
+    it("cannot be bought: no logical key names a retired price", async () => {
+      const response = await agent
+        .post("/billing/checkout")
+        .send({ priceKey: "PRO_YEARLY" });
+      expect(response.status).toBe(400);
     });
   });
 
