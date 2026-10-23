@@ -56,6 +56,17 @@ result, as the integration test proves value by value. All the evictions in the 
 in preparation, which still rebuilds each non-resident security once (1,000 rebuilds, 22 minutes
 here); none happened in the windows.
 
+**Over 30 years** (`F-ordinary-30y`: the same list, 31 windows, alone, `STORE`): execution
+**1,681 s (28.0 min)** — preparation 978 s (600 rebuilds from PostgreSQL, 1.6 s each), window reads
+680 s (15,500 frames read from PostgreSQL, 500 per window, ~22 s per full-year window), simulation
+19 s, persistence 3 s. The 1,000-security mixed list, fully resident, takes 132 s (§3): a list whose
+ordinary members exceed the LRU costs ~13× as much, and is the slowest workload measured. With the
+previous behaviour the windows alone would have rebuilt 500–1,000 securities each, on the order of
+6–12 hours. The worker peaked at 2.08 GB and used 2,875 CPU-seconds in 1,681 s (1.7 cores: part
+of its work runs off the JavaScript thread); PostgreSQL had ≤ 18 connections and read 10.2 GB of
+blocks — on this machine's network block storage a window read from PostgreSQL costs ~40 ms per security-year, about
+ten times a Redis frame read (3.5 ms).
+
 ## 3. Per-plan workloads and four simultaneous executions (warm cache)
 
 30-year runs ending on the newest stored session (2026-10-22), the simple strategy (SMA 200

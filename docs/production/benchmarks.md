@@ -27,7 +27,8 @@ Consequences, stated once and assumed everywhere:
   The real provider was sampled separately and only through the guarded live command (§4).
 - **Synthetic histories are uniformly long.** Every synthetic security has a full 34-year retention
   window (30 product years + 4 warm-up), so per-security work and memory are the _worst case_; the
-  real S&P 500 point-in-time universe averaged 0.74 MB per security in Redis against 1.6 MB here.
+  real S&P 500 point-in-time universe averaged 0.74 MB per security in Redis against 1.05 MB here
+  (`benchmark-results.md` §1).
 - **The machine is smaller than production** and shares its disk and CPU with PostgreSQL, Redis, the
   synthetic provider and the measuring process. Every run records the machine; scaling to the
   reference host is done explicitly in `capacity-model.md`, never assumed.

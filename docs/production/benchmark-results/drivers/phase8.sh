@@ -84,6 +84,8 @@ note pg-exhaustion "\"holder\":\"$(tr '\n' ' ' < "$ROOT/artifacts/scale-benchmar
 # 7. FMP rate-limit exhaustion during a true miss: every provider request refused (429) for 90 s.
 ( sleep 20; curl -s "http://127.0.0.1:4790/__synthetic/outage?ms=90000&status=429" > /dev/null; ) &
 bench F8-C-miss-fmp-outage --scenario C --cache miss --mix mixed --strategy simple --timeout-minutes 90
+# A worker killed while it hydrates first-time securities from the provider.
+bench F8-C-miss-kill-worker --scenario C --cache miss --mix mixed --strategy simple --chaos kill-worker --chaos-at-s 30 --timeout-minutes 60
 # 8. Partial provider failures: every 7th request answered 500 during a true miss.
 synthetic --fail-every 7 --fail-status 500
 bench F8-B-miss-partial-failures --scenario B --cache miss --mix mixed --strategy simple --timeout-minutes 60
@@ -93,7 +95,7 @@ audit after-provider-failures
 #    (stock EOD child + Monitor pass, 100 users, 300 Monitors, 9,000 members) alone, then while
 #    four backtests execute back to back on the same machine and PostgreSQL server.
 monitor_bench() {
-  (cd "$ROOT/apps/worker" && env -u FMP_API_KEY timeout 5400 ./node_modules/.bin/tsx src/monitor/capacity-bench.ts \
+  (cd "$ROOT/apps/worker" && env -u FMP_API_KEY DATABASE_URL="$BENCH_DATABASE_URL" REDIS_URL="$BENCH_REDIS_URL" TEST_REDIS_URL="$BENCH_REDIS_URL" timeout 5400 ./node_modules/.bin/tsx src/monitor/capacity-bench.ts \
     --scenario=growing --days=2 --out="$RES/monitor-$1.json" > "$ROOT/artifacts/scale-benchmark/monitor-$1.log" 2>&1)
   note monitor-bench "\"label\":\"$1\",\"exit\":$?"
 }

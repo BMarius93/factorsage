@@ -1,8 +1,8 @@
 # FactorSage production stack — one host, Docker Compose (`docs/production/RUNBOOK.md`).
 #
-# Sizing is for the reference host in `docs/production/architecture.md`: 8 vCPU, 32 GB RAM, NVMe SSD.
-# Every limit below is derived from the measurements in `docs/production/benchmarks.md`; change them
-# together with that document, never one in isolation.
+# Sizing is for the reference host in `docs/production/architecture.md` §3: 8 dedicated vCPU, 32 GB RAM,
+# NVMe SSD. Every limit below is derived from the measurements in `docs/production/benchmark-results.md`;
+# change them together with architecture.md §3.2, never one in isolation.
 #
 #   docker compose --env-file /etc/factorsage/compose.env -f deploy/production/docker-compose.yml up -d
 #
@@ -121,9 +121,9 @@ services:
     stop_grace_period: 45s
     deploy:
       resources:
-        # Seven Node processes: four backtest children (the 1,000-symbol runs measured up to the
-        # per-process peak in benchmarks.md), Monitor, market-data and stock-EOD children.
-        limits: { cpus: "5.0", memory: 14G }
+        # Seven Node processes: four backtest children (2.1 GB each at most, measured while preparation
+        # rebuilds ~1,000 securities; 0.5 GB executing), Monitor, market-data and stock-EOD children.
+        limits: { cpus: "5.0", memory: 12G }
 
   # The schema job: applied before the API or worker of a release starts (depends_on above).
   migrate:
@@ -183,8 +183,9 @@ services:
     stop_grace_period: 60s
     deploy:
       resources:
-        # maxmemory (redis.conf) plus headroom for the copy-on-write fork of a snapshot.
-        limits: { cpus: "1.0", memory: 9G }
+        # maxmemory (redis.conf, 4 GB) plus 1 GB for Redis's own buffers and the copy-on-write fork of a
+        # snapshot (measured: 5 MB copied while saving 1.2 GB).
+        limits: { cpus: "1.0", memory: 5G }
 
 networks:
   # Caddy, web, API and worker: published ports in, provider and payment traffic out.

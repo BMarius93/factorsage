@@ -52,3 +52,5 @@ OK
 {"event":"phase4.start","label":"H-warm-mixed-shared-complex","at":"2026-10-23T22:25:31Z"}
 {"event":"phase4.done","label":"H-warm-mixed-shared-complex","exit":0,"seconds":211,"at":"2026-10-23T22:29:02Z"}
 {"event":"phase4.start","label":"F-ordinary-30y","at":"2026-10-23T22:29:02Z"}
+{"event":"phase4.done","label":"F-ordinary-30y","exit":0,"seconds":1693,"at":"2026-10-23T22:57:15Z"}
+{"event":"phase4.start","label":"H-warm-mixed-disjoint","at":"2026-10-23T22:57:15Z"}

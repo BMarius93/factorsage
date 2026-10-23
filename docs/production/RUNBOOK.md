@@ -9,8 +9,8 @@ smoke-tested in a development container (`PRODUCTION-READINESS-REPORT.md` §E sa
 
 ## 1. Provision the host
 
-1. A VM per `architecture.md` (reference: 8 vCPU, 32 GB RAM, ≥ 200 GB NVMe), Ubuntu 24.04 LTS,
-   with a static public IP. Point `APP_DOMAIN` and `API_DOMAIN` (A/AAAA) at it.
+1. A VM per `architecture.md` §3 (reference: 8 dedicated vCPU, 32 GB RAM, ≥ 240 GB NVMe),
+   Ubuntu 24.04 LTS, with a static public IP. Point `APP_DOMAIN` and `API_DOMAIN` (A/AAAA) at it.
 2. Firewall: inbound 22 (your admin IPs only), 80 and 443 (TCP) and 443 (UDP, HTTP/3). Nothing else:
    PostgreSQL and Redis are never published (`docker-compose.yml` puts them on an `internal` network).
 3. Docker Engine and the compose plugin from Docker's repository; enable unattended security upgrades.
