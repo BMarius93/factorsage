@@ -167,16 +167,42 @@ describe("a running Monitor's synchronization", () => {
     ).toBe("SYNCHRONIZING");
   });
 
-  it("says which current members are covered, awaiting data, or recorded only since a later day", async () => {
+  it("is still synchronizing while a member's missing window sessions have not been decided", async () => {
+    // One member's recorded evaluation begins on Oct 6: the worker completes the window (§12.2), so
+    // this is not partial history — only a recent checkpoint.
     const state = await read({ watchingSince: watched, lastScanAt: watched });
     expect(state).toEqual({
-      state: "PARTIAL",
+      state: "SYNCHRONIZING",
       windowStart: "2026-09-15",
       currentMembers: 4,
       coveredMembers: 2,
       awaitingMembers: 1,
-      historyFrom: "2026-10-06",
     });
+  });
+
+  it("says which members are awaiting data, and which have history that cannot be completed", async () => {
+    const [, b] = securities as [string, string];
+    // The worker found the missing sessions irreconcilable with what is recorded for the member.
+    await prisma.monitorEvaluationCheckpoint.update({
+      where: { monitorId_securityId: { monitorId, securityId: b } },
+      data: { coverageBlockedFrom: day("2026-09-15") },
+    });
+    try {
+      const state = await read({ watchingSince: watched, lastScanAt: watched });
+      expect(state).toEqual({
+        state: "PARTIAL",
+        windowStart: "2026-09-15",
+        currentMembers: 4,
+        coveredMembers: 2,
+        awaitingMembers: 1,
+        historyFrom: "2026-10-06",
+      });
+    } finally {
+      await prisma.monitorEvaluationCheckpoint.update({
+        where: { monitorId_securityId: { monitorId, securityId: b } },
+        data: { coverageBlockedFrom: null },
+      });
+    }
   });
 
   it("is synchronized once every current member covers the window", async () => {

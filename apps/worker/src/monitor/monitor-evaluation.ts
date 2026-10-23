@@ -45,12 +45,17 @@ import {
   type ActiveMonitor,
   type ActiveMonitorMember,
   type LevelSessionsWrite,
+  type MemberRecord,
   type MonitorEvaluationRepository,
   type PersistedCheckpoint,
   type PersistedSignalState,
   type TransitionOrigin,
 } from "./monitor-repository.js";
 import { decideLevelSessions } from "./session-decision.js";
+import {
+  planCoverageBackfill,
+  type CoveragePlan,
+} from "./coverage-backfill.js";
 
 /**
  * One Monitor EOD evaluation pass (`docs/decisions/monitor-eod-v2.md` §3).
@@ -166,6 +171,18 @@ export type MonitorEvaluationSummary = {
   contended: number;
   /** Member writes discarded because the Monitor was rebound meanwhile. */
   staleConfiguration: number;
+  /**
+   * Members whose recorded evaluation began inside their activity window and whose missing
+   * sessions were decided and recorded this pass (`docs/decisions/monitor-eod-v2.md` §12.2).
+   */
+  membersBackfilled: number;
+  /** Missing window sessions decided by those back-fills, summed over members and levels. */
+  sessionsBackfilled: number;
+  /**
+   * Members whose missing window sessions could not be reconciled with what is recorded for them:
+   * nothing was written, and they report partial history until the window moves past the conflict.
+   */
+  membersBackfillBlocked: number;
   securitiesFailed: number;
   aborted: boolean;
 };
@@ -195,6 +212,36 @@ type PreparedMonitor = {
   lastRecorded: ReadonlyMap<string, LocalDate>;
   /** Securities with any persisted state: never replayed, whatever their checkpoint says. */
   securitiesWithState: ReadonlySet<string>;
+};
+
+/** A member whose recorded evaluation begins after the first session its window requires. */
+type BackfillCandidate = {
+  entry: Entry;
+  /** The window's first day, or the membership's start when that is later. */
+  required: LocalDate;
+  record: MemberRecord;
+};
+
+/**
+ * How many later starts a back-fill tries after recorded decisions disagree with the canonical
+ * history inside the missing sessions — each one after the newest disagreement found so far.
+ */
+const MAX_BACKFILL_ATTEMPTS = 4;
+
+/** What one pass knows when it evaluates one security. */
+type SecurityPass = {
+  security: Security;
+  entries: readonly Entry[];
+  operands: readonly OperandKey[];
+  etfOperands: readonly OperandKey[];
+  etfSnapshots: EtfTechnicalSnapshots;
+  /** ETFs whose snapshot could not be read this pass — never the same as an ETF that is behind. */
+  etfUnreadable: ReadonlySet<string>;
+  sectorCode: StrategyEtfSourceCode | null;
+  expected: FinalizedSession;
+  now: Date;
+  summary: MonitorEvaluationSummary;
+  cycleSequence: number;
 };
 
 type Entry = {
@@ -228,7 +275,18 @@ export class MonitorEodEvaluation {
   ): Promise<MonitorEvaluationSummary> {
     const startedAt = Date.now();
     const now = this.now();
-    const expected = await this.policy.expectedSession();
+    const expected = await this.policy.expectedSession(undefined, now);
+    // The Dashboard's window ends on the session this canonical policy found (§12.3); recording it
+    // is observability, never a reason to fail the pass.
+    await this.repository
+      .recordExpectedSession(expected, now)
+      .catch((err: unknown) => {
+        this.logger.warn({
+          event: "monitor.expected-session.record-failed",
+          cycleSequence,
+          err,
+        });
+      });
     if (expected.calendar === "WEEKDAYS") {
       this.logger.warn({
         event: "monitor.evaluation.calendar-unavailable",
@@ -262,6 +320,9 @@ export class MonitorEodEvaluation {
       membersReplayed: 0,
       contended: 0,
       staleConfiguration: 0,
+      membersBackfilled: 0,
+      sessionsBackfilled: 0,
+      membersBackfillBlocked: 0,
       securitiesFailed: 0,
       aborted: false,
     };
@@ -553,23 +614,24 @@ export class MonitorEodEvaluation {
   }
 
   /**
-   * Evaluates every (Monitor, member) watching one security, from one readiness answer and one
-   * frame, and persists each member in its own transaction.
+   * Evaluates every (Monitor, member) watching one security: its newly finalized sessions first,
+   * then any sessions of its activity window its recorded evaluation is missing.
    */
-  private async evaluateSecurity(input: {
-    security: Security;
-    entries: readonly Entry[];
-    operands: readonly OperandKey[];
-    etfOperands: readonly OperandKey[];
-    etfSnapshots: EtfTechnicalSnapshots;
-    /** ETFs whose snapshot could not be read this pass — never the same as an ETF that is behind. */
-    etfUnreadable: ReadonlySet<string>;
-    sectorCode: StrategyEtfSourceCode | null;
-    expected: FinalizedSession;
-    now: Date;
-    summary: MonitorEvaluationSummary;
-    cycleSequence: number;
-  }): Promise<void> {
+  private async evaluateSecurity(input: SecurityPass): Promise<void> {
+    const written = new Set<Entry>();
+    await this.evaluateForward(input, written);
+    await this.backfillCoverage(input, written);
+  }
+
+  /**
+   * Decides every (Monitor, member) watching one security forward from its checkpoint, from one
+   * readiness answer and one frame, and persists each member in its own transaction.
+   */
+  private async evaluateForward(
+    input: SecurityPass,
+    /** Members this pass wrote, so their coverage is checked with what they now hold. */
+    written: Set<Entry>,
+  ): Promise<void> {
     const { security, entries, expected, summary } = input;
     const state = await this.data.stockRefreshState(security);
     // The newest session this security is ready for: its bar proven final, its derived state
@@ -867,6 +929,7 @@ export class MonitorEodEvaluation {
         }
         summary.levelsReconstructed += item.reconstructed;
         summary.membersReplayed += item.replayed ? 1 : 0;
+        written.add(item.plan.entry);
         await this.persist(
           item.plan.entry,
           security,
@@ -887,6 +950,275 @@ export class MonitorEodEvaluation {
       }
       return;
     }
+  }
+
+  /**
+   * Records the sessions of each member's activity window that its recorded evaluation is missing
+   * (`docs/decisions/monitor-eod-v2.md` §12.2): a checkpoint written before coverage was recorded,
+   * a rebound Monitor's window replay that started after the sessions its previous binding
+   * recorded, a restored membership.
+   *
+   * Only members whose coverage begins after their window's first session (or their membership's)
+   * are read at all, and each is decided from one frame of the security, read from PostgreSQL. The
+   * missing sessions are decided by the canonical evaluator, verified against the member's state and
+   * recorded history, and only what is missing is appended (`planCoverageBackfill`). A member whose
+   * recorded decisions cannot be reconciled is left exactly as it is and marked, so it is not
+   * decided again until its window has moved past the conflict.
+   */
+  private async backfillCoverage(
+    input: SecurityPass,
+    written: ReadonlySet<Entry>,
+  ): Promise<void> {
+    const { security, summary } = input;
+    const candidates = input.entries.flatMap((entry) => {
+      const windowStart = entry.prepared.windowStart;
+      if (windowStart === null) {
+        return [];
+      }
+      const required = latestOf(
+        windowStart,
+        entry.membershipStart ?? windowStart,
+      );
+      if (!written.has(entry)) {
+        const checkpoint = entry.prepared.checkpoints.get(
+          entry.member.securityId,
+        );
+        if (
+          !checkpoint ||
+          checkpoint.configVersion !== entry.prepared.monitor.configVersion ||
+          !coverageMissing(checkpoint, required)
+        ) {
+          return [];
+        }
+      }
+      return [{ entry, required }];
+    });
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const loaded: BackfillCandidate[] = [];
+    for (const { entry, required } of candidates) {
+      const { monitor } = entry.prepared;
+      const record = await this.repository.loadMemberRecord(
+        monitor.monitorId,
+        security.id,
+      );
+      if (
+        !record ||
+        record.checkpoint.configVersion !== monitor.configVersion ||
+        !coverageMissing(record.checkpoint, required) ||
+        // Progress under another membership is rebuilt forward first, by the next pass.
+        (record.checkpoint.membership !== undefined &&
+          record.checkpoint.membership.start !== entry.membershipStart) ||
+        // So is a level whose logic was edited since its state was written.
+        entry.prepared.levels.some((level) => {
+          const state = record.states.get(level.id);
+          return (
+            state !== undefined && state.signalFingerprint !== level.fingerprint
+          );
+        })
+      ) {
+        continue;
+      }
+      loaded.push({ entry, required, record });
+    }
+    if (loaded.length === 0) {
+      return;
+    }
+
+    const historyStart = this.data.reconstructionHistoryStart(security);
+    const oldest = loaded.reduce(
+      (date, item) => (item.required < date ? item.required : date),
+      loaded[0]!.required,
+    );
+    const newest = loaded.reduce(
+      (date, item) =>
+        item.record.checkpoint.evaluatedThrough > date
+          ? item.record.checkpoint.evaluatedThrough
+          : date,
+      loaded[0]!.record.checkpoint.evaluatedThrough,
+    );
+    let sessions =
+      this.options.reconstructionSessions ?? DEFAULT_RECONSTRUCTION_SESSIONS;
+    for (;;) {
+      let from = addDays(oldest, -monitorWindowCalendarDays(sessions));
+      const complete = from <= historyStart;
+      if (complete && historyStart <= newest) {
+        from = historyStart;
+      }
+      let read: { frame: EvaluationFrame; priceBasisGeneration: number };
+      try {
+        read = await this.data.readFinalizedEvaluationFrame(
+          security,
+          { from, to: newest },
+          input.operands,
+        );
+      } catch (err) {
+        if (err instanceof PriceBasisChangedError) {
+          this.logger.warn({
+            event: "monitor.evaluation.history-rebased",
+            cycleSequence: input.cycleSequence,
+            symbol: security.symbol,
+            expectedGeneration: err.expectedGeneration,
+            actualGeneration: err.actualGeneration,
+          });
+          return;
+        }
+        throw err;
+      }
+      const frame =
+        input.etfOperands.length > 0
+          ? withEtfOperandColumns(
+              read.frame,
+              input.etfOperands,
+              input.etfSnapshots,
+              input.sectorCode,
+            )
+          : read.frame;
+      const planned = loaded.map((item) => ({
+        item,
+        ...this.planBackfill(item, frame, complete),
+      }));
+      if (
+        planned.some(({ plan }) => plan.kind === "DEEPER_HISTORY") &&
+        !complete
+      ) {
+        summary.reconstructionHistoryExtensions += 1;
+        sessions *= 2;
+        continue;
+      }
+      for (const { item, plan, from: start } of planned) {
+        await this.applyBackfill(item, plan, start, input);
+      }
+      return;
+    }
+  }
+
+  /**
+   * One member's back-fill plan, from its window's first session — or, when recorded decisions
+   * disagree with the canonical history only inside the missing sessions, from the day after the
+   * newest of them: the recorded decisions before it stay as they are.
+   */
+  private planBackfill(
+    item: BackfillCandidate,
+    frame: EvaluationFrame,
+    complete: boolean,
+  ): { plan: CoveragePlan; from: LocalDate } {
+    const { entry, record } = item;
+    const start = entry.membershipStart;
+    const monitoredOn = (date: LocalDate): boolean =>
+      start === null || date >= start;
+    let from = item.required;
+    for (let attempt = 0; ; attempt += 1) {
+      const plan = planCoverageBackfill({
+        levels: entry.prepared.levels,
+        strategyVersionId: entry.prepared.monitor.strategyVersionId,
+        frame,
+        historyComplete: complete,
+        from,
+        monitoredOn,
+        record,
+      });
+      if (
+        plan.kind === "CONFLICT" &&
+        plan.retryFrom !== undefined &&
+        plan.retryFrom > from &&
+        plan.retryFrom < record.checkpoint.coverageStart &&
+        attempt < MAX_BACKFILL_ATTEMPTS
+      ) {
+        from = plan.retryFrom;
+        continue;
+      }
+      return { plan, from };
+    }
+  }
+
+  private async applyBackfill(
+    item: BackfillCandidate,
+    plan: CoveragePlan,
+    from: LocalDate,
+    input: SecurityPass,
+  ): Promise<void> {
+    const { entry, record, required } = item;
+    const { monitor } = entry.prepared;
+    const { security, summary } = input;
+    if (plan.kind === "DEEPER_HISTORY") {
+      return;
+    }
+    if (plan.kind === "CONFLICT") {
+      if (plan.reason === "LOGIC_CHANGED") {
+        return;
+      }
+      await this.repository.markCoverageBlocked({
+        monitorId: monitor.monitorId,
+        configVersion: monitor.configVersion,
+        securityId: security.id,
+        evaluatedThrough: record.checkpoint.evaluatedThrough,
+        blockedFrom: required,
+      });
+      summary.membersBackfillBlocked += 1;
+      this.logger.warn({
+        event: "monitor.coverage.blocked",
+        cycleSequence: input.cycleSequence,
+        monitorId: monitor.monitorId,
+        actorUserId: monitor.actorUserId ?? undefined,
+        symbol: security.symbol,
+        reason: plan.reason,
+        levelId: plan.levelId,
+        ...(plan.session ? { session: plan.session } : {}),
+        required,
+        coverageStart: record.checkpoint.coverageStart,
+      });
+      return;
+    }
+    const partial = from > required;
+    const result = await this.repository.applyCoverageBackfill({
+      monitorId: monitor.monitorId,
+      configVersion: monitor.configVersion,
+      securityId: security.id,
+      now: input.now,
+      expected: {
+        evaluatedThrough: record.checkpoint.evaluatedThrough,
+        coverageStart: record.checkpoint.coverageStart,
+      },
+      states: [...record.states.values()].map((state) => ({
+        id: state.id,
+        stateVersion: state.stateVersion,
+      })),
+      coverageStart: from,
+      coverageBlockedFrom: partial ? required : null,
+      levels: plan.levels,
+    });
+    if (!result.applied) {
+      if (result.staleConfiguration) {
+        summary.staleConfiguration += 1;
+      } else {
+        summary.contended += 1;
+      }
+      return;
+    }
+    summary.membersBackfilled += 1;
+    summary.sessionsBackfilled += plan.sessions;
+    summary.transitionsRecorded += result.transitions;
+    summary.signalsOpened += result.openedSignals;
+    summary.signalsClosed += result.closedSignals;
+    if (partial) {
+      summary.membersBackfillBlocked += 1;
+    }
+    this.logger.info({
+      event: "monitor.coverage.backfilled",
+      cycleSequence: input.cycleSequence,
+      monitorId: monitor.monitorId,
+      actorUserId: monitor.actorUserId ?? undefined,
+      symbol: security.symbol,
+      coverageStart: from,
+      previousCoverageStart: record.checkpoint.coverageStart,
+      required,
+      sessions: plan.sessions,
+      transitions: result.transitions,
+      signals: result.openedSignals,
+    });
   }
 
   /**
@@ -1328,6 +1660,24 @@ export class MonitorEodEvaluation {
       });
     }
   }
+}
+
+/**
+ * Whether a member's recorded evaluation begins after the first session its window requires, and a
+ * back-fill has not already found that start irreconcilable.
+ */
+function coverageMissing(
+  checkpoint: {
+    coverageStart: LocalDate;
+    coverageBlockedFrom: LocalDate | undefined;
+  },
+  required: LocalDate,
+): boolean {
+  return (
+    checkpoint.coverageStart > required &&
+    (checkpoint.coverageBlockedFrom === undefined ||
+      checkpoint.coverageBlockedFrom < required)
+  );
 }
 
 function latestOf(...dates: readonly LocalDate[]): LocalDate {

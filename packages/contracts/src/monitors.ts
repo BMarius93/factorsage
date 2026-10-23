@@ -158,9 +158,10 @@ export const MONITOR_ACTIVITY_WINDOW_DAYS = 30;
 
 /**
  * The first calendar day of the activity window that ends on `latest` (a `YYYY-MM-DD` date):
- * `latest` itself and the 29 days before it. The worker anchors it on the newest finalized session
- * of its pass, the Dashboard on the newest finalized date, which is never earlier — so the days the
- * Dashboard shows are always days the worker evaluated.
+ * `latest` itself and the 29 days before it, inclusive — exactly 30 calendar days. Both the worker
+ * and the Dashboard anchor it on the newest **finalized session** by the canonical end-of-day policy
+ * (`docs/decisions/monitor-eod-v2.md` §12.3) — never a weekend or a holiday — so the window the
+ * Dashboard shows is the window the worker evaluated: latest session Oct 23, 2026 → Sep 24 – Oct 23.
  */
 export function monitorActivityWindowStart(latest: string): string {
   if (!isLocalDate(latest)) {
@@ -175,13 +176,15 @@ export function monitorActivityWindowStart(latest: string): string {
  * Where a running Monitor's evaluation stands against its activity window (`monitor-eod-v2.md` §12),
  * read from durable checkpoints — never from a timestamp alone.
  *
- * - `SYNCHRONIZING` — it started running (enabled, re-enabled, unblocked, rebound) and no evaluation
- *   pass has completed since: its missing sessions are queued or being evaluated;
- * - `SYNCHRONIZED` — a pass has completed since, every current member has been evaluated, and every
- *   member's recorded evaluation covers the whole window;
- * - `PARTIAL` — a pass has completed since, but some current members have no evaluation yet (their
- *   market data is not available) or a member's recorded evaluation begins inside the window
- *   (history before it was never recorded session by session, and is not invented).
+ * - `SYNCHRONIZING` — something can still be decided: it started running (enabled, re-enabled,
+ *   unblocked, rebound) and no evaluation pass has completed since, or a member's recorded
+ *   evaluation begins inside the window and its missing sessions have not been decided yet (§12.2);
+ * - `SYNCHRONIZED` — a pass has completed since, and every current member's recorded evaluation
+ *   covers every session the window requires;
+ * - `PARTIAL` — only for history that genuinely cannot be evaluated: current members with no
+ *   market data to be evaluated on after a completed pass, or members whose missing sessions could
+ *   not be reconciled with decisions already recorded for them (an earlier intraday Monitor, a
+ *   re-based history) — nothing recorded is rewritten to make them fit, and nothing is invented.
  */
 export const MONITOR_SYNCHRONIZATION_STATES = [
   "SYNCHRONIZING",
@@ -202,8 +205,9 @@ export type MonitorSynchronizationResponse = {
   /** Current members with no evaluation yet under the current configuration. */
   awaitingMembers: number;
   /**
-   * When an evaluated member's recorded evaluation begins after `windowStart`: the latest such
-   * start — "recorded since". Absent when every evaluated member covers the window.
+   * When an evaluated member's missing sessions could not be recorded: the latest start of what is
+   * recorded — "recorded since". Absent when every evaluated member covers, or is still completing,
+   * the window.
    */
   historyFrom?: string;
 };

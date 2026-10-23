@@ -156,6 +156,7 @@ export function useMonitorActivity(
       try {
         const range: DashboardActivityEventResponse[] = [];
         let cursor: string | undefined;
+        let windowStart: string | undefined;
         for (let read = 0; read < ACTIVITY_REFRESH_READS; read += 1) {
           const page = await reader({
             ...asked,
@@ -164,6 +165,7 @@ export function useMonitorActivity(
           });
           if (started !== epoch.current) return;
           range.push(...page.events);
+          windowStart = page.windowStart ?? windowStart;
           cursor = page.nextCursor;
           if (!cursor) break;
         }
@@ -178,15 +180,23 @@ export function useMonitorActivity(
           return;
         }
         const current = latest.current;
-        if (!range.some((event) => event.id === bottom.id)) {
+        // The rolling window moved past the oldest event held: what the reader holds is now every
+        // event the window still has, and the ones older than its first day leave the feed.
+        const agedOut =
+          windowStart !== undefined && bottom.sessionDate < windowStart;
+        if (!agedOut && !range.some((event) => event.id === bottom.id)) {
           // What ended the range is no longer in this feed (its Monitor was hidden): start over.
           current.feed.reload();
           return;
         }
-        if (!rangeChanged(current.feed.items, range, bottom.id)) return;
+        if (!agedOut && !rangeChanged(current.feed.items, range, bottom.id)) {
+          return;
+        }
         const counted = rangeArrivals(current.feed.items, range);
         current.onBeforeMerge?.();
-        current.feed.update((items) => replaceRange(items, range, bottom.id));
+        current.feed.update((items) =>
+          agedOut ? [...range] : replaceRange(items, range, bottom.id),
+        );
         if (counted.above + counted.within > 0) {
           setArrivals((previous) => ({
             above: (previous?.above ?? 0) + counted.above,

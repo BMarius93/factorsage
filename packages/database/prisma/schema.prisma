@@ -1473,28 +1473,28 @@ enum MonitorObservationBasis {
 /// produced. The user deletes the Monitor first, explicitly. It cascades from `User` like every
 /// other user-owned row, because deleting the account is the one case where all of it should go.
 model Monitor {
-  id                     String           @id @default(uuid())
-  ownership              ContentOwnership @default(USER)
-  userId                 String?
-  systemKey              String?          @unique
+  id                  String           @id @default(uuid())
+  ownership           ContentOwnership @default(USER)
+  userId              String?
+  systemKey           String?          @unique
   /// SYSTEM only: whether customers can see and select it. Always true for a USER Monitor.
-  isPublished            Boolean          @default(true)
+  isPublished         Boolean          @default(true)
   /// SYSTEM only: whether the worker evaluates it. Always true for a USER Monitor, whose own
   /// `enabled` is the switch.
-  isGloballyEnabled      Boolean          @default(true)
-  displayOrder           Int?
-  updatedByUserId        String?
-  strategyId             String
-  stockListId            String
-  name                   String
-  enabled                Boolean          @default(true)
+  isGloballyEnabled   Boolean          @default(true)
+  displayOrder        Int?
+  updatedByUserId     String?
+  strategyId          String
+  stockListId         String
+  name                String
+  enabled             Boolean          @default(true)
   /// Last cycle instant this Monitor was actually evaluated in, for observability and the UI's
   /// "last checked" line. It is never an input to trigger semantics.
   ///
   /// Cleared when the Monitor is rebound to a different Strategy or Stock List: the configuration
   /// it now names has not been checked, and reporting the previous one's scan time would claim
   /// otherwise.
-  lastScanAt             DateTime?
+  lastScanAt          DateTime?
   /// Which `(strategyId, stockListId)` binding this Monitor is on. Incremented **only** when one of
   /// them is rebound — never by a rename or an enable/disable, which change nothing a running cycle
   /// evaluated.
@@ -1504,27 +1504,27 @@ model Monitor {
   /// replaced configuration cannot land in the new one after the fact. A monotonic counter rather
   /// than a comparison of the two ids, because rebinding away and back would otherwise present the
   /// same pair to an in-flight cycle whose state had already been discarded.
-  configVersion          Int              @default(0)
+  configVersion       Int              @default(0)
   /// When this Monitor most recently started being evaluated — first created, re-enabled, unblocked
   /// by its owner's plan, or globally enabled — and null while it is not running. A session that
   /// became final before it is one the Monitor did not watch, so the evaluation that catches up over
   /// it records `HISTORY`, never newly observed activity. An outage leaves it untouched: sessions
   /// missed then are caught up as `OBSERVED`.
-  watchingSince          DateTime?
+  watchingSince       DateTime?
   /// Whether a member this Monitor has never evaluated is evaluated over the rolling activity window
   /// — the 30 calendar days ending at the pass's newest finalized session — from the exact state
   /// before it, rather than reconstructed at its newest session alone (`docs/decisions/monitor-eod-v2.md`
   /// §12). True for every Monitor the product creates; a fixture that inserts rows directly may turn
   /// it off to exercise the newest-session reconstruction.
-  windowReplay           Boolean          @default(true)
+  windowReplay        Boolean          @default(true)
   /// The record of the retired one-shot 90-day replay (`docs/decisions/monitor-eod-v2.md` §5): the
   /// first session of the window it fixed. Kept as history and read by nothing that decides anything;
   /// cleared by a rebind, never written otherwise.
-  replayWindowStart      DateTime?        @db.Date
+  replayWindowStart   DateTime?        @db.Date
   /// When that 90-day window was fixed. History only, like `replayWindowStart`.
-  replayWindowFixedAt    DateTime?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  replayWindowFixedAt DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   user        User?                          @relation(fields: [userId], references: [id], onDelete: Cascade)
   updatedBy   User?                          @relation("MonitorUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
@@ -1742,18 +1742,18 @@ model MonitorStateTransition {
 /// caught up from here in order. `basisGeneration` is the security's price-basis generation the
 /// last sessions were read on.
 model MonitorEvaluationCheckpoint {
-  monitorId          String
-  securityId         String
-  evaluatedThrough   DateTime  @db.Date
-  configVersion      Int
-  basisGeneration    Int
+  monitorId           String
+  securityId          String
+  evaluatedThrough    DateTime  @db.Date
+  configVersion       Int
+  basisGeneration     Int
   /// Whether the membership below was recorded. Rows written before it was are adopted by the next
   /// evaluation under the member's current membership, never reset for it.
-  membershipRecorded Boolean   @default(false)
+  membershipRecorded  Boolean   @default(false)
   /// The start of the ongoing membership this progress belongs to, or null for "Always eligible".
   /// A different ongoing membership — a re-entry, a moved start — is a membership change: the
   /// member's state is ended administratively and rebuilt from the new membership's history.
-  membershipStart    DateTime? @db.Date
+  membershipStart     DateTime? @db.Date
   /// Where this member's recorded evaluation begins: every session from here through
   /// `evaluatedThrough` was stepped in order with each change recorded, and the state on this day
   /// is exact (`docs/decisions/monitor-eod-v2.md` §12). The start of a window replay, or the
@@ -1761,9 +1761,15 @@ model MonitorEvaluationCheckpoint {
   /// window is covered for this member once this is on or before the window's start (or the
   /// membership's). Checkpoints written before it was recorded were backfilled with a provable
   /// lower bound by migration `20261023120000_monitor_rolling_window`.
-  coverageStart      DateTime? @db.Date
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  coverageStart       DateTime? @db.Date
+  /// The window start (or later start, after a recorded conflict) a coverage back-fill could not
+  /// reconcile with this member's recorded decisions (`docs/decisions/monitor-eod-v2.md` §12.2).
+  /// Nothing recorded is changed to make it fit: the member reports partial history, and the
+  /// back-fill is tried again only once the required start has moved past this day. Cleared
+  /// whenever the member's coverage is written afresh.
+  coverageBlockedFrom DateTime? @db.Date
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   monitor  Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
   security Security @relation(fields: [securityId], references: [id], onDelete: Restrict)
@@ -1802,27 +1808,34 @@ model UserBuiltInMonitorPreference {
 /// and without Redis — matching `BacktestJob`, whose protocol this follows deliberately.
 model MonitorScanSchedule {
   /// Always `MONITOR_SCAN_SCHEDULE_ID`. A singleton row is what serializes the cycle.
-  id                  String    @id
+  id                    String    @id
   /// Earliest instant the next cycle may start.
-  dueAt               DateTime  @default(now())
-  claimedBy           String?
-  claimedAt           DateTime?
-  leaseExpiresAt      DateTime?
-  heartbeatAt         DateTime?
+  dueAt                 DateTime  @default(now())
+  claimedBy             String?
+  claimedAt             DateTime?
+  leaseExpiresAt        DateTime?
+  heartbeatAt           DateTime?
   /// Monotonic cycle counter, so two cycles are distinguishable in logs without comparing clocks.
-  cycleSequence       Int       @default(0)
-  lastStartedAt       DateTime?
-  lastCompletedAt     DateTime?
+  cycleSequence         Int       @default(0)
+  lastStartedAt         DateTime?
+  lastCompletedAt       DateTime?
   /// Consecutive failed cycles, for backoff and alerting. Reset by a cycle that completes.
-  consecutiveFailures Int       @default(0)
-  lastError           String?
+  consecutiveFailures   Int       @default(0)
+  lastError             String?
   /// A Monitor started running (enabled, created enabled, globally enabled, rebound) and asked for
   /// its catch-up to start soon rather than at the next scheduled cycle. The API sets it with
   /// `dueAt = LEAST(dueAt, now)`; a claim consumes it; a cycle that completes while it is set makes
   /// the next cycle due at once, so a request made during a running cycle is not lost. It never
   /// makes cadence a user setting: it only moves the next cycle earlier, once.
-  scanRequested       Boolean   @default(false)
-  updatedAt           DateTime  @updatedAt
+  scanRequested         Boolean   @default(false)
+  /// The newest finalized session the latest Monitor pass found through its canonical end-of-day
+  /// policy (the venue schedule, `latestSessionCalendar = "EXCHANGE"`, or its weekday fallback,
+  /// `"WEEKDAYS"`), and when it asked. The Dashboard's rolling 30-day window ends on it
+  /// (`docs/decisions/monitor-eod-v2.md` §12.3): a weekend or an exchange holiday is never the anchor.
+  latestSession         DateTime? @db.Date
+  latestSessionCalendar String?
+  latestSessionAt       DateTime?
+  updatedAt             DateTime  @updatedAt
 
   @@index([dueAt])
 }

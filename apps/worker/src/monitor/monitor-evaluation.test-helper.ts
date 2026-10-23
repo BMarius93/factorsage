@@ -209,5 +209,11 @@ export function scopedRepository(
     markScanned: (monitors, now) => real.markScanned(monitors, now),
     applyMemberEvaluation: (write) => real.applyMemberEvaluation(write),
     markWatching: (ids, now) => real.markWatching(ids, now),
+    // The schedule row is shared by every suite: a simulated clock never writes to it.
+    recordExpectedSession: async () => {},
+    loadMemberRecord: (monitorId, securityId) =>
+      real.loadMemberRecord(monitorId, securityId),
+    applyCoverageBackfill: (write) => real.applyCoverageBackfill(write),
+    markCoverageBlocked: (input) => real.markCoverageBlocked(input),
   };
 }

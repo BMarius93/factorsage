@@ -133,6 +133,13 @@ export function qaBuiltInSessions(today: LocalDate = eodToday()) {
     setup: sessions[5]!,
     /** Monitor B: QATEST2's reconstructed occurrence began — before the window. */
     reconstructed: sessions[30]!,
+    /**
+     * Monitor A: an older occurrence of QATEST1, activated and ended before the window, that an
+     * evaluation recorded only on the day it was seeded — stored and on the Monitor's own history,
+     * never Dashboard activity, however recently it was found.
+     */
+    agedActivation: sessions[27]!,
+    agedEnding: sessions[25]!,
     /** Monitor B: when a reconstruction found it. */
     reconstructionFound: sessions[28]!,
   };
@@ -338,6 +345,77 @@ export async function seedQaBuiltIns(prisma: PrismaClient): Promise<void> {
               trend: false,
               crossed: false,
               price: 90.25,
+            }),
+          },
+        ],
+      });
+    }
+
+    // An occurrence of Monitor A older than the Dashboard's window, recorded only now: processing
+    // time never brings an old session into the window (`monitor-eod-v2.md` §12.3).
+    {
+      const monitorId = byKey.get(QA_BUILT_IN_KEYS.monitorA)!;
+      const security = securityId.get(QA_ALPHA.symbol)!;
+      const aged = await tx.monitorSignal.create({
+        data: {
+          monitorId,
+          securityId: security,
+          levelId: buyLevel,
+          levelKind: "BUY",
+          strategyVersionId: version.id,
+          signalFingerprint: fingerprint,
+          hasTrigger: true,
+          observationDate: day(at.agedActivation),
+          observationPrice: 96.25,
+          detectedAt: now,
+          reconstructed: true,
+          resolvedAt: now,
+          resolvedObservationDate: day(at.agedEnding),
+          resolutionReason: "CONDITIONS_ENDED",
+        },
+      });
+      await tx.monitorStateTransition.createMany({
+        data: [
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "INACTIVE",
+            toState: "ACTIVE",
+            reason: "TRIGGER_FIRED",
+            origin: "HISTORY",
+            occurredAt: now,
+            observationDate: day(at.agedActivation),
+            signalId: aged.id,
+            strategyVersionId: version.id,
+            evidence: evidence({
+              golden: true,
+              trend: true,
+              crossed: true,
+              price: 96.25,
+            }),
+          },
+          {
+            monitorId,
+            securityId: security,
+            levelId: buyLevel,
+            levelKind: "BUY",
+            signalFingerprint: fingerprint,
+            fromState: "ACTIVE",
+            toState: "RESOLVED",
+            reason: "CONDITIONS_ENDED",
+            origin: "HISTORY",
+            occurredAt: now,
+            observationDate: day(at.agedEnding),
+            signalId: aged.id,
+            strategyVersionId: version.id,
+            evidence: evidence({
+              golden: true,
+              trend: false,
+              crossed: false,
+              price: 89.5,
             }),
           },
         ],

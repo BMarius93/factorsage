@@ -2297,7 +2297,11 @@ paths:
       summary: Observed monitor activity, newest session first.
       description: |
         The end-of-day activity of the monitors the caller has enabled, over the rolling 30-day
-        window (`windowStart`, 30 calendar days ending at the newest finalized date): an occurrence
+        window (`windowStart`: exactly 30 calendar days ending on the newest finalized session by the
+        canonical end-of-day policy — never a weekend or a holiday — and moving as each session
+        becomes final). An event belongs to the window by its session, never by when it was
+        recorded: one found today for a session older than the window is not activity. The window
+        applies in the query to every read — pages, cursors, filters and `through`. An occurrence
         a finalized session activated (`ACTIVATED`), or one a market observation ended
         (`RESOLVED`, conditions no longer hold). An event found after its session became final — a
         window replay, a resumed monitor's catch-up, a member added later — is included with
@@ -2317,9 +2321,11 @@ paths:
         `through=<event id>` reads the range a caller already holds instead of a page: every event
         from the newest down to and including that one, 200 at a time, continued with `cursor` (the
         range's own `nextCursor`). Re-reading it is how a reader refreshes: it returns new events
-        above, and events written late for a session inside the range, wherever they sort. An event
-        the caller cannot see in this feed — another kind, a disabled or unknown monitor, a session
-        that has left the window — yields no events, and the caller starts over from the first page.
+        above, and events written late for a session inside the range, wherever they sort. When the
+        event's session has since left the window, the range is every event the window still holds
+        (the aged-out events are no longer in it). An event the caller cannot see in this feed —
+        another kind, a disabled or unknown monitor — yields no events, and the caller starts over
+        from the first page.
       x-rate-limit: { policy: standard-read }
       parameters:
         - name: monitorId
@@ -7004,11 +7010,13 @@ components:
       description: |
         Present while the monitor is evaluated (`operationalStatus` `ACTIVE`): how far its
         evaluation covers the rolling 30-day activity window, read from durable checkpoints.
-        `SYNCHRONIZING` — no evaluation pass has completed since it started running (its missing
-        sessions are queued or being evaluated); `SYNCHRONIZED` — every current member is
-        evaluated and its recorded evaluation covers the window; `PARTIAL` — some members have no
-        evaluation yet (`awaitingMembers`: market data not available) or a member's recorded
-        evaluation starts inside the window (`historyFrom`).
+        `SYNCHRONIZING` — something can still be decided: no evaluation pass has completed since it
+        started running, or a member's recorded evaluation begins inside the window and its missing
+        sessions are still being decided; `SYNCHRONIZED` — every current member's recorded
+        evaluation covers every session the window requires; `PARTIAL` — only history that cannot
+        be evaluated: members with no market data after a completed pass (`awaitingMembers`), or
+        members whose missing sessions could not be reconciled with decisions already recorded for
+        them (`historyFrom`). Nothing recorded is rewritten to complete a window.
       required:
         [state, windowStart, currentMembers, coveredMembers, awaitingMembers]
       properties:
@@ -7026,7 +7034,7 @@ components:
           {
             type: string,
             format: date,
-            description: The latest day an evaluated member's recorded evaluation starts on, when after windowStart.,
+            description: "When a member's missing sessions could not be recorded: the latest day a member's recorded evaluation starts on.",
           }
 
     MonitorDetail:
@@ -7284,7 +7292,7 @@ components:
           {
             type: string,
             format: date,
-            description: "The Dashboard feed's rolling window: only sessions on or after this day. Absent on a monitor's own activity history.",
+            description: "The Dashboard feed's rolling window: only sessions on or after this day — 30 calendar days ending on the newest finalized session. Absent on a monitor's own activity history, which is not windowed.",
           }
         events:
           type: array

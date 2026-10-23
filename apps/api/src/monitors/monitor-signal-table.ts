@@ -391,6 +391,7 @@ async function renderSignals(
       signalId: true,
       fromState: true,
       toState: true,
+      reason: true,
       strategyVersionId: true,
       evidence: true,
       observationDate: true,
@@ -399,9 +400,15 @@ async function renderSignals(
   const deciding = new Map<string, (typeof transitions)[number]>();
   for (const row of page) {
     const own = transitions.filter((entry) => entry.signalId === row.id);
+    // An active occurrence is explained by the session that activated it. A reconstruction that
+    // established it records a `RECONSTRUCTED` change; when a back-fill later recorded the session
+    // decision itself on the same occurrence (`docs/decisions/monitor-eod-v2.md` §12.2), that
+    // decision is the explanation.
+    const activations = own.filter((entry) => entry.toState === "ACTIVE");
     const decision =
       row.resolvedAt === null
-        ? own.find((entry) => entry.toState === "ACTIVE")
+        ? (activations.find((entry) => entry.reason !== "RECONSTRUCTED") ??
+          activations[0])
         : [...own].reverse().find((entry) => entry.fromState === "ACTIVE");
     if (decision) {
       deciding.set(row.id, decision);

@@ -142,6 +142,12 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
     pruneCheckpoints: (input) => real.pruneCheckpoints(input),
     markScanned: (monitors, now) => real.markScanned(monitors, now),
     applyMemberEvaluation: (write) => real.applyMemberEvaluation(write),
+    // The schedule row is shared by every suite: this file's simulated clock never writes to it.
+    recordExpectedSession: async () => {},
+    loadMemberRecord: (monitorId, securityId) =>
+      real.loadMemberRecord(monitorId, securityId),
+    applyCoverageBackfill: (write) => real.applyCoverageBackfill(write),
+    markCoverageBlocked: (input) => real.markCoverageBlocked(input),
     async markWatching(running, now) {
       await prisma.monitor.updateMany({
         where: { id: { in: [...owned].filter((id) => !running.includes(id)) } },
@@ -1467,7 +1473,12 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
 
       // …and restores it. Only the sessions after Oct 5 — the newest recorded — are evaluated again.
       await setMembership(monitorId, security, "FULL");
-      expect((await evaluation().run(3)).membersReplayed).toBe(1);
+      const restored = await evaluation().run(3);
+      expect(restored.membersReplayed).toBe(1);
+      // The sessions before them are covered by what the first membership recorded under the same
+      // logic: the back-fill verifies that and records nothing a second time (§12.2).
+      expect(restored.membersBackfilled).toBe(1);
+      expect(restored.membersBackfillBlocked).toBe(0);
 
       const decided = (await transitions(monitorId))
         .filter(
@@ -1491,9 +1502,15 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
         ["2026-10-05", "MEMBERSHIP_CHANGED"],
         ["2026-10-05", null],
       ]);
+      // The whole window is covered: Sep 15 – Oct 14.
       expect(
         day((await checkpoint(monitorId, security.id))?.coverageStart),
-      ).toBe("2026-10-06");
+      ).toBe("2026-09-15");
+      // A further pass finds nothing missing and records nothing.
+      const recorded = (await transitions(monitorId)).length;
+      const settled = await evaluation().run(4);
+      expect(settled.membersBackfilled).toBe(0);
+      expect(await transitions(monitorId)).toHaveLength(recorded);
     });
 
     it("replays a member exactly once when the pass that replayed it crashed before committing", async () => {
@@ -1690,6 +1707,461 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       expect(
         day((await checkpoint(monitorId, security.id))?.coverageStart),
       ).toBe("2026-10-14");
+    });
+
+    it("records the session its canonical policy found for the Dashboard's window, never moving it back", async () => {
+      const id = "GLOBAL";
+      const original = await prisma.monitorScanSchedule.findUnique({
+        where: { id },
+      });
+      await prisma.monitorScanSchedule.upsert({
+        where: { id },
+        create: { id },
+        update: {},
+      });
+      try {
+        await real.recordExpectedSession(
+          { session: "2026-10-14", calendar: "EXCHANGE" },
+          after("2026-10-14"),
+        );
+        // An older answer — a slow pass that asked earlier — never replaces a newer one.
+        await real.recordExpectedSession(
+          { session: "2026-10-13", calendar: "WEEKDAYS" },
+          after("2026-10-13"),
+        );
+        const row = await prisma.monitorScanSchedule.findUniqueOrThrow({
+          where: { id },
+        });
+        expect(day(row.latestSession)).toBe("2026-10-14");
+        expect(row.latestSessionCalendar).toBe("EXCHANGE");
+        expect(row.latestSessionAt?.toISOString()).toBe(
+          after("2026-10-14").toISOString(),
+        );
+      } finally {
+        await prisma.monitorScanSchedule.update({
+          where: { id },
+          data: {
+            latestSession: original?.latestSession ?? null,
+            latestSessionCalendar: original?.latestSessionCalendar ?? null,
+            latestSessionAt: original?.latestSessionAt ?? null,
+          },
+        });
+      }
+    });
+
+    /**
+     * A member whose recorded evaluation began inside its window — a checkpoint written before
+     * coverage was recorded, a rebound Monitor whose window replay began after the sessions its
+     * previous binding recorded — has its missing sessions decided and recorded, append-only:
+     * verified against what is recorded, nothing recorded twice, no occurrence duplicated.
+     */
+    describe("completing a window whose recorded evaluation began late (§12.2)", () => {
+      const resting = (state: string) =>
+        state === "RESOLVED" ? "INACTIVE" : state;
+      /** A level's session-decided changes — what a window replay and a back-fill must agree on. */
+      const decidedOf = async (monitorId: string) =>
+        (await transitions(monitorId))
+          .filter(
+            (t) =>
+              t.origin !== "ADMINISTRATIVE" && t.reason !== "RECONSTRUCTED",
+          )
+          .map((t) =>
+            [
+              t.levelId,
+              day(t.observationDate),
+              resting(t.fromState),
+              t.toState,
+              t.reason,
+              t.origin,
+            ].join("|"),
+          )
+          .sort();
+      const occurrencesOf = async (monitorId: string) =>
+        (await signals(monitorId)).map((signal) => [
+          day(signal.observationDate),
+          day(signal.resolvedObservationDate) ?? null,
+          signal.resolutionReason,
+        ]);
+
+      async function createStrategy(signal: StrategySignal): Promise<string> {
+        const strategy = await prisma.strategy.create({
+          data: {
+            ownership: "SYSTEM",
+            systemKey: `test-strategy-${randomUUID()}`,
+            name: "EOD strategy (rebound)",
+            versions: {
+              create: {
+                versionNumber: 1,
+                definition: definitionOf(signal) as never,
+                definitionHash: randomUUID(),
+              },
+            },
+          },
+        });
+        return strategy.id;
+      }
+
+      /** What the API's rebind does to a Monitor's durable state (`crossMonitorConfigurationBoundary`). */
+      async function rebind(monitorId: string, strategyId: string) {
+        const now = clock.now;
+        await prisma.$transaction(async (tx) => {
+          const current = await tx.monitorSignalState.findMany({
+            where: {
+              monitorId,
+              lifecycleState: { in: ["ACTIVE", "PENDING_TRIGGER"] },
+            },
+          });
+          if (current.length > 0) {
+            await tx.monitorStateTransition.createMany({
+              data: current.map((state) => ({
+                monitorId,
+                securityId: state.securityId,
+                levelId: state.levelId,
+                levelKind: state.levelKind,
+                signalFingerprint: state.signalFingerprint,
+                fromState: state.lifecycleState,
+                toState:
+                  state.lifecycleState === "ACTIVE"
+                    ? ("RESOLVED" as const)
+                    : ("INACTIVE" as const),
+                reason: "MONITOR_REBOUND" as const,
+                origin: "ADMINISTRATIVE" as const,
+                occurredAt: now,
+                signalId: state.activeSignalId,
+              })),
+            });
+          }
+          await tx.monitorSignal.updateMany({
+            where: { monitorId, resolvedAt: null },
+            data: { resolvedAt: now, resolutionReason: "MONITOR_REBOUND" },
+          });
+          await tx.monitorSignalState.deleteMany({ where: { monitorId } });
+          await tx.monitorEvaluationCheckpoint.deleteMany({
+            where: { monitorId },
+          });
+          await tx.monitor.update({
+            where: { id: monitorId },
+            data: {
+              strategyId,
+              configVersion: { increment: 1 },
+              lastScanAt: null,
+            },
+          });
+        });
+        const row = await prisma.monitor.findUniqueOrThrow({
+          where: { id: monitorId },
+          select: { stockListId: true },
+        });
+        systemRows.push({
+          monitorId,
+          stockListId: row.stockListId,
+          strategyId,
+        });
+      }
+
+      /** A member a pass before coverage existed reconstructed at its newest session (Oct 14). */
+      async function legacyMember() {
+        const security = await createSecurity("2026-03-02");
+        await seed(
+          security,
+          weekdays("2026-03-02", "2026-10-14", dipInWindow),
+          after("2026-10-14"),
+          "2026-10-14",
+          "2026-03-02",
+        );
+        const monitorId = await createMonitor([security], signalAbove(), {
+          listedAt,
+        });
+        await evaluation().run(1);
+        // What migration `20261023120000` leaves such a member: replaying windows, covered only
+        // from the session it has reached.
+        await prisma.monitor.update({
+          where: { id: monitorId },
+          data: { windowReplay: true },
+        });
+        return { security, monitorId };
+      }
+
+      it("decides the missing sessions of a member reconstructed at its newest session, reusing its occurrence and recording nothing twice", async () => {
+        const { security, monitorId } = await legacyMember();
+        // Reconstructed on Oct 14: active since Oct 5, recorded as one RECONSTRUCTED change.
+        expect(
+          (await transitions(monitorId)).map((t) => [
+            day(t.observationDate),
+            t.reason,
+          ]),
+        ).toEqual([["2026-10-05", "RECONSTRUCTED"]]);
+        const [active] = await signals(monitorId);
+        const stateBefore = await prisma.monitorSignalState.findFirstOrThrow({
+          where: { monitorId, securityId: security.id },
+        });
+
+        const summary = await evaluation().run(2);
+        expect(summary.membersBackfilled).toBe(1);
+        expect(summary.membersBackfillBlocked).toBe(0);
+        // Sep 15 – Oct 13: the weekday sessions of the window the member had not recorded.
+        expect(summary.sessionsBackfilled).toBe(21);
+        expect(
+          day((await checkpoint(monitorId, security.id))?.coverageStart),
+        ).toBe("2026-09-15");
+
+        // Exactly what a window replay of the same member records, change for change and
+        // occurrence for occurrence.
+        const control = await createMonitor([security], signalAbove(), {
+          replay: true,
+          listedAt,
+        });
+        created.delete(monitorId);
+        await evaluation().run(3);
+        created.add(monitorId);
+        expect(await decidedOf(monitorId)).toEqual(await decidedOf(control));
+        expect(await occurrencesOf(monitorId)).toEqual(
+          await occurrencesOf(control),
+        );
+
+        // The occurrence a reconstruction recorded is the same one: the session that activated it
+        // is recorded on it, with its evidence; the state and its version are untouched.
+        const activation = (await transitions(monitorId)).find(
+          (t) => t.reason === "CONDITIONS_MET",
+        )!;
+        expect(activation.signalId).toBe(active!.id);
+        expect(day(activation.observationDate)).toBe("2026-10-05");
+        expect(activation.origin).toBe("HISTORY");
+        expect(activation.evidence).not.toBeNull();
+        const stateAfter = await prisma.monitorSignalState.findFirstOrThrow({
+          where: { monitorId, securityId: security.id },
+        });
+        expect(stateAfter.stateVersion).toBe(stateBefore.stateVersion);
+        expect(stateAfter.activeSignalId).toBe(active!.id);
+        // The reconstruction's own change is kept: append-only.
+        expect(
+          (await transitions(monitorId)).filter(
+            (t) => t.reason === "RECONSTRUCTED",
+          ),
+        ).toHaveLength(2);
+
+        // Nothing is decided again on later passes.
+        const recorded = (await transitions(monitorId)).length;
+        const again = await evaluation().run(4);
+        expect(again.membersBackfilled).toBe(0);
+        expect(await transitions(monitorId)).toHaveLength(recorded);
+      });
+
+      it("records nothing twice when a rebound Monitor keeps the same logic", async () => {
+        const security = await createSecurity("2026-03-02");
+        await seed(
+          security,
+          weekdays("2026-03-02", "2026-10-14", dipInWindow),
+          after("2026-10-14"),
+          "2026-10-14",
+          "2026-03-02",
+        );
+        const monitorId = await createMonitor([security], signalAbove(), {
+          replay: true,
+          listedAt,
+        });
+        await evaluation().run(1);
+        const before = await decidedOf(monitorId);
+
+        // Rebound to another Strategy with the very same logic: the decisions are the same facts.
+        await rebind(monitorId, await createStrategy(signalAbove()));
+        const summary = await evaluation().run(2);
+        expect(summary.membersReplayed).toBe(1);
+        expect(summary.membersBackfilled).toBe(1);
+        expect(await decidedOf(monitorId)).toEqual(before);
+        expect(
+          day((await checkpoint(monitorId, security.id))?.coverageStart),
+        ).toBe("2026-09-15");
+      });
+
+      it("decides a rebound Monitor's whole window under its new logic", async () => {
+        const security = await createSecurity("2026-03-02");
+        await seed(
+          security,
+          weekdays("2026-03-02", "2026-10-14", dipInWindow),
+          after("2026-10-14"),
+          "2026-10-14",
+          "2026-03-02",
+        );
+        const monitorId = await createMonitor([security], signalAbove(), {
+          replay: true,
+          listedAt,
+        });
+        await evaluation().run(1);
+        await rebind(monitorId, await createStrategy(signalCrosses()));
+        const summary = await evaluation().run(2);
+        expect(summary.membersReplayed).toBe(1);
+        expect(summary.membersBackfilled).toBe(1);
+        expect(
+          day((await checkpoint(monitorId, security.id))?.coverageStart),
+        ).toBe("2026-09-15");
+
+        const control = await createMonitor([security], signalCrosses(), {
+          replay: true,
+          listedAt,
+        });
+        created.delete(monitorId);
+        await evaluation().run(3);
+        created.add(monitorId);
+        const fingerprint = (await transitions(control))[0]!.signalFingerprint;
+        const underNewLogic = async (id: string) =>
+          (await decidedOf(id)).filter((row) => row.startsWith("buy-1|"));
+        const newLogic = (await transitions(monitorId))
+          .filter((t) => t.signalFingerprint === fingerprint)
+          .filter((t) => t.reason !== "RECONSTRUCTED")
+          .map((t) => `${day(t.observationDate)}|${t.reason}`)
+          // Appended after what was recorded: read models order by session, never by insertion.
+          .sort();
+        expect(newLogic).toEqual(
+          (await transitions(control))
+            .filter((t) => t.reason !== "RECONSTRUCTED")
+            .map((t) => `${day(t.observationDate)}|${t.reason}`)
+            .sort(),
+        );
+        expect(await underNewLogic(control)).toHaveLength(2);
+        // One occurrence for the trigger day, not one per binding pass.
+        expect(
+          (await signals(monitorId)).filter(
+            (signal) => signal.signalFingerprint === fingerprint,
+          ),
+        ).toHaveLength(1);
+      });
+
+      it("starts after recorded decisions that disagree, and says how far it got", async () => {
+        const { security, monitorId } = await legacyMember();
+        const level = await prisma.monitorSignalState.findFirstOrThrow({
+          where: { monitorId, securityId: security.id },
+        });
+        // A decision recorded for Sep 28 under the same logic that the canonical history never
+        // made — as an intraday Monitor might have.
+        await prisma.monitorStateTransition.create({
+          data: {
+            monitorId,
+            securityId: security.id,
+            levelId: level.levelId,
+            levelKind: level.levelKind,
+            signalFingerprint: level.signalFingerprint,
+            fromState: "INACTIVE",
+            toState: "ACTIVE",
+            reason: "CONDITIONS_MET",
+            origin: "OBSERVED",
+            observationDate: new Date("2026-09-28T00:00:00.000Z"),
+            occurredAt: new Date("2026-09-28T20:00:00.000Z"),
+          },
+        });
+        const summary = await evaluation().run(2);
+        expect(summary.membersBackfilled).toBe(1);
+        expect(summary.membersBackfillBlocked).toBe(1);
+        const progress = await checkpoint(monitorId, security.id);
+        // Recorded from the day after the disagreement; the window from Sep 15 is not complete.
+        expect(day(progress?.coverageStart)).toBe("2026-09-29");
+        expect(day(progress?.coverageBlockedFrom)).toBe("2026-09-15");
+        // Only Oct 5 was missing after it; the disagreeing decision is left as it was.
+        expect(
+          (await transitions(monitorId)).map((t) => [
+            day(t.observationDate),
+            t.reason,
+          ]),
+        ).toEqual([
+          ["2026-10-05", "RECONSTRUCTED"],
+          ["2026-09-28", "CONDITIONS_MET"],
+          ["2026-10-05", "CONDITIONS_MET"],
+        ]);
+      });
+
+      it("writes nothing for a member whose state the canonical history does not reach, and tries again only when the window moves", async () => {
+        const { security, monitorId } = await legacyMember();
+        // The persisted state says active since Oct 6; every session says Oct 5.
+        await prisma.monitorSignalState.updateMany({
+          where: { monitorId, securityId: security.id },
+          data: { lifecycleSinceDate: new Date("2026-10-06T00:00:00.000Z") },
+        });
+        const recorded = (await transitions(monitorId)).length;
+        const summary = await evaluation().run(2);
+        expect(summary.membersBackfilled).toBe(0);
+        expect(summary.membersBackfillBlocked).toBe(1);
+        expect(await transitions(monitorId)).toHaveLength(recorded);
+        const progress = await checkpoint(monitorId, security.id);
+        expect(day(progress?.coverageStart)).toBe("2026-10-14");
+        expect(day(progress?.coverageBlockedFrom)).toBe("2026-09-15");
+
+        // The same window is not decided again.
+        expect((await evaluation().run(3)).membersBackfillBlocked).toBe(0);
+        // A new session moves the window's start, and the member is looked at once more.
+        await seed(
+          security,
+          weekdays("2026-03-02", "2026-10-15", dipInWindow),
+          after("2026-10-15"),
+          "2026-10-15",
+          "2026-03-02",
+        );
+        clock.now = after("2026-10-15");
+        const later = await evaluation().run(4);
+        expect(later.membersBackfillBlocked).toBe(1);
+        expect(
+          day((await checkpoint(monitorId, security.id))?.coverageBlockedFrom),
+        ).toBe("2026-09-16");
+      });
+
+      it("records a member's missing sessions once when two passes race for it", async () => {
+        const { security, monitorId } = await legacyMember();
+        const results = await Promise.all([
+          evaluation().run(2),
+          evaluation().run(3),
+        ]);
+        expect(
+          results.reduce((sum, result) => sum + result.membersBackfilled, 0),
+        ).toBe(1);
+        const control = await createMonitor([security], signalAbove(), {
+          replay: true,
+          listedAt,
+        });
+        created.delete(monitorId);
+        await evaluation().run(4);
+        created.add(monitorId);
+        expect(await decidedOf(monitorId)).toEqual(await decidedOf(control));
+      });
+
+      it("never decides a covered member again as the window advances: only each new session", async () => {
+        const security = await createSecurity("2026-03-02");
+        await seed(
+          security,
+          weekdays("2026-03-02", "2026-10-14", dipInWindow),
+          after("2026-10-14"),
+          "2026-10-14",
+          "2026-03-02",
+        );
+        const monitorId = await createMonitor([security], signalAbove(), {
+          replay: true,
+          listedAt,
+        });
+        await evaluation().run(1);
+        for (const [index, session] of [
+          "2026-10-15",
+          "2026-10-16",
+          "2026-10-19",
+        ].entries()) {
+          await seed(
+            security,
+            weekdays("2026-03-02", session, dipInWindow),
+            after(session),
+            session,
+            "2026-03-02",
+          );
+          clock.now = after(session);
+          const summary = await evaluation().run(2 + index);
+          // One new session, nothing back-filled: the window's start moved, the coverage did not
+          // need to.
+          expect(summary.sessionsEvaluated).toBe(1);
+          expect(summary.membersBackfilled).toBe(0);
+          expect(
+            monitorActivityWindowStart(summary.expectedSession) > "2026-09-15",
+          ).toBe(true);
+          expect(
+            day((await checkpoint(monitorId, security.id))?.coverageStart),
+          ).toBe("2026-09-15");
+        }
+      });
     });
   });
 

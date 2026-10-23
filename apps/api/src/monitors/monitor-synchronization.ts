@@ -8,7 +8,7 @@ import {
   type LocalDate,
 } from "@intrinsic/domain";
 import type { PrismaService } from "../database/prisma.service";
-import { eodToday } from "../eod-today";
+import { latestMonitorSession } from "./monitor-activity-window";
 
 /** The Monitor facts the synchronization state is read from. */
 export type SynchronizationSubject = {
@@ -31,8 +31,15 @@ export type SynchronizationSubject = {
  *   from a clock. A rebind clears `lastScanAt` and waits for one too.
  * - **Is every current member's window recorded?** A member's checkpoint under the current binding
  *   says where its recorded evaluation begins (`coverageStart`); the window is covered when that is on
- *   or before the window's first day, or its ongoing membership's later start. A member with no
- *   checkpoint has not been evaluated at all — its data is not available yet.
+ *   or before the window's first day, or its ongoing membership's later start. A member whose
+ *   coverage begins later is still being completed — the worker decides its missing sessions
+ *   (§12.2) — unless that back-fill found them irreconcilable with what is recorded
+ *   (`coverageBlockedFrom`): that member's history genuinely starts later. A member with no
+ *   checkpoint after a completed pass has no market data to be evaluated on yet.
+ *
+ * So `SYNCHRONIZING` while anything can still be decided, `PARTIAL` only for history that cannot be
+ * — never because a checkpoint is merely recent — and `SYNCHRONIZED` only once every required
+ * session is recorded.
  *
  * Callers pass only Monitors that are being evaluated; a Monitor that is not running is evaluating
  * nothing and has no synchronization to report.
@@ -40,12 +47,15 @@ export type SynchronizationSubject = {
 export async function readMonitorSynchronization(
   prisma: PrismaService,
   monitors: readonly SynchronizationSubject[],
-  today: LocalDate = eodToday(),
+  /** The session the window ends on; by default the canonical one now (`readMonitorActivityWindow`). */
+  latestSession?: LocalDate,
 ): Promise<Map<string, MonitorSynchronizationResponse>> {
   const result = new Map<string, MonitorSynchronizationResponse>();
   if (monitors.length === 0) {
     return result;
   }
+  const today =
+    latestSession ?? (await latestMonitorSession(prisma, new Date()));
   const windowStart = monitorActivityWindowStart(today);
   const [items, checkpoints] = await Promise.all([
     prisma.stockListItem.findMany({
@@ -69,6 +79,7 @@ export async function readMonitorSynchronization(
         configVersion: true,
         evaluatedThrough: true,
         coverageStart: true,
+        coverageBlockedFrom: true,
       },
     }),
   ]);
@@ -90,6 +101,7 @@ export async function readMonitorSynchronization(
     let currentMembers = 0;
     let coveredMembers = 0;
     let awaitingMembers = 0;
+    let completingMembers = 0;
     let historyFrom: LocalDate | undefined;
     for (const item of itemsByList.get(monitor.stockListId) ?? []) {
       const membership = {
@@ -118,6 +130,9 @@ export async function readMonitorSynchronization(
       );
       if (recordedFrom <= required) {
         coveredMembers += 1;
+      } else if (checkpoint.coverageBlockedFrom === null) {
+        // Its missing sessions have not been decided yet: the worker is completing them.
+        completingMembers += 1;
       } else if (historyFrom === undefined || recordedFrom > historyFrom) {
         historyFrom = recordedFrom;
       }
@@ -127,11 +142,12 @@ export async function readMonitorSynchronization(
       monitor.lastScanAt !== null &&
       monitor.lastScanAt.getTime() >= monitor.watchingSince.getTime();
     result.set(monitor.id, {
-      state: !passCompleted
-        ? "SYNCHRONIZING"
-        : awaitingMembers > 0 || coveredMembers < currentMembers
-          ? "PARTIAL"
-          : "SYNCHRONIZED",
+      state:
+        !passCompleted || completingMembers > 0
+          ? "SYNCHRONIZING"
+          : awaitingMembers > 0 || coveredMembers < currentMembers
+            ? "PARTIAL"
+            : "SYNCHRONIZED",
       windowStart,
       currentMembers,
       coveredMembers,

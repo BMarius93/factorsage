@@ -1,7 +1,6 @@
 import {
   describeCondition,
   describeTrigger,
-  monitorActivityWindowStart,
   normalizeStrategyDefinition,
   type DashboardActivityEventResponse,
   type DashboardActivityResponse,
@@ -24,7 +23,7 @@ import {
 import { Inject, Injectable } from "@nestjs/common";
 import type { ContentViewer } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
-import { eodToday } from "../eod-today";
+import { readMonitorActivityWindow } from "../monitors/monitor-activity-window";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { visibleMonitorWhere } from "../monitors/monitor-visibility";
 import { monitorStateSince } from "../monitors/signal-since";
@@ -513,9 +512,10 @@ export class DashboardService {
         : enabled.has(query.monitorId)
           ? [query.monitorId]
           : [];
-    // The rolling window ends at the newest finalized date: never later than the newest session any
-    // pass evaluated, so every day shown is a day the worker's window covered.
-    const windowStart = monitorActivityWindowStart(eodToday(now));
+    // The rolling window ends on the newest finalized session by the canonical policy — the window
+    // the Monitor pass evaluated — and is applied in the query to every read: pages, cursors,
+    // filters and `through` re-reads alike (§12.3).
+    const { windowStart } = await readMonitorActivityWindow(this.prisma, now);
     return this.readActivity(
       viewer,
       enabled,
@@ -614,12 +614,16 @@ export class DashboardService {
       : null;
 
     // The bottom of a `through` range: an event of this feed. One the viewer can no longer see (its
-    // Monitor hidden or gone) ends the range at once, and the reader starts over from the top.
+    // Monitor hidden or gone) ends the range at once, and the reader starts over from the top. One
+    // that has aged out of the window is still the bottom of what the reader holds: the range is then
+    // every event the window still has — never one older than its first day.
     let floor: { date: Date; sequence: bigint } | null = null;
     if (query.through !== undefined) {
       const bottom = await this.prisma.monitorStateTransition.findFirst({
         where: {
-          ...scope,
+          ...ACTIVITY_EVENT_SCOPE,
+          monitorId: { in: [...monitorIds] },
+          observationDate: { not: null },
           id: query.through,
           AND: [activityKindWhere(query.kind)],
         },
@@ -628,7 +632,12 @@ export class DashboardService {
       if (!bottom) {
         return empty;
       }
-      floor = { date: bottom.observationDate!, sequence: bottom.sequence };
+      const agedOut =
+        windowStart !== undefined &&
+        bottom.observationDate!.toISOString().slice(0, 10) < windowStart;
+      floor = agedOut
+        ? null
+        : { date: bottom.observationDate!, sequence: bottom.sequence };
     }
     const limit =
       query.through === undefined ? query.limit : ACTIVITY_THROUGH_LIMIT;

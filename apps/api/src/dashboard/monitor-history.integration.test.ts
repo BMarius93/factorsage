@@ -73,6 +73,7 @@ describe("Monitor history read models", () => {
   const securityIds: string[] = [];
   const ids = {
     ownerId: "",
+    window: "",
     builtIn: "",
     builtInVersion: "",
     own: "",
@@ -94,6 +95,9 @@ describe("Monitor history read models", () => {
   const excluded = { live: "", oldWindow: "", ownRuleOnly: "" };
 
   const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
+  /** The Dashboard's clock: Thursday Oct 15, unless a case moves it — and puts it back. */
+  const PINNED = new Date("2026-10-15T12:00:00.000Z");
+  const clock = { now: PINNED };
   const evidence = (result: "TRUE" | "FALSE", metric: number) => ({
     v: 1,
     rules: [
@@ -112,7 +116,9 @@ describe("Monitor history read models", () => {
   ): Promise<{ monitorId: string; versionId: string }> {
     const userId = ownership === "USER" ? ids.ownerId : null;
     const systemKey = (kind: string) =>
-      ownership === "SYSTEM" ? `test-history-${kind}-${suffix}` : null;
+      ownership === "SYSTEM"
+        ? `test-history-${kind}-${suffix}-${name.replace(/\W/g, "")}`
+        : null;
     const strategy = await prisma.strategy.create({
       data: {
         ownership,
@@ -250,7 +256,7 @@ describe("Monitor history read models", () => {
       .overrideProvider(DASHBOARD_OPTIONS)
       .useValue({
         staleAfterMs: 30 * 60_000,
-        now: () => new Date("2026-10-15T12:00:00.000Z"),
+        now: () => clock.now,
       })
       .compile();
     app = moduleRef.createNestApplication();
@@ -591,7 +597,7 @@ describe("Monitor history read models", () => {
   afterAll(async () => {
     if (prisma) {
       await prisma.monitor.deleteMany({
-        where: { id: { in: [ids.builtIn, ids.own] } },
+        where: { id: { in: [ids.builtIn, ids.own, ids.window] } },
       });
       await prisma.strategy.deleteMany({
         where: { id: { in: ids.strategies } },
@@ -995,6 +1001,284 @@ describe("Monitor history read models", () => {
           where: { id: { in: createdSignals } },
         });
       }
+    });
+  });
+
+  /**
+   * The Dashboard's window is a strict product rule, not a default range (§12.3): exactly the 30
+   * calendar days ending on the newest finalized session, by each event's session — never its
+   * processing time — on every read: the first page, filters, pages, cursors and `through`.
+   */
+  describe("the Dashboard's rolling 30-day window", () => {
+    const events = {
+      ancient: "",
+      beforeStart: "",
+      onStart: "",
+      found: "",
+      ended: "",
+    };
+    const read = async (query: string) =>
+      (await guest.get(`/dashboard/activity${query}`).expect(200))
+        .body as DashboardActivityResponse;
+    const sessions = (body: DashboardActivityResponse) =>
+      body.events.map((event) => [
+        event.sessionDate,
+        event.kind,
+        event.fromHistory,
+      ]);
+    async function at<T>(instant: string, run: () => Promise<T>): Promise<T> {
+      clock.now = new Date(instant);
+      try {
+        return await run();
+      } finally {
+        clock.now = PINNED;
+      }
+    }
+
+    beforeAll(async () => {
+      const content = await createContent("SYSTEM", "Window history");
+      ids.window = content.monitorId;
+      const [s1] = securityIds as [string];
+      /** One occurrence of the window Monitor, activated and ended, each change with evidence. */
+      const occurrence = async (input: {
+        on: string;
+        endedOn: string;
+        origin: "OBSERVED" | "HISTORY";
+        occurredAt: Date;
+      }) => {
+        const id = await createSignal({
+          monitorId: ids.window,
+          securityId: s1,
+          versionId: content.versionId,
+          on: input.on,
+          price: 103,
+          resolvedOn: input.endedOn,
+          resolvedAt: new Date(`${input.endedOn}T22:00:00.000Z`),
+          reason: "CONDITIONS_ENDED",
+          reconstructed: input.origin === "HISTORY",
+        });
+        const activated = await transition({
+          monitorId: ids.window,
+          securityId: s1,
+          from: "INACTIVE",
+          to: "ACTIVE",
+          reason: "CONDITIONS_MET",
+          origin: input.origin,
+          on: input.on,
+          signalId: id,
+          versionId: content.versionId,
+          evidence: evidence("TRUE", 103),
+          occurredAt: input.occurredAt,
+        });
+        const ended = await transition({
+          monitorId: ids.window,
+          securityId: s1,
+          from: "ACTIVE",
+          to: "RESOLVED",
+          reason: "CONDITIONS_ENDED",
+          origin: input.origin,
+          on: input.endedOn,
+          signalId: id,
+          versionId: content.versionId,
+          evidence: evidence("FALSE", 97),
+          occurredAt: input.occurredAt,
+        });
+        return { activated: activated.id, ended: ended.id };
+      };
+      // Found today, by a catch-up — and 58 days old: never Dashboard activity.
+      const ancient = await occurrence({
+        on: "2026-08-17",
+        endedOn: "2026-08-20",
+        origin: "HISTORY",
+        occurredAt: new Date("2026-10-15T01:00:00.000Z"),
+      });
+      events.ancient = ancient.activated;
+      // Activated the day before the window's first day, ended on it.
+      const boundary = await occurrence({
+        on: "2026-09-14",
+        endedOn: "2026-09-15",
+        origin: "OBSERVED",
+        occurredAt: new Date("2026-09-15T22:00:00.000Z"),
+      });
+      events.beforeStart = boundary.activated;
+      events.onStart = boundary.ended;
+      // Activated Sep 30 and found by a catch-up on Oct 14; ended Oct 2.
+      const found = await occurrence({
+        on: "2026-09-30",
+        endedOn: "2026-10-02",
+        origin: "HISTORY",
+        occurredAt: new Date("2026-10-14T22:05:00.000Z"),
+      });
+      events.found = found.activated;
+      events.ended = found.ended;
+    });
+
+    it("holds exactly the 30 calendar days ending on the newest finalized session: Sep 14 out, Sep 15 in", async () => {
+      const body = await read(`?monitorId=${ids.window}`);
+      // Thursday Oct 15, noon: the newest finalized session is Wednesday Oct 14.
+      expect(body.windowStart).toBe("2026-09-15");
+      expect(sessions(body)).toEqual([
+        ["2026-10-02", "RESOLVED", true],
+        ["2026-09-30", "ACTIVATED", true],
+        ["2026-09-15", "RESOLVED", false],
+      ]);
+      const shown = body.events.map((event) => event.id);
+      // More than 30 days of activity is stored; none of it older than the window is shown —
+      // including what a catch-up found today for a session 58 days ago.
+      expect(shown).not.toContain(events.ancient);
+      expect(shown).not.toContain(events.beforeStart);
+      expect(
+        await prisma.monitorStateTransition.count({
+          where: {
+            monitorId: ids.window,
+            observationDate: { lt: date("2026-09-15") },
+          },
+        }),
+      ).toBe(3);
+    });
+
+    it("pages, filters and stops at the window's first day", async () => {
+      const pages: DashboardActivityResponse[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await read(
+          `?monitorId=${ids.window}&limit=1${cursor ? `&cursor=${cursor}` : ""}`,
+        );
+        pages.push(page);
+        cursor = page.nextCursor;
+      } while (cursor && pages.length < 10);
+      // Show older activity ends at Sep 15: no page, and no cursor, reaches before it.
+      expect(pages.flatMap(sessions)).toEqual([
+        ["2026-10-02", "RESOLVED", true],
+        ["2026-09-30", "ACTIVATED", true],
+        ["2026-09-15", "RESOLVED", false],
+      ]);
+      expect(pages.at(-1)!.nextCursor).toBeUndefined();
+      // The Monitor and Event filters together, inside the same window.
+      expect(
+        sessions(await read(`?monitorId=${ids.window}&kind=ACTIVATED`)),
+      ).toEqual([["2026-09-30", "ACTIVATED", true]]);
+      expect(
+        sessions(await read(`?monitorId=${ids.window}&kind=RESOLVED`)),
+      ).toEqual([
+        ["2026-10-02", "RESOLVED", true],
+        ["2026-09-15", "RESOLVED", false],
+      ]);
+    });
+
+    it("advances with each finalized session, and a cursor or range held from before exposes nothing older", async () => {
+      const held = await read(`?monitorId=${ids.window}&limit=2`);
+      expect(held.nextCursor).toBeDefined();
+      // Friday Oct 16, noon: Thursday Oct 15 is final, the window moves to Sep 16 — the Sep 15
+      // ending ages out.
+      await at("2026-10-16T12:00:00.000Z", async () => {
+        const moved = await read(`?monitorId=${ids.window}`);
+        expect(moved.windowStart).toBe("2026-09-16");
+        expect(sessions(moved)).toEqual([
+          ["2026-10-02", "RESOLVED", true],
+          ["2026-09-30", "ACTIVATED", true],
+        ]);
+        // The reader's next page, asked with the cursor it held, reaches nothing before Sep 16.
+        const older = await read(
+          `?monitorId=${ids.window}&limit=2&cursor=${held.nextCursor}`,
+        );
+        expect(older.events).toEqual([]);
+        expect(older.nextCursor).toBeUndefined();
+        // A refresh through the event that aged out returns what the window still holds — not
+        // nothing, and not the aged-out event.
+        const refreshed = await read(
+          `?monitorId=${ids.window}&through=${events.onStart}`,
+        );
+        expect(sessions(refreshed)).toEqual([
+          ["2026-10-02", "RESOLVED", true],
+          ["2026-09-30", "ACTIVATED", true],
+        ]);
+        expect(refreshed.windowStart).toBe("2026-09-16");
+      });
+      // Back on Oct 15, the same range still reaches the Sep 15 ending, and stops there.
+      const before = await read(
+        `?monitorId=${ids.window}&through=${events.onStart}`,
+      );
+      expect(before.events.map((event) => event.id).at(-1)).toBe(
+        events.onStart,
+      );
+    });
+
+    it("anchors on sessions, never calendar days: a weekend keeps Friday's window, an exchange holiday the session before it", async () => {
+      // Saturday and Sunday: Friday Oct 16 is the newest session.
+      for (const weekend of [
+        "2026-10-17T15:00:00.000Z",
+        "2026-10-18T15:00:00.000Z",
+      ]) {
+        expect(
+          (await at(weekend, () => read(`?monitorId=${ids.window}`)))
+            .windowStart,
+        ).toBe("2026-09-17");
+      }
+      const original = await prisma.monitorScanSchedule.findUnique({
+        where: { id: "GLOBAL" },
+      });
+      await prisma.monitorScanSchedule.upsert({
+        where: { id: "GLOBAL" },
+        create: { id: "GLOBAL" },
+        update: {},
+      });
+      try {
+        // The Monitor pass asked the venue schedule on Friday evening, after Friday's close was
+        // final, and found Thursday: Friday Oct 16 was a closure. The window ends on Thursday.
+        await prisma.monitorScanSchedule.update({
+          where: { id: "GLOBAL" },
+          data: {
+            latestSession: date("2026-10-15"),
+            latestSessionCalendar: "EXCHANGE",
+            latestSessionAt: new Date("2026-10-17T01:00:00.000Z"),
+          },
+        });
+        expect(
+          (
+            await at("2026-10-17T15:00:00.000Z", () =>
+              read(`?monitorId=${ids.window}`),
+            )
+          ).windowStart,
+        ).toBe("2026-09-16");
+        // An answer from before Friday's close became final says nothing about Friday: Friday is
+        // taken to be a session, as the policy does when the venue schedule cannot be read.
+        await prisma.monitorScanSchedule.update({
+          where: { id: "GLOBAL" },
+          data: { latestSessionAt: new Date("2026-10-16T12:00:00.000Z") },
+        });
+        expect(
+          (
+            await at("2026-10-17T15:00:00.000Z", () =>
+              read(`?monitorId=${ids.window}`),
+            )
+          ).windowStart,
+        ).toBe("2026-09-17");
+      } finally {
+        await prisma.monitorScanSchedule.update({
+          where: { id: "GLOBAL" },
+          data: {
+            latestSession: original?.latestSession ?? null,
+            latestSessionCalendar: original?.latestSessionCalendar ?? null,
+            latestSessionAt: original?.latestSessionAt ?? null,
+          },
+        });
+      }
+    });
+
+    it("keeps the whole history on the Monitor's own page, however old", async () => {
+      const own = (
+        await guest.get(`/monitors/${ids.window}/activity?limit=50`).expect(200)
+      ).body as DashboardActivityResponse;
+      expect(own.windowStart).toBeUndefined();
+      expect(own.events.map((event) => event.sessionDate)).toEqual([
+        "2026-10-02",
+        "2026-09-30",
+        "2026-09-15",
+        "2026-09-14",
+        "2026-08-20",
+        "2026-08-17",
+      ]);
     });
   });
 

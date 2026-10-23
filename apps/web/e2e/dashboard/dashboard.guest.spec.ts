@@ -355,6 +355,54 @@ test.describe("guest dashboard", () => {
     );
   });
 
+  test("never shows an event older than the 30-day window, even one recorded today", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(qaRows(page)).toHaveCount(4);
+    const { windowStart, events } = await qaActivity(page);
+    expect(events.every((event) => event.sessionDate >= windowStart)).toBe(
+      true,
+    );
+    // Monitor A's own history holds an occurrence from before the window, recorded only when the
+    // fixture was seeded: stored, found today — and still not activity.
+    const monitorA = events.find((event) => event.monitor.name === MONITOR_A)!
+      .monitor.id;
+    const history = (await (
+      await page.request.get(
+        `${apiBaseUrl()}/monitors/${monitorA}/activity?limit=50`,
+      )
+    ).json()) as DashboardActivityResponse;
+    const aged = history.events.filter(
+      (event) => event.sessionDate < windowStart,
+    );
+    expect(aged.map((event) => event.kind).sort()).toEqual([
+      "ACTIVATED",
+      "RESOLVED",
+    ]);
+    for (const event of aged) {
+      expect(event.fromHistory).toBe(true);
+      expect(event.recordedAt.slice(0, 10) >= windowStart).toBe(true);
+    }
+    // Under no filter and on no page.
+    for (const query of [
+      "",
+      `&monitorId=${monitorA}`,
+      `&monitorId=${monitorA}&kind=ACTIVATED`,
+      `&monitorId=${monitorA}&kind=RESOLVED`,
+    ]) {
+      const read = await qaActivity(page, query);
+      expect(
+        read.events.filter((event) => aged.some((old) => old.id === event.id)),
+      ).toEqual([]);
+    }
+    for (const event of aged) {
+      await expect(page.getByTestId("dashboard-activity")).not.toContainText(
+        sessionHeading(event.sessionDate),
+      );
+    }
+  });
+
   test("opens Stock Details from a row", async ({ page }) => {
     await page.goto("/");
     const row = qaRows(page).filter({ hasText: MONITOR_A }).first();
