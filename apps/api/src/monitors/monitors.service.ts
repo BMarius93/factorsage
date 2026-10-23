@@ -1015,7 +1015,13 @@ export class MonitorsService {
         });
       }
       // Switched on: its missing sessions are caught up by the next pass, not the next interval.
-      if (patch.enabled === true || patch.isGloballyEnabled === true) {
+      // Switching a customer's own Monitor off can hand its plan slot to the next one, which then
+      // starts the same way.
+      if (
+        patch.enabled === true ||
+        (patch.enabled === false && target.ownership === "USER") ||
+        patch.isGloballyEnabled === true
+      ) {
         await requestMonitorEvaluation(tx);
       }
       // `updateMany` applies the ownership filter and the write in one atomic statement.
@@ -1188,10 +1194,11 @@ export class MonitorsService {
         ({ resolvedSignals, clearedStates } =
           await crossMonitorConfigurationBoundary(tx, monitorId, now));
       }
-      // A new configuration, or a Monitor switched on: evaluated by the next pass.
+      // A new configuration, a Monitor switched on, or a slot freed by one switched off: evaluated
+      // by the next pass.
       if (
         rebound ||
-        patch.enabled === true ||
+        patch.enabled !== undefined ||
         patch.isGloballyEnabled === true
       ) {
         await requestMonitorEvaluation(tx);

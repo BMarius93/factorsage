@@ -85,10 +85,11 @@ test.describe("STARTER entitlements", () => {
       const card = monitorCard(page, name);
       await expect(card).toHaveCount(1, { timeout: 20_000 });
       // All three are genuinely active, not merely stored: none carries the blocked pill.
-      await expect(card.getByTestId("monitor-state-pill")).toHaveAttribute(
-        "data-state",
-        "ENABLED",
+      await expect(card.getByTestId("monitor-enabled-switch")).toHaveAttribute(
+        "aria-checked",
+        "true",
       );
+      await expect(card.getByTestId("monitor-state-pill")).toHaveCount(0);
     }
 
     await page.getByTestId("new-monitor-button").first().click();

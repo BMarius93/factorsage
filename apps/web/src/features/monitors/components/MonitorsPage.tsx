@@ -217,13 +217,16 @@ export function MonitorsPage() {
   };
 
   // The one switch, on every row of both sections: a customer's own monitor's lifecycle, or this
-  // viewer's own choice for a built-in. Notes under it say only what the switch cannot.
+  // viewer's own choice for a built-in. Notes under it say only what the switch cannot. On a phone
+  // it is a line of its own under the name (see `.page` in the stylesheet): beside the name, its
+  // notes would squeeze the name to a letter a line. The switch says Enabled or Disabled itself,
+  // so the card adds no label.
   const enabledColumn: DataTableColumn<MonitorSummaryResponse> = {
     key: "enabled",
     width: "13rem",
     header: "Enabled",
-    cardRole: "status",
-    cardLabel: "Enabled",
+    cardRole: "fact",
+    cardLabel: null,
     render: (monitor) => (
       <MonitorEnabledControl
         monitor={monitor}

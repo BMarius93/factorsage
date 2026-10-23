@@ -56,6 +56,12 @@
   .rowError {
     max-width: none;
   }
+
+  /* On a phone card the switch is the first line under the name — the control the row exists
+     for — and its notes wrap across the card instead of claiming the name's width. */
+  .page :global(td[data-column="enabled"]) {
+    order: 2;
+  }
 }
 
 /* The list reference and the size of the universe it names, as one cell. */
@@ -80,6 +86,7 @@
   justify-items: start;
   gap: 6px;
   min-width: 0;
+  text-align: left;
 }
 
 .enabledLine {

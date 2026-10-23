@@ -3,6 +3,7 @@ import {
   chooseFromOverflowMenu,
   openOverflowMenu,
 } from "../utils/overflow-menu";
+import { apiBaseUrl } from "../utils/entitlements";
 import { chooseMetric, chooseSeriesValue } from "../utils/strategy-builder";
 
 /**
@@ -40,6 +41,29 @@ function navLink(page: Page, label: string) {
   return page
     .getByRole("navigation", { name: "Primary" })
     .getByRole("link", { name: label, exact: true });
+}
+
+/**
+ * Creating, enabling or rebinding a monitor asks the worker for an evaluation now, so by the time
+ * the page is read it may or may not have been checked. Either way it never shows a check from
+ * before the change: no check at all, or one made since — and the page says which.
+ */
+async function expectNoCheckBefore(
+  page: Page,
+  monitorId: string,
+  since: string,
+) {
+  const response = await page.request.get(
+    `${apiBaseUrl()}/monitors/${monitorId}?view=summary`,
+  );
+  const summary = (await response.json()) as { lastScanAt?: string };
+  if (summary.lastScanAt === undefined) {
+    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
+      "Not checked yet",
+    );
+  } else {
+    expect(summary.lastScanAt >= since).toBe(true);
+  }
 }
 
 function monitorCard(page: Page, name: string) {
@@ -239,6 +263,7 @@ test.describe("PRO_USER monitors", () => {
       .getByTestId("monitor-strategy")
       .selectOption({ label: STRATEGY_NAME });
     await page.getByTestId("monitor-list").selectOption({ label: LIST_NAME });
+    const createdAt = new Date().toISOString();
     await page.getByTestId("submit-monitor").click();
 
     // 2. It appears in the collection, enabled, naming what it watches.
@@ -250,18 +275,32 @@ test.describe("PRO_USER monitors", () => {
     await expect(card).toContainText("Enabled");
     await expect(card).toContainText("Not checked yet");
 
-    // 3. Disable it, and prove the change is durable rather than local state.
-    await chooseFromOverflowMenu(page, MONITOR_NAME, "Disable", card);
+    // Enabled from the start, so it is catching up on its 30-day window — said beside the switch.
+    await expect(card.getByTestId("monitor-synchronization")).toContainText(
+      "Synchronizing",
+    );
+
+    // 3. Disable it with the row's own switch, and prove the change is durable, not local state.
+    const toggle = card.getByTestId("monitor-enabled-switch");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(card).toContainText("Disabled");
+    // A disabled monitor is not evaluating, and is never presented as catching up.
+    await expect(card.getByTestId("monitor-synchronization")).toHaveCount(0);
     await page.reload();
     const afterDisable = monitorCard(page, MONITOR_NAME);
     await expect(afterDisable).toContainText("Disabled", { timeout: 20_000 });
-    // The menu now offers the opposite transition.
+    // The switch is the one enable control: the menu holds only Edit and Delete.
     await openOverflowMenu(page, MONITOR_NAME, afterDisable);
-    await expect(page.getByTestId("toggle-monitor")).toHaveText("Enable");
+    await expect(page.getByTestId("toggle-monitor")).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
-    // 4. Re-enable it; that too survives a reload.
-    await page.getByTestId("toggle-monitor").click();
+    // 4. Re-enable it from the keyboard; that too survives a reload.
+    const again = afterDisable.getByTestId("monitor-enabled-switch");
+    await again.focus();
+    await page.keyboard.press("Space");
+    await expect(again).toHaveAttribute("aria-checked", "true");
     await expect(afterDisable).toContainText("Enabled");
     await page.reload();
     await expect(monitorCard(page, MONITOR_NAME)).toContainText("Enabled", {
@@ -276,10 +315,10 @@ test.describe("PRO_USER monitors", () => {
     const detailUrl = page.url();
     await expect(detail).toContainText(STRATEGY_NAME);
     await expect(detail).toContainText(LIST_NAME);
-    // Never scanned by this point, and the page says so rather than borrowing a creation time.
-    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
-      "Not checked yet",
-    );
+    // Enabling asked the worker for an evaluation, so it may already have been checked: either way
+    // the page never borrows a creation time or a check from before the change.
+    const monitorId = new URL(detailUrl).pathname.split("/").pop()!;
+    await expectNoCheckBefore(page, monitorId, createdAt);
 
     // 6. Rebind it to the other strategy and the other list in one edit.
     await page.getByTestId("edit-monitor").click();
@@ -294,6 +333,7 @@ test.describe("PRO_USER monitors", () => {
     await page.getByTestId("monitor-list").selectOption({ label: LIST_NAME_B });
     // The consequence is explained only once the selection has actually moved.
     await expect(page.getByTestId("monitor-rebind-note")).toBeVisible();
+    const reboundAt = new Date().toISOString();
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByTestId("monitor-form")).toBeHidden();
 
@@ -309,10 +349,8 @@ test.describe("PRO_USER monitors", () => {
     await expect(page.getByTestId("monitor-detail")).not.toContainText(
       STRATEGY_NAME,
     );
-    // The new configuration has not been checked, and still says so after the rebind.
-    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
-      "Not checked yet",
-    );
+    // The new configuration never borrows the old one's check: unchecked, or checked since.
+    await expectNoCheckBefore(page, monitorId, reboundAt);
 
     // 8. Rename from the same form, and prove that too survives a reload.
     await page.getByTestId("edit-monitor").click();
@@ -338,6 +376,7 @@ test.describe("PRO_USER monitors", () => {
       "Disabled",
       { timeout: 20_000 },
     );
+    const enabledAt = new Date().toISOString();
     await chooseFromOverflowMenu(page, RENAMED_MONITOR, "Enable");
     await expect(page.getByTestId("monitor-state-pill")).toHaveText("Enabled");
     await page.reload();
@@ -361,8 +400,29 @@ test.describe("PRO_USER monitors", () => {
     await expect(reboundCard).toHaveCount(1);
     await expect(reboundCard).toContainText(STRATEGY_NAME_B);
     await expect(reboundCard).toContainText(LIST_NAME_B);
-    await expect(reboundCard).toContainText("Not checked yet");
     await expect(monitorCard(page, MONITOR_NAME)).toHaveCount(0);
+    // Enabling asks the worker for an evaluation now, not at its next interval: the rebound
+    // monitor is checked soon after it was switched back on — and never borrows a check from
+    // before the change.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(
+            `${apiBaseUrl()}/monitors/${monitorId}?view=summary`,
+          );
+          const summary = (await response.json()) as { lastScanAt?: string };
+          return (
+            summary.lastScanAt !== undefined && summary.lastScanAt >= enabledAt
+          );
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+    await page.reload();
+    await expect(monitorCard(page, RENAMED_MONITOR)).not.toContainText(
+      "Not checked yet",
+      { timeout: 20_000 },
+    );
 
     // 12. The strategy it now watches cannot be deleted while it exists — and the refusal says so
     //     instead of looking like a transient failure.

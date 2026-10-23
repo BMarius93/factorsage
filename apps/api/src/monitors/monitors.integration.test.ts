@@ -334,7 +334,21 @@ describe("monitors", () => {
       strategyId,
       stockListId,
     });
+    // The next pass an hour away, and nothing asked for sooner.
+    const quietSchedule = () =>
+      prisma.monitorScanSchedule.upsert({
+        where: { id: MONITOR_SCAN_SCHEDULE_ID },
+        create: {
+          id: MONITOR_SCAN_SCHEDULE_ID,
+          dueAt: new Date(Date.now() + 3_600_000),
+        },
+        update: {
+          dueAt: new Date(Date.now() + 3_600_000),
+          scanRequested: false,
+        },
+      });
 
+    await quietSchedule();
     const disabled = await owner
       .patch(`/monitors/${monitor.id}`)
       .send({ enabled: false })
@@ -344,20 +358,19 @@ describe("monitors", () => {
     expect(
       (disabled.body as MonitorSummaryResponse).synchronization,
     ).toBeUndefined();
+    // Switching one off can hand its plan slot to the next enabled monitor, so it too asks for a
+    // pass now rather than leaving that monitor waiting for the interval.
+    expect(
+      (
+        await prisma.monitorScanSchedule.findUniqueOrThrow({
+          where: { id: MONITOR_SCAN_SCHEDULE_ID },
+        })
+      ).scanRequested,
+    ).toBe(true);
 
     // Switching it on asks the worker for a pass now, not at the next interval, and the answer
     // says its missing sessions are being caught up until a pass has completed.
-    await prisma.monitorScanSchedule.upsert({
-      where: { id: MONITOR_SCAN_SCHEDULE_ID },
-      create: {
-        id: MONITOR_SCAN_SCHEDULE_ID,
-        dueAt: new Date(Date.now() + 3_600_000),
-      },
-      update: {
-        dueAt: new Date(Date.now() + 3_600_000),
-        scanRequested: false,
-      },
-    });
+    await quietSchedule();
     const enabled = await owner
       .patch(`/monitors/${monitor.id}`)
       .send({ enabled: true })

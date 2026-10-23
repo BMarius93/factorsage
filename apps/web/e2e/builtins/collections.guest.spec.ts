@@ -114,8 +114,12 @@ test.describe("guest built-in collections", () => {
     // The monitor names its strategy and its list, and both are reachable from the row.
     await expect(row.getByRole("link", { name: QA_STRATEGY })).toBeVisible();
     await expect(row.getByRole("link", { name: QA_LIST })).toBeVisible();
-    // Read-only: no enable/disable, no edit, no delete.
+    // Read-only: no edit, no delete — only the same Enabled switch every monitor row has.
     await expect(row.getByTestId("monitor-actions")).toHaveCount(0);
+    await expect(row.getByTestId("monitor-enabled-switch")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
 
     await row.getByRole("link", { name: QA_MONITOR, exact: true }).click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
@@ -164,7 +168,7 @@ test.describe("guest built-in collections", () => {
     }
   });
 
-  test("asks a Guest to sign in rather than saving a built-in monitor's visibility", async ({
+  test("asks a Guest to sign in rather than saving whether a built-in monitor is enabled", async ({
     page,
   }) => {
     await open(page, "/monitors");
@@ -173,9 +177,13 @@ test.describe("guest built-in collections", () => {
       .locator("tbody tr")
       .filter({ hasText: QA_MONITOR });
 
-    const toggle = row.getByTestId("built-in-monitor-toggle");
-    // The control is visible — that is how the feature is discovered — and defaults to shown.
+    const toggle = row.getByTestId("monitor-enabled-switch");
+    // The control is visible — that is how the feature is discovered — and every built-in is
+    // Enabled for a Guest.
     await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(row.getByTestId("monitor-enabled-control")).toContainText(
+      "Enabled",
+    );
     await toggle.click();
     await expectSignInPrompt(page);
     // Nothing anonymous was persisted, and the control did not move.
@@ -183,9 +191,9 @@ test.describe("guest built-in collections", () => {
     await expect(page).toHaveURL(/\/monitors$/);
 
     const monitorId = await builtInMonitorId(page, QA_MONITOR);
-    const refused = await page.request.put(
-      `${apiBaseUrl()}/dashboard/monitors/${monitorId}/visibility`,
-      { data: { visible: false } },
+    const refused = await page.request.patch(
+      `${apiBaseUrl()}/monitors/${monitorId}`,
+      { data: { enabled: false } },
     );
     expect(refused.status()).toBe(401);
   });
