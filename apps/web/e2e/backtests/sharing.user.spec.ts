@@ -7,6 +7,7 @@ import { expect, test, type Page } from "../fixtures";
 import { waitForRunsToSettle } from "../utils/backtests";
 import { apiBaseUrl } from "../utils/entitlements";
 import {
+  annualHeatmapTexts,
   closeReaderContext,
   enableShareThroughDialog,
   expectNoHorizontalScroll,
@@ -58,6 +59,12 @@ test.describe("sharing a completed backtest", () => {
   let listId = "";
   let shareUrl = "";
   let ownerMetrics: Record<string, string> = {};
+  let ownerRunLabel = "";
+  let ownerHeatmap: Awaited<ReturnType<typeof annualHeatmapTexts>> = {
+    years: [],
+    strategy: [],
+    benchmark: [],
+  };
 
   async function api(
     page: Page,
@@ -210,6 +217,12 @@ test.describe("sharing a completed backtest", () => {
     await expect(page.getByRole("region", { name: "Trade log" })).toBeVisible();
     ownerMetrics = await metricTexts(page);
     expect(Object.keys(ownerMetrics)).toHaveLength(8);
+    ownerRunLabel =
+      (await page.getByTestId("backtest-run-title").textContent())?.trim() ??
+      "";
+    expect(ownerRunLabel).toMatch(/^Run #\d{4,}$/);
+    ownerHeatmap = await annualHeatmapTexts(page);
+    expect(ownerHeatmap.years.length).toBeGreaterThan(0);
   });
 
   test("a Guest reads the report: the owner's figures, the live chart, nothing private, no provider request", async ({
@@ -222,7 +235,11 @@ test.describe("sharing a completed backtest", () => {
     expect(response?.status()).toBe(200);
 
     await expect(page.getByTestId("shared-backtest")).toBeVisible();
+    // Titled by the owner page's own Run ID — never the run's UUID — and said to be shared.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      ownerRunLabel,
+    );
+    await expect(page.getByTestId("shared-backtest-metadata")).toContainText(
       "Shared backtest report",
     );
     await expect(page.getByTestId("shared-backtest-badge")).toHaveText(
@@ -239,16 +256,29 @@ test.describe("sharing a completed backtest", () => {
       Number(await chart.getAttribute("data-series-count")),
     ).toBeGreaterThanOrEqual(2);
 
-    // The same eight figures, formatted the same way, as on the owner's own page.
+    // The same eight figures, formatted the same way, as on the owner's own page — beside the
+    // chart in the same 70/30 overview at this 1,280px desktop width.
     expect(await metricTexts(page)).toEqual(ownerMetrics);
-    await expect(page.getByTestId("backtest-annual-returns")).toBeVisible();
+    const chartBox = await page.getByTestId("backtest-chart").boundingBox();
+    const resultsBox = await page.getByTestId("backtest-results").boundingBox();
+    expect(chartBox && resultsBox).toBeTruthy();
+    if (chartBox && resultsBox) {
+      expect(resultsBox.x).toBeGreaterThanOrEqual(
+        chartBox.x + chartBox.width - 1,
+      );
+      expect(Math.abs(resultsBox.y - chartBox.y)).toBeLessThan(24);
+    }
+    // And each year as the same Strategy vs benchmark heatmap.
+    expect(await annualHeatmapTexts(page)).toEqual(ownerHeatmap);
     await expect(page.getByTestId("shared-backtest-security-count")).toHaveText(
       "1",
     );
     await expect(page.getByTestId("shared-backtest-rule-count")).toHaveText(
       String(RULE_COUNT),
     );
-    await expect(page.getByTestId("shared-backtest-run-id")).toHaveText(runId);
+    await expect(page.getByTestId("shared-backtest-run-id")).toHaveText(
+      ownerRunLabel,
+    );
 
     // No trade log, no owner action, no link into the private strategy or list.
     for (const testId of [
@@ -274,6 +304,8 @@ test.describe("sharing a completed backtest", () => {
       QA_SYMBOL,
       strategyId,
       listId,
+      // The run's UUID: the public page names it by its Run ID only.
+      runId,
       "share-buy",
       "share-sell",
       "SMA_50D",
@@ -295,6 +327,16 @@ test.describe("sharing a completed backtest", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByTestId("backtest-chart")).toBeVisible();
     await expectNoHorizontalScroll(page);
+    // Stacked there: the results follow the chart rather than sit beside it.
+    const phoneChart = await page.getByTestId("backtest-chart").boundingBox();
+    const phoneResults = await page
+      .getByTestId("backtest-results")
+      .boundingBox();
+    if (phoneChart && phoneResults) {
+      expect(phoneResults.y).toBeGreaterThanOrEqual(
+        phoneChart.y + phoneChart.height - 1,
+      );
+    }
 
     const after = await fmpJournal(before.last);
     expect(

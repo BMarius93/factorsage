@@ -890,7 +890,7 @@ type TradeExportLogFields = {
  * shorter window.
  */
 export function annualReturnsOf(
-  equity: readonly Pick<EquityRow, "date" | "returnIndex">[],
+  equity: readonly Pick<EquityRow, "date" | "returnIndex" | "benchmarkIndex">[],
   run: { startDate: Date; endDate: Date },
 ): BacktestAnnualReturnResponse[] {
   const first = equity[0];

@@ -128,7 +128,10 @@ export type SharedBacktestSummaryResponse = Pick<
 
 export type SharedBacktestResultResponse = {
   summary: SharedBacktestSummaryResponse;
-  /** Per calendar year, never cumulative; the owner's page's own chaining. */
+  /**
+   * Per calendar year, never cumulative — the Strategy's figure and the benchmark's over the same
+   * window, exactly the owner page's own chaining.
+   */
   annualReturns: BacktestAnnualReturnResponse[];
   /**
    * The owner's page's chart curve, point for point: the same downsampled projection of the
@@ -140,11 +143,11 @@ export type SharedBacktestResultResponse = {
 /** `GET /shared-backtests/{token}`. */
 export type SharedBacktestReportResponse = {
   /**
-   * The run's own identifier, the "Run ID" its owner's page shows, so a shared report can be
-   * quoted back precisely. A random UUID that authorizes nothing: every run route is owner-scoped
-   * and answers `404` to anybody else, and the public link is the token, never this id.
+   * The run's user-facing Run ID — the number its owner's page shows as `Run #0084`, rendered by
+   * `backtestRunLabel` — so a shared report can be quoted back precisely. Never the run's UUID:
+   * the database identity does not cross the public link, which is the token alone.
    */
-  runId: string;
+  runNumber: number;
   /** The absolute public address of this report. */
   url: string;
   completedAt: string;

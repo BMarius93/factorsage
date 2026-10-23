@@ -511,7 +511,7 @@ describe("public backtest sharing", () => {
         await anonymous.get(`/shared-backtests/${token}`).expect(200)
       ).body as SharedBacktestReportResponse;
       expect(Object.keys(body).sort()).toEqual(
-        ["completedAt", "configuration", "result", "runId", "url"].sort(),
+        ["completedAt", "configuration", "result", "runNumber", "url"].sort(),
       );
       expect(Object.keys(body.configuration).sort()).toEqual(
         [
@@ -563,7 +563,13 @@ describe("public backtest sharing", () => {
       }
       for (const year of body.result.annualReturns) {
         expect(Object.keys(year).sort()).toEqual(
-          ["partial", "returnPercent", "simulatedThrough", "year"].sort(),
+          [
+            "benchmarkReturnPercent",
+            "partial",
+            "returnPercent",
+            "simulatedThrough",
+            "year",
+          ].sort(),
         );
       }
     });
@@ -590,6 +596,8 @@ describe("public backtest sharing", () => {
         ownerId,
         ownerEmail,
         snapshotHash,
+        // The run's UUID: the public report names the run by its Run ID only.
+        runId,
         benchmarkId,
         ...symbols,
         ...providerSymbols,
@@ -631,10 +639,19 @@ describe("public backtest sharing", () => {
         throw new Error("The owner's run has no result");
       }
 
-      expect(shared.runId).toBe(runId);
+      // The owner page's Run ID (`Run #0001` for this owner's first run), never the UUID.
+      expect(shared.runNumber).toBe(own.runNumber);
+      expect(shared.runNumber).toBe(1);
       expect(shared.completedAt).toBe(own.completedAt);
       expect(shared.result.curve).toEqual(result.curve);
       expect(shared.result.annualReturns).toEqual(result.annualReturns);
+      // The Strategy vs benchmark heatmap's data: both figures for every whole year.
+      expect(shared.result.annualReturns.length).toBeGreaterThan(20);
+      expect(
+        shared.result.annualReturns.every(
+          (year) => year.benchmarkReturnPercent !== null,
+        ),
+      ).toBe(true);
       for (const [field, value] of Object.entries(shared.result.summary)) {
         expect(value, field).toEqual(
           result.summary[field as keyof typeof result.summary],

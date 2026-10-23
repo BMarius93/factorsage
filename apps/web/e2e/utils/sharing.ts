@@ -153,6 +153,28 @@ export async function metricTexts(page: Page): Promise<Record<string, string>> {
     );
 }
 
+/**
+ * The Strategy vs benchmark annual-returns heatmap as the page renders it: the year headers and
+ * both rows' cells, in column order.
+ */
+export async function annualHeatmapTexts(page: Page): Promise<{
+  years: string[];
+  strategy: string[];
+  benchmark: string[];
+}> {
+  const texts = (testId: string) =>
+    page
+      .getByTestId(testId)
+      .evaluateAll((cells) =>
+        cells.map((cell) => (cell.textContent ?? "").trim()),
+      );
+  return {
+    years: await texts("backtest-annual-year"),
+    strategy: await texts("backtest-annual-return"),
+    benchmark: await texts("backtest-annual-benchmark-return"),
+  };
+}
+
 /** No page may scroll sideways: a shared report must be readable on a phone without panning. */
 export async function expectNoHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => ({

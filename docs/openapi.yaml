@@ -6644,14 +6644,14 @@ components:
         totalTrades: { type: integer, minimum: 0 }
     SharedBacktestReport:
       type: object
-      required: [runId, url, completedAt, configuration, result]
+      required: [runNumber, url, completedAt, configuration, result]
       properties:
-        runId:
-          type: string
-          format: uuid
+        runNumber:
+          type: integer
+          minimum: 1
           description: |
-            The run's own identifier — the "Run ID" its owner's page shows. It authorizes nothing:
-            every run route is owner-scoped, and the public link is the token, never this id.
+            The run's user-facing Run ID — shown as `Run #0084`, exactly as on its owner's page.
+            Never the run's UUID: no database identity crosses the public link.
         url: { type: string, format: uri }
         completedAt: { type: string, format: date-time }
         configuration: { $ref: "#/components/schemas/SharedBacktestConfiguration" }

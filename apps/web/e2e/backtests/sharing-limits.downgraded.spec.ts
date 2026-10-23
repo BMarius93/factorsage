@@ -63,8 +63,12 @@ test.describe("a shared run beyond the reader's plan", () => {
         persona,
       ).toHaveText("83");
       await expect(reader.getByRole("heading", { level: 1 })).toHaveText(
-        "Shared backtest report",
+        /^Run #\d{4,}$/,
       );
+      await expect(
+        reader.getByTestId("shared-backtest-metadata"),
+        persona,
+      ).toContainText("Shared backtest report");
       // Every figure is there; nothing is locked, blurred or offered as an upgrade.
       await expect(reader.getByTestId("metric-cagr"), persona).toContainText(
         "+3.20%",

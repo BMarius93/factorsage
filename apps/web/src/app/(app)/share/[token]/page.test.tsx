@@ -52,7 +52,7 @@ describe("/share/[token]", () => {
   it("renders the report for a live link", async () => {
     loadMock.mockResolvedValue(testSharedReport());
     const element = await SharedBacktestPage({ params });
-    expect(element.props.report.runId).toBe(testSharedReport().runId);
+    expect(element.props.report.runNumber).toBe(testSharedReport().runNumber);
   });
 
   it("is a not-found for an unknown or revoked link", async () => {

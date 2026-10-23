@@ -75,54 +75,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The chart and the eight result numbers, as one overview.
-
-   Stacked — chart, then the numbers — until the wide-desktop breakpoint, with the hero's own 18px
-   rhythm between them, exactly as when they were two sections. From 1,280px they share one row:
-   the chart takes about 70% of the width and the numbers a 2 x 4 grid in the remaining 30%. Below
-   that the 30% column would be under ~275px, too narrow for two tiles of "Portfolio value" beside
-   each other, so the split waits for the width that carries it comfortably. */
-.overview {
-  display: grid;
-  gap: 18px;
-  min-width: 0;
-}
-
-@media (min-width: 1280px) {
-  .overview {
-    grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-    gap: 24px;
-    /* Both columns take the row's height, which is the chart's: the numbers' grid fills it, so
-       the two bottoms line up. */
-    align-items: stretch;
-  }
-}
-
-/* One height for both states: the placeholder and the chart are interchangeable inside it.
-
-   The chart leads the result now, so the phone's height is deliberately the shortest of the three:
-   240px is a readable thirty-year curve and still leaves the eight result numbers on the first
-   screen. A wider viewport has the room to give the plot more of it. */
-.chartFrame {
-  position: relative;
-  --backtest-chart-height: 240px;
-  height: 240px;
-}
-
-.chartPlaceholder {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  margin: 0;
-  padding: 0 16px;
-  border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  text-align: center;
-}
-
 .columns {
   display: grid;
   gap: 14px;
@@ -138,34 +90,12 @@
   }
 }
 
-@media (min-width: 600px) {
-  .chartFrame {
-    --backtest-chart-height: 300px;
-    height: 300px;
-  }
-}
-
 @media (min-width: 880px) {
-  .chartFrame {
-    --backtest-chart-height: 360px;
-    height: 360px;
-  }
-
   /* Holdings and the trade log are dense tables now, not narrow card stacks: each
      takes the full content width so its columns stay legible. */
   .columns {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
-  }
-}
-
-/* Beside the numbers the chart is a little taller than when it spans the page: the row's height
-   is this frame's, fixed from the first render, so the numbers arriving — or a benchmark figure
-   joining a tile once the run completes — never resizes the chart or moves anything below it. */
-@media (min-width: 1280px) {
-  .chartFrame {
-    --backtest-chart-height: 380px;
-    height: 380px;
   }
 }
 

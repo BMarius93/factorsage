@@ -20,7 +20,7 @@ export function testSharedReport(
 ): SharedBacktestReportResponse {
   const { summary, annualReturns } = testResult();
   return {
-    runId: "7c0d3f0e-1a8b-4f7c-9a59-2a1a0b8f5d11",
+    runNumber: 84,
     url: TEST_SHARE_URL,
     completedAt: "2026-01-03T09:30:00.000Z",
     configuration: {

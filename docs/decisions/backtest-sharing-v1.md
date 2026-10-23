@@ -57,8 +57,9 @@ with one message, in the API, the page and the image.
 `SharedBacktestReportResponse` (`@intrinsic/contracts`, `backtest-sharing.ts`) is a contract of its
 own, never a filtered `BacktestRunDetailResponse`. It carries:
 
-- `runId` — the run's own UUID, the "Run ID" its owner's page shows, so a report can be quoted back
-  precisely. It authorizes nothing: every run route is owner-scoped, and the link is the token.
+- `runNumber` — the run's per-user sequential Run ID, rendered `Run #0084` by `backtestRunLabel`
+  exactly as on its owner's page, so a report can be quoted back precisely. The run's UUID never
+  crosses the public link; no database identity does.
 - `url`, `completedAt`.
 - `configuration` — period, initial capital, monthly contribution, `maximumPositions`, the derived
   full-position percentage, the benchmark's catalog `code` and product `name` (never its id, series
@@ -66,7 +67,10 @@ own, never a filtered `BacktestRunDetailResponse`. It carries:
 - `result.summary` — `SHARED_BACKTEST_SUMMARY_FIELDS`, an explicit allowlist of run-level
   aggregates: first/last simulated date, final value, net profit, portfolio and benchmark returns,
   excess return, both CAGRs, both maximum drawdowns, total trades.
-- `result.annualReturns` and `result.curve` — the owner page's own projections, point for point.
+- `result.annualReturns` — the owner page's own per-year figures: the Strategy's and, over the same
+  window, the benchmark's (null where the benchmark cannot be measured), which is what the Strategy
+  vs benchmark heatmap draws.
+- `result.curve` — the owner page's own chart projection, point for point.
 
 Never present: strategy name, id, version, definition, rules, metrics, operators or thresholds;
 list name, id or members; any symbol or security name; trades, the trade log, positions, holdings,
@@ -92,11 +96,13 @@ are the owner's exactly.
 
 `/share/[token]` lives in the `(app)` shell and is guest-readable (`isGuestReadableRoute`). The page
 is a server component: it reads the report once per request (`cache: "no-store"`, React `cache()`
-shared with `generateMetadata`) from the public API with **no cookie forwarded**, and renders the
-existing components — `BacktestComparisonChart` (Lightweight Charts, fully interactive once
-hydrated), `BacktestMetricsRow`, `BacktestAnnualReturns`, `DisclosureNote`, `FactGrid` — from the
-allowlisted data. Only that data is serialized into the RSC payload, so nothing private can reach
-the HTML.
+shared with `generateMetadata`) from the public API with **no cookie forwarded**, and renders it
+with the owner page's own components: the header titled by the Run ID (`Run #0084`) with a
+`Shared backtest report · period · Benchmark` line; `BacktestResultOverview` — the chart
+(Lightweight Charts, fully interactive once hydrated) and the eight KPI tiles side by side from
+1,280px, stacked below it, exactly the owner's 70/30 overview; `BacktestAnnualReturns`, the Strategy
+vs benchmark heatmap; `DisclosureNote`; and a `FactGrid` of the simulation settings and counts. Only
+the allowlisted data is serialized into the RSC payload, so nothing private can reach the HTML.
 
 What the owner's page adds has no counterpart: no strategy or list names or links, no "Edit and run
 again", no Share, no run configuration provenance, no trade log, no locked or teased section and no
@@ -167,7 +173,7 @@ from the pinned `geist` package's TTFs, since the renderer cannot fetch fonts).
 
 ## 8. Data model
 
-Migration `20261022120000_backtest_share` adds one table:
+Migration `20261023090000_backtest_share` adds one table:
 
 ```text
 BacktestShare(runId PK -> BacktestRun ON DELETE CASCADE, token UNIQUE, createdAt)

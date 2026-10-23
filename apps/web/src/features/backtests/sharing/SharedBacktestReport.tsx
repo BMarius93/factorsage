@@ -1,4 +1,7 @@
-import type { SharedBacktestReportResponse } from "@intrinsic/contracts";
+import {
+  backtestRunLabel,
+  type SharedBacktestReportResponse,
+} from "@intrinsic/contracts";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { FactGrid } from "../../../components/ui/FactGrid";
 import { PageHeader } from "../../../components/ui/PageHeader";
@@ -6,8 +9,7 @@ import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { DisclosureNote } from "../../legal/components/DisclosureNote";
 import { BacktestAnnualReturns } from "../components/BacktestAnnualReturns";
-import { BacktestComparisonChart } from "../components/BacktestComparisonChart";
-import { BacktestMetricsRow } from "../components/BacktestMetricsRow";
+import { BacktestResultOverview } from "../components/BacktestResultOverview";
 import runStyles from "../components/BacktestRunView.module.css";
 import {
   formatCount,
@@ -28,10 +30,12 @@ export type SharedBacktestReportProps = {
  * A shared backtest, as anyone holding the link reads it (`docs/decisions/backtest-sharing-v1.md`).
  *
  * It is the owner's completed result page with the private parts **absent**, not hidden: the same
- * chart, the same eight KPI tiles, the same annual returns and the same disclosure, rendered by the
- * same components from the allowlisted report. What the owner's page adds — the strategy and list
- * by name and link, the frozen configuration's provenance, "Edit and run again", Share and the
- * trade log — has no counterpart here, because the data it would need never reaches this page.
+ * Run ID title, the same overview — the chart and the eight KPI tiles side by side on a wide
+ * desktop — the same Strategy vs benchmark annual-returns heatmap and the same disclosure,
+ * rendered by the same components from the allowlisted report. What the owner's page adds — the
+ * strategy and list by name and link, the frozen configuration's provenance, "Edit and run again",
+ * Share and the trade log — has no counterpart here, because the data it would need never reaches
+ * this page.
  *
  * Nothing is locked or teased: there is no blurred trade log and no upgrade prompt for another
  * person's trades. The one action is the reader's own next step — a backtest of their own.
@@ -40,23 +44,45 @@ export function SharedBacktestReport({ report }: SharedBacktestReportProps) {
   const { configuration, result } = report;
   const benchmarkName = configuration.benchmark.name;
   const period = formatPeriod(configuration.startDate, configuration.endDate);
+  const runLabel = backtestRunLabel(report.runNumber);
 
   return (
     <PageContainer>
-      <div
-        className={runStyles.page}
-        data-testid="shared-backtest"
-        data-run-id={report.runId}
-      >
+      <div className={runStyles.page} data-testid="shared-backtest">
         <SectionCard
           hero
           ariaLabel="Shared backtest result"
           testId="shared-backtest-hero"
         >
+          {/* The run's own identity, as on its owner's page — the Run ID, never the strategy it
+              executed — and, in the line under it, what this page is. The strategy and list the
+              owner's line names are private, so the period and benchmark stand alone. */}
           <PageHeader
             variant="hero"
-            title="Shared backtest report"
-            lead={`${period} · vs ${benchmarkName}`}
+            title={
+              <span data-testid="shared-backtest-run-title">{runLabel}</span>
+            }
+            lead={
+              <span
+                className={runStyles.meta}
+                data-testid="shared-backtest-metadata"
+              >
+                <span className={runStyles.metaItem}>
+                  Shared backtest report
+                </span>
+                <span className={runStyles.metaSeparator} aria-hidden="true">
+                  ·
+                </span>
+                <span className={runStyles.metaItem}>{period}</span>
+                <span className={runStyles.metaSeparator} aria-hidden="true">
+                  ·
+                </span>
+                <span className={runStyles.metaItem}>
+                  Benchmark: {benchmarkName}
+                </span>
+              </span>
+            }
+            leadWidth="full"
             badges={
               <StatusBadge tone="neutral" testId="shared-backtest-badge">
                 Read-only
@@ -71,34 +97,21 @@ export function SharedBacktestReport({ report }: SharedBacktestReportProps) {
             the individual trades are private and are not part of this report.
           </p>
 
-          <div className={runStyles.chartFrame}>
-            {result.curve.length === 0 ? (
-              <p
-                className={runStyles.chartPlaceholder}
-                data-testid="backtest-chart-placeholder"
-              >
-                This run produced no comparison curve.
-              </p>
-            ) : (
-              <BacktestComparisonChart
-                points={result.curve}
-                benchmarkName={benchmarkName}
-                ariaLabel={`Strategy portfolio value against ${benchmarkName} and cash. The same money invested three ways: each scenario receives the same initial capital and the same monthly contributions.`}
-                periodStart={configuration.startDate}
-                periodEnd={configuration.endDate}
-                populating={false}
-                initialCapital={configuration.initialCapital}
-                monthlyContribution={configuration.monthlyContribution}
-              />
-            )}
-          </div>
-
-          <BacktestMetricsRow
+          <BacktestResultOverview
+            curve={result.curve}
             metrics={resultMetrics(result.summary)}
             benchmarkName={benchmarkName}
+            periodStart={configuration.startDate}
+            periodEnd={configuration.endDate}
+            initialCapital={configuration.initialCapital}
+            monthlyContribution={configuration.monthlyContribution}
+            populating={false}
           />
 
-          <BacktestAnnualReturns years={result.annualReturns} />
+          <BacktestAnnualReturns
+            years={result.annualReturns}
+            benchmarkName={benchmarkName}
+          />
 
           <DisclosureNote id="backtests" className={runStyles.disclosure} />
         </SectionCard>
@@ -147,14 +160,8 @@ export function SharedBacktestReport({ report }: SharedBacktestReportProps) {
               },
               {
                 label: "Run ID",
-                value: (
-                  <code
-                    className={styles.runId}
-                    data-testid="shared-backtest-run-id"
-                  >
-                    {report.runId}
-                  </code>
-                ),
+                value: runLabel,
+                testId: "shared-backtest-run-id",
               },
             ]}
           />

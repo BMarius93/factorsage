@@ -66,9 +66,13 @@ export class SharedBacktestNotFoundError extends Error {
   }
 }
 
-/** What a public read loads from the run, and nothing more: no user id, no failure detail. */
+/**
+ * What a public read loads from the run, and nothing more: no user id, no failure detail. `id` is
+ * read to find the run's equity rows and is never projected into a public response.
+ */
 const SHARED_RUN_SELECT = {
   id: true,
+  runNumber: true,
   status: true,
   startDate: true,
   endDate: true,
@@ -240,7 +244,7 @@ export class BacktestSharingService {
     });
     const snapshot = readSnapshot(run.snapshot);
     const report: SharedBacktestReportResponse = {
-      runId: run.id,
+      runNumber: run.runNumber,
       url: this.publicUrl(token),
       completedAt: (run.completedAt as Date).toISOString(),
       configuration: sharedConfigurationOf(snapshot),

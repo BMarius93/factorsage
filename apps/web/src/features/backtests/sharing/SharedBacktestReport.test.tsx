@@ -51,11 +51,16 @@ beforeEach(() => {
 });
 
 describe("SharedBacktestReport", () => {
-  it("presents itself as a shared, read-only report", () => {
+  it("is titled by the run's Run ID and presents itself as a shared, read-only report", () => {
     render(<SharedBacktestReport report={testSharedReport()} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
-      "Shared backtest report",
+      "Run #0084",
     );
+    const metadata = screen.getByTestId("shared-backtest-metadata").textContent;
+    expect(metadata).toContain("Shared backtest report");
+    expect(metadata).toContain("Benchmark: Total Market Index");
+    // The owner's line names the strategy and the list; this one names neither.
+    expect(metadata).not.toMatch(/Strategy:|List:/);
     expect(screen.getByTestId("shared-backtest-badge").textContent).toBe(
       "Read-only",
     );
@@ -64,9 +69,14 @@ describe("SharedBacktestReport", () => {
     );
   });
 
-  it("draws the interactive chart and the owner page's eight figures, unchanged", () => {
+  it("draws the interactive chart and the owner page's eight figures in one overview", () => {
     render(<SharedBacktestReport report={testSharedReport()} />);
-    expect(screen.getByTestId("backtest-chart")).toBeTruthy();
+    // The owner page's own overview component: the chart and the tiles side by side.
+    const overview = screen.getByTestId("backtest-overview");
+    expect(overview.contains(screen.getByTestId("backtest-chart"))).toBe(true);
+    expect(overview.contains(screen.getByTestId("backtest-results"))).toBe(
+      true,
+    );
     const tiles = within(screen.getByTestId("backtest-metrics"));
     expect(tiles.getAllByRole("term")).toHaveLength(8);
     expect(screen.getByTestId("metric-cagr").textContent).toContain("+6.30%");
@@ -80,7 +90,31 @@ describe("SharedBacktestReport", () => {
       "$34,000.00",
     );
     expect(screen.getByTestId("metric-trades").textContent).toContain("42");
-    expect(screen.getByTestId("backtest-annual-returns")).toBeTruthy();
+  });
+
+  it("shows each year as the Strategy vs benchmark heatmap", () => {
+    render(<SharedBacktestReport report={testSharedReport()} />);
+    const heatmap = screen.getByTestId("backtest-annual-heatmap");
+    expect(
+      within(heatmap)
+        .getAllByTestId("backtest-annual-year")
+        .map((cell) => cell.textContent?.trim()),
+    ).toEqual(["2021", "2022", "2023"]);
+    const strategy = within(
+      screen.getByTestId("backtest-annual-strategy-row"),
+    ).getAllByTestId("backtest-annual-return");
+    const benchmark = within(
+      screen.getByTestId("backtest-annual-benchmark-row"),
+    ).getAllByTestId("backtest-annual-benchmark-return");
+    expect(strategy.map((cell) => cell.textContent?.trim())).toEqual([
+      "+18.00%",
+      "-7.50%",
+      "+24.25%",
+    ]);
+    expect(benchmark).toHaveLength(3);
+    expect(
+      screen.getByTestId("backtest-annual-benchmark-row").textContent,
+    ).toContain(TEST_BENCHMARK_NAME);
   });
 
   it("states the simulation's general parameters and the two counts", () => {
@@ -96,7 +130,7 @@ describe("SharedBacktestReport", () => {
       "12",
     );
     expect(screen.getByTestId("shared-backtest-run-id").textContent).toBe(
-      "7c0d3f0e-1a8b-4f7c-9a59-2a1a0b8f5d11",
+      "Run #0084",
     );
   });
 
@@ -122,6 +156,10 @@ describe("SharedBacktestReport", () => {
       false,
     );
     expect(container.textContent).not.toMatch(/upgrade|unlock|trade log/i);
+    // No UUID anywhere: the run is named by its Run ID only.
+    expect(container.innerHTML).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    );
   });
 
   it("says so instead of drawing a chart for a run with no curve", () => {
