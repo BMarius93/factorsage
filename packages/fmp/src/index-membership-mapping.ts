@@ -324,6 +324,19 @@ export const FMP_MEMBERSHIP_INDEX_PATHS = {
     constituents: "sp500-constituent",
     changes: "historical-sp500-constituent",
   },
+  /**
+   * The Nasdaq-100 (NDX), not every Nasdaq listing: 101 current lines on 2026-10-24 (the 100
+   * companies, one with two share classes), 452 changes from the index's 1985-01-31 launch.
+   */
+  NASDAQ100: {
+    constituents: "nasdaq-constituent",
+    changes: "historical-nasdaq-constituent",
+  },
+  /** The Dow Jones Industrial Average: 30 lines; 86 changes, the first 30 a 1994-01-01 snapshot. */
+  DOW30: {
+    constituents: "dowjones-constituent",
+    changes: "historical-dowjones-constituent",
+  },
 } as const;
 
 export type FmpMembershipIndex = keyof typeof FMP_MEMBERSHIP_INDEX_PATHS;

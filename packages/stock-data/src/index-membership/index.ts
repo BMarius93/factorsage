@@ -1,3 +1,4 @@
+export * from "./change-log-corrections.js";
 export * from "./corrections.js";
 export * from "./names.js";
 export * from "./reconstruction.js";

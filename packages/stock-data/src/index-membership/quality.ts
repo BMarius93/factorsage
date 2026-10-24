@@ -9,7 +9,8 @@ import type { StoredIndexConstituent, StoredMembershipPeriod } from "./ports.js"
 /**
  * How well a reconstruction agrees with what is known about the index, and the List it projects.
  *
- * The S&P 500 holds exactly 500 companies; a company with two listed share classes in the index
+ * Measured against the index's expected line band (`PointInTimeIndexUniverse.expectedLines`). The
+ * S&P 500, for one, holds exactly 500 companies; a company with two listed share classes in the index
  * (Alphabet, Fox, News Corp) contributes two lines, so on any date the index holds **at least** 500
  * lines and, historically, at most about 506. A reconstructed date with fewer than 500 lines is
  * missing constituents the provider's change log does not record; one with more than the ceiling
@@ -17,10 +18,10 @@ import type { StoredIndexConstituent, StoredMembershipPeriod } from "./ports.js"
  * reliably reconstructed" means, measured rather than asserted.
  */
 
-/** Fewer reconstructed lines than this on a date means constituents are missing. */
+/** The S&P 500's band: fewer reconstructed lines than this on a date means constituents are missing. */
 export const INDEX_EXPECTED_MIN_LINES = 500;
 
-/** More reconstructed lines than this on a date means a removal is missing. */
+/** The S&P 500's band: more reconstructed lines than this on a date means a removal is missing. */
 export const INDEX_EXPECTED_MAX_LINES = 506;
 
 export type MembershipCountSpan = {
@@ -36,9 +37,9 @@ export type MembershipQualityReport = {
   readonly checkpoints: readonly { date: LocalDate; lines: number }[];
   readonly minimum: { date: LocalDate; lines: number };
   readonly maximum: { date: LocalDate; lines: number };
-  /** Maximal spans with fewer lines than {@link INDEX_EXPECTED_MIN_LINES}. */
+  /** Maximal spans with fewer lines than the band's minimum. */
   readonly deficits: readonly MembershipCountSpan[];
-  /** Maximal spans with more lines than {@link INDEX_EXPECTED_MAX_LINES}. */
+  /** Maximal spans with more lines than the band's maximum. */
   readonly surpluses: readonly MembershipCountSpan[];
   /** Days inside the horizon whose count lies inside the expected band. */
   readonly daysWithinBand: number;
@@ -66,6 +67,11 @@ export function membershipQualityReport(
   constituents: readonly CountedConstituent[],
   horizon: { floor: LocalDate; asOf: LocalDate },
   predicate: (constituent: CountedConstituent) => boolean = () => true,
+  /** The index's expected line count (`PointInTimeIndexUniverse.expectedLines`); the S&P 500's by default. */
+  band: { readonly min: number; readonly max: number } = {
+    min: INDEX_EXPECTED_MIN_LINES,
+    max: INDEX_EXPECTED_MAX_LINES,
+  },
 ): MembershipQualityReport {
   const deltas = new Map<LocalDate, number>();
   const endUnknown: MembershipQualityReport["endUnknownPeriods"][number][] = [];
@@ -139,11 +145,7 @@ export function membershipQualityReport(
       maximum = { date: day, lines: current };
     }
     const kind =
-      current < INDEX_EXPECTED_MIN_LINES
-        ? "deficit"
-        : current > INDEX_EXPECTED_MAX_LINES
-          ? "surplus"
-          : null;
+      current < band.min ? "deficit" : current > band.max ? "surplus" : null;
     if (kind === null) {
       daysWithinBand += 1;
       close();

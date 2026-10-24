@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { PriceBasisEvent } from "./price-basis.js";
 import {
   buildValuationTimeline,
+  marketCapitalizationColumn,
   valuationRatioColumns,
   type ValuationInputs,
 } from "./valuation-ratios.js";
@@ -1803,5 +1804,55 @@ describe("valuation ratios: a timeline bounded to the sessions it will be read o
     expect(
       buildValuationTimeline(valuation, { statesFrom: "2020-01-01" }).states,
     ).toEqual(whole.states);
+  });
+});
+
+describe("market capitalization column", () => {
+  const dates = [
+    "2024-05-10",
+    "2024-08-09",
+    "2024-11-11",
+    "2025-02-10",
+    "2025-06-02",
+  ];
+
+  it("is the close times the accepted share count: from the third agreeing quarter (rule 3)", () => {
+    const column = marketCapitalizationColumn({
+      timeline: buildValuationTimeline(inputs()),
+      dates,
+      closes: dates.map(() => 10),
+    });
+    expect([...column]).toEqual([Number.NaN, Number.NaN, 1000, 1000, 1000]);
+  });
+
+  it("agrees with the market capitalization every ratio divides", () => {
+    const timeline = buildValuationTimeline(inputs());
+    const closes = dates.map((_date, index) => 10 + index);
+    const caps = marketCapitalizationColumn({ timeline, dates, closes });
+    const book = valuationRatioColumns({
+      timeline,
+      dates,
+      closes,
+      ratios: ["PRICE_TO_BOOK"],
+    }).get("PRICE_TO_BOOK") as Float64Array;
+    dates.forEach((_date, index) => {
+      const ratio = book[index] as number;
+      // Available on exactly the sessions price-to-book is; equity is 400.
+      expect(Number.isFinite(caps[index] as number)).toBe(
+        Number.isFinite(ratio),
+      );
+      if (Number.isFinite(ratio)) {
+        expect(caps[index]).toBeCloseTo(ratio * 400, 6);
+      }
+    });
+  });
+
+  it("is unavailable for a history the loader has not verified", () => {
+    const column = marketCapitalizationColumn({
+      timeline: buildValuationTimeline(inputs({ verifiedAt: null })),
+      dates,
+      closes: dates.map(() => 10),
+    });
+    expect([...column].every(Number.isNaN)).toBe(true);
   });
 });
