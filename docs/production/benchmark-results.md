@@ -332,6 +332,27 @@ by design (`ai/architecture/backtest-execution.md`: a read failure must never be
 answer, and the run "can simply be run again"). The Redis case was a lost-work problem only — the
 data was intact a dozen seconds later — and is fixed: backtest workers now wait through about two
 minutes of refused connections (`BACKTEST_REDIS_MAX_RETRIES_PER_REQUEST`). PostgreSQL exhaustion and
-a sustained provider rate limit still fail executing runs; the production connection budget (64
+a sustained provider rate limit still fail executing runs; the production connection budget (84
 under `max_connections` 100) and the deployment-wide provider gate are what keep them from
 happening, and the `RUNBOOK.md` alerts what detects them.
+
+## 9. Backup and restore
+
+`drivers/backup-drill.sh` on the benchmark database once the benchmarks were over (raw:
+`backup-drill.log`), with the production scripts' flags: `pg_dump --format=custom --compress=zstd:6`
+(`deploy/production/scripts/backup-postgres.sh`) and `pg_restore --jobs=4 --no-owner --exit-on-error`
+(`restore-postgres.sh`). PostgreSQL 16.15 on the same 4 vCPU machine, network block storage, nothing
+else running.
+
+| Step                                                                                  | Size                                        |                Time |
+| ------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------: |
+| Full dump of the 24.4 GB database, streamed and counted (this disk could not hold it) | **3.22 GB**, 7.6× smaller than the database | **491 s** (8.2 min) |
+| `DailyPrice` — 21,480,276 rows, 2.51 GB of rows, 5.14 GB with its index — to a file   | 597 MB                                      |                54 s |
+| that file restored into a new database: rows and primary key, four jobs               | 21,480,276 rows, 3.96 GB on disk, 0 errors  |            **65 s** |
+
+The whole database was not restored: the disk could not hold a second copy beside the first. At the
+measured table rate (≈ 61 MB of restored relation per second, one table at a time) it would take
+≈ 7 min — an estimate, **not measured**. The one-table restore left out the table's foreign key,
+whose referenced table is not in a one-table dump. After a restore the protected tier is rebuilt
+from PostgreSQL (14.6–16.2 min here, §1) while the application keeps serving, more slowly, from
+PostgreSQL.

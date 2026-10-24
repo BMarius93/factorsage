@@ -94,9 +94,10 @@ security), `BACKTEST_NON_RESIDENT_FRAME_READ=STORE` (`benchmark-results.md` §1�
   reaches 80 % of its limit in production (`RUNBOOK.md` §5), move to a 64 GB host (Hetzner CCX43)
   or lower `BACKTEST_FRAME_LOAD_CONCURRENCY` (fewer hydrations in flight per run; not measured).
 - **Storage.** A security's 34-year history is ≈ 8.5 MB in PostgreSQL (the benchmark database: 15 GB
-  for 1,764 synthetic securities; real histories are shorter), so the canonical universe is ≈ 6 GB and
-  5,000 hydrated securities ≈ 43 GB, plus up to 8 GB of WAL, two local
-  dumps, images and the Redis snapshot. Throughput needs are small — the heaviest run read 6.6 MB/s on
+  for 1,764 synthetic securities, 24.4 GB by the end with the first-time securities and every run's
+  results; real histories are shorter), so the canonical universe is ≈ 6 GB and 5,000 hydrated
+  securities ≈ 43 GB, plus up to 8 GB of WAL, two local dumps (a dump is ≈ 1/7.6 of the database:
+  3.2 GB for 24.4 GB, `benchmark-results.md` §9), images and the Redis snapshot. Throughput needs are small — the heaviest run read 6.6 MB/s on
   average — so any local NVMe has two orders of magnitude of headroom; latency matters more than
   IOPS, which is why local NVMe is preferred to network block storage.
 - **Network.** Small: rebuilding a security into Redis asks the provider for one day of prices at most
