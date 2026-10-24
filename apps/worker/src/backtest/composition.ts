@@ -60,6 +60,9 @@ import {
   type BacktestSecurityCatalog,
 } from "./securities.js";
 
+/** About two minutes of refused connections before a pending Redis command fails (`redis-client.ts`). */
+export const BACKTEST_REDIS_MAX_RETRIES_PER_REQUEST = 30;
+
 export type BacktestRuntime = {
   repository: BacktestJobRepository;
   securities: BacktestSecurityCatalog;
@@ -122,9 +125,17 @@ export function createBacktestRuntime(
   };
 
   const prisma = new PrismaClient();
-  const redis = createStockDataRedisClient(getRedisConfig().url, (err) => {
-    logger.warn({ event: "stock-data.redis.error", err });
-  });
+  // A run holds its slot for minutes and every one of its reads needs Redis, so a brief Redis
+  // restart pauses it rather than failing it: with the fail-fast default every executing run failed
+  // within a second of a measured 12 s restart (`docs/production/benchmark-results.md` §8). An
+  // outage longer than about two minutes still fails the run, as before.
+  const redis = createStockDataRedisClient(
+    getRedisConfig().url,
+    (err) => {
+      logger.warn({ event: "stock-data.redis.error", err });
+    },
+    { maxRetriesPerRequest: BACKTEST_REDIS_MAX_RETRIES_PER_REQUEST },
+  );
 
   const provider = new FmpClient(() => getFmpConfig(), fetch, {
     gate: new RedisFmpRequestGate(redis, {
