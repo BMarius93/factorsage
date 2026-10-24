@@ -170,6 +170,7 @@ async function main(): Promise<void> {
       startDate,
       endDate,
       initialCapital: 100_000,
+      maximumPositions: 10,
     });
     const replies = await Promise.all(
       Array.from({ length: args.tabs }, () =>
@@ -204,6 +205,7 @@ async function main(): Promise<void> {
         startDate,
         endDate,
         initialCapital: 100_000,
+        maximumPositions: 10,
         plan: "PRO_PLUS",
         concurrentBacktests: 99,
       }),
@@ -232,6 +234,7 @@ async function main(): Promise<void> {
         startDate,
         endDate,
         initialCapital: 100_000,
+        maximumPositions: 10,
       }),
     });
     results.push({
@@ -314,6 +317,7 @@ async function main(): Promise<void> {
               startDate,
               endDate,
               initialCapital: 100_000,
+              maximumPositions: 10,
             }),
           });
           const text = await response.text();

@@ -32,16 +32,24 @@ import { repositoryRoot } from "../qa-matrix/matrix-paths";
  * - The web server gets an allowlist: it opens no database and holds no secret.
  *
  * Both log to `artifacts/load/`; their pids are written to `artifacts/load/servers.json` for
- * `load:interactive run --api-pid`. Ctrl-C stops both.
+ * `load:interactive run --api-pid`. Ctrl-C stops both. `--api-only` starts one more API process and
+ * no web server (`api-<port>.log`, `servers-<port>.json`), so the API can be measured with two
+ * processes — two load generators, each signing in its own accounts (`--first-user`).
  */
 
-type Arguments = { apiPort: number; webPort: number };
+/** `apiOnly`: one more API process and no web server, to measure the API with more than one process. */
+type Arguments = { apiPort: number; webPort: number; apiOnly: boolean };
 
 function parseArguments(argv: readonly string[]): Arguments {
-  const parsed: Arguments = { apiPort: 3101, webPort: 3100 };
+  const parsed: Arguments = { apiPort: 3101, webPort: 3100, apiOnly: false };
   const rest = argv.filter((value) => value !== "--");
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index];
+    if (flag === "--api-only") {
+      parsed.apiOnly = true;
+      index -= 1;
+      continue;
+    }
     const value = Number(rest[index + 1]);
     if (!Number.isInteger(value) || value <= 0) {
       throw new Error(`${flag} needs a port`);
@@ -121,8 +129,8 @@ async function main(): Promise<void> {
   }
   const apiOrigin = `http://127.0.0.1:${args.apiPort}`;
   const webOrigin = `http://127.0.0.1:${args.webPort}`;
-  const compiled = compiledApiOrigins(webRoot);
-  if (!compiled.has(apiOrigin)) {
+  const compiled = args.apiOnly ? null : compiledApiOrigins(webRoot);
+  if (compiled && !compiled.has(apiOrigin)) {
     throw new Error(
       `The web build calls ${[...compiled].join(", ") || "no loopback API"}, not ${apiOrigin}: ` +
         `rebuild it with NEXT_PUBLIC_API_BASE_URL=${apiOrigin}`,
@@ -156,8 +164,23 @@ async function main(): Promise<void> {
     ["--require", probe, apiEntry],
     join(root, "apps/api"),
     apiEnv,
-    join(logs, "api.log"),
+    join(logs, args.apiOnly ? `api-${args.apiPort}.log` : "api.log"),
   );
+
+  if (args.apiOnly) {
+    const stopApi = () => api.kill("SIGTERM");
+    process.on("SIGINT", stopApi);
+    process.on("SIGTERM", stopApi);
+    const readyMs = await waitFor(`${apiOrigin}/health`, 120_000);
+    const servers = { api: { pid: api.pid, origin: apiOrigin, readyMs }, logs };
+    writeFileSync(
+      join(logs, `servers-${args.apiPort}.json`),
+      `${JSON.stringify(servers, null, 2)}\n`,
+    );
+    process.stdout.write(`${JSON.stringify(servers)}\n`);
+    await new Promise((resolveExit) => api.once("exit", resolveExit));
+    return;
+  }
 
   // An allowlist: the web server reads no secret and opens no data store.
   const webEnv: Record<string, string> = {

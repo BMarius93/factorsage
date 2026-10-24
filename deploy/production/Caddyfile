@@ -37,7 +37,10 @@
 	request_body {
 		max_size 1MB
 	}
-	reverse_proxy api:3001 {
+	# Two API processes (docker-compose.yml `api`, `api-2`): each request goes to the one with fewer
+	# in flight, and a restarting one is skipped.
+	reverse_proxy api:3001 api-2:3001 {
+		lb_policy least_conn
 		health_uri /health
 		health_interval 15s
 		lb_try_duration 10s

@@ -45,7 +45,7 @@ type BrowserReport = {
   users: number;
   rounds: number;
   samples: number;
-  failures: number;
+  failures: unknown[];
   crashes: number;
   pageErrors: number;
   pages: {
@@ -185,7 +185,7 @@ function main(): void {
   for (const report of browser) {
     output.push(
       "",
-      `Browser journeys, ${report.label}: ${report.users} browsers × ${report.rounds} rounds, ${report.samples} page loads, ${report.failures} failed, ${report.crashes} crashes, ${report.pageErrors} page errors.`,
+      `Browser journeys, ${report.label}: ${report.users} browsers × ${report.rounds} rounds, ${report.samples} page loads, ${report.failures.length} failed, ${report.crashes} crashes, ${report.pageErrors} page errors.`,
       "",
       table(
         [

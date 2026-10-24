@@ -2,11 +2,18 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
-import { LEGAL_ACCEPTANCE_BUNDLE, legalDocument, type UserPlan } from "@intrinsic/contracts";
+import {
+  LEGAL_ACCEPTANCE_BUNDLE,
+  legalDocument,
+  type UserPlan,
+} from "@intrinsic/contracts";
 import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
 import * as argon2 from "argon2";
-import { benchEnvironment, benchProcessEnvironment } from "../backtest-benchmark/bench-environment";
+import {
+  benchEnvironment,
+  benchProcessEnvironment,
+} from "../backtest-benchmark/bench-environment";
 import { syntheticSymbol } from "../backtest-benchmark/synthetic-fmp";
 import { repositoryRoot } from "../qa-matrix/matrix-paths";
 
@@ -35,7 +42,16 @@ import { repositoryRoot } from "../qa-matrix/matrix-paths";
 
 const EMAIL_DOMAIN = "factorsage.invalid";
 const PLAN_MIX: readonly UserPlan[] = [
-  "FREE", "FREE", "FREE", "FREE", "STARTER", "STARTER", "STARTER", "PRO", "PRO", "PRO_PLUS",
+  "FREE",
+  "FREE",
+  "FREE",
+  "FREE",
+  "STARTER",
+  "STARTER",
+  "STARTER",
+  "PRO",
+  "PRO",
+  "PRO_PLUS",
 ];
 
 type Arguments = {
@@ -56,6 +72,8 @@ type Arguments = {
   popularShare: number;
   /** `setup`: the size of the completed benchmark run each user's history copies. */
   templateSize: number;
+  /** `run`: the first load account this process signs in as, so two processes can split the accounts. */
+  firstUser: number;
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -77,6 +95,7 @@ function parseArguments(argv: readonly string[]): Arguments {
     sampleJobs: false,
     popularShare: 0.8,
     templateSize: 250,
+    firstUser: 1,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] as string;
@@ -88,6 +107,9 @@ function parseArguments(argv: readonly string[]): Arguments {
     switch (flag) {
       case "--users":
         parsed.users = Number(value);
+        break;
+      case "--first-user":
+        parsed.firstUser = Number(value);
         break;
       case "--base-url":
         parsed.baseUrl = value.replace(/\/$/, "");
@@ -132,7 +154,9 @@ function parseArguments(argv: readonly string[]): Arguments {
 function password(): string {
   const value = process.env.LOAD_TEST_PASSWORD?.trim();
   if (!value || value.length < 12) {
-    throw new Error("LOAD_TEST_PASSWORD (12+ characters, throwaway) is required");
+    throw new Error(
+      "LOAD_TEST_PASSWORD (12+ characters, throwaway) is required",
+    );
   }
   return value;
 }
@@ -189,20 +213,28 @@ async function setup(args: Arguments): Promise<unknown> {
       select: { id: true },
     });
     if (!template) {
-      throw new Error("No completed benchmark run to copy: run bench:scale-backtests first");
+      throw new Error(
+        "No completed benchmark run to copy: run bench:scale-backtests first",
+      );
     }
     const strategyTemplate = await prisma.strategyVersion.findFirst({
       where: { strategy: { name: { startsWith: "SCALE-BENCH-simple" } } },
       select: { definition: true, definitionHash: true },
     });
     if (!strategyTemplate) {
-      throw new Error("No benchmark strategy to copy: run bench:scale-backtests setup first");
+      throw new Error(
+        "No benchmark strategy to copy: run bench:scale-backtests setup first",
+      );
     }
-    const passwordHash = await argon2.hash(password(), { type: argon2.argon2id });
+    const passwordHash = await argon2.hash(password(), {
+      type: argon2.argon2id,
+    });
     const securities = await prisma.security.findMany({
       where: {
         providerSymbol: {
-          in: Array.from({ length: 200 }, (_, index) => syntheticSymbol(index + 1)),
+          in: Array.from({ length: 200 }, (_, index) =>
+            syntheticSymbol(index + 1),
+          ),
         },
       },
       select: { id: true },
@@ -220,7 +252,12 @@ async function setup(args: Arguments): Promise<unknown> {
       const plan = PLAN_MIX[(index - 1) % PLAN_MIX.length] as UserPlan;
       const user = await prisma.user.upsert({
         where: { email: email(index) },
-        create: { email: email(index), passwordHash, emailVerifiedAt: new Date(), plan },
+        create: {
+          email: email(index),
+          passwordHash,
+          emailVerifiedAt: new Date(),
+          plan,
+        },
         update: { passwordHash, plan },
         select: { id: true },
       });
@@ -240,12 +277,17 @@ async function setup(args: Arguments): Promise<unknown> {
       }
       // A list within every plan's limit (10 on Free).
       const size = plan === "FREE" ? 10 : 25;
-      const members = securities.slice((index * 7) % 150, ((index * 7) % 150) + size);
+      const members = securities.slice(
+        (index * 7) % 150,
+        ((index * 7) % 150) + size,
+      );
       const list = await prisma.stockList.create({
         data: {
           userId: user.id,
           name: `Load list ${index}`,
-          items: { create: members.map((security) => ({ securityId: security.id })) },
+          items: {
+            create: members.map((security) => ({ securityId: security.id })),
+          },
         },
         select: { id: true },
       });
@@ -299,7 +341,12 @@ async function setup(args: Arguments): Promise<unknown> {
         VALUES (${user.id}, 1) ON CONFLICT ("userId") DO NOTHING`;
       created += 1;
     }
-    return { command: "setup", users: args.users, created, template: template.id };
+    return {
+      command: "setup",
+      users: args.users,
+      created,
+      template: template.id,
+    };
   } finally {
     await prisma.$disconnect();
   }
@@ -314,7 +361,11 @@ class Session {
     private readonly samples: Sample[],
   ) {}
 
-  async request(route: string, path: string, init: RequestInit = {}): Promise<unknown> {
+  async request(
+    route: string,
+    path: string,
+    init: RequestInit = {},
+  ): Promise<unknown> {
     const startedAt = performance.now();
     let status = 0;
     try {
@@ -333,17 +384,29 @@ class Session {
         this.cookie = setCookie.map((value) => value.split(";")[0]).join("; ");
       }
       const text = await response.text();
-      return text && response.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text;
+      return text && response.headers.get("content-type")?.includes("json")
+        ? JSON.parse(text)
+        : text;
     } catch {
       status = -1;
       return null;
     } finally {
-      this.samples.push({ route, status, ms: performance.now() - startedAt, at: Date.now() });
+      this.samples.push({
+        route,
+        status,
+        ms: performance.now() - startedAt,
+        at: Date.now(),
+      });
     }
   }
 }
 
-type Context = { runId: string | null; listId: string | null; strategyId: string | null; monitorId: string | null };
+type Context = {
+  runId: string | null;
+  listId: string | null;
+  strategyId: string | null;
+  monitorId: string | null;
+};
 
 /**
  * The benchmark universe (`bench:scale-backtests setup`): `SYN0001…SYN0735` are the canonical
@@ -353,7 +416,15 @@ const PROTECTED_UNIVERSE = 735;
 const LONG_TAIL = 1_000;
 let popularShare = 0.8;
 
-const JOURNEYS: readonly { name: string; weight: number; steps: (session: Session, context: Context, pick: () => number) => Promise<void> }[] = [
+const JOURNEYS: readonly {
+  name: string;
+  weight: number;
+  steps: (
+    session: Session,
+    context: Context,
+    pick: () => number,
+  ) => Promise<void>;
+}[] = [
   {
     name: "dashboard",
     weight: 20,
@@ -372,14 +443,27 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
       const popular = pick() < popularShare;
       const symbol = popular
         ? syntheticSymbol(1 + Math.floor(pick() * PROTECTED_UNIVERSE))
-        : syntheticSymbol(PROTECTED_UNIVERSE + 1 + Math.floor(pick() * LONG_TAIL));
+        : syntheticSymbol(
+            PROTECTED_UNIVERSE + 1 + Math.floor(pick() * LONG_TAIL),
+          );
       const tier = popular ? "[protected]" : "[long tail]";
-      await session.request("GET /stocks/search", `/stocks/search?q=${symbol.slice(0, 5)}`);
+      await session.request(
+        "GET /stocks/search",
+        `/stocks/search?q=${symbol.slice(0, 5)}`,
+      );
       await session.request(`GET /stocks/:symbol ${tier}`, `/stocks/${symbol}`);
-      await session.request(`GET /stocks/:symbol/summary ${tier}`, `/stocks/${symbol}/summary`);
+      await session.request(
+        `GET /stocks/:symbol/summary ${tier}`,
+        `/stocks/${symbol}/summary`,
+      );
       const to = new Date().toISOString().slice(0, 10);
-      const from = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
-      await session.request(`GET /stocks/:symbol/prices ${tier}`, `/stocks/${symbol}/prices?from=${from}&to=${to}`);
+      const from = new Date(Date.now() - 365 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      await session.request(
+        `GET /stocks/:symbol/prices ${tier}`,
+        `/stocks/${symbol}/prices?from=${from}&to=${to}`,
+      );
       await session.request(
         `GET /stocks/:symbol/technicals/daily ${tier}`,
         `/stocks/${symbol}/technicals/daily?from=${from}&to=${to}&series=SMA_50D,SMA_200D,RSI_14D`,
@@ -392,7 +476,10 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
     steps: async (session, context) => {
       await session.request("GET /strategies", "/strategies");
       if (context.strategyId) {
-        await session.request("GET /strategies/:id", `/strategies/${context.strategyId}`);
+        await session.request(
+          "GET /strategies/:id",
+          `/strategies/${context.strategyId}`,
+        );
       }
       await session.request("GET /benchmarks", "/benchmarks");
     },
@@ -407,7 +494,9 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
         // An edit, as a person renaming or annotating a List: a write beside every read.
         await session.request("PATCH /lists/:id", `/lists/${context.listId}`, {
           method: "PATCH",
-          body: JSON.stringify({ description: `Edited ${new Date().toISOString()}` }),
+          body: JSON.stringify({
+            description: `Edited ${new Date().toISOString()}`,
+          }),
         });
       }
     },
@@ -417,7 +506,10 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
     weight: 10,
     steps: async (session) => {
       await session.request("GET /backtests", "/backtests?page=1&pageSize=25");
-      await session.request("GET /backtests?status=ACTIVE", "/backtests?status=ACTIVE");
+      await session.request(
+        "GET /backtests?status=ACTIVE",
+        "/backtests?status=ACTIVE",
+      );
     },
   },
   {
@@ -427,10 +519,16 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
       if (!context.runId) {
         return;
       }
-      await session.request("GET /backtests/:id", `/backtests/${context.runId}`);
+      await session.request(
+        "GET /backtests/:id",
+        `/backtests/${context.runId}`,
+      );
       // The running page polls progress every two seconds; ten polls.
       for (let poll = 0; poll < 10; poll += 1) {
-        await session.request("GET /backtests/:id/progress", `/backtests/${context.runId}/progress`);
+        await session.request(
+          "GET /backtests/:id/progress",
+          `/backtests/${context.runId}/progress`,
+        );
         await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
       }
     },
@@ -442,9 +540,18 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
       if (!context.runId) {
         return;
       }
-      await session.request("GET /backtests/:id", `/backtests/${context.runId}`);
-      await session.request("GET /backtests/:id/trades", `/backtests/${context.runId}/trades?page=1&pageSize=50`);
-      await session.request("GET /backtests/:id/strategy", `/backtests/${context.runId}/strategy`);
+      await session.request(
+        "GET /backtests/:id",
+        `/backtests/${context.runId}`,
+      );
+      await session.request(
+        "GET /backtests/:id/trades",
+        `/backtests/${context.runId}/trades?page=1&pageSize=50`,
+      );
+      await session.request(
+        "GET /backtests/:id/strategy",
+        `/backtests/${context.runId}/strategy`,
+      );
     },
   },
   {
@@ -454,9 +561,18 @@ const JOURNEYS: readonly { name: string; weight: number; steps: (session: Sessio
       await session.request("GET /monitors", "/monitors");
       if (context.monitorId) {
         // The Monitor page: its current conditions, its signal table and its activity feed.
-        await session.request("GET /monitors/:id", `/monitors/${context.monitorId}`);
-        await session.request("GET /monitors/:id/signals", `/monitors/${context.monitorId}/signals`);
-        await session.request("GET /monitors/:id/activity", `/monitors/${context.monitorId}/activity`);
+        await session.request(
+          "GET /monitors/:id",
+          `/monitors/${context.monitorId}`,
+        );
+        await session.request(
+          "GET /monitors/:id/signals",
+          `/monitors/${context.monitorId}/signals`,
+        );
+        await session.request(
+          "GET /monitors/:id/activity",
+          `/monitors/${context.monitorId}/activity`,
+        );
       }
     },
   },
@@ -475,7 +591,11 @@ function percentile(values: readonly number[], share: number): number {
     return 0;
   }
   const sorted = [...values].sort((left, right) => left - right);
-  return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))] as number);
+  return Math.round(
+    sorted[
+      Math.min(sorted.length - 1, Math.floor(share * sorted.length))
+    ] as number,
+  );
 }
 
 function processStats(pid: number): { rss: number; cpuMs: number } {
@@ -484,7 +604,10 @@ function processStats(pid: number): { rss: number; cpuMs: number } {
     const rss = Number(/VmRSS:\s+(\d+)/.exec(status)?.[1] ?? 0) * 1024;
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-    return { rss, cpuMs: ((Number(fields[11] ?? 0) + Number(fields[12] ?? 0)) * 1000) / 100 };
+    return {
+      rss,
+      cpuMs: ((Number(fields[11] ?? 0) + Number(fields[12] ?? 0)) * 1000) / 100,
+    };
   } catch {
     return { rss: 0, cpuMs: 0 };
   }
@@ -501,7 +624,12 @@ function eventLoopIn(path: string | null, from: number, to: number) {
       continue;
     }
     try {
-      const record = JSON.parse(line) as { at: string; p99Ms: number; maxMs: number; p50Ms: number };
+      const record = JSON.parse(line) as {
+        at: string;
+        p99Ms: number;
+        maxMs: number;
+        p50Ms: number;
+      };
       const at = Date.parse(record.at);
       if (at >= from && at <= to) {
         samples.push(record);
@@ -512,8 +640,14 @@ function eventLoopIn(path: string | null, from: number, to: number) {
   }
   return {
     samples: samples.length,
-    p50MsMedian: percentile(samples.map((sample) => sample.p50Ms), 0.5),
-    p99MsMedian: percentile(samples.map((sample) => sample.p99Ms), 0.5),
+    p50MsMedian: percentile(
+      samples.map((sample) => sample.p50Ms),
+      0.5,
+    ),
+    p99MsMedian: percentile(
+      samples.map((sample) => sample.p99Ms),
+      0.5,
+    ),
     p99MsMax: Math.round(Math.max(0, ...samples.map((sample) => sample.p99Ms))),
     maxMs: Math.round(Math.max(0, ...samples.map((sample) => sample.maxMs))),
   };
@@ -525,7 +659,9 @@ async function run(args: Arguments): Promise<unknown> {
   // Backtest activity while the load runs, from the benchmark database (read-only counts).
   const jobs: { at: number; executing: number; queued: number }[] = [];
   const jobsPrisma = args.sampleJobs
-    ? new PrismaClient({ datasources: { db: { url: benchEnvironment().databaseUrl } } })
+    ? new PrismaClient({
+        datasources: { db: { url: benchEnvironment().databaseUrl } },
+      })
     : null;
   const jobSampler = jobsPrisma
     ? setInterval(() => {
@@ -534,7 +670,11 @@ async function run(args: Arguments): Promise<unknown> {
                  count(*) FILTER (WHERE status = 'QUEUED') AS queued
           FROM "BacktestJob"`
           .then(([row]) =>
-            jobs.push({ at: Date.now(), executing: Number(row?.executing ?? 0), queued: Number(row?.queued ?? 0) }),
+            jobs.push({
+              at: Date.now(),
+              executing: Number(row?.executing ?? 0),
+              queued: Number(row?.queued ?? 0),
+            }),
           )
           .catch(() => undefined);
       }, 2_000)
@@ -546,11 +686,17 @@ async function run(args: Arguments): Promise<unknown> {
   const apiBefore = args.apiPid ? processStats(args.apiPid) : null;
   const rss: number[] = [];
   const sampler = args.apiPid
-    ? setInterval(() => rss.push(processStats(args.apiPid as number).rss), 1_000)
+    ? setInterval(
+        () => rss.push(processStats(args.apiPid as number).rss),
+        1_000,
+      )
     : null;
   let measuredFrom = 0;
 
-  const totalWeight = JOURNEYS.reduce((sum, journey) => sum + journey.weight, 0);
+  const totalWeight = JOURNEYS.reduce(
+    (sum, journey) => sum + journey.weight,
+    0,
+  );
   await Promise.all(
     Array.from({ length: args.users }, async (_, index) => {
       let state = (index + 1) * 2_654_435_761;
@@ -559,30 +705,58 @@ async function run(args: Arguments): Promise<unknown> {
         return state / 2 ** 32;
       };
       // Staggered over the ramp, as people arrive.
-      await new Promise((resolveWait) => setTimeout(resolveWait, (args.rampS * 1_000 * index) / Math.max(1, args.users)));
+      await new Promise((resolveWait) =>
+        setTimeout(
+          resolveWait,
+          (args.rampS * 1_000 * index) / Math.max(1, args.users),
+        ),
+      );
       const session = new Session(args.baseUrl, samples);
       const login = (await session.request("POST /auth/login", "/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: email(index + 1), password: secret }),
+        body: JSON.stringify({
+          email: email(args.firstUser + index),
+          password: secret,
+        }),
       })) as { user?: unknown } | null;
-      if (!login || typeof login !== "object" || !("user" in login || "id" in (login as object))) {
-        loginFailures.push(email(index + 1));
+      if (
+        !login ||
+        typeof login !== "object" ||
+        !("user" in login || "id" in (login as object))
+      ) {
+        loginFailures.push(email(args.firstUser + index));
       }
-      const lists = (await session.request("GET /lists", "/lists")) as { id: string }[] | null;
-      const strategies = (await session.request("GET /strategies", "/strategies")) as { id: string }[] | null;
-      const runs = (await session.request("GET /backtests", "/backtests")) as { id: string }[] | null;
-      const monitors = (await session.request("GET /monitors", "/monitors")) as { id: string }[] | null;
+      const lists = (await session.request("GET /lists", "/lists")) as
+        { id: string }[] | null;
+      const strategies = (await session.request(
+        "GET /strategies",
+        "/strategies",
+      )) as { id: string }[] | null;
+      const runs = (await session.request("GET /backtests", "/backtests")) as
+        { id: string }[] | null;
+      const monitors = (await session.request("GET /monitors", "/monitors")) as
+        { id: string }[] | null;
       const context: Context = {
-        listId: Array.isArray(lists) ? (lists.find((list) => list.id)?.id ?? null) : null,
-        strategyId: Array.isArray(strategies) ? (strategies[strategies.length - 1]?.id ?? null) : null,
+        listId: Array.isArray(lists)
+          ? (lists.find((list) => list.id)?.id ?? null)
+          : null,
+        strategyId: Array.isArray(strategies)
+          ? (strategies[strategies.length - 1]?.id ?? null)
+          : null,
         runId: Array.isArray(runs) ? (runs[0]?.id ?? null) : null,
-        monitorId: Array.isArray(monitors) ? (monitors[monitors.length - 1]?.id ?? null) : null,
+        monitorId: Array.isArray(monitors)
+          ? (monitors[monitors.length - 1]?.id ?? null)
+          : null,
       };
       while (Date.now() < deadline) {
         let roll = pick() * totalWeight;
-        const journey = JOURNEYS.find((candidate) => (roll -= candidate.weight) < 0) ?? JOURNEYS[0];
+        const journey =
+          JOURNEYS.find((candidate) => (roll -= candidate.weight) < 0) ??
+          JOURNEYS[0];
         await journey?.steps(session, context, pick);
-        await new Promise((resolveWait) => setTimeout(resolveWait, args.thinkMs * (0.5 + pick())));
+        await new Promise((resolveWait) =>
+          setTimeout(resolveWait, args.thinkMs * (0.5 + pick())),
+        );
       }
     }),
   );
@@ -608,7 +782,9 @@ async function run(args: Arguments): Promise<unknown> {
   }
   const routes = [...byRoute.entries()]
     .map(([route, entries]) => {
-      const ok = entries.filter((entry) => entry.status >= 200 && entry.status < 400);
+      const ok = entries.filter(
+        (entry) => entry.status >= 200 && entry.status < 400,
+      );
       return {
         route,
         requests: entries.length,
@@ -619,39 +795,73 @@ async function run(args: Arguments): Promise<unknown> {
             entries.filter((entry) => entry.status === status).length,
           ]),
         ),
-        p50: percentile(ok.map((entry) => entry.ms), 0.5),
-        p95: percentile(ok.map((entry) => entry.ms), 0.95),
-        p99: percentile(ok.map((entry) => entry.ms), 0.99),
+        p50: percentile(
+          ok.map((entry) => entry.ms),
+          0.5,
+        ),
+        p95: percentile(
+          ok.map((entry) => entry.ms),
+          0.95,
+        ),
+        p99: percentile(
+          ok.map((entry) => entry.ms),
+          0.99,
+        ),
         max: Math.round(Math.max(0, ...ok.map((entry) => entry.ms))),
       };
     })
     .sort((left, right) => right.requests - left.requests);
-  const all = measured.filter((sample) => sample.status >= 200 && sample.status < 400);
+  const all = measured.filter(
+    (sample) => sample.status >= 200 && sample.status < 400,
+  );
   const report = {
     label: args.label,
     recordedAt: new Date().toISOString(),
+    baseUrl: args.baseUrl,
     users: args.users,
+    firstUser: args.firstUser,
     durationS: args.durationS,
     rampS: args.rampS,
     thinkMs: args.thinkMs,
-    machine: { cpus: cpus().length, totalMemoryBytes: totalmem(), node: process.version },
+    machine: {
+      cpus: cpus().length,
+      totalMemoryBytes: totalmem(),
+      node: process.version,
+    },
     requests: measured.length,
     requestsIncludingRamp: samples.length,
     throughputPerS: Math.round((measured.length / measuredS) * 10) / 10,
     errors: measured.length - all.length,
-    errorRate: measured.length === 0 ? 0 : Math.round(((measured.length - all.length) / measured.length) * 10_000) / 10_000,
+    errorRate:
+      measured.length === 0
+        ? 0
+        : Math.round(
+            ((measured.length - all.length) / measured.length) * 10_000,
+          ) / 10_000,
     loginFailures: loginFailures.length,
     latencyMs: {
-      p50: percentile(all.map((entry) => entry.ms), 0.5),
-      p95: percentile(all.map((entry) => entry.ms), 0.95),
-      p99: percentile(all.map((entry) => entry.ms), 0.99),
+      p50: percentile(
+        all.map((entry) => entry.ms),
+        0.5,
+      ),
+      p95: percentile(
+        all.map((entry) => entry.ms),
+        0.95,
+      ),
+      p99: percentile(
+        all.map((entry) => entry.ms),
+        0.99,
+      ),
       max: Math.round(Math.max(0, ...all.map((entry) => entry.ms))),
     },
     api:
       apiBefore && apiAfter
         ? {
             cpuMs: apiAfter.cpuMs - apiBefore.cpuMs,
-            cpuShareOfOneCore: Math.round(((apiAfter.cpuMs - apiBefore.cpuMs) / (wallS * 1_000)) * 1_000) / 1_000,
+            cpuShareOfOneCore:
+              Math.round(
+                ((apiAfter.cpuMs - apiBefore.cpuMs) / (wallS * 1_000)) * 1_000,
+              ) / 1_000,
             rssPeakBytes: Math.max(0, ...rss),
           }
         : null,
@@ -659,17 +869,29 @@ async function run(args: Arguments): Promise<unknown> {
     backtests: jobsPrisma
       ? {
           samples: jobsMeasured.length,
-          executingMin: Math.min(...jobsMeasured.map((sample) => sample.executing)),
-          executingMax: Math.max(0, ...jobsMeasured.map((sample) => sample.executing)),
+          executingMin: Math.min(
+            ...jobsMeasured.map((sample) => sample.executing),
+          ),
+          executingMax: Math.max(
+            0,
+            ...jobsMeasured.map((sample) => sample.executing),
+          ),
           executingMean:
             Math.round(
-              (jobsMeasured.reduce((sum, sample) => sum + sample.executing, 0) / Math.max(1, jobsMeasured.length)) * 100,
+              (jobsMeasured.reduce((sum, sample) => sum + sample.executing, 0) /
+                Math.max(1, jobsMeasured.length)) *
+                100,
             ) / 100,
           shareAtFour:
             Math.round(
-              (jobsMeasured.filter((sample) => sample.executing >= 4).length / Math.max(1, jobsMeasured.length)) * 100,
+              (jobsMeasured.filter((sample) => sample.executing >= 4).length /
+                Math.max(1, jobsMeasured.length)) *
+                100,
             ) / 100,
-          queuedMax: Math.max(0, ...jobsMeasured.map((sample) => sample.queued)),
+          queuedMax: Math.max(
+            0,
+            ...jobsMeasured.map((sample) => sample.queued),
+          ),
         }
       : null,
     measuredFrom: new Date(measuredFrom).toISOString(),
@@ -680,7 +902,10 @@ async function run(args: Arguments): Promise<unknown> {
   appendFileSync(path, `${JSON.stringify(report)}\n`);
   const headline: Partial<typeof report> = { ...report };
   delete headline.routes;
-  return { ...headline, slowestRoutes: routes.sort((a, b) => b.p95 - a.p95).slice(0, 8) };
+  return {
+    ...headline,
+    slowestRoutes: routes.sort((a, b) => b.p95 - a.p95).slice(0, 8),
+  };
 }
 
 async function main(): Promise<void> {
@@ -697,6 +922,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+  );
   process.exit(1);
 });

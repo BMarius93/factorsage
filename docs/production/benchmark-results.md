@@ -209,6 +209,76 @@ This is the deployment's memory high-water mark: four runs hydrating first-time 
 need ~12 GB for the backtest processes alone (`benchmark-results/H-miss-mixed-shared.memory.log`
 samples the machine's free memory every 5 s).
 
+## 6. Interactive responsiveness, with and without four backtests
+
+`drivers/phase5.sh`: the production builds of the API (`apps/api/dist`) and the web app (`next
+start`) on the benchmark database, 100 load accounts (40 % Free, 30 % Starter, 20 % Pro, 10 % Pro+)
+each with lists, strategies, Monitors and a completed 250-security backtest. `load:interactive`
+signs each in once and replays weighted journeys — dashboard, market overview, Stock Details (80 % of
+views canonical-universe stocks, 20 % a long tail outside both cache tiers), lists (including an
+edit), strategies, backtest history, a result's trades, Monitors — with a 2 s mean think time, 20 s
+ramp, 150 s per level, percentiles over the steady state only. **The load generator is a separate
+process on the same 4 vCPU machine** (12 % of a core at 100 users, so it was not the limit), the API
+one Node process. "During H": four warm `H` backtests executing back to back (`H-under-load-*`; the
+share of sampled moments with all four executing is shown).
+
+| Level                 |         Users | Backtests executing (mean · share at 4) | Req/s | Errors |      p50 |             p95 |       p99 |    max | API CPU (cores) | API event-loop p99 (median · max) |
+| --------------------- | ------------: | --------------------------------------- | ----: | -----: | -------: | --------------: | --------: | -----: | --------------: | --------------------------------- |
+| baseline              |             5 | 0                                       |   4.2 |      0 |    14 ms |          498 ms |    985 ms |  3.0 s |            0.41 | 15 · 162 ms                       |
+| baseline              |            20 | 0                                       |  16.9 |      0 |    20 ms |          707 ms |     1.5 s |  6.2 s |            1.05 | 155 · 834 ms                      |
+| baseline              |            50 | 0                                       |  32.8 |      0 |   123 ms |           1.5 s |     3.6 s | 15.3 s |            1.57 | 342 ms · 1.3 s                    |
+| baseline              |           100 | 0                                       |  40.1 |      0 |   860 ms |       **3.4 s** |     6.9 s | 29.9 s |            1.88 | 678 ms · 2.7 s                    |
+| during H              |             5 | 3.24 · 72 %                             |   4.5 |      0 |    21 ms |          343 ms |    631 ms |  1.5 s |            0.16 | 15 · 388 ms                       |
+| during H              |            20 | 3.27 · 72 %                             |  17.6 |      0 |    32 ms |          563 ms |    990 ms |  4.4 s |            0.50 | 56 · 662 ms                       |
+| during H              |            50 | 3.64 · 83 %                             |  34.5 |      0 |   154 ms |           1.3 s |     2.1 s |  6.7 s |            0.92 | 322 ms · 1.2 s                    |
+| during H              |           100 | 3.88 · 93 %                             |  39.0 |      0 |    1.1 s |       **3.6 s** |     5.9 s | 11.9 s |            1.11 | 1.1 · 2.0 s                       |
+| **two API processes** | 100 (50 + 50) | 0                                       |  77.8 |      0 | 58–61 ms | **0.80–0.85 s** | 1.4–1.6 s |  7.7 s |       1.09 each | 209–233 · 781–931 ms              |
+
+- **The API process, not the backtests, is the interactive limit.** One Node process serves ~40
+  requests/s at most here; past ~20 concurrent users its event loop queues requests (p99 delay 0.7 s
+  at 100 users), and adding four executing backtests changes the picture little (p95 3.4 → 3.6 s at
+  100 users) because the API is already saturated. **Two API processes** with 50 users each served
+  **twice the throughput (77.8 requests/s) at a quarter of the p95** (0.80–0.85 s against 3.4 s):
+  `drivers/phase5b.sh`.
+- **Zero errors** at every level, with and without backtests.
+- The slowest pages are Stock Details: a long-tail stock (not resident in either tier) is rebuilt
+  from PostgreSQL inside the API's request (p50 7.8 s, p95 27.8 s at 100 users on one process; 2–6 s
+  under light load) and its 0.39 MB response (a year of prices and technicals plus 1,000 valuation
+  points) costs the event loop even when resident (p50 1.6 s at 100 users). At 20 users the slowest
+  routes were the long-tail page (p95 5.3 s) and the resident one (p95 2.1 s); everything else
+  stayed under ~1.1 s.
+
+### Browser journeys (Chromium, 3 browsers × 2 rounds, 13 pages each)
+
+Every page loaded in both windows: 69 + 69 page loads, **0 failures, 0 crashes, 0 page errors, 0
+timeouts**. Ready time p50 (p95), baseline → during H: dashboard 1.2 (1.5) → 1.0 (2.1) s; Stock
+Details 2.8 (3.7) → 1.6 (2.2) s; long-tail Stock Details 3.1 (3.9) → 1.5 (1.7) s; lists, strategies,
+backtest history and result, Monitors, pricing and billing 0.9–1.5 s in both; guest dashboard 5.2 →
+3.1 s (its charts: 17–18 long tasks, p95 0.7–0.75 s). The browsers ran alone (no HTTP load at the same
+time), so these are page costs, not contention.
+
+### Live admission and entitlement probes (`submission-probes.ts`, against the running API)
+
+All **16 probes pass** (`drivers/phase5c.sh`; the first attempt, in `phase5.sh`, sent a body without
+`maximumPositions`, so every submission was refused as invalid before any limit applied — those 5
+"failures" were the probe's, and are kept in `submission-probes.jsonl`):
+
+| Probe                                                               | Observed                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guest submission; forged session cookie                             | `401`, `401`                                                                                                                                                                                                                                                                                                                        |
+| Six simultaneous submissions from one account (six tabs)            | Free, Starter, Pro: exactly **1 accepted**, 5 × `403 ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT`; Pro+: exactly **2 accepted**, 4 refused                                                                                                                                                                                               |
+| A body declaring `plan: "PRO_PLUS"` and `concurrentBacktests: 99`   | `400 BACKTEST_INVALID` — the body is parsed strictly, the plan is the server's                                                                                                                                                                                                                                                      |
+| Another user's list                                                 | `400 BACKTEST_INVALID` — indistinguishable from a missing one                                                                                                                                                                                                                                                                       |
+| A Free list past 10 symbols                                         | `403 ENTITLEMENT_LIST_SYMBOL_LIMIT`                                                                                                                                                                                                                                                                                                 |
+| 110 simultaneous submissions from 100 accounts, no worker executing | 97 accepted, 5 per-account refusals, **8 × `503 BACKTEST_QUEUE_FULL` with `Retry-After: 60`**; 102 runs waited at the peak against the bound of 100 — the documented overshoot of the unlocked bound (`backtests.service.ts`: "two submissions racing past it overshoot by at most one each"); all 102 cancelled afterwards (`200`) |
+
+### The API through a Redis restart
+
+`/health/ready` and a resident stock's summary every 0.5 s while Redis was stopped and started again
+(`SHUTDOWN SAVE`, ~14 s; `api-redis-restart-probe.log`): readiness answered `503` for ~11 s and the
+stock page one `503` after waiting 8.6 s; both were back to `200` within ~2 s of Redis answering. No
+API restart was needed.
+
 ## 7. Monitors: the end-of-day path, alone and beside four backtests
 
 `bench:monitor --scenario=growing --days=2` (`apps/worker/src/monitor/capacity-bench.ts`): the
