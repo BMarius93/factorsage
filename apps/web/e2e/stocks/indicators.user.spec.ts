@@ -180,6 +180,9 @@ test.describe("PRO_USER Stock Details indicators", () => {
       await openStock(page);
 
       const labels = page.locator('[class*="modelLabel"]');
+      // The valuation summary loads after the price chart `openStock` waits for; `count()` does not
+      // wait, so wait for the first label before counting.
+      await expect(labels.first()).toBeVisible();
       const count = await labels.count();
       expect(count).toBeGreaterThan(0);
 
