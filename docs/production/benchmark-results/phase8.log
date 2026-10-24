@@ -52,3 +52,7 @@
 {"event":"phase8.finished","at":"2026-10-24T01:49:29Z"}
 {"event":"phase8.rebuilt","at":"2026-10-24T01:50:09Z","exit":0}
 {"event":"phase8.start","at":"2026-10-24T01:50:09Z","label":"F8-C-miss-kill-worker-2"}
+{"event":"phase8.done","at":"2026-10-24T01:57:23Z","label":"F8-C-miss-kill-worker-2","exit":0,"seconds":434}
+{"event":"phase8.start","at":"2026-10-24T01:57:23Z","label":"F8-H-warm-redis-restart-ridethrough"}
+{"event":"phase8.done","at":"2026-10-24T02:00:17Z","label":"F8-H-warm-redis-restart-ridethrough","exit":0,"seconds":174}
+{"event":"phase8.audit","at":"2026-10-24T02:00:18Z","label":"after-redis-restart-ridethrough","exit":0}

@@ -146,7 +146,21 @@ without four backtests executing.
 
 ### 4.2 Monitors
 
-See `benchmark-results.md` §7.
+Measured (`benchmark-results.md` §7): per session, the end-of-day preparation costs ~0.5 s of wall
+time per **watched security** (500 in 253–258 s) and the Monitor pass ~2.2 ms per **member** (9,000
+in 19–20 s); beside four executing backtests both take ~1.5× as long on 4 vCPU. Both run once per
+session, after the close, in their own worker children — not in the backtest slots.
+
+| Active Monitors (30 members each) | Members | Watched securities (assumed) | EOD preparation | Monitor pass |
+| --------------------------------: | ------: | ---------------------------: | --------------: | -----------: |
+|                               300 |   9,000 |               500 (measured) |        ~4.2 min |        ~20 s |
+|                             3,000 |  90,000 |                        5,000 |         ~42 min |     ~3.3 min |
+|                            10,000 | 300,000 |                       10,000 |         ~83 min |      ~11 min |
+
+The binding term is the watched universe's EOD preparation, which must finish before the next
+session opens (the alert in `RUNBOOK.md` §5 fires if the pass has not completed by 07:00 ET); at
+~0.5 s per security, four hours cover ~30,000 watched securities at this machine's rate. Monitors
+are therefore not the deployment's constraint at any of the user counts in §3.5.
 
 ### 4.3 FMP request consumption
 
