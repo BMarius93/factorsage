@@ -168,6 +168,9 @@ describe("ListDetail", () => {
           universe: {
             kind: "POINT_IN_TIME_INDEX",
             indexKey: "SP500",
+            universeKey: "sp500-historical-pit",
+            category: "MARKET_INDICES",
+            derived: false,
             distinctSecurities: 2,
             peakSimultaneousMembers: 2,
             currentMembers: 1,
@@ -190,6 +193,45 @@ describe("ListDetail", () => {
     expect(notice).toContain("buys each stock only while it was a member");
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByTestId("add-stocks-button")).toBeNull();
+  });
+
+  it("explains a derived universe by how it is selected, not by the index's floor", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail(
+        [
+          item("item-1", "AAPL", {
+            buyWindowMode: "CUSTOM",
+            buyWindows: [{ startDate: "2016-01-30", endDate: null }],
+          }),
+        ],
+        {
+          ownership: "SYSTEM",
+          systemKey: "sp500-top100-market-cap",
+          canEdit: false,
+          universe: {
+            kind: "POINT_IN_TIME_INDEX",
+            indexKey: "SP500",
+            universeKey: "sp500-top100-market-cap",
+            category: "MARKET_CAPITALIZATION",
+            derived: true,
+            distinctSecurities: 1,
+            peakSimultaneousMembers: 1,
+            currentMembers: 1,
+            membershipFloor: "1996-01-02",
+            syncedAt: null,
+          },
+        },
+      ),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    const notice = (screen.getByTestId("universe-notice").textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(notice).toContain("Selected at each reconstitution");
+    expect(notice).toContain("using only data available on that date");
+    expect(notice).not.toContain("1996");
   });
 
   it("lets an administrator edit a built-in list but never offers to delete it", async () => {

@@ -1,5 +1,6 @@
 import type {
   AddStockListItemsRequest,
+  HistoricalUniverseCatalogResponse,
   CreateStockListRequest,
   DuplicateStockListRequest,
   ReplaceBuyWindowsRequest,
@@ -18,6 +19,13 @@ import {
 
 export function fetchStockLists(options: { signal?: AbortSignal } = {}) {
   return apiGet<StockListSummaryResponse[]>("/lists", options);
+}
+
+/** The historical universe catalog: metadata only, readable without a session. */
+export function fetchHistoricalUniverses(
+  options: { signal?: AbortSignal } = {},
+) {
+  return apiGet<HistoricalUniverseCatalogResponse>("/lists/universes", options);
 }
 
 export async function createStockList(

@@ -19,6 +19,7 @@ import {
   createStockList,
   deleteStockList,
   duplicateStockList,
+  fetchHistoricalUniverses,
   fetchStockLists,
   updateStockList,
 } from "../api/stock-lists-api";
@@ -37,6 +38,7 @@ vi.mock("../../auth/hooks/use-auth-session", () => ({
 
 vi.mock("../api/stock-lists-api", () => ({
   fetchStockLists: vi.fn(),
+  fetchHistoricalUniverses: vi.fn(),
   createStockList: vi.fn(),
   updateStockList: vi.fn(),
   deleteStockList: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock("../api/stock-lists-api", () => ({
 
 const useAuthSessionMock = vi.mocked(useAuthSession);
 const fetchStockListsMock = vi.mocked(fetchStockLists);
+const fetchHistoricalUniversesMock = vi.mocked(fetchHistoricalUniverses);
 const createStockListMock = vi.mocked(createStockList);
 const updateStockListMock = vi.mocked(updateStockList);
 const deleteStockListMock = vi.mocked(deleteStockList);
@@ -96,6 +99,7 @@ function detail(id: string, name: string): StockListDetailResponse {
 beforeEach(() => {
   push.mockReset();
   useAuthSessionMock.mockReturnValue(signedInSession());
+  fetchHistoricalUniversesMock.mockResolvedValue({ categories: [] });
 });
 
 afterEach(() => {
@@ -524,28 +528,19 @@ describe("ListsPage premium built-ins", () => {
     canEdit: false,
     itemCount: 10,
   });
-  /** The S&P 500 universe as the API sends it to a plan without premium content. */
-  const lockedUniverse = summary("sp500-pit", "S&P 500 — Historical PIT", {
+  /** A premium predefined List, as the API sends it to a plan without premium content. */
+  const lockedPremium = summary("quality-leaders", "Quality Leaders", {
     ownership: "SYSTEM",
-    systemKey: "sp500-historical-pit",
+    systemKey: "quality-leaders",
     canEdit: false,
     premium: true,
     locked: true,
-    itemCount: 731,
-    universe: {
-      kind: "POINT_IN_TIME_INDEX",
-      indexKey: "SP500",
-      distinctSecurities: 731,
-      peakSimultaneousMembers: 506,
-      currentMembers: 503,
-      membershipFloor: "1996-01-02",
-      syncedAt: "2026-10-17T10:00:00.000Z",
-    },
+    itemCount: 40,
   });
 
-  it("names a locked premium list with its size, marks it locked, and says which plans include it", async () => {
+  it("names a locked premium list, marks it locked, and says which plans include it", async () => {
     useAuthSessionMock.mockReturnValue(signedInSession({ plan: "STARTER" }));
-    fetchStockListsMock.mockResolvedValue([standard, lockedUniverse]);
+    fetchStockListsMock.mockResolvedValue([standard, lockedPremium]);
     render(<ListsPage />);
 
     const section = await screen.findByTestId("built-in-lists");
@@ -556,9 +551,7 @@ describe("ListsPage premium built-ins", () => {
     expect(badge.getAttribute("data-locked")).toBe("true");
     expect(badge.getAttribute("data-tone")).toBe("blocked");
     expect(badge.textContent).toBe("Premium, locked");
-    // Still named, with its size, for discovery — and the way to it is said under it.
-    expect(section.textContent).toContain("S&P 500 — Historical PIT");
-    expect(section.textContent).toContain("731 stocks over time");
+    expect(section.textContent).toContain("Quality Leaders");
     const hint = within(section).getByTestId("premium-upgrade-hint");
     expect(hint.textContent).toBe("Included in Pro and Pro+. See plans");
     expect(
@@ -574,11 +567,11 @@ describe("ListsPage premium built-ins", () => {
 
   it("offers no copy of a locked premium list", async () => {
     useAuthSessionMock.mockReturnValue(signedInSession({ plan: "STARTER" }));
-    fetchStockListsMock.mockResolvedValue([lockedUniverse]);
+    fetchStockListsMock.mockResolvedValue([lockedPremium]);
     render(<ListsPage />);
     await screen.findByTestId("built-in-lists");
 
-    const trigger = await findOverflowTrigger("S&P 500 — Historical PIT");
+    const trigger = await findOverflowTrigger("Quality Leaders");
     await userEvent.click(trigger);
     const popup = document.getElementById(
       trigger.getAttribute("aria-controls") ?? "",
@@ -592,7 +585,7 @@ describe("ListsPage premium built-ins", () => {
 
   it("marks premium without a lock where the plan includes it, and still offers the copy", async () => {
     fetchStockListsMock.mockResolvedValue([
-      { ...lockedUniverse, locked: undefined },
+      { ...lockedPremium, locked: undefined },
     ]);
     render(<ListsPage />);
 
@@ -601,17 +594,138 @@ describe("ListsPage premium built-ins", () => {
     expect(badge.textContent).toBe("Premium");
     expect(badge.getAttribute("data-locked")).toBeNull();
     expect(within(section).queryByTestId("premium-upgrade-hint")).toBeNull();
-    expect(await menuActions("S&P 500 — Historical PIT")).toEqual([
-      "Duplicate",
-    ]);
-    const trigger = await findOverflowTrigger("S&P 500 — Historical PIT");
-    const popup = document.getElementById(
-      trigger.getAttribute("aria-controls") ?? "",
-    ) as HTMLElement;
+    expect(await menuActions("Quality Leaders")).toEqual(["Duplicate"]);
+  });
+});
+
+describe("ListsPage historical universes", () => {
+  const sp500 = summary("sp500-pit", "S&P 500 — Historical PIT", {
+    ownership: "SYSTEM",
+    systemKey: "sp500-historical-pit",
+    canEdit: false,
+    premium: true,
+    itemCount: 731,
+    universe: {
+      kind: "POINT_IN_TIME_INDEX",
+      indexKey: "SP500",
+      universeKey: "sp500-historical-pit",
+      category: "MARKET_INDICES",
+      derived: false,
+      distinctSecurities: 731,
+      peakSimultaneousMembers: 506,
+      currentMembers: 503,
+      membershipFloor: "1996-01-02",
+      syncedAt: "2026-10-17T10:00:00.000Z",
+    },
+  });
+  const catalog = (locked: boolean) => ({
+    categories: [
+      {
+        key: "MARKET_INDICES",
+        label: "Market Indices",
+        universes: [
+          {
+            key: "sp500-historical-pit",
+            name: "S&P 500 — Historical PIT",
+            description: "Every S&P 500 constituent since 1996.",
+            premium: true as const,
+            locked,
+            availability: "AVAILABLE" as const,
+            listId: "sp500-pit",
+            availableFrom: "1996-01-02",
+            unavailableReason: null,
+          },
+        ],
+      },
+      {
+        key: "SP500_SECTORS",
+        label: "S&P 500 Sectors",
+        universes: [
+          {
+            key: "sp500-sector-energy",
+            name: "S&P 500 Energy",
+            description: "The S&P 500's Energy sector members on each date.",
+            premium: true as const,
+            locked,
+            availability: "UNAVAILABLE" as const,
+            listId: null,
+            availableFrom: null,
+            unavailableReason:
+              "Historical data unavailable: no point-in-time sector classification is available for past members, and today's sectors are never applied to the past.",
+          },
+        ],
+      },
+      { key: "DOW_STRATEGIES", label: "Dow Strategies", universes: [] },
+    ],
+  });
+
+  it("groups the universes by category, with a locked Pro label where the plan lacks it", async () => {
+    useAuthSessionMock.mockReturnValue(signedInSession({ plan: "STARTER" }));
+    fetchStockListsMock.mockResolvedValue([sp500]);
+    fetchHistoricalUniversesMock.mockResolvedValue(catalog(true));
+    render(<ListsPage />);
+
+    const universes = await screen.findByTestId("historical-universes");
+    expect(within(universes).getByTestId("historical-universes-MARKET_INDICES").textContent).toContain(
+      "Market Indices",
+    );
+    // An empty category is not shown.
+    expect(within(universes).queryByTestId("historical-universes-DOW_STRATEGIES")).toBeNull();
+    const rows = within(universes).getAllByTestId("historical-universe");
+    const [available, sector] = rows as [HTMLElement, HTMLElement];
+
+    // Requires Pro: a lock and "Pro", the size, and the way to the plans.
+    const badge = within(available).getByTestId("universe-pro-badge");
+    expect(badge.textContent).toBe("Pro, locked");
     expect(
-      within(popup)
-        .getByRole("button", { name: "Duplicate" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+      within(available).getByRole("link", { name: /S&P 500 — Historical PIT/ }).getAttribute("href"),
+    ).toBe("/lists/sp500-pit");
+    expect(within(available).getByTestId("universe-size").textContent).toContain(
+      "Point-in-time from 1996 · 731 stocks over time, up to 506 at once",
+    );
+    expect(within(available).getByTestId("universe-requires-pro").textContent).toContain(
+      "Requires Pro.",
+    );
+    expect(within(available).getByTestId("premium-upgrade-hint")).toBeTruthy();
+
+    // Historical data unavailable: said in words, no link, and no plan pitch — no plan unlocks it.
+    expect(within(sector).getByTestId("universe-unavailable").textContent).toBe(
+      "Historical data unavailable",
+    );
+    expect(within(sector).getByTestId("universe-unavailable-reason").textContent).toContain(
+      "today's sectors are never applied to the past",
+    );
+    expect(within(sector).queryByRole("link")).toBeNull();
+    expect(within(sector).queryByTestId("premium-upgrade-hint")).toBeNull();
+    expect(within(sector).queryByTestId("universe-requires-pro")).toBeNull();
+  });
+
+  it("shows the Pro label unlocked on a plan that includes it", async () => {
+    fetchStockListsMock.mockResolvedValue([sp500]);
+    fetchHistoricalUniversesMock.mockResolvedValue(catalog(false));
+    render(<ListsPage />);
+
+    const universes = await screen.findByTestId("historical-universes");
+    const badge = within(universes).getAllByTestId("universe-pro-badge")[0] as HTMLElement;
+    expect(badge.textContent).toBe("Pro");
+    expect(within(universes).queryByTestId("premium-upgrade-hint")).toBeNull();
+  });
+
+  it("keeps a maintained universe out of the copyable built-ins", async () => {
+    fetchStockListsMock.mockResolvedValue([
+      sp500,
+      summary("builtin-standard", "Recent Market Debuts", {
+        ownership: "SYSTEM",
+        systemKey: "recent-market-debuts",
+        canEdit: false,
+        itemCount: 10,
+      }),
+    ]);
+    fetchHistoricalUniversesMock.mockResolvedValue(catalog(false));
+    render(<ListsPage />);
+
+    const builtIns = await screen.findByTestId("built-in-lists");
+    expect(builtIns.textContent).not.toContain("S&P 500 — Historical PIT");
+    expect(builtIns.textContent).toContain("Recent Market Debuts");
   });
 });
