@@ -213,7 +213,9 @@ function BillingFacts() {
         </li>
         <li>
           Upgrades take effect immediately. Downgrades and cancellation take
-          effect at the end of the period you have already paid for.
+          effect at the end of the period you have already paid for. Moving
+          from monthly to yearly billing takes effect immediately; moving from
+          yearly to monthly takes effect at the end of the paid year.
         </li>
         <li>
           Moving to a smaller plan never deletes anything you have saved: your
@@ -226,7 +228,10 @@ function BillingFacts() {
           once — never their speed or their place in line.
         </li>
         <li>
-          A subscription renews automatically every month at the price shown
+          A yearly plan is billed in full, upfront, for the whole year; its
+          monthly figure is that annual amount divided by twelve, for
+          comparison. A subscription renews automatically at the end of each
+          billing period — every month, or every year — at the price shown
           for its plan until you cancel the renewal. The amount, the currency,
           the billing interval and the total payable including any applicable
           taxes are shown on Stripe&apos;s checkout page before you pay.

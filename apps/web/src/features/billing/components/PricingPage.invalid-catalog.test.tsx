@@ -11,8 +11,8 @@ import { PricingPage } from "./PricingPage";
  * no catalog entry for, and the page lets that refusal reach the route's error boundary rather than
  * rendering around it.
  *
- * The catalog sells one cadence, so every card is priced on the first render: the lost price —
- * here Pro+'s monthly one — fails the page as it opens, not after a cadence switch.
+ * A Guest's page opens on Monthly, so every card's monthly price is read on the first render: the
+ * lost price — here Pro+'s monthly one — fails the page as it opens, not after a cadence switch.
  *
  * Its own file because the catalog is replaced for the whole module graph.
  */

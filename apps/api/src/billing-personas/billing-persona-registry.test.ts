@@ -54,7 +54,7 @@ describe("billing QA persona registry", () => {
     expect(declared).toEqual([
       {
         name: "BILLING_STARTER_ACTIVE",
-        priceKey: "STARTER_MONTHLY",
+        priceKey: "STARTER_YEARLY",
         lifecycle: "ACTIVE",
         stripeStatus: "active",
         cancellationScheduled: false,
@@ -75,7 +75,7 @@ describe("billing QA persona registry", () => {
       {
         // The highest tier, granted only because Stripe reports its price active.
         name: "BILLING_PRO_PLUS_ACTIVE",
-        priceKey: "PRO_PLUS_MONTHLY",
+        priceKey: "PRO_PLUS_YEARLY",
         lifecycle: "ACTIVE",
         stripeStatus: "active",
         cancellationScheduled: false,
@@ -86,7 +86,7 @@ describe("billing QA persona registry", () => {
       {
         // Scheduled cancellation: the plan does not move until the period ends (section 10).
         name: "BILLING_PRO_CANCELING",
-        priceKey: "PRO_MONTHLY",
+        priceKey: "PRO_YEARLY",
         lifecycle: "CANCELING",
         stripeStatus: "active",
         cancellationScheduled: true,
@@ -108,7 +108,7 @@ describe("billing QA persona registry", () => {
       {
         // Actually canceled: FREE, whatever was subscribed (section 10).
         name: "BILLING_CANCELED",
-        priceKey: "PRO_MONTHLY",
+        priceKey: "PRO_PLUS_MONTHLY",
         lifecycle: "CANCELED",
         stripeStatus: "canceled",
         cancellationScheduled: false,
@@ -119,7 +119,7 @@ describe("billing QA persona registry", () => {
     ]);
   });
 
-  it("subscribes every persona to a catalog price, and between them to all three", () => {
+  it("subscribes every persona to a catalog price, and between them to all six, once each", () => {
     for (const persona of BILLING_PERSONA_LIST) {
       const entry = BILLING_CATALOG[persona.priceKey];
       expect(entry, persona.name).toBeDefined();
@@ -130,6 +130,10 @@ describe("billing QA persona registry", () => {
     expect(
       new Set(BILLING_PERSONA_LIST.map((persona) => persona.priceKey)),
     ).toEqual(new Set(BILLING_PRICE_KEYS));
+    // One price per persona: every monthly and every yearly price is billed by a real fixture.
+    expect(BILLING_PERSONA_LIST.map((persona) => persona.priceKey).sort()).toEqual(
+      [...BILLING_PRICE_KEYS].sort(),
+    );
   });
 
   it("declares only outcomes the product's one plan decision produces", () => {

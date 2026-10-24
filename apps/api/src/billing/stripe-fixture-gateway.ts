@@ -70,6 +70,28 @@ export type StripeFixtureSubscription = {
 };
 
 /**
+ * One invoice of a fixture subscription, as the sandbox suites read it back: what was charged, and
+ * for which price and service period. Read-only — nothing here finalizes, pays or voids an invoice.
+ */
+export type StripeFixtureInvoice = {
+  readonly id: string;
+  /** Stripe's raw status string (`paid`, `open`, …). */
+  readonly status: string | null;
+  /** Stripe's raw `billing_reason` (`subscription_create`, `subscription_update`, …). */
+  readonly billingReason: string | null;
+  readonly currency: string;
+  readonly amountDue: number;
+  readonly amountPaid: number;
+  readonly created: Date;
+  readonly lines: readonly {
+    readonly priceId: string | null;
+    readonly amount: number;
+    readonly periodStart: Date;
+    readonly periodEnd: Date;
+  }[];
+};
+
+/**
  * How a fixture's payment method behaves. Each is one of Stripe's documented test tokens; no card
  * number, expiry or CVC exists anywhere in this repository.
  */
@@ -168,6 +190,11 @@ export interface StripeFixtureGateway {
   scheduleCancellationAtPeriodEnd(
     subscriptionId: string,
   ): Promise<StripeFixtureSubscription>;
+
+  /** Every invoice of one subscription, newest first. Read-only. */
+  listSubscriptionInvoices(
+    subscriptionId: string,
+  ): Promise<readonly StripeFixtureInvoice[]>;
 }
 
 /** Thrown when a fixture operation is refused before, or failed at, Stripe. */

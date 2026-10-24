@@ -32,7 +32,9 @@ import { BillingPage } from "./BillingPage";
  * from Checkout with a success parameter grants nothing; and that a pending downgrade reads as
  * *pending* rather than as done.
  *
- * The catalog sells monthly prices only, so there is no cadence toggle to drive.
+ * The catalog sells every paid plan monthly and yearly, so the cadence toggle re-prices the same
+ * four cards; a yearly card leads with its effective monthly cost and states the exact annual
+ * amount, billed upfront, under it.
  */
 
 const searchParams = { value: new URLSearchParams() };
@@ -94,6 +96,7 @@ function subscriptionOf(
     cancelAtPeriodEnd: false,
     cancelAt: null,
     pendingChange: null,
+    legacyPrice: false,
     ...overrides,
   };
 }
@@ -153,12 +156,12 @@ describe("BillingPage", () => {
     expect(screen.queryByText("Starter Yearly")).toBeNull();
   });
 
-  it("prices every paid plan per month from the catalog, with no cadence to choose", async () => {
+  it("prices every paid plan per month from the catalog, with Monthly chosen on the toggle", async () => {
     fetchBillingStatus.mockResolvedValue(billingStatus());
     render(<BillingPage />);
     const catalog = await screen.findByTestId("billing-catalog");
 
-    for (const entry of BILLING_CATALOG_ENTRIES) {
+    for (const entry of BILLING_CATALOG_ENTRIES.filter((e) => e.interval === "MONTH")) {
       expect(priceOf(entry.plan)).toBe(monthly(entry.amountMinorUnits));
       expect(screen.getByTestId(`plan-price-note-${entry.plan}`).textContent).toBe(
         "Billed monthly",
@@ -172,13 +175,48 @@ describe("BillingPage", () => {
       "$199/ month",
     ]);
 
-    // One cadence is sold, so there is nothing to toggle and no yearly line to show.
-    expect(screen.queryByTestId("billing-interval-toggle")).toBeNull();
-    expect(screen.queryByRole("radiogroup", { name: "Billing interval" })).toBeNull();
+    // Both cadences are sold, so the toggle is there, on Monthly, and offers the saving.
+    const toggle = screen.getByRole("radiogroup", { name: "Billing interval" });
+    expect(
+      (within(toggle).getByRole("radio", { name: /Monthly/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(within(toggle).getByTestId("billing-interval-saving").textContent).toBe("Save 25%");
     for (const plan of PLAN_CARD_ORDER) {
-      expect(screen.queryByTestId(`plan-price-equivalent-${plan}`)).toBeNull();
+      expect(screen.queryByTestId(`plan-price-saving-${plan}`)).toBeNull();
     }
-    expect(catalog.textContent).not.toMatch(/\/ year|annual|Yearly|≈/);
+    expect(catalog.textContent).not.toMatch(/annual|upfront|Save/);
+  });
+
+  it("re-prices the cards yearly: the monthly cost, the annual amount billed upfront, the saving", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    await userEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
+
+    for (const entry of BILLING_CATALOG_ENTRIES.filter((e) => e.interval === "YEAR")) {
+      expect(priceOf(entry.plan)).toBe(monthly(Math.round(entry.amountMinorUnits / 12)));
+      expect(screen.getByTestId(`plan-price-note-${entry.plan}`).textContent).toBe(
+        `Billed annually: ${formatUsd(entry.amountMinorUnits)} upfront`,
+      );
+      expect(screen.getByTestId(`plan-price-saving-${entry.plan}`).textContent).toBe(
+        "Save 25%",
+      );
+    }
+    // Literal: $169, $439 and $1,790 a year — $14.08, $36.58 and $149.17 a month.
+    expect([priceOf("STARTER"), priceOf("PRO"), priceOf("PRO_PLUS")]).toEqual([
+      "$14.08/ month",
+      "$36.58/ month",
+      "$149.17/ month",
+    ]);
+    expect(screen.getByTestId("plan-price-note-PRO_PLUS").textContent).toBe(
+      "Billed annually: $1,790 upfront",
+    );
+    expect(priceOf("FREE")).toBe("$0/ month");
+    expect(screen.getByTestId("plan-card-PRO").getAttribute("data-emphasis")).toBe(
+      "recommended",
+    );
+    expect(screen.getByTestId("plan-tagline-PRO_PLUS").textContent).toBe("Advanced Research");
   });
 
   it("sends the logical price key of the very price each card shows", async () => {
@@ -188,14 +226,17 @@ describe("BillingPage", () => {
     render(<BillingPage />);
     await screen.findByTestId("billing-catalog");
 
-    for (const entry of BILLING_CATALOG_ENTRIES) {
-      expect(
-        screen.getByTestId(`plan-action-${entry.plan}`).getAttribute("data-price-key"),
-      ).toBe(entry.key);
-    }
+    const keysShown = () =>
+      PLAN_CARD_ORDER.filter((plan) => plan !== "FREE").map((plan) =>
+        screen.getByTestId(`plan-action-${plan}`).getAttribute("data-price-key"),
+      );
+    expect(keysShown()).toEqual(["STARTER_MONTHLY", "PRO_MONTHLY", "PRO_PLUS_MONTHLY"]);
+
+    await userEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
+    expect(keysShown()).toEqual(["STARTER_YEARLY", "PRO_YEARLY", "PRO_PLUS_YEARLY"]);
 
     await userEvent.click(screen.getByTestId("plan-action-PRO_PLUS"));
-    expect(startCheckout).toHaveBeenCalledWith("PRO_PLUS_MONTHLY");
+    expect(startCheckout).toHaveBeenCalledWith("PRO_PLUS_YEARLY");
     await waitFor(() =>
       expect(window.location.assign).toHaveBeenCalledWith(
         "https://checkout.stripe.com/c/pay/cs_test",
@@ -388,10 +429,7 @@ describe("BillingPage", () => {
     );
   });
 
-  it("shows a legacy yearly subscriber today's monthly prices, still marking their plan current", async () => {
-    // The catalog no longer sells a yearly price. A subscriber still billed on one keeps their
-    // plan — `billing.plan` is what marks the card — and is shown the cards at today's monthly
-    // prices, rather than a page that throws trying to quote the price they pay.
+  it("opens a yearly subscriber's page on the yearly cards, with their plan current", async () => {
     fetchBillingStatus.mockResolvedValue(
       paid({
         plan: "PRO",
@@ -405,20 +443,75 @@ describe("BillingPage", () => {
     const catalog = await screen.findByTestId("billing-catalog");
 
     expect(catalog.childElementCount).toBe(PLAN_CARD_ORDER.length);
-    expect(screen.queryByTestId("billing-interval-toggle")).toBeNull();
-    expect(priceOf("PRO")).toBe(monthly(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits));
-
+    expect(
+      (screen.getByRole("radio", { name: /Yearly/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(screen.getByTestId("plan-price-note-PRO").textContent).toBe(
+      `Billed annually: ${formatUsd(BILLING_CATALOG.PRO_YEARLY.amountMinorUnits)} upfront`,
+    );
     expect(screen.getByTestId("plan-card-PRO").getAttribute("data-current")).toBe("true");
     const current = screen.getByTestId("plan-action-PRO") as HTMLButtonElement;
     expect(current.textContent).toBe("Current plan");
     expect(current.disabled).toBe(true);
-    // No card offers a change from the retired price — there is no catalog price to classify the
-    // move from, and the API refuses one — and nothing reads as an unpaid subscription.
-    expect(document.querySelectorAll('[data-action="CHANGE"]')).toHaveLength(0);
-    expect(screen.queryByText("Waiting for payment confirmation")).toBeNull();
-    // What they are billed for is still stated as it is.
     expect(screen.getByTestId("billing-interval").textContent).toBe("Yearly");
+    expect(screen.queryByTestId("billing-legacy-price")).toBeNull();
+
+    // The same plan monthly is a cadence change, held for the end of the paid year.
+    await userEvent.click(screen.getByRole("radio", { name: /Monthly/ }));
+    expect(screen.getByTestId("plan-action-PRO").textContent).toBe("Switch to monthly");
+    expect(screen.getByTestId("plan-hint-PRO").textContent).toBe(
+      "Takes effect at your next renewal",
+    );
+  });
+
+  it("tells a grandfathered subscriber they keep an earlier price, and what would move them off it", async () => {
+    // Billed on a retired price (STRIPE_LEGACY_PRICES): the plan is theirs and the same plan and
+    // cadence is the current card; any change is the ordinary transition onto today's price.
+    fetchBillingStatus.mockResolvedValue(
+      paid({
+        plan: "PRO",
+        subscription: subscriptionOf("PRO", {
+          interval: "YEAR",
+          currentPeriodEnd: "2027-03-14T00:00:00.000Z",
+          legacyPrice: true,
+        }),
+      }),
+    );
+    render(<BillingPage />);
+
+    const note = await screen.findByTestId("billing-legacy-price");
+    expect(note.textContent).toBe(
+      "You are billed at an earlier price, which you keep for as long as you stay on Pro yearly. Changing plan or billing interval moves you to today's price.",
+    );
+    expect(screen.getByTestId("plan-action-PRO").textContent).toBe("Current plan");
+    expect(screen.getByTestId("plan-hint-PRO_PLUS").textContent).toBe(
+      "Takes effect immediately, at today's price",
+    );
+    expect(screen.queryByText("Waiting for payment confirmation")).toBeNull();
     expect(screen.queryByTestId("billing-price-unrecognised")).toBeNull();
+  });
+
+  it("presents a scheduled move from yearly to monthly billing as still ahead", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      paid({
+        plan: "PRO",
+        subscription: subscriptionOf("PRO", {
+          interval: "YEAR",
+          currentPeriodEnd: "2027-03-14T00:00:00.000Z",
+          pendingChange: {
+            plan: "PRO",
+            interval: "MONTH",
+            effectiveAt: "2027-03-14T00:00:00.000Z",
+          },
+        }),
+      }),
+    );
+    render(<BillingPage />);
+
+    const pending = await screen.findByTestId("billing-pending-change");
+    expect(pending.textContent).toContain("Changing to Pro monthly");
+    expect(pending.textContent).toContain("Until then you keep Pro");
+    expect(screen.getByTestId("billing-interval").textContent).toBe("Yearly");
   });
 
   it("shows a subscriber their interval, renewal date and management entry", async () => {
@@ -554,6 +647,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -583,6 +677,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -615,6 +710,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: true,
           cancelAt: "2026-10-12T00:00:00.000Z",
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -648,6 +744,7 @@ describe("BillingPage", () => {
             interval: "MONTH",
             effectiveAt: "2026-10-12T00:00:00.000Z",
           },
+          legacyPrice: false,
         },
       }),
     );
@@ -674,6 +771,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -700,6 +798,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -734,6 +833,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: "2027-09-14T00:00:00.000Z",
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -768,6 +868,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -778,8 +879,8 @@ describe("BillingPage", () => {
     expect(pro.textContent).toBe("Resubscribe to Pro");
     expect(pro.hasAttribute("disabled")).toBe(false);
     expect(screen.queryByText("Waiting for payment confirmation")).toBeNull();
-    // The ended subscription was yearly, a cadence no longer sold: a returning buyer is quoted, and
-    // buys, today's monthly price.
+    // Only a live subscription seeds the cadence: a returning buyer whose ended subscription was
+    // yearly opens on Monthly, and buys what that card shows.
     expect(priceOf("PRO")).toBe(monthly(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits));
     expect(pro.getAttribute("data-price-key")).toBe("PRO_MONTHLY");
   });
@@ -836,6 +937,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -877,6 +979,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );
@@ -908,6 +1011,7 @@ describe("BillingPage", () => {
           cancelAtPeriodEnd: false,
           cancelAt: null,
           pendingChange: null,
+          legacyPrice: false,
         },
       }),
     );

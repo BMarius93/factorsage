@@ -73,6 +73,15 @@
   box-shadow: var(--focus-ring);
 }
 
+/* The yearly option's saving: the brand accent, quieter than the option's own label. */
+.segmentTag {
+  margin-left: 6px;
+  color: var(--color-primary-ink);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+
 /* --- The four plan cards --- */
 
 .grid {
@@ -184,13 +193,14 @@
   line-height: 1.5;
 }
 
-/* A yearly price per month, under the billing note: as quiet as the note, and one line tall even
-   on Free, where it is empty, so the feature rows stay level across the cards. */
-.priceEquivalent {
+/* The yearly saving, under the annual-charge note: one line tall even on Free, where it is empty,
+   so the feature rows stay level across the cards. */
+.priceSaving {
   min-height: 18px;
   margin: -14px 0 0;
-  color: var(--color-text-muted);
+  color: var(--color-primary-ink);
   font-size: 12px;
+  font-weight: var(--weight-emphasis);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }

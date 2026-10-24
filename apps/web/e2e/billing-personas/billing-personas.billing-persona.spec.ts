@@ -102,9 +102,17 @@ for (const persona of BILLING_PERSONA_LIST) {
       ).toHaveAttribute("data-current", "true");
       await expect(page.getByTestId("plan-current-badge")).toHaveCount(1);
       await expect(page.getByTestId("manage-billing")).toBeVisible();
-      // Four plans, and no cadence toggle: the catalog sells monthly prices only.
+      // Four plans, re-priced by the cadence toggle, which opens on the cadence a live
+      // subscription is billed in (monthly otherwise).
       await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(4);
-      await expect(page.getByTestId("billing-interval-toggle")).toHaveCount(0);
+      await expect(page.getByTestId("billing-interval-toggle")).toBeVisible();
+      await expect(
+        page.getByRole("radio", {
+          name: new RegExp(
+            INTERVAL_LABEL[expected.holdsPaidSlot ? persona.interval : "MONTH"],
+          ),
+        }),
+      ).toBeChecked();
 
       const subscription = page.getByTestId("billing-subscription");
       await expect(subscription).toBeVisible();

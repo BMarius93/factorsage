@@ -35,16 +35,18 @@ import type { UserPlan } from "./entitlements.js";
  * `FREE` is deliberately absent — there is no Stripe Price for it, and moving to Free is a
  * cancellation, never a price switch (decision document section 7).
  *
- * **Monthly only** since the 2026-10-23 catalog (`docs/decisions/stripe-billing-v1.md` §1,
- * amended): the product specification prices Starter, Pro and Pro+ per month and fixes no annual
- * price, and selling the retired annual prices beside the new monthly ones would have been an
- * unapproved discount. Every interval-aware path below stays generic, so an annual price the owner
- * fixes later is a catalog entry, a configuration name and a verifier amount — not new code.
+ * Every paid plan is sold monthly and yearly (`docs/decisions/entitlements-v2.md` §2, the owner's
+ * annual prices of 2026-10-24). The V1 prices these keys once named — $9 / $99 / $29 / $299 — are
+ * retired: they are never sold, and their subscribers keep their plan through
+ * `STRIPE_LEGACY_PRICES`, which resolves them without a key of their own.
  */
 export const BILLING_PRICE_KEYS = [
   "STARTER_MONTHLY",
+  "STARTER_YEARLY",
   "PRO_MONTHLY",
+  "PRO_YEARLY",
   "PRO_PLUS_MONTHLY",
+  "PRO_PLUS_YEARLY",
 ] as const;
 
 export type BillingPriceKey = (typeof BILLING_PRICE_KEYS)[number];
@@ -90,12 +92,15 @@ export type BillingCatalogEntry = {
 };
 
 /**
- * The catalog, exactly as the decision document fixes it: $19 / $49 / $199 a month.
+ * The catalog, exactly as the decision document fixes it: $19 / $49 / $199 a month, and $169 /
+ * $439 / $1,790 a year, each yearly price charged in full at the start of the year.
  *
  * These amounts are what `pnpm billing:verify-catalog` asserts against the configured Stripe
  * prices, so a Dashboard price edited to the wrong number fails loudly instead of quietly selling
- * Pro+ for nineteen dollars. Stripe Prices are immutable, so a new amount is always a new Price
- * object in the Dashboard and a new configured Price ID here — never an edit of an existing one.
+ * Pro+ for nineteen dollars — or a year of Starter at the retired $99. Stripe Prices are immutable,
+ * so a new amount is always a new Price object in the Dashboard and a new configured Price ID here —
+ * never an edit of an existing one. The owner fixed the yearly amounts; they are not derived from
+ * the monthly ones and must not be recomputed.
  */
 export const BILLING_CATALOG: Readonly<
   Record<BillingPriceKey, BillingCatalogEntry>
@@ -106,7 +111,15 @@ export const BILLING_CATALOG: Readonly<
     interval: "MONTH",
     amountMinorUnits: 1_900,
     currency: "usd",
-    lookupKey: "factorsage_starter_monthly",
+    lookupKey: "factorsage_v2_starter_monthly",
+  },
+  STARTER_YEARLY: {
+    key: "STARTER_YEARLY",
+    plan: "STARTER",
+    interval: "YEAR",
+    amountMinorUnits: 16_900,
+    currency: "usd",
+    lookupKey: "factorsage_v2_starter_yearly",
   },
   PRO_MONTHLY: {
     key: "PRO_MONTHLY",
@@ -114,7 +127,15 @@ export const BILLING_CATALOG: Readonly<
     interval: "MONTH",
     amountMinorUnits: 4_900,
     currency: "usd",
-    lookupKey: "factorsage_pro_monthly",
+    lookupKey: "factorsage_v2_pro_monthly",
+  },
+  PRO_YEARLY: {
+    key: "PRO_YEARLY",
+    plan: "PRO",
+    interval: "YEAR",
+    amountMinorUnits: 43_900,
+    currency: "usd",
+    lookupKey: "factorsage_v2_pro_yearly",
   },
   PRO_PLUS_MONTHLY: {
     key: "PRO_PLUS_MONTHLY",
@@ -122,7 +143,15 @@ export const BILLING_CATALOG: Readonly<
     interval: "MONTH",
     amountMinorUnits: 19_900,
     currency: "usd",
-    lookupKey: "factorsage_pro_plus_monthly",
+    lookupKey: "factorsage_v2_pro_plus_monthly",
+  },
+  PRO_PLUS_YEARLY: {
+    key: "PRO_PLUS_YEARLY",
+    plan: "PRO_PLUS",
+    interval: "YEAR",
+    amountMinorUnits: 179_000,
+    currency: "usd",
+    lookupKey: "factorsage_v2_pro_plus_yearly",
   },
 };
 
@@ -134,8 +163,9 @@ export function billingCatalogEntry(key: BillingPriceKey): BillingCatalogEntry {
 }
 
 /**
- * The logical key for a (plan, interval) pair, or `null` when the catalog sells no such price —
- * an annual price while the catalog is monthly-only. The inverse of the catalog.
+ * The logical key for a (plan, interval) pair, or `null` when the catalog sells no such price. The
+ * inverse of the catalog; every paid plan has both cadences today, so `null` is a future catalog
+ * gap, not a current state.
  */
 export function findBillingPriceKey(
   plan: PaidPlan,
@@ -165,9 +195,9 @@ export function billingPriceKeyFor(
 }
 
 /**
- * The cadences the catalog sells, in `BILLING_INTERVALS` order. Every paid plan is sold monthly;
- * a cadence appears here only when every paid plan has a price in it, so a pricing toggle can
- * never offer a cadence one of the cards cannot honour.
+ * The cadences the catalog sells, in `BILLING_INTERVALS` order — monthly and yearly. A cadence
+ * appears here only when every paid plan has a price in it, so a pricing toggle can never offer a
+ * cadence one of the cards cannot honour.
  */
 export const OFFERED_BILLING_INTERVALS: readonly BillingInterval[] =
   BILLING_INTERVALS.filter((interval) =>
@@ -455,6 +485,13 @@ export type BillingPendingChange = {
 export type BillingSubscriptionView = {
   readonly plan: PaidPlan | null;
   readonly interval: BillingInterval | null;
+  /**
+   * True when the subscription is billed on a **retired** price its subscriber keeps
+   * (`STRIPE_LEGACY_PRICES`, grandfathered): `plan` and `interval` are that price's, but its amount
+   * is not today's catalog price, and any plan or cadence change moves the subscription onto one.
+   * The UI says so before such a change rather than letting a card's price imply it is theirs.
+   */
+  readonly legacyPrice: boolean;
   readonly status: BillingSubscriptionStatus;
   /** ISO 8601 instant the current paid period ends, when Stripe reports one. */
   readonly currentPeriodEnd: string | null;

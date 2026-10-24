@@ -118,12 +118,12 @@ Checkout and Customer Portal show the numbers, on Stripe's own pages.
 | `POST /billing/refresh` | session | Reconciles from Stripe, then returns status. Used once after a hosted round trip. |
 | `POST /billing/checkout` | session | Hosted Checkout for a user with no live subscription. Body: `{ priceKey }`. |
 | `POST /billing/portal` | session | Customer Portal session for the caller's own customer. No body. |
-| `POST /billing/change` | session | Moves a live subscription between the three prices. Body: `{ priceKey }`. |
+| `POST /billing/change` | session | Moves a live subscription between the six prices. Body: `{ priceKey }`. |
 | `POST /webhooks/stripe` | Stripe signature | The authoritative synchronization path. |
 
-The only input the whole surface accepts is one of the three logical catalog keys
-(`BILLING_PRICE_KEYS`); a retired annual key such as `PRO_YEARLY` is refused with a `400` like any
-other unknown value. `billing-requests.ts` **refuses** — not ignores — a request carrying `priceId`,
+The only input the whole surface accepts is one of the six logical catalog keys
+(`BILLING_PRICE_KEYS`); anything else — a provider price id, a misspelt key such as
+`PRO_PLUS_ANNUAL`, a retired price — is refused with a `400` like any other unknown value. `billing-requests.ts` **refuses** — not ignores — a request carrying `priceId`,
 `customerId`, `subscriptionId`, `plan`, `role`, `successUrl` or similar, because a silently dropped
 field looks to a client exactly like an accepted one.
 
@@ -132,8 +132,8 @@ field looks to a client exactly like an accepted one.
 Customer Portal cannot express FactorSage's transition matrix. Portal price switching applies **one**
 proration policy per configuration, so it can be always-immediate or always-at-period-end — while
 sections 7-9 of the decision document require immediate for a tier upgrade and period-end for a tier
-downgrade (and, were a yearly cadence ever re-added, immediate for monthly→yearly and period-end for
-yearly→monthly). No single Portal setting produces both. Rather than weaken the product rule, plan
+downgrade, and within one tier immediate for monthly→yearly and period-end for yearly→monthly. No
+single Portal setting produces both. Rather than weaken the product rule, plan
 changes go through this endpoint and Portal keeps payment methods, invoices and cancellation — where
 its behaviour *is* what we want.
 
@@ -144,25 +144,33 @@ its behaviour *is* what we want.
 | Logical key | Plan | Interval | Amount | Env variable |
 | --- | --- | --- | ---: | --- |
 | `STARTER_MONTHLY` | STARTER | MONTH | $19 | `STRIPE_PRICE_STARTER_MONTHLY` |
+| `STARTER_YEARLY` | STARTER | YEAR | $169 | `STRIPE_PRICE_STARTER_YEARLY` |
 | `PRO_MONTHLY` | PRO | MONTH | $49 | `STRIPE_PRICE_PRO_MONTHLY` |
+| `PRO_YEARLY` | PRO | YEAR | $439 | `STRIPE_PRICE_PRO_YEARLY` |
 | `PRO_PLUS_MONTHLY` | PRO_PLUS | MONTH | $199 | `STRIPE_PRICE_PRO_PLUS_MONTHLY` |
+| `PRO_PLUS_YEARLY` | PRO_PLUS | YEAR | $1,790 | `STRIPE_PRICE_PRO_PLUS_YEARLY` |
 
-The catalog is monthly only (`entitlements-v2.md` §2): one price per paid plan, each on a Stripe
-product of its own. A price id outside those three resolves to `null`, which `resolveEffectivePlan`
+The catalog sells every paid plan monthly and yearly (`entitlements-v2.md` §2): two prices per paid
+plan on that plan's one Stripe product, a yearly price charged in full, upfront, every year. A price
+id outside those six resolves to `null`, which `resolveEffectivePlan`
 turns into `FREE` with reason `PRICE_NOT_IN_CATALOG` and an anomaly flag — **unless** it is listed in
 `STRIPE_LEGACY_PRICES` (`price_…=PLAN/INTERVAL`, comma-separated). A listed retired price — a V1
 monthly ($9 / $29) or annual ($99 / $299) one — keeps its subscribers on its plan (grandfathered, mirror
-`billingInterval` as billed), is never sold, and a change from it is classified as from its plan's
-current price: up a tier immediately, down a tier at period end, the same plan at today's price is no
-change (`BillingCatalog`, `ResolvedPrice.legacy`). **Before switching an environment to the V2 price
+`billingInterval` as billed), is never sold, and a change from it is classified as from today's
+price of the same plan **and cadence**: up a tier immediately, down a tier at period end, the other
+cadence of the same plan by the cadence rule, and the same plan and cadence is no change — so the
+subscriber keeps the retired price (`BillingCatalog`, `ResolvedPrice.legacy`; the status response's
+`subscription.legacyPrice`). A V2 yearly price is a current price, never a legacy one: a price listed
+both as current and in `STRIPE_LEGACY_PRICES` is refused at startup. **Before switching an environment to the V2 price
 ids, list every V1 price that still has subscribers there**, or they fall to Free at their next
 reconciliation. Nothing infers a plan from an amount, a product name, client input or metadata. Environment separation falls out of the same structure: a sandbox deployment physically
 cannot resolve a live price.
 
-The V1 yearly keys, `STARTER_YEARLY` and `PRO_YEARLY`, are **retired**, not merely unconfigured: they
-are not catalog keys, and their variables fail startup (see "Configuration"), so a stale annual price
-can never be sold. Re-adding a yearly price is a catalog change (`BILLING_PRICE_KEYS`,
-`entitlements-v2.md` §11): `BillingInterval` keeps `YEAR`, and the interval-aware paths stay generic.
+The yearly keys keep their V1 names, `STARTER_YEARLY` and `PRO_YEARLY`, and their variables; only
+the prices behind them changed ($99 / $299 → $169 / $439). An environment that still holds a V1
+year in `STRIPE_PRICE_*_YEARLY` would sell it, so: move every V1 year id into `STRIPE_LEGACY_PRICES`
+(the startup guard then refuses the stale variable, because the id is both current and legacy), and
+run `pnpm billing:verify-catalog`, which reports `amount is $99.00, expected $169.00`.
 
 ## Status → plan
 
@@ -439,8 +447,12 @@ itself unavailable, and no other package or suite needs a Stripe secret.
 STRIPE_SECRET_KEY                  sk_test_/rk_test_ (sandbox) or sk_live_/rk_live_ (live)
 STRIPE_WEBHOOK_SECRET              whsec_...
 STRIPE_PRICE_STARTER_MONTHLY       price_...
+STRIPE_PRICE_STARTER_YEARLY        price_...
 STRIPE_PRICE_PRO_MONTHLY           price_...
+STRIPE_PRICE_PRO_YEARLY            price_...
 STRIPE_PRICE_PRO_PLUS_MONTHLY      price_...
+STRIPE_PRICE_PRO_PLUS_YEARLY       price_...
+STRIPE_LEGACY_PRICES               optional; retired prices existing subscribers keep
 STRIPE_CHECKOUT_SUCCESS_URL        optional; defaults from WEB_BASE_URL
 STRIPE_CHECKOUT_CANCEL_URL         optional
 STRIPE_PORTAL_RETURN_URL           optional
@@ -448,10 +460,10 @@ STRIPE_TIMEOUT_MS                  default 20000
 STRIPE_MAX_NETWORK_RETRIES         default 2
 ```
 
-Startup **fails** on: a partial configuration, a malformed key or price id, two logical prices sharing
-one Stripe price, a value in a retired annual variable (`RETIRED_STRIPE_PRICE_ENV_NAMES`:
-`STRIPE_PRICE_STARTER_YEARLY`, `STRIPE_PRICE_PRO_YEARLY`; a blank line left from the V1 template is
-ignored), a live key outside `NODE_ENV=production`, or a sandbox key in production. The last two are
+Startup **fails** on: a partial configuration (all eight values or none), a malformed key or price
+id, two logical prices sharing one Stripe price, a price listed both in a `STRIPE_PRICE_*` variable
+and in `STRIPE_LEGACY_PRICES` (a V1 year left in a yearly variable once it is listed as retired), a
+live key outside `NODE_ENV=production`, or a sandbox key in production. The last two are
 the concrete form of "production must never boot with sandbox material and local development must
 never be able to charge a real card".
 
@@ -677,7 +689,8 @@ user reporting the wrong plan. It prints `previous -> new` per user and marks an
 | Paid in Stripe, still FREE locally | webhook not delivered (`stripe listen` not running, wrong secret) | `pnpm billing:reconcile -- --user <email>` |
 | Webhooks return 400 | `STRIPE_WEBHOOK_SECRET` is not the one `stripe listen` printed | copy the current `whsec_...`, restart the API |
 | Webhooks return 503 | billing not configured in this process | set the `STRIPE_*` variables, restart |
-| Startup refuses `STRIPE_PRICE_*_YEARLY` | a V1 annual price variable left in the environment | delete it (or leave it blank); the catalog is monthly only |
+| Startup: `… is a current catalog price and cannot also be a legacy price` | a V1 year id still in `STRIPE_PRICE_*_YEARLY` after it was listed in `STRIPE_LEGACY_PRICES` | set the variable to the V2 yearly price id, then `pnpm billing:verify-catalog` |
+| `billing:verify-catalog`: `amount is $99.00, expected $169.00` (or `$299.00`/`$439.00`) | a V1 year id still in a yearly variable | set the V2 yearly price id; list the V1 one in `STRIPE_LEGACY_PRICES` |
 | `IGNORED_ENVIRONMENT_MISMATCH` in logs | a live endpoint pointed at a sandbox deployment (or vice versa) | fix the Dashboard endpoint URL |
 | `PRICE_NOT_IN_CATALOG` | subscription on an archived/foreign price, or a V1 price ($9 / $29 monthly, any yearly) not listed in `STRIPE_LEGACY_PRICES` | list the retired price in `STRIPE_LEGACY_PRICES` (or correct the subscription in Stripe, or fix `STRIPE_PRICE_*`), then reconcile |
 | `SUBSCRIPTION_UNSUPPORTED_STATUS` | a Dashboard-created trial or pause | end the trial/pause; V1 supports neither |
@@ -771,8 +784,9 @@ same setup independently.**
 ### Deployment checklist
 
 - [ ] `NODE_ENV=production` **and** live `sk_live_`/`rk_live_` key — either one alone fails startup.
-- [ ] Live price ids, not sandbox ones: the three `STRIPE_PRICE_*_MONTHLY`, and no
-      `STRIPE_PRICE_*_YEARLY` value left from the V1 catalog (startup refuses one).
+- [ ] Live price ids, not sandbox ones: all six `STRIPE_PRICE_*`, and no V1 yearly id left in a
+      `STRIPE_PRICE_*_YEARLY` variable (verify-catalog reports its amount; list it in
+      `STRIPE_LEGACY_PRICES` instead).
 - [ ] The production endpoint's own `STRIPE_WEBHOOK_SECRET`.
 - [ ] `WEB_BASE_URL` correct, so Checkout/Portal return URLs resolve.
 - [ ] `pnpm billing:verify-catalog` run against live configuration.
@@ -783,11 +797,12 @@ same setup independently.**
 > **History, recorded against the V1 catalog** (Starter and Pro at $9 / $29 a month and $99 / $299 a
 > year), before `entitlements-v2.md`: the amounts, price keys and entitlement figures below are V1's,
 > and the cadence rows have no V2 counterpart. **It must be re-run for the V2 catalog:**
-> `pnpm billing:verify-catalog` (three monthly prices, one product per plan);
+> `pnpm billing:verify-catalog` (six prices, both cadences of a plan on one product, one product per
+> plan);
 > `STRIPE_SANDBOX_SMOKE=true pnpm test:billing:sandbox`;
 > `STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas` (six personas, Pro+ included);
 > `billing-lifecycle.sandbox.test.ts` with `STRIPE_BILLING_AUDIT=true` (BILL-01 as Pro → scheduled
-> Starter → Pro+); and by hand, from the runbook above, hosted Checkout on each of the three prices,
+> Starter → Pro+); and by hand, from the runbook above, hosted Checkout on each of the six prices,
 > the upgrades to Pro+, a failed upgrade, a scheduled downgrade from Pro+ at its boundary, Portal
 > cancellation and its reversal, the actual cancellation, a duplicate delivery and the repair CLI.
 
@@ -859,10 +874,13 @@ Second pass, after the billing page was rebuilt around three plan cards:
 ## The billing page
 
 `apps/web/src/features/billing`. Four plan cards — Free, Starter, Pro (the emphasized "Best Value"
-plan) and Pro+ ("Advanced Research") — one per plan, never one per price. The cadence toggle that
-re-prices them in place renders only while the catalog sells more than one cadence
-(`OFFERED_BILLING_INTERVALS`); with today's monthly-only catalog every card quotes its monthly price
-and there is no toggle. `ai/architecture/v1-visual-parity.md` owns the composition contract.
+plan) and Pro+ ("Advanced Research") — one per plan, never one per price. The Monthly/Yearly toggle
+re-prices them in place; it renders because the catalog sells more than one cadence
+(`OFFERED_BILLING_INTERVALS`), and its Yearly option carries the saving (`Save 25%`). A yearly card
+leads with its effective monthly cost and states, directly under it, the exact annual amount billed
+upfront (`Billed annually: $169 upfront`), then the saving. The page opens on the cadence a live
+subscription is billed in, monthly otherwise. A subscriber on a retired price (`legacyPrice`) is told
+they keep it, and every change hint ends `at today's price`. `ai/architecture/v1-visual-parity.md` owns the composition contract.
 
 The rule that matters here is the same one-source rule the rest of this document is about, applied to
 the browser:
@@ -870,17 +888,17 @@ the browser:
 - **`plan-presentation.ts`** derives every feature row from `PLAN_ENTITLEMENTS` and every amount from
   `BILLING_CATALOG`. No limit and no price is written down a second time, so a matrix change cannot
   leave the pricing page promising something the guards refuse, and no card claims priority, speed
-  or a guaranteed run time (`entitlements-v2.md` §10). Its only arithmetic — the annual saving and a
-  yearly price's monthly equivalent, from published list prices — applies only while a yearly price
-  is sold, so today it computes nothing; a proration estimate stays Stripe's.
+  or a guaranteed run time (`entitlements-v2.md` §10). Its only arithmetic — the annual saving
+  (rounded down, so never overstated) and a yearly price's effective monthly cost, from published
+  list prices — is never what a button sends; a proration estimate stays Stripe's.
 - **`plan-actions.ts`** decides what each card's button does, labelling it from
   `classifyBillingTransition` — the same pure function the API classifies the request with — so
   "Upgrade to Pro" cannot promise something `POST /billing/change` would schedule. The verb follows
   the card's tier against the user's, never the cadence on screen: the same tier is `Current plan`
   (disabled), a higher paid tier is `Upgrade to <Plan>`, a lower paid tier is `Switch to <Plan>`
   (at renewal for a subscriber), and Free from a paid subscription is `Cancel subscription`. The
-  only cadence-dependent label — the current tier's card on the other cadence (`Switch to yearly`) —
-  needs a second cadence, so no card shows it today.
+  only cadence-dependent label is the current tier's card on the other cadence: `Switch to yearly`
+  (immediate) or `Switch to monthly` (at renewal, the end of the paid year).
   A plan granted without a subscription buys through Checkout, so its lower tier is still a switch,
   and its Free card offers nothing, because there is no live subscription to cancel. `plan-actions.test.ts`
   holds the whole matrix. It also encodes the
@@ -912,16 +930,17 @@ and reuses the billing page's parts rather than copying them:
 
 | Suite | What it proves |
 | --- | --- |
-| `packages/contracts/src/billing.test.ts` | The catalog (three monthly prices, no retired annual key), all nine ordered transition pairs, and every status→plan mapping, written as literals so the suite cannot agree with a wrong implementation. |
+| `packages/contracts/src/billing.test.ts` | The catalog (six prices, the owner's amounts, no V1 annual amount), all 36 ordered transition pairs, and every status→plan mapping, written as literals so the suite cannot agree with a wrong implementation. |
 | `packages/contracts/src/billing.entitlements-boundary.test.ts` | Billing carries no entitlement value or vocabulary; entitlements have no billing dependency; billing's only output is a `UserPlan`. |
-| `packages/config/src/index.test.ts` | All-or-nothing configuration, the sandbox/live guards in both directions, and the refusal of the retired annual price variables. |
+| `packages/config/src/index.test.ts` | All-or-nothing configuration over the six prices, the sandbox/live guards in both directions, and the refusal of a price that is both current and legacy (a V1 year left in a yearly variable). |
 | `apps/api/src/billing/billing.integration.test.ts` | HTTP → Nest → PostgreSQL with Stripe faked at the gateway: the twenty lifecycle acceptance cases, checkout allowlisting, customer reuse under concurrency, the one-subscription invariant, reconciliation/repair, and the webhook robustness list (duplicate, concurrent, stale, crash, unknown customer, unknown price, environment mismatch). |
-| `apps/api/src/billing/billing.sandbox.smoke.test.ts` | The real Stripe contract, the three catalog prices and one product per plan included. Opt-in via `STRIPE_SANDBOX_SMOKE=true`, excluded from `pnpm test`, and refuses to run against a live key. |
+| `apps/api/src/billing/billing.sandbox.smoke.test.ts` | The real Stripe contract, the six catalog prices (both cadences on the plan's product, one product per plan) and a hosted Checkout session on each yearly price included. Opt-in via `STRIPE_SANDBOX_SMOKE=true`, excluded from `pnpm test`, and refuses to run against a live key. |
 | `apps/api/src/billing/stripe-cancellation.test.ts` | That a scheduled cancellation is recognised in **both** of Stripe's representations. |
 | `apps/api/src/billing/catalog-verification.test.ts` | The catalog check behind `pnpm billing:verify-catalog` — amounts, cadence, one product per plan — which the billing persona seed also runs before creating anything. |
 | `apps/api/src/billing-personas/*.test.ts` | The billing QA persona tooling, offline: the registry against the status policy, the Stripe ownership and cleanup-refusal rules, every environment refusal, the source-level boundaries (no mirror or plan write, one SDK importer, no catalog mutation), and — on real PostgreSQL with the real reconciler and a fake Stripe — each persona end to end, convergence, recovery from an interrupted run, and cleanup. |
 | `apps/api/src/billing-personas/billing-personas.sandbox.test.ts` | The same personas against **real Stripe test mode**. Opt-in via `STRIPE_BILLING_PERSONAS=true`, excluded from `pnpm test`, and refuses anything but a test key and the local test database. |
-| `apps/web/src/features/billing/components/BillingPage.test.tsx` | What the page shows and refuses to show — four plan cards and never one per price, monthly prices and no cadence toggle while one cadence is sold, the price key each button sends, Pro's emphasis and Pro+'s concurrency line, today's prices for a subscriber whose mirror still names a retired yearly price, that `?checkout=success` grants nothing, that the return notice confirms only once the persisted plan is paid (and says "still confirming" when the settle window expires unconfirmed), and that an ended subscription is not a current price, so a lapsed customer can buy back the plan they left (UI-037, UI-046). |
+| `apps/api/src/billing/billing-lifecycle.sandbox.test.ts` | Lifecycles against **real Stripe test mode** on Test Clocks: BILL-01, two Checkouts, past-due recovery, renewal, each yearly price charged in full upfront, monthly → yearly at once with Stripe's proration, yearly → monthly at the end of the paid year, a failed yearly renewal, and a grandfathered V1 subscriber (skipped when `STRIPE_LEGACY_PRICES` is empty). Opt-in via `STRIPE_BILLING_AUDIT=true`. |
+| `apps/web/src/features/billing/components/BillingPage.test.tsx` | What the page shows and refuses to show — four plan cards and never one per price, monthly and yearly prices on one toggle (the effective monthly cost, the exact annual amount billed upfront, the saving), the price key each button sends in each cadence, Pro's emphasis and Pro+'s concurrency line, the grandfathered-price note, that `?checkout=success` grants nothing, that the return notice confirms only once the persisted plan is paid (and says "still confirming" when the settle window expires unconfirmed), and that an ended subscription is not a current price, so a lapsed customer can buy back the plan they left (UI-037, UI-046). |
 | `apps/web/src/features/billing/utils/plan-presentation.test.ts` | That every capacity on a card is read from `PLAN_ENTITLEMENTS` and every amount from `BILLING_CATALOG`, so the pricing page cannot drift from the matrix. |
 | `apps/web/src/features/billing/components/PricingPage.test.tsx` | The public page: a Guest sees the catalog, calls no billing endpoint and gets the prompt with `next=/pricing` from every card; a signed-in viewer gets `/billing`'s Checkout and change calls and honest loading/error/unconfigured states; and `/pricing` and `/billing` render identical prices, notes, limits and emphasis. `PricingPage.invalid-catalog.test.tsx` proves a missing catalog entry fails into the error boundary rather than rendering a price. |
 | `apps/web/src/features/billing/utils/plan-actions.test.ts` | What each card's button offers per billing state: upgrade/downgrade/switch labels from the shared classifier, Free only ever through Portal, and no action claimed for an unpaid or already-scheduled change. |

@@ -168,6 +168,8 @@ describe("billing persona tooling boundaries", () => {
       "createSubscription",
       "setSubscriptionPaymentMethod",
       "scheduleCancellationAtPeriodEnd",
+      // Read-only: the sandbox suites read back what a yearly subscription was charged.
+      "listSubscriptionInvoices",
     ]);
   });
 

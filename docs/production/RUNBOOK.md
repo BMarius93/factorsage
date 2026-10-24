@@ -38,7 +38,10 @@ repository, an image, a build argument or `compose.env`'s committed template:
 
 Generate passwords with `openssl rand`. **Before the first V2 deploy**, list every retired Stripe
 price that still has subscribers in `STRIPE_LEGACY_PRICES` (`ai/architecture/billing.md`), or those
-subscribers fall to Free at their next reconciliation.
+subscribers fall to Free at their next reconciliation. The six `STRIPE_PRICE_*` are the V2 catalog —
+$19 / $169, $49 / $439, $199 / $1,790, a year charged upfront. The `*_YEARLY` names held the V1 $99 /
+$299 years: a V1 year left there would be sold, so move it to `STRIPE_LEGACY_PRICES` (startup then
+refuses the stale variable) and check the six before deploying (§4).
 
 Rotate a secret by editing its file and `docker compose up -d <service>`; rotating `AUTH_JWT_SECRET`
 signs everybody out.
@@ -66,6 +69,18 @@ marked `DRAFT`: `pnpm legal:check` lists what is outstanding (16 items on 2026-1
 six draft documents), and until it passes no release web image can be built.
 
 ## 4. Deploy
+
+When `api.env` changes any `STRIPE_*` value, check the catalog against live Stripe first, with the
+release's own API image and the new `api.env`. It reads the six prices and changes nothing; it fails
+on any wrong amount, currency, interval, product or archived price:
+
+```bash
+cd /opt/factorsage/deploy/production
+RELEASE="$REV" docker compose --env-file /etc/factorsage/compose.env run --rm --no-deps api \
+  node dist/verify-stripe-catalog.js
+```
+
+Then deploy:
 
 ```bash
 /opt/factorsage/deploy/production/scripts/deploy.sh "$REV"

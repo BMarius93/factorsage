@@ -75,12 +75,13 @@ const DEVELOPER_ENV = {
   STRIPE_SECRET_KEY: "sk_test_developer_key",
   STRIPE_WEBHOOK_SECRET: "whsec_developer",
   STRIPE_PRICE_STARTER_MONTHLY: "price_developer_1",
+  STRIPE_PRICE_STARTER_YEARLY: "price_developer_4",
   STRIPE_PRICE_PRO_MONTHLY: "price_developer_2",
+  STRIPE_PRICE_PRO_YEARLY: "price_developer_5",
   STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_developer_3",
-  // A `.env` written for the retired annual catalog: refused by the configuration on its own, so
-  // the overlay has to blank it or no hermetic process would boot.
-  STRIPE_PRICE_STARTER_YEARLY: "price_developer_retired_1",
-  STRIPE_PRICE_PRO_YEARLY: "price_developer_retired_2",
+  STRIPE_PRICE_PRO_PLUS_YEARLY: "price_developer_6",
+  // A developer's retired prices name real Stripe prices; the overlay must blank them too.
+  STRIPE_LEGACY_PRICES: "price_developer_retired_1=PRO/YEAR",
   EOD_TAIL_REFRESH: "scheduled",
   DATABASE_URL: "postgresql://localhost/intrinsic_value",
 };
@@ -122,9 +123,10 @@ describe("E2E stack environment", () => {
       expect(stripe?.testMode).toBe(true);
       expect(stripe?.secretKey).not.toBe(DEVELOPER_ENV.STRIPE_SECRET_KEY);
       expect(stripe?.secretKey).toMatch(/placeholder/);
-      // Every catalog price, Pro+ included, is an inert placeholder rather than the developer's.
+      // Every catalog price, both cadences of Pro+ included, is an inert placeholder rather than
+      // the developer's.
       const priceIds = Object.values(stripe?.priceIds ?? {});
-      expect(priceIds).toHaveLength(3);
+      expect(priceIds).toHaveLength(6);
       for (const priceId of priceIds) {
         expect(priceId).toMatch(/^price_e2e_/);
       }

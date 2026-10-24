@@ -56,7 +56,7 @@ before implementation. `PRODUCTION-READINESS-REPORT.md` is the final report; thi
 | R3 | Claims wait on a per-user lock that billing holds across a Stripe call | earlier audit OPS-11 | With a global claim lock, one slow Stripe call could stall every claim; owners must be try-locked under it |
 | R4 | Raising the engine ceiling 200 → 1,000 | `BACKTEST_MAX_SECURITIES` comment: "failing fast at submission is far better than an OS-killed worker" | Worker memory must be measured, not assumed |
 | R5 | "Unlimited" Monitors | Monitor pass cost is per member per new session (~1.7 ms; 9,000 members ≈ 15–18 s) | One user with thousands of 750-symbol Monitors could stretch the EOD pass for everyone |
-| R6 | Retired annual prices beside new monthly prices | catalog | Starter yearly $99 vs monthly $19 would be an unapproved 57 % discount |
+| R6 | Retired annual prices beside new monthly prices | catalog | Starter yearly $99 vs monthly $19 would be an unapproved 57 % discount. Resolved: the V1 years are retired (grandfathered, never sold), and since 2026-10-24 the yearly prices are the owner's ($169 / $439 / $1,790, about 25 % off) |
 | R7 | A `PRO_PLUS` row reaching an older build | `resolveEntitlements` throws on an unknown plan | Deploy order: migrate, deploy every process, then configure the Pro+ price |
 | R8 | No connection-pool sizing | earlier audit OPS-09 | Default Prisma pool per process × (API + 4 backtest + 3 other children) |
 | R9 | Redis RDB snapshot restore can resurrect stale manifests; `noeviction` at a full `maxmemory` fails warm reads | OPS-12, OPS-03 | Production Redis needs a sized `maxmemory` and a deliberate persistence choice |

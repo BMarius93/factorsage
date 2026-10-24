@@ -123,10 +123,10 @@ export function PlanCard({
         </p>
       ) : null}
       {/* Yearly only, and on every card — Free's line stays empty — so the feature rows keep one
-          baseline across the cards. Under the charge, never instead of it (PR-3). */}
+          baseline across the cards. The note above it already states the annual charge. */}
       {interval === "YEAR" ? (
-        <p className={styles.priceEquivalent} data-testid={`plan-price-equivalent-${plan}`}>
-          {pricing.monthlyEquivalent}
+        <p className={styles.priceSaving} data-testid={`plan-price-saving-${plan}`}>
+          {pricing.saving}
         </p>
       ) : null}
 

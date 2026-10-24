@@ -44,6 +44,15 @@ describe("the cadence toggle's look (PR-2)", () => {
   });
 });
 
+describe("the yearly saving", () => {
+  it("wears the brand accent, never the colour that means financial state", () => {
+    // `ai/architecture/v1-visual-parity.md`: green and red mean financial and operational state.
+    expect(ruleBody(billing, ".priceSaving")).toContain("color: var(--color-primary-ink);");
+    expect(ruleBody(billing, ".segmentTag")).toContain("color: var(--color-primary-ink);");
+    expect(billing).not.toMatch(/var\(--color-positive/);
+  });
+});
+
 describe("a row a plan does not include (PR-1)", () => {
   it("is muted and drawn with its own mark, not only a different colour", () => {
     expect(ruleBody(billing, '.feature[data-included="false"]')).toContain(

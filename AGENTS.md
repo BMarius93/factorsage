@@ -203,8 +203,8 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     advertised or enforced as a plan number.
 
 18. Stripe is a billing provider and nothing else. `docs/decisions/stripe-billing-v1.md` is the source
-    of truth for the price catalog (three monthly prices since `entitlements-v2.md` §2), the
-    transition matrix and the billing-status policy;
+    of truth for the price catalog (six prices, every paid plan monthly and yearly, since
+    `entitlements-v2.md` §2), the transition matrix and the billing-status policy;
     `ai/architecture/billing.md` is how it is implemented. The direction is one-way — Stripe billing
     state, then persisted `User.plan`, then the entitlement resolver, then enforcement — and never
     reversed: no entitlement question is ever answered by consulting Stripe, and no entitlement value

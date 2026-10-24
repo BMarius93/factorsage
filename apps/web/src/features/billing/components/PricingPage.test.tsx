@@ -28,7 +28,9 @@ import { SIGN_IN_TO_CHOOSE_PLAN } from "../../auth/utils/sign-in-prompts";
 import {
   PLAN_CARD_ORDER,
   UNLIMITED_MONITORS_FOOTNOTE,
+  formatUsd,
   plansCaption,
+  yearlySavingPercent,
 } from "../utils/plan-presentation";
 import { BillingPage } from "./BillingPage";
 import { PricingPage } from "./PricingPage";
@@ -42,7 +44,9 @@ import { PricingPage } from "./PricingPage";
  * behaviour; and the two pages cannot show different prices or limits. Every expected amount and
  * capacity below is read out of `BILLING_CATALOG` / `PLAN_ENTITLEMENTS`, never restated.
  *
- * The catalog sells monthly prices only, so neither page offers a cadence to choose.
+ * The catalog sells every paid plan monthly and yearly, so both pages offer the cadence toggle; a
+ * yearly card leads with its effective monthly cost and states the exact annual amount, billed
+ * upfront, directly under it.
  */
 
 vi.mock("next/navigation", () => ({
@@ -104,6 +108,7 @@ function subscription(
     cancelAtPeriodEnd: false,
     cancelAt: null,
     pendingChange: null,
+    legacyPrice: false,
     ...overrides,
   };
 }
@@ -169,21 +174,74 @@ describe("PricingPage", () => {
       }
     });
 
-    it("offers no cadence to choose, because the catalog sells monthly prices only", () => {
+    it("re-prices the same four cards yearly: the monthly cost, the annual amount billed upfront, the saving", async () => {
       render(<PricingPage />);
 
-      expect(screen.queryByTestId("billing-interval-toggle")).toBeNull();
-      expect(screen.queryByRole("radio", { name: "Yearly" })).toBeNull();
+      const monthlyRadio = screen.getByRole("radio", { name: /Monthly/ });
+      const yearlyRadio = screen.getByRole("radio", { name: /Yearly/ });
+      expect((monthlyRadio as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByTestId("billing-interval-saving").textContent).toBe(
+        "Save 25%",
+      );
       for (const plan of PAID_PLANS) {
         expect(screen.getByTestId(`plan-price-note-${plan}`).textContent).toBe(
           "Billed monthly",
         );
-        expect(
-          screen.queryByTestId(`plan-price-equivalent-${plan}`),
-        ).toBeNull();
+        expect(screen.queryByTestId(`plan-price-saving-${plan}`)).toBeNull();
       }
-      expect(screen.getByTestId("billing-catalog").textContent).not.toMatch(
-        /\/ year|annual/i,
+
+      await userEvent.click(yearlyRadio);
+
+      expect((yearlyRadio as HTMLInputElement).checked).toBe(true);
+      expect(screen.getAllByTestId(/^plan-card-/)).toHaveLength(4);
+      for (const plan of PAID_PLANS) {
+        const yearly = BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits;
+        // The large figure is per month, for comparison with the monthly cards…
+        expect(screen.getByTestId(`plan-price-${plan}`).textContent).toBe(
+          `${formatUsd(Math.round(yearly / 12))}/ month`,
+        );
+        // …and the line under it says exactly what is charged, and that it is charged upfront.
+        expect(screen.getByTestId(`plan-price-note-${plan}`).textContent).toBe(
+          `Billed annually: ${formatUsd(yearly)} upfront`,
+        );
+        expect(screen.getByTestId(`plan-price-saving-${plan}`).textContent).toBe(
+          `Save ${yearlySavingPercent(plan)}%`,
+        );
+      }
+      expect(screen.getByTestId("plan-price-FREE").textContent).toBe(
+        "$0/ month",
+      );
+      expect(screen.getByTestId("plan-price-saving-FREE").textContent).toBe("");
+      // The emphasis does not move with the cadence.
+      expect(card("PRO").getAttribute("data-emphasis")).toBe("recommended");
+      expect(screen.getAllByTestId("plan-recommended-badge")).toHaveLength(1);
+      expect(screen.getByTestId("plan-tagline-PRO_PLUS").textContent).toBe(
+        "Advanced Research",
+      );
+
+      await userEvent.click(monthlyRadio);
+      expect(screen.getByTestId("plan-price-PRO").textContent).toBe(
+        `${usd(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits)}/ month`,
+      );
+      expect(screen.queryByTestId("plan-price-saving-PRO")).toBeNull();
+    });
+
+    it("quotes the owner's yearly amounts, never rounded or derived elsewhere", async () => {
+      render(<PricingPage />);
+      await userEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
+
+      // Literal on purpose: the published prices (entitlements-v2 §2).
+      expect(screen.getByTestId("plan-price-STARTER").textContent).toBe("$14.08/ month");
+      expect(screen.getByTestId("plan-price-note-STARTER").textContent).toBe(
+        "Billed annually: $169 upfront",
+      );
+      expect(screen.getByTestId("plan-price-PRO").textContent).toBe("$36.58/ month");
+      expect(screen.getByTestId("plan-price-note-PRO").textContent).toBe(
+        "Billed annually: $439 upfront",
+      );
+      expect(screen.getByTestId("plan-price-PRO_PLUS").textContent).toBe("$149.17/ month");
+      expect(screen.getByTestId("plan-price-note-PRO_PLUS").textContent).toBe(
+        "Billed annually: $1,790 upfront",
       );
     });
 
@@ -234,13 +292,21 @@ describe("PricingPage", () => {
       );
     });
 
-    it("explains billing in monthly terms, with the fair queue and a non-destructive downgrade", () => {
+    it("explains both cadences, with the fair queue and a non-destructive downgrade", () => {
       render(<PricingPage />);
 
       const facts =
         screen.getByTestId("pricing-billing-facts").textContent ?? "";
-      expect(facts).not.toMatch(/annual|yearly/i);
-      expect(facts).toContain("renews automatically every month");
+      expect(facts).toContain(
+        "A yearly plan is billed in full, upfront, for the whole year",
+      );
+      expect(facts).toContain("every month, or every year");
+      expect(facts).toContain(
+        "Moving from monthly to yearly billing takes effect immediately",
+      );
+      expect(facts).toContain(
+        "moving from yearly to monthly takes effect at the end of the paid year",
+      );
       expect(facts).toContain("one fair queue");
       expect(facts).toContain(
         "Lists larger than the new plan allows stay saved",
@@ -375,6 +441,26 @@ describe("PricingPage", () => {
       expect(screen.queryByTestId("sign-in-prompt")).toBeNull();
     });
 
+    it("starts Checkout for the yearly price once Yearly is chosen", async () => {
+      fetchBillingStatus.mockResolvedValue(billingStatus());
+      startCheckout.mockResolvedValue({
+        checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_stub",
+      });
+      render(<PricingPage />);
+
+      await waitFor(() =>
+        expect(card("FREE").getAttribute("data-current")).toBe("true"),
+      );
+      await userEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
+      expect(action("PRO").getAttribute("data-price-key")).toBe(
+        BILLING_CATALOG.PRO_YEARLY.key,
+      );
+      await userEvent.click(action("PRO"));
+
+      expect(startCheckout).toHaveBeenCalledTimes(1);
+      expect(startCheckout).toHaveBeenCalledWith(BILLING_CATALOG.PRO_YEARLY.key);
+    });
+
     it("changes a live subscription through the existing change call, not Checkout", async () => {
       fetchBillingStatus.mockResolvedValue(
         billingStatus({
@@ -399,9 +485,7 @@ describe("PricingPage", () => {
       await waitFor(() => expect(fetchBillingStatus).toHaveBeenCalledTimes(2));
     });
 
-    it("quotes a legacy yearly subscriber today's monthly price, keeping their plan current", async () => {
-      // A subscription still billed on a retired yearly price: the cards show what the catalog
-      // sells now, and the plan stays current because `billing.plan` says so.
+    it("opens on the yearly cards for a yearly subscriber, with that plan current", async () => {
       fetchBillingStatus.mockResolvedValue(
         billingStatus({
           plan: "PRO",
@@ -417,13 +501,46 @@ describe("PricingPage", () => {
         expect(action("PRO").textContent).toBe("Current plan"),
       );
       expect(card("PRO").getAttribute("data-current")).toBe("true");
-      expect(screen.getByTestId("plan-price-PRO").textContent).toBe(
-        `${usd(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits)}/ month`,
+      expect(
+        (screen.getByRole("radio", { name: /Yearly/ }) as HTMLInputElement)
+          .checked,
+      ).toBe(true);
+      expect(screen.getByTestId("plan-price-note-PRO").textContent).toBe(
+        `Billed annually: ${formatUsd(BILLING_CATALOG.PRO_YEARLY.amountMinorUnits)} upfront`,
       );
-      expect(screen.queryByTestId("billing-interval-toggle")).toBeNull();
-      // No change is offered from a price the catalog cannot classify.
-      expect(document.querySelectorAll('[data-action="CHANGE"]')).toHaveLength(
-        0,
+      expect(action("PRO_PLUS").getAttribute("data-price-key")).toBe(
+        BILLING_CATALOG.PRO_PLUS_YEARLY.key,
+      );
+    });
+
+    it("keeps a grandfathered subscriber's plan current, and says a change moves them to today's price", async () => {
+      // Billed on a retired price they keep: the same plan and cadence is the current plan, and
+      // any other card is the ordinary transition, from today's price of that plan and cadence.
+      fetchBillingStatus.mockResolvedValue(
+        billingStatus({
+          plan: "PRO",
+          subscription: subscription({
+            plan: "PRO",
+            interval: "YEAR",
+            legacyPrice: true,
+          }),
+          canStartCheckout: false,
+          canOpenPortal: true,
+          canChangePlan: true,
+        }),
+      );
+      render(<PricingPage />);
+
+      await waitFor(() =>
+        expect(action("PRO").textContent).toBe("Current plan"),
+      );
+      expect(screen.getByTestId("plan-hint-PRO_PLUS").textContent).toBe(
+        "Takes effect immediately, at today's price",
+      );
+      await userEvent.click(screen.getByRole("radio", { name: /Monthly/ }));
+      expect(action("PRO").textContent).toBe("Switch to monthly");
+      expect(screen.getByTestId("plan-hint-PRO").textContent).toBe(
+        "Takes effect at your next renewal, at today's price",
       );
     });
 

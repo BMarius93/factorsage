@@ -3,6 +3,7 @@ import {
   OFFERED_BILLING_INTERVALS,
   PLAN_ENTITLEMENTS,
   findBillingPriceKey,
+  isPaidPlan,
   type BillingInterval,
   type BillingPriceKey,
   type EntitlementLimit,
@@ -30,12 +31,17 @@ import { PLAN_LABEL } from "./format";
  * can reproduce.
  *
  * The arithmetic in the file is deliberately narrow and reads **published list prices** from the
- * catalog and nothing else: the annual saving compares the two prices of one plan, and the monthly
- * equivalent divides a yearly price by twelve so it can be read beside a monthly one. Neither is a
- * proration estimate, an invoice preview or a credit calculation — those remain Stripe's, on
- * Stripe's own hosted pages, exactly as `docs/decisions/stripe-billing-v1.md` section 19 requires —
- * and neither is ever what a button sends. Both apply only while the catalog sells a yearly price
- * ({@link OFFERED_BILLING_INTERVALS}); today it sells monthly prices only.
+ * catalog and nothing else: the annual saving compares the two prices of one plan (as a percentage,
+ * rounded **down** so it is never overstated), and the effective monthly cost divides a yearly price
+ * by twelve so it can be read beside a monthly one. Neither is a proration estimate, an invoice
+ * preview or a credit calculation — those remain Stripe's, on Stripe's own hosted pages, exactly as
+ * `docs/decisions/stripe-billing-v1.md` section 19 requires — and neither is ever what a button
+ * sends. Both apply only while the catalog sells a yearly price ({@link OFFERED_BILLING_INTERVALS}).
+ *
+ * **A yearly card never reads as a monthly charge.** Its large figure is the effective monthly cost
+ * (the owner's decision, `docs/decisions/entitlements-v2.md` §2), and the line directly under it
+ * states the exact annual amount and that it is billed upfront — the amount Stripe charges, which
+ * `docs/legal/implementation-spec.md` §6 requires to be stated, not only a monthly equivalent.
  *
  * **What a card never claims.** Plans differ by capacity and by premium content, never by speed:
  * every run shares one deployment-wide execution capacity in one fair queue
@@ -79,18 +85,28 @@ export type PlanFeature = {
 };
 
 export type PlanPricing = {
-  /** `$19`, `$199`, `$0`. */
+  /**
+   * The large figure: `$19`, `$0`, or for a yearly price its effective monthly cost (`$14.08`).
+   * Always read with {@link PlanPricing.period}, which is `/ month` on every card.
+   */
   readonly amount: string;
-  /** `/ month` or `/ year`, matching the selected interval on every card including Free. */
+  /** `/ month` on every card, whichever cadence is selected: the figures compare like for like. */
   readonly period: string;
-  /** A quiet second line under the price. `null` when there is nothing honest to say. */
+  /**
+   * The line under the price saying what is charged and when: `Billed monthly`, or for a yearly
+   * price `Billed annually: $169 upfront` — the exact annual amount. `null` when there is nothing
+   * honest to say.
+   */
   readonly note: string | null;
   /**
-   * A yearly price per month, `≈ $24.92 / month`, read beside the monthly cards (PR-3). Secondary
-   * to the amount actually charged, which stays the price line. `null` for a monthly price and
-   * for Free, which has nothing to divide.
+   * The exact amount one yearly payment charges, `$169`. `null` for a monthly price and for Free.
    */
-  readonly monthlyEquivalent: string | null;
+  readonly annualAmount: string | null;
+  /**
+   * `Save 25%` against twelve monthly payments of the same plan, rounded down. `null` for a
+   * monthly price, for Free, and for a yearly price with no saving.
+   */
+  readonly saving: string | null;
   /** What the card's button would buy. `null` for Free, which has no Stripe price by design. */
   readonly priceKey: BillingPriceKey | null;
 };
@@ -107,10 +123,18 @@ export const NOT_INCLUDED = "Not included";
 export const UNLIMITED_MONITORS_FOOTNOTE =
   "Unlimited active monitors means no plan cap on the number you keep active. A fair-use safeguard protects shared infrastructure; it is not a plan limit.";
 
-/** `2492` -> `$24.92`, `29900` -> `$299`. */
+/**
+ * `2492` -> `$24.92`, `16900` -> `$169`, `179000` -> `$1,790`. Whole dollars drop the cents;
+ * anything else shows two. Fixed to en-US, like {@link formatCount}, so a test and a browser in
+ * another locale agree.
+ */
 export function formatUsd(minorUnits: number): string {
   const amount = minorUnits / 100;
-  return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
+  const digits = Number.isInteger(amount) ? 0 : 2;
+  return `$${amount.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
 }
 
 /** `1000` -> `1,000`. Fixed to en-US so a test and a browser in another locale agree. */
@@ -349,8 +373,41 @@ export function yearlySavingMinorUnits(plan: PaidPlan): number | null {
 }
 
 /**
- * A plan's published yearly price spread over twelve months, rounded to the cent (PR-3); `null`
- * while the catalog sells no yearly price. For comparison only — Stripe charges the yearly amount.
+ * The annual saving as a whole percentage of twelve monthly payments, rounded **down** so the page
+ * never claims more than the prices give: $169 against 12 × $19 is 25.88%, shown as 25%. `null`
+ * when there is no saving to claim.
+ */
+export function yearlySavingPercent(plan: PaidPlan): number | null {
+  const saving = yearlySavingMinorUnits(plan);
+  if (saving === null) {
+    return null;
+  }
+  const twelveMonths = catalogEntry(plan, "MONTH").amountMinorUnits * 12;
+  const percent = Math.floor((saving * 100) / twelveMonths);
+  return percent > 0 ? percent : null;
+}
+
+/**
+ * The cadence toggle's tag: `Save 25%` when every paid plan saves the same whole percentage, `Save
+ * up to N%` when they differ, `null` when none saves anything.
+ */
+export function yearlySavingTag(): string | null {
+  const percents = PLAN_CARD_ORDER.filter(isPaidPlan).map(yearlySavingPercent);
+  if (percents.some((percent) => percent === null)) {
+    // A plan with no saving would make "Save N%" untrue for it; say nothing rather than qualify.
+    return null;
+  }
+  const values = percents as number[];
+  const lowest = Math.min(...values);
+  const highest = Math.max(...values);
+  return lowest === highest ? `Save ${lowest}%` : `Save up to ${highest}%`;
+}
+
+/**
+ * A plan's published yearly price spread over twelve months, rounded to the cent: the effective
+ * monthly cost a yearly card shows ($169 → $14.08, $439 → $36.58, $1,790 → $149.17). `null`
+ * while the catalog sells no yearly price. For comparison only — Stripe charges the yearly amount,
+ * upfront.
  */
 export function monthlyEquivalentMinorUnits(plan: PaidPlan): number | null {
   if (findBillingPriceKey(plan, "YEAR") === null) {
@@ -360,7 +417,7 @@ export function monthlyEquivalentMinorUnits(plan: PaidPlan): number | null {
 }
 
 export function planPricing(plan: UserPlan, interval: BillingInterval): PlanPricing {
-  const period = interval === "MONTH" ? "/ month" : "/ year";
+  const period = "/ month";
 
   if (plan === "FREE") {
     // No Stripe price exists for Free, and none should: moving to Free is a cancellation, never a
@@ -369,7 +426,8 @@ export function planPricing(plan: UserPlan, interval: BillingInterval): PlanPric
       amount: "$0",
       period,
       note: "Free forever",
-      monthlyEquivalent: null,
+      annualAmount: null,
+      saving: null,
       priceKey: null,
     };
   }
@@ -382,18 +440,21 @@ export function planPricing(plan: UserPlan, interval: BillingInterval): PlanPric
       // Every card carries a note line, which is what keeps the feature rows on one baseline
       // across the cards rather than shifting by a line whenever one plan has something to add.
       note: "Billed monthly",
-      monthlyEquivalent: null,
+      annualAmount: null,
+      saving: null,
       priceKey: entry.key,
     };
   }
 
-  const saving = yearlySavingMinorUnits(plan);
-  const equivalent = monthlyEquivalentMinorUnits(plan);
+  const percent = yearlySavingPercent(plan);
+  const equivalent = monthlyEquivalentMinorUnits(plan) ?? Math.round(entry.amountMinorUnits / 12);
+  const annualAmount = formatUsd(entry.amountMinorUnits);
   return {
-    amount: formatUsd(entry.amountMinorUnits),
+    amount: formatUsd(equivalent),
     period,
-    note: saving === null ? "Billed annually" : `Billed annually · save ${formatUsd(saving)}`,
-    monthlyEquivalent: equivalent === null ? null : `≈ ${formatUsd(equivalent)} / month`,
+    note: `Billed annually: ${annualAmount} upfront`,
+    annualAmount,
+    saving: percent === null ? null : `Save ${percent}%`,
     priceKey: entry.key,
   };
 }

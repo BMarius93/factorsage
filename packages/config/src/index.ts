@@ -499,31 +499,31 @@ export function getAdminBootstrapConfig(env: Environment = process.env) {
   } as const;
 }
 
-/** The logical price keys, spelled as the environment-variable suffixes they map to. */
+/**
+ * The logical price keys, spelled as the environment-variable suffixes they map to: every paid plan
+ * monthly and yearly (`docs/decisions/entitlements-v2.md` §2).
+ *
+ * `STRIPE_PRICE_STARTER_YEARLY` and `STRIPE_PRICE_PRO_YEARLY` are the names the V1 catalog used for
+ * its $99 / $299 years. They now hold the V2 years ($169 / $439); a deployment that still has a V1
+ * price in one would sell it, which is why the V1 prices belong in `STRIPE_LEGACY_PRICES` — a price
+ * in both is refused at startup — and why `pnpm billing:verify-catalog` checks every amount.
+ */
 const STRIPE_PRICE_ENV_NAMES = {
   STARTER_MONTHLY: "STRIPE_PRICE_STARTER_MONTHLY",
+  STARTER_YEARLY: "STRIPE_PRICE_STARTER_YEARLY",
   PRO_MONTHLY: "STRIPE_PRICE_PRO_MONTHLY",
+  PRO_YEARLY: "STRIPE_PRICE_PRO_YEARLY",
   PRO_PLUS_MONTHLY: "STRIPE_PRICE_PRO_PLUS_MONTHLY",
+  PRO_PLUS_YEARLY: "STRIPE_PRICE_PRO_PLUS_YEARLY",
 } as const;
-
-/**
- * Price variables of the retired annual catalog ($99 / $299, `docs/decisions/stripe-billing-v1.md`
- * §1, amended 2026-10-23). Refused rather than ignored: a deployment still configuring one was set
- * up for a catalog that no longer exists, and an operator should learn that at startup rather than
- * from a customer who was never offered the annual price they expected. Existing subscribers on a
- * retired price keep their plan through `STRIPE_LEGACY_PRICES` instead.
- */
-const RETIRED_STRIPE_PRICE_ENV_NAMES = [
-  "STRIPE_PRICE_STARTER_YEARLY",
-  "STRIPE_PRICE_PRO_YEARLY",
-] as const;
 
 export type StripePriceKeyName = keyof typeof STRIPE_PRICE_ENV_NAMES;
 
 /**
- * A retired Stripe price that existing subscriptions may still be billed on — a V1 monthly price
- * ($9 / $29) or a retired annual one — and the plan it grants. Recognized so those subscribers keep
- * their plan (grandfathered) instead of failing closed to Free; never sold, never a change target.
+ * A retired Stripe price that existing subscriptions may still be billed on — a V1 price ($9 / $29
+ * a month, $99 / $299 a year) — and the plan and cadence it grants. Recognized so those subscribers
+ * keep their plan (grandfathered) instead of failing closed to Free; never sold, never a change
+ * target. A current catalog price is never a legacy one: listing one is refused at startup.
  */
 export type StripeLegacyPrice = {
   readonly priceId: string;
@@ -645,20 +645,6 @@ export function getStripeBillingConfig(
 
   if (!touched) {
     return null;
-  }
-
-  const retired = RETIRED_STRIPE_PRICE_ENV_NAMES.filter(
-    (name) => optional(env, name) !== undefined,
-  );
-  if (retired.length > 0) {
-    const [verb, pronoun] = retired.length === 1 ? ["belongs", "is"] : ["belong", "are"];
-    throw new Error(
-      `Invalid application configuration: ${retired.join(" and ")} ${verb} to the retired ` +
-        `annual catalog and ${pronoun} no longer read; the catalog is Starter, Pro and Pro+ monthly ` +
-        "(STRIPE_PRICE_STARTER_MONTHLY, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_PLUS_MONTHLY). " +
-        "To keep subscribers on a retired price on their plan, list it in STRIPE_LEGACY_PRICES " +
-        "(price_…=STARTER/YEAR) instead",
-    );
   }
 
   const environment = runtimeEnvironment(env);

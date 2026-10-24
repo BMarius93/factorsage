@@ -285,7 +285,7 @@ stack_up() {
     # Only the API and the listener hold Stripe configuration.
     unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_API_KEY STRIPE_PRICE_STARTER_MONTHLY \
       STRIPE_PRICE_STARTER_YEARLY STRIPE_PRICE_PRO_MONTHLY STRIPE_PRICE_PRO_YEARLY \
-      STRIPE_PRICE_PRO_PLUS_MONTHLY STRIPE_LEGACY_PRICES
+      STRIPE_PRICE_PRO_PLUS_MONTHLY STRIPE_PRICE_PRO_PLUS_YEARLY STRIPE_LEGACY_PRICES
   fi
   start_role worker pnpm dev:worker &&
     wait_role worker 300 sleep_then_alive worker &&

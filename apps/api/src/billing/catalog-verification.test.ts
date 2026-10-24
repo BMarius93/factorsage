@@ -18,8 +18,11 @@ import type { StripePriceDescriptor } from "./stripe-gateway";
 
 const PRICE_IDS: Record<BillingPriceKey, string> = {
   STARTER_MONTHLY: "price_starter_monthly",
+  STARTER_YEARLY: "price_starter_yearly",
   PRO_MONTHLY: "price_pro_monthly",
+  PRO_YEARLY: "price_pro_yearly",
   PRO_PLUS_MONTHLY: "price_pro_plus_monthly",
+  PRO_PLUS_YEARLY: "price_pro_plus_yearly",
 };
 
 const CONFIG: StripeBillingConfig = {
@@ -77,7 +80,7 @@ async function problems(
 }
 
 describe("verifyStripeCatalog", () => {
-  it("finds nothing wrong with the three catalog prices", async () => {
+  it("finds nothing wrong with the six catalog prices", async () => {
     const result = await verifyStripeCatalog({
       stripe: stripeWith(),
       catalog: new BillingCatalog(CONFIG),
@@ -92,6 +95,35 @@ describe("verifyStripeCatalog", () => {
     ]);
     expect(await problems({ PRO_PLUS_MONTHLY: { unitAmount: 4_900 } })).toEqual([
       "PRO_PLUS_MONTHLY: amount is $49.00, expected $199.00",
+    ]);
+    expect(await problems({ PRO_PLUS_YEARLY: { unitAmount: 43_900 } })).toEqual([
+      "PRO_PLUS_YEARLY: amount is $439.00, expected $1790.00",
+    ]);
+  });
+
+  it("catches a V1 year left in a yearly variable", async () => {
+    // STRIPE_PRICE_STARTER_YEARLY and STRIPE_PRICE_PRO_YEARLY once held the $99 and $299 V1 years.
+    // A deployment that never repointed them would sell those as today's years.
+    expect(await problems({ STARTER_YEARLY: { unitAmount: 9_900 } })).toEqual([
+      "STARTER_YEARLY: amount is $99.00, expected $169.00",
+    ]);
+    expect(await problems({ PRO_YEARLY: { unitAmount: 29_900 } })).toEqual([
+      "PRO_YEARLY: amount is $299.00, expected $439.00",
+    ]);
+  });
+
+  it("catches a year that renews monthly, or a month that renews yearly", async () => {
+    expect(await problems({ PRO_YEARLY: { recurringInterval: "month" } })).toEqual([
+      "PRO_YEARLY: interval is month, expected year",
+    ]);
+    expect(await problems({ PRO_PLUS_MONTHLY: { recurringInterval: "year" } })).toEqual([
+      "PRO_PLUS_MONTHLY: interval is year, expected month",
+    ]);
+  });
+
+  it("catches the two cadences of one plan on two products", async () => {
+    expect(await problems({ PRO_YEARLY: { productId: "prod_pro_annual" } })).toEqual([
+      "PRO_YEARLY: belongs to product prod_pro_annual, but the other PRO price belongs to prod_pro",
     ]);
   });
 
@@ -121,7 +153,10 @@ describe("verifyStripeCatalog", () => {
     // The Pro+ price created on the Pro product: every invoice and the Customer Portal would
     // name a $199 subscription "Pro".
     expect(
-      await problems({ PRO_PLUS_MONTHLY: { productId: "prod_pro" } }),
+      await problems({
+        PRO_PLUS_MONTHLY: { productId: "prod_pro" },
+        PRO_PLUS_YEARLY: { productId: "prod_pro" },
+      }),
     ).toEqual([
       "PRO_PLUS_MONTHLY: belongs to product prod_pro, which is also the PRO product; each plan needs its own product",
     ]);
@@ -131,8 +166,11 @@ describe("verifyStripeCatalog", () => {
     expect(
       await problems({
         STARTER_MONTHLY: shared,
+        STARTER_YEARLY: shared,
         PRO_MONTHLY: shared,
+        PRO_YEARLY: shared,
         PRO_PLUS_MONTHLY: shared,
+        PRO_PLUS_YEARLY: shared,
       }),
     ).toEqual([
       "PRO_MONTHLY: belongs to product prod_factorsage, which is also the STARTER product; each plan needs its own product",
@@ -142,7 +180,10 @@ describe("verifyStripeCatalog", () => {
 
   it("accepts a product of any id, so long as no other plan shares it", async () => {
     expect(
-      await problems({ STARTER_MONTHLY: { productId: "prod_other" } }),
+      await problems({
+        STARTER_MONTHLY: { productId: "prod_other" },
+        STARTER_YEARLY: { productId: "prod_other" },
+      }),
     ).toEqual([]);
   });
 

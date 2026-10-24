@@ -23,9 +23,9 @@ import {
  * tier must request a scheduled one, Free must never be a purchase, and a subscribed-but-unpaid
  * price must never be presented as the current plan.
  *
- * The catalog sells monthly prices only (`OFFERED_BILLING_INTERVALS`), so every card is shown
- * monthly. A subscription can still be *billed* on a retired yearly price; that case has its own
- * block below.
+ * The catalog sells every paid plan monthly and yearly (`OFFERED_BILLING_INTERVALS`), and the
+ * cadence on screen changes only which price a card's button sends. A subscription can also be
+ * billed on a retired price it keeps (`legacyPrice`); that case has its own block below.
  */
 
 function status(
@@ -61,6 +61,7 @@ function subscribed(
       cancelAtPeriodEnd: false,
       cancelAt: null,
       pendingChange: null,
+      legacyPrice: false,
       ...overrides,
     },
   });
@@ -103,6 +104,26 @@ describe("plan card actions", () => {
       kind: "CHECKOUT",
       label: "Upgrade to Pro+",
       priceKey: "PRO_PLUS_MONTHLY",
+    });
+  });
+
+  it("sends a Free user to checkout with each plan's yearly price key", () => {
+    const billing = status();
+
+    expect(state("STARTER", "YEAR", billing).action).toEqual({
+      kind: "CHECKOUT",
+      label: "Upgrade to Starter",
+      priceKey: "STARTER_YEARLY",
+    });
+    expect(state("PRO", "YEAR", billing).action).toEqual({
+      kind: "CHECKOUT",
+      label: "Upgrade to Pro",
+      priceKey: "PRO_YEARLY",
+    });
+    expect(state("PRO_PLUS", "YEAR", billing).action).toEqual({
+      kind: "CHECKOUT",
+      label: "Upgrade to Pro+",
+      priceKey: "PRO_PLUS_YEARLY",
     });
   });
 
@@ -198,6 +219,56 @@ describe("plan card actions", () => {
     expect(pro.effectHint).toBe("Takes effect at your next renewal");
   });
 
+  it("lets tier direction beat cadence direction, exactly as the classifier does", () => {
+    // Starter yearly -> Pro monthly shortens the cadence but buys more entitlement: immediate.
+    expect(state("PRO", "MONTH", subscribed("STARTER", "YEAR")).action).toMatchObject({
+      label: "Upgrade to Pro",
+      priceKey: "PRO_MONTHLY",
+      effect: "IMMEDIATE",
+    });
+    // Pro monthly -> Starter yearly lengthens the cadence but buys less: scheduled.
+    expect(state("STARTER", "YEAR", subscribed("PRO", "MONTH")).action).toMatchObject({
+      label: "Switch to Starter",
+      priceKey: "STARTER_YEARLY",
+      effect: "SCHEDULED",
+    });
+    // Pro yearly <-> Pro+ yearly: the tier alone decides.
+    expect(state("PRO_PLUS", "YEAR", subscribed("PRO", "YEAR")).action).toMatchObject({
+      label: "Upgrade to Pro+",
+      priceKey: "PRO_PLUS_YEARLY",
+      effect: "IMMEDIATE",
+    });
+    expect(state("PRO", "YEAR", subscribed("PRO_PLUS", "YEAR")).action).toMatchObject({
+      label: "Switch to Pro",
+      priceKey: "PRO_YEARLY",
+      effect: "SCHEDULED",
+    });
+  });
+
+  it("describes a same-tier cadence change as a switch, with the right timing", () => {
+    const toYearly = state("STARTER", "YEAR", subscribed("STARTER", "MONTH"));
+    expect(toYearly.action).toEqual({
+      kind: "CHANGE",
+      label: "Switch to yearly",
+      priceKey: "STARTER_YEARLY",
+      effect: "IMMEDIATE",
+    });
+    expect(toYearly.effectHint).toBe("Takes effect immediately");
+    // The plan itself has not changed, so the card is still the current one.
+    expect(toYearly.current).toBe(true);
+
+    const toMonthly = state("PRO_PLUS", "MONTH", subscribed("PRO_PLUS", "YEAR"));
+    expect(toMonthly.action).toEqual({
+      kind: "CHANGE",
+      label: "Switch to monthly",
+      priceKey: "PRO_PLUS_MONTHLY",
+      effect: "SCHEDULED",
+    });
+    // The paid year is kept: monthly billing starts when it ends.
+    expect(toMonthly.effectHint).toBe("Takes effect at your next renewal");
+    expect(toMonthly.current).toBe(true);
+  });
+
   it("does not re-offer a change Stripe has already scheduled", () => {
     const billing = subscribed("PRO_PLUS", "MONTH", {
       pendingChange: {
@@ -240,6 +311,7 @@ describe("plan card actions", () => {
         cancelAtPeriodEnd: false,
         cancelAt: null,
         pendingChange: null,
+        legacyPrice: false,
       },
     });
 
@@ -300,23 +372,47 @@ describe("plan card actions", () => {
     expect(currentPriceKeyOf(status())).toBeNull();
     expect(currentPriceKeyOf(subscribed("PRO", "MONTH"))).toBe("PRO_MONTHLY");
     expect(currentPriceKeyOf(subscribed("PRO_PLUS", "MONTH"))).toBe("PRO_PLUS_MONTHLY");
-    // A retired cadence has no catalog price, so there is no key for any card to claim.
-    expect(currentPriceKeyOf(subscribed("PRO", "YEAR"))).toBeNull();
+    expect(currentPriceKeyOf(subscribed("PRO", "YEAR"))).toBe("PRO_YEARLY");
+    expect(currentPriceKeyOf(subscribed("STARTER", "YEAR"))).toBe("STARTER_YEARLY");
+    expect(currentPriceKeyOf(subscribed("PRO_PLUS", "YEAR"))).toBe("PRO_PLUS_YEARLY");
+    // A retired price is read as today's price of the same plan and cadence, as the API does.
+    expect(currentPriceKeyOf(subscribed("PRO", "YEAR", { legacyPrice: true }))).toBe(
+      "PRO_YEARLY",
+    );
+  });
+
+  it("does not re-offer a move from yearly to monthly that Stripe already holds", () => {
+    // Pro yearly with a move to Pro monthly already held at Stripe for the end of the year.
+    const billing = subscribed("PRO", "YEAR", {
+      pendingChange: {
+        plan: "PRO",
+        interval: "MONTH",
+        effectiveAt: "2027-10-12T00:00:00.000Z",
+      },
+    });
+    const monthly = state("PRO", "MONTH", billing);
+    expect(monthly.action).toEqual({ kind: "NONE" });
+    expect(monthly.effectHint).toBe("Scheduled for your next renewal");
+    // The year the user is on is still the current plan.
+    expect(state("PRO", "YEAR", billing).action).toEqual({
+      kind: "CURRENT",
+      label: "Current plan",
+    });
   });
 });
 
 /**
- * A subscriber still billed on a yearly price the catalog no longer sells.
+ * A subscriber billed on a **retired** price they keep (`STRIPE_LEGACY_PRICES`, `legacyPrice`).
  *
- * Their plan is theirs — `User.plan` says so, and that is what marks a card current — and the cards
- * are shown at today's monthly prices. What no card may do is offer a change *from* the retired
- * price: there is no catalog key to classify the move with, and the API refuses a change from a
- * price it does not recognise. Cancelling stays possible, because the subscription is live.
+ * The API classifies a move from it as a move from today's price of the same plan and cadence, so
+ * the cards do too: that card is the current plan, and every other one is the ordinary transition.
+ * What is different is that any change leaves the kept price for today's catalog, and each hint
+ * says so. Cancelling stays possible, and is not a move to another price.
  */
-describe("a legacy yearly subscription", () => {
-  const billing = subscribed("PRO", "YEAR");
+describe("a grandfathered subscription on a retired price", () => {
+  const billing = subscribed("PRO", "YEAR", { legacyPrice: true });
 
-  it("renders every monthly card without throwing", () => {
+  it("renders every card without throwing", () => {
     for (const plan of USER_PLANS) {
       for (const interval of OFFERED_BILLING_INTERVALS) {
         expect(() => state(plan, interval, billing), plan).not.toThrow();
@@ -324,21 +420,32 @@ describe("a legacy yearly subscription", () => {
     }
   });
 
-  it("keeps the plan marked current through billing.plan", () => {
-    const pro = state("PRO", "MONTH", billing);
+  it("marks the same plan and cadence as the current plan, which nothing re-buys", () => {
+    const pro = state("PRO", "YEAR", billing);
     expect(pro.current).toBe(true);
     expect(pro.action).toEqual({ kind: "CURRENT", label: "Current plan" });
   });
 
-  it("offers no change it could not classify, and still lets the subscription be cancelled", () => {
-    for (const plan of ["STARTER", "PRO_PLUS"] as const) {
-      const card = state(plan, "MONTH", billing);
-      expect(card.current, plan).toBe(false);
-      expect(card.action, plan).toEqual({ kind: "NONE" });
-    }
-    expect(state("FREE", "MONTH", billing).action).toEqual({
-      kind: "PORTAL",
-      label: "Cancel subscription",
+  it("says that any change moves the subscriber to today's price", () => {
+    expect(state("PRO", "MONTH", billing)).toMatchObject({
+      action: { kind: "CHANGE", label: "Switch to monthly", effect: "SCHEDULED" },
+      effectHint: "Takes effect at your next renewal, at today's price",
+    });
+    expect(state("PRO_PLUS", "YEAR", billing)).toMatchObject({
+      action: { kind: "CHANGE", label: "Upgrade to Pro+", effect: "IMMEDIATE" },
+      effectHint: "Takes effect immediately, at today's price",
+    });
+    expect(state("STARTER", "MONTH", billing)).toMatchObject({
+      action: { kind: "CHANGE", label: "Switch to Starter", effect: "SCHEDULED" },
+      effectHint: "Takes effect at your next renewal, at today's price",
+    });
+  });
+
+  it("still lets the subscription be cancelled", () => {
+    expect(state("FREE", "MONTH", billing)).toEqual({
+      current: false,
+      action: { kind: "PORTAL", label: "Cancel subscription" },
+      effectHint: "Takes effect at your next renewal",
     });
   });
 });
@@ -380,7 +487,8 @@ describe("guest plan card state", () => {
  * The verb is decided by the card's tier against the user's: the same tier is the current plan, a
  * higher paid tier is an upgrade, a lower paid tier is a switch, and Free from a paid subscription
  * is the cancellation. A Pro subscriber's Starter card once read "Upgrade to Starter"; this table
- * is what keeps that from coming back, for every tier including Pro+.
+ * is what keeps that from coming back, for every tier including Pro+, in both cadences and
+ * whichever cadence is billed.
  */
 describe("plan card CTA matrix", () => {
   const PLANS = USER_PLANS;
@@ -440,6 +548,17 @@ describe("plan card CTA matrix", () => {
           for (const card of PLANS) {
             const result = state(card, shown, billing);
             const expected = MATRIX[current][card];
+            // The current tier's card on the *other* cadence is the one cadence-dependent case: it
+            // offers that cadence — at once when it lengthens, at renewal when it shortens — and
+            // is still marked as the plan the user is on.
+            if (card === current && current !== "FREE" && shown !== billed) {
+              expect(result.current, card).toBe(true);
+              expect(labelOf(result), card).toBe(
+                shown === "YEAR" ? "Switch to yearly" : "Switch to monthly",
+              );
+              expect(result.effectHint, card).toBe(shown === "YEAR" ? IMMEDIATE : RENEWAL);
+              continue;
+            }
             expect(labelOf(result), card).toBe(expected.label);
             expect(result.effectHint, card).toBe(expected.hint);
             expect(result.current, card).toBe(card === current);
@@ -492,6 +611,7 @@ describe("plan card CTA matrix", () => {
         cancelAtPeriodEnd: false,
         cancelAt: null,
         pendingChange: null,
+        legacyPrice: false,
       },
     });
     expect(PLANS.map((card) => labelOf(state(card, "MONTH", billing)))).toEqual(

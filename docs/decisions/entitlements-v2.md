@@ -25,26 +25,49 @@ rank for billing transitions: FREE 0 < STARTER 1 < PRO 2 < PRO_PLUS 3.
 
 ## 2. Pricing
 
-| Plan    | Monthly |
-| ------- | ------: |
-| Free    |      $0 |
-| Starter |     $19 |
-| Pro     |     $49 |
-| Pro+    |    $199 |
+| Plan    | Monthly | Yearly, billed upfront | Yearly, per month | Yearly saving |
+| ------- | ------: | ---------------------: | ----------------: | ------------: |
+| Free    |      $0 |                      — |                 — |             — |
+| Starter |     $19 |                   $169 |            $14.08 |    25% (25.88%) |
+| Pro     |     $49 |                   $439 |            $36.58 |    25% (25.34%) |
+| Pro+    |    $199 |                 $1,790 |           $149.17 |    25% (25.04%) |
 
-The catalog is **monthly only**: logical price keys `STARTER_MONTHLY`, `PRO_MONTHLY`,
-`PRO_PLUS_MONTHLY` (`STRIPE_PRICE_STARTER_MONTHLY`, `STRIPE_PRICE_PRO_MONTHLY`,
-`STRIPE_PRICE_PRO_PLUS_MONTHLY`). The V1 yearly keys are retired: a deployment that still sets
-`STRIPE_PRICE_STARTER_YEARLY` or `STRIPE_PRICE_PRO_YEARLY` refuses to start, so a stale price can
-never be sold. Still no credits, trials, top-ups or daily run caps.
+**Annual billing restored — owner decision, 2026-10-24.** The catalog sells six recurring USD
+prices, every paid plan monthly and yearly: logical keys `STARTER_MONTHLY`, `STARTER_YEARLY`,
+`PRO_MONTHLY`, `PRO_YEARLY`, `PRO_PLUS_MONTHLY`, `PRO_PLUS_YEARLY`, each configured by the
+`STRIPE_PRICE_*` variable of the same name. A yearly price recurs every year and is **charged in
+full, upfront**. The yearly amounts are the owner's, written once in `BILLING_CATALOG`; they are not
+derived from the monthly prices, and nothing rounds or recalculates them. Monthly prices are
+unchanged. Still no credits, trials, top-ups or daily run caps.
+
+**How a yearly price is shown** (`plan-presentation.ts`). One set of four cards, re-priced in place
+by the Monthly/Yearly toggle. On Yearly each paid card's large figure is the **effective monthly
+cost** (the annual amount ÷ 12, to the cent), the line directly under it is **"Billed annually:
+$169 upfront"** — the exact annual amount, which is what Stripe charges and what
+`docs/legal/implementation-spec.md` §6 requires to be stated — and under that **"Save 25%"**. The
+toggle's Yearly option carries the same tag. The percentage compares the yearly price with twelve
+monthly payments of the same plan and is rounded **down**, so it never claims more than the prices
+give. Pro stays "Best Value" and Pro+ "Advanced Research" in both cadences. Hosted Checkout shows
+the yearly amount and interval before payment.
+
+**The yearly variable names are reused.** `STRIPE_PRICE_STARTER_YEARLY` and `STRIPE_PRICE_PRO_YEARLY`
+held the V1 $99 / $299 years. A deployment whose environment still holds a V1 year there would sell
+it at the V1 amount. Three guards: a price listed both in a `STRIPE_PRICE_*` variable and in
+`STRIPE_LEGACY_PRICES` is refused at startup; `pnpm billing:verify-catalog` reports any amount that
+is not the catalog's (`amount is $99.00, expected $169.00`); and the runbook requires that command
+before a deploy that changes a price variable. A V1 year id belongs in `STRIPE_LEGACY_PRICES`.
 
 **Existing subscribers are grandfathered.** A subscriber billed on a V1 price ($9 / $29 monthly,
 $99 / $299 yearly) keeps that plan at that price for as long as the subscription lasts, provided the
 price is listed in `STRIPE_LEGACY_PRICES` (`price_…=PLAN/INTERVAL`); an unlisted one fails closed to
-Free, as any unknown price does. A listed price is never sold. Moving from it is classified as from
-the plan's current price: a higher tier is an immediate upgrade onto today's price, a lower tier is a
-period-end downgrade, and the same plan is no change. Migrating grandfathered subscribers to the V2
-prices is a Stripe-side price migration the owner may choose to run; nothing here does it.
+Free, as any unknown price does. A listed price is never sold, and the V2 yearly prices are current
+catalog prices — never legacy ones. A move from a retired price is classified as from today's price
+of the **same plan and cadence** (§9): the same plan and cadence is no change, so the subscriber
+stays on the retired price; any other target is the ordinary transition onto today's catalog. The
+status response says so (`subscription.legacyPrice`), and the billing page tells the subscriber that
+a change moves them to today's price. Nothing migrates, cancels, downgrades or reprices a
+subscription automatically; a Stripe-side price migration is the owner's choice and nothing here
+does it.
 
 ## 3. Matrix
 
@@ -152,25 +175,45 @@ Unchanged from V1 §12–§14, extended to the new limits:
 
 ## 9. Billing synchronization
 
-Unchanged direction (Stripe → `User.plan` → resolver → enforcement), now over three paid plans:
-upgrades take effect immediately (Starter→Pro→Pro+, any jump), downgrades and cancellations at
-period end, payment failure keeps the plan while Stripe retries (`past_due`) and ends at Free when
-the subscription ends (`unpaid`/`canceled`), renewal re-confirms the plan. `classifyBillingTransition`
-covers the 3×3 matrix.
+Unchanged direction (Stripe → `User.plan` → resolver → enforcement), now over three paid plans in
+two cadences: upgrades take effect immediately (Starter→Pro→Pro+, any jump), downgrades and
+cancellations at period end, payment failure keeps the plan while Stripe retries (`past_due`) and
+ends at Free when the subscription ends (`unpaid`/`canceled`), renewal re-confirms the plan.
+`classifyBillingTransition` covers the 6×6 matrix of ordered price pairs, unchanged from
+`stripe-billing-v1.md` §7: **the tier decides first** — a higher tier is immediate and a lower one
+is scheduled for the period end, whatever the cadences — and only within one tier does the cadence
+decide: monthly → yearly is immediate (`CADENCE_LENGTHENED`), yearly → monthly is scheduled for
+the end of the paid year (`CADENCE_SHORTENED`, a Subscription Schedule phase). An immediate change
+releases any scheduled one first (BILL-01). Stripe computes every proration (§8 there,
+`proration_behavior: always_invoice`); FactorSage never previews an amount.
+
+**Open for the owner (not decided here).** Two consequences of those unchanged rules are worth
+confirming, because they move money and no policy was invented for them:
+
+- An upgrade that also shortens the cadence — Pro yearly → Pro+ monthly — is immediate (the tier
+  wins), so Stripe credits the unused part of the paid year against one month of Pro+. The net is
+  usually a **customer credit balance** in Stripe that pays later invoices, not a refund to the
+  card. Refunds stay a manual support decision.
+- Monthly → yearly within one plan starts the year **now** and charges it now, less the unused part
+  of the month; it does not wait for the monthly renewal.
 
 ## 10. What a pricing surface may say
 
 Derived from `PLAN_ENTITLEMENTS` and `BILLING_CATALOG` only (`plan-presentation.ts`). Pro is the
 emphasized plan ("Best Value"); Pro+ is positioned as "Advanced Research", never as the default.
 Pro+ may say "Parallel Backtests" and must say "2 at a time". No surface may advertise priority
-execution, faster compute or a guaranteed execution time.
+execution, faster compute or a guaranteed execution time. A yearly price is never presented as a
+monthly charge: its effective monthly cost always sits beside the exact annual amount and the word
+"upfront" (§2), and its saving is the rounded-down percentage the two published prices give.
 
 ## 11. Owner decisions taken during implementation (confirm or change)
 
-1. **Monthly-only catalog** — the specification lists monthly prices only, so yearly prices were
-   retired rather than invented. Re-adding yearly prices is a catalog change (`BILLING_PRICE_KEYS`).
-   Existing V1 subscribers stay on their price and plan (§2, `STRIPE_LEGACY_PRICES`) — confirm that
-   grandfathering, rather than a forced migration, is wanted.
+1. **Annual billing — decided 2026-10-24.** This item first recorded a monthly-only catalog (the
+   specification then listed monthly prices only, so yearly prices were retired rather than
+   invented). The owner has since fixed the yearly prices — $169 / $439 / $1,790, about 25% off
+   twelve months — and they are sold (§2). Still to confirm: that grandfathering existing V1
+   subscribers (§2, `STRIPE_LEGACY_PRICES`), rather than a forced migration, is wanted, and the
+   two proration consequences in §9.
 2. **Monitor fair-use ceiling of 100 enabled Monitors per account** (§7), sized against the measured
    end-of-day pass (`docs/production/capacity-model.md`).
 3. **Premium content today is one item** (the S&P 500 PIT universe). The pricing card advertises

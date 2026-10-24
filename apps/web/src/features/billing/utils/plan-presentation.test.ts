@@ -26,6 +26,8 @@ import {
   plansCaption,
   premiumPlans,
   yearlySavingMinorUnits,
+  yearlySavingPercent,
+  yearlySavingTag,
 } from "./plan-presentation";
 
 /** A matrix number as a card prints it: `1000` -> `1,000`, unbounded -> `Unlimited`. */
@@ -262,11 +264,12 @@ describe("plan presentation", () => {
   });
 
   describe("prices", () => {
-    it("sells monthly prices only, so there is no cadence to choose", () => {
-      expect(OFFERED_BILLING_INTERVALS).toEqual(["MONTH"]);
-      expect(offersIntervalChoice()).toBe(false);
+    it("sells both cadences of every paid plan, so there is a cadence to choose", () => {
+      expect(OFFERED_BILLING_INTERVALS).toEqual(["MONTH", "YEAR"]);
+      expect(offersIntervalChoice()).toBe(true);
       for (const plan of PAID_PLANS) {
-        expect(findBillingPriceKey(plan, "YEAR")).toBeNull();
+        expect(findBillingPriceKey(plan, "MONTH")).toBe(`${plan}_MONTHLY`);
+        expect(findBillingPriceKey(plan, "YEAR")).toBe(`${plan}_YEARLY`);
       }
     });
 
@@ -276,10 +279,39 @@ describe("plan presentation", () => {
         const entry = BILLING_CATALOG[`${plan}_MONTHLY`];
 
         expect(pricing.priceKey).toBe(entry.key);
-        expect(pricing.amount).toBe(`$${entry.amountMinorUnits / 100}`);
+        expect(pricing.amount).toBe(formatUsd(entry.amountMinorUnits));
         expect(pricing.period).toBe("/ month");
         expect(pricing.note).toBe("Billed monthly");
-        expect(pricing.monthlyEquivalent).toBeNull();
+        expect(pricing.annualAmount).toBeNull();
+        expect(pricing.saving).toBeNull();
+      }
+    });
+
+    it("prices each paid plan yearly as its effective monthly cost, billed upfront as the exact annual amount", () => {
+      for (const plan of PAID_PLANS) {
+        const pricing = planPricing(plan, "YEAR");
+        const entry = BILLING_CATALOG[`${plan}_YEARLY`];
+
+        // The button buys the yearly price — the amount on the card is never what is sent.
+        expect(pricing.priceKey).toBe(entry.key);
+        expect(pricing.amount).toBe(formatUsd(Math.round(entry.amountMinorUnits / 12)));
+        expect(pricing.period).toBe("/ month");
+        expect(pricing.annualAmount).toBe(formatUsd(entry.amountMinorUnits));
+        expect(pricing.note).toBe(`Billed annually: ${formatUsd(entry.amountMinorUnits)} upfront`);
+        expect(pricing.saving).toBe(`Save ${yearlySavingPercent(plan)}%`);
+      }
+    });
+
+    it("never presents a yearly price as a monthly charge", () => {
+      // The large figure is per month for comparison; the line under it must say that the whole
+      // annual amount is charged, once, upfront (docs/legal/implementation-spec.md §6).
+      for (const plan of PAID_PLANS) {
+        const { note, annualAmount } = planPricing(plan, "YEAR");
+        expect(annualAmount).not.toBeNull();
+        expect(note).toContain(annualAmount);
+        expect(note).toMatch(/annually/);
+        expect(note).toMatch(/upfront/);
+        expect(note).not.toMatch(/month/);
       }
     });
 
@@ -287,8 +319,10 @@ describe("plan presentation", () => {
       for (const interval of OFFERED_BILLING_INTERVALS) {
         const pricing = planPricing("FREE", interval);
         expect(pricing.amount).toBe("$0");
+        expect(pricing.period).toBe("/ month");
         expect(pricing.note).toBe("Free forever");
-        expect(pricing.monthlyEquivalent).toBeNull();
+        expect(pricing.annualAmount).toBeNull();
+        expect(pricing.saving).toBeNull();
         // There is no Stripe Price for Free, and a card that offered one would be selling a
         // cancellation.
         expect(pricing.priceKey).toBeNull();
@@ -301,28 +335,53 @@ describe("plan presentation", () => {
       expect(planPricing("STARTER", "MONTH").amount).toBe("$19");
       expect(planPricing("PRO", "MONTH").amount).toBe("$49");
       expect(planPricing("PRO_PLUS", "MONTH").amount).toBe("$199");
+      expect(planPricing("STARTER", "YEAR").annualAmount).toBe("$169");
+      expect(planPricing("PRO", "YEAR").annualAmount).toBe("$439");
+      expect(planPricing("PRO_PLUS", "YEAR").annualAmount).toBe("$1,790");
+      // The effective monthly costs the owner published.
+      expect(planPricing("STARTER", "YEAR").amount).toBe("$14.08");
+      expect(planPricing("PRO", "YEAR").amount).toBe("$36.58");
+      expect(planPricing("PRO_PLUS", "YEAR").amount).toBe("$149.17");
     });
 
-    it("claims no annual saving and no monthly equivalent while no yearly price is sold", () => {
+    it("claims the annual saving the published prices give, rounded down", () => {
+      // Literal: 12 × $19 − $169, 12 × $49 − $439, 12 × $199 − $1,790.
+      expect(yearlySavingMinorUnits("STARTER")).toBe(5_900);
+      expect(yearlySavingMinorUnits("PRO")).toBe(14_900);
+      expect(yearlySavingMinorUnits("PRO_PLUS")).toBe(59_800);
+      // 25.88%, 25.34% and 25.04%: every plan saves at least 25%, and none is shown more.
       for (const plan of PAID_PLANS) {
-        // `null`, not `$0` or a division of a price that does not exist: the lines go away.
-        expect(yearlySavingMinorUnits(plan)).toBeNull();
-        expect(monthlyEquivalentMinorUnits(plan)).toBeNull();
+        const twelveMonths = BILLING_CATALOG[`${plan}_MONTHLY`].amountMinorUnits * 12;
+        const exact =
+          ((twelveMonths - BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits) * 100) /
+          twelveMonths;
+        expect(yearlySavingPercent(plan)).toBe(25);
+        expect(yearlySavingPercent(plan)).toBeLessThanOrEqual(exact);
+        expect(yearlySavingPercent(plan)).toBeGreaterThan(exact - 1);
+      }
+      expect(yearlySavingTag()).toBe("Save 25%");
+      expect(planPricing("PRO", "YEAR").saving).toBe("Save 25%");
+    });
+
+    it("divides each yearly price by twelve, to the cent, for the effective monthly cost", () => {
+      expect(monthlyEquivalentMinorUnits("STARTER")).toBe(1_408);
+      expect(monthlyEquivalentMinorUnits("PRO")).toBe(3_658);
+      expect(monthlyEquivalentMinorUnits("PRO_PLUS")).toBe(14_917);
+    });
+
+    it("quotes a price for every plan in every cadence the catalog sells", () => {
+      // A card asked for a price fails loudly — into the route's error boundary — rather than
+      // rendering `undefined` at somebody; every offered cadence must therefore resolve.
+      for (const plan of PLAN_CARD_ORDER) {
+        for (const interval of OFFERED_BILLING_INTERVALS) {
+          expect(() => planPricing(plan, interval)).not.toThrow();
+        }
       }
     });
 
-    it("refuses to quote a price the catalog does not sell", () => {
-      // A card asked for an unsold price fails loudly — into the route's error boundary — rather
-      // than rendering `undefined`, or a number from somewhere else, at somebody.
-      for (const plan of PAID_PLANS) {
-        expect(() => planPricing(plan, "YEAR")).toThrow(`No catalog entry for ${plan}/YEAR`);
-      }
-    });
-
-    it("shows a cadence the catalog sells, whatever was asked for", () => {
+    it("shows the cadence asked for, and monthly when nothing was", () => {
       expect(displayedInterval("MONTH")).toBe("MONTH");
-      // A subscriber still billed on a retired yearly price is quoted today's prices, not a gap.
-      expect(displayedInterval("YEAR")).toBe("MONTH");
+      expect(displayedInterval("YEAR")).toBe("YEAR");
       expect(displayedInterval(null)).toBe("MONTH");
       expect(displayedInterval(undefined)).toBe("MONTH");
     });
@@ -333,6 +392,9 @@ describe("plan presentation", () => {
       expect(formatUsd(2492)).toBe("$24.92");
       expect(formatUsd(2490)).toBe("$24.90");
       expect(formatUsd(5)).toBe("$0.05");
+      expect(formatUsd(1408)).toBe("$14.08");
+      expect(formatUsd(179000)).toBe("$1,790");
+      expect(formatUsd(14917)).toBe("$149.17");
     });
   });
 

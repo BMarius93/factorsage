@@ -3,7 +3,6 @@ import {
   BILLING_CATALOG,
   BILLING_PRICE_KEYS,
   BillingError,
-  OFFERED_BILLING_INTERVALS,
   findBillingPriceKey,
   type BillingInterval,
   type BillingPriceKey,
@@ -26,14 +25,15 @@ import {
  */
 export type ResolvedPrice = {
   /**
-   * The logical price. For a **legacy** price (below) it is the catalog price of the same plan — the
-   * one a transition is classified from — never the price the subscription is billed on.
+   * The logical price. For a **legacy** price (below) it is today's catalog price of the same plan
+   * and cadence — the one a transition is classified from — never the price the subscription is
+   * billed on.
    */
   readonly key: BillingPriceKey;
   /** The Stripe price the subscription is actually billed on. */
   readonly priceId: string;
   readonly plan: PaidPlan;
-  /** The cadence actually billed, which for a legacy price may be one the catalog no longer sells. */
+  /** The cadence actually billed. */
   readonly interval: BillingInterval;
   /**
    * True for a retired price listed in `STRIPE_LEGACY_PRICES`: existing subscribers billed on it keep
@@ -65,14 +65,14 @@ export class BillingCatalog {
       byPriceId.set(priceId, resolved);
     }
 
-    // Retired prices resolve only by id. A transition from one is classified exactly as from the
-    // plan's current price: up a tier is an immediate upgrade, down a tier a period-end downgrade,
-    // and "the same plan at today's price" is no change at all — the subscriber stays grandfathered.
+    // Retired prices resolve only by id. A transition from one is classified exactly as from today's
+    // price of the same plan **and cadence**: up a tier is an immediate upgrade, down a tier a
+    // period-end downgrade, monthly → yearly immediate, yearly → monthly at the end of the paid year,
+    // and "the same plan and cadence at today's price" is no change at all — the subscriber stays on
+    // the retired price, grandfathered, until they choose a different plan or cadence.
     const legacyPrices = config.legacyPrices ?? [];
     for (const legacy of legacyPrices) {
-      const key =
-        findBillingPriceKey(legacy.plan, OFFERED_BILLING_INTERVALS[0] ?? "MONTH") ??
-        findBillingPriceKey(legacy.plan, "MONTH");
+      const key = findBillingPriceKey(legacy.plan, legacy.interval);
       if (!key) {
         throw new BillingError("Billing catalog is misconfigured", {
           code: "BILLING_CATALOG_MISCONFIGURED",

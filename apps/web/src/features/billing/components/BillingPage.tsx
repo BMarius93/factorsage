@@ -379,6 +379,17 @@ function SubscriptionSection({
           </Notice>
         ) : null}
 
+        {live && subscription.legacyPrice ? (
+          <p className={styles.scheduled} data-testid="billing-legacy-price">
+            You are billed at an earlier price, which you keep for as long as you stay on{" "}
+            {PLAN_LABEL[billing.plan]}
+            {subscription.interval
+              ? ` ${INTERVAL_LABEL[subscription.interval].toLowerCase()}`
+              : ""}
+            . Changing plan or billing interval moves you to today&apos;s price.
+          </p>
+        ) : null}
+
         {currentPriceKey === null && subscription.plan === null ? (
           <p className={styles.scheduled} data-testid="billing-price-unrecognised">
             Your subscription is on a price this environment does not recognise. Contact support —

@@ -4,6 +4,7 @@ import {
   type StripeFixtureClock,
   type StripeFixtureCustomer,
   type StripeFixtureGateway,
+  type StripeFixtureInvoice,
   type StripeFixturePaymentBehavior,
   type StripeFixtureSubscription,
 } from "./stripe-fixture-gateway";
@@ -464,5 +465,10 @@ export class FakeStripeFixtureGateway implements StripeFixtureGateway {
     // `cancel_at_period_end` flag false.
     this.stripe.scheduleCancellation(subscriptionId);
     return this.toSubscription(subscriptionId);
+  }
+
+  /** The fake models no invoices: only the sandbox suites read them, against real Stripe. */
+  async listSubscriptionInvoices(): Promise<readonly StripeFixtureInvoice[]> {
+    return [];
   }
 }

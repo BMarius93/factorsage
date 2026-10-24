@@ -2,6 +2,7 @@
 
 import { OFFERED_BILLING_INTERVALS, type BillingInterval } from "@intrinsic/contracts";
 import { INTERVAL_LABEL } from "../utils/format";
+import { yearlySavingTag } from "../utils/plan-presentation";
 import styles from "./BillingPage.module.css";
 
 type BillingIntervalToggleProps = {
@@ -28,11 +29,15 @@ type BillingIntervalToggleProps = {
  * own: a card's button carries the resolved logical price key, so what the page shows and what the
  * API is asked for cannot disagree. It offers only the cadences the catalog sells
  * (`OFFERED_BILLING_INTERVALS`), and `PlanCatalog` does not render it at all while that is one.
+ *
+ * The yearly option carries the saving (`Save 25%`), derived from the catalog's own prices by
+ * `yearlySavingTag` and rounded down, so the tag can never promise more than the cards charge.
  */
 export function BillingIntervalToggle({
   value,
   onChange,
 }: BillingIntervalToggleProps) {
+  const savingTag = yearlySavingTag();
   return (
     <div
       className={styles.segmented}
@@ -56,6 +61,11 @@ export function BillingIntervalToggle({
             data-testid={`billing-interval-${interval}`}
           />
           {INTERVAL_LABEL[interval]}
+          {interval === "YEAR" && savingTag ? (
+            <span className={styles.segmentTag} data-testid="billing-interval-saving">
+              {savingTag}
+            </span>
+          ) : null}
         </label>
       ))}
     </div>

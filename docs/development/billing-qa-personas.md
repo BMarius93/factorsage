@@ -25,23 +25,25 @@ Defined once, in `packages/testing/src/billing-personas.ts`.
 
 | Persona                    | Handle             | Catalog price      | Stripe state                                        | `BillingSubscription`                         | `User.plan` |
 | -------------------------- | ------------------ | ------------------ | --------------------------------------------------- | --------------------------------------------- | ----------- |
-| `BILLING_STARTER_ACTIVE`   | `starter-active`   | `STARTER_MONTHLY`  | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `STARTER`   |
+| `BILLING_STARTER_ACTIVE`   | `starter-active`   | `STARTER_YEARLY`   | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `STARTER`   |
 | `BILLING_PRO_ACTIVE`       | `pro-active`       | `PRO_MONTHLY`      | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `PRO`       |
-| `BILLING_PRO_PLUS_ACTIVE`  | `pro-plus-active`  | `PRO_PLUS_MONTHLY` | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `PRO_PLUS`  |
-| `BILLING_PRO_CANCELING`    | `pro-canceling`    | `PRO_MONTHLY`      | `active`, cancellation scheduled for the period end | `ACTIVE`, `cancelAtPeriodEnd`, `cancelAt` set | `PRO`       |
+| `BILLING_PRO_PLUS_ACTIVE`  | `pro-plus-active`  | `PRO_PLUS_YEARLY`  | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `PRO_PLUS`  |
+| `BILLING_PRO_CANCELING`    | `pro-canceling`    | `PRO_YEARLY`       | `active`, cancellation scheduled for the period end | `ACTIVE`, `cancelAtPeriodEnd`, `cancelAt` set | `PRO`       |
 | `BILLING_STARTER_PAST_DUE` | `starter-past-due` | `STARTER_MONTHLY`  | `past_due` after a renewal that failed              | `PAST_DUE`, `SUBSCRIPTION_IN_RECOVERY`        | `STARTER`   |
-| `BILLING_CANCELED`         | `canceled`         | `PRO_MONTHLY`      | `canceled` when its paid period ended               | `CANCELED`, `SUBSCRIPTION_TERMINATED`         | `FREE`      |
+| `BILLING_CANCELED`         | `canceled`         | `PRO_PLUS_MONTHLY` | `canceled` when its paid period ended               | `CANCELED`, `SUBSCRIPTION_TERMINATED`         | `FREE`      |
 
 - Addresses are `qa-billing-<handle>@factorsage.test`. They are stated in the registry rather than
   read from the environment because they are also the identity the Stripe fixtures are tagged with.
   `.test` is a reserved domain and can never be a mailbox.
 - `BILLING_STARTER_ACTIVE` is the baseline the brief left optional. It is included because it is the
   control for `BILLING_STARTER_PAST_DUE` (same plan, different Stripe status, same entitlements).
-- `BILLING_PRO_PLUS_ACTIVE` is the one persona on the highest tier and the only one billing the Pro+
-  price; with it the six personas bill **all three configured catalog prices**. It is a billing
-  persona only: there is no `PRO_PLUS_USER` entitlement persona yet (`entitlements-v2.md` §11).
-- `BILLING_CANCELED` was a Pro subscriber, so the retained mirror says `PRO` while the account is
-  `FREE` — the most discriminating version of that state.
+- Between them the six personas bill **each of the six configured catalog prices exactly once**,
+  three monthly and three yearly (`billing-persona-registry.test.ts` holds that). The yearly ones —
+  Starter active, Pro+ active, Pro canceling — are charged the full year upfront at seeding.
+- `BILLING_PRO_PLUS_ACTIVE` is the one active persona on the highest tier. It is a billing persona
+  only: there is no `PRO_PLUS_USER` entitlement persona yet (`entitlements-v2.md` §11).
+- `BILLING_CANCELED` was a Pro+ subscriber, so the retained mirror says `PRO_PLUS` while the account
+  is `FREE` — the most discriminating version of that state.
 - The expectations in the registry are **literals** from the decision document.
   `billing-persona-registry.test.ts` then checks them against `resolveEffectivePlan`, so a persona
   cannot declare an outcome the product's one plan decision does not produce.
@@ -147,7 +149,7 @@ validation suite and the browser suite read. A fixture belongs to one account in
 the same persona seeded into both is two independent fixtures.
 
 **Environment.** Stripe must be configured with a test-mode key (`STRIPE_SECRET_KEY`,
-`STRIPE_WEBHOOK_SECRET`, the three `STRIPE_PRICE_*_MONTHLY`); in a Claude cloud session run the commands
+`STRIPE_WEBHOOK_SECRET`, the six `STRIPE_PRICE_*`); in a Claude cloud session run the commands
 through `scripts/cloud/with-stripe.sh`. One optional variable:
 
 | Variable              | Meaning                                                                                                                                                                                                              |
@@ -328,7 +330,7 @@ Local FactorSage sandbox (test mode), 2026-10-10, pinned API version `2026-08-26
 > `BILLING_PRO_CANCELING` then on the Starter and Pro yearly prices, and no Pro+ persona. It must be
 > re-run for the V2 catalog — `pnpm qa:billing:seed`, `pnpm qa:billing:status -- --check`, then
 > `STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas` — so that all six personas, the Pro+ one
-> included, are observed on the three monthly prices. A fixture built under the V1 catalog is on a
+> included, are observed on the six V2 prices. A fixture built under the V1 catalog is on a
 > price that is no longer configured, so `pnpm qa:billing:status` reports it `STRIPE_DRIFT` and the
 > next seed rebuilds it.
 

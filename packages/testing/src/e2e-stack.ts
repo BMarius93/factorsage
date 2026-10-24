@@ -267,12 +267,11 @@ const PROVIDER_OVERRIDES = {
   STRIPE_SECRET_KEY: "sk_test_e2e_offline_placeholder",
   STRIPE_WEBHOOK_SECRET: "whsec_e2e_offline_placeholder",
   STRIPE_PRICE_STARTER_MONTHLY: "price_e2e_starter_monthly",
+  STRIPE_PRICE_STARTER_YEARLY: "price_e2e_starter_yearly",
   STRIPE_PRICE_PRO_MONTHLY: "price_e2e_pro_monthly",
+  STRIPE_PRICE_PRO_YEARLY: "price_e2e_pro_yearly",
   STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_e2e_pro_plus_monthly",
-  // The retired annual catalog's names are refused by the configuration once billing is on, so a
-  // developer `.env` that still sets one must not stop every hermetic process from booting.
-  STRIPE_PRICE_STARTER_YEARLY: "",
-  STRIPE_PRICE_PRO_YEARLY: "",
+  STRIPE_PRICE_PRO_PLUS_YEARLY: "price_e2e_pro_plus_yearly",
   // A developer's retired-price list names real Stripe prices; the hermetic stack has none.
   STRIPE_LEGACY_PRICES: "",
 } as const;

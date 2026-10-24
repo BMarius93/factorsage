@@ -11,7 +11,8 @@
 #
 # The Claude environment holds the sandbox under SANDBOX_STRIPE_*, which the application does not
 # read, so `pnpm test`, a plain `pnpm dev:api` and Playwright run without Stripe exactly as CI does.
-# This maps those values onto the runtime names (STRIPE_SECRET_KEY, the four STRIPE_PRICE_*), sets
+# This maps those values onto the runtime names (STRIPE_SECRET_KEY, the six STRIPE_PRICE_*, and
+# STRIPE_LEGACY_PRICES from SANDBOX_STRIPE_LEGACY_PRICES when set), sets
 # STRIPE_API_KEY for the Stripe CLI, and derives STRIPE_WEBHOOK_SECRET for this session from
 # `stripe listen --print-secret` — never a secret that was valid on another machine. It refuses a
 # live-mode key, production mode and any non-local database before running anything.

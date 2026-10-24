@@ -7552,10 +7552,19 @@ components:
     # -------------------------------------------------------------------------------------------
     BillingPriceKey:
       type: string
-      enum: [STARTER_MONTHLY, PRO_MONTHLY, PRO_PLUS_MONTHLY]
+      enum:
+        [
+          STARTER_MONTHLY,
+          STARTER_YEARLY,
+          PRO_MONTHLY,
+          PRO_YEARLY,
+          PRO_PLUS_MONTHLY,
+          PRO_PLUS_YEARLY,
+        ]
       description: |
-        The complete accepted surface for naming a price: Starter, Pro and Pro+, monthly. A provider
-        price identifier is never accepted from a client.
+        The complete accepted surface for naming a price: Starter, Pro and Pro+, each monthly or
+        yearly (a yearly price is charged in full, upfront, every year). A provider price identifier
+        is never accepted from a client, and a retired price is never a purchase target.
     BillingInterval: { type: string, enum: [MONTH, YEAR] }
     BillingSubscriptionStatus:
       type: string
@@ -7601,6 +7610,7 @@ components:
           cancelAtPeriodEnd,
           cancelAt,
           pendingChange,
+          legacyPrice,
         ]
       properties:
         plan:
@@ -7617,6 +7627,12 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/BillingPendingChange" }
             - { type: "null" }
+        legacyPrice:
+          type: boolean
+          description: |
+            True when the subscription is billed on a retired price its subscriber keeps
+            (grandfathered). The same plan and cadence is "already on that plan"; any other change
+            moves the subscription onto today's catalog price.
 
     BillingStatus:
       type: object

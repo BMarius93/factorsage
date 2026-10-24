@@ -56,7 +56,15 @@ async function expectNoHorizontalScroll(page: Page) {
   ).toBeLessThanOrEqual(overflow.clientWidth);
 }
 
-const usd = (minorUnits: number) => `$${minorUnits / 100}`;
+/** A catalog amount as a card prints it: `1900` -> `$19`, `1408` -> `$14.08`, `179000` -> `$1,790`. */
+const usd = (minorUnits: number) => {
+  const amount = minorUnits / 100;
+  const digits = Number.isInteger(amount) ? 0 : 2;
+  return `$${amount.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+};
 
 test.describe("guest pricing", () => {
   test("opens without an account and shows the canonical catalog", async ({
@@ -75,13 +83,27 @@ test.describe("guest pricing", () => {
         elements.map((element) => element.getAttribute("data-testid")),
       ),
     ).toEqual(PLANS.map((plan) => `plan-card-${plan}`));
-    // Monthly prices, straight from the catalog — the only cadence it sells, so nothing to toggle.
+    // Monthly prices first, straight from the catalog.
     for (const plan of PAID_PLANS) {
       await expect(page.getByTestId(`plan-price-${plan}`)).toHaveText(
         `${usd(BILLING_CATALOG[`${plan}_MONTHLY`].amountMinorUnits)}/ month`,
       );
     }
-    await expect(page.getByTestId("billing-interval-toggle")).toHaveCount(0);
+    // Yearly: the effective monthly cost, and the exact annual amount billed upfront.
+    await page.getByRole("radio", { name: /Yearly/ }).check();
+    for (const plan of PAID_PLANS) {
+      const yearly = BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits;
+      await expect(page.getByTestId(`plan-price-${plan}`)).toHaveText(
+        `${usd(Math.round(yearly / 12))}/ month`,
+      );
+      await expect(page.getByTestId(`plan-price-note-${plan}`)).toHaveText(
+        `Billed annually: ${usd(yearly)} upfront`,
+      );
+      await expect(page.getByTestId(`plan-price-saving-${plan}`)).toHaveText(
+        "Save 25%",
+      );
+    }
+    await page.getByRole("radio", { name: /Monthly/ }).check();
 
     // Pro is the best value; Pro+ is the advanced tier, and says how many runs go at once.
     await expect(page.getByTestId("plan-recommended-badge")).toHaveCount(1);
@@ -222,6 +244,7 @@ test.describe("guest pricing", () => {
       );
     expect(lefts).toHaveLength(PLANS.length);
     expect(new Set(lefts).size).toBe(1);
+    await expect(page.getByRole("radio", { name: /Yearly/ })).toBeVisible();
     await expect(page.getByTestId("plans-footnote")).toBeVisible();
     await expect(page.getByTestId("pricing-link")).toBeVisible();
 

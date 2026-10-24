@@ -375,8 +375,10 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
   and the single `Manage billing` action, then the plan comparison, then a `SectionCard` carrying the
   subscription's own facts. No hero, no promotional copy, no giant empty vertical regions.
 - **Four plan cards — Free, Starter, Pro, Pro+ — and never one card per price.** A cadence is a
-  property of a plan: while the catalog sells more than one, a segmented cadence control re-prices the
-  same four cards in place; with today's monthly-only catalog there is no control at all. Pro carries
+  property of a plan: a segmented Monthly/Yearly control re-prices the same four cards in place (it
+  renders while the catalog sells more than one cadence, as it does). A yearly card's large figure is
+  the effective monthly cost, with the exact annual amount "billed upfront" directly under it and the
+  saving under that, in the brand accent; the Yearly option carries the same saving. Pro carries
   the one "Best Value" emphasis; Pro+ is "Advanced Research" and never emphasized over it. Free is a
   first-class card, not an account state.
 - Plan cards wear the product's own page-level surface, composed from `SectionCard`'s `.card` rather

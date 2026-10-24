@@ -82,15 +82,19 @@ test.describe("FREE pricing", () => {
     });
 
     await page.goto("/pricing");
-    // Monthly is the only cadence the catalog sells, so the card's own price is the one sent.
+    // The cadence chosen on the page decides the price sent: the card's own, yearly here.
     const proPlus = page.getByTestId("plan-action-PRO_PLUS");
     await expect(proPlus).toHaveText("Upgrade to Pro+", { timeout: 20_000 });
-    await expect(proPlus).toHaveAttribute("data-price-key", "PRO_PLUS_MONTHLY");
+    await page.getByRole("radio", { name: /Yearly/ }).check();
+    await expect(proPlus).toHaveAttribute("data-price-key", "PRO_PLUS_YEARLY");
+    await expect(page.getByTestId("plan-price-note-PRO_PLUS")).toHaveText(
+      "Billed annually: $1,790 upfront",
+    );
     await proPlus.click();
 
     await expect
       .poll(() => sentBody, { timeout: 20_000 })
-      .toEqual({ priceKey: "PRO_PLUS_MONTHLY" });
+      .toEqual({ priceKey: "PRO_PLUS_YEARLY" });
     await expect
       .poll(() => page.url(), { timeout: 20_000 })
       .toContain(STUB_CHECKOUT_URL);

@@ -50,7 +50,7 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
     if (!config) {
       throw new Error(
         "STRIPE_SANDBOX_SMOKE=true but no Stripe configuration is present. Set STRIPE_SECRET_KEY, " +
-          "STRIPE_WEBHOOK_SECRET and the three STRIPE_PRICE_* variables to sandbox values.",
+          "STRIPE_WEBHOOK_SECRET and the six STRIPE_PRICE_* variables to sandbox values.",
       );
     }
     if (!config.testMode) {
@@ -78,12 +78,13 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
   });
 
   /**
-   * The catalog contract: three active, recurring, USD, licensed prices at the documented amounts.
+   * The catalog contract: six active, recurring, USD, licensed prices at the documented amounts —
+   * every paid plan monthly and yearly.
    *
    * This is the check that would have caught a Dashboard price edited to the wrong number, which
    * runtime deliberately cannot see because it never reads an amount.
    */
-  it("holds the three catalog prices exactly as the decision document fixes them", async () => {
+  it("holds the six catalog prices exactly as the decision document fixes them", async () => {
     const described = await gateway.describePrices(catalog.priceIds());
     expect(described).toHaveLength(BILLING_PRICE_KEYS.length);
 
@@ -105,9 +106,9 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
     }
   });
 
-  it("sells each plan under a product of its own", async () => {
+  it("sells each plan under a product of its own, both cadences on it", async () => {
     // An invoice and the Customer Portal name the product, so a Pro+ price on the Pro product
-    // would bill $199 for "Pro".
+    // would bill $199 for "Pro" — and a year on a product of its own would read as another plan.
     const described = await gateway.describePrices(catalog.priceIds());
     const productOf = (key: (typeof BILLING_PRICE_KEYS)[number]) =>
       described.find((price) => price.id === catalog.resolveKey(key).priceId)
@@ -122,6 +123,9 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
       expect(product).toMatch(/^prod_/);
     }
     expect(new Set(products).size).toBe(products.length);
+    expect(productOf("STARTER_YEARLY")).toBe(productOf("STARTER_MONTHLY"));
+    expect(productOf("PRO_YEARLY")).toBe(productOf("PRO_MONTHLY"));
+    expect(productOf("PRO_PLUS_YEARLY")).toBe(productOf("PRO_PLUS_MONTHLY"));
   });
 
   /**
@@ -204,6 +208,38 @@ describe.skipIf(!ENABLED)("Stripe sandbox smoke", () => {
       completed: 0,
     });
   });
+
+  /**
+   * Stripe accepts a hosted Checkout on each yearly price. That a year is then charged in full,
+   * upfront, for one year of service is proven on a real subscription by the lifecycle suite
+   * (`billing-lifecycle.sandbox.test.ts`), which reads the invoice back.
+   */
+  it.each(["STARTER_YEARLY", "PRO_YEARLY", "PRO_PLUS_YEARLY"] as const)(
+    "creates a hosted Checkout session on %s",
+    async (key) => {
+      const userId = `${testUserId}-${key.toLowerCase()}`;
+      const customer = await gateway.createCustomer({
+        userId,
+        email: `${userId}@smoke.factorsage.test`,
+        idempotencyKey: `factorsage:customer:${userId}`,
+      });
+      const session = await gateway.createCheckoutSession({
+        customerId: customer.id,
+        userId,
+        priceId: catalog.resolveKey(key).priceId,
+        successUrl: "http://localhost:3000/billing?checkout=success",
+        cancelUrl: "http://localhost:3000/billing?checkout=cancelled",
+        expiresAt: new Date(Date.now() + 35 * 60_000),
+      });
+
+      expect(session.id).toMatch(/^cs_test_/);
+      expect(session.url).toContain("checkout.stripe.com");
+      expect(await gateway.expireOpenCheckoutSessions(customer.id)).toEqual({
+        expired: 1,
+        completed: 0,
+      });
+    },
+  );
 
   /**
    * Customer Portal session creation.

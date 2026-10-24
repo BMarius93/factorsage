@@ -148,8 +148,12 @@ QA_DOWNGRADED_PASSWORD=<at least 12 characters>
 QA_BILLING_PASSWORD=<at least 12 characters>
 SANDBOX_STRIPE_SECRET_KEY=<sk_test_… of the cloud sandbox>
 SANDBOX_STRIPE_PRICE_STARTER_MONTHLY=<price_…>
+SANDBOX_STRIPE_PRICE_STARTER_YEARLY=<price_…>
 SANDBOX_STRIPE_PRICE_PRO_MONTHLY=<price_…>
+SANDBOX_STRIPE_PRICE_PRO_YEARLY=<price_…>
 SANDBOX_STRIPE_PRICE_PRO_PLUS_MONTHLY=<price_…>
+SANDBOX_STRIPE_PRICE_PRO_PLUS_YEARLY=<price_…>
+SANDBOX_STRIPE_LEGACY_PRICES=<optional: price_…=PLAN/INTERVAL,…>
 PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 BASH_MAX_TIMEOUT_MS=14400000
 ```
@@ -165,11 +169,14 @@ BASH_MAX_TIMEOUT_MS=14400000
 - `SANDBOX_STRIPE_*` are deliberately **not** the names the application reads. `pnpm test`, a plain
   `pnpm dev:api` and Playwright therefore run without Stripe, exactly as CI does; only
   `scripts/cloud/with-stripe.sh` and `stack.sh up dev --stripe` map them onto `STRIPE_*`.
-- The three `SANDBOX_STRIPE_PRICE_*_MONTHLY` are the catalog's three monthly prices (§2.4), and
+- The six `SANDBOX_STRIPE_PRICE_*` (`STARTER_MONTHLY`, `STARTER_YEARLY`, `PRO_MONTHLY`,
+  `PRO_YEARLY`, `PRO_PLUS_MONTHLY`, `PRO_PLUS_YEARLY`) are the catalog's six prices (§2.4), and
   `with-stripe.sh` refuses to run unless each is a `price_…` id. An environment set up for the V1
-  catalog still has `SANDBOX_STRIPE_PRICE_STARTER_YEARLY` and `SANDBOX_STRIPE_PRICE_PRO_YEARLY`:
-  nothing reads them any more, so delete them, add `SANDBOX_STRIPE_PRICE_PRO_PLUS_MONTHLY`, and point
-  the Starter and Pro variables at the $19 and $49 prices.
+  catalog holds the V1 ids in the Starter and Pro variables ($9 / $29 a month, $99 / $299 a year):
+  point all four at the V2 prices, add the two `SANDBOX_STRIPE_PRICE_PRO_PLUS_*`, and move the V1
+  ids to `SANDBOX_STRIPE_LEGACY_PRICES` (`price_…=PLAN/INTERVAL`, comma-separated), which
+  `with-stripe.sh` maps onto `STRIPE_LEGACY_PRICES` so subscriptions still on them stay recognised.
+  `with-stripe.sh pnpm billing:verify-catalog` then proves the six.
 - Leave `NODE_ENV` unset: the application defaults to `development`, Vitest to `test`, and
   `next build` must choose `production` itself — an ambient `NODE_ENV=development` makes `pnpm build`
   fail while prerendering.
@@ -200,31 +207,39 @@ Dashboard:
    empty rather than copying another environment.
 2. Inside it, **Developers → API keys**: the secret key (`sk_test_…`) is
    `SANDBOX_STRIPE_SECRET_KEY`.
-3. Three products — one per plan — and three recurring monthly USD prices, `interval_count` 1, per
-   unit: **Starter** at $19 / month, **Pro** at $49 / month, **Pro+** at $199 / month. In the
-   Dashboard (**Product catalog → Add product**), or with your local Stripe CLI without logging it
-   in:
+3. Three products — one per plan — and six recurring USD prices, `interval_count` 1, per unit, two
+   on each product: **Starter** at $19 / month and $169 / year, **Pro** at $49 / month and $439 /
+   year, **Pro+** at $199 / month and $1,790 / year. In the Dashboard (**Product catalog → Add
+   product**), or with your local Stripe CLI without logging it in:
 
    ```bash
    read -rs STRIPE_API_KEY && export STRIPE_API_KEY      # paste the cloud sandbox sk_test_ key
    stripe products create --name "Starter" --description "FactorSage Starter"
    stripe prices create --product <prod_starter> --currency usd --unit-amount 1900 \
-     -d "recurring[interval]=month" --lookup-key factorsage_starter_monthly
+     -d "recurring[interval]=month" --lookup-key factorsage_v2_starter_monthly
+   stripe prices create --product <prod_starter> --currency usd --unit-amount 16900 \
+     -d "recurring[interval]=year" --lookup-key factorsage_v2_starter_yearly
    stripe products create --name "Pro" --description "FactorSage Pro"
    stripe prices create --product <prod_pro> --currency usd --unit-amount 4900 \
-     -d "recurring[interval]=month" --lookup-key factorsage_pro_monthly
+     -d "recurring[interval]=month" --lookup-key factorsage_v2_pro_monthly
+   stripe prices create --product <prod_pro> --currency usd --unit-amount 43900 \
+     -d "recurring[interval]=year" --lookup-key factorsage_v2_pro_yearly
    stripe products create --name "Pro+" --description "FactorSage Pro+"
    stripe prices create --product <prod_pro_plus> --currency usd --unit-amount 19900 \
-     -d "recurring[interval]=month" --lookup-key factorsage_pro_plus_monthly
+     -d "recurring[interval]=month" --lookup-key factorsage_v2_pro_plus_monthly
+   stripe prices create --product <prod_pro_plus> --currency usd --unit-amount 179000 \
+     -d "recurring[interval]=year" --lookup-key factorsage_v2_pro_plus_yearly
    unset STRIPE_API_KEY
    ```
 
-   The three `price_…` ids are the three `SANDBOX_STRIPE_PRICE_*_MONTHLY` values. Pro+ needs a
-   product of its own: `pnpm billing:verify-catalog` refuses two plans sharing one. A sandbox that
-   already holds the V1 catalog keeps its Starter and Pro products; give their new price commands
-   `-d transfer_lookup_key=true`, because those lookup keys still belong to the $9 and $29 prices,
-   then archive the four V1 prices (`ai/architecture/billing.md`, _Stripe Dashboard configuration
-   checklist_).
+   The six `price_…` ids are the six `SANDBOX_STRIPE_PRICE_*` values. Both cadences of a plan go on
+   that plan's product, and Pro+ needs a product of its own: `pnpm billing:verify-catalog` refuses
+   either mistake. A sandbox that already holds the V1 catalog keeps its Starter and Pro products and
+   its V1 prices — subscriptions on them are grandfathered — so list those in
+   `SANDBOX_STRIPE_LEGACY_PRICES` rather than reusing their ids, and archive them so they cannot be
+   picked for anything new (`ai/architecture/billing.md`, _Stripe Dashboard configuration
+   checklist_). The cloud sandbox's V2 catalog was created this way on 2026-10-24 and checked by
+   `verify-catalog`.
 
 4. **Settings → Billing → Customer portal**, then save a configuration: payment-method update
    **on**, invoice history **on**, cancel subscriptions **on** and **at end of billing period**,

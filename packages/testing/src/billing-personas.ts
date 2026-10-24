@@ -129,9 +129,9 @@ export const BILLING_PERSONAS: Readonly<
     name: "BILLING_STARTER_ACTIVE",
     slug: "starter-active",
     email: billingPersonaEmail("starter-active"),
-    priceKey: "STARTER_MONTHLY",
+    priceKey: "STARTER_YEARLY",
     subscribedPlan: "STARTER",
-    interval: "MONTH",
+    interval: "YEAR",
     lifecycle: "ACTIVE",
     expected: {
       stripeStatus: "active",
@@ -143,10 +143,10 @@ export const BILLING_PERSONAS: Readonly<
     },
     storageState: billingPersonaStorageState("starter-active"),
     purpose:
-      "The baseline: a paid Starter subscription with nothing scheduled. It is the control for " +
-      "BILLING_STARTER_PAST_DUE — same plan, different Stripe status, same entitlements. With " +
-      "BILLING_PRO_ACTIVE and BILLING_PRO_PLUS_ACTIVE, the personas between them cover all three " +
-      "configured catalog prices.",
+      "The baseline: a paid Starter subscription with nothing scheduled, billed yearly. It is the " +
+      "control for BILLING_STARTER_PAST_DUE — same plan, different Stripe status and cadence, " +
+      "same entitlements. The six personas between them bill each of the six configured catalog " +
+      "prices exactly once.",
   },
   BILLING_PRO_ACTIVE: {
     name: "BILLING_PRO_ACTIVE",
@@ -173,9 +173,9 @@ export const BILLING_PERSONAS: Readonly<
     name: "BILLING_PRO_PLUS_ACTIVE",
     slug: "pro-plus-active",
     email: billingPersonaEmail("pro-plus-active"),
-    priceKey: "PRO_PLUS_MONTHLY",
+    priceKey: "PRO_PLUS_YEARLY",
     subscribedPlan: "PRO_PLUS",
-    interval: "MONTH",
+    interval: "YEAR",
     lifecycle: "ACTIVE",
     expected: {
       stripeStatus: "active",
@@ -187,16 +187,16 @@ export const BILLING_PERSONAS: Readonly<
     },
     storageState: billingPersonaStorageState("pro-plus-active"),
     purpose:
-      "A paying Pro+ customer: the one persona on the highest tier, and the only one billing the " +
-      "Pro+ price. PRO_PLUS because Stripe says so and reconciliation agreed.",
+      "A paying Pro+ customer on the yearly price, the most expensive one: PRO_PLUS because " +
+      "Stripe says so and reconciliation agreed.",
   },
   BILLING_PRO_CANCELING: {
     name: "BILLING_PRO_CANCELING",
     slug: "pro-canceling",
     email: billingPersonaEmail("pro-canceling"),
-    priceKey: "PRO_MONTHLY",
+    priceKey: "PRO_YEARLY",
     subscribedPlan: "PRO",
-    interval: "MONTH",
+    interval: "YEAR",
     lifecycle: "CANCELING",
     expected: {
       stripeStatus: "active",
@@ -239,8 +239,8 @@ export const BILLING_PERSONAS: Readonly<
     name: "BILLING_CANCELED",
     slug: "canceled",
     email: billingPersonaEmail("canceled"),
-    priceKey: "PRO_MONTHLY",
-    subscribedPlan: "PRO",
+    priceKey: "PRO_PLUS_MONTHLY",
+    subscribedPlan: "PRO_PLUS",
     interval: "MONTH",
     lifecycle: "CANCELED",
     expected: {
@@ -254,7 +254,7 @@ export const BILLING_PERSONAS: Readonly<
     },
     storageState: billingPersonaStorageState("canceled"),
     purpose:
-      "A former Pro customer whose subscription ran to the end of its paid period and ended. " +
+      "A former Pro+ customer whose subscription ran to the end of its paid period and ended. " +
       "FREE, with the ended subscription still mirrored so the page can say why — and free to " +
       "subscribe again.",
   },

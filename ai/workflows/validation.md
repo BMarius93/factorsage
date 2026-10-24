@@ -274,7 +274,7 @@ is never part of `pnpm test:e2e`.
 Operator commands are not tests and are never part of the gate:
 
 ```bash
-pnpm billing:verify-catalog          # the three monthly prices, against the configured Stripe environment
+pnpm billing:verify-catalog          # the six prices (monthly and yearly), against the configured Stripe environment
 pnpm billing:reconcile -- --user x   # rebuild one user's billing state from Stripe
 pnpm qa:billing:seed                 # the billing QA personas, in Stripe test mode + reconciliation
 pnpm qa:billing:status               # inspect them

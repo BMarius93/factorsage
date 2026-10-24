@@ -37,9 +37,10 @@ export function formatCatalogAmount(minorUnits: number | null): string {
 
 /**
  * Verifies every configured price to be present and **active**, **recurring** at the configured
- * interval with `interval_count = 1`, **USD**, **licensed**, priced at exactly $19 / $49 / $199,
- * attached to an **active** product shared with any sibling interval of the same plan and with no
- * other plan, and distinct from the others.
+ * interval with `interval_count = 1`, **USD**, **licensed**, priced at exactly its catalog amount
+ * ($19 / $49 / $199 a month, $169 / $439 / $1,790 a year — so a V1 $99 or $299 year left in a
+ * yearly variable is a finding), attached to an **active** product shared with the other cadence of
+ * the same plan and with no other plan, and distinct from the others.
  */
 export async function verifyStripeCatalog(input: {
   readonly stripe: Pick<StripeGateway, "describePrices">;

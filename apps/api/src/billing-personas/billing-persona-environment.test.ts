@@ -25,8 +25,11 @@ function config(
     webhookSecret: "whsec_offline",
     priceIds: {
       STARTER_MONTHLY: "price_1",
+      STARTER_YEARLY: "price_4",
       PRO_MONTHLY: "price_2",
+      PRO_YEARLY: "price_5",
       PRO_PLUS_MONTHLY: "price_3",
+      PRO_PLUS_YEARLY: "price_6",
     },
     testMode: true,
     checkoutSuccessUrl: "http://localhost:3000/billing?checkout=success",
