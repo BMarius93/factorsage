@@ -49,15 +49,18 @@ test.describe("guest entitlements", () => {
     expect(payload.entitlements.stocks.maxHistoricalYears).toBeNull();
   });
 
-  test("may read built-in content but no backtest, demo included", async ({
+  test("may read built-in content and demonstration reports, but run no backtest", async ({
     page,
   }) => {
     const { entitlements } = await readEntitlements(page);
 
     expect(entitlements.builtInContent.canViewLists).toBe(true);
     expect(entitlements.builtInContent.canViewStrategies).toBe(true);
-    // DEC-007: every Backtest configuration, run and result requires a session.
-    expect(entitlements.backtests.canViewDemo).toBe(false);
+    // Entitlements V2 §4 replaces DEC-007 for one thing only: a Guest may read the precomputed
+    // demonstration reports, which executes nothing. Every live computation still needs a session.
+    expect(entitlements.backtests.canViewDemo).toBe(true);
+    expect(entitlements.backtests.canRunLive).toBe(false);
+    expect(entitlements.backtests.maxConcurrentRuns).toBe(0);
   });
 
   test("cannot create lists, strategies, backtests or monitors", async ({

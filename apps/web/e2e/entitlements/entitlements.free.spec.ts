@@ -8,6 +8,7 @@ import {
   readEntitlements,
   removeStockFromOpenList,
   submitBacktest,
+  submitBacktestRefusedByForm,
   today,
   yearsBefore,
 } from "../utils/entitlements";
@@ -83,16 +84,18 @@ test.describe("FREE entitlements", () => {
   test("blocks a backtest that reaches further back than the plan allows", async ({
     page,
   }) => {
-    const accepted = await submitBacktest(page, {
+    // Every plan allows thirty years (entitlements V2), the engine's own ceiling too, so the form
+    // refuses the thirty-first year before the API is asked; the API's refusal of the same period
+    // is the integration suites' (`entitlements.integration.test.ts`).
+    const message = await submitBacktestRefusedByForm(page, {
       strategyName: "FREE_USER Strategy",
       listName: "Free Small",
-      startDate: yearsBefore(today(), 6),
+      startDate: yearsBefore(today(), 31),
       endDate: today(),
     });
 
-    expect(accepted.accepted).toBe(false);
-    expect(accepted.message).toContain("5");
-    expect(accepted.message?.toLowerCase()).toContain("years");
+    expect(message).toContain("30");
+    expect(message.toLowerCase()).toContain("years");
   });
 
   test("blocks a second backtest while one is already running", async ({

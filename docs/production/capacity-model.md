@@ -134,15 +134,29 @@ From the capacity in §3.2 through A5–A7 (rounded):
 | Mostly Free, 0 % |   2,797 |  ~11,200 |         ~28,000 |                          ~105 |
 | High Pro+, 50 %  |      47 |     ~190 |            ~470 |                            ~2 |
 
-These are **backtest-slot** limits; the interactive tier's own limit is §4.1, and the lower of the
-two applies.
+These are **backtest-slot** limits; the interactive tier's own limit is §4.1 (~2,700 DAU with the
+two API processes the stack runs), and the lower of the two applies.
 
 ## 4. Beyond the slots
 
 ### 4.1 Interactive traffic
 
-See `benchmark-results.md` §6: the API's latency at 5–100 concurrent browsing users with and
-without four backtests executing.
+Measured (`benchmark-results.md` §6), on 4 vCPU with the load generator beside the API:
+
+| API processes | Concurrent users | Requests/s |             p95 | Four backtests beside it                                            |
+| ------------: | ---------------: | ---------: | --------------: | ------------------------------------------------------------------- |
+|             1 |               20 |         17 |  0.7 s (0.56 s) | changes it little: the API process, not the backtests, is the limit |
+|             1 |               50 |         33 |   1.5 s (1.3 s) |                                                                     |
+|             1 |              100 |         40 |   3.4 s (3.6 s) |                                                                     |
+|         **2** |          **100** |     **78** | **0.80–0.85 s** | not measured with two processes                                     |
+
+(In brackets: the same level with four backtests executing.) Taking p95 ≤ 1 s as the interactive
+target, **one API process serves ~20–30 concurrent browsing users and two serve ~100** on this
+machine; the production stack runs two (`architecture.md` §1), on a host with twice the cores. At
+A7 (3.75 % of DAU browsing at the peak), ~100 concurrent users is ~2,700 DAU — above the slot
+capacity of every mix except mostly-Free with everything resident (2,797 DAU, §3.5), so with two
+API processes **the backtest slots, not the interactive tier, bind first**; with one, the
+interactive tier would bind at ~500–800 DAU.
 
 ### 4.2 Monitors
 
